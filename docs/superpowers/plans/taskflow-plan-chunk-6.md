@@ -188,8 +188,12 @@ export function EditorPane({ filePath }: EditorPaneProps) {
     });
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
-      await writeFile(filePath, editor.getValue());
-      setDirty(false);
+      try {
+        await writeFile(filePath, editor.getValue());
+        setDirty(false);
+      } catch (err) {
+        console.error('Failed to save file:', err);
+      }
     });
 
     return () => {
@@ -206,8 +210,12 @@ export function EditorPane({ filePath }: EditorPaneProps) {
           className="absolute top-2 right-2 z-10"
           onClick={async () => {
             if (!editorRef.current) return;
-            await writeFile(filePath, editorRef.current.getValue());
-            setDirty(false);
+            try {
+              await writeFile(filePath, editorRef.current.getValue());
+              setDirty(false);
+            } catch (err) {
+              console.error('Failed to save file:', err);
+            }
           }}
         >
           Save
@@ -290,9 +298,10 @@ function statusPrefix(status: GitFileStatus['status']): string {
 
 interface ChangesPaneProps {
   repoPath: string;
+  className?: string;
 }
 
-export function ChangesPane({ repoPath }: ChangesPaneProps) {
+export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
   const [status, setStatus] = useState<GitStatusResult | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [diff, setDiff] = useState<string>('');
@@ -335,7 +344,7 @@ export function ChangesPane({ repoPath }: ChangesPaneProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className={cn("flex-1 flex flex-col overflow-hidden", className)}>
       {/* File list */}
       <ScrollArea className="max-h-[40%] border-b border-border p-2">
         {status?.branch && (
@@ -543,9 +552,10 @@ interface FileTreeProps {
   depth?: number;
   gitFiles?: Map<string, string>; // path -> status
   onFileClick: (path: string) => void;
+  className?: string;
 }
 
-export function FileTree({ node, depth = 0, gitFiles, onFileClick }: FileTreeProps) {
+export function FileTree({ node, depth = 0, gitFiles, onFileClick, className }: FileTreeProps) {
   const [open, setOpen] = useState(depth < 2);
   const gitStatus = (gitFiles?.get(node.path) ?? 'clean') as
     'new' | 'untracked' | 'modified' | 'deleted' | 'renamed' | 'clean';
@@ -701,7 +711,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { X } from 'lucide-react';
 
-export function TaskInfoPanel() {
+export function TaskInfoPanel({ className }: { className?: string }) {
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
   const { updateTask } = useTaskStore();
 

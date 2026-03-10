@@ -10,7 +10,7 @@
 
 **Tech Stack:** React 19, Zustand 5, Vite 6, Tailwind CSS 4, shadcn/ui, cva, lucide-react
 
-> **Depends on:** Chunk 4.5 (shadcn components in `packages/ui/src/components/ui/`, `cn()` in `src/lib/utils.ts`, shadcn CSS variables in `global.css`). Specifically requires the Badge `colorScheme` compound variant (Task 4.5.4) with values `claude`, `codex`, `active`, `archived`. All components use Tailwind utility classes with these CSS variables: `bg-background`, `bg-card`, `bg-popover`, `text-foreground`, `text-secondary-foreground`, `text-muted-foreground`, `border-border`, `text-accent`.
+> **Depends on:** Chunk 4.5 (shadcn components in `packages/ui/src/components/ui/`, `cn()` in `src/lib/utils.ts`, shadcn CSS variables in `global.css`). Specifically requires the Badge `colorScheme` compound variant (Task 4.5.4) with values `claude`, `codex`, `active`, `archived`. All components use Tailwind utility classes with these CSS variables: `bg-background`, `bg-card`, `bg-popover`, `text-foreground`, `text-secondary-foreground`, `text-muted-foreground`, `border-border`, `text-accent`, `text-success`, `text-warning`, `border-l-accent`, `border-l-success`, `border-l-warning`, `bg-success/*`, `bg-warning/*`. These require `--color-success` and `--color-warning` in the `@theme inline` block (Chunk 4.5 Task 4.5.1).
 
 > **Shared types used:** `Project`, `Task` (with `sessions: SessionRef[]`, `worktree: { enabled: boolean; path: string | null; branch: string | null }`), `FileNode`, `GitStatusResult`, `FileChangeEvent`, `WsRequest`, `MSG` constants — all from `@taskflow/shared`.
 
