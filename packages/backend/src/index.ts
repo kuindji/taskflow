@@ -8,34 +8,44 @@ import { writeFile } from 'fs/promises';
 
 async function main() {
   await ensureDirectories();
+  let stop: (() => void) | undefined;
 
-  const store = new TaskStore({
-    projectsFile: config.projectsFile,
-    tasksDir: config.tasksDir,
-    archiveDir: config.archiveDir,
-  });
-  await store.init();
-  await store.cleanExpiredArchives();
+  try {
+    const store = new TaskStore({
+      projectsFile: config.projectsFile,
+      tasksDir: config.tasksDir,
+      archiveDir: config.archiveDir,
+    });
+    await store.init();
+    await store.cleanExpiredArchives();
 
-  const router = new Router();
-  registerProjectHandlers(router, store);
-  registerTaskHandlers(router, store);
+    const router = new Router();
+    registerProjectHandlers(router, store);
+    registerTaskHandlers(router, store);
 
-  const server = createServer(router);
-  const { port, stop } = await server.start();
+    const server = createServer(router);
+    const startedServer = await server.start();
+    stop = startedServer.stop;
 
-  await writeFile(config.portFile, String(port));
-  console.log(`Taskflow backend running on port ${port}`);
+    await writeFile(config.portFile, String(startedServer.port));
+    console.log(`Taskflow backend running on port ${startedServer.port}`);
 
-  process.on('SIGINT', () => {
-    stop();
-    process.exit(0);
-  });
+    process.on('SIGINT', () => {
+      stop?.();
+      process.exit(0);
+    });
 
-  process.on('SIGTERM', () => {
-    stop();
-    process.exit(0);
-  });
+    process.on('SIGTERM', () => {
+      stop?.();
+      process.exit(0);
+    });
+  } catch (error) {
+    stop?.();
+    throw error;
+  }
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

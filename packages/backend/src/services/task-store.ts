@@ -10,6 +10,14 @@ interface TaskStoreConfig {
   archiveDir: string;
 }
 
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+function isJsonParseError(error: unknown): error is SyntaxError {
+  return error instanceof SyntaxError;
+}
+
 export class TaskStore {
   private config: TaskStoreConfig;
 
@@ -25,12 +33,83 @@ export class TaskStore {
   // --- Projects ---
 
   async listProjects(): Promise<Project[]> {
+    let data: string;
     try {
-      const data = await readFile(this.config.projectsFile, 'utf-8');
-      return JSON.parse(data);
-    } catch {
-      return [];
+      data = await readFile(this.config.projectsFile, 'utf-8');
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return [];
+      }
+      throw error;
     }
+
+    try {
+      return JSON.parse(data);
+    } catch (error) {
+      if (isJsonParseError(error)) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async unlinkIfPresent(filePath: string): Promise<void> {
+    try {
+      await unlink(filePath);
+    } catch (error) {
+      if (!isMissingFileError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  private async readTask(filePath: string): Promise<Task | null> {
+    let data: string;
+    try {
+      data = await readFile(filePath, 'utf-8');
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return null;
+      }
+      throw error;
+    }
+
+    try {
+      return JSON.parse(data);
+    } catch (error) {
+      if (isJsonParseError(error)) {
+        await this.unlinkIfPresent(filePath);
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async readTasksFromDir(dirPath: string, projectId?: string): Promise<Task[]> {
+    const tasks: Task[] = [];
+    let files: string[];
+
+    try {
+      files = await readdir(dirPath);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return [];
+      }
+      throw error;
+    }
+
+    for (const file of files) {
+      if (!file.endsWith('.json')) {
+        continue;
+      }
+
+      const task = await this.readTask(join(dirPath, file));
+      if (task && (!projectId || task.projectId === projectId)) {
+        tasks.push(task);
+      }
+    }
+
+    return tasks;
   }
 
   async addProject(input: { name?: string; path: string }): Promise<Project> {
@@ -76,15 +155,6 @@ export class TaskStore {
     return join(this.config.archiveDir, `${id}.json`);
   }
 
-  private async readTask(filePath: string): Promise<Task | null> {
-    try {
-      const data = await readFile(filePath, 'utf-8');
-      return JSON.parse(data);
-    } catch {
-      return null;
-    }
-  }
-
   private async writeTask(filePath: string, task: Task): Promise<void> {
     await writeFile(filePath, JSON.stringify(task, null, 2));
   }
@@ -111,20 +181,7 @@ export class TaskStore {
   }
 
   async listTasks(projectId?: string): Promise<Task[]> {
-    const tasks: Task[] = [];
-    try {
-      const files = await readdir(this.config.tasksDir);
-      for (const file of files) {
-        if (!file.endsWith('.json')) continue;
-        const task = await this.readTask(join(this.config.tasksDir, file));
-        if (task && (!projectId || task.projectId === projectId)) {
-          tasks.push(task);
-        }
-      }
-    } catch {
-      // Directory may not exist yet
-    }
-    return tasks;
+    return this.readTasksFromDir(this.config.tasksDir, projectId);
   }
 
   async getTask(id: string): Promise<Task | null> {
@@ -151,31 +208,16 @@ export class TaskStore {
       archivedAt: new Date().toISOString(),
     };
     await this.writeTask(this.archivePath(id), archived);
-    await unlink(this.taskPath(id));
+    await this.unlinkIfPresent(this.taskPath(id));
     return archived;
   }
 
   async deleteTask(id: string): Promise<void> {
-    try {
-      await unlink(this.taskPath(id));
-    } catch {
-      // May already be deleted
-    }
+    await this.unlinkIfPresent(this.taskPath(id));
   }
 
   async listArchived(): Promise<Task[]> {
-    const tasks: Task[] = [];
-    try {
-      const files = await readdir(this.config.archiveDir);
-      for (const file of files) {
-        if (!file.endsWith('.json')) continue;
-        const task = await this.readTask(join(this.config.archiveDir, file));
-        if (task) tasks.push(task);
-      }
-    } catch {
-      // Directory may not exist
-    }
-    return tasks;
+    return this.readTasksFromDir(this.config.archiveDir);
   }
 
   async updateArchived(id: string, updates: Partial<Task>): Promise<void> {
@@ -193,7 +235,7 @@ export class TaskStore {
       if (task.archivedAt) {
         const archivedTime = new Date(task.archivedAt).getTime();
         if (now - archivedTime > expiryMs) {
-          await unlink(this.archivePath(task.id));
+          await this.unlinkIfPresent(this.archivePath(task.id));
           cleaned++;
         }
       }

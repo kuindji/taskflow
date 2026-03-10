@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { TaskStore } from '../../src/services/task-store';
-import { mkdtemp, mkdir, rm } from 'fs/promises';
+import { access, mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -63,6 +63,29 @@ describe('TaskStore', () => {
       expect(store.removeProject(project.id)).rejects.toThrow(
         'Cannot remove project with existing tasks',
       );
+    });
+
+    it('recovers from corrupt projects.json but still rewrites on the next save', async () => {
+      await writeFile(join(tempDir, 'projects.json'), '{bad json');
+
+      expect(await store.listProjects()).toEqual([]);
+
+      const projectDir = await createProjectDir('rewritten');
+      const project = await store.addProject({ name: 'rewritten', path: projectDir });
+      const projects = await store.listProjects();
+
+      expect(projects).toHaveLength(1);
+      expect(projects[0].id).toBe(project.id);
+    });
+
+    it('surfaces non-recoverable project store read errors', async () => {
+      const unreadableStore = new TaskStore({
+        projectsFile: tempDir,
+        tasksDir: join(tempDir, 'tasks'),
+        archiveDir: join(tempDir, 'archive'),
+      });
+
+      expect(unreadableStore.listProjects()).rejects.toThrow();
     });
   });
 
@@ -139,6 +162,22 @@ describe('TaskStore', () => {
 
       const tasks = await store.listTasks();
       expect(tasks).toEqual([]);
+    });
+
+    it('drops corrupt task files during project removal checks', async () => {
+      const projectDir = await createProjectDir('test');
+      const project = await store.addProject({ name: 'test', path: projectDir });
+      const task = await store.createTask({
+        projectId: project.id,
+        title: 'Corrupt me',
+      });
+      const taskFile = join(tempDir, 'tasks', `${task.id}.json`);
+
+      await writeFile(taskFile, '{bad json');
+      await store.removeProject(project.id);
+
+      expect(await store.listProjects()).toEqual([]);
+      expect(access(taskFile)).rejects.toThrow();
     });
 
     it('cleans expired archives', async () => {
