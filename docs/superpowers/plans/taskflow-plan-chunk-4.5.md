@@ -334,11 +334,17 @@ compoundVariants: [
 
 Note: `colorScheme` only applies when `variant` is `"outline"` or `"default"`. This prevents colorScheme styles from bleeding into `destructive` or `secondary` badge variants.
 
-3. In the `Badge` component function signature, add `colorScheme` to the destructured props and pass it to `badgeVariants()`:
+3. In the `Badge` component function signature, add `colorScheme` to the destructured props and pass it to `badgeVariants()`. Use `useMemo` to memoize the `cn()` result:
 ```typescript
+import { useMemo } from 'react';
+
 function Badge({ className, variant, colorScheme, ...props }: BadgeProps) {
+  const classes = useMemo(
+    () => cn(badgeVariants({ variant, colorScheme }), className),
+    [variant, colorScheme, className],
+  );
   return (
-    <div className={cn(badgeVariants({ variant, colorScheme }), className)} {...props} />
+    <div className={classes} {...props} />
   );
 }
 ```

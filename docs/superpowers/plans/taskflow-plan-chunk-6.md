@@ -248,7 +248,7 @@ git commit -m "feat: add EditorPane with Monaco editor"
 
 File: `packages/ui/src/components/panes/ChangesPane.tsx`
 ```tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { cva } from 'class-variance-authority';
 import type { GitStatusResult, GitFileStatus } from '@taskflow/shared';
 import { MSG } from '@taskflow/shared';
@@ -296,6 +296,59 @@ function statusPrefix(status: GitFileStatus['status']): string {
   return '?';
 }
 
+interface FileStatusRowProps {
+  file: GitFileStatus;
+  isSelected: boolean;
+  onSelect: (path: string) => void;
+  onRevert: (path: string) => void;
+}
+
+function FileStatusRow({ file, isSelected, onSelect, onRevert }: FileStatusRowProps) {
+  const rowClasses = useMemo(
+    () => cn(
+      'flex justify-between items-center px-1 py-0.5 cursor-pointer rounded-sm text-[11px]',
+      isSelected && 'bg-muted',
+    ),
+    [isSelected],
+  );
+
+  const badgeClasses = useMemo(
+    () => cn(
+      'text-[9px] px-1 py-0 font-mono',
+      file.status === 'deleted' && 'text-destructive border-destructive/30',
+    ),
+    [file.status],
+  );
+
+  return (
+    <div onClick={() => onSelect(file.path)} className={rowClasses}>
+      <span className="flex items-center gap-1.5">
+        <Badge
+          variant="outline"
+          colorScheme={gitStatusToColorScheme(file.status)}
+          className={badgeClasses}
+        >
+          {statusPrefix(file.status)}
+        </Badge>
+        <span className="text-secondary-foreground">{file.path}</span>
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="h-5 w-5 text-destructive"
+            onClick={(e) => { e.stopPropagation(); onRevert(file.path); }}
+          >
+            <Undo2 className="h-3 w-3" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Revert file</TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
 interface ChangesPaneProps {
   repoPath: string;
   className?: string;
@@ -305,6 +358,11 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
   const [status, setStatus] = useState<GitStatusResult | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [diff, setDiff] = useState<string>('');
+
+  const containerClasses = useMemo(
+    () => cn("flex-1 flex flex-col overflow-hidden", className),
+    [className],
+  );
 
   useEffect(() => {
     fetchStatus();
@@ -344,7 +402,7 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
   }
 
   return (
-    <div className={cn("flex-1 flex flex-col overflow-hidden", className)}>
+    <div className={containerClasses}>
       {/* File list */}
       <ScrollArea className="max-h-[40%] border-b border-border p-2">
         {status?.branch && (
@@ -358,41 +416,13 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
           <div className="text-muted-foreground text-xs">No changes</div>
         )}
         {status?.files.map((file) => (
-          <div
+          <FileStatusRow
             key={file.path}
-            onClick={() => showDiff(file.path)}
-            className={cn(
-              'flex justify-between items-center px-1 py-0.5 cursor-pointer rounded-sm text-[11px]',
-              selectedFile === file.path && 'bg-muted',
-            )}
-          >
-            <span className="flex items-center gap-1.5">
-              <Badge
-                variant="outline"
-                colorScheme={gitStatusToColorScheme(file.status)}
-                className={cn(
-                  'text-[9px] px-1 py-0 font-mono',
-                  file.status === 'deleted' && 'text-destructive border-destructive/30',
-                )}
-              >
-                {statusPrefix(file.status)}
-              </Badge>
-              <span className="text-secondary-foreground">{file.path}</span>
-            </span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="h-5 w-5 text-destructive"
-                  onClick={(e) => { e.stopPropagation(); revertFile(file.path); }}
-                >
-                  <Undo2 className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Revert file</TooltipContent>
-            </Tooltip>
-          </div>
+            file={file}
+            isSelected={file.path === selectedFile}
+            onSelect={showDiff}
+            onRevert={revertFile}
+          />
         ))}
       </ScrollArea>
 
@@ -522,7 +552,7 @@ git commit -m "feat: add BrowserPane with URL bar and webview"
 
 File: `packages/ui/src/components/panels/FileTree.tsx`
 ```tsx
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { cva } from 'class-variance-authority';
 import type { FileNode } from '@taskflow/shared';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -560,11 +590,16 @@ export function FileTree({ node, depth = 0, gitFiles, onFileClick, className }: 
   const gitStatus = (gitFiles?.get(node.path) ?? 'clean') as
     'new' | 'untracked' | 'modified' | 'deleted' | 'renamed' | 'clean';
 
+  const fileClasses = useMemo(
+    () => cn(fileNodeVariants({ gitStatus }), 'py-0.5 px-2 hover:bg-muted/50'),
+    [gitStatus],
+  );
+
   if (node.type === 'file') {
     return (
       <div
         onClick={() => onFileClick(node.path)}
-        className={cn(fileNodeVariants({ gitStatus }), 'py-0.5 px-2 hover:bg-muted/50')}
+        className={fileClasses}
         style={{ paddingLeft: depth * 12 + 8 }}
         title={node.path}
       >

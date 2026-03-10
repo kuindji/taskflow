@@ -453,7 +453,7 @@ git commit -m "feat: add Zustand stores for projects, tasks, sessions, files, UI
 
 File: `packages/ui/src/components/AppShell.tsx`
 ```tsx
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { useUIStore } from '@/stores/ui-store';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
@@ -467,6 +467,16 @@ interface AppShellProps {
 
 export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShellProps) {
   const { fileExplorerOpen, taskInfoOpen, sidebarWidth } = useUIStore();
+
+  const collapsedPanelClasses = useMemo(
+    () => cn(
+      'w-6 bg-card flex items-center justify-center',
+      'cursor-pointer [writing-mode:vertical-rl]',
+      'text-[9px] text-muted-foreground tracking-widest select-none',
+      'hover:bg-muted/50 transition-colors',
+    ),
+    [],
+  );
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -486,12 +496,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
       ) : (
         <div
           onClick={() => useUIStore.getState().toggleFileExplorer()}
-          className={cn(
-            'w-6 bg-card flex items-center justify-center',
-            'cursor-pointer [writing-mode:vertical-rl] rotate-180',
-            'text-[9px] text-muted-foreground tracking-widest select-none',
-            'hover:bg-muted/50 transition-colors',
-          )}
+          className={cn(collapsedPanelClasses, 'rotate-180')}
         >
           FILES
         </div>
@@ -510,12 +515,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
       ) : (
         <div
           onClick={() => useUIStore.getState().toggleTaskInfo()}
-          className={cn(
-            'w-6 bg-card flex items-center justify-center',
-            'cursor-pointer [writing-mode:vertical-rl]',
-            'text-[9px] text-muted-foreground tracking-widest select-none',
-            'hover:bg-muted/50 transition-colors',
-          )}
+          className={collapsedPanelClasses}
         >
           TASK
         </div>
@@ -564,6 +564,7 @@ git commit -m "feat: add AppShell 3-zone layout with collapsible panels"
 
 File: `packages/ui/src/components/sidebar/TaskCard.tsx`
 ```tsx
+import { useMemo } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import type { Task } from '@taskflow/shared';
 import { Badge } from '@/components/ui/badge';
@@ -597,9 +598,19 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
 export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) {
   const status = task.status === 'archived' ? 'archived' : task.status === 'active' ? 'active' : 'default';
 
+  const cardClasses = useMemo(
+    () => cn(taskCardVariants({ active: isActive, status }), className),
+    [isActive, status, className],
+  );
+
+  const titleClasses = useMemo(
+    () => cn('text-xs', isActive ? 'text-foreground font-bold' : 'text-secondary-foreground'),
+    [isActive],
+  );
+
   return (
-    <div onClick={onClick} className={cn(taskCardVariants({ active: isActive, status }), className)}>
-      <div className={cn('text-xs', isActive ? 'text-foreground font-bold' : 'text-secondary-foreground')}>
+    <div onClick={onClick} className={cardClasses}>
+      <div className={titleClasses}>
         {task.title}
       </div>
       {task.sessions.length > 0 && (
@@ -766,6 +777,7 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
 
 File: `packages/ui/src/components/workspace/TabBar.tsx`
 ```tsx
+import { useMemo } from 'react';
 import { cva } from 'class-variance-authority';
 import type { Tab } from '@/stores/session-store';
 import { Button } from '@/components/ui/button';
@@ -784,6 +796,29 @@ const tabVariants = cva(
   },
 );
 
+interface TabItemProps {
+  tab: Tab;
+  isActive: boolean;
+  onTabClick: (tabId: string) => void;
+  onTabClose: (tabId: string) => void;
+}
+
+function TabItem({ tab, isActive, onTabClick, onTabClose }: TabItemProps) {
+  const classes = useMemo(
+    () => cn(tabVariants({ type: tab.type, active: isActive })),
+    [tab.type, isActive],
+  );
+
+  return (
+    <div onClick={() => onTabClick(tab.id)} className={classes}>
+      <span>{tab.label}</span>
+      <Button variant="ghost" size="icon-sm" className="h-4 w-4 ml-0.5" onClick={(e) => { e.stopPropagation(); onTabClose(tab.id); }}>
+        <X className="h-2.5 w-2.5" />
+      </Button>
+    </div>
+  );
+}
+
 interface TabBarProps {
   tabs: Tab[];
   activeTabId: string;
@@ -796,12 +831,7 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: 
   return (
     <div className="px-2 py-0.5 bg-card flex gap-0.5 border-b border-border items-center">
       {tabs.map((tab) => (
-        <div key={tab.id} onClick={() => onTabClick(tab.id)} className={cn(tabVariants({ type: tab.type, active: tab.id === activeTabId }))}>
-          <span>{tab.label}</span>
-          <Button variant="ghost" size="icon-sm" className="h-4 w-4 ml-0.5" onClick={(e) => { e.stopPropagation(); onTabClose(tab.id); }}>
-            <X className="h-2.5 w-2.5" />
-          </Button>
-        </div>
+        <TabItem key={tab.id} tab={tab} isActive={tab.id === activeTabId} onTabClick={onTabClick} onTabClose={onTabClose} />
       ))}
       <DropdownMenu>
         <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm"><Plus className="h-3 w-3" /></Button></DropdownMenuTrigger>

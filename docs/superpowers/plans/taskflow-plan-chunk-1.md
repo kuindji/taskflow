@@ -683,18 +683,18 @@ File: `packages/ui/src/styles/global.css`
 ```css
 @import "tailwindcss";
 
-:root {
-  --bg-base: #1e1e2e;
-  --bg-surface: #181825;
-  --bg-overlay: #313244;
-  --text-primary: #cdd6f4;
-  --text-secondary: #a6adc8;
-  --text-muted: #585b70;
-  --border: #313244;
-  --accent-blue: #89b4fa;
-  --accent-green: #a6e3a1;
-  --accent-yellow: #f9e2af;
-  --accent-red: #f38ba8;
+@theme {
+  --color-base: #1e1e2e;
+  --color-surface: #181825;
+  --color-overlay: #313244;
+  --color-primary: #cdd6f4;
+  --color-secondary: #a6adc8;
+  --color-muted: #585b70;
+  --color-border: #313244;
+  --color-accent-blue: #89b4fa;
+  --color-accent-green: #a6e3a1;
+  --color-accent-yellow: #f9e2af;
+  --color-accent-red: #f38ba8;
 }
 
 * {
@@ -705,9 +705,7 @@ File: `packages/ui/src/styles/global.css`
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--bg-base);
-  color: var(--text-primary);
-  overflow: hidden;
+  @apply bg-base text-primary overflow-hidden;
 }
 ```
 
