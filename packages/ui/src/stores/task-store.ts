@@ -61,8 +61,12 @@ export const useTaskStore = create<TaskStore>((set) => ({
   setActiveTask(id) { set({ activeTaskId: id }); },
 }));
 
-// Listen for task updates from the HTTP API (e.g., title generation)
-onEvent(MSG.TASK_UPDATED, (payload) => {
-  const task = payload as Task;
-  useTaskStore.getState().applyTaskUpdate(task);
+// Listen for task updates from the HTTP API (e.g., title generation).
+// Module-level listener — singleton store, registered once.
+let _unsubTaskUpdated: (() => void) | undefined;
+_unsubTaskUpdated?.(); // Clean up on HMR re-evaluation
+_unsubTaskUpdated = onEvent(MSG.TASK_UPDATED, (payload) => {
+  if (payload && typeof payload === 'object' && 'id' in payload) {
+    useTaskStore.getState().applyTaskUpdate(payload as Task);
+  }
 });

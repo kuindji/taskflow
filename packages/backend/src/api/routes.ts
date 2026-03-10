@@ -37,10 +37,11 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
     const updates: Partial<Pick<Task, 'title' | 'description' | 'notes'>> = {};
     for (const field of allowedFields) {
       if (field in body) {
-        if (typeof body[field] !== 'string') {
+        const value = body[field];
+        if (typeof value !== 'string') {
           return errorResponse(`Field "${field}" must be a string`, 400);
         }
-        updates[field] = body[field] as string;
+        updates[field] = value;
       }
     }
 
