@@ -1,14 +1,20 @@
 import { create } from 'zustand';
 import type { Task } from '@taskflow/shared';
 import { MSG } from '@taskflow/shared';
-import { sendRequest } from '../hooks/useWebSocket';
+import { sendRequest, onEvent } from '../hooks/useWebSocket';
 
 interface TaskStore {
   tasks: Task[];
   activeTaskId: string | null;
   loading: boolean;
   fetchTasks(): Promise<void>;
-  createTask(projectId: string, title: string): Promise<Task>;
+  createTask(payload: {
+    projectId: string;
+    title?: string;
+    description: string;
+    worktree?: boolean;
+  }): Promise<Task>;
+  applyTaskUpdate(task: Task): void;
   updateTask(id: string, updates: Partial<Task>): Promise<void>;
   archiveTask(id: string): Promise<void>;
   deleteTask(id: string): Promise<void>;
@@ -24,10 +30,15 @@ export const useTaskStore = create<TaskStore>((set) => ({
     const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST);
     set({ tasks, loading: false });
   },
-  async createTask(projectId, title) {
-    const task = await sendRequest<Task>(MSG.TASK_CREATE, { projectId, title });
+  async createTask(payload) {
+    const task = await sendRequest<Task>(MSG.TASK_CREATE, payload);
     set((s) => ({ tasks: [...s.tasks, task] }));
     return task;
+  },
+  applyTaskUpdate(task) {
+    set((s) => ({
+      tasks: s.tasks.map((t) => (t.id === task.id ? task : t)),
+    }));
   },
   async updateTask(id, updates) {
     const updated = await sendRequest<Task>(MSG.TASK_UPDATE, { id, ...updates });
@@ -49,3 +60,9 @@ export const useTaskStore = create<TaskStore>((set) => ({
   },
   setActiveTask(id) { set({ activeTaskId: id }); },
 }));
+
+// Listen for task updates from the HTTP API (e.g., title generation)
+onEvent(MSG.TASK_UPDATED, (payload) => {
+  const task = payload as Task;
+  useTaskStore.getState().applyTaskUpdate(task);
+});

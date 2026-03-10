@@ -45,7 +45,9 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
   return (
     <div onClick={onClick} className={cardClasses}>
       <div className={titleClasses}>
-        {task.title}
+        {task.title || (task.description.length > 40
+          ? task.description.slice(0, 40) + '\u2026'
+          : task.description) || 'Untitled'}
       </div>
       {task.sessions.length > 0 && (
         <div className="flex gap-1.5 mt-0.5">

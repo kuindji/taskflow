@@ -1,11 +1,11 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Task } from '@taskflow/shared';
 import { useProjectStore } from '@/stores/project-store';
 import { useTaskStore } from '@/stores/task-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useWsStatus } from '@/providers/WebSocketProvider';
 import { ProjectGroup } from './ProjectGroup';
-import { Input } from '@/components/ui/input';
+import { NewTaskDialog } from './NewTaskDialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -16,6 +16,7 @@ export function TaskSidebar() {
   const { projects, fetchProjects, addProject } = useProjectStore();
   const { tasks, activeTaskId, fetchTasks, setActiveTask, createTask } = useTaskStore();
   const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
 
   useEffect(() => {
     if (!connected) return;
@@ -52,20 +53,38 @@ export function TaskSidebar() {
     return project.id;
   };
 
-  const handleNewTask = async () => {
-    let projectId: string | undefined = activeTaskId ? tasks.find((t) => t.id === activeTaskId)?.projectId : projects[0]?.id;
-    if (!projectId) { projectId = (await handleAddProject()) ?? undefined; if (!projectId) return; }
-    const title = window.prompt('Task title');
-    if (!title?.trim()) return;
-    const task = await createTask(projectId, title.trim());
-    setActiveTask(task.id);
+  const handleNewTask = () => {
+    if (projects.length === 0) {
+      void handleAddProject().then((id) => {
+        if (id) setNewTaskOpen(true);
+      }).catch(() => {});
+      return;
+    }
+    setNewTaskOpen(true);
+  };
+
+  const defaultProjectId = activeTaskId
+    ? tasks.find((t) => t.id === activeTaskId)?.projectId ?? projects[0]?.id
+    : projects[0]?.id;
+
+  const handleCreateTask = async (data: {
+    projectId: string;
+    title?: string;
+    description: string;
+    worktree: boolean;
+  }) => {
+    try {
+      const task = await createTask(data);
+      setActiveTask(task.id);
+    } catch (err) {
+      console.error('Failed to create task:', err);
+    }
   };
 
   return (
     <>
-      <div className="p-2 border-b border-border flex gap-1">
-        <Input placeholder="Search tasks..." className="flex-1 h-7 text-xs" />
-        <Button variant="ghost" size="icon-sm" onClick={handleNewTask}><Plus className="h-3 w-3" /></Button>
+      <div className="p-2 border-b border-border flex">
+        <Button variant="ghost" size="sm" onClick={handleNewTask} className="text-muted-foreground text-[11px] gap-1"><Plus className="h-3 w-3" />New Task</Button>
       </div>
       <ScrollArea className="flex-1 py-1">
         {projects.length === 0 && (
@@ -83,6 +102,13 @@ export function TaskSidebar() {
         <Button variant="ghost" size="sm" onClick={handleAddProject} className="text-muted-foreground text-[11px]">Add Project</Button>
         <Button variant="ghost" size="sm" className="text-muted-foreground text-[11px]">Settings</Button>
       </div>
+      <NewTaskDialog
+        open={newTaskOpen}
+        onOpenChange={setNewTaskOpen}
+        projects={projects}
+        defaultProjectId={defaultProjectId}
+        onSubmit={(data) => void handleCreateTask(data)}
+      />
     </>
   );
 }
