@@ -46,8 +46,8 @@ function buildShellPath(): string {
 export class PtyManager {
   private sessions = new Map<string, Session>();
 
-  spawn(options: SpawnOptions): string {
-    const id = randomUUID();
+  spawn(options: SpawnOptions & { id?: string }): string {
+    const id = options.id ?? randomUUID();
     const {
       CLAUDECODE: _a,
       CLAUDE_CODE_ENTRYPOINT: _b,

@@ -48,8 +48,9 @@ export interface TaskListResponse {
 
 export interface TaskCreatePayload {
   projectId: string;
-  title: string;
-  description?: string;
+  title?: string;
+  description: string;
+  worktree?: boolean;
 }
 
 export interface TaskUpdatePayload {

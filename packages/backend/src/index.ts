@@ -15,6 +15,7 @@ import { registerFileHandlers } from './handlers/file';
 import { registerGitHandlers } from './handlers/git';
 import { ApiRouter } from './api/router';
 import { registerApiRoutes } from './api/routes';
+import { createTitleGenerator } from './services/title-generator';
 import { writeFile } from 'fs/promises';
 
 async function main() {
@@ -38,6 +39,12 @@ async function main() {
     const router = new Router();
     const apiRouter = new ApiRouter();
     const server = createServer(router, config.port, apiRouter);
+    let serverPort = config.port;
+
+    const titleGenerator = createTitleGenerator({
+      taskStore: store,
+      broadcast: server.broadcast,
+    });
 
     registerProjectHandlers(router, store);
     registerTaskHandlers({
@@ -46,10 +53,14 @@ async function main() {
       closeSession: (sessionId) => {
         ptyManager.close(sessionId);
       },
+      generateTitle: (taskId, description) => {
+        void titleGenerator.generate(taskId, description);
+      },
     });
     registerSessionHandlers({
       router, ptyManager, taskStore: store,
       broadcast: server.broadcast,
+      getPort: () => serverPort,
     });
     registerFileHandlers({
       router, fileWatcher, taskStore: store, broadcast: server.broadcast,
@@ -69,6 +80,7 @@ async function main() {
     console.log(`Detected shells: ${shells.map((s) => s.name).join(', ') || 'none'}`);
 
     const startedServer = await server.start();
+    serverPort = startedServer.port;
     stop = startedServer.stop;
 
     await writeFile(config.portFile, String(startedServer.port));

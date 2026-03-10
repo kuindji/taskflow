@@ -1,4 +1,4 @@
-import type { Project, Task } from '@taskflow/shared';
+import type { Project, Task, TaskWorktree } from '@taskflow/shared';
 import { ARCHIVE_EXPIRY_DAYS } from '@taskflow/shared';
 import { readFile, writeFile, readdir, unlink, mkdir, realpath, stat } from 'fs/promises';
 import { basename, join } from 'path';
@@ -29,6 +29,15 @@ export class TaskStore {
   async init(): Promise<void> {
     await mkdir(this.config.tasksDir, { recursive: true });
     await mkdir(this.config.archiveDir, { recursive: true });
+  }
+
+  async clearAllSessions(): Promise<void> {
+    const tasks = await this.listTasks();
+    for (const task of tasks) {
+      if (task.sessions.length > 0) {
+        await this.updateTask(task.id, { sessions: [] });
+      }
+    }
   }
 
   // --- Projects ---
@@ -163,15 +172,16 @@ export class TaskStore {
   async createTask(input: {
     projectId: string;
     title: string;
-    description?: string;
+    description: string;
+    worktree?: TaskWorktree;
   }): Promise<Task> {
     const task: Task = {
       id: randomUUID(),
       projectId: input.projectId,
       title: input.title,
-      description: input.description ?? '',
+      description: input.description,
       notes: '',
-      worktree: { enabled: false, path: null, branch: null },
+      worktree: input.worktree ?? { enabled: false, path: null, branch: null },
       sessions: [],
       createdAt: new Date().toISOString(),
       status: 'active',

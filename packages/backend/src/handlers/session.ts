@@ -12,10 +12,11 @@ interface SessionHandlerDeps {
   ptyManager: PtyManager;
   taskStore: TaskStore;
   broadcast: (event: WsEvent) => void;
+  getPort: () => number;
 }
 
 export function registerSessionHandlers(deps: SessionHandlerDeps): void {
-  const { router, ptyManager, taskStore, broadcast } = deps;
+  const { router, ptyManager, taskStore, broadcast, getPort } = deps;
 
   async function removeSessionFromTask(sessionId: string, taskId?: string): Promise<void> {
     const targetTask = taskId ? await taskStore.getTask(taskId) : null;
@@ -66,8 +67,17 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
       }
     }
 
-    const sessionId = ptyManager.spawn({
+    const sessionId = crypto.randomUUID();
+    const taskflowEnv = {
+      TASKFLOW_API_URL: `http://localhost:${getPort()}`,
+      TASKFLOW_TASK_ID: taskId,
+      TASKFLOW_SESSION_ID: sessionId,
+    };
+
+    ptyManager.spawn({
+      id: sessionId,
       command, args, cwd,
+      env: taskflowEnv,
       onData: (data) => {
         broadcast({
           type: MSG.TERMINAL_OUTPUT,

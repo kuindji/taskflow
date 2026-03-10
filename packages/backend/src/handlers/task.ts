@@ -14,10 +14,11 @@ interface TaskHandlerDeps {
   router: Router;
   store: TaskStore;
   closeSession?: (sessionId: string) => void;
+  generateTitle?: (taskId: string, description: string) => void;
 }
 
 export function registerTaskHandlers(deps: TaskHandlerDeps): void {
-  const { router, store, closeSession } = deps;
+  const { router, store, closeSession, generateTitle } = deps;
 
   async function stopTaskSessions(task: Task, clearPersistedSessions: boolean): Promise<void> {
     if (task.sessions.length === 0) {
@@ -40,8 +41,17 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
   });
 
   router.register(MSG.TASK_CREATE, async (payload) => {
-    const { projectId, title, description } = payload as TaskCreatePayload;
-    return store.createTask({ projectId, title, description });
+    const { projectId, title, description, worktree } = payload as TaskCreatePayload;
+    const task = await store.createTask({
+      projectId,
+      title: title ?? '',
+      description,
+      worktree: worktree ? { enabled: true, path: null, branch: null } : undefined,
+    });
+    if (!title && description && generateTitle) {
+      generateTitle(task.id, description);
+    }
+    return task;
   });
 
   router.register(MSG.TASK_UPDATE, async (payload) => {
