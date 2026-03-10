@@ -71,7 +71,12 @@ function scheduleReconnect(): void {
 
 export function connectWebSocket(port: number): Promise<void> {
   wsPort = port;
-  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (ws) {
+    ws.onclose = null; // Prevent stale onclose from scheduling a redundant reconnect
     ws.close();
   }
   return new Promise((resolve, reject) => {
@@ -119,6 +124,11 @@ export function sendRequest<T = unknown>(type: string, payload: unknown = {}): P
       }
     }, 30000);
   });
+}
+
+export function sendFireAndForget(type: string, payload: unknown = {}): void {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type, payload }));
 }
 
 export function onEvent(type: string, handler: (payload: unknown) => void): () => void {
@@ -291,7 +301,7 @@ File: `packages/ui/src/stores/session-store.ts`
 ```typescript
 import { create } from 'zustand';
 import { MSG } from '@taskflow/shared';
-import { sendRequest } from '../hooks/useWebSocket';
+import { sendRequest, sendFireAndForget } from '../hooks/useWebSocket';
 import { useTaskStore } from './task-store';
 
 export interface Tab {
@@ -331,8 +341,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     await sendRequest(MSG.SESSION_CLOSE, { sessionId });
     await useTaskStore.getState().fetchTasks();
   },
-  sendInput(sessionId, data) { sendRequest(MSG.SESSION_INPUT, { sessionId, data }).catch(console.error); },
-  resizeTerminal(sessionId, cols, rows) { sendRequest(MSG.TERMINAL_RESIZE, { sessionId, cols, rows }).catch(console.error); },
+  sendInput(sessionId, data) { sendFireAndForget(MSG.SESSION_INPUT, { sessionId, data }); },
+  resizeTerminal(sessionId, cols, rows) { sendFireAndForget(MSG.TERMINAL_RESIZE, { sessionId, cols, rows }); },
   addTab(taskId, tab) {
     set((s) => ({
       tabsByTask: { ...s.tabsByTask, [taskId]: [...(s.tabsByTask[taskId] ?? []), tab] },
@@ -714,7 +724,8 @@ export function ProjectGroup({ project, tasks, activeTaskId, onTaskClick }: Proj
 
 File: `packages/ui/src/components/sidebar/TaskSidebar.tsx`
 ```tsx
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
+import type { Task } from '@taskflow/shared';
 import { useProjectStore } from '@/stores/project-store';
 import { useTaskStore } from '@/stores/task-store';
 import { useWsStatus } from '@/providers/WebSocketProvider';
@@ -736,7 +747,15 @@ export function TaskSidebar() {
     void fetchTasks();
   }, [connected, fetchProjects, fetchTasks]);
 
-  const tasksByProject = (projectId: string) => tasks.filter((t) => t.projectId === projectId);
+  const tasksByProject = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const task of tasks) {
+      const list = map.get(task.projectId) ?? [];
+      list.push(task);
+      map.set(task.projectId, list);
+    }
+    return map;
+  }, [tasks]);
 
   // TODO: Replace window.prompt() with shadcn Dialog for consistent UX
   const handleAddProject = async (): Promise<string | null> => {
@@ -771,7 +790,7 @@ export function TaskSidebar() {
           </div>
         )}
         {projects.map((project) => (
-          <ProjectGroup key={project.id} project={project} tasks={tasksByProject(project.id)} activeTaskId={activeTaskId} onTaskClick={setActiveTask} />
+          <ProjectGroup key={project.id} project={project} tasks={tasksByProject.get(project.id) ?? []} activeTaskId={activeTaskId} onTaskClick={setActiveTask} />
         ))}
       </ScrollArea>
       <Separator />

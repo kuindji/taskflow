@@ -130,6 +130,8 @@ export function createServer(router: Router, port: number = 0): {
 
           try {
             const result = await router.handle(request.type, request.payload);
+            // Fire-and-forget messages have no correlationId — skip the response
+            if (!request.correlationId) return;
             const response: WsResponse = {
               correlationId: request.correlationId,
               type: request.type,
@@ -137,6 +139,7 @@ export function createServer(router: Router, port: number = 0): {
             };
             ws.send(JSON.stringify(response));
           } catch (err) {
+            if (!request.correlationId) return;
             const response: WsResponse = {
               correlationId: request.correlationId,
               type: request.type,

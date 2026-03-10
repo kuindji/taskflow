@@ -395,6 +395,14 @@ describe('GitService', () => {
     expect(status.files).toHaveLength(0);
   });
 
+  it('reverts a staged new file', async () => {
+    await writeFile(join(repoDir, 'staged.txt'), 'new content');
+    await run(['git', 'add', 'staged.txt'], repoDir);
+    await git.revertFile(repoDir, { path: 'staged.txt', status: 'new' });
+    const status = await git.status(repoDir);
+    expect(status.files).toHaveLength(0);
+  });
+
   it('creates a worktree', async () => {
     const wtPath = join(repoDir, '.worktrees', 'test-branch');
     await git.createWorktree(repoDir, 'test-branch', wtPath);
@@ -508,8 +516,12 @@ export class GitService {
     repoPath: string,
     file: Pick<GitFileStatus, 'path' | 'status' | 'previousPath'>,
   ): Promise<void> {
-    if (file.status === 'untracked' || file.status === 'new') {
+    if (file.status === 'untracked') {
       await rm(join(repoPath, file.path), { recursive: true, force: true });
+      return;
+    }
+    if (file.status === 'new') {
+      await git(['rm', '-f', '--', file.path], repoPath);
       return;
     }
 
@@ -955,8 +967,8 @@ export async function detectEditors(): Promise<EditorInfo[]> {
       const proc = Bun.spawn(['which', editor.command], {
         stdout: 'pipe', stderr: 'pipe',
       });
-      await proc.exited;
-      if (proc.exitCode === 0) available.push(editor);
+      const exitCode = await proc.exited;
+      if (exitCode === 0) available.push(editor);
     } catch { /* not found */ }
   }
   return available;
