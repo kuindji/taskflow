@@ -14,41 +14,50 @@ function TaskInfoPanel() {
   const [descriptionDraft, setDescriptionDraft] = useState('');
   const [notesDraft, setNotesDraft] = useState('');
   const lastSavedRef = useRef({ description: '', notes: '' });
+  const draftRef = useRef({ description: '', notes: '' });
+  const taskId = task?.id ?? null;
+
+  draftRef.current = {
+    description: descriptionDraft,
+    notes: notesDraft,
+  };
+
+  const persistDrafts = useCallback((targetTaskId: string, description: string, notes: string) => {
+    const updates: { description?: string; notes?: string } = {};
+    if (description !== lastSavedRef.current.description) {
+      updates.description = description;
+    }
+    if (notes !== lastSavedRef.current.notes) {
+      updates.notes = notes;
+    }
+    if (Object.keys(updates).length === 0) return;
+
+    lastSavedRef.current = { description, notes };
+
+    void updateTask(targetTaskId, updates).catch((err) => {
+      console.error('Failed to update task:', err);
+    });
+  }, [updateTask]);
 
   useEffect(() => {
-    if (!task) return;
+    if (!task) {
+      setDescriptionDraft('');
+      setNotesDraft('');
+      lastSavedRef.current = { description: '', notes: '' };
+      return;
+    }
+
     setDescriptionDraft(task.description);
     setNotesDraft(task.notes);
     lastSavedRef.current = {
       description: task.description,
       notes: task.notes,
     };
-  }, [task?.id]);
-
-  const saveIfDirty = useCallback(() => {
-    if (!task) return;
-    const updates: { description?: string; notes?: string } = {};
-    if (descriptionDraft !== lastSavedRef.current.description) {
-      updates.description = descriptionDraft;
-    }
-    if (notesDraft !== lastSavedRef.current.notes) {
-      updates.notes = notesDraft;
-    }
-    if (Object.keys(updates).length === 0) return;
-
-    lastSavedRef.current = {
-      description: descriptionDraft,
-      notes: notesDraft,
-    };
-
-    void updateTask(task.id, updates).catch((err) => {
-      console.error('Failed to update task:', err);
-    });
-  }, [task, descriptionDraft, notesDraft, updateTask]);
+  }, [taskId]);
 
   // Auto-save on debounce
   useEffect(() => {
-    if (!task) return;
+    if (!taskId) return;
     if (
       descriptionDraft === lastSavedRef.current.description &&
       notesDraft === lastSavedRef.current.notes
@@ -56,17 +65,19 @@ function TaskInfoPanel() {
       return;
     }
 
-    const timeoutId = window.setTimeout(saveIfDirty, 400);
+    const timeoutId = window.setTimeout(() => {
+      persistDrafts(taskId, draftRef.current.description, draftRef.current.notes);
+    }, 400);
     return () => window.clearTimeout(timeoutId);
-  }, [descriptionDraft, notesDraft, task, saveIfDirty]);
+  }, [descriptionDraft, notesDraft, persistDrafts, taskId]);
 
-  // Flush unsaved changes on true unmount only
-  const saveIfDirtyRef = useRef(saveIfDirty);
-  saveIfDirtyRef.current = saveIfDirty;
-
+  // Flush unsaved changes before switching tasks and on unmount.
   useEffect(() => {
-    return () => { saveIfDirtyRef.current(); };
-  }, []);
+    return () => {
+      if (!taskId) return;
+      persistDrafts(taskId, draftRef.current.description, draftRef.current.notes);
+    };
+  }, [persistDrafts, taskId]);
 
   if (!task) {
     return (

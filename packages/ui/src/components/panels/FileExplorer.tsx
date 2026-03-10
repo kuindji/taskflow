@@ -11,7 +11,17 @@ import { X } from 'lucide-react';
 import { FileTree } from './FileTree';
 
 function FileExplorer() {
-  const { tree, gitStatus, fetchTree, fetchGitStatus, watchPath, unwatchPath } = useFileStore();
+  const {
+    tree,
+    treePath,
+    gitStatus,
+    gitStatusPath,
+    fetchTree,
+    fetchGitStatus,
+    watchPath,
+    unwatchPath,
+    clearExplorerState,
+  } = useFileStore();
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
   const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
   const { addTab, getTabs, setActiveTab } = useSessionStore();
@@ -21,7 +31,10 @@ function FileExplorer() {
     : project?.path;
 
   useEffect(() => {
-    if (!workingDir) return;
+    if (!workingDir) {
+      clearExplorerState();
+      return;
+    }
 
     void fetchTree(workingDir);
     void fetchGitStatus(workingDir);
@@ -30,16 +43,17 @@ function FileExplorer() {
     return () => {
       void unwatchPath(workingDir);
     };
-  }, [workingDir, fetchTree, fetchGitStatus, watchPath, unwatchPath]);
+  }, [workingDir, clearExplorerState, fetchTree, fetchGitStatus, watchPath, unwatchPath]);
 
   const gitFiles = useMemo(() => {
     const map = new Map<string, string>();
+    if (!workingDir || gitStatusPath !== workingDir) return map;
     gitStatus?.files.forEach((f) => {
       const absolutePath = f.absolutePath ?? (workingDir ? `${workingDir}/${f.path}` : f.path);
       map.set(absolutePath, f.status);
     });
     return map;
-  }, [gitStatus, workingDir]);
+  }, [gitStatus, gitStatusPath, workingDir]);
 
   const handleFileClick = (path: string) => {
     if (!task) return;
@@ -74,7 +88,7 @@ function FileExplorer() {
       </div>
       <Separator />
       <ScrollArea className="flex-1 py-1">
-        {tree ? (
+        {tree && treePath === workingDir ? (
           <FileTree
             node={tree}
             gitFiles={gitFiles}

@@ -62,7 +62,6 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
 
           case 'browser':
             label = 'Browser';
-            if (!isActive) return null;
             pane = <BrowserPane initialUrl={tab.url ?? 'about:blank'} />;
             break;
 
