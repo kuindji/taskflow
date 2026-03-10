@@ -39,7 +39,12 @@ export function TaskSidebar() {
 
   // TODO: Replace window.prompt() with shadcn Dialog for consistent UX
   const handleAddProject = async (): Promise<string | null> => {
-    const path = await window.taskflow?.selectProjectDirectory?.();
+    let path: string | null | undefined;
+    if (window.taskflow?.selectProjectDirectory) {
+      path = await window.taskflow.selectProjectDirectory();
+    } else {
+      path = window.prompt('Project directory path');
+    }
     if (!path) return null;
     const suggestedName = path.split('/').pop() ?? '';
     const input = window.prompt('Project name (optional)', suggestedName);

@@ -45,7 +45,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
   }
 
   router.register(MSG.SESSION_CREATE, async (payload) => {
-    const { taskId, type, label } = payload as SessionCreatePayload;
+    const { taskId, type, label, prompt } = payload as SessionCreatePayload;
     const task = await taskStore.getTask(taskId);
     if (!task) throw new Error(`Task not found: ${taskId}`);
 
@@ -55,16 +55,24 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
       ? task.worktree.path : project.path;
 
     const command = type === 'claude' ? 'claude' : 'codex';
+    const args: string[] = [];
+    if (prompt) {
+      args.push(prompt);
+    }
 
     const sessionId = ptyManager.spawn({
-      command, args: [], cwd,
+      command, args, cwd,
       onData: (data) => {
         broadcast({
           type: MSG.TERMINAL_OUTPUT,
           payload: { sessionId, data },
         });
       },
-      onExit: () => {
+      onExit: (exitCode) => {
+        broadcast({
+          type: MSG.SESSION_EXITED,
+          payload: { sessionId, exitCode },
+        });
         void removeSessionFromTask(sessionId, taskId);
       },
     });

@@ -1,21 +1,25 @@
 import { useTaskStore } from '@/stores/task-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useSessionStore } from '@/stores/session-store';
+import type { Tab } from '@/stores/session-store';
 import { TaskHeader } from './TaskHeader';
 import { TabBar } from './TabBar';
 import { TabContent } from './TabContent';
 
+const emptyTabs: Tab[] = [];
+
 export function Workspace() {
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
   const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
-  const { getTabs, getActiveTab, setActiveTab, closeTab, createSession, addTab } = useSessionStore();
+  const tabs = useSessionStore((s) => task ? (s.tabsByTask[task.id] ?? emptyTabs) : emptyTabs);
+  const activeTabId = useSessionStore((s) => task ? (s.activeTabByTask[task.id] ?? '') : '');
+  const { setActiveTab, closeTab, createSession, addTab } = useSessionStore();
 
   if (!task) {
     return <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">Select a task from the sidebar</div>;
   }
 
-  const tabs = getTabs(task.id);
-  const activeTab = getActiveTab(task.id);
+  const activeTab = tabs.find((t) => t.id === activeTabId);
 
   const handleNewTab = async (type: 'claude' | 'codex' | 'changes' | 'browser') => {
     if (type === 'browser') {
@@ -28,7 +32,7 @@ export function Workspace() {
       }
       addTab(task.id, { id: crypto.randomUUID(), type: 'changes', label: 'Changes' });
     } else {
-      await createSession(task.id, type);
+      await createSession(task.id, type, undefined, task.description || undefined);
     }
   };
 

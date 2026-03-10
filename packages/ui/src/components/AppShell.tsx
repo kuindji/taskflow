@@ -32,7 +32,11 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
   );
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex flex-col h-screen overflow-hidden">
+      <div
+        className="h-9 shrink-0 bg-card [-webkit-app-region:drag] flex items-center px-20"
+      />
+      <div className="flex flex-1 overflow-hidden">
       <div
         className="min-w-[180px] max-w-[350px] bg-card flex flex-col"
         style={{ width: sidebarWidth }}
@@ -93,6 +97,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
           TASK
         </div>
       )}
+      </div>
     </div>
   );
 }

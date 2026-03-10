@@ -5,7 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { useSessionStore } from '@/stores/session-store';
 import { onEvent } from '@/hooks/useWebSocket';
 import { MSG } from '@taskflow/shared';
-import type { TerminalOutputEvent } from '@taskflow/shared';
+import type { TerminalOutputEvent, SessionExitedEvent } from '@taskflow/shared';
 import '@xterm/xterm/css/xterm.css';
 
 interface TerminalPaneProps {
@@ -76,6 +76,13 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
       }
     });
 
+    const unsubExit = onEvent(MSG.SESSION_EXITED, (payload) => {
+      const event = payload as SessionExitedEvent;
+      if (event.sessionId === sessionId) {
+        term.writeln(`\r\n\x1b[90m[Process exited with code ${event.exitCode}]\x1b[0m`);
+      }
+    });
+
     // Resize on container resize
     const resizeObserver = new ResizeObserver(() => {
       if (!visibleRef.current || !fitRef.current || !termRef.current) return;
@@ -87,6 +94,7 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
     return () => {
       resizeObserver.disconnect();
       unsubscribe();
+      unsubExit();
       dataDisposable.dispose();
       resizeDisposable.dispose();
       term.dispose();

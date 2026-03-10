@@ -32,7 +32,7 @@ async function main() {
     const fileWatcher = new FileWatcher();
 
     const router = new Router();
-    const server = createServer(router);
+    const server = createServer(router, config.port);
 
     registerProjectHandlers(router, store);
     registerTaskHandlers({

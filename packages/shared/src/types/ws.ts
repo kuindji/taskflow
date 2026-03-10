@@ -72,6 +72,7 @@ export interface SessionCreatePayload {
   taskId: string;
   type: 'claude' | 'codex';
   label?: string;
+  prompt?: string;
 }
 
 export interface SessionCreateResponse {
@@ -85,6 +86,11 @@ export interface SessionClosePayload {
 export interface SessionInputPayload {
   sessionId: string;
   data: string;
+}
+
+export interface SessionExitedEvent {
+  sessionId: string;
+  exitCode: number;
 }
 
 // Terminal events
