@@ -55,6 +55,31 @@ describe('GitService', () => {
     expect(diff.files[0].diff).toContain('modified content');
   });
 
+  it('gets diff for untracked files', async () => {
+    await writeFile(join(repoDir, 'new.txt'), 'new file');
+    const diff = await git.diff(repoDir);
+    expect(diff.files).toHaveLength(1);
+    expect(diff.files[0]).toMatchObject({ path: 'new.txt', additions: 1, deletions: 0 });
+    expect(diff.files[0].diff).toContain('new file');
+  });
+
+  it('gets diff for staged new files', async () => {
+    await writeFile(join(repoDir, 'staged.txt'), 'staged file');
+    await run(['git', 'add', 'staged.txt'], repoDir);
+    const diff = await git.diff(repoDir);
+    expect(diff.files).toHaveLength(1);
+    expect(diff.files[0]).toMatchObject({ path: 'staged.txt', additions: 1, deletions: 0 });
+    expect(diff.files[0].diff).toContain('staged file');
+  });
+
+  it('gets diff for renamed files', async () => {
+    await run(['git', 'mv', 'initial.txt', 'renamed file.txt'], repoDir);
+    const diff = await git.diff(repoDir);
+    expect(diff.files).toHaveLength(1);
+    expect(diff.files[0]).toMatchObject({ path: 'renamed file.txt', additions: 0, deletions: 0 });
+    expect(diff.files[0].diff).toContain('rename to renamed file.txt');
+  });
+
   it('throws when the path is not a git repository', async () => {
     const nonRepoDir = await mkdtemp(join(tmpdir(), 'taskflow-git-nonrepo-'));
     await expect(git.status(nonRepoDir)).rejects.toThrow();
@@ -103,6 +128,13 @@ describe('GitService', () => {
     await git.revertFile(repoDir, { path: 'staged.txt', status: 'new' });
     const status = await git.status(repoDir);
     expect(status.files).toHaveLength(0);
+  });
+
+  it('gets file diff for staged files', async () => {
+    await writeFile(join(repoDir, 'staged.txt'), 'new content');
+    await run(['git', 'add', 'staged.txt'], repoDir);
+    const diff = await git.diffFile(repoDir, 'staged.txt');
+    expect(diff).toContain('new content');
   });
 
   it('creates a worktree', async () => {

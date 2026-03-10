@@ -25,7 +25,7 @@ describe('task handlers', () => {
     await store.init();
     router = new Router();
     registerProjectHandlers(router, store);
-    registerTaskHandlers(router, store);
+    registerTaskHandlers({ router, store });
     const projectDir = join(tempDir, 'test');
     await mkdir(projectDir, { recursive: true });
     const project = await store.addProject({ name: 'test', path: projectDir });

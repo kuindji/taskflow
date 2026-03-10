@@ -2,21 +2,25 @@ import type { GitStatusResult, GitFileStatus, GitDiffResult, GitDiffFile } from 
 import { mkdir, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 
-async function git(args: string[], cwd: string): Promise<string> {
+async function git(
+  args: string[],
+  cwd: string,
+  options: { allowExitCodes?: number[] } = {},
+): Promise<string> {
   const proc = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-  if (exitCode !== 0) {
+  if (exitCode !== 0 && !options.allowExitCodes?.includes(exitCode)) {
     throw new Error(
       stderr.trim()
         || stdout.trim()
         || `git ${args.join(' ')} failed with exit code ${exitCode}`,
     );
   }
-  return stdout.trim();
+  return stdout;
 }
 
 export class GitService {
@@ -51,7 +55,7 @@ export class GitService {
       });
     }
 
-    return { branch: branchOutput || null, files };
+    return { branch: branchOutput.trim() || null, files };
   }
 
   private parseStatus(xy: string): GitFileStatus['status'] {
@@ -62,27 +66,86 @@ export class GitService {
     return 'modified';
   }
 
-  async diff(repoPath: string): Promise<GitDiffResult> {
-    const numstat = await git(['diff', '--numstat'], repoPath);
-    const files: GitDiffFile[] = [];
+  private countPatchLines(diff: string): Pick<GitDiffFile, 'additions' | 'deletions'> {
+    let additions = 0;
+    let deletions = 0;
 
-    for (const line of numstat.split('\n')) {
-      if (!line.trim()) continue;
-      const [add, del, path] = line.split('\t');
-      const fileDiff = await this.diffFile(repoPath, path);
-      files.push({
-        path,
-        additions: parseInt(add) || 0,
-        deletions: parseInt(del) || 0,
-        diff: fileDiff,
-      });
+    for (const line of diff.split('\n')) {
+      if (line.startsWith('+++') || line.startsWith('---')) {
+        continue;
+      }
+      if (line.startsWith('+')) {
+        additions += 1;
+      } else if (line.startsWith('-')) {
+        deletions += 1;
+      }
     }
+
+    return { additions, deletions };
+  }
+
+  private async resolveFileStatus(
+    repoPath: string,
+    filePath: string,
+  ): Promise<Pick<GitFileStatus, 'path' | 'status' | 'previousPath'> | null> {
+    const status = await this.status(repoPath);
+    return status.files.find((file) => file.path === filePath) ?? null;
+  }
+
+  private async diffSegments(
+    repoPath: string,
+    file: Pick<GitFileStatus, 'path' | 'status' | 'previousPath'>,
+  ): Promise<string[]> {
+    if (file.status === 'untracked') {
+      const diff = await git(
+        ['diff', '--no-index', '--', '/dev/null', join(repoPath, file.path)],
+        repoPath,
+        { allowExitCodes: [1] },
+      );
+      return diff ? [diff] : [];
+    }
+
+    const paths = file.status === 'renamed' && file.previousPath
+      ? [file.previousPath, file.path]
+      : [file.path];
+
+    const [cachedDiff, worktreeDiff] = await Promise.all([
+      git(['diff', '--cached', '--', ...paths], repoPath),
+      git(['diff', '--', ...paths], repoPath),
+    ]);
+
+    return [cachedDiff, worktreeDiff].filter((diff) => diff.length > 0);
+  }
+
+  async diff(repoPath: string): Promise<GitDiffResult> {
+    const status = await this.status(repoPath);
+    const files = await Promise.all(status.files.map(async (file) => {
+      const diff = await this.diffFile(repoPath, file.path, file.status, file.previousPath);
+      return {
+        path: file.path,
+        ...this.countPatchLines(diff),
+        diff,
+      };
+    }));
 
     return { files };
   }
 
-  async diffFile(repoPath: string, filePath: string): Promise<string> {
-    return git(['diff', '--', filePath], repoPath);
+  async diffFile(
+    repoPath: string,
+    filePath: string,
+    status?: GitFileStatus['status'],
+    previousPath?: string,
+  ): Promise<string> {
+    const file = status
+      ? { path: filePath, status, previousPath }
+      : await this.resolveFileStatus(repoPath, filePath);
+
+    if (!file) {
+      return git(['diff', '--', filePath], repoPath);
+    }
+
+    return (await this.diffSegments(repoPath, file)).join('\n');
   }
 
   async revertFile(

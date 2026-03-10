@@ -20,6 +20,7 @@ function isJsonParseError(error: unknown): error is SyntaxError {
 
 export class TaskStore {
   private config: TaskStoreConfig;
+  private taskMutations = new Map<string, Promise<void>>();
 
   constructor(config: TaskStoreConfig) {
     this.config = config;
@@ -188,42 +189,88 @@ export class TaskStore {
     return this.readTask(this.taskPath(id));
   }
 
+  async getArchived(id: string): Promise<Task | null> {
+    return this.readTask(this.archivePath(id));
+  }
+
+  private async withTaskMutation<T>(id: string, mutation: () => Promise<T>): Promise<T> {
+    const previous = this.taskMutations.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous
+      .catch(() => undefined)
+      .then(() => gate);
+
+    this.taskMutations.set(id, queued);
+    await previous.catch(() => undefined);
+
+    try {
+      return await mutation();
+    } finally {
+      release();
+      if (this.taskMutations.get(id) === queued) {
+        this.taskMutations.delete(id);
+      }
+    }
+  }
+
   async updateTask(
     id: string,
-    updates: Partial<Pick<Task, 'title' | 'description' | 'notes' | 'worktree' | 'sessions'>>,
+    updates:
+      | Partial<Pick<Task, 'title' | 'description' | 'notes' | 'worktree' | 'sessions'>>
+      | ((task: Task) => Partial<Pick<Task, 'title' | 'description' | 'notes' | 'worktree' | 'sessions'>>),
   ): Promise<Task> {
-    const task = await this.readTask(this.taskPath(id));
-    if (!task) throw new Error(`Task not found: ${id}`);
-    const updated = { ...task, ...updates };
-    await this.writeTask(this.taskPath(id), updated);
-    return updated;
+    return this.withTaskMutation(id, async () => {
+      const task = await this.readTask(this.taskPath(id));
+      if (!task) throw new Error(`Task not found: ${id}`);
+      const resolvedUpdates = typeof updates === 'function'
+        ? updates(task)
+        : updates;
+      const updated = { ...task, ...resolvedUpdates };
+      await this.writeTask(this.taskPath(id), updated);
+      return updated;
+    });
   }
 
   async archiveTask(id: string): Promise<Task> {
-    const task = await this.readTask(this.taskPath(id));
-    if (!task) throw new Error(`Task not found: ${id}`);
-    const archived: Task = {
-      ...task,
-      status: 'archived',
-      archivedAt: new Date().toISOString(),
-    };
-    await this.writeTask(this.archivePath(id), archived);
-    await this.unlinkIfPresent(this.taskPath(id));
-    return archived;
+    return this.withTaskMutation(id, async () => {
+      const task = await this.readTask(this.taskPath(id));
+      if (!task) throw new Error(`Task not found: ${id}`);
+      const archived: Task = {
+        ...task,
+        status: 'archived',
+        archivedAt: new Date().toISOString(),
+      };
+      await this.writeTask(this.archivePath(id), archived);
+      await this.unlinkIfPresent(this.taskPath(id));
+      return archived;
+    });
   }
 
   async deleteTask(id: string): Promise<void> {
-    await this.unlinkIfPresent(this.taskPath(id));
+    await this.withTaskMutation(id, async () => {
+      await this.unlinkIfPresent(this.taskPath(id));
+    });
   }
 
   async listArchived(): Promise<Task[]> {
     return this.readTasksFromDir(this.config.archiveDir);
   }
 
-  async updateArchived(id: string, updates: Partial<Task>): Promise<void> {
-    const task = await this.readTask(this.archivePath(id));
-    if (!task) throw new Error(`Archived task not found: ${id}`);
-    await this.writeTask(this.archivePath(id), { ...task, ...updates });
+  async updateArchived(
+    id: string,
+    updates: Partial<Task> | ((task: Task) => Partial<Task>),
+  ): Promise<void> {
+    await this.withTaskMutation(id, async () => {
+      const task = await this.readTask(this.archivePath(id));
+      if (!task) throw new Error(`Archived task not found: ${id}`);
+      const resolvedUpdates = typeof updates === 'function'
+        ? updates(task)
+        : updates;
+      await this.writeTask(this.archivePath(id), { ...task, ...resolvedUpdates });
+    });
   }
 
   async cleanExpiredArchives(): Promise<number> {

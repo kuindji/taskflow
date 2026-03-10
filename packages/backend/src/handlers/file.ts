@@ -47,7 +47,7 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
   router.register(MSG.FILE_WATCH, async (payload) => {
     const { path } = payload as FileWatchPayload;
     const workspacePath = await assertWorkspacePath(taskStore, path);
-    fileWatcher.watch(workspacePath, (event) => {
+    await fileWatcher.watch(workspacePath, (event) => {
       broadcast({ type: MSG.FILE_CHANGED, payload: event });
     });
     return { success: true };

@@ -35,7 +35,13 @@ async function main() {
     const server = createServer(router);
 
     registerProjectHandlers(router, store);
-    registerTaskHandlers(router, store);
+    registerTaskHandlers({
+      router,
+      store,
+      closeSession: (sessionId) => {
+        ptyManager.close(sessionId);
+      },
+    });
     registerSessionHandlers({
       router, ptyManager, taskStore: store,
       broadcast: server.broadcast,

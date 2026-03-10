@@ -18,16 +18,30 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
   const { router, ptyManager, taskStore, broadcast } = deps;
 
   async function removeSessionFromTask(sessionId: string, taskId?: string): Promise<void> {
-    const tasks = taskId
-      ? [await taskStore.getTask(taskId)].filter(Boolean)
-      : await taskStore.listTasks();
+    const targetTask = taskId ? await taskStore.getTask(taskId) : null;
+    if (targetTask?.sessions.some((session) => session.id === sessionId)) {
+      await taskStore.updateTask(targetTask.id, (task) => ({
+        sessions: task.sessions.filter((session) => session.id !== sessionId),
+      }));
+      return;
+    }
 
-    const owner = tasks.find((task) => task?.sessions.some((session) => session.id === sessionId));
-    if (!owner) return;
+    const activeOwner = (taskId ? [] : await taskStore.listTasks())
+      .find((task) => task.sessions.some((session) => session.id === sessionId));
+    if (activeOwner) {
+      await taskStore.updateTask(activeOwner.id, (task) => ({
+        sessions: task.sessions.filter((session) => session.id !== sessionId),
+      }));
+      return;
+    }
 
-    await taskStore.updateTask(owner.id, {
-      sessions: owner.sessions.filter((session) => session.id !== sessionId),
-    });
+    const archivedOwner = (await taskStore.listArchived())
+      .find((task) => task.sessions.some((session) => session.id === sessionId));
+    if (!archivedOwner) return;
+
+    await taskStore.updateArchived(archivedOwner.id, (task) => ({
+      sessions: task.sessions.filter((session) => session.id !== sessionId),
+    }));
   }
 
   router.register(MSG.SESSION_CREATE, async (payload) => {
@@ -60,9 +74,9 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
       label: label ?? `${type} session`,
       createdAt: new Date().toISOString(),
     };
-    await taskStore.updateTask(taskId, {
-      sessions: [...task.sessions, sessionRef],
-    });
+    await taskStore.updateTask(taskId, (currentTask) => ({
+      sessions: [...currentTask.sessions, sessionRef],
+    }));
 
     return { sessionId };
   });

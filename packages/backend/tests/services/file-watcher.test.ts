@@ -54,11 +54,13 @@ describe('FileWatcher', () => {
     watcher = new FileWatcher();
 
     const changes: string[] = [];
-    watcher.watch(tempDir, (event) => { changes.push(event.path); });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await watcher.watch(tempDir, (event) => { changes.push(event.path); });
     await writeFile(join(tempDir, 'new-file.ts'), 'hello');
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const started = Date.now();
+    while (changes.length === 0 && Date.now() - started < 2000) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 
     expect(changes.length).toBeGreaterThanOrEqual(1);
   });
