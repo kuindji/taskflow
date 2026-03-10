@@ -3,9 +3,7 @@ import { constants } from 'fs';
 import { basename } from 'path';
 import type { ShellInfo } from '@taskflow/shared';
 
-const KNOWN_INTERACTIVE_SHELLS = new Set([
-  'bash', 'zsh', 'fish', 'sh', 'dash', 'ksh', 'tcsh', 'csh', 'nushell', 'nu',
-]);
+const KNOWN_INTERACTIVE_SHELLS = new Set(['bash', 'zsh']);
 
 async function isExecutable(path: string): Promise<boolean> {
   try {

@@ -3,11 +3,8 @@ import { useFileStore } from '@/stores/file-store';
 import { useTaskStore } from '@/stores/task-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useSessionStore } from '@/stores/session-store';
-import { useUIStore } from '@/stores/ui-store';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { X } from 'lucide-react';
 import { FileTree } from './FileTree';
 
 function FileExplorer() {
@@ -74,17 +71,10 @@ function FileExplorer() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-2 py-1.5 flex justify-between items-center">
+      <div className="px-2 py-1.5 flex items-center">
         <span className="text-muted-foreground text-[9px] uppercase tracking-wider">
           Files
         </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => useUIStore.getState().toggleFileExplorer()}
-        >
-          <X className="h-3 w-3" />
-        </Button>
       </div>
       <Separator />
       <ScrollArea className="flex-1 py-1">

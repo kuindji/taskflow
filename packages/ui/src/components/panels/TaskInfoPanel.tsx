@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTaskStore } from '@/stores/task-store';
-import { useUIStore } from '@/stores/ui-store';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { X } from 'lucide-react';
 
 function TaskInfoPanel() {
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
@@ -89,17 +86,10 @@ function TaskInfoPanel() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-2 py-1.5 flex justify-between items-center">
+      <div className="px-2 py-1.5 flex items-center">
         <span className="text-muted-foreground text-[9px] uppercase tracking-wider">
           Task Info
         </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => useUIStore.getState().toggleTaskInfo()}
-        >
-          <X className="h-3 w-3" />
-        </Button>
       </div>
       <Separator />
 

@@ -1,9 +1,7 @@
-import { useMemo, type ReactNode } from 'react';
+import { useCallback, type ReactNode } from 'react';
 import { useUIStore } from '@/stores/ui-store';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { cn } from '@/lib/utils';
-import { PanelLeftClose, PanelRightClose } from 'lucide-react';
+import { ResizeHandle } from '@/components/ResizeHandle';
+import useIsElectron from '@/hooks/useIsElectron';
 
 interface AppShellProps {
   sidebar: ReactNode;
@@ -12,89 +10,90 @@ interface AppShellProps {
   taskInfo: ReactNode;
 }
 
-export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShellProps) {
-  const {
-    fileExplorerOpen,
-    taskInfoOpen,
-    sidebarWidth,
-    toggleFileExplorer,
-    toggleTaskInfo,
-  } = useUIStore();
+const SIDEBAR_MIN = 180;
+const SIDEBAR_MAX = 350;
+const FILE_EXPLORER_MIN = 150;
+const FILE_EXPLORER_MAX = 500;
+const TASK_INFO_MIN = 150;
+const TASK_INFO_MAX = 500;
 
-  const collapsedPanelClasses = useMemo(
-    () => cn(
-      'w-6 bg-card flex items-center justify-center',
-      'cursor-pointer [writing-mode:vertical-rl]',
-      'text-[9px] text-muted-foreground tracking-widest select-none',
-      'hover:bg-muted/50 transition-colors',
-    ),
-    [],
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShellProps) {
+  const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
+  const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
+  const sidebarWidth = useUIStore((s) => s.sidebarWidth);
+  const fileExplorerWidth = useUIStore((s) => s.fileExplorerWidth);
+  const taskInfoWidth = useUIStore((s) => s.taskInfoWidth);
+  const panelGap = useUIStore((s) => s.panelGap);
+  const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
+  const setFileExplorerWidth = useUIStore((s) => s.setFileExplorerWidth);
+  const setTaskInfoWidth = useUIStore((s) => s.setTaskInfoWidth);
+
+  const handleSidebarResize = useCallback(
+    (delta: number) => {
+      const current = useUIStore.getState().sidebarWidth;
+      setSidebarWidth(clamp(current + delta, SIDEBAR_MIN, SIDEBAR_MAX));
+    },
+    [setSidebarWidth],
   );
+
+  const handleFileExplorerResize = useCallback(
+    (delta: number) => {
+      const current = useUIStore.getState().fileExplorerWidth;
+      setFileExplorerWidth(clamp(current + delta, FILE_EXPLORER_MIN, FILE_EXPLORER_MAX));
+    },
+    [setFileExplorerWidth],
+  );
+
+  const handleTaskInfoResize = useCallback(
+    (delta: number) => {
+      const current = useUIStore.getState().taskInfoWidth;
+      setTaskInfoWidth(clamp(current - delta, TASK_INFO_MIN, TASK_INFO_MAX));
+    },
+    [setTaskInfoWidth],
+  );
+
+  const isElectron = useIsElectron();
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
-      <div
-        className="h-9 shrink-0 bg-card [-webkit-app-region:drag] flex items-center px-20"
-      />
+      {isElectron && (
+        <div
+          className="h-9 shrink-0 bg-card [-webkit-app-region:drag] flex items-center px-20"
+        />
+      )}
       <div className="flex flex-1 overflow-hidden">
       <div
-        className="min-w-[180px] max-w-[350px] bg-card flex flex-col"
+        className="bg-card flex flex-col shrink-0"
         style={{ width: sidebarWidth }}
       >
         {sidebar}
       </div>
 
-      <Separator orientation="vertical" />
+      <ResizeHandle onResize={handleSidebarResize} panelGap={panelGap} />
 
-      {fileExplorerOpen ? (
-        <div className="w-[220px] bg-card flex flex-col">
-          <div className="flex items-center justify-end border-b border-border px-1.5 py-1">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={toggleFileExplorer}
-              aria-label="Collapse file explorer"
-            >
-              <PanelLeftClose className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+      {fileExplorerOpen && (
+        <div className="bg-card flex flex-col shrink-0" style={{ width: fileExplorerWidth }}>
           {fileExplorer}
-        </div>
-      ) : (
-        <div
-          onClick={toggleFileExplorer}
-          className={cn(collapsedPanelClasses, 'rotate-180')}
-        >
-          FILES
         </div>
       )}
 
-      <Separator orientation="vertical" />
+      {fileExplorerOpen && (
+        <ResizeHandle onResize={handleFileExplorerResize} panelGap={panelGap} />
+      )}
 
       <div className="flex-1 flex flex-col overflow-hidden">{workspace}</div>
 
-      <Separator orientation="vertical" />
+      {taskInfoOpen && (
+        <ResizeHandle onResize={handleTaskInfoResize} panelGap={panelGap} />
+      )}
 
-      {taskInfoOpen ? (
-        <div className="w-[220px] bg-card flex flex-col">
-          <div className="flex items-center justify-start border-b border-border px-1.5 py-1">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={toggleTaskInfo}
-              aria-label="Collapse task info"
-            >
-              <PanelRightClose className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+      {taskInfoOpen && (
+        <div className="bg-card flex flex-col shrink-0" style={{ width: taskInfoWidth }}>
           {taskInfo}
-        </div>
-      ) : (
-        <div
-          onClick={toggleTaskInfo}
-          className={collapsedPanelClasses}
-        >
-          TASK
         </div>
       )}
       </div>
