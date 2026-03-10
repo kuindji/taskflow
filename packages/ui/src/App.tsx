@@ -1,6 +1,9 @@
 import { WebSocketProvider, useWsStatus } from '@/providers/WebSocketProvider';
 import { AppShell } from '@/components/AppShell';
 import { DialogHost } from '@/components/DialogHost';
+import { TaskSidebar } from '@/components/sidebar/TaskSidebar';
+import { Workspace } from '@/components/workspace/Workspace';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 function ConnectionOverlay() {
   const { connected, error } = useWsStatus();
@@ -25,12 +28,14 @@ export function App() {
     <WebSocketProvider>
       <ConnectionOverlay />
       <DialogHost />
-      <AppShell
-        sidebar={<div className="p-3 text-muted-foreground">Task Sidebar</div>}
-        fileExplorer={<div className="p-3 text-muted-foreground">File Explorer</div>}
-        workspace={<div className="p-3 text-muted-foreground">Workspace</div>}
-        taskInfo={<div className="p-3 text-muted-foreground">Task Info</div>}
-      />
+      <TooltipProvider>
+        <AppShell
+          sidebar={<TaskSidebar />}
+          fileExplorer={<div className="p-3 text-muted-foreground text-[11px]">File Explorer (coming in Chunk 7)</div>}
+          workspace={<Workspace />}
+          taskInfo={<div className="p-3 text-muted-foreground text-[11px]">Task Info (coming in Chunk 7)</div>}
+        />
+      </TooltipProvider>
     </WebSocketProvider>
   );
 }
