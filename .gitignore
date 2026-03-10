@@ -6,3 +6,4 @@ dist/
 .taskflow-port
 *.taskflow-port
 .worktrees/
+.claude/settings.local.json
