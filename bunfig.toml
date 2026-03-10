@@ -1,0 +1,5 @@
+[install]
+peer = false
+
+[workspace]
+packages = ["packages/*", "electron"]

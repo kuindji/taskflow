@@ -1,0 +1,13 @@
+{
+  "name": "@taskflow/electron",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "cd .. && bun run build && cd electron && electron .",
+    "build": "bun build src/main.ts --outdir dist --target node --external electron && bun build src/preload.ts --outdir dist --target node --external electron"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
