@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import monacoEditor from 'vite-plugin-monaco-editor';
+import monacoEditorModule from 'vite-plugin-monaco-editor';
+
+// CJS module with exports.default
+const monacoEditor = (monacoEditorModule as { default: typeof monacoEditorModule }).default;
 
 export default defineConfig({
   plugins: [
