@@ -1,17 +1,77 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
-@theme {
-  --color-base: #1e1e2e;
-  --color-surface: #181825;
-  --color-overlay: #313244;
-  --color-primary: #cdd6f4;
-  --color-secondary: #a6adc8;
-  --color-muted: #585b70;
-  --color-border: #313244;
-  --color-accent-blue: #89b4fa;
-  --color-accent-green: #a6e3a1;
-  --color-accent-yellow: #f9e2af;
-  --color-accent-red: #f38ba8;
+/*
+  Tailwind v4 requires namespaced variables in @theme for utility classes to work:
+  --color-* for colors, --radius-* for border-radius, etc.
+  We use @theme inline so these map to existing CSS custom properties without
+  creating duplicate properties.
+*/
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --background: #1e1e2e;
+  --foreground: #cdd6f4;
+  --card: #181825;
+  --card-foreground: #cdd6f4;
+  --popover: #313244;
+  --popover-foreground: #cdd6f4;
+  --primary: #cdd6f4;
+  --primary-foreground: #1e1e2e;
+  --secondary: #313244;
+  --secondary-foreground: #a6adc8;
+  --muted: #313244;
+  --muted-foreground: #585b70;
+  --accent: #89b4fa;
+  --accent-foreground: #1e1e2e;
+  --destructive: #f38ba8;
+  --destructive-foreground: #1e1e2e;
+  --border: #313244;
+  --input: #313244;
+  --ring: #89b4fa;
+  --radius: 0.5rem;
+  --chart-1: #89b4fa;
+  --chart-2: #a6e3a1;
+  --chart-3: #f9e2af;
+  --chart-4: #f38ba8;
+  --chart-5: #cba6f7;
+  --success: #a6e3a1;
+  --success-foreground: #1e1e2e;
+  --warning: #f9e2af;
+  --warning-foreground: #1e1e2e;
 }
 
 * {
@@ -22,5 +82,5 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  @apply bg-base text-primary overflow-hidden;
+  @apply bg-background text-foreground overflow-hidden;
 }
