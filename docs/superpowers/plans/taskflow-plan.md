@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bun, Electron, React, TypeScript, Monaco, xterm.js, Zustand, node-pty, WebSocket
 
-**Runtime Scope:** v1 is verified as a workspace-run desktop app. Electron launches the backend from the checked-out repo and expects Bun to be installed on the developer machine. Packaging Bun into a standalone distributable app is a follow-up milestone and is not part of this plan.
+**Runtime Scope:** v1 is verified as a workspace-run macOS desktop app. Electron launches the backend from the checked-out repo and expects Bun to be installed on the developer machine. Packaging Bun into a standalone distributable app is a follow-up milestone and is not part of this plan.
 
 **Persistence:** Project metadata is stored under `~/.config/taskflow/projects.json`; tasks and archives live under `~/.config/taskflow/tasks/` and `~/.config/taskflow/archive/`. A project record stores the chosen folder path plus an optional display name.
 
@@ -70,7 +70,7 @@
 ### packages/ui/
 - `package.json` — package config
 - `src/index.tsx` — React entry point
-- `src/index.html` — HTML template
+- `index.html` — HTML template
 - `src/App.tsx` — root component, wraps providers
 - `src/providers/WebSocketProvider.tsx` — WS connection, message routing
 - `src/hooks/useWebSocket.ts` — hook for sending requests + receiving responses
@@ -95,7 +95,6 @@
 - `src/components/panels/FileExplorer.tsx` — collapsible left rail
 - `src/components/panels/FileTree.tsx` — recursive file tree
 - `src/components/panels/TaskInfoPanel.tsx` — collapsible right rail
-- `src/lib/link-provider.ts` — xterm.js link providers for files and URLs
 - `src/styles/global.css` — base styles, Tailwind imports
 
 ### electron/

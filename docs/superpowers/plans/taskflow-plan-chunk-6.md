@@ -24,23 +24,31 @@
 File: `packages/ui/src/components/panes/TerminalPane.tsx`
 ```tsx
 import { useEffect, useRef } from 'react';
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import { useSessionStore } from '@/stores/session-store';
 import { onEvent } from '@/hooks/useWebSocket';
 import { MSG } from '@taskflow/shared';
 import type { TerminalOutputEvent } from '@taskflow/shared';
-import 'xterm/css/xterm.css';
+import '@xterm/xterm/css/xterm.css';
 
 interface TerminalPaneProps {
   sessionId: string;
+  visible: boolean;
 }
 
-export function TerminalPane({ sessionId }: TerminalPaneProps) {
+export function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const { sendInput, resizeTerminal } = useSessionStore();
+  const visibleRef = useRef(visible);
+  const sendInput = useSessionStore((s) => s.sendInput);
+  const resizeTerminal = useSessionStore((s) => s.resizeTerminal);
+
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -67,25 +75,25 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
 
     const fit = new FitAddon();
     term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon());
+
     term.open(containerRef.current);
-
-    // Send keystrokes to PTY
-    term.onData((data) => {
-      sendInput(sessionId, data);
-    });
-
-    // Resize PTY when terminal resizes
-    term.onResize(({ cols, rows }) => {
-      resizeTerminal(sessionId, cols, rows);
-    });
-
-    fit.fit();
-    resizeTerminal(sessionId, term.cols, term.rows);
-
     termRef.current = term;
     fitRef.current = fit;
 
-    // Listen for PTY output
+    if (visible) {
+      fit.fit();
+      resizeTerminal(sessionId, term.cols, term.rows);
+    }
+
+    const dataDisposable = term.onData((data) => {
+      sendInput(sessionId, data);
+    });
+
+    const resizeDisposable = term.onResize(({ cols, rows }) => {
+      resizeTerminal(sessionId, cols, rows);
+    });
+
     const unsubscribe = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
       const event = payload as TerminalOutputEvent;
       if (event.sessionId === sessionId) {
@@ -95,23 +103,30 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
 
     // Resize on container resize
     const resizeObserver = new ResizeObserver(() => {
-      fit.fit();
+      if (!visibleRef.current || !fitRef.current || !termRef.current) return;
+      fitRef.current.fit();
+      resizeTerminal(sessionId, termRef.current.cols, termRef.current.rows);
     });
     resizeObserver.observe(containerRef.current);
 
     return () => {
-      unsubscribe();
       resizeObserver.disconnect();
+      unsubscribe();
+      dataDisposable.dispose();
+      resizeDisposable.dispose();
       term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
     };
   }, [sessionId, resizeTerminal, sendInput]);
 
-  return (
-    <div
-      ref={containerRef}
-      className="flex-1 overflow-hidden"
-    />
-  );
+  useEffect(() => {
+    if (!visible || !termRef.current || !fitRef.current) return;
+    fitRef.current.fit();
+    resizeTerminal(sessionId, termRef.current.cols, termRef.current.rows);
+  }, [visible, sessionId, resizeTerminal]);
+
+  return <div ref={containerRef} className="flex-1 overflow-hidden" />;
 }
 ```
 
@@ -250,7 +265,7 @@ git commit -m "feat: add EditorPane with Monaco editor"
 
 File: `packages/ui/src/components/panes/ChangesPane.tsx`
 ```tsx
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cva } from 'class-variance-authority';
 import type { GitStatusResult, GitFileStatus } from '@taskflow/shared';
 import { MSG } from '@taskflow/shared';
@@ -298,11 +313,17 @@ function statusPrefix(status: GitFileStatus['status']): string {
   return '?';
 }
 
+function displayPath(file: GitFileStatus): string {
+  return file.status === 'renamed' && file.previousPath
+    ? `${file.previousPath} -> ${file.path}`
+    : file.path;
+}
+
 interface FileStatusRowProps {
   file: GitFileStatus;
   isSelected: boolean;
   onSelect: (path: string) => void;
-  onRevert: (path: string) => void;
+  onRevert: (file: GitFileStatus) => void;
 }
 
 function FileStatusRow({ file, isSelected, onSelect, onRevert }: FileStatusRowProps) {
@@ -332,7 +353,7 @@ function FileStatusRow({ file, isSelected, onSelect, onRevert }: FileStatusRowPr
         >
           {statusPrefix(file.status)}
         </Badge>
-        <span className="text-secondary-foreground">{file.path}</span>
+        <span className="text-secondary-foreground">{displayPath(file)}</span>
       </span>
       <Tooltip>
         <TooltipTrigger asChild>
@@ -340,12 +361,12 @@ function FileStatusRow({ file, isSelected, onSelect, onRevert }: FileStatusRowPr
             variant="ghost"
             size="icon-sm"
             className="h-5 w-5 text-destructive"
-            onClick={(e) => { e.stopPropagation(); onRevert(file.path); }}
+            onClick={(e) => { e.stopPropagation(); onRevert(file); }}
           >
             <Undo2 className="h-3 w-3" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Revert file</TooltipContent>
+        <TooltipContent>Revert change</TooltipContent>
       </Tooltip>
     </div>
   );
@@ -368,21 +389,21 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
     [className],
   );
 
-  useEffect(() => {
-    setSelectedFile(null);
-    setDiff(null);
-    setDiffLoading(false);
-    void fetchStatus();
-  }, [repoPath]);
-
-  async function fetchStatus() {
+  const fetchStatus = useCallback(async () => {
     try {
       const { status } = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: repoPath });
       setStatus(status);
     } catch (err) {
       console.error('Failed to fetch git status:', err);
     }
-  }
+  }, [repoPath]);
+
+  useEffect(() => {
+    setSelectedFile(null);
+    setDiff(null);
+    setDiffLoading(false);
+    void fetchStatus();
+  }, [repoPath, fetchStatus]);
 
   async function showDiff(filePath: string) {
     const requestId = ++diffRequestIdRef.current;
@@ -404,11 +425,16 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
     }
   }
 
-  async function revertFile(filePath: string) {
+  async function revertFile(file: GitFileStatus) {
     try {
-      await sendRequest(MSG.GIT_REVERT_FILE, { repoPath, filePath });
+      await sendRequest(MSG.GIT_REVERT_FILE, {
+        repoPath,
+        filePath: file.path,
+        status: file.status,
+        previousPath: file.previousPath,
+      });
       await fetchStatus();
-      if (selectedFile === filePath) {
+      if (selectedFile === file.path) {
         setSelectedFile(null);
         setDiff(null);
         setDiffLoading(false);

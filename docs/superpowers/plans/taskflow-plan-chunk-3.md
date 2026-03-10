@@ -10,6 +10,12 @@
 - Create: `packages/backend/src/services/pty-manager.ts`
 - Create: `packages/backend/tests/services/pty-manager.test.ts`
 
+- [ ] **Step 0: Verify node-pty works with Bun**
+
+Run: `cd packages/backend && bun -e "const pty = require('node-pty'); const p = pty.spawn('echo', ['ok'], { cwd: '/tmp' }); p.onData(d => { console.log('OK:', d.trim()); }); setTimeout(() => process.exit(0), 1000);"`
+Expected: `OK: ok`
+If this fails, node-pty's native addon is incompatible with Bun. Fallback: use `Bun.spawn` with raw stdin/stdout pipes instead of PTY (loses terminal features like colors and resize, but functional).
+
 - [ ] **Step 1: Write PTY manager tests**
 
 File: `packages/backend/tests/services/pty-manager.test.ts`
@@ -35,7 +41,7 @@ describe('PtyManager', () => {
     });
 
     expect(sessionId).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     expect(output).toContain('hello-pty-test');
   });
 
@@ -50,7 +56,7 @@ describe('PtyManager', () => {
     });
 
     manager.write(sessionId, 'test-input\n');
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     expect(output).toContain('test-input');
     manager.close(sessionId);
   });
@@ -202,6 +208,19 @@ interface SessionHandlerDeps {
 export function registerSessionHandlers(deps: SessionHandlerDeps): void {
   const { router, ptyManager, taskStore, broadcast } = deps;
 
+  async function removeSessionFromTask(sessionId: string, taskId?: string): Promise<void> {
+    const tasks = taskId
+      ? [await taskStore.getTask(taskId)].filter(Boolean)
+      : await taskStore.listTasks();
+
+    const owner = tasks.find((task) => task?.sessions.some((session) => session.id === sessionId));
+    if (!owner) return;
+
+    await taskStore.updateTask(owner.id, {
+      sessions: owner.sessions.filter((session) => session.id !== sessionId),
+    });
+  }
+
   router.register(MSG.SESSION_CREATE, async (payload) => {
     const { taskId, type, label } = payload as SessionCreatePayload;
     const task = await taskStore.getTask(taskId);
@@ -223,12 +242,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
         });
       },
       onExit: () => {
-        taskStore.getTask(taskId).then((t) => {
-          if (t) {
-            const sessions = t.sessions.filter((s) => s.id !== sessionId);
-            taskStore.updateTask(taskId, { sessions });
-          }
-        });
+        void removeSessionFromTask(sessionId, taskId);
       },
     });
 
@@ -252,6 +266,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
 
   router.register(MSG.SESSION_CLOSE, async (payload) => {
     const { sessionId } = payload as SessionClosePayload;
+    await removeSessionFromTask(sessionId);
     ptyManager.close(sessionId);
     return { success: true };
   });
@@ -344,9 +359,38 @@ describe('GitService', () => {
     await rm(nonRepoDir, { recursive: true, force: true });
   });
 
-  it('reverts a file', async () => {
+  it('reverts a modified file', async () => {
     await writeFile(join(repoDir, 'initial.txt'), 'modified');
-    await git.revertFile(repoDir, 'initial.txt');
+    await git.revertFile(repoDir, { path: 'initial.txt', status: 'modified' });
+    const status = await git.status(repoDir);
+    expect(status.files).toHaveLength(0);
+  });
+
+  it('parses renamed files with spaces using porcelain -z metadata', async () => {
+    await run(['git', 'mv', 'initial.txt', 'renamed file.txt'], repoDir);
+    const status = await git.status(repoDir);
+    expect(status.files).toHaveLength(1);
+    expect(status.files[0]).toMatchObject({
+      status: 'renamed',
+      path: 'renamed file.txt',
+      previousPath: 'initial.txt',
+    });
+  });
+
+  it('reverts an untracked file by removing it', async () => {
+    await writeFile(join(repoDir, 'scratch.txt'), 'temporary');
+    await git.revertFile(repoDir, { path: 'scratch.txt', status: 'untracked' });
+    const status = await git.status(repoDir);
+    expect(status.files).toHaveLength(0);
+  });
+
+  it('reverts a renamed file', async () => {
+    await run(['git', 'mv', 'initial.txt', 'renamed file.txt'], repoDir);
+    await git.revertFile(repoDir, {
+      path: 'renamed file.txt',
+      previousPath: 'initial.txt',
+      status: 'renamed',
+    });
     const status = await git.status(repoDir);
     expect(status.files).toHaveLength(0);
   });
@@ -374,7 +418,7 @@ Note: Uses `Bun.spawn` with explicit argument arrays to avoid shell injection.
 File: `packages/backend/src/services/git-service.ts`
 ```typescript
 import type { GitStatusResult, GitFileStatus, GitDiffResult, GitDiffFile } from '@taskflow/shared';
-import { mkdir } from 'fs/promises';
+import { mkdir, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 
 async function git(args: string[], cwd: string): Promise<string> {
@@ -397,16 +441,31 @@ async function git(args: string[], cwd: string): Promise<string> {
 export class GitService {
   async status(repoPath: string): Promise<GitStatusResult> {
     const branchOutput = await git(['branch', '--show-current'], repoPath);
-    const statusOutput = await git(['status', '--porcelain'], repoPath);
+    // Use the NUL-delimited porcelain format so paths are machine-safe even when
+    // rename targets contain spaces or other escaped characters.
+    const statusOutput = await git(['status', '--porcelain=v1', '-z'], repoPath);
 
     const files: GitFileStatus[] = [];
-    for (const line of statusOutput.split('\n')) {
-      if (!line.trim()) continue;
-      const xy = line.substring(0, 2);
-      const path = line.substring(3);
+    const entries = statusOutput.split('\0').filter((entry) => entry.length > 0);
+
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      const xy = entry.substring(0, 2);
+      const path = entry.substring(3);
+      let previousPath: string | undefined;
+
+      if (xy.includes('R')) {
+        previousPath = entries[index + 1];
+        if (!previousPath) {
+          throw new Error('Malformed git status output: rename entry missing previous path');
+        }
+        index += 1;
+      }
+
       files.push({
         path,
         absolutePath: join(repoPath, path),
+        previousPath,
         status: this.parseStatus(xy),
       });
     }
@@ -445,8 +504,20 @@ export class GitService {
     return git(['diff', '--', filePath], repoPath);
   }
 
-  async revertFile(repoPath: string, filePath: string): Promise<void> {
-    await git(['checkout', '--', filePath], repoPath);
+  async revertFile(
+    repoPath: string,
+    file: Pick<GitFileStatus, 'path' | 'status' | 'previousPath'>,
+  ): Promise<void> {
+    if (file.status === 'untracked' || file.status === 'new') {
+      await rm(join(repoPath, file.path), { recursive: true, force: true });
+      return;
+    }
+
+    const paths = file.status === 'renamed' && file.previousPath
+      ? [file.previousPath, file.path]
+      : [file.path];
+
+    await git(['restore', '--source=HEAD', '--staged', '--worktree', '--', ...paths], repoPath);
   }
 
   async createWorktree(repoPath: string, branch: string, worktreePath: string): Promise<void> {
@@ -536,9 +607,9 @@ describe('FileWatcher', () => {
     const changes: string[] = [];
     watcher.watch(tempDir, (event) => { changes.push(event.path); });
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    await writeFile(join(tempDir, 'new-file.ts'), 'hello');
     await new Promise((resolve) => setTimeout(resolve, 500));
+    await writeFile(join(tempDir, 'new-file.ts'), 'hello');
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     expect(changes.length).toBeGreaterThanOrEqual(1);
   });
@@ -838,10 +909,18 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
   });
 
   router.register(MSG.GIT_REVERT_FILE, async (payload) => {
-    const { repoPath: rawRepoPath, filePath } = payload as GitRevertFilePayload;
+    const {
+      repoPath: rawRepoPath,
+      filePath,
+      status,
+      previousPath,
+    } = payload as GitRevertFilePayload;
     const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
     assertRepoFilePath(repoPath, filePath);
-    await git.revertFile(repoPath, filePath);
+    if (previousPath) {
+      assertRepoFilePath(repoPath, previousPath);
+    }
+    await git.revertFile(repoPath, { path: filePath, status, previousPath });
     return { success: true };
   });
 

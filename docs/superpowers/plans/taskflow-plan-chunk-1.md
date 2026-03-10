@@ -27,8 +27,7 @@
     "dev:ui": "cd packages/ui && bun run dev",
     "dev:electron": "cd electron && bun run dev",
     "test": "bun test",
-    "build": "bun run build:shared && bun run build:backend && bun run build:ui && bun run build:electron",
-    "build:shared": "cd packages/shared && bun run build",
+    "build": "bun run build:backend && bun run build:ui && bun run build:electron",
     "build:backend": "cd packages/backend && bun run build",
     "build:ui": "cd packages/ui && bun run build",
     "build:electron": "cd electron && bun run build"
@@ -110,8 +109,10 @@ git commit -m "feat: initialize monorepo scaffolding"
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node",
     "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
   }
 }
 ```
@@ -179,7 +180,7 @@ File: `packages/shared/src/types/ws.ts`
 import type { Project } from './project';
 import type { Task } from './task';
 import type { FileNode, FileChangeEvent } from './file';
-import type { GitStatusResult, GitDiffResult } from './git';
+import type { GitStatusResult, GitDiffResult, GitFileStatus } from './git';
 import type { SystemInfo } from './system';
 
 // Base message types
@@ -336,6 +337,8 @@ export interface GitDiffFileResponse {
 export interface GitRevertFilePayload {
   repoPath: string;
   filePath: string;
+  status: GitFileStatus['status'];
+  previousPath?: string;
 }
 
 export interface GitWorktreeCreatePayload {
@@ -354,7 +357,7 @@ export interface FileNode {
   path: string;
   type: 'file' | 'directory';
   children?: FileNode[];
-  gitStatus?: 'new' | 'modified' | 'deleted' | 'untracked' | null;
+  gitStatus?: 'new' | 'modified' | 'deleted' | 'untracked' | 'renamed' | null;
 }
 
 export interface FileChangeEvent {
@@ -370,6 +373,7 @@ File: `packages/shared/src/types/git.ts`
 export interface GitFileStatus {
   path: string;
   absolutePath?: string;
+  previousPath?: string;
   status: 'new' | 'modified' | 'deleted' | 'untracked' | 'renamed';
 }
 
@@ -607,9 +611,9 @@ git commit -m "feat: scaffold backend package with config"
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zustand": "^5.0.0",
-    "xterm": "^5.5.0",
-    "xterm-addon-fit": "^0.10.0",
-    "xterm-addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
     "monaco-editor": "^0.52.0"
   },
   "devDependencies": {
@@ -619,7 +623,8 @@ git commit -m "feat: scaffold backend package with config"
     "vite": "^6.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "tailwindcss": "^4.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vite-plugin-monaco-editor": "^1.1.0"
   }
 }
 ```
@@ -665,9 +670,16 @@ File: `packages/ui/vite.config.ts`
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import monacoEditor from 'vite-plugin-monaco-editor';
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    monacoEditor({
+      languageWorkers: ['editorWorkerService', 'typescript', 'json', 'css', 'html'],
+    }),
+  ],
   build: {
     outDir: 'dist',
   },
@@ -759,7 +771,7 @@ git commit -m "feat: scaffold UI package with React, Vite, Tailwind"
   "main": "dist/main.js",
   "scripts": {
     "dev": "cd .. && bun run build && cd electron && electron .",
-    "build": "bun build src/main.ts --outdir dist --target node && bun build src/preload.ts --outdir dist --target node"
+    "build": "bun build src/main.ts --outdir dist --target node --external electron && bun build src/preload.ts --outdir dist --target node --external electron"
   },
   "devDependencies": {
     "electron": "^33.0.0"

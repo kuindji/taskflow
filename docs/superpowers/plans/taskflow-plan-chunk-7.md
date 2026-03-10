@@ -333,7 +333,7 @@ git commit -m "feat: add FileExplorer and FileTree with git status"
 
 File: `packages/ui/src/components/panels/TaskInfoPanel.tsx`
 ```tsx
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTaskStore } from '@/stores/task-store';
 import { useUIStore } from '@/stores/ui-store';
 import { Textarea } from '@/components/ui/textarea';
@@ -360,6 +360,28 @@ export function TaskInfoPanel({ className }: { className?: string }) {
     };
   }, [task?.id]);
 
+  const saveIfDirty = useCallback(() => {
+    if (!task) return;
+    const updates: { description?: string; notes?: string } = {};
+    if (descriptionDraft !== lastSavedRef.current.description) {
+      updates.description = descriptionDraft;
+    }
+    if (notesDraft !== lastSavedRef.current.notes) {
+      updates.notes = notesDraft;
+    }
+    if (Object.keys(updates).length === 0) return;
+
+    lastSavedRef.current = {
+      description: descriptionDraft,
+      notes: notesDraft,
+    };
+
+    void updateTask(task.id, updates).catch((err) => {
+      console.error('Failed to update task:', err);
+    });
+  }, [task, descriptionDraft, notesDraft, updateTask]);
+
+  // Auto-save on debounce
   useEffect(() => {
     if (!task) return;
     if (
@@ -369,28 +391,14 @@ export function TaskInfoPanel({ className }: { className?: string }) {
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      const updates: { description?: string; notes?: string } = {};
-      if (descriptionDraft !== lastSavedRef.current.description) {
-        updates.description = descriptionDraft;
-      }
-      if (notesDraft !== lastSavedRef.current.notes) {
-        updates.notes = notesDraft;
-      }
-      if (Object.keys(updates).length === 0) return;
-
-      lastSavedRef.current = {
-        description: descriptionDraft,
-        notes: notesDraft,
-      };
-
-      void updateTask(task.id, updates).catch((err) => {
-        console.error('Failed to update task:', err);
-      });
-    }, 400);
-
+    const timeoutId = window.setTimeout(saveIfDirty, 400);
     return () => window.clearTimeout(timeoutId);
-  }, [descriptionDraft, notesDraft, task, updateTask]);
+  }, [descriptionDraft, notesDraft, task, saveIfDirty]);
+
+  // Flush unsaved changes on unmount
+  useEffect(() => {
+    return () => { saveIfDirty(); };
+  }, [saveIfDirty]);
 
   if (!task) {
     return (
@@ -589,14 +597,15 @@ import { useTaskStore } from '@/stores/task-store';
 import { useProjectStore } from '@/stores/project-store';
 
 interface TabContentProps {
-  tab: Tab | undefined;
+  tabs: Tab[];
+  activeTabId: string;
 }
 
-export function TabContent({ tab }: TabContentProps) {
+export function TabContent({ tabs, activeTabId }: TabContentProps) {
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
   const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
 
-  if (!tab) {
+  if (tabs.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
         No active tab. Create a session with +
@@ -607,43 +616,58 @@ export function TabContent({ tab }: TabContentProps) {
   const workingDir = task?.worktree.enabled && task.worktree.path
     ? task.worktree.path : project?.path ?? '';
 
-  let pane: React.ReactNode;
-  let label: string;
-
-  switch (tab.type) {
-    case 'claude':
-    case 'codex':
-      label = `${tab.type} terminal`;
-      pane = tab.sessionId
-        ? <TerminalPane sessionId={tab.sessionId} />
-        : <div className="p-3 text-muted-foreground">Session not found</div>;
-      break;
-
-    case 'editor':
-      label = tab.filePath?.split('/').pop() ?? 'Editor';
-      pane = tab.filePath
-        ? <EditorPane filePath={tab.filePath} />
-        : <div className="p-3 text-muted-foreground">No file specified</div>;
-      break;
-
-    case 'changes':
-      label = 'Changes';
-      pane = <ChangesPane repoPath={workingDir} />;
-      break;
-
-    case 'browser':
-      label = 'Browser';
-      pane = <BrowserPane key={tab.id} initialUrl={tab.url ?? 'about:blank'} />;
-      break;
-
-    default:
-      return <div className="p-3 text-muted-foreground">Unknown tab type</div>;
-  }
-
   return (
-    <ErrorBoundary key={tab.id} fallbackLabel={label}>
-      {pane}
-    </ErrorBoundary>
+    <>
+      {tabs.map((tab) => {
+        const isActive = tab.id === activeTabId;
+
+        let pane: React.ReactNode;
+        let label: string;
+
+        switch (tab.type) {
+          case 'claude':
+          case 'codex':
+            label = `${tab.type} terminal`;
+            // Terminal panes are always mounted but hidden when inactive
+            // so PTY output is buffered and state is preserved across tab switches
+            pane = tab.sessionId
+              ? <TerminalPane sessionId={tab.sessionId} visible={isActive} />
+              : <div className="p-3 text-muted-foreground">Session not found</div>;
+            break;
+
+          case 'editor':
+            label = tab.filePath?.split('/').pop() ?? 'Editor';
+            if (!isActive) return null; // Editors are mounted/unmounted normally
+            pane = tab.filePath
+              ? <EditorPane filePath={tab.filePath} />
+              : <div className="p-3 text-muted-foreground">No file specified</div>;
+            break;
+
+          case 'changes':
+            label = 'Changes';
+            if (!isActive) return null;
+            pane = <ChangesPane repoPath={workingDir} />;
+            break;
+
+          case 'browser':
+            label = 'Browser';
+            if (!isActive) return null;
+            pane = <BrowserPane key={tab.id} initialUrl={tab.url ?? 'about:blank'} />;
+            break;
+
+          default:
+            return null;
+        }
+
+        return (
+          <ErrorBoundary key={tab.id} fallbackLabel={label}>
+            <div style={{ display: isActive ? 'contents' : 'none' }}>
+              {pane}
+            </div>
+          </ErrorBoundary>
+        );
+      })}
+    </>
   );
 }
 ```

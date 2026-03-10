@@ -16,45 +16,14 @@
 
 ---
 
-### Task 5.1: Vite config for the UI package
+### Task 5.1: Verify Vite config
 
-**Files:**
-- Create: `packages/ui/vite.config.ts`
+> **Note:** Chunk 1 creates `vite.config.ts` with Monaco plugin config. Chunk 4.5 Task 4.5.2 adds the `@` path alias. Verify the file has both the `@` alias and the `monacoEditor` plugin. If it does, skip to Task 5.2.
 
-> **Note:** Chunk 1 now creates a base `vite.config.ts`. If Chunk 4.5 Task 4.5.2 has already updated it with the `@` alias, verify it matches and skip to Step 2.
-
-- [ ] **Step 1: Create Vite config**
-
-File: `packages/ui/vite.config.ts`
-```typescript
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
-import path from 'path';
-
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
-  build: { outDir: 'dist' },
-  server: { port: 5173 },
-});
-```
-
-- [ ] **Step 2: Verify dev server starts**
+- [ ] **Step 1: Verify dev server starts**
 
 Run: `cd packages/ui && bunx vite --host 2>&1 | head -5 &; sleep 3; kill %1 2>/dev/null; true`
 Expected: Vite dev server output
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add packages/ui/vite.config.ts
-git commit -m "feat: add Vite config for UI package"
-```
 
 ### Task 5.2: WebSocket hook and provider
 
@@ -102,6 +71,9 @@ function scheduleReconnect(): void {
 
 export function connectWebSocket(port: number): Promise<void> {
   wsPort = port;
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+    ws.close();
+  }
   return new Promise((resolve, reject) => {
     ws = new WebSocket(`ws://localhost:${port}`);
     ws.onopen = () => {
@@ -180,11 +152,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         if (window.taskflow) {
           port = await window.taskflow.getBackendPort();
         } else {
-          port = parseInt(import.meta.env.VITE_BACKEND_PORT ?? '0');
-          if (!port) {
-            const resp = await fetch('/api/port');
-            port = parseInt(await resp.text());
+          const rawPort = import.meta.env.VITE_BACKEND_PORT;
+          if (!rawPort) {
+            throw new Error('VITE_BACKEND_PORT must be set when running the renderer outside Electron');
           }
+          port = parseInt(rawPort, 10);
+        }
+        if (!Number.isInteger(port) || port <= 0) {
+          throw new Error(`Invalid backend port: ${port}`);
         }
         await connectWebSocket(port);
       } catch (err) {
@@ -272,7 +247,6 @@ interface TaskStore {
   archiveTask(id: string): Promise<void>;
   deleteTask(id: string): Promise<void>;
   setActiveTask(id: string | null): void;
-  getActiveTask(): Task | undefined;
 }
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
@@ -308,10 +282,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }));
   },
   setActiveTask(id) { set({ activeTaskId: id }); },
-  getActiveTask() {
-    const { tasks, activeTaskId } = get();
-    return tasks.find((t) => t.id === activeTaskId);
-  },
 }));
 ```
 
@@ -371,7 +341,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
   async closeTab(taskId, tabId) {
     const tab = (get().tabsByTask[taskId] ?? []).find((entry) => entry.id === tabId);
-    if (tab?.sessionId) await get().closeSession(tab.sessionId);
+    if (tab?.sessionId) {
+      await get().closeSession(tab.sessionId);
+    }
     set((s) => {
       const tabs = (s.tabsByTask[taskId] ?? []).filter((t) => t.id !== tabId);
       const activeId = s.activeTabByTask[taskId] === tabId ? tabs[tabs.length - 1]?.id ?? '' : s.activeTabByTask[taskId];
@@ -901,7 +873,7 @@ interface TabBarProps {
   activeTabId: string;
   onTabClick: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
-  onNewTab: (type: 'claude' | 'codex' | 'browser') => void;
+  onNewTab: (type: 'claude' | 'codex' | 'changes' | 'browser') => void;
 }
 
 export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: TabBarProps) {
@@ -915,6 +887,7 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: 
         <DropdownMenuContent align="start">
           <DropdownMenuItem onClick={() => onNewTab('claude')}><Terminal className="h-3.5 w-3.5 mr-2" />Claude Code</DropdownMenuItem>
           <DropdownMenuItem onClick={() => onNewTab('codex')}><Code className="h-3.5 w-3.5 mr-2" />Codex</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onNewTab('changes')}><Code className="h-3.5 w-3.5 mr-2" />Changes</DropdownMenuItem>
           <DropdownMenuItem onClick={() => onNewTab('browser')}><Globe className="h-3.5 w-3.5 mr-2" />Browser</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -931,19 +904,20 @@ File: `packages/ui/src/components/workspace/TabContent.tsx`
 ```tsx
 import type { Tab } from '@/stores/session-store';
 
-interface TabContentProps { tab: Tab | undefined; }
+interface TabContentProps { tabs: Tab[]; activeTabId: string; }
 
-export function TabContent({ tab }: TabContentProps) {
-  if (!tab) {
+export function TabContent({ tabs, activeTabId }: TabContentProps) {
+  const activeTab = tabs.find((t) => t.id === activeTabId);
+  if (!activeTab) {
     return <div className="flex-1 flex items-center justify-center text-muted-foreground">No active tab. Create a session with +</div>;
   }
-  // Placeholder — replaced with real pane components in Chunk 6
+  // Placeholder — replaced with real pane components in Chunk 7
   return (
     <div className="flex-1 p-3 text-secondary-foreground">
-      <p>Tab: {tab.label} ({tab.type})</p>
-      {tab.sessionId && <p>Session: {tab.sessionId}</p>}
-      {tab.filePath && <p>File: {tab.filePath}</p>}
-      {tab.url && <p>URL: {tab.url}</p>}
+      <p>Tab: {activeTab.label} ({activeTab.type})</p>
+      {activeTab.sessionId && <p>Session: {activeTab.sessionId}</p>}
+      {activeTab.filePath && <p>File: {activeTab.filePath}</p>}
+      {activeTab.url && <p>URL: {activeTab.url}</p>}
     </div>
   );
 }
@@ -972,9 +946,16 @@ export function Workspace() {
   const tabs = getTabs(task.id);
   const activeTab = getActiveTab(task.id);
 
-  const handleNewTab = async (type: 'claude' | 'codex' | 'browser') => {
+  const handleNewTab = async (type: 'claude' | 'codex' | 'changes' | 'browser') => {
     if (type === 'browser') {
       addTab(task.id, { id: crypto.randomUUID(), type: 'browser', label: 'New Tab', url: 'about:blank' });
+    } else if (type === 'changes') {
+      const existingChangesTab = tabs.find((tab) => tab.type === 'changes');
+      if (existingChangesTab) {
+        setActiveTab(task.id, existingChangesTab.id);
+        return;
+      }
+      addTab(task.id, { id: crypto.randomUUID(), type: 'changes', label: 'Changes' });
     } else {
       await createSession(task.id, type);
     }
@@ -984,7 +965,7 @@ export function Workspace() {
     <>
       <TaskHeader task={task} project={project} />
       <TabBar tabs={tabs} activeTabId={activeTab?.id ?? ''} onTabClick={(id) => setActiveTab(task.id, id)} onTabClose={(id) => { void closeTab(task.id, id); }} onNewTab={handleNewTab} />
-      <TabContent tab={activeTab} />
+      <TabContent tabs={tabs} activeTabId={activeTab?.id ?? ''} />
     </>
   );
 }
