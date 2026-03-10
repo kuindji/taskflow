@@ -42,8 +42,8 @@ export function TaskSidebar() {
   };
 
   const handleNewTask = async () => {
-    let projectId = activeTaskId ? tasks.find((t) => t.id === activeTaskId)?.projectId : projects[0]?.id;
-    if (!projectId) { projectId = await handleAddProject(); if (!projectId) return; }
+    let projectId: string | undefined = activeTaskId ? tasks.find((t) => t.id === activeTaskId)?.projectId : projects[0]?.id;
+    if (!projectId) { projectId = (await handleAddProject()) ?? undefined; if (!projectId) return; }
     const title = window.prompt('Task title');
     if (!title?.trim()) return;
     const task = await createTask(projectId, title.trim());
