@@ -10,10 +10,16 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onStatusChange(setConnected);
+    const unsubscribe = onStatusChange((status) => {
+      setConnected(status.connected);
+      if (status.connected || status.reconnecting) {
+        setError(null);
+      }
+    });
 
     async function connect() {
       try {
+        setError(null);
         let port: number;
         if (window.taskflow) {
           port = await window.taskflow.getBackendPort();

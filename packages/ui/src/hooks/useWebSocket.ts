@@ -4,26 +4,37 @@ let ws: WebSocket | null = null;
 let wsPort: number | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempt = 0;
+let connected = false;
+let reconnecting = false;
 const MAX_RECONNECT_DELAY = 10000;
+
+interface ConnectionStatus {
+  connected: boolean;
+  reconnecting: boolean;
+}
 
 const pendingRequests = new Map<string, {
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
 }>();
 const eventListeners = new Map<string, Set<(payload: unknown) => void>>();
-const statusListeners = new Set<(connected: boolean) => void>();
+const statusListeners = new Set<(status: ConnectionStatus) => void>();
 
-function notifyStatus(connected: boolean): void {
-  for (const listener of statusListeners) listener(connected);
+function notifyStatus(): void {
+  const status = { connected, reconnecting };
+  for (const listener of statusListeners) listener(status);
 }
 
-export function onStatusChange(handler: (connected: boolean) => void): () => void {
+export function onStatusChange(handler: (status: ConnectionStatus) => void): () => void {
   statusListeners.add(handler);
+  handler({ connected, reconnecting });
   return () => { statusListeners.delete(handler); };
 }
 
 function scheduleReconnect(): void {
   if (reconnectTimer || !wsPort) return;
+  reconnecting = true;
+  notifyStatus();
   const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY);
   reconnectAttempt++;
   reconnectTimer = setTimeout(() => {
@@ -46,7 +57,9 @@ export function connectWebSocket(port: number): Promise<void> {
     ws = new WebSocket(`ws://localhost:${port}`);
     ws.onopen = () => {
       reconnectAttempt = 0;
-      notifyStatus(true);
+      connected = true;
+      reconnecting = false;
+      notifyStatus();
       resolve();
     };
     ws.onerror = (e) => reject(e);
@@ -67,7 +80,8 @@ export function connectWebSocket(port: number): Promise<void> {
     ws.onclose = () => {
       for (const [, pending] of pendingRequests) pending.reject(new Error('WebSocket closed'));
       pendingRequests.clear();
-      notifyStatus(false);
+      connected = false;
+      notifyStatus();
       scheduleReconnect();
     };
   });

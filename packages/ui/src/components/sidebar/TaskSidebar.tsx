@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import type { Task } from '@taskflow/shared';
 import { useProjectStore } from '@/stores/project-store';
 import { useTaskStore } from '@/stores/task-store';
+import { useSessionStore } from '@/stores/session-store';
 import { useWsStatus } from '@/providers/WebSocketProvider';
 import { ProjectGroup } from './ProjectGroup';
 import { Input } from '@/components/ui/input';
@@ -14,12 +15,17 @@ export function TaskSidebar() {
   const { connected } = useWsStatus();
   const { projects, fetchProjects, addProject } = useProjectStore();
   const { tasks, activeTaskId, fetchTasks, setActiveTask, createTask } = useTaskStore();
+  const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
 
   useEffect(() => {
     if (!connected) return;
     void fetchProjects();
     void fetchTasks();
   }, [connected, fetchProjects, fetchTasks]);
+
+  useEffect(() => {
+    syncWithTasks(tasks);
+  }, [tasks, syncWithTasks]);
 
   const tasksByProject = useMemo(() => {
     const map = new Map<string, Task[]>();

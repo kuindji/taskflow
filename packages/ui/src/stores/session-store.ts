@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { SessionRef, Task } from '@taskflow/shared';
 import { MSG } from '@taskflow/shared';
 import { sendRequest, sendFireAndForget } from '../hooks/useWebSocket';
 import { useTaskStore } from './task-store';
@@ -24,9 +25,19 @@ interface SessionStore {
   setActiveTab(taskId: string, tabId: string): void;
   getTabs(taskId: string): Tab[];
   getActiveTab(taskId: string): Tab | undefined;
+  syncWithTasks(tasks: Task[]): void;
 }
 
 export type { Tab };
+
+function createSessionTab(session: SessionRef): Tab {
+  return {
+    id: session.id,
+    type: session.type,
+    label: session.label,
+    sessionId: session.id,
+  };
+}
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
   tabsByTask: {},
@@ -66,5 +77,44 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   getActiveTab(taskId) {
     const tabs = get().getTabs(taskId);
     return tabs.find((t) => t.id === get().activeTabByTask[taskId]);
+  },
+  syncWithTasks(tasks) {
+    set((state) => {
+      const nextTabsByTask: Record<string, Tab[]> = {};
+      const nextActiveTabByTask: Record<string, string> = {};
+
+      for (const task of tasks) {
+        const existingTabs = state.tabsByTask[task.id] ?? [];
+        const sessionsById = new Map(task.sessions.map((session) => [session.id, session]));
+        const tabs = existingTabs
+          .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
+          .map((tab) => {
+            if (!tab.sessionId) return tab;
+            const session = sessionsById.get(tab.sessionId);
+            return session ? { ...tab, type: session.type, label: session.label } : tab;
+          });
+
+        for (const session of task.sessions) {
+          if (!tabs.some((tab) => tab.sessionId === session.id)) {
+            tabs.push(createSessionTab(session));
+          }
+        }
+
+        if (tabs.length === 0) {
+          continue;
+        }
+
+        nextTabsByTask[task.id] = tabs;
+        const currentActiveId = state.activeTabByTask[task.id];
+        nextActiveTabByTask[task.id] = tabs.some((tab) => tab.id === currentActiveId)
+          ? currentActiveId
+          : tabs[0].id;
+      }
+
+      return {
+        tabsByTask: nextTabsByTask,
+        activeTabByTask: nextActiveTabByTask,
+      };
+    });
   },
 }));
