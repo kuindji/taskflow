@@ -2,11 +2,15 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a desktop app that orchestrates Claude Code and Codex CLIs in a task-oriented workspace with project context.
+**Goal:** Build a desktop app for local developer machines that orchestrates Claude Code and Codex CLIs in a task-oriented workspace with project context.
 
-**Architecture:** Electron shell (thin launcher) + Bun backend service (PTY, git, files, persistence over WebSocket) + React renderer (Monaco, xterm.js, Zustand). Monorepo with shared types package.
+**Architecture:** Electron shell (workspace launcher) + Bun backend service (PTY, git, files, persistence over WebSocket) + React renderer (Monaco, xterm.js, Zustand). Monorepo with shared types package.
 
 **Tech Stack:** Bun, Electron, React, TypeScript, Monaco, xterm.js, Zustand, node-pty, WebSocket
+
+**Runtime Scope:** v1 is verified as a workspace-run desktop app. Electron launches the backend from the checked-out repo and expects Bun to be installed on the developer machine. Packaging Bun into a standalone distributable app is a follow-up milestone and is not part of this plan.
+
+**Persistence:** Project metadata is stored under `~/.config/taskflow/projects.json`; tasks and archives live under `~/.config/taskflow/tasks/` and `~/.config/taskflow/archive/`. A project record stores the chosen folder path plus an optional display name.
 
 ---
 
@@ -31,7 +35,7 @@
 - `src/handlers/project.ts` — project:list, project:add, project:remove
 - `src/handlers/task.ts` — task:list, task:create, task:update, task:archive, task:delete
 - `src/handlers/session.ts` — session:create, session:close, session:input
-- `src/handlers/file.ts` — file:tree, file:read, file:watch
+- `src/handlers/file.ts` — file:tree, file:read, file:write, file:watch
 - `src/handlers/git.ts` — git:status, git:diff, git:diff-file, git:revert-file, git:worktree-create
 - `src/services/task-store.ts` — JSON file read/write for projects and tasks
 - `src/services/pty-manager.ts` — spawn/manage PTY sessions via node-pty
@@ -115,8 +119,9 @@
     "dev:ui": "cd packages/ui && bun run dev",
     "dev:electron": "cd electron && bun run dev",
     "test": "bun test",
-    "build": "bun run build:shared && bun run build:ui && bun run build:electron",
+    "build": "bun run build:shared && bun run build:backend && bun run build:ui && bun run build:electron",
     "build:shared": "cd packages/shared && bun run build",
+    "build:backend": "cd packages/backend && bun run build",
     "build:ui": "cd packages/ui && bun run build",
     "build:electron": "cd electron && bun run build"
   }
@@ -162,6 +167,7 @@ dist/
 .env
 *.log
 .taskflow-port
+*.taskflow-port
 ```
 
 - [ ] **Step 5: Commit**
@@ -293,7 +299,7 @@ export interface ProjectListResponse {
 }
 
 export interface ProjectAddPayload {
-  name: string;
+  name?: string;
   path: string;
 }
 
@@ -384,6 +390,11 @@ export interface FileWatchPayload {
   path: string;
 }
 
+export interface FileWritePayload {
+  path: string;
+  content: string;
+}
+
 // Git messages
 export interface GitStatusPayload {
   path: string;
@@ -446,6 +457,7 @@ File: `packages/shared/src/types/git.ts`
 ```typescript
 export interface GitFileStatus {
   path: string;
+  absolutePath?: string;
   status: 'new' | 'modified' | 'deleted' | 'untracked' | 'renamed';
 }
 
@@ -511,6 +523,7 @@ export const MSG = {
   // Files
   FILE_TREE: 'file:tree',
   FILE_READ: 'file:read',
+  FILE_WRITE: 'file:write',
   FILE_CHANGED: 'file:changed',
   FILE_WATCH: 'file:watch',
 
@@ -577,6 +590,7 @@ git commit -m "feat: add shared types package with all models and WS message typ
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
     "test": "bun test"
   },
   "dependencies": {
@@ -619,6 +633,7 @@ export const config = {
 };
 
 export async function ensureDirectories(): Promise<void> {
+  await mkdir(config.configDir, { recursive: true });
   await mkdir(config.tasksDir, { recursive: true });
   await mkdir(config.archiveDir, { recursive: true });
 }
@@ -812,7 +827,7 @@ git commit -m "feat: scaffold UI package with React, Vite, Tailwind"
   "private": true,
   "main": "dist/main.js",
   "scripts": {
-    "dev": "electron .",
+    "dev": "TASKFLOW_UI_URL=http://localhost:5173 electron .",
     "build": "bun build src/main.ts --outdir dist --target node && bun build src/preload.ts --outdir dist --target node"
   },
   "devDependencies": {
@@ -1212,8 +1227,8 @@ File: `packages/backend/src/services/task-store.ts`
 ```typescript
 import type { Project, Task } from '@taskflow/shared';
 import { ARCHIVE_EXPIRY_DAYS } from '@taskflow/shared';
-import { readFile, writeFile, readdir, unlink, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { readFile, writeFile, readdir, unlink, mkdir, realpath, stat } from 'fs/promises';
+import { basename, join } from 'path';
 import { randomUUID } from 'crypto';
 
 interface TaskStoreConfig {
@@ -1245,12 +1260,18 @@ export class TaskStore {
     }
   }
 
-  async addProject(input: { name: string; path: string }): Promise<Project> {
+  async addProject(input: { name?: string; path: string }): Promise<Project> {
+    const resolvedPath = await realpath(input.path).catch(() => input.path);
+    const info = await stat(resolvedPath);
+    if (!info.isDirectory()) {
+      throw new Error(`Project path is not a directory: ${resolvedPath}`);
+    }
+
     const projects = await this.listProjects();
     const project: Project = {
       id: randomUUID(),
-      name: input.name,
-      path: input.path,
+      name: input.name?.trim() || basename(resolvedPath),
+      path: resolvedPath,
       createdAt: new Date().toISOString(),
     };
     projects.push(project);
@@ -2074,7 +2095,7 @@ File: `packages/backend/src/services/git-service.ts`
 ```typescript
 import type { GitStatusResult, GitFileStatus, GitDiffResult, GitDiffFile } from '@taskflow/shared';
 import { mkdir } from 'fs/promises';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
 
 async function git(args: string[], cwd: string): Promise<string> {
   const proc = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
@@ -2093,7 +2114,11 @@ export class GitService {
       if (!line.trim()) continue;
       const xy = line.substring(0, 2);
       const path = line.substring(3);
-      files.push({ path, status: this.parseStatus(xy) });
+      files.push({
+        path,
+        absolutePath: join(repoPath, path),
+        status: this.parseStatus(xy),
+      });
     }
 
     return { branch: branchOutput || null, files };
@@ -2325,10 +2350,16 @@ git commit -m "feat: add file watcher service with tree building"
 File: `packages/backend/src/handlers/file.ts`
 ```typescript
 import { MSG } from '@taskflow/shared';
-import type { FileTreePayload, FileReadPayload, FileWatchPayload, WsEvent } from '@taskflow/shared';
+import type {
+  FileTreePayload,
+  FileReadPayload,
+  FileWatchPayload,
+  FileWritePayload,
+  WsEvent,
+} from '@taskflow/shared';
 import type { Router } from '../ws/router';
 import type { FileWatcher } from '../services/file-watcher';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile } from 'fs/promises';
 
 interface FileHandlerDeps {
   router: Router;
@@ -2349,6 +2380,12 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
     const { path } = payload as FileReadPayload;
     const content = await readFile(path, 'utf-8');
     return { content };
+  });
+
+  router.register(MSG.FILE_WRITE, async (payload) => {
+    const { path, content } = payload as FileWritePayload;
+    await writeFile(path, content, 'utf-8');
+    return { success: true };
   });
 
   router.register(MSG.FILE_WATCH, async (payload) => {
@@ -2538,7 +2575,7 @@ git commit -m "feat: wire all backend services and handlers together"
 
 File: `electron/src/main.ts`
 ```typescript
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { spawn, type ChildProcess } from 'child_process';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
@@ -2548,7 +2585,10 @@ let backendProcess: ChildProcess | null = null;
 let backendPort: number | null = null;
 
 const PORT_FILE = '/tmp/.taskflow-port';
-const BACKEND_ENTRY = join(__dirname, '..', '..', 'packages', 'backend', 'src', 'index.ts');
+const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
+const BACKEND_ENTRY = UI_DEV_SERVER_URL
+  ? join(__dirname, '..', '..', 'packages', 'backend', 'src', 'index.ts')
+  : join(__dirname, '..', '..', 'packages', 'backend', 'dist', 'index.js');
 
 async function startBackend(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -2599,10 +2639,9 @@ function createWindow(port: number) {
     },
   });
 
-  // In dev, load from Vite dev server; in prod, load built files
-  const isDev = !app.isPackaged;
-  if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+  // In dev, load from Vite dev server; otherwise load the workspace build output.
+  if (UI_DEV_SERVER_URL) {
+    mainWindow.loadURL(UI_DEV_SERVER_URL);
   } else {
     mainWindow.loadFile(join(__dirname, '..', '..', 'packages', 'ui', 'dist', 'index.html'));
   }
@@ -2640,6 +2679,13 @@ app.on('before-quit', () => {
 
 // Expose backend port to renderer via IPC
 ipcMain.handle('get-backend-port', () => backendPort);
+ipcMain.handle('select-project-directory', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory'],
+  });
+  if (result.canceled) return null;
+  return result.filePaths[0] ?? null;
+});
 ```
 
 - [ ] **Step 2: Implement preload script**
@@ -2650,6 +2696,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('taskflow', {
   getBackendPort: () => ipcRenderer.invoke('get-backend-port'),
+  selectProjectDirectory: () => ipcRenderer.invoke('select-project-directory'),
 });
 ```
 
@@ -2659,6 +2706,7 @@ File: `packages/ui/src/env.d.ts`
 ```typescript
 interface TaskflowBridge {
   getBackendPort(): Promise<number>;
+  selectProjectDirectory(): Promise<string | null>;
 }
 
 interface Window {
@@ -2670,6 +2718,9 @@ interface Window {
 
 Run: `cd electron && bun run build`
 Expected: dist/main.js and dist/preload.js created
+
+Run: `cd /Users/kuindji/Projects/taskflow && bun run build`
+Expected: `packages/backend/dist/index.js` and `packages/ui/dist/index.html` exist for workspace-run Electron builds
 
 - [ ] **Step 5: Commit**
 
@@ -2728,11 +2779,7 @@ git commit -m "feat: add Vite config for UI package"
 
 File: `packages/ui/src/hooks/useWebSocket.ts`
 ```typescript
-import { useCallback, useRef } from 'react';
-import type { WsRequest, WsResponse } from '@taskflow/shared';
-import { randomUUID } from 'crypto';
-
-type MessageHandler = (response: WsResponse) => void;
+import type { WsRequest } from '@taskflow/shared';
 
 let ws: WebSocket | null = null;
 const pendingRequests = new Map<string, {
@@ -2908,7 +2955,7 @@ interface ProjectStore {
   projects: Project[];
   loading: boolean;
   fetchProjects(): Promise<void>;
-  addProject(name: string, path: string): Promise<Project>;
+  addProject(name: string | undefined, path: string): Promise<Project>;
   removeProject(id: string): Promise<void>;
 }
 
@@ -3012,8 +3059,7 @@ File: `packages/ui/src/stores/session-store.ts`
 ```typescript
 import { create } from 'zustand';
 import { MSG } from '@taskflow/shared';
-import { sendRequest, onEvent } from '../hooks/useWebSocket';
-import type { TerminalOutputEvent } from '@taskflow/shared';
+import { sendRequest } from '../hooks/useWebSocket';
 
 export interface Tab {
   id: string;
@@ -3032,7 +3078,7 @@ interface SessionStore {
   sendInput(sessionId: string, data: string): void;
   resizeTerminal(sessionId: string, cols: number, rows: number): void;
   addTab(taskId: string, tab: Tab): void;
-  removeTab(taskId: string, tabId: string): void;
+  closeTab(taskId: string, tabId: string): Promise<void>;
   setActiveTab(taskId: string, tabId: string): void;
   getTabs(taskId: string): Tab[];
   getActiveTab(taskId: string): Tab | undefined;
@@ -3078,7 +3124,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
   },
 
-  removeTab(taskId, tabId) {
+  async closeTab(taskId, tabId) {
+    const tab = (get().tabsByTask[taskId] ?? []).find((entry) => entry.id === tabId);
+    if (tab?.sessionId) {
+      await sendRequest(MSG.SESSION_CLOSE, { sessionId: tab.sessionId });
+    }
+
     set((s) => {
       const tabs = (s.tabsByTask[taskId] ?? []).filter((t) => t.id !== tabId);
       const activeId = s.activeTabByTask[taskId] === tabId
@@ -3114,23 +3165,29 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 File: `packages/ui/src/stores/file-store.ts`
 ```typescript
 import { create } from 'zustand';
-import type { FileNode, GitStatusResult } from '@taskflow/shared';
+import type { FileNode, GitStatusResult, FileChangeEvent } from '@taskflow/shared';
 import { MSG } from '@taskflow/shared';
-import { sendRequest } from '../hooks/useWebSocket';
+import { onEvent, sendRequest } from '../hooks/useWebSocket';
 
 interface FileStore {
   tree: FileNode | null;
   gitStatus: GitStatusResult | null;
+  watchedPath: string | null;
   loading: boolean;
   fetchTree(path: string): Promise<void>;
   fetchGitStatus(path: string): Promise<void>;
   watchPath(path: string): Promise<void>;
   readFile(path: string): Promise<string>;
+  writeFile(path: string, content: string): Promise<void>;
 }
 
-export const useFileStore = create<FileStore>((set) => ({
+let fileChangeSubscriptionReady = false;
+let fileChangeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+export const useFileStore = create<FileStore>((set, get) => ({
   tree: null,
   gitStatus: null,
+  watchedPath: null,
   loading: false,
 
   async fetchTree(path) {
@@ -3145,12 +3202,37 @@ export const useFileStore = create<FileStore>((set) => ({
   },
 
   async watchPath(path) {
+    set({ watchedPath: path });
+
+    if (!fileChangeSubscriptionReady) {
+      fileChangeSubscriptionReady = true;
+      onEvent(MSG.FILE_CHANGED, (payload) => {
+        const event = payload as FileChangeEvent;
+        const watchedPath = get().watchedPath;
+        if (!watchedPath || !event.path.startsWith(watchedPath)) return;
+
+        if (fileChangeRefreshTimer) clearTimeout(fileChangeRefreshTimer);
+        fileChangeRefreshTimer = setTimeout(() => {
+          get().fetchTree(watchedPath).catch(console.error);
+          get().fetchGitStatus(watchedPath).catch(console.error);
+        }, 150);
+      });
+    }
+
     await sendRequest(MSG.FILE_WATCH, { path });
   },
 
   async readFile(path) {
     const { content } = await sendRequest<{ content: string }>(MSG.FILE_READ, { path });
     return content;
+  },
+
+  async writeFile(path, content) {
+    await sendRequest(MSG.FILE_WRITE, { path, content });
+    const watchedPath = get().watchedPath;
+    if (watchedPath && path.startsWith(watchedPath)) {
+      await get().fetchGitStatus(watchedPath);
+    }
   },
 }));
 ```
@@ -3468,8 +3550,8 @@ import { useTaskStore } from '../../stores/task-store';
 import { ProjectGroup } from './ProjectGroup';
 
 export function TaskSidebar() {
-  const { projects, fetchProjects } = useProjectStore();
-  const { tasks, activeTaskId, fetchTasks, setActiveTask } = useTaskStore();
+  const { projects, fetchProjects, addProject } = useProjectStore();
+  const { tasks, activeTaskId, fetchTasks, setActiveTask, createTask } = useTaskStore();
 
   useEffect(() => {
     fetchProjects();
@@ -3478,6 +3560,33 @@ export function TaskSidebar() {
 
   const tasksByProject = (projectId: string) =>
     tasks.filter((t) => t.projectId === projectId);
+
+  const handleAddProject = async (): Promise<string | null> => {
+    const path = await window.taskflow?.selectProjectDirectory?.();
+    if (!path) return null;
+
+    const suggestedName = path.split('/').pop() ?? '';
+    const input = window.prompt('Project name (optional)', suggestedName);
+    const project = await addProject(input?.trim() || undefined, path);
+    return project.id;
+  };
+
+  const handleNewTask = async () => {
+    let projectId = activeTaskId
+      ? tasks.find((task) => task.id === activeTaskId)?.projectId
+      : projects[0]?.id;
+
+    if (!projectId) {
+      projectId = await handleAddProject();
+      if (!projectId) return;
+    }
+
+    const title = window.prompt('Task title');
+    if (!title?.trim()) return;
+
+    const task = await createTask(projectId, title.trim());
+    setActiveTask(task.id);
+  };
 
   return (
     <>
@@ -3501,7 +3610,9 @@ export function TaskSidebar() {
             outline: 'none',
           }}
         />
-        <button style={{
+        <button
+          onClick={handleNewTask}
+          style={{
           background: 'var(--bg-overlay)',
           border: 'none',
           borderRadius: 3,
@@ -3509,13 +3620,33 @@ export function TaskSidebar() {
           color: 'var(--accent-blue)',
           cursor: 'pointer',
           fontSize: 12,
-        }}>
+        }}
+        >
           +
         </button>
       </div>
 
       {/* Project groups */}
       <div style={{ flex: 1, overflow: 'auto', padding: '4px 0' }}>
+        {projects.length === 0 && (
+          <div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 11 }}>
+            <div style={{ marginBottom: 8 }}>No projects yet.</div>
+            <button
+              onClick={handleAddProject}
+              style={{
+                background: 'var(--bg-overlay)',
+                border: 'none',
+                borderRadius: 3,
+                padding: '4px 8px',
+                color: 'var(--accent-blue)',
+                cursor: 'pointer',
+                fontSize: 11,
+              }}
+            >
+              Add Project
+            </button>
+          </div>
+        )}
         {projects.map((project) => (
           <ProjectGroup
             key={project.id}
@@ -3536,7 +3667,7 @@ export function TaskSidebar() {
         color: 'var(--text-muted)',
         fontSize: 11,
       }}>
-        <span style={{ cursor: 'pointer' }}>History</span>
+        <span style={{ cursor: 'pointer' }} onClick={handleAddProject}>Add Project</span>
         <span style={{ cursor: 'pointer' }}>Settings</span>
       </div>
     </>
@@ -3740,7 +3871,7 @@ export function Workspace() {
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
   const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
 
-  const { getTabs, getActiveTab, setActiveTab, removeTab, createSession, addTab } = useSessionStore();
+  const { getTabs, getActiveTab, setActiveTab, closeTab, createSession, addTab } = useSessionStore();
 
   if (!task) {
     return (
@@ -3780,7 +3911,7 @@ export function Workspace() {
         tabs={tabs}
         activeTabId={activeTab?.id ?? ''}
         onTabClick={(id) => setActiveTab(task.id, id)}
-        onTabClose={(id) => removeTab(task.id, id)}
+        onTabClose={(id) => { void closeTab(task.id, id); }}
         onNewTab={handleNewTab}
       />
       <TabContent tab={activeTab} />
@@ -3961,8 +4092,9 @@ function getLanguage(path: string): string {
 export function EditorPane({ filePath }: EditorPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const { readFile } = useFileStore();
+  const { readFile, writeFile } = useFileStore();
   const [loading, setLoading] = useState(true);
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -3983,16 +4115,51 @@ export function EditorPane({ filePath }: EditorPaneProps) {
     // Load file content
     readFile(filePath).then((content) => {
       editor.setValue(content);
+      setDirty(false);
       setLoading(false);
     });
 
+    const changeDisposable = editor.onDidChangeModelContent(() => {
+      setDirty(true);
+    });
+
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
+      await writeFile(filePath, editor.getValue());
+      setDirty(false);
+    });
+
     return () => {
+      changeDisposable.dispose();
       editor.dispose();
     };
   }, [filePath]);
 
   return (
     <div style={{ flex: 1, position: 'relative' }}>
+      {dirty && (
+        <button
+          onClick={async () => {
+            if (!editorRef.current) return;
+            await writeFile(filePath, editorRef.current.getValue());
+            setDirty(false);
+          }}
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 2,
+            background: 'var(--bg-overlay)',
+            border: '1px solid var(--border)',
+            borderRadius: 4,
+            padding: '4px 8px',
+            color: 'var(--accent-blue)',
+            cursor: 'pointer',
+            fontSize: 11,
+          }}
+        >
+          Save
+        </button>
+      )}
       {loading && (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex',
@@ -4352,9 +4519,12 @@ export function FileExplorer() {
 
   const gitFiles = useMemo(() => {
     const map = new Map<string, string>();
-    gitStatus?.files.forEach((f) => map.set(f.path, f.status));
+    gitStatus?.files.forEach((f) => {
+      const absolutePath = f.absolutePath ?? (workingDir ? `${workingDir}/${f.path}` : f.path);
+      map.set(absolutePath, f.status);
+    });
     return map;
-  }, [gitStatus]);
+  }, [gitStatus, workingDir]);
 
   const handleFileClick = (path: string) => {
     if (!task) return;
@@ -4645,7 +4815,14 @@ Expected: No blocking errors
 Run: `cd packages/backend && timeout 3 bun run src/index.ts || true`
 Expected: Backend starts, detects editors
 
-- [ ] **Step 4: Final commit**
+- [ ] **Step 4: Verify editor save + live refresh behavior**
+
+Manual verify:
+- Open an editor tab, modify a file, press `Cmd/Ctrl+S`, and confirm the content persists on disk.
+- Modify a watched file externally and confirm the file tree and git status refresh.
+- Close a Claude/Codex tab and confirm the PTY session exits.
+
+- [ ] **Step 5: Final commit**
 
 ```bash
 git add -A
