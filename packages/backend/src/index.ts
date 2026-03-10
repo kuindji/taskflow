@@ -5,4 +5,7 @@ async function main() {
   console.log('Taskflow backend starting...');
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

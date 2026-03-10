@@ -1,7 +1,8 @@
 import type { Project } from './project';
 import type { Task } from './task';
-import type { FileNode } from './file';
+import type { FileNode, FileChangeEvent } from './file';
 import type { GitStatusResult, GitDiffResult, GitFileStatus } from './git';
+import type { SystemInfo } from './system';
 
 // Base message types
 export interface WsRequest<T = unknown> {
@@ -128,6 +129,8 @@ export interface FileWritePayload {
   content: string;
 }
 
+export interface FileChangedEvent extends FileChangeEvent {}
+
 // Git messages
 export interface GitStatusPayload {
   path: string;
@@ -166,3 +169,6 @@ export interface GitWorktreeCreatePayload {
   branch: string;
   path: string;
 }
+
+// System messages
+export interface SystemInfoResponse extends SystemInfo {}
