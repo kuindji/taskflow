@@ -11,6 +11,8 @@
 **Tech Stack:** React 19, Zustand 5, Vite 6, Tailwind CSS 4, shadcn/ui, cva, lucide-react
 
 > **Depends on:** Chunk 4.5 (shadcn components in `packages/ui/src/components/ui/`, `cn()` in `src/lib/utils.ts`, shadcn CSS variables in `global.css`). Specifically requires the Badge `colorScheme` compound variant (Task 4.5.4) with values `claude`, `codex`, `active`, `archived`. All components use Tailwind utility classes with these CSS variables: `bg-background`, `bg-card`, `bg-popover`, `text-foreground`, `text-secondary-foreground`, `text-muted-foreground`, `border-border`, `text-accent`, `text-success`, `text-warning`, `border-l-accent`, `border-l-success`, `border-l-warning`, `bg-success/*`, `bg-warning/*`. These require `--color-success` and `--color-warning` in the `@theme inline` block (Chunk 4.5 Task 4.5.1).
+>
+> **Also depends on:** Chunk 4.6 (imperative `confirm()` and `alert()` from `@/stores/dialog-store`, `DialogHost` component). Destructive actions (deleteTask, archiveTask, removeProject) must use `confirm()` with appropriate variant and `onConfirm` handler. See Chunk 4.6 Task 4.6.6 for usage examples.
 
 > **Shared types used:** `Project`, `Task` (with `sessions: SessionRef[]`, `worktree: { enabled: boolean; path: string | null; branch: string | null }`), `FileNode`, `GitStatusResult`, `FileChangeEvent`, `WsRequest`, `MSG` constants — all from `@taskflow/shared`.
 
@@ -559,12 +561,13 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
 }
 ```
 
-- [ ] **Step 2: Update App.tsx to use AppShell with connection status overlay**
+- [ ] **Step 2: Update App.tsx to use AppShell with connection status overlay and DialogHost**
 
 File: `packages/ui/src/App.tsx`
 ```tsx
 import { WebSocketProvider, useWsStatus } from '@/providers/WebSocketProvider';
 import { AppShell } from '@/components/AppShell';
+import { DialogHost } from '@/components/DialogHost';
 
 function ConnectionOverlay() {
   const { connected, error } = useWsStatus();
@@ -588,6 +591,7 @@ export function App() {
   return (
     <WebSocketProvider>
       <ConnectionOverlay />
+      <DialogHost />
       <AppShell
         sidebar={<div className="p-3 text-muted-foreground">Task Sidebar</div>}
         fileExplorer={<div className="p-3 text-muted-foreground">File Explorer</div>}
@@ -996,6 +1000,7 @@ File: `packages/ui/src/App.tsx`
 ```tsx
 import { WebSocketProvider, useWsStatus } from '@/providers/WebSocketProvider';
 import { AppShell } from '@/components/AppShell';
+import { DialogHost } from '@/components/DialogHost';
 import { TaskSidebar } from '@/components/sidebar/TaskSidebar';
 import { Workspace } from '@/components/workspace/Workspace';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -1022,6 +1027,7 @@ export function App() {
   return (
     <WebSocketProvider>
       <ConnectionOverlay />
+      <DialogHost />
       <TooltipProvider>
         <AppShell
           sidebar={<TaskSidebar />}

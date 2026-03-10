@@ -678,6 +678,7 @@ File: `packages/ui/src/App.tsx`
 ```tsx
 import { WebSocketProvider, useWsStatus } from '@/providers/WebSocketProvider';
 import { AppShell } from '@/components/AppShell';
+import { DialogHost } from '@/components/DialogHost';
 import { TaskSidebar } from '@/components/sidebar/TaskSidebar';
 import { FileExplorer } from '@/components/panels/FileExplorer';
 import { TaskInfoPanel } from '@/components/panels/TaskInfoPanel';
@@ -706,6 +707,7 @@ export function App() {
   return (
     <WebSocketProvider>
       <ConnectionOverlay />
+      <DialogHost />
       <TooltipProvider>
         <AppShell
           sidebar={<TaskSidebar />}

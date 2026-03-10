@@ -270,6 +270,7 @@ import { cva } from 'class-variance-authority';
 import type { GitStatusResult, GitFileStatus } from '@taskflow/shared';
 import { MSG } from '@taskflow/shared';
 import { sendRequest } from '@/hooks/useWebSocket';
+import { confirm } from '@/stores/dialog-store';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -426,22 +427,26 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
   }
 
   async function revertFile(file: GitFileStatus) {
-    try {
-      await sendRequest(MSG.GIT_REVERT_FILE, {
-        repoPath,
-        filePath: file.path,
-        status: file.status,
-        previousPath: file.previousPath,
-      });
-      await fetchStatus();
-      if (selectedFile === file.path) {
-        setSelectedFile(null);
-        setDiff(null);
-        setDiffLoading(false);
-      }
-    } catch (err) {
-      console.error('Failed to revert file:', err);
-    }
+    await confirm({
+      title: 'Revert File',
+      description: `Revert all changes to ${file.path}? This cannot be undone.`,
+      confirmLabel: 'Revert',
+      variant: 'destructive',
+      onConfirm: async () => {
+        await sendRequest(MSG.GIT_REVERT_FILE, {
+          repoPath,
+          filePath: file.path,
+          status: file.status,
+          previousPath: file.previousPath,
+        });
+        await fetchStatus();
+        if (selectedFile === file.path) {
+          setSelectedFile(null);
+          setDiff(null);
+          setDiffLoading(false);
+        }
+      },
+    });
   }
 
   return (

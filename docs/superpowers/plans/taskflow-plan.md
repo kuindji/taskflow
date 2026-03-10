@@ -23,6 +23,7 @@
 | 3 | Backend Sessions, Files & Git | [taskflow-plan-chunk-3.md](taskflow-plan-chunk-3.md) |
 | 4 | Electron Shell | [taskflow-plan-chunk-4.md](taskflow-plan-chunk-4.md) |
 | 4.5 | shadcn/ui Primitives Setup | [taskflow-plan-chunk-4.5.md](taskflow-plan-chunk-4.5.md) |
+| 4.6 | Alert & Confirm Dialogs | [taskflow-plan-chunk-4.6.md](taskflow-plan-chunk-4.6.md) |
 | 5 | UI Core — Layout, WebSocket, Stores, Sidebar | [taskflow-plan-chunk-5.md](taskflow-plan-chunk-5.md) |
 | 6 | UI Panes — Terminal, Editor, Changes | [taskflow-plan-chunk-6.md](taskflow-plan-chunk-6.md) |
 | 7 | UI Panels, Browser, Wiring & Polish | [taskflow-plan-chunk-7.md](taskflow-plan-chunk-7.md) |
@@ -79,7 +80,9 @@
 - `src/stores/session-store.ts` — useSessionStore
 - `src/stores/file-store.ts` — useFileStore
 - `src/stores/ui-store.ts` — useUIStore
+- `src/stores/dialog-store.ts` — imperative confirm()/alert() + DialogStore
 - `src/components/AppShell.tsx` — 3-zone layout
+- `src/components/DialogHost.tsx` — renders active alert/confirm dialog from store
 - `src/components/ErrorBoundary.tsx` — error boundary for pane isolation
 - `src/components/sidebar/TaskSidebar.tsx` — task list sidebar
 - `src/components/sidebar/ProjectGroup.tsx` — collapsible project group
