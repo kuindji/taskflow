@@ -148,8 +148,7 @@ packages = ["packages/*", "electron"]
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "jsx": "react-jsx"
+    "sourceMap": true
   }
 }
 ```
@@ -526,15 +525,12 @@ export const MSG = {
   SYSTEM_INFO: 'system:info',
 } as const;
 
-// Config paths
-export const CONFIG_DIR = `${process.env.HOME}/.config/taskflow`;
-export const PROJECTS_FILE = `${CONFIG_DIR}/projects.json`;
-export const SETTINGS_FILE = `${CONFIG_DIR}/settings.json`;
-export const TASKS_DIR = `${CONFIG_DIR}/tasks`;
-export const ARCHIVE_DIR = `${CONFIG_DIR}/archive`;
-
-// Archive expiry
+// Archive expiry (safe to import in browser)
 export const ARCHIVE_EXPIRY_DAYS = 30;
+
+// NOTE: Config paths (CONFIG_DIR, PROJECTS_FILE, etc.) live in
+// packages/backend/src/config.ts — not here, because process.env.HOME
+// is unavailable in the browser renderer.
 ```
 
 - [ ] **Step 10: Create barrel export**
@@ -598,8 +594,7 @@ git commit -m "feat: add shared types package with all models and WS message typ
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
-    "jsx": null
+    "rootDir": "src"
   },
   "include": ["src", "tests"]
 }
@@ -609,14 +604,17 @@ git commit -m "feat: add shared types package with all models and WS message typ
 
 File: `packages/backend/src/config.ts`
 ```typescript
-import { CONFIG_DIR, PROJECTS_FILE, TASKS_DIR, ARCHIVE_DIR } from '@taskflow/shared';
 import { mkdir } from 'fs/promises';
+import { join } from 'path';
+import { homedir } from 'os';
+
+const CONFIG_DIR = join(homedir(), '.config', 'taskflow');
 
 export const config = {
   configDir: CONFIG_DIR,
-  projectsFile: PROJECTS_FILE,
-  tasksDir: TASKS_DIR,
-  archiveDir: ARCHIVE_DIR,
+  projectsFile: join(CONFIG_DIR, 'projects.json'),
+  tasksDir: join(CONFIG_DIR, 'tasks'),
+  archiveDir: join(CONFIG_DIR, 'archive'),
   portFile: '/tmp/.taskflow-port',
 };
 
@@ -690,6 +688,7 @@ git commit -m "feat: scaffold backend package with config"
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
     "vite": "^6.0.0",
+    "@tailwindcss/vite": "^4.0.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0"
   }
@@ -703,7 +702,8 @@ git commit -m "feat: scaffold backend package with config"
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "jsx": "react-jsx"
   },
   "include": ["src"]
 }
@@ -711,7 +711,9 @@ git commit -m "feat: scaffold backend package with config"
 
 - [ ] **Step 3: Create index.html**
 
-File: `packages/ui/src/index.html`
+Note: Vite expects index.html at the package root, not in src/.
+
+File: `packages/ui/index.html`
 ```html
 <!DOCTYPE html>
 <html lang="en">
@@ -722,7 +724,7 @@ File: `packages/ui/src/index.html`
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="/src/index.tsx"></script>
   </body>
 </html>
 ```
@@ -813,7 +815,7 @@ git commit -m "feat: scaffold UI package with React, Vite, Tailwind"
     "dev": "electron .",
     "build": "bun build src/main.ts --outdir dist --target node && bun build src/preload.ts --outdir dist --target node"
   },
-  "dependencies": {
+  "devDependencies": {
     "electron": "^33.0.0"
   }
 }
@@ -826,8 +828,7 @@ git commit -m "feat: scaffold UI package with React, Vite, Tailwind"
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
-    "jsx": null
+    "rootDir": "src"
   },
   "include": ["src"]
 }
@@ -2692,12 +2693,12 @@ File: `packages/ui/vite.config.ts`
 ```typescript
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  plugins: [react()],
-  root: 'src',
+  plugins: [react(), tailwindcss()],
   build: {
-    outDir: '../dist',
+    outDir: 'dist',
   },
   server: {
     port: 5173,
