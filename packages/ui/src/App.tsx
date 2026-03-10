@@ -2,6 +2,8 @@ import { WebSocketProvider, useWsStatus } from '@/providers/WebSocketProvider';
 import { AppShell } from '@/components/AppShell';
 import { DialogHost } from '@/components/DialogHost';
 import { TaskSidebar } from '@/components/sidebar/TaskSidebar';
+import { FileExplorer } from '@/components/panels/FileExplorer';
+import { TaskInfoPanel } from '@/components/panels/TaskInfoPanel';
 import { Workspace } from '@/components/workspace/Workspace';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -31,9 +33,9 @@ export function App() {
       <TooltipProvider>
         <AppShell
           sidebar={<TaskSidebar />}
-          fileExplorer={<div className="p-3 text-muted-foreground text-[11px]">File Explorer (coming in Chunk 7)</div>}
+          fileExplorer={<FileExplorer />}
           workspace={<Workspace />}
-          taskInfo={<div className="p-3 text-muted-foreground text-[11px]">Task Info (coming in Chunk 7)</div>}
+          taskInfo={<TaskInfoPanel />}
         />
       </TooltipProvider>
     </WebSocketProvider>
