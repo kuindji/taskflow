@@ -5,3 +5,4 @@ dist/
 *.log
 .taskflow-port
 *.taskflow-port
+.worktrees/
