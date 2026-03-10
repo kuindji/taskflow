@@ -13,6 +13,8 @@ import { registerTaskHandlers } from './handlers/task';
 import { registerSessionHandlers } from './handlers/session';
 import { registerFileHandlers } from './handlers/file';
 import { registerGitHandlers } from './handlers/git';
+import { ApiRouter } from './api/router';
+import { registerApiRoutes } from './api/routes';
 import { writeFile } from 'fs/promises';
 
 async function main() {
@@ -34,7 +36,8 @@ async function main() {
     const fileWatcher = new FileWatcher();
 
     const router = new Router();
-    const server = createServer(router, config.port);
+    const apiRouter = new ApiRouter();
+    const server = createServer(router, config.port, apiRouter);
 
     registerProjectHandlers(router, store);
     registerTaskHandlers({
@@ -52,6 +55,12 @@ async function main() {
       router, fileWatcher, taskStore: store, broadcast: server.broadcast,
     });
     registerGitHandlers({ router, git: gitService, taskStore: store });
+    registerApiRoutes({
+      apiRouter,
+      taskStore: store,
+      ptyManager,
+      broadcast: server.broadcast,
+    });
 
     const editors = await detectEditors();
     const shells = await detectShells();

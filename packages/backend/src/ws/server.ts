@@ -1,10 +1,12 @@
 import type { Server, ServerWebSocket } from 'bun';
 import type { WsRequest, WsResponse, WsEvent } from '@taskflow/shared';
+import type { ApiRouter } from '../api/router';
 import { Router } from './router';
 
 export function createServer(
   router: Router,
   port: number = 0,
+  apiRouter?: ApiRouter,
 ): {
   start(): Promise<{ port: number; stop(): void }>;
   broadcast(event: WsEvent): void;
@@ -22,8 +24,12 @@ export function createServer(
   async function start() {
     server = Bun.serve({
       port,
-      fetch(req, server) {
+      async fetch(req, server) {
         if (server.upgrade(req)) return;
+        if (apiRouter) {
+          const response = await apiRouter.handle(req);
+          if (response) return response;
+        }
         return new Response('Taskflow backend', { status: 200 });
       },
       websocket: {

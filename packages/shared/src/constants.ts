@@ -9,6 +9,7 @@ export const MSG = {
   TASK_LIST: 'task:list',
   TASK_CREATE: 'task:create',
   TASK_UPDATE: 'task:update',
+  TASK_UPDATED: 'task:updated',
   TASK_ARCHIVE: 'task:archive',
   TASK_DELETE: 'task:delete',
 
