@@ -117,6 +117,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
+  const repoVersionRef = useRef(0);
   const diffRequestIdRef = useRef(0);
 
   const containerClasses = useMemo(
@@ -124,36 +125,44 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
     [className],
   );
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (repoVersion = repoVersionRef.current) => {
     try {
       const { status } = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: repoPath });
+      if (repoVersion !== repoVersionRef.current) return;
       setStatus(status);
     } catch (err: unknown) {
+      if (repoVersion !== repoVersionRef.current) return;
       console.error('Failed to fetch git status:', err);
     }
   }, [repoPath]);
 
   useEffect(() => {
+    const repoVersion = ++repoVersionRef.current;
+    diffRequestIdRef.current += 1;
     setSelectedFile(null);
     setDiff(null);
     setDiffLoading(false);
-    void fetchStatus();
+    void fetchStatus(repoVersion);
   }, [repoPath, fetchStatus]);
 
   async function showDiff(filePath: string) {
+    const repoVersion = repoVersionRef.current;
     const requestId = ++diffRequestIdRef.current;
     setSelectedFile(filePath);
     setDiff(null);
     setDiffLoading(true);
     try {
       const { diff } = await sendRequest<{ diff: string }>(MSG.GIT_DIFF_FILE, { repoPath, filePath });
+      if (repoVersion !== repoVersionRef.current) return;
       if (requestId !== diffRequestIdRef.current) return;
       setDiff(diff);
     } catch (err: unknown) {
+      if (repoVersion !== repoVersionRef.current) return;
       if (requestId !== diffRequestIdRef.current) return;
       console.error('Failed to fetch diff:', err);
       setDiff(null);
     } finally {
+      if (repoVersion !== repoVersionRef.current) return;
       if (requestId === diffRequestIdRef.current) {
         setDiffLoading(false);
       }
@@ -161,6 +170,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
   }
 
   async function revertFile(file: GitFileStatus) {
+    const repoVersion = repoVersionRef.current;
     await confirm({
       title: 'Revert File',
       description: `Revert all changes to ${file.path}? This cannot be undone.`,
@@ -173,7 +183,8 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
           status: file.status,
           previousPath: file.previousPath,
         });
-        await fetchStatus();
+        await fetchStatus(repoVersion);
+        if (repoVersion !== repoVersionRef.current) return;
         if (selectedFile === file.path) {
           setSelectedFile(null);
           setDiff(null);

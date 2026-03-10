@@ -22,12 +22,18 @@ function getLanguage(path: string): string {
 function EditorPane({ filePath }: EditorPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const loadRequestIdRef = useRef(0);
+  const editorReadyRef = useRef(false);
   const { readFile, writeFile } = useFileStore();
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
+    const loadRequestId = ++loadRequestIdRef.current;
+    editorReadyRef.current = false;
+    setLoading(true);
+    setDirty(false);
 
     const editor = monaco.editor.create(containerRef.current, {
       theme: 'vs-dark',
@@ -43,19 +49,25 @@ function EditorPane({ filePath }: EditorPaneProps) {
     editorRef.current = editor;
 
     void readFile(filePath).then((content) => {
+      if (loadRequestId !== loadRequestIdRef.current) return;
       editor.setValue(content);
+      editorReadyRef.current = true;
       setDirty(false);
       setLoading(false);
     }).catch((err: unknown) => {
+      if (loadRequestId !== loadRequestIdRef.current) return;
       console.error('Failed to read file:', err);
+      editorReadyRef.current = true;
       setLoading(false);
     });
 
     const changeDisposable = editor.onDidChangeModelContent(() => {
+      if (!editorReadyRef.current) return;
       setDirty(true);
     });
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
+      if (!editorReadyRef.current) return;
       try {
         await writeFile(filePath, editor.getValue());
         setDirty(false);
@@ -65,6 +77,10 @@ function EditorPane({ filePath }: EditorPaneProps) {
     });
 
     return () => {
+      editorReadyRef.current = false;
+      if (editorRef.current === editor) {
+        editorRef.current = null;
+      }
       changeDisposable.dispose();
       editor.dispose();
     };
@@ -76,8 +92,9 @@ function EditorPane({ filePath }: EditorPaneProps) {
         <Button
           size="sm"
           className="absolute top-2 right-2 z-10"
+          disabled={loading}
           onClick={async () => {
-            if (!editorRef.current) return;
+            if (!editorRef.current || !editorReadyRef.current) return;
             try {
               await writeFile(filePath, editorRef.current.getValue());
               setDirty(false);
