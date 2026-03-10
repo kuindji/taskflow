@@ -422,8 +422,12 @@ export class TaskStore {
   }
 
   async removeProject(id: string): Promise<void> {
-    const tasks = await this.listTasks(id);
-    if (tasks.length > 0) {
+    const [tasks, archived] = await Promise.all([
+      this.listTasks(id),
+      this.listArchived(),
+    ]);
+    const archivedForProject = archived.filter((t) => t.projectId === id);
+    if (tasks.length > 0 || archivedForProject.length > 0) {
       throw new Error(`Cannot remove project with existing tasks: ${id}`);
     }
     const projects = await this.listProjects();

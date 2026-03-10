@@ -629,7 +629,96 @@ git add packages/backend/src/services/file-watcher.ts packages/backend/tests/ser
 git commit -m "feat: add file watcher service with tree building"
 ```
 
-### Task 3.5: File, git handlers and editor detector
+### Task 3.5: Path validation utilities
+
+**Files:**
+- Create: `packages/backend/src/utils/path-validation.ts`
+
+- [ ] **Step 1: Create shared path validation module**
+
+File: `packages/backend/src/utils/path-validation.ts`
+```typescript
+import type { TaskStore } from '../services/task-store';
+import { realpath } from 'fs/promises';
+import { basename, dirname, resolve, sep } from 'path';
+
+export function isWithinRoot(candidatePath: string, rootPath: string): boolean {
+  return candidatePath === rootPath || candidatePath.startsWith(`${rootPath}${sep}`);
+}
+
+export async function listWorkspaceRoots(taskStore: TaskStore): Promise<string[]> {
+  const [projects, tasks] = await Promise.all([
+    taskStore.listProjects(),
+    taskStore.listTasks(),
+  ]);
+  const roots = new Set<string>();
+
+  for (const project of projects) {
+    roots.add(await realpath(project.path).catch(() => resolve(project.path)));
+  }
+  for (const task of tasks) {
+    if (task.worktree.enabled && task.worktree.path) {
+      roots.add(await realpath(task.worktree.path).catch(() => resolve(task.worktree.path)));
+    }
+  }
+
+  return Array.from(roots);
+}
+
+export async function resolveWorkspacePath(path: string): Promise<string> {
+  return realpath(path).catch(async () => {
+    const parentPath = await realpath(dirname(path)).catch(() => resolve(dirname(path)));
+    return resolve(parentPath, basename(path));
+  });
+}
+
+export async function assertWorkspacePath(taskStore: TaskStore, path: string): Promise<string> {
+  const [roots, resolvedPath] = await Promise.all([
+    listWorkspaceRoots(taskStore),
+    resolveWorkspacePath(path),
+  ]);
+  if (!roots.some((root) => isWithinRoot(resolvedPath, root))) {
+    throw new Error(`Path is outside known workspaces: ${path}`);
+  }
+  return resolvedPath;
+}
+
+export async function assertWorkspaceRepo(taskStore: TaskStore, repoPath: string): Promise<string> {
+  const [roots, resolvedRepoPath] = await Promise.all([
+    listWorkspaceRoots(taskStore),
+    realpath(repoPath).catch(() => resolve(repoPath)),
+  ]);
+  if (!roots.some((root) => isWithinRoot(resolvedRepoPath, root))) {
+    throw new Error(`Repository is outside known workspaces: ${repoPath}`);
+  }
+  return resolvedRepoPath;
+}
+
+export function assertRepoFilePath(repoPath: string, filePath: string): void {
+  const resolvedFilePath = resolve(repoPath, filePath);
+  if (!isWithinRoot(resolvedFilePath, repoPath)) {
+    throw new Error(`File path is outside repository: ${filePath}`);
+  }
+}
+
+export function assertWorktreePath(repoPath: string, worktreePath: string): string {
+  const worktreesRoot = resolve(repoPath, '.worktrees');
+  const resolvedWorktreePath = resolve(worktreePath);
+  if (!isWithinRoot(resolvedWorktreePath, worktreesRoot)) {
+    throw new Error(`Worktree path must be inside ${worktreesRoot}`);
+  }
+  return resolvedWorktreePath;
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add packages/backend/src/utils/path-validation.ts
+git commit -m "feat: extract shared path validation utilities"
+```
+
+### Task 3.6: File, git handlers and editor detector
 
 **Files:**
 - Create: `packages/backend/src/handlers/file.ts`
@@ -652,55 +741,14 @@ import type {
 import type { Router } from '../ws/router';
 import type { FileWatcher } from '../services/file-watcher';
 import type { TaskStore } from '../services/task-store';
-import { readFile, writeFile, realpath } from 'fs/promises';
-import { basename, dirname, resolve, sep } from 'path';
+import { readFile, writeFile } from 'fs/promises';
+import { assertWorkspacePath } from '../utils/path-validation';
 
 interface FileHandlerDeps {
   router: Router;
   fileWatcher: FileWatcher;
   taskStore: TaskStore;
   broadcast: (event: WsEvent) => void;
-}
-
-function isWithinRoot(candidatePath: string, rootPath: string): boolean {
-  return candidatePath === rootPath || candidatePath.startsWith(`${rootPath}${sep}`);
-}
-
-async function listWorkspaceRoots(taskStore: TaskStore): Promise<string[]> {
-  const [projects, tasks] = await Promise.all([
-    taskStore.listProjects(),
-    taskStore.listTasks(),
-  ]);
-  const roots = new Set<string>();
-
-  for (const project of projects) {
-    roots.add(await realpath(project.path).catch(() => resolve(project.path)));
-  }
-  for (const task of tasks) {
-    if (task.worktree.enabled && task.worktree.path) {
-      roots.add(await realpath(task.worktree.path).catch(() => resolve(task.worktree.path)));
-    }
-  }
-
-  return Array.from(roots);
-}
-
-async function resolveWorkspacePath(path: string): Promise<string> {
-  return realpath(path).catch(async () => {
-    const parentPath = await realpath(dirname(path)).catch(() => resolve(dirname(path)));
-    return resolve(parentPath, basename(path));
-  });
-}
-
-async function assertWorkspacePath(taskStore: TaskStore, path: string): Promise<string> {
-  const [roots, resolvedPath] = await Promise.all([
-    listWorkspaceRoots(taskStore),
-    resolveWorkspacePath(path),
-  ]);
-  if (!roots.some((root) => isWithinRoot(resolvedPath, root))) {
-    throw new Error(`Path is outside known workspaces: ${path}`);
-  }
-  return resolvedPath;
 }
 
 export function registerFileHandlers(deps: FileHandlerDeps): void {
@@ -757,63 +805,14 @@ import type {
 import type { Router } from '../ws/router';
 import type { GitService } from '../services/git-service';
 import type { TaskStore } from '../services/task-store';
-import { realpath } from 'fs/promises';
-import { resolve, sep } from 'path';
+import {
+  assertWorkspaceRepo, assertRepoFilePath, assertWorktreePath,
+} from '../utils/path-validation';
 
 interface GitHandlerDeps {
   router: Router;
   git: GitService;
   taskStore: TaskStore;
-}
-
-function isWithinRoot(candidatePath: string, rootPath: string): boolean {
-  return candidatePath === rootPath || candidatePath.startsWith(`${rootPath}${sep}`);
-}
-
-async function listWorkspaceRoots(taskStore: TaskStore): Promise<string[]> {
-  const [projects, tasks] = await Promise.all([
-    taskStore.listProjects(),
-    taskStore.listTasks(),
-  ]);
-  const roots = new Set<string>();
-
-  for (const project of projects) {
-    roots.add(await realpath(project.path).catch(() => resolve(project.path)));
-  }
-  for (const task of tasks) {
-    if (task.worktree.enabled && task.worktree.path) {
-      roots.add(await realpath(task.worktree.path).catch(() => resolve(task.worktree.path)));
-    }
-  }
-
-  return Array.from(roots);
-}
-
-async function assertWorkspaceRepo(taskStore: TaskStore, repoPath: string): Promise<string> {
-  const [roots, resolvedRepoPath] = await Promise.all([
-    listWorkspaceRoots(taskStore),
-    realpath(repoPath).catch(() => resolve(repoPath)),
-  ]);
-  if (!roots.some((root) => isWithinRoot(resolvedRepoPath, root))) {
-    throw new Error(`Repository is outside known workspaces: ${repoPath}`);
-  }
-  return resolvedRepoPath;
-}
-
-function assertRepoFilePath(repoPath: string, filePath: string): void {
-  const resolvedFilePath = resolve(repoPath, filePath);
-  if (!isWithinRoot(resolvedFilePath, repoPath)) {
-    throw new Error(`File path is outside repository: ${filePath}`);
-  }
-}
-
-function assertWorktreePath(repoPath: string, worktreePath: string): string {
-  const worktreesRoot = resolve(repoPath, '.worktrees');
-  const resolvedWorktreePath = resolve(worktreePath);
-  if (!isWithinRoot(resolvedWorktreePath, worktreesRoot)) {
-    throw new Error(`Worktree path must be inside ${worktreesRoot}`);
-  }
-  return resolvedWorktreePath;
 }
 
 export function registerGitHandlers(deps: GitHandlerDeps): void {
@@ -892,7 +891,7 @@ git add packages/backend/src/handlers/file.ts packages/backend/src/handlers/git.
 git commit -m "feat: add file, git handlers and editor detector"
 ```
 
-### Task 3.6: Wire all services into index.ts
+### Task 3.7: Wire all services into index.ts
 
 **Files:**
 - Modify: `packages/backend/src/index.ts`
@@ -901,6 +900,7 @@ git commit -m "feat: add file, git handlers and editor detector"
 
 File: `packages/backend/src/index.ts`
 ```typescript
+import { MSG } from '@taskflow/shared';
 import { ensureDirectories, config } from './config';
 import { Router } from './ws/router';
 import { createServer } from './ws/server';
@@ -945,10 +945,13 @@ async function main() {
   });
   registerGitHandlers({ router, git: gitService, taskStore: store });
 
+  // System info handler
+  const editors = await detectEditors();
+  router.register(MSG.SYSTEM_INFO, async () => ({ editors }));
+
   const { port, stop } = await server.start();
   await writeFile(config.portFile, String(port));
 
-  const editors = await detectEditors();
   console.log(`Taskflow backend running on port ${port}`);
   console.log(`Detected editors: ${editors.map((e) => e.name).join(', ') || 'none'}`);
 

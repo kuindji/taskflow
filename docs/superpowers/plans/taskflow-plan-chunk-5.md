@@ -69,16 +69,46 @@ File: `packages/ui/src/hooks/useWebSocket.ts`
 import type { WsRequest } from '@taskflow/shared';
 
 let ws: WebSocket | null = null;
+let wsPort: number | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempt = 0;
+const MAX_RECONNECT_DELAY = 10000;
+
 const pendingRequests = new Map<string, {
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
 }>();
 const eventListeners = new Map<string, Set<(payload: unknown) => void>>();
+const statusListeners = new Set<(connected: boolean) => void>();
+
+function notifyStatus(connected: boolean): void {
+  for (const listener of statusListeners) listener(connected);
+}
+
+export function onStatusChange(handler: (connected: boolean) => void): () => void {
+  statusListeners.add(handler);
+  return () => { statusListeners.delete(handler); };
+}
+
+function scheduleReconnect(): void {
+  if (reconnectTimer || !wsPort) return;
+  const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY);
+  reconnectAttempt++;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (wsPort) connectWebSocket(wsPort).catch(() => {});
+  }, delay);
+}
 
 export function connectWebSocket(port: number): Promise<void> {
+  wsPort = port;
   return new Promise((resolve, reject) => {
     ws = new WebSocket(`ws://localhost:${port}`);
-    ws.onopen = () => resolve();
+    ws.onopen = () => {
+      reconnectAttempt = 0;
+      notifyStatus(true);
+      resolve();
+    };
     ws.onerror = (e) => reject(e);
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -97,6 +127,8 @@ export function connectWebSocket(port: number): Promise<void> {
     ws.onclose = () => {
       for (const [, pending] of pendingRequests) pending.reject(new Error('WebSocket closed'));
       pendingRequests.clear();
+      notifyStatus(false);
+      scheduleReconnect();
     };
   });
 }
@@ -129,7 +161,7 @@ export function onEvent(type: string, handler: (payload: unknown) => void): () =
 File: `packages/ui/src/providers/WebSocketProvider.tsx`
 ```tsx
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { connectWebSocket } from '../hooks/useWebSocket';
+import { connectWebSocket, onStatusChange } from '../hooks/useWebSocket';
 
 interface WsContextValue { connected: boolean; error: string | null; }
 const WsContext = createContext<WsContextValue>({ connected: false, error: null });
@@ -140,6 +172,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const unsubscribe = onStatusChange(setConnected);
+
     async function connect() {
       try {
         let port: number;
@@ -153,12 +187,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           }
         }
         await connectWebSocket(port);
-        setConnected(true);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Connection failed');
       }
     }
     connect();
+
+    return unsubscribe;
   }, []);
 
   return <WsContext.Provider value={{ connected, error }}>{children}</WsContext.Provider>;
@@ -542,16 +577,35 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
 }
 ```
 
-- [ ] **Step 2: Update App.tsx to use AppShell**
+- [ ] **Step 2: Update App.tsx to use AppShell with connection status overlay**
 
 File: `packages/ui/src/App.tsx`
 ```tsx
-import { WebSocketProvider } from '@/providers/WebSocketProvider';
+import { WebSocketProvider, useWsStatus } from '@/providers/WebSocketProvider';
 import { AppShell } from '@/components/AppShell';
+
+function ConnectionOverlay() {
+  const { connected, error } = useWsStatus();
+  if (connected) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+      <div className="text-center space-y-2">
+        <div className="text-foreground text-sm font-medium">
+          {error ? 'Connection Failed' : 'Connecting to backend...'}
+        </div>
+        {error && <div className="text-destructive text-xs">{error}</div>}
+        {!error && (
+          <div className="text-muted-foreground text-xs">Reconnecting...</div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function App() {
   return (
     <WebSocketProvider>
+      <ConnectionOverlay />
       <AppShell
         sidebar={<div className="p-3 text-muted-foreground">Task Sidebar</div>}
         fileExplorer={<div className="p-3 text-muted-foreground">File Explorer</div>}
@@ -940,21 +994,40 @@ export function Workspace() {
 
 File: `packages/ui/src/App.tsx`
 ```tsx
-import { WebSocketProvider } from '@/providers/WebSocketProvider';
+import { WebSocketProvider, useWsStatus } from '@/providers/WebSocketProvider';
 import { AppShell } from '@/components/AppShell';
 import { TaskSidebar } from '@/components/sidebar/TaskSidebar';
 import { Workspace } from '@/components/workspace/Workspace';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
+function ConnectionOverlay() {
+  const { connected, error } = useWsStatus();
+  if (connected) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+      <div className="text-center space-y-2">
+        <div className="text-foreground text-sm font-medium">
+          {error ? 'Connection Failed' : 'Connecting to backend...'}
+        </div>
+        {error && <div className="text-destructive text-xs">{error}</div>}
+        {!error && (
+          <div className="text-muted-foreground text-xs">Reconnecting...</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   return (
     <WebSocketProvider>
+      <ConnectionOverlay />
       <TooltipProvider>
         <AppShell
           sidebar={<TaskSidebar />}
-          fileExplorer={<div className="p-3 text-muted-foreground text-[11px]">File Explorer (coming in Chunk 6)</div>}
+          fileExplorer={<div className="p-3 text-muted-foreground text-[11px]">File Explorer (coming in Chunk 7)</div>}
           workspace={<Workspace />}
-          taskInfo={<div className="p-3 text-muted-foreground text-[11px]">Task Info (coming in Chunk 6)</div>}
+          taskInfo={<div className="p-3 text-muted-foreground text-[11px]">Task Info (coming in Chunk 7)</div>}
         />
       </TooltipProvider>
     </WebSocketProvider>
@@ -962,7 +1035,7 @@ export function App() {
 }
 ```
 
-Note: `<TooltipProvider>` wraps the app so tooltips work throughout (required by Radix).
+Note: `<TooltipProvider>` wraps the app so tooltips work throughout (required by Radix). `<ConnectionOverlay>` shows a backdrop when the WebSocket disconnects and auto-hides on reconnect.
 
 - [ ] **Step 6: Commit**
 
