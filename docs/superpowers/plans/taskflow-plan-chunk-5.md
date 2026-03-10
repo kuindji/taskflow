@@ -21,7 +21,7 @@
 **Files:**
 - Create: `packages/ui/vite.config.ts`
 
-> **Note:** If this file already exists from Chunk 4.5 Task 4.5.2 (which adds the `@` alias), verify it matches and skip to Step 2.
+> **Note:** Chunk 1 now creates a base `vite.config.ts`. If Chunk 4.5 Task 4.5.2 has already updated it with the `@` alias, verify it matches and skip to Step 2.
 
 - [ ] **Step 1: Create Vite config**
 
@@ -287,6 +287,7 @@ File: `packages/ui/src/stores/session-store.ts`
 import { create } from 'zustand';
 import { MSG } from '@taskflow/shared';
 import { sendRequest } from '../hooks/useWebSocket';
+import { useTaskStore } from './task-store';
 
 export interface Tab {
   id: string;
@@ -318,9 +319,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const { sessionId } = await sendRequest<{ sessionId: string }>(MSG.SESSION_CREATE, { taskId, type, label });
     const tab: Tab = { id: sessionId, type, label: label ?? `${type} session`, sessionId };
     get().addTab(taskId, tab);
+    await useTaskStore.getState().fetchTasks();
     return sessionId;
   },
-  async closeSession(sessionId) { await sendRequest(MSG.SESSION_CLOSE, { sessionId }); },
+  async closeSession(sessionId) {
+    await sendRequest(MSG.SESSION_CLOSE, { sessionId });
+    await useTaskStore.getState().fetchTasks();
+  },
   sendInput(sessionId, data) { sendRequest(MSG.SESSION_INPUT, { sessionId, data }).catch(console.error); },
   resizeTerminal(sessionId, cols, rows) { sendRequest(MSG.TERMINAL_RESIZE, { sessionId, cols, rows }).catch(console.error); },
   addTab(taskId, tab) {
@@ -331,7 +336,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
   async closeTab(taskId, tabId) {
     const tab = (get().tabsByTask[taskId] ?? []).find((entry) => entry.id === tabId);
-    if (tab?.sessionId) await sendRequest(MSG.SESSION_CLOSE, { sessionId: tab.sessionId });
+    if (tab?.sessionId) await get().closeSession(tab.sessionId);
     set((s) => {
       const tabs = (s.tabsByTask[taskId] ?? []).filter((t) => t.id !== tabId);
       const activeId = s.activeTabByTask[taskId] === tabId ? tabs[tabs.length - 1]?.id ?? '' : s.activeTabByTask[taskId];
@@ -364,6 +369,7 @@ interface FileStore {
   fetchTree(path: string): Promise<void>;
   fetchGitStatus(path: string): Promise<void>;
   watchPath(path: string): Promise<void>;
+  unwatchPath(path: string): Promise<void>;
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
 }
@@ -383,7 +389,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
     set({ gitStatus: status });
   },
   async watchPath(path) {
-    set({ watchedPath: path });
+    const previousPath = get().watchedPath;
+    if (previousPath === path) return;
     if (!fileChangeSubscriptionReady) {
       fileChangeSubscriptionReady = true;
       onEvent(MSG.FILE_CHANGED, (payload) => {
@@ -397,7 +404,17 @@ export const useFileStore = create<FileStore>((set, get) => ({
         }, 150);
       });
     }
+    if (previousPath) {
+      await sendRequest(MSG.FILE_UNWATCH, { path: previousPath });
+      set({ watchedPath: null });
+    }
     await sendRequest(MSG.FILE_WATCH, { path });
+    set({ watchedPath: path });
+  },
+  async unwatchPath(path) {
+    if (get().watchedPath !== path) return;
+    await sendRequest(MSG.FILE_UNWATCH, { path });
+    set({ watchedPath: null });
   },
   async readFile(path) {
     const { content } = await sendRequest<{ content: string }>(MSG.FILE_READ, { path });
@@ -674,6 +691,7 @@ File: `packages/ui/src/components/sidebar/TaskSidebar.tsx`
 import { useEffect } from 'react';
 import { useProjectStore } from '@/stores/project-store';
 import { useTaskStore } from '@/stores/task-store';
+import { useWsStatus } from '@/providers/WebSocketProvider';
 import { ProjectGroup } from './ProjectGroup';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -682,10 +700,15 @@ import { Separator } from '@/components/ui/separator';
 import { Plus } from 'lucide-react';
 
 export function TaskSidebar() {
+  const { connected } = useWsStatus();
   const { projects, fetchProjects, addProject } = useProjectStore();
   const { tasks, activeTaskId, fetchTasks, setActiveTask, createTask } = useTaskStore();
 
-  useEffect(() => { fetchProjects(); fetchTasks(); }, []);
+  useEffect(() => {
+    if (!connected) return;
+    void fetchProjects();
+    void fetchTasks();
+  }, [connected, fetchProjects, fetchTasks]);
 
   const tasksByProject = (projectId: string) => tasks.filter((t) => t.projectId === projectId);
 
@@ -897,7 +920,7 @@ export function Workspace() {
 
   const handleNewTab = async (type: 'claude' | 'codex' | 'browser') => {
     if (type === 'browser') {
-      addTab(task.id, { id: crypto.randomUUID(), type: 'browser', label: 'Browser', url: 'http://localhost:3000' });
+      addTab(task.id, { id: crypto.randomUUID(), type: 'browser', label: 'New Tab', url: 'about:blank' });
     } else {
       await createSession(task.id, type);
     }

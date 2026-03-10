@@ -68,10 +68,6 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(containerRef.current);
-    fit.fit();
-
-    termRef.current = term;
-    fitRef.current = fit;
 
     // Send keystrokes to PTY
     term.onData((data) => {
@@ -82,6 +78,12 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     term.onResize(({ cols, rows }) => {
       resizeTerminal(sessionId, cols, rows);
     });
+
+    fit.fit();
+    resizeTerminal(sessionId, term.cols, term.rows);
+
+    termRef.current = term;
+    fitRef.current = fit;
 
     // Listen for PTY output
     const unsubscribe = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
@@ -102,7 +104,7 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
       resizeObserver.disconnect();
       term.dispose();
     };
-  }, [sessionId]);
+  }, [sessionId, resizeTerminal, sendInput]);
 
   return (
     <div
@@ -174,7 +176,7 @@ export function EditorPane({ filePath }: EditorPaneProps) {
     editorRef.current = editor;
 
     // Load file content
-    readFile(filePath).then((content) => {
+    void readFile(filePath).then((content) => {
       editor.setValue(content);
       setDirty(false);
       setLoading(false);
@@ -200,7 +202,7 @@ export function EditorPane({ filePath }: EditorPaneProps) {
       changeDisposable.dispose();
       editor.dispose();
     };
-  }, [filePath]);
+  }, [filePath, readFile, writeFile]);
 
   return (
     <div className="flex-1 relative">
@@ -248,7 +250,7 @@ git commit -m "feat: add EditorPane with Monaco editor"
 
 File: `packages/ui/src/components/panes/ChangesPane.tsx`
 ```tsx
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cva } from 'class-variance-authority';
 import type { GitStatusResult, GitFileStatus } from '@taskflow/shared';
 import { MSG } from '@taskflow/shared';
@@ -357,7 +359,9 @@ interface ChangesPaneProps {
 export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
   const [status, setStatus] = useState<GitStatusResult | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [diff, setDiff] = useState<string>('');
+  const [diff, setDiff] = useState<string | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const diffRequestIdRef = useRef(0);
 
   const containerClasses = useMemo(
     () => cn("flex-1 flex flex-col overflow-hidden", className),
@@ -365,7 +369,10 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
   );
 
   useEffect(() => {
-    fetchStatus();
+    setSelectedFile(null);
+    setDiff(null);
+    setDiffLoading(false);
+    void fetchStatus();
   }, [repoPath]);
 
   async function fetchStatus() {
@@ -378,13 +385,22 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
   }
 
   async function showDiff(filePath: string) {
+    const requestId = ++diffRequestIdRef.current;
     setSelectedFile(filePath);
+    setDiff(null);
+    setDiffLoading(true);
     try {
       const { diff } = await sendRequest<{ diff: string }>(MSG.GIT_DIFF_FILE, { repoPath, filePath });
+      if (requestId !== diffRequestIdRef.current) return;
       setDiff(diff);
     } catch (err) {
+      if (requestId !== diffRequestIdRef.current) return;
       console.error('Failed to fetch diff:', err);
-      setDiff('');
+      setDiff(null);
+    } finally {
+      if (requestId === diffRequestIdRef.current) {
+        setDiffLoading(false);
+      }
     }
   }
 
@@ -394,7 +410,8 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
       await fetchStatus();
       if (selectedFile === filePath) {
         setSelectedFile(null);
-        setDiff('');
+        setDiff(null);
+        setDiffLoading(false);
       }
     } catch (err) {
       console.error('Failed to revert file:', err);
@@ -428,7 +445,9 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
 
       {/* Diff view */}
       <ScrollArea className="flex-1 p-2">
-        {diff ? (
+        {diffLoading ? (
+          <div className="text-muted-foreground text-xs">Loading diff...</div>
+        ) : diff ? (
           <pre className="m-0">
             {diff.split('\n').map((line, i) => (
               <div key={i} className={diffLineVariants({ type: getDiffLineType(line) })}>
@@ -436,9 +455,13 @@ export function ChangesPane({ repoPath, className }: ChangesPaneProps) {
               </div>
             ))}
           </pre>
+        ) : selectedFile ? (
+          <div className="text-muted-foreground text-xs">
+            No textual diff available for this file
+          </div>
         ) : (
           <div className="text-muted-foreground text-xs">
-            {selectedFile ? 'Loading diff...' : 'Click a file to see its diff'}
+            Click a file to see its diff
           </div>
         )}
       </ScrollArea>
@@ -461,7 +484,7 @@ git commit -m "feat: add ChangesPane with diff viewer and per-file revert"
 
 - [ ] **Step 1: Add webview JSX type declaration**
 
-The `<webview>` tag is Electron-specific and has no JSX type. Add to `packages/ui/src/env.d.ts` (which should exist from Chunk 1):
+The `<webview>` tag is Electron-specific and has no JSX type. Add to `packages/ui/src/env.d.ts` (which should exist from Chunk 4 and already include Vite + preload bridge typings):
 
 ```typescript
 // Add to existing env.d.ts
@@ -479,7 +502,7 @@ declare namespace JSX {
 
 File: `packages/ui/src/components/panes/BrowserPane.tsx`
 ```tsx
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, RotateCw } from 'lucide-react';
@@ -491,6 +514,12 @@ interface BrowserPaneProps {
 export function BrowserPane({ initialUrl }: BrowserPaneProps) {
   const [url, setUrl] = useState(initialUrl);
   const [inputUrl, setInputUrl] = useState(initialUrl);
+  const webviewRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setUrl(initialUrl);
+    setInputUrl(initialUrl);
+  }, [initialUrl]);
 
   return (
     <div className="flex-1 flex flex-col">
@@ -500,7 +529,7 @@ export function BrowserPane({ initialUrl }: BrowserPaneProps) {
           variant="ghost"
           size="icon-sm"
           onClick={() => {
-            const wv = document.querySelector(`webview[data-url="${url}"]`) as any;
+            const wv = webviewRef.current as any;
             wv?.goBack();
           }}
         >
@@ -510,7 +539,7 @@ export function BrowserPane({ initialUrl }: BrowserPaneProps) {
           variant="ghost"
           size="icon-sm"
           onClick={() => {
-            const wv = document.querySelector(`webview[data-url="${url}"]`) as any;
+            const wv = webviewRef.current as any;
             wv?.reload();
           }}
         >
@@ -526,8 +555,8 @@ export function BrowserPane({ initialUrl }: BrowserPaneProps) {
 
       {/* Webview */}
       <webview
+        ref={webviewRef}
         src={url}
-        data-url={url}
         className="flex-1"
       />
     </div>
@@ -652,22 +681,26 @@ import { X } from 'lucide-react';
 import { FileTree } from './FileTree';
 
 export function FileExplorer() {
-  const { tree, gitStatus, fetchTree, fetchGitStatus, watchPath } = useFileStore();
+  const { tree, gitStatus, fetchTree, fetchGitStatus, watchPath, unwatchPath } = useFileStore();
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
   const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
-  const { addTab } = useSessionStore();
+  const { addTab, getTabs, setActiveTab } = useSessionStore();
 
   const workingDir = task?.worktree.enabled && task.worktree.path
     ? task.worktree.path
     : project?.path;
 
   useEffect(() => {
-    if (workingDir) {
-      fetchTree(workingDir);
-      fetchGitStatus(workingDir);
-      watchPath(workingDir);
-    }
-  }, [workingDir]);
+    if (!workingDir) return;
+
+    void fetchTree(workingDir);
+    void fetchGitStatus(workingDir);
+    void watchPath(workingDir);
+
+    return () => {
+      void unwatchPath(workingDir);
+    };
+  }, [workingDir, fetchTree, fetchGitStatus, watchPath, unwatchPath]);
 
   const gitFiles = useMemo(() => {
     const map = new Map<string, string>();
@@ -680,8 +713,15 @@ export function FileExplorer() {
 
   const handleFileClick = (path: string) => {
     if (!task) return;
+
+    const existingTab = getTabs(task.id).find((tab) => tab.type === 'editor' && tab.filePath === path);
+    if (existingTab) {
+      setActiveTab(task.id, existingTab.id);
+      return;
+    }
+
     addTab(task.id, {
-      id: `editor-${path}`,
+      id: crypto.randomUUID(),
       type: 'editor',
       label: path.split('/').pop() ?? path,
       filePath: path,
@@ -721,6 +761,8 @@ export function FileExplorer() {
 }
 ```
 
+Note: Clicking a file that already has an open editor tab should focus that existing tab instead of creating a duplicate tab.
+
 - [ ] **Step 3: Commit**
 
 ```bash
@@ -737,6 +779,7 @@ git commit -m "feat: add FileExplorer and FileTree with git status"
 
 File: `packages/ui/src/components/panels/TaskInfoPanel.tsx`
 ```tsx
+import { useEffect, useRef, useState } from 'react';
 import { useTaskStore } from '@/stores/task-store';
 import { useUIStore } from '@/stores/ui-store';
 import { Textarea } from '@/components/ui/textarea';
@@ -749,6 +792,51 @@ import { X } from 'lucide-react';
 export function TaskInfoPanel({ className }: { className?: string }) {
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
   const { updateTask } = useTaskStore();
+  const [descriptionDraft, setDescriptionDraft] = useState('');
+  const [notesDraft, setNotesDraft] = useState('');
+  const lastSavedRef = useRef({ description: '', notes: '' });
+
+  useEffect(() => {
+    if (!task) return;
+    setDescriptionDraft(task.description);
+    setNotesDraft(task.notes);
+    lastSavedRef.current = {
+      description: task.description,
+      notes: task.notes,
+    };
+  }, [task?.id]);
+
+  useEffect(() => {
+    if (!task) return;
+    if (
+      descriptionDraft === lastSavedRef.current.description &&
+      notesDraft === lastSavedRef.current.notes
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const updates: { description?: string; notes?: string } = {};
+      if (descriptionDraft !== lastSavedRef.current.description) {
+        updates.description = descriptionDraft;
+      }
+      if (notesDraft !== lastSavedRef.current.notes) {
+        updates.notes = notesDraft;
+      }
+      if (Object.keys(updates).length === 0) return;
+
+      lastSavedRef.current = {
+        description: descriptionDraft,
+        notes: notesDraft,
+      };
+
+      void updateTask(task.id, updates).catch((err) => {
+        console.error('Failed to update task:', err);
+      });
+    }, 400);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [descriptionDraft, notesDraft, task, updateTask]);
 
   if (!task) {
     return (
@@ -782,8 +870,8 @@ export function TaskInfoPanel({ className }: { className?: string }) {
               Description
             </label>
             <Textarea
-              value={task.description}
-              onChange={(e) => updateTask(task.id, { description: e.target.value })}
+              value={descriptionDraft}
+              onChange={(e) => setDescriptionDraft(e.target.value)}
               rows={4}
               className="mt-1 text-[11px]"
             />
@@ -837,8 +925,8 @@ export function TaskInfoPanel({ className }: { className?: string }) {
               Notes
             </label>
             <Textarea
-              value={task.notes}
-              onChange={(e) => updateTask(task.id, { notes: e.target.value })}
+              value={notesDraft}
+              onChange={(e) => setNotesDraft(e.target.value)}
               rows={6}
               placeholder="Add notes..."
               className="mt-1 text-[11px]"
@@ -911,7 +999,7 @@ export function TabContent({ tab }: TabContentProps) {
       return <ChangesPane repoPath={workingDir} />;
 
     case 'browser':
-      return <BrowserPane initialUrl={tab.url ?? 'http://localhost:3000'} />;
+      return <BrowserPane key={tab.id} initialUrl={tab.url ?? 'about:blank'} />;
 
     default:
       return <div className="p-3 text-muted-foreground">Unknown tab type</div>;

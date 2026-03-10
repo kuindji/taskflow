@@ -338,6 +338,12 @@ describe('GitService', () => {
     expect(diff.files[0].diff).toContain('modified content');
   });
 
+  it('throws when the path is not a git repository', async () => {
+    const nonRepoDir = await mkdtemp(join(tmpdir(), 'taskflow-git-nonrepo-'));
+    await expect(git.status(nonRepoDir)).rejects.toThrow();
+    await rm(nonRepoDir, { recursive: true, force: true });
+  });
+
   it('reverts a file', async () => {
     await writeFile(join(repoDir, 'initial.txt'), 'modified');
     await git.revertFile(repoDir, 'initial.txt');
@@ -373,9 +379,19 @@ import { dirname, join } from 'path';
 
 async function git(args: string[], cwd: string): Promise<string> {
   const proc = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
-  const output = await new Response(proc.stdout).text();
-  await proc.exited;
-  return output.trim();
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(
+      stderr.trim()
+        || stdout.trim()
+        || `git ${args.join(' ')} failed with exit code ${exitCode}`,
+    );
+  }
+  return stdout.trim();
 }
 
 export class GitService {
@@ -500,6 +516,7 @@ describe('FileWatcher', () => {
     await writeFile(join(tempDir, 'node_modules', 'pkg.js'), 'x');
     await mkdir(join(tempDir, '.git'));
     await writeFile(join(tempDir, '.git', 'config'), 'x');
+    await writeFile(join(tempDir, '.gitignore'), 'dist\n');
     await writeFile(join(tempDir, 'real.ts'), 'x');
 
     watcher = new FileWatcher();
@@ -508,6 +525,7 @@ describe('FileWatcher', () => {
     const names = tree.children!.map((c) => c.name);
     expect(names).not.toContain('node_modules');
     expect(names).not.toContain('.git');
+    expect(names).toContain('.gitignore');
     expect(names).toContain('real.ts');
   });
 
@@ -558,7 +576,6 @@ export class FileWatcher {
       const entries = await readdir(dirPath, { withFileTypes: true });
       for (const entry of entries) {
         if (IGNORED.has(entry.name)) continue;
-        if (entry.name.startsWith('.') && entry.name !== '.env.example') continue;
 
         const fullPath = join(dirPath, entry.name);
         if (entry.isDirectory()) {
@@ -628,45 +645,101 @@ import type {
   FileTreePayload,
   FileReadPayload,
   FileWatchPayload,
+  FileUnwatchPayload,
   FileWritePayload,
   WsEvent,
 } from '@taskflow/shared';
 import type { Router } from '../ws/router';
 import type { FileWatcher } from '../services/file-watcher';
-import { readFile, writeFile } from 'fs/promises';
+import type { TaskStore } from '../services/task-store';
+import { readFile, writeFile, realpath } from 'fs/promises';
+import { basename, dirname, resolve, sep } from 'path';
 
 interface FileHandlerDeps {
   router: Router;
   fileWatcher: FileWatcher;
+  taskStore: TaskStore;
   broadcast: (event: WsEvent) => void;
 }
 
+function isWithinRoot(candidatePath: string, rootPath: string): boolean {
+  return candidatePath === rootPath || candidatePath.startsWith(`${rootPath}${sep}`);
+}
+
+async function listWorkspaceRoots(taskStore: TaskStore): Promise<string[]> {
+  const [projects, tasks] = await Promise.all([
+    taskStore.listProjects(),
+    taskStore.listTasks(),
+  ]);
+  const roots = new Set<string>();
+
+  for (const project of projects) {
+    roots.add(await realpath(project.path).catch(() => resolve(project.path)));
+  }
+  for (const task of tasks) {
+    if (task.worktree.enabled && task.worktree.path) {
+      roots.add(await realpath(task.worktree.path).catch(() => resolve(task.worktree.path)));
+    }
+  }
+
+  return Array.from(roots);
+}
+
+async function resolveWorkspacePath(path: string): Promise<string> {
+  return realpath(path).catch(async () => {
+    const parentPath = await realpath(dirname(path)).catch(() => resolve(dirname(path)));
+    return resolve(parentPath, basename(path));
+  });
+}
+
+async function assertWorkspacePath(taskStore: TaskStore, path: string): Promise<string> {
+  const [roots, resolvedPath] = await Promise.all([
+    listWorkspaceRoots(taskStore),
+    resolveWorkspacePath(path),
+  ]);
+  if (!roots.some((root) => isWithinRoot(resolvedPath, root))) {
+    throw new Error(`Path is outside known workspaces: ${path}`);
+  }
+  return resolvedPath;
+}
+
 export function registerFileHandlers(deps: FileHandlerDeps): void {
-  const { router, fileWatcher, broadcast } = deps;
+  const { router, fileWatcher, taskStore, broadcast } = deps;
 
   router.register(MSG.FILE_TREE, async (payload) => {
     const { path } = payload as FileTreePayload;
-    const tree = await fileWatcher.buildTree(path);
+    const workspacePath = await assertWorkspacePath(taskStore, path);
+    const tree = await fileWatcher.buildTree(workspacePath);
     return { tree };
   });
 
   router.register(MSG.FILE_READ, async (payload) => {
     const { path } = payload as FileReadPayload;
-    const content = await readFile(path, 'utf-8');
+    const workspacePath = await assertWorkspacePath(taskStore, path);
+    const content = await readFile(workspacePath, 'utf-8');
     return { content };
   });
 
   router.register(MSG.FILE_WRITE, async (payload) => {
     const { path, content } = payload as FileWritePayload;
-    await writeFile(path, content, 'utf-8');
+    const workspacePath = await assertWorkspacePath(taskStore, path);
+    await writeFile(workspacePath, content, 'utf-8');
     return { success: true };
   });
 
   router.register(MSG.FILE_WATCH, async (payload) => {
     const { path } = payload as FileWatchPayload;
-    fileWatcher.watch(path, (event) => {
+    const workspacePath = await assertWorkspacePath(taskStore, path);
+    fileWatcher.watch(workspacePath, (event) => {
       broadcast({ type: MSG.FILE_CHANGED, payload: event });
     });
+    return { success: true };
+  });
+
+  router.register(MSG.FILE_UNWATCH, async (payload) => {
+    const { path } = payload as FileUnwatchPayload;
+    const workspacePath = await assertWorkspacePath(taskStore, path);
+    fileWatcher.stop(workspacePath);
     return { success: true };
   });
 }
@@ -683,32 +756,101 @@ import type {
 } from '@taskflow/shared';
 import type { Router } from '../ws/router';
 import type { GitService } from '../services/git-service';
+import type { TaskStore } from '../services/task-store';
+import { realpath } from 'fs/promises';
+import { resolve, sep } from 'path';
 
-export function registerGitHandlers(router: Router, git: GitService): void {
+interface GitHandlerDeps {
+  router: Router;
+  git: GitService;
+  taskStore: TaskStore;
+}
+
+function isWithinRoot(candidatePath: string, rootPath: string): boolean {
+  return candidatePath === rootPath || candidatePath.startsWith(`${rootPath}${sep}`);
+}
+
+async function listWorkspaceRoots(taskStore: TaskStore): Promise<string[]> {
+  const [projects, tasks] = await Promise.all([
+    taskStore.listProjects(),
+    taskStore.listTasks(),
+  ]);
+  const roots = new Set<string>();
+
+  for (const project of projects) {
+    roots.add(await realpath(project.path).catch(() => resolve(project.path)));
+  }
+  for (const task of tasks) {
+    if (task.worktree.enabled && task.worktree.path) {
+      roots.add(await realpath(task.worktree.path).catch(() => resolve(task.worktree.path)));
+    }
+  }
+
+  return Array.from(roots);
+}
+
+async function assertWorkspaceRepo(taskStore: TaskStore, repoPath: string): Promise<string> {
+  const [roots, resolvedRepoPath] = await Promise.all([
+    listWorkspaceRoots(taskStore),
+    realpath(repoPath).catch(() => resolve(repoPath)),
+  ]);
+  if (!roots.some((root) => isWithinRoot(resolvedRepoPath, root))) {
+    throw new Error(`Repository is outside known workspaces: ${repoPath}`);
+  }
+  return resolvedRepoPath;
+}
+
+function assertRepoFilePath(repoPath: string, filePath: string): void {
+  const resolvedFilePath = resolve(repoPath, filePath);
+  if (!isWithinRoot(resolvedFilePath, repoPath)) {
+    throw new Error(`File path is outside repository: ${filePath}`);
+  }
+}
+
+function assertWorktreePath(repoPath: string, worktreePath: string): string {
+  const worktreesRoot = resolve(repoPath, '.worktrees');
+  const resolvedWorktreePath = resolve(worktreePath);
+  if (!isWithinRoot(resolvedWorktreePath, worktreesRoot)) {
+    throw new Error(`Worktree path must be inside ${worktreesRoot}`);
+  }
+  return resolvedWorktreePath;
+}
+
+export function registerGitHandlers(deps: GitHandlerDeps): void {
+  const { router, git, taskStore } = deps;
+
   router.register(MSG.GIT_STATUS, async (payload) => {
     const { path } = payload as GitStatusPayload;
-    return { status: await git.status(path) };
+    const repoPath = await assertWorkspaceRepo(taskStore, path);
+    return { status: await git.status(repoPath) };
   });
 
   router.register(MSG.GIT_DIFF, async (payload) => {
     const { path } = payload as GitDiffPayload;
-    return { diff: await git.diff(path) };
+    const repoPath = await assertWorkspaceRepo(taskStore, path);
+    return { diff: await git.diff(repoPath) };
   });
 
   router.register(MSG.GIT_DIFF_FILE, async (payload) => {
-    const { repoPath, filePath } = payload as GitDiffFilePayload;
+    const { repoPath: rawRepoPath, filePath } = payload as GitDiffFilePayload;
+    const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+    assertRepoFilePath(repoPath, filePath);
     return { diff: await git.diffFile(repoPath, filePath) };
   });
 
   router.register(MSG.GIT_REVERT_FILE, async (payload) => {
-    const { repoPath, filePath } = payload as GitRevertFilePayload;
+    const { repoPath: rawRepoPath, filePath } = payload as GitRevertFilePayload;
+    const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+    assertRepoFilePath(repoPath, filePath);
     await git.revertFile(repoPath, filePath);
     return { success: true };
   });
 
   router.register(MSG.GIT_WORKTREE_CREATE, async (payload) => {
-    const { repoPath, branch, path } = payload as GitWorktreeCreatePayload;
-    await git.createWorktree(repoPath, branch, path);
+    const { repoPath: rawRepoPath, branch, path } = payload as GitWorktreeCreatePayload;
+    const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+    const worktreePath = assertWorktreePath(repoPath, path);
+    await git.createWorktree(repoPath, branch, worktreePath);
     return { success: true };
   });
 }
@@ -799,9 +941,9 @@ async function main() {
     broadcast: server.broadcast,
   });
   registerFileHandlers({
-    router, fileWatcher, broadcast: server.broadcast,
+    router, fileWatcher, taskStore: store, broadcast: server.broadcast,
   });
-  registerGitHandlers(router, gitService);
+  registerGitHandlers({ router, git: gitService, taskStore: store });
 
   const { port, stop } = await server.start();
   await writeFile(config.portFile, String(port));

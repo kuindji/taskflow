@@ -16,53 +16,91 @@ File: `electron/src/main.ts`
 ```typescript
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { spawn, type ChildProcess } from 'child_process';
-import { readFile } from 'fs/promises';
+import { constants } from 'fs';
+import { access, readFile, rm } from 'fs/promises';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
 let backendPort: number | null = null;
+let backendPortFile: string | null = null;
 
-const PORT_FILE = '/tmp/.taskflow-port';
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
 const BACKEND_ENTRY = UI_DEV_SERVER_URL
   ? join(__dirname, '..', '..', 'packages', 'backend', 'src', 'index.ts')
   : join(__dirname, '..', '..', 'packages', 'backend', 'dist', 'index.js');
 
-async function startBackend(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    backendProcess = spawn('bun', ['run', BACKEND_ENTRY], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
-    });
-
-    backendProcess.stdout?.on('data', async (data) => {
-      const output = data.toString();
-      console.log('[backend]', output.trim());
-
-      if (output.includes('running on port')) {
-        try {
-          const portStr = await readFile(PORT_FILE, 'utf-8');
-          const port = parseInt(portStr.trim());
-          resolve(port);
-        } catch {
-          reject(new Error('Could not read backend port file'));
-        }
-      }
-    });
-
-    backendProcess.stderr?.on('data', (data) => {
-      console.error('[backend error]', data.toString().trim());
-    });
-
-    backendProcess.on('error', reject);
-
-    // Timeout after 10 seconds
-    setTimeout(() => reject(new Error('Backend startup timeout')), 10000);
-  });
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function createWindow(port: number) {
+async function waitForBackendPort(portFile: string, timeoutMs: number = 10000): Promise<number> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await access(portFile, constants.F_OK);
+      const portStr = await readFile(portFile, 'utf-8');
+      const port = Number.parseInt(portStr.trim(), 10);
+
+      if (Number.isInteger(port) && port > 0) {
+        return port;
+      }
+    } catch {
+      // Keep polling until the backend writes a valid port number.
+    }
+
+    if (backendProcess && backendProcess.exitCode !== null) {
+      throw new Error(`Backend exited before startup (code ${backendProcess.exitCode})`);
+    }
+
+    await delay(100);
+  }
+
+  throw new Error(`Backend startup timeout after ${timeoutMs}ms`);
+}
+
+async function cleanupBackendArtifacts(): Promise<void> {
+  if (!backendPortFile) return;
+
+  await rm(backendPortFile, { force: true });
+  backendPortFile = null;
+}
+
+async function startBackend(): Promise<number> {
+  backendPortFile = join(tmpdir(), `taskflow-port-${process.pid}-${Date.now()}`);
+
+  backendProcess = spawn('bun', ['run', BACKEND_ENTRY], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      TASKFLOW_PORT_FILE: backendPortFile,
+    },
+  });
+
+  backendProcess.stdout?.on('data', (data) => {
+    console.log('[backend]', data.toString().trim());
+  });
+
+  backendProcess.stderr?.on('data', (data) => {
+    console.error('[backend error]', data.toString().trim());
+  });
+
+  return Promise.race([
+    waitForBackendPort(backendPortFile),
+    new Promise<never>((_, reject) => {
+      backendProcess?.once('error', reject);
+    }),
+    new Promise<never>((_, reject) => {
+      backendProcess?.once('exit', (code) => {
+        reject(new Error(`Backend exited before startup (code ${code ?? 'unknown'})`));
+      });
+    }),
+  ]);
+}
+
+function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -78,7 +116,8 @@ function createWindow(port: number) {
     },
   });
 
-  // In dev, load from Vite dev server; otherwise load the workspace build output.
+  // If TASKFLOW_UI_URL is set manually for renderer development, use it.
+  // Otherwise load the built UI from the workspace.
   if (UI_DEV_SERVER_URL) {
     mainWindow.loadURL(UI_DEV_SERVER_URL);
   } else {
@@ -94,7 +133,7 @@ app.whenReady().then(async () => {
   try {
     backendPort = await startBackend();
     console.log(`Backend started on port ${backendPort}`);
-    createWindow(backendPort);
+    createWindow();
   } catch (err) {
     console.error('Failed to start backend:', err);
     app.quit();
@@ -106,6 +145,7 @@ app.on('window-all-closed', () => {
     backendProcess.kill();
     backendProcess = null;
   }
+  void cleanupBackendArtifacts();
   app.quit();
 });
 
@@ -114,6 +154,7 @@ app.on('before-quit', () => {
     backendProcess.kill();
     backendProcess = null;
   }
+  void cleanupBackendArtifacts();
 });
 
 // Expose backend port to renderer via IPC
@@ -143,14 +184,20 @@ contextBridge.exposeInMainWorld('taskflow', {
 
 File: `packages/ui/src/env.d.ts`
 ```typescript
+/// <reference types="vite/client" />
+
 interface TaskflowBridge {
   getBackendPort(): Promise<number>;
   selectProjectDirectory(): Promise<string | null>;
 }
 
-interface Window {
-  taskflow?: TaskflowBridge;
+declare global {
+  interface Window {
+    taskflow?: TaskflowBridge;
+  }
 }
+
+export {};
 ```
 
 - [ ] **Step 4: Build and verify Electron starts**
@@ -160,6 +207,13 @@ Expected: dist/main.js and dist/preload.js created
 
 Run: `cd /Users/kuindji/Projects/taskflow && bun run build`
 Expected: `packages/backend/dist/index.js` and `packages/ui/dist/index.html` exist for workspace-run Electron builds
+
+Run: `cd electron && bun run dev`
+Expected: Electron starts against the built workspace artifacts with no Vite dev server required
+
+Optional renderer-only live reload workflow:
+- Terminal 1: `cd /Users/kuindji/Projects/taskflow/packages/ui && bun run dev`
+- Terminal 2: `cd /Users/kuindji/Projects/taskflow/electron && TASKFLOW_UI_URL=http://localhost:5173 bunx electron .`
 
 - [ ] **Step 5: Commit**
 

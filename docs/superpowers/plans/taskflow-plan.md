@@ -48,7 +48,7 @@
 - `src/handlers/project.ts` — project:list, project:add, project:remove
 - `src/handlers/task.ts` — task:list, task:create, task:update, task:archive, task:delete
 - `src/handlers/session.ts` — session:create, session:close, session:input
-- `src/handlers/file.ts` — file:tree, file:read, file:write, file:watch
+- `src/handlers/file.ts` — file:tree, file:read, file:write, file:watch, file:unwatch
 - `src/handlers/git.ts` — git:status, git:diff, git:diff-file, git:revert-file, git:worktree-create
 - `src/services/task-store.ts` — JSON file read/write for projects and tasks
 - `src/services/pty-manager.ts` — spawn/manage PTY sessions via node-pty

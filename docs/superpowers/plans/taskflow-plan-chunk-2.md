@@ -196,7 +196,7 @@ main().catch(console.error);
 
 - [ ] **Step 7: Verify server starts**
 
-Run: `cd packages/backend && timeout 3 bun run src/index.ts || true`
+Run: `cd packages/backend && log_file="$(mktemp -t taskflow-backend.XXXXXX)" && bun run src/index.ts >"$log_file" 2>&1 & pid=$! && sleep 3 && kill "$pid" 2>/dev/null && wait "$pid" 2>/dev/null || true && cat "$log_file"`
 Expected: "Taskflow backend running on port XXXXX"
 
 - [ ] **Step 8: Commit**
@@ -218,7 +218,7 @@ File: `packages/backend/tests/services/task-store.test.ts`
 ```typescript
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { TaskStore } from '../../src/services/task-store';
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -240,6 +240,12 @@ describe('TaskStore', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  async function createProjectDir(name: string): Promise<string> {
+    const dir = join(tempDir, name);
+    await mkdir(dir, { recursive: true });
+    return dir;
+  }
+
   describe('projects', () => {
     it('starts with empty project list', async () => {
       const projects = await store.listProjects();
@@ -247,9 +253,10 @@ describe('TaskStore', () => {
     });
 
     it('adds and lists projects', async () => {
-      const project = await store.addProject({ name: 'test', path: '/tmp/test' });
+      const projectDir = await createProjectDir('test');
+      const project = await store.addProject({ name: 'test', path: projectDir });
       expect(project.name).toBe('test');
-      expect(project.path).toBe('/tmp/test');
+      expect(project.path).toBe(projectDir);
       expect(project.id).toBeTruthy();
 
       const projects = await store.listProjects();
@@ -258,16 +265,25 @@ describe('TaskStore', () => {
     });
 
     it('removes projects', async () => {
-      const project = await store.addProject({ name: 'test', path: '/tmp/test' });
+      const projectDir = await createProjectDir('test');
+      const project = await store.addProject({ name: 'test', path: projectDir });
       await store.removeProject(project.id);
       const projects = await store.listProjects();
       expect(projects).toEqual([]);
+    });
+
+    it('rejects removing projects with existing tasks', async () => {
+      const projectDir = await createProjectDir('test');
+      const project = await store.addProject({ name: 'test', path: projectDir });
+      await store.createTask({ projectId: project.id, title: 'Task' });
+      expect(store.removeProject(project.id)).rejects.toThrow('Cannot remove project with existing tasks');
     });
   });
 
   describe('tasks', () => {
     it('creates and lists tasks', async () => {
-      const project = await store.addProject({ name: 'test', path: '/tmp/test' });
+      const projectDir = await createProjectDir('test');
+      const project = await store.addProject({ name: 'test', path: projectDir });
       const task = await store.createTask({ projectId: project.id, title: 'My task' });
       expect(task.title).toBe('My task');
       expect(task.status).toBe('active');
@@ -278,8 +294,10 @@ describe('TaskStore', () => {
     });
 
     it('lists tasks filtered by project', async () => {
-      const p1 = await store.addProject({ name: 'p1', path: '/tmp/p1' });
-      const p2 = await store.addProject({ name: 'p2', path: '/tmp/p2' });
+      const p1Dir = await createProjectDir('p1');
+      const p2Dir = await createProjectDir('p2');
+      const p1 = await store.addProject({ name: 'p1', path: p1Dir });
+      const p2 = await store.addProject({ name: 'p2', path: p2Dir });
       await store.createTask({ projectId: p1.id, title: 'Task 1' });
       await store.createTask({ projectId: p2.id, title: 'Task 2' });
 
@@ -289,7 +307,8 @@ describe('TaskStore', () => {
     });
 
     it('updates tasks', async () => {
-      const project = await store.addProject({ name: 'test', path: '/tmp/test' });
+      const projectDir = await createProjectDir('test');
+      const project = await store.addProject({ name: 'test', path: projectDir });
       const task = await store.createTask({ projectId: project.id, title: 'Original' });
       const updated = await store.updateTask(task.id, { title: 'Updated', notes: 'some notes' });
       expect(updated.title).toBe('Updated');
@@ -297,7 +316,8 @@ describe('TaskStore', () => {
     });
 
     it('archives tasks', async () => {
-      const project = await store.addProject({ name: 'test', path: '/tmp/test' });
+      const projectDir = await createProjectDir('test');
+      const project = await store.addProject({ name: 'test', path: projectDir });
       const task = await store.createTask({ projectId: project.id, title: 'Task' });
       await store.archiveTask(task.id);
 
@@ -311,7 +331,8 @@ describe('TaskStore', () => {
     });
 
     it('deletes tasks', async () => {
-      const project = await store.addProject({ name: 'test', path: '/tmp/test' });
+      const projectDir = await createProjectDir('test');
+      const project = await store.addProject({ name: 'test', path: projectDir });
       const task = await store.createTask({ projectId: project.id, title: 'Task' });
       await store.deleteTask(task.id);
 
@@ -320,7 +341,8 @@ describe('TaskStore', () => {
     });
 
     it('cleans expired archives', async () => {
-      const project = await store.addProject({ name: 'test', path: '/tmp/test' });
+      const projectDir = await createProjectDir('test');
+      const project = await store.addProject({ name: 'test', path: projectDir });
       const task = await store.createTask({ projectId: project.id, title: 'Old' });
 
       // Manually archive with old date
@@ -400,6 +422,10 @@ export class TaskStore {
   }
 
   async removeProject(id: string): Promise<void> {
+    const tasks = await this.listTasks(id);
+    if (tasks.length > 0) {
+      throw new Error(`Cannot remove project with existing tasks: ${id}`);
+    }
     const projects = await this.listProjects();
     const filtered = projects.filter((p) => p.id !== id);
     await writeFile(this.config.projectsFile, JSON.stringify(filtered, null, 2));
@@ -563,7 +589,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { registerProjectHandlers } from '../../src/handlers/project';
 import { Router } from '../../src/ws/router';
 import { TaskStore } from '../../src/services/task-store';
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { MSG } from '@taskflow/shared';
@@ -589,22 +615,37 @@ describe('project handlers', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  async function createProjectDir(name: string): Promise<string> {
+    const dir = join(tempDir, name);
+    await mkdir(dir, { recursive: true });
+    return dir;
+  }
+
   it('lists projects (empty)', async () => {
     const result = await router.handle(MSG.PROJECT_LIST, {});
     expect(result).toEqual({ projects: [] });
   });
 
   it('adds and lists a project', async () => {
-    await router.handle(MSG.PROJECT_ADD, { name: 'test', path: '/tmp/test' });
+    const projectDir = await createProjectDir('test');
+    await router.handle(MSG.PROJECT_ADD, { name: 'test', path: projectDir });
     const result = await router.handle(MSG.PROJECT_LIST, {}) as { projects: unknown[] };
     expect(result.projects).toHaveLength(1);
   });
 
   it('removes a project', async () => {
-    const added = await router.handle(MSG.PROJECT_ADD, { name: 'test', path: '/tmp/test' }) as { id: string };
+    const projectDir = await createProjectDir('test');
+    const added = await router.handle(MSG.PROJECT_ADD, { name: 'test', path: projectDir }) as { id: string };
     await router.handle(MSG.PROJECT_REMOVE, { id: added.id });
     const result = await router.handle(MSG.PROJECT_LIST, {}) as { projects: unknown[] };
     expect(result.projects).toHaveLength(0);
+  });
+
+  it('rejects removing a project with existing tasks', async () => {
+    const projectDir = await createProjectDir('test');
+    const added = await router.handle(MSG.PROJECT_ADD, { name: 'test', path: projectDir }) as { id: string };
+    await store.createTask({ projectId: added.id, title: 'Task' });
+    expect(router.handle(MSG.PROJECT_REMOVE, { id: added.id })).rejects.toThrow('Cannot remove project with existing tasks');
   });
 });
 ```
@@ -656,7 +697,7 @@ import { registerTaskHandlers } from '../../src/handlers/task';
 import { registerProjectHandlers } from '../../src/handlers/project';
 import { Router } from '../../src/ws/router';
 import { TaskStore } from '../../src/services/task-store';
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { MSG } from '@taskflow/shared';
@@ -678,7 +719,9 @@ describe('task handlers', () => {
     router = new Router();
     registerProjectHandlers(router, store);
     registerTaskHandlers(router, store);
-    const project = await store.addProject({ name: 'test', path: '/tmp/test' });
+    const projectDir = join(tempDir, 'test');
+    await mkdir(projectDir, { recursive: true });
+    const project = await store.addProject({ name: 'test', path: projectDir });
     projectId = project.id;
   });
 

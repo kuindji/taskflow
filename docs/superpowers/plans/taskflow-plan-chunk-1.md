@@ -298,6 +298,10 @@ export interface FileWatchPayload {
   path: string;
 }
 
+export interface FileUnwatchPayload {
+  path: string;
+}
+
 export interface FileWritePayload {
   path: string;
   content: string;
@@ -434,6 +438,7 @@ export const MSG = {
   FILE_WRITE: 'file:write',
   FILE_CHANGED: 'file:changed',
   FILE_WATCH: 'file:watch',
+  FILE_UNWATCH: 'file:unwatch',
 
   // Git
   GIT_STATUS: 'git:status',
@@ -528,7 +533,7 @@ File: `packages/backend/src/config.ts`
 ```typescript
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 
 const CONFIG_DIR = join(homedir(), '.config', 'taskflow');
 
@@ -537,7 +542,7 @@ export const config = {
   projectsFile: join(CONFIG_DIR, 'projects.json'),
   tasksDir: join(CONFIG_DIR, 'tasks'),
   archiveDir: join(CONFIG_DIR, 'archive'),
-  portFile: '/tmp/.taskflow-port',
+  portFile: process.env.TASKFLOW_PORT_FILE ?? join(tmpdir(), `.taskflow-port-${process.pid}`),
 };
 
 export async function ensureDirectories(): Promise<void> {
@@ -578,7 +583,8 @@ git commit -m "feat: scaffold backend package with config"
 **Files:**
 - Create: `packages/ui/package.json`
 - Create: `packages/ui/tsconfig.json`
-- Create: `packages/ui/src/index.html`
+- Create: `packages/ui/index.html`
+- Create: `packages/ui/vite.config.ts`
 - Create: `packages/ui/src/index.tsx` (placeholder)
 - Create: `packages/ui/src/App.tsx` (placeholder)
 - Create: `packages/ui/src/styles/global.css`
@@ -652,7 +658,26 @@ File: `packages/ui/index.html`
 </html>
 ```
 
-- [ ] **Step 4: Create placeholder App**
+- [ ] **Step 4: Create Vite config**
+
+File: `packages/ui/vite.config.ts`
+```typescript
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  build: {
+    outDir: 'dist',
+  },
+  server: {
+    port: 5173,
+  },
+});
+```
+
+- [ ] **Step 5: Create placeholder App**
 
 File: `packages/ui/src/App.tsx`
 ```tsx
@@ -665,7 +690,7 @@ export function App() {
 }
 ```
 
-- [ ] **Step 5: Create entry point**
+- [ ] **Step 6: Create entry point**
 
 File: `packages/ui/src/index.tsx`
 ```tsx
@@ -677,7 +702,7 @@ const root = createRoot(document.getElementById('root')!);
 root.render(<App />);
 ```
 
-- [ ] **Step 6: Create global CSS**
+- [ ] **Step 7: Create global CSS**
 
 File: `packages/ui/src/styles/global.css`
 ```css
@@ -709,7 +734,7 @@ body {
 }
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add packages/ui/
@@ -733,7 +758,7 @@ git commit -m "feat: scaffold UI package with React, Vite, Tailwind"
   "private": true,
   "main": "dist/main.js",
   "scripts": {
-    "dev": "TASKFLOW_UI_URL=http://localhost:5173 electron .",
+    "dev": "cd .. && bun run build && cd electron && electron .",
     "build": "bun build src/main.ts --outdir dist --target node && bun build src/preload.ts --outdir dist --target node"
   },
   "devDependencies": {

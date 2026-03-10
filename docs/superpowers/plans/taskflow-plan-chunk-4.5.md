@@ -24,6 +24,7 @@
 File: `packages/ui/src/styles/global.css`
 ```css
 @import "tailwindcss";
+@import "tw-animate-css";
 
 /*
   Tailwind v4 requires namespaced variables in @theme for utility classes to work:
@@ -132,6 +133,7 @@ git commit -m "feat: update global.css with shadcn CSS variable convention"
 - Create: `packages/ui/src/lib/utils.ts`
 - Modify: `packages/ui/package.json`
 - Modify: `packages/ui/tsconfig.json`
+- Modify: `packages/ui/src/styles/global.css`
 
 - [ ] **Step 1: Add path aliases to tsconfig.json**
 
@@ -181,10 +183,20 @@ export default defineConfig({
 - [ ] **Step 3: Install shadcn dependencies**
 
 ```bash
-cd packages/ui && bun add class-variance-authority clsx tailwind-merge lucide-react
+cd packages/ui && bun add class-variance-authority clsx tailwind-merge lucide-react tw-animate-css
 ```
 
-- [ ] **Step 4: Create cn() utility**
+- [ ] **Step 4: Import shadcn animation utilities**
+
+Update `packages/ui/src/styles/global.css` so the top of the file includes:
+```css
+@import "tailwindcss";
+@import "tw-animate-css";
+```
+
+This matches the current shadcn manual setup for Tailwind v4 and ensures generated primitives like Dialog, Dropdown Menu, Select, and Tooltip keep their animation classes.
+
+- [ ] **Step 5: Create cn() utility**
 
 File: `packages/ui/src/lib/utils.ts`
 ```typescript
@@ -196,7 +208,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 ```
 
-- [ ] **Step 5: Create components.json**
+- [ ] **Step 6: Create components.json**
 
 File: `packages/ui/components.json`
 ```json
@@ -222,15 +234,15 @@ File: `packages/ui/components.json`
 }
 ```
 
-- [ ] **Step 6: Verify setup**
+- [ ] **Step 7: Verify setup**
 
 Run: `cd packages/ui && bunx tsc --noEmit`
 Expected: No errors
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add packages/ui/components.json packages/ui/src/lib/utils.ts packages/ui/tsconfig.json packages/ui/vite.config.ts packages/ui/package.json packages/ui/bun.lockb
+git add packages/ui/components.json packages/ui/src/lib/utils.ts packages/ui/src/styles/global.css packages/ui/tsconfig.json packages/ui/vite.config.ts packages/ui/package.json packages/ui/bun.lockb
 git commit -m "feat: initialize shadcn CLI config and cn() utility"
 ```
 
@@ -290,7 +302,7 @@ git commit -m "feat: pull 13 shadcn/ui components (Button, Input, Tabs, etc.)"
 - Modify: `packages/ui/src/components/ui/button.tsx`
 - Modify: `packages/ui/src/components/ui/badge.tsx`
 
-- [ ] **Step 1: Add icon-sm size and sidebar variant to Button**
+- [ ] **Step 1: Add sidebar variant to Button and preserve built-in icon-sm**
 
 Open `packages/ui/src/components/ui/button.tsx`. In the `buttonVariants` cva config:
 
@@ -299,10 +311,7 @@ Add to the `variant` object:
 sidebar: 'text-muted-foreground hover:bg-muted hover:text-foreground',
 ```
 
-Add to the `size` object:
-```typescript
-'icon-sm': 'h-6 w-6 rounded-sm',
-```
+Do not add a new `icon-sm` size entry. Current shadcn Button output already includes `icon-sm`; just verify the generated component still exposes it so later chunks can use `size="icon-sm"` without introducing a duplicate key.
 
 - [ ] **Step 2: Add colorScheme variant to Badge**
 
@@ -360,7 +369,7 @@ Expected: No errors
 
 ```bash
 git add packages/ui/src/components/ui/button.tsx packages/ui/src/components/ui/badge.tsx
-git commit -m "feat: add app-specific Button (icon-sm, sidebar) and Badge (colorScheme) variants"
+git commit -m "feat: add app-specific Button sidebar and Badge colorScheme variants"
 ```
 
 ---
@@ -378,6 +387,9 @@ File: `packages/ui/src/Showcase.tsx`
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -421,6 +433,16 @@ export function Showcase() {
           <div className="flex gap-2 items-center max-w-md">
             <Input placeholder="Search tasks..." />
             <Textarea placeholder="Add notes..." rows={2} />
+            <Select defaultValue="claude">
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Choose pane" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="claude">Claude</SelectItem>
+                <SelectItem value="codex">Codex</SelectItem>
+                <SelectItem value="browser">Browser</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </section>
 
@@ -562,7 +584,7 @@ Expected: No errors
 Run: `cd packages/ui && bunx vite build 2>&1 | tail -5`
 Expected: Build completes successfully with no errors. This confirms all components compile and bundle correctly with the Catppuccin theme.
 
-**Manual checkpoint (optional):** If running interactively, start `bunx vite` and open the URL in a browser to visually confirm colors and spacing.
+**Manual checkpoint (optional):** If running interactively, start `bunx vite` and open the URL in a browser to visually confirm colors, spacing, and that the `Select`, `Dialog`, `DropdownMenu`, and `Tooltip` overlays animate correctly.
 
 - [ ] **Step 5: Remove showcase and restore App.tsx**
 
