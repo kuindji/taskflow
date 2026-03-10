@@ -85,6 +85,8 @@ async function startBackend(): Promise<number> {
 }
 
 function createWindow() {
+  const appPath = app.getAppPath();
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -93,7 +95,7 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#1e1e2e',
     webPreferences: {
-      preload: join(__dirname, 'preload.js'),
+      preload: join(appPath, 'dist', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true,
