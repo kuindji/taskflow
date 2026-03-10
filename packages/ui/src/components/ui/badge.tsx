@@ -1,4 +1,4 @@
-import * as React from "react"
+import { useMemo } from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
 
@@ -19,27 +19,51 @@ const badgeVariants = cva(
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
       },
+      colorScheme: {
+        claude: "",
+        codex: "",
+        active: "",
+        archived: "",
+      },
     },
+    compoundVariants: [
+      { variant: "outline", colorScheme: "claude", className: "bg-success/20 text-success border-success/30" },
+      { variant: "outline", colorScheme: "codex", className: "bg-warning/20 text-warning border-warning/30" },
+      { variant: "outline", colorScheme: "active", className: "bg-accent/20 text-accent border-accent/30" },
+      { variant: "outline", colorScheme: "archived", className: "bg-muted text-muted-foreground border-muted" },
+      { variant: "default", colorScheme: "claude", className: "bg-success/20 text-success border-success/30" },
+      { variant: "default", colorScheme: "codex", className: "bg-warning/20 text-warning border-warning/30" },
+      { variant: "default", colorScheme: "active", className: "bg-accent/20 text-accent border-accent/30" },
+      { variant: "default", colorScheme: "archived", className: "bg-muted text-muted-foreground border-muted" },
+    ],
     defaultVariants: {
       variant: "default",
     },
   }
 )
 
+type BadgeProps = React.ComponentProps<"span"> &
+  VariantProps<typeof badgeVariants> & { asChild?: boolean }
+
 function Badge({
   className,
   variant = "default",
+  colorScheme,
   asChild = false,
   ...props
-}: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+}: BadgeProps) {
   const Comp = asChild ? Slot.Root : "span"
+
+  const classes = useMemo(
+    () => cn(badgeVariants({ variant, colorScheme }), className),
+    [variant, colorScheme, className],
+  )
 
   return (
     <Comp
       data-slot="badge"
       data-variant={variant}
-      className={cn(badgeVariants({ variant }), className)}
+      className={classes}
       {...props}
     />
   )
