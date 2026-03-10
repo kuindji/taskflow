@@ -1,8 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { cva } from 'class-variance-authority';
 import type { Tab } from '@/stores/session-store';
+import type { ShellInfo } from '@taskflow/shared';
+import { MSG } from '@taskflow/shared';
+import { sendRequest } from '@/hooks/useWebSocket';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { X, Plus, Terminal, Code, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -10,7 +13,7 @@ const tabVariants = cva(
   'px-2 py-0.5 rounded-sm cursor-pointer flex items-center gap-1 text-[11px] transition-colors',
   {
     variants: {
-      type: { claude: 'text-success', codex: 'text-warning', editor: 'text-muted-foreground', changes: 'text-muted-foreground', browser: 'text-muted-foreground' },
+      type: { claude: 'text-success', codex: 'text-warning', shell: 'text-info', editor: 'text-muted-foreground', changes: 'text-muted-foreground', browser: 'text-muted-foreground' },
       active: { true: 'bg-muted', false: 'bg-transparent hover:bg-muted/50' },
     },
     defaultVariants: { type: 'editor', active: false },
@@ -45,10 +48,19 @@ interface TabBarProps {
   activeTabId: string;
   onTabClick: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
-  onNewTab: (type: 'claude' | 'codex' | 'changes' | 'browser') => void;
+  onNewTab: (type: 'claude' | 'codex' | 'changes' | 'browser' | 'shell', shellPath?: string) => void;
 }
 
 export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: TabBarProps) {
+  const [shells, setShells] = useState<ShellInfo[]>([]);
+
+  useEffect(() => {
+    sendRequest<{ shells: ShellInfo[] }>(MSG.SHELLS_LIST, {}).then(
+      (res) => setShells(res.shells),
+      () => {},
+    );
+  }, []);
+
   return (
     <div className="px-2 py-0.5 bg-card flex gap-0.5 border-b border-border items-center">
       {tabs.map((tab) => (
@@ -59,6 +71,14 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: 
         <DropdownMenuContent align="start">
           <DropdownMenuItem onClick={() => onNewTab('claude')}><Terminal className="h-3.5 w-3.5 mr-2" />Claude Code</DropdownMenuItem>
           <DropdownMenuItem onClick={() => onNewTab('codex')}><Code className="h-3.5 w-3.5 mr-2" />Codex</DropdownMenuItem>
+          {shells.length > 0 && <DropdownMenuSeparator />}
+          {shells.map((shell) => (
+            <DropdownMenuItem key={shell.path} onClick={() => onNewTab('shell', shell.path)}>
+              <Terminal className="h-3.5 w-3.5 mr-2" />
+              {shell.name.charAt(0).toUpperCase() + shell.name.slice(1)}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => onNewTab('changes')}><Code className="h-3.5 w-3.5 mr-2" />Changes</DropdownMenuItem>
           <DropdownMenuItem onClick={() => onNewTab('browser')}><Globe className="h-3.5 w-3.5 mr-2" />Browser</DropdownMenuItem>
         </DropdownMenuContent>

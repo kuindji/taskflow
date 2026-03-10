@@ -1,6 +1,6 @@
 export interface SessionRef {
   id: string;
-  type: 'claude' | 'codex';
+  type: 'claude' | 'codex' | 'shell';
   label: string;
   createdAt: string;
 }

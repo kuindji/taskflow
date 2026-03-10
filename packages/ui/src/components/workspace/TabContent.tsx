@@ -38,6 +38,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
         switch (tab.type) {
           case 'claude':
           case 'codex':
+          case 'shell':
             label = `${tab.type} terminal`;
             // Terminal panes are always mounted but hidden when inactive
             // so PTY output is buffered and state is preserved across tab switches

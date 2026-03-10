@@ -7,6 +7,7 @@ import { PtyManager } from './services/pty-manager';
 import { GitService } from './services/git-service';
 import { FileWatcher } from './services/file-watcher';
 import { detectEditors } from './services/editor-detector';
+import { detectShells } from './services/shell-detector';
 import { registerProjectHandlers } from './handlers/project';
 import { registerTaskHandlers } from './handlers/task';
 import { registerSessionHandlers } from './handlers/session';
@@ -25,6 +26,7 @@ async function main() {
       archiveDir: config.archiveDir,
     });
     await store.init();
+    await store.clearAllSessions();
     await store.cleanExpiredArchives();
 
     const ptyManager = new PtyManager();
@@ -52,7 +54,10 @@ async function main() {
     registerGitHandlers({ router, git: gitService, taskStore: store });
 
     const editors = await detectEditors();
+    const shells = await detectShells();
     router.register(MSG.SYSTEM_INFO, async () => ({ editors }));
+    router.register(MSG.SHELLS_LIST, async () => ({ shells }));
+    console.log(`Detected shells: ${shells.map((s) => s.name).join(', ') || 'none'}`);
 
     const startedServer = await server.start();
     stop = startedServer.stop;

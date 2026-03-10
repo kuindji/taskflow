@@ -6,7 +6,7 @@ import { useTaskStore } from './task-store';
 
 interface Tab {
   id: string;
-  type: 'claude' | 'codex' | 'editor' | 'changes' | 'browser';
+  type: 'claude' | 'codex' | 'shell' | 'editor' | 'changes' | 'browser';
   label: string;
   sessionId?: string;
   filePath?: string;
@@ -16,7 +16,7 @@ interface Tab {
 interface SessionStore {
   tabsByTask: Record<string, Tab[]>;
   activeTabByTask: Record<string, string>;
-  createSession(taskId: string, type: 'claude' | 'codex', label?: string, prompt?: string): Promise<string>;
+  createSession(taskId: string, type: 'claude' | 'codex' | 'shell', label?: string, prompt?: string, shell?: string): Promise<string>;
   closeSession(sessionId: string): Promise<void>;
   sendInput(sessionId: string, data: string): void;
   resizeTerminal(sessionId: string, cols: number, rows: number): void;
@@ -42,8 +42,8 @@ function createSessionTab(session: SessionRef): Tab {
 export const useSessionStore = create<SessionStore>((set, get) => ({
   tabsByTask: {},
   activeTabByTask: {},
-  async createSession(taskId, type, label, prompt) {
-    const { sessionId } = await sendRequest<{ sessionId: string }>(MSG.SESSION_CREATE, { taskId, type, label, prompt });
+  async createSession(taskId, type, label, prompt, shell) {
+    const { sessionId } = await sendRequest<{ sessionId: string }>(MSG.SESSION_CREATE, { taskId, type, label, prompt, shell });
     const tab: Tab = { id: sessionId, type, label: label ?? `${type} session`, sessionId };
     get().addTab(taskId, tab);
     await useTaskStore.getState().fetchTasks();

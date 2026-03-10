@@ -21,7 +21,7 @@ export function Workspace() {
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
-  const handleNewTab = async (type: 'claude' | 'codex' | 'changes' | 'browser') => {
+  const handleNewTab = async (type: 'claude' | 'codex' | 'changes' | 'browser' | 'shell', shellPath?: string) => {
     if (type === 'browser') {
       addTab(task.id, { id: crypto.randomUUID(), type: 'browser', label: 'New Tab', url: 'about:blank' });
     } else if (type === 'changes') {
@@ -31,6 +31,9 @@ export function Workspace() {
         return;
       }
       addTab(task.id, { id: crypto.randomUUID(), type: 'changes', label: 'Changes' });
+    } else if (type === 'shell' && shellPath) {
+      const shellName = shellPath.split('/').pop() ?? 'shell';
+      await createSession(task.id, 'shell', shellName, undefined, shellPath);
     } else {
       await createSession(task.id, type, undefined, task.description || undefined);
     }

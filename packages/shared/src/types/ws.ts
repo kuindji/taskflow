@@ -70,9 +70,10 @@ export interface TaskDeletePayload {
 // Session messages
 export interface SessionCreatePayload {
   taskId: string;
-  type: 'claude' | 'codex';
+  type: 'claude' | 'codex' | 'shell';
   label?: string;
   prompt?: string;
+  shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
 }
 
 export interface SessionCreateResponse {
@@ -103,6 +104,12 @@ export interface TerminalResizePayload {
   sessionId: string;
   cols: number;
   rows: number;
+}
+
+// Shell detection
+export interface ShellInfo {
+  name: string;
+  path: string;
 }
 
 // File messages

@@ -45,7 +45,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
   }
 
   router.register(MSG.SESSION_CREATE, async (payload) => {
-    const { taskId, type, label, prompt } = payload as SessionCreatePayload;
+    const { taskId, type, label, prompt, shell } = payload as SessionCreatePayload;
     const task = await taskStore.getTask(taskId);
     if (!task) throw new Error(`Task not found: ${taskId}`);
 
@@ -54,10 +54,16 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     const cwd = task.worktree.enabled && task.worktree.path
       ? task.worktree.path : project.path;
 
-    const command = type === 'claude' ? 'claude' : 'codex';
+    let command: string;
     const args: string[] = [];
-    if (prompt) {
-      args.push(prompt);
+    if (type === 'shell') {
+      if (!shell) throw new Error('shell path is required for shell sessions');
+      command = shell;
+    } else {
+      command = type === 'claude' ? 'claude' : 'codex';
+      if (prompt) {
+        args.push(prompt);
+      }
     }
 
     const sessionId = ptyManager.spawn({
