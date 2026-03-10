@@ -2,6 +2,16 @@
 
 > Part of [Taskflow Implementation Plan](taskflow-plan.md) | Prev: [Chunk 5 — UI Core](taskflow-plan-chunk-5.md)
 
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Implement all workspace panes and side panels, then wire them into the app for a complete UI.
+
+**Architecture:** Each pane is a focused component rendering in the workspace tab area. Panes for terminal sessions use xterm.js, code editing uses Monaco. All components use Tailwind classes (no inline styles except documented exceptions) and compose shadcn primitives.
+
+**Tech Stack:** React 19, xterm.js, Monaco editor, shadcn/ui, cva, Tailwind CSS 4, lucide-react
+
+> **Depends on:** Chunk 5 (AppShell, stores, WebSocket, TabContent placeholder). All shadcn components from Chunk 4.5.
+
 ---
 
 ### Task 6.1: TerminalPane with xterm.js
@@ -16,8 +26,8 @@ File: `packages/ui/src/components/panes/TerminalPane.tsx`
 import { useEffect, useRef } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { useSessionStore } from '../../stores/session-store';
-import { onEvent } from '../../hooks/useWebSocket';
+import { useSessionStore } from '@/stores/session-store';
+import { onEvent } from '@/hooks/useWebSocket';
 import { MSG } from '@taskflow/shared';
 import type { TerminalOutputEvent } from '@taskflow/shared';
 import 'xterm/css/xterm.css';
@@ -81,7 +91,7 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
       }
     });
 
-    // Resize on window resize
+    // Resize on container resize
     const resizeObserver = new ResizeObserver(() => {
       fit.fit();
     });
@@ -97,7 +107,7 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
   return (
     <div
       ref={containerRef}
-      style={{ flex: 1, overflow: 'hidden' }}
+      className="flex-1 overflow-hidden"
     />
   );
 }
@@ -121,7 +131,8 @@ File: `packages/ui/src/components/panes/EditorPane.tsx`
 ```tsx
 import { useEffect, useRef, useState } from 'react';
 import * as monaco from 'monaco-editor';
-import { useFileStore } from '../../stores/file-store';
+import { useFileStore } from '@/stores/file-store';
+import { Button } from '@/components/ui/button';
 
 interface EditorPaneProps {
   filePath: string;
@@ -167,6 +178,9 @@ export function EditorPane({ filePath }: EditorPaneProps) {
       editor.setValue(content);
       setDirty(false);
       setLoading(false);
+    }).catch((err) => {
+      console.error('Failed to read file:', err);
+      setLoading(false);
     });
 
     const changeDisposable = editor.onDidChangeModelContent(() => {
@@ -185,41 +199,26 @@ export function EditorPane({ filePath }: EditorPaneProps) {
   }, [filePath]);
 
   return (
-    <div style={{ flex: 1, position: 'relative' }}>
+    <div className="flex-1 relative">
       {dirty && (
-        <button
+        <Button
+          size="sm"
+          className="absolute top-2 right-2 z-10"
           onClick={async () => {
             if (!editorRef.current) return;
             await writeFile(filePath, editorRef.current.getValue());
             setDirty(false);
           }}
-          style={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            zIndex: 2,
-            background: 'var(--bg-overlay)',
-            border: '1px solid var(--border)',
-            borderRadius: 4,
-            padding: '4px 8px',
-            color: 'var(--accent-blue)',
-            cursor: 'pointer',
-            fontSize: 11,
-          }}
         >
           Save
-        </button>
+        </Button>
       )}
       {loading && (
-        <div style={{
-          position: 'absolute', inset: 0, display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          color: 'var(--text-muted)', zIndex: 1,
-        }}>
+        <div className="absolute inset-0 flex items-center justify-center text-muted-foreground z-[1]">
           Loading...
         </div>
       )}
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      <div ref={containerRef} className="w-full h-full" />
     </div>
   );
 }
@@ -242,9 +241,52 @@ git commit -m "feat: add EditorPane with Monaco editor"
 File: `packages/ui/src/components/panes/ChangesPane.tsx`
 ```tsx
 import { useEffect, useState } from 'react';
+import { cva } from 'class-variance-authority';
 import type { GitStatusResult, GitFileStatus } from '@taskflow/shared';
 import { MSG } from '@taskflow/shared';
-import { sendRequest } from '../../hooks/useWebSocket';
+import { sendRequest } from '@/hooks/useWebSocket';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Separator } from '@/components/ui/separator';
+import { Undo2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const diffLineVariants = cva('font-mono text-xs leading-relaxed whitespace-pre-wrap', {
+  variants: {
+    type: {
+      added: 'text-success',
+      removed: 'text-destructive',
+      hunk: 'text-accent',
+      context: 'text-secondary-foreground',
+    },
+  },
+  defaultVariants: {
+    type: 'context',
+  },
+});
+
+function getDiffLineType(line: string): 'added' | 'removed' | 'hunk' | 'context' {
+  if (line.startsWith('+')) return 'added';
+  if (line.startsWith('-')) return 'removed';
+  if (line.startsWith('@@')) return 'hunk';
+  return 'context';
+}
+
+function gitStatusToColorScheme(status: GitFileStatus['status']): BadgeProps['colorScheme'] {
+  if (status === 'new' || status === 'untracked') return 'claude';
+  if (status === 'modified') return 'codex';
+  return undefined;
+}
+
+function statusPrefix(status: GitFileStatus['status']): string {
+  if (status === 'new' || status === 'untracked') return '+';
+  if (status === 'modified') return 'M';
+  if (status === 'deleted') return 'D';
+  if (status === 'renamed') return 'R';
+  return '?';
+}
 
 interface ChangesPaneProps {
   repoPath: string;
@@ -260,107 +302,107 @@ export function ChangesPane({ repoPath }: ChangesPaneProps) {
   }, [repoPath]);
 
   async function fetchStatus() {
-    const { status } = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: repoPath });
-    setStatus(status);
+    try {
+      const { status } = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: repoPath });
+      setStatus(status);
+    } catch (err) {
+      console.error('Failed to fetch git status:', err);
+    }
   }
 
   async function showDiff(filePath: string) {
     setSelectedFile(filePath);
-    const { diff } = await sendRequest<{ diff: string }>(MSG.GIT_DIFF_FILE, { repoPath, filePath });
-    setDiff(diff);
-  }
-
-  async function revertFile(filePath: string) {
-    await sendRequest(MSG.GIT_REVERT_FILE, { repoPath, filePath });
-    await fetchStatus();
-    if (selectedFile === filePath) {
-      setSelectedFile(null);
+    try {
+      const { diff } = await sendRequest<{ diff: string }>(MSG.GIT_DIFF_FILE, { repoPath, filePath });
+      setDiff(diff);
+    } catch (err) {
+      console.error('Failed to fetch diff:', err);
       setDiff('');
     }
   }
 
-  const statusColor = (s: GitFileStatus['status']) => {
-    if (s === 'new' || s === 'untracked') return 'var(--accent-green)';
-    if (s === 'modified') return 'var(--accent-yellow)';
-    if (s === 'deleted') return 'var(--accent-red)';
-    return 'var(--text-secondary)';
-  };
-
-  const statusPrefix = (s: GitFileStatus['status']) => {
-    if (s === 'new' || s === 'untracked') return '+';
-    if (s === 'modified') return 'M';
-    if (s === 'deleted') return 'D';
-    if (s === 'renamed') return 'R';
-    return '?';
-  };
+  async function revertFile(filePath: string) {
+    try {
+      await sendRequest(MSG.GIT_REVERT_FILE, { repoPath, filePath });
+      await fetchStatus();
+      if (selectedFile === filePath) {
+        setSelectedFile(null);
+        setDiff('');
+      }
+    } catch (err) {
+      console.error('Failed to revert file:', err);
+    }
+  }
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="flex-1 flex flex-col overflow-hidden">
       {/* File list */}
-      <div style={{
-        padding: 8, borderBottom: '1px solid var(--border)',
-        maxHeight: '40%', overflow: 'auto',
-      }}>
+      <ScrollArea className="max-h-[40%] border-b border-border p-2">
         {status?.branch && (
-          <div style={{ color: 'var(--text-muted)', fontSize: 10, marginBottom: 6 }}>
-            Branch: {status.branch}
+          <div className="mb-1.5">
+            <Badge variant="outline" className="text-[10px]">
+              {status.branch}
+            </Badge>
           </div>
         )}
         {status?.files.length === 0 && (
-          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No changes</div>
+          <div className="text-muted-foreground text-xs">No changes</div>
         )}
         {status?.files.map((file) => (
           <div
             key={file.path}
             onClick={() => showDiff(file.path)}
-            style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '3px 4px', cursor: 'pointer', fontSize: 11,
-              background: selectedFile === file.path ? 'var(--bg-overlay)' : 'transparent',
-              borderRadius: 3,
-            }}
+            className={cn(
+              'flex justify-between items-center px-1 py-0.5 cursor-pointer rounded-sm text-[11px]',
+              selectedFile === file.path && 'bg-muted',
+            )}
           >
-            <span>
-              <span style={{ color: statusColor(file.status), marginRight: 6 }}>
+            <span className="flex items-center gap-1.5">
+              <Badge
+                variant="outline"
+                colorScheme={gitStatusToColorScheme(file.status)}
+                className={cn(
+                  'text-[9px] px-1 py-0 font-mono',
+                  file.status === 'deleted' && 'text-destructive border-destructive/30',
+                )}
+              >
                 {statusPrefix(file.status)}
-              </span>
-              <span style={{ color: 'var(--text-secondary)' }}>{file.path}</span>
+              </Badge>
+              <span className="text-secondary-foreground">{file.path}</span>
             </span>
-            <span
-              onClick={(e) => { e.stopPropagation(); revertFile(file.path); }}
-              title="Revert"
-              style={{ color: 'var(--accent-red)', cursor: 'pointer', fontSize: 10 }}
-            >
-              ↩
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="h-5 w-5 text-destructive"
+                  onClick={(e) => { e.stopPropagation(); revertFile(file.path); }}
+                >
+                  <Undo2 className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Revert file</TooltipContent>
+            </Tooltip>
           </div>
         ))}
-      </div>
+      </ScrollArea>
 
       {/* Diff view */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 8 }}>
+      <ScrollArea className="flex-1 p-2">
         {diff ? (
-          <pre style={{
-            fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
-            fontSize: 11, lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap',
-          }}>
+          <pre className="m-0">
             {diff.split('\n').map((line, i) => (
-              <div key={i} style={{
-                color: line.startsWith('+') ? 'var(--accent-green)'
-                  : line.startsWith('-') ? 'var(--accent-red)'
-                  : line.startsWith('@@') ? 'var(--accent-blue)'
-                  : 'var(--text-secondary)',
-              }}>
+              <div key={i} className={diffLineVariants({ type: getDiffLineType(line) })}>
                 {line}
               </div>
             ))}
           </pre>
         ) : (
-          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+          <div className="text-muted-foreground text-xs">
             {selectedFile ? 'Loading diff...' : 'Click a file to see its diff'}
           </div>
         )}
-      </div>
+      </ScrollArea>
     </div>
   );
 }
@@ -378,11 +420,30 @@ git commit -m "feat: add ChangesPane with diff viewer and per-file revert"
 **Files:**
 - Create: `packages/ui/src/components/panes/BrowserPane.tsx`
 
-- [ ] **Step 1: Implement BrowserPane**
+- [ ] **Step 1: Add webview JSX type declaration**
+
+The `<webview>` tag is Electron-specific and has no JSX type. Add to `packages/ui/src/env.d.ts` (which should exist from Chunk 1):
+
+```typescript
+// Add to existing env.d.ts
+declare namespace JSX {
+  interface IntrinsicElements {
+    webview: React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
+      src?: string;
+      'data-url'?: string;
+    }, HTMLElement>;
+  }
+}
+```
+
+- [ ] **Step 2: Implement BrowserPane**
 
 File: `packages/ui/src/components/panes/BrowserPane.tsx`
 ```tsx
 import { useState } from 'react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { ArrowLeft, RotateCw } from 'lucide-react';
 
 interface BrowserPaneProps {
   initialUrl: string;
@@ -393,49 +454,34 @@ export function BrowserPane({ initialUrl }: BrowserPaneProps) {
   const [inputUrl, setInputUrl] = useState(initialUrl);
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+    <div className="flex-1 flex flex-col">
       {/* URL bar */}
-      <div style={{
-        padding: '4px 8px',
-        borderBottom: '1px solid var(--border)',
-        display: 'flex',
-        gap: 4,
-      }}>
-        <button
+      <div className="px-2 py-1 border-b border-border flex gap-1 items-center">
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={() => {
             const wv = document.querySelector(`webview[data-url="${url}"]`) as any;
             wv?.goBack();
           }}
-          style={{
-            background: 'var(--bg-overlay)', border: 'none',
-            borderRadius: 3, padding: '2px 8px', color: 'var(--text-muted)',
-            cursor: 'pointer', fontSize: 11,
-          }}
         >
-          ←
-        </button>
-        <button
+          <ArrowLeft className="h-3 w-3" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={() => {
             const wv = document.querySelector(`webview[data-url="${url}"]`) as any;
             wv?.reload();
           }}
-          style={{
-            background: 'var(--bg-overlay)', border: 'none',
-            borderRadius: 3, padding: '2px 8px', color: 'var(--text-muted)',
-            cursor: 'pointer', fontSize: 11,
-          }}
         >
-          ↻
-        </button>
-        <input
+          <RotateCw className="h-3 w-3" />
+        </Button>
+        <Input
           value={inputUrl}
           onChange={(e) => setInputUrl(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') setUrl(inputUrl); }}
-          style={{
-            flex: 1, background: 'var(--bg-overlay)', border: 'none',
-            borderRadius: 3, padding: '3px 6px', color: 'var(--text-primary)',
-            fontSize: 11, outline: 'none',
-          }}
+          className="flex-1 h-7 text-xs"
         />
       </div>
 
@@ -443,17 +489,17 @@ export function BrowserPane({ initialUrl }: BrowserPaneProps) {
       <webview
         src={url}
         data-url={url}
-        style={{ flex: 1 }}
+        className="flex-1"
       />
     </div>
   );
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add packages/ui/src/components/panes/BrowserPane.tsx
+git add packages/ui/src/components/panes/BrowserPane.tsx packages/ui/src/env.d.ts
 git commit -m "feat: add BrowserPane with URL bar and webview"
 ```
 
@@ -468,7 +514,29 @@ git commit -m "feat: add BrowserPane with URL bar and webview"
 File: `packages/ui/src/components/panels/FileTree.tsx`
 ```tsx
 import { useState } from 'react';
+import { cva } from 'class-variance-authority';
 import type { FileNode } from '@taskflow/shared';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { cn } from '@/lib/utils';
+
+const fileNodeVariants = cva(
+  'text-xs whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer',
+  {
+    variants: {
+      gitStatus: {
+        new: 'text-success',
+        untracked: 'text-success',
+        modified: 'text-warning',
+        deleted: 'text-destructive',
+        renamed: 'text-accent',
+        clean: 'text-secondary-foreground',
+      },
+    },
+    defaultVariants: {
+      gitStatus: 'clean',
+    },
+  },
+);
 
 interface FileTreeProps {
   node: FileNode;
@@ -478,29 +546,16 @@ interface FileTreeProps {
 }
 
 export function FileTree({ node, depth = 0, gitFiles, onFileClick }: FileTreeProps) {
-  const [expanded, setExpanded] = useState(depth < 2);
-
-  const gitStatus = gitFiles?.get(node.path);
-  const statusColor = gitStatus === 'new' || gitStatus === 'untracked'
-    ? 'var(--accent-green)'
-    : gitStatus === 'modified' ? 'var(--accent-yellow)'
-    : gitStatus === 'deleted' ? 'var(--accent-red)'
-    : 'var(--text-secondary)';
+  const [open, setOpen] = useState(depth < 2);
+  const gitStatus = (gitFiles?.get(node.path) ?? 'clean') as
+    'new' | 'untracked' | 'modified' | 'deleted' | 'renamed' | 'clean';
 
   if (node.type === 'file') {
     return (
       <div
         onClick={() => onFileClick(node.path)}
-        style={{
-          padding: '2px 8px',
-          paddingLeft: depth * 12 + 8,
-          cursor: 'pointer',
-          fontSize: 11,
-          color: statusColor,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
+        className={cn(fileNodeVariants({ gitStatus }), 'py-0.5 px-2 hover:bg-muted/50')}
+        style={{ paddingLeft: depth * 12 + 8 }}
         title={node.path}
       >
         {node.name}
@@ -509,44 +564,46 @@ export function FileTree({ node, depth = 0, gitFiles, onFileClick }: FileTreePro
   }
 
   return (
-    <div>
-      <div
-        onClick={() => setExpanded(!expanded)}
-        style={{
-          padding: '2px 8px',
-          paddingLeft: depth * 12 + 8,
-          cursor: 'pointer',
-          fontSize: 11,
-          color: 'var(--text-muted)',
-          userSelect: 'none',
-        }}
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger
+        className="w-full py-0.5 px-2 text-xs text-muted-foreground cursor-pointer select-none hover:bg-muted/50 flex items-center"
+        style={{ paddingLeft: depth * 12 + 8 }}
       >
-        {expanded ? '▾' : '▸'} {node.name}
-      </div>
-      {expanded && node.children?.map((child) => (
-        <FileTree
-          key={child.path}
-          node={child}
-          depth={depth + 1}
-          gitFiles={gitFiles}
-          onFileClick={onFileClick}
-        />
-      ))}
-    </div>
+        <span className="mr-1 text-[10px]">{open ? '▾' : '▸'}</span>
+        {node.name}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        {node.children?.map((child) => (
+          <FileTree
+            key={child.path}
+            node={child}
+            depth={depth + 1}
+            gitFiles={gitFiles}
+            onFileClick={onFileClick}
+          />
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 ```
+
+Note: `style={{ paddingLeft }}` is an inline style exception — tree depth is a dynamic calculation that can't be expressed as a Tailwind variant.
 
 - [ ] **Step 2: Create FileExplorer**
 
 File: `packages/ui/src/components/panels/FileExplorer.tsx`
 ```tsx
 import { useEffect, useMemo } from 'react';
-import { useFileStore } from '../../stores/file-store';
-import { useTaskStore } from '../../stores/task-store';
-import { useProjectStore } from '../../stores/project-store';
-import { useSessionStore } from '../../stores/session-store';
-import { useUIStore } from '../../stores/ui-store';
+import { useFileStore } from '@/stores/file-store';
+import { useTaskStore } from '@/stores/task-store';
+import { useProjectStore } from '@/stores/project-store';
+import { useSessionStore } from '@/stores/session-store';
+import { useUIStore } from '@/stores/ui-store';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { X } from 'lucide-react';
 import { FileTree } from './FileTree';
 
 export function FileExplorer() {
@@ -587,25 +644,21 @@ export function FileExplorer() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{
-        padding: '5px 8px',
-        borderBottom: '1px solid var(--border)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}>
-        <span style={{ color: 'var(--text-muted)', fontSize: 9, textTransform: 'uppercase' }}>
+    <div className="flex flex-col h-full">
+      <div className="px-2 py-1.5 flex justify-between items-center">
+        <span className="text-muted-foreground text-[9px] uppercase tracking-wider">
           Files
         </span>
-        <span
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={() => useUIStore.getState().toggleFileExplorer()}
-          style={{ color: 'var(--text-muted)', cursor: 'pointer', fontSize: 10 }}
         >
-          ✕
-        </span>
+          <X className="h-3 w-3" />
+        </Button>
       </div>
-      <div style={{ flex: 1, overflow: 'auto', padding: '4px 0' }}>
+      <Separator />
+      <ScrollArea className="flex-1 py-1">
         {tree ? (
           <FileTree
             node={tree}
@@ -613,11 +666,11 @@ export function FileExplorer() {
             onFileClick={handleFileClick}
           />
         ) : (
-          <div style={{ padding: 8, color: 'var(--text-muted)', fontSize: 11 }}>
+          <div className="p-2 text-muted-foreground text-[11px]">
             {workingDir ? 'Loading...' : 'Select a task'}
           </div>
         )}
-      </div>
+      </ScrollArea>
     </div>
   );
 }
@@ -639,8 +692,14 @@ git commit -m "feat: add FileExplorer and FileTree with git status"
 
 File: `packages/ui/src/components/panels/TaskInfoPanel.tsx`
 ```tsx
-import { useTaskStore } from '../../stores/task-store';
-import { useUIStore } from '../../stores/ui-store';
+import { useTaskStore } from '@/stores/task-store';
+import { useUIStore } from '@/stores/ui-store';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { X } from 'lucide-react';
 
 export function TaskInfoPanel() {
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
@@ -648,93 +707,100 @@ export function TaskInfoPanel() {
 
   if (!task) {
     return (
-      <div style={{ padding: 8, color: 'var(--text-muted)', fontSize: 11 }}>
+      <div className="p-2 text-muted-foreground text-[11px]">
         Select a task
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{
-        padding: '5px 8px',
-        borderBottom: '1px solid var(--border)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}>
-        <span style={{ color: 'var(--text-muted)', fontSize: 9, textTransform: 'uppercase' }}>
+    <div className="flex flex-col h-full">
+      <div className="px-2 py-1.5 flex justify-between items-center">
+        <span className="text-muted-foreground text-[9px] uppercase tracking-wider">
           Task Info
         </span>
-        <span
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={() => useUIStore.getState().toggleTaskInfo()}
-          style={{ color: 'var(--text-muted)', cursor: 'pointer', fontSize: 10 }}
         >
-          ✕
-        </span>
+          <X className="h-3 w-3" />
+        </Button>
       </div>
+      <Separator />
 
-      <div style={{ flex: 1, padding: 8, overflow: 'auto', fontSize: 11 }}>
-        <label style={{ color: 'var(--text-muted)', fontSize: 9, textTransform: 'uppercase' }}>
-          Description
-        </label>
-        <textarea
-          value={task.description}
-          onChange={(e) => updateTask(task.id, { description: e.target.value })}
-          rows={4}
-          style={{
-            width: '100%', marginTop: 4, marginBottom: 12,
-            background: 'var(--bg-overlay)', border: 'none', borderRadius: 3,
-            padding: 6, color: 'var(--text-secondary)', fontSize: 11,
-            resize: 'vertical', outline: 'none',
-          }}
-        />
-
-        {task.worktree.branch && (
-          <>
-            <label style={{ color: 'var(--text-muted)', fontSize: 9, textTransform: 'uppercase' }}>
-              Branch
+      <ScrollArea className="flex-1 p-2">
+        <div className="space-y-3">
+          {/* Description */}
+          <div>
+            <label className="text-muted-foreground text-[9px] uppercase tracking-wider">
+              Description
             </label>
-            <div style={{ color: 'var(--accent-blue)', marginTop: 4, marginBottom: 12 }}>
-              {task.worktree.branch}
-            </div>
-          </>
-        )}
+            <Textarea
+              value={task.description}
+              onChange={(e) => updateTask(task.id, { description: e.target.value })}
+              rows={4}
+              className="mt-1 text-[11px]"
+            />
+          </div>
 
-        {task.worktree.path && (
-          <>
-            <label style={{ color: 'var(--text-muted)', fontSize: 9, textTransform: 'uppercase' }}>
-              Worktree
+          <Separator className="my-3" />
+
+          {/* Branch */}
+          {task.worktree.branch && (
+            <div>
+              <label className="text-muted-foreground text-[9px] uppercase tracking-wider">
+                Branch
+              </label>
+              <div className="mt-1">
+                <Badge variant="outline" colorScheme="active">
+                  {task.worktree.branch}
+                </Badge>
+              </div>
+            </div>
+          )}
+
+          {/* Worktree */}
+          {task.worktree.path && (
+            <div>
+              <label className="text-muted-foreground text-[9px] uppercase tracking-wider">
+                Worktree
+              </label>
+              <div className="mt-1 text-secondary-foreground text-[11px]">
+                {task.worktree.path}
+              </div>
+            </div>
+          )}
+
+          <Separator className="my-3" />
+
+          {/* Created */}
+          <div>
+            <label className="text-muted-foreground text-[9px] uppercase tracking-wider">
+              Created
             </label>
-            <div style={{ color: 'var(--text-secondary)', marginTop: 4, marginBottom: 12 }}>
-              {task.worktree.path}
+            <div className="mt-1 text-secondary-foreground text-[11px]">
+              {new Date(task.createdAt).toLocaleString()}
             </div>
-          </>
-        )}
+          </div>
 
-        <label style={{ color: 'var(--text-muted)', fontSize: 9, textTransform: 'uppercase' }}>
-          Created
-        </label>
-        <div style={{ color: 'var(--text-secondary)', marginTop: 4, marginBottom: 12 }}>
-          {new Date(task.createdAt).toLocaleString()}
+          <Separator className="my-3" />
+
+          {/* Notes */}
+          <div>
+            <label className="text-muted-foreground text-[9px] uppercase tracking-wider">
+              Notes
+            </label>
+            <Textarea
+              value={task.notes}
+              onChange={(e) => updateTask(task.id, { notes: e.target.value })}
+              rows={6}
+              placeholder="Add notes..."
+              className="mt-1 text-[11px]"
+            />
+          </div>
         </div>
-
-        <label style={{ color: 'var(--text-muted)', fontSize: 9, textTransform: 'uppercase' }}>
-          Notes
-        </label>
-        <textarea
-          value={task.notes}
-          onChange={(e) => updateTask(task.id, { notes: e.target.value })}
-          rows={6}
-          placeholder="Add notes..."
-          style={{
-            width: '100%', marginTop: 4,
-            background: 'var(--bg-overlay)', border: 'none', borderRadius: 3,
-            padding: 6, color: 'var(--text-secondary)', fontSize: 11,
-            resize: 'vertical', outline: 'none',
-          }}
-        />
-      </div>
+      </ScrollArea>
     </div>
   );
 }
@@ -757,13 +823,13 @@ git commit -m "feat: add TaskInfoPanel with editable description and notes"
 
 File: `packages/ui/src/components/workspace/TabContent.tsx`
 ```tsx
-import type { Tab } from '../../stores/session-store';
-import { TerminalPane } from '../panes/TerminalPane';
-import { EditorPane } from '../panes/EditorPane';
-import { ChangesPane } from '../panes/ChangesPane';
-import { BrowserPane } from '../panes/BrowserPane';
-import { useTaskStore } from '../../stores/task-store';
-import { useProjectStore } from '../../stores/project-store';
+import type { Tab } from '@/stores/session-store';
+import { TerminalPane } from '@/components/panes/TerminalPane';
+import { EditorPane } from '@/components/panes/EditorPane';
+import { ChangesPane } from '@/components/panes/ChangesPane';
+import { BrowserPane } from '@/components/panes/BrowserPane';
+import { useTaskStore } from '@/stores/task-store';
+import { useProjectStore } from '@/stores/project-store';
 
 interface TabContentProps {
   tab: Tab | undefined;
@@ -775,10 +841,7 @@ export function TabContent({ tab }: TabContentProps) {
 
   if (!tab) {
     return (
-      <div style={{
-        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: 'var(--text-muted)',
-      }}>
+      <div className="flex-1 flex items-center justify-center text-muted-foreground">
         No active tab. Create a session with +
       </div>
     );
@@ -792,12 +855,12 @@ export function TabContent({ tab }: TabContentProps) {
     case 'codex':
       return tab.sessionId
         ? <TerminalPane sessionId={tab.sessionId} />
-        : <div style={{ padding: 12, color: 'var(--text-muted)' }}>Session not found</div>;
+        : <div className="p-3 text-muted-foreground">Session not found</div>;
 
     case 'editor':
       return tab.filePath
         ? <EditorPane filePath={tab.filePath} />
-        : <div style={{ padding: 12, color: 'var(--text-muted)' }}>No file specified</div>;
+        : <div className="p-3 text-muted-foreground">No file specified</div>;
 
     case 'changes':
       return <ChangesPane repoPath={workingDir} />;
@@ -806,7 +869,7 @@ export function TabContent({ tab }: TabContentProps) {
       return <BrowserPane initialUrl={tab.url ?? 'http://localhost:3000'} />;
 
     default:
-      return <div style={{ padding: 12, color: 'var(--text-muted)' }}>Unknown tab type</div>;
+      return <div className="p-3 text-muted-foreground">Unknown tab type</div>;
   }
 }
 ```
@@ -815,22 +878,25 @@ export function TabContent({ tab }: TabContentProps) {
 
 File: `packages/ui/src/App.tsx`
 ```tsx
-import { WebSocketProvider } from './providers/WebSocketProvider';
-import { AppShell } from './components/AppShell';
-import { TaskSidebar } from './components/sidebar/TaskSidebar';
-import { FileExplorer } from './components/panels/FileExplorer';
-import { TaskInfoPanel } from './components/panels/TaskInfoPanel';
-import { Workspace } from './components/workspace/Workspace';
+import { WebSocketProvider } from '@/providers/WebSocketProvider';
+import { AppShell } from '@/components/AppShell';
+import { TaskSidebar } from '@/components/sidebar/TaskSidebar';
+import { FileExplorer } from '@/components/panels/FileExplorer';
+import { TaskInfoPanel } from '@/components/panels/TaskInfoPanel';
+import { Workspace } from '@/components/workspace/Workspace';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 export function App() {
   return (
     <WebSocketProvider>
-      <AppShell
-        sidebar={<TaskSidebar />}
-        fileExplorer={<FileExplorer />}
-        workspace={<Workspace />}
-        taskInfo={<TaskInfoPanel />}
-      />
+      <TooltipProvider>
+        <AppShell
+          sidebar={<TaskSidebar />}
+          fileExplorer={<FileExplorer />}
+          workspace={<Workspace />}
+          taskInfo={<TaskInfoPanel />}
+        />
+      </TooltipProvider>
     </WebSocketProvider>
   );
 }
@@ -872,9 +938,13 @@ Manual verify:
 - Modify a watched file externally and confirm the file tree and git status refresh.
 - Close a Claude/Codex tab and confirm the PTY session exits.
 
-- [ ] **Step 5: Final commit**
+- [ ] **Step 5: Final commit (if any uncommitted changes remain)**
 
 ```bash
-git add -A
-git commit -m "feat: complete v1 Taskflow implementation"
+git status
+# If any files were modified during verification, stage them specifically:
+# git add <specific-files>
+# git commit -m "fix: address integration issues found during final verification"
 ```
+
+Note: All code should already be committed by Tasks 6.1–6.7. This step is only needed if verification steps revealed issues that required fixes.

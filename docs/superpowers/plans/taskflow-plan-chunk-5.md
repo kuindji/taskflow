@@ -1,6 +1,18 @@
 # Chunk 5: UI Core — Layout, WebSocket, Stores, Sidebar
 
-> Part of [Taskflow Implementation Plan](taskflow-plan.md) | Prev: [Chunk 4 — Electron Shell](taskflow-plan-chunk-4.md) | Next: [Chunk 6 — UI Panes](taskflow-plan-chunk-6.md)
+> Part of [Taskflow Implementation Plan](taskflow-plan.md) | Prev: [Chunk 4.5 — shadcn Primitives](taskflow-plan-chunk-4.5.md) | Next: [Chunk 6 — UI Panes](taskflow-plan-chunk-6.md)
+
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build the UI shell — WebSocket communication, Zustand state, layout, sidebar, and workspace skeleton.
+
+**Architecture:** React app with Zustand stores communicating to the backend via WebSocket. AppShell provides a 3-zone layout (sidebar, workspace, panels). All UI components compose shadcn primitives with cva variants.
+
+**Tech Stack:** React 19, Zustand 5, Vite 6, Tailwind CSS 4, shadcn/ui, cva, lucide-react
+
+> **Depends on:** Chunk 4.5 (shadcn components in `packages/ui/src/components/ui/`, `cn()` in `src/lib/utils.ts`, shadcn CSS variables in `global.css`). Specifically requires the Badge `colorScheme` compound variant (Task 4.5.4) with values `claude`, `codex`, `active`, `archived`. All components use Tailwind utility classes with these CSS variables: `bg-background`, `bg-card`, `bg-popover`, `text-foreground`, `text-secondary-foreground`, `text-muted-foreground`, `border-border`, `text-accent`.
+
+> **Shared types used:** `Project`, `Task` (with `sessions: SessionRef[]`, `worktree: { enabled: boolean; path: string | null; branch: string | null }`), `FileNode`, `GitStatusResult`, `FileChangeEvent`, `WsRequest`, `MSG` constants — all from `@taskflow/shared`.
 
 ---
 
@@ -9,6 +21,8 @@
 **Files:**
 - Create: `packages/ui/vite.config.ts`
 
+> **Note:** If this file already exists from Chunk 4.5 Task 4.5.2 (which adds the `@` alias), verify it matches and skip to Step 2.
+
 - [ ] **Step 1: Create Vite config**
 
 File: `packages/ui/vite.config.ts`
@@ -16,15 +30,17 @@ File: `packages/ui/vite.config.ts`
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import path from 'path';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  build: {
-    outDir: 'dist',
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
   },
-  server: {
-    port: 5173,
-  },
+  build: { outDir: 'dist' },
+  server: { port: 5173 },
 });
 ```
 
@@ -40,11 +56,11 @@ git add packages/ui/vite.config.ts
 git commit -m "feat: add Vite config for UI package"
 ```
 
-### Task 5.2: WebSocket provider and hook
+### Task 5.2: WebSocket hook and provider
 
 **Files:**
-- Create: `packages/ui/src/providers/WebSocketProvider.tsx`
 - Create: `packages/ui/src/hooks/useWebSocket.ts`
+- Create: `packages/ui/src/providers/WebSocketProvider.tsx`
 
 - [ ] **Step 1: Create WebSocket hook**
 
@@ -62,41 +78,24 @@ const eventListeners = new Map<string, Set<(payload: unknown) => void>>();
 export function connectWebSocket(port: number): Promise<void> {
   return new Promise((resolve, reject) => {
     ws = new WebSocket(`ws://localhost:${port}`);
-
     ws.onopen = () => resolve();
     ws.onerror = (e) => reject(e);
-
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-
-      // Response to a request
       if (data.correlationId && pendingRequests.has(data.correlationId)) {
         const pending = pendingRequests.get(data.correlationId)!;
         pendingRequests.delete(data.correlationId);
-        if (data.error) {
-          pending.reject(new Error(data.error));
-        } else {
-          pending.resolve(data.payload);
-        }
+        if (data.error) pending.reject(new Error(data.error));
+        else pending.resolve(data.payload);
         return;
       }
-
-      // Event broadcast
       if (data.type) {
         const listeners = eventListeners.get(data.type);
-        if (listeners) {
-          for (const listener of listeners) {
-            listener(data.payload);
-          }
-        }
+        if (listeners) for (const listener of listeners) listener(data.payload);
       }
     };
-
     ws.onclose = () => {
-      // Reject all pending requests
-      for (const [, pending] of pendingRequests) {
-        pending.reject(new Error('WebSocket closed'));
-      }
+      for (const [, pending] of pendingRequests) pending.reject(new Error('WebSocket closed'));
       pendingRequests.clear();
     };
   });
@@ -104,21 +103,11 @@ export function connectWebSocket(port: number): Promise<void> {
 
 export function sendRequest<T = unknown>(type: string, payload: unknown = {}): Promise<T> {
   return new Promise((resolve, reject) => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      reject(new Error('WebSocket not connected'));
-      return;
-    }
-
+    if (!ws || ws.readyState !== WebSocket.OPEN) { reject(new Error('WebSocket not connected')); return; }
     const correlationId = crypto.randomUUID();
-    pendingRequests.set(correlationId, {
-      resolve: resolve as (value: unknown) => void,
-      reject,
-    });
-
+    pendingRequests.set(correlationId, { resolve: resolve as (value: unknown) => void, reject });
     const request: WsRequest = { correlationId, type, payload };
     ws.send(JSON.stringify(request));
-
-    // Timeout after 30 seconds
     setTimeout(() => {
       if (pendingRequests.has(correlationId)) {
         pendingRequests.delete(correlationId);
@@ -129,14 +118,9 @@ export function sendRequest<T = unknown>(type: string, payload: unknown = {}): P
 }
 
 export function onEvent(type: string, handler: (payload: unknown) => void): () => void {
-  if (!eventListeners.has(type)) {
-    eventListeners.set(type, new Set());
-  }
+  if (!eventListeners.has(type)) eventListeners.set(type, new Set());
   eventListeners.get(type)!.add(handler);
-
-  return () => {
-    eventListeners.get(type)?.delete(handler);
-  };
+  return () => { eventListeners.get(type)?.delete(handler); };
 }
 ```
 
@@ -147,16 +131,9 @@ File: `packages/ui/src/providers/WebSocketProvider.tsx`
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { connectWebSocket } from '../hooks/useWebSocket';
 
-interface WsContextValue {
-  connected: boolean;
-  error: string | null;
-}
-
+interface WsContextValue { connected: boolean; error: string | null; }
 const WsContext = createContext<WsContextValue>({ connected: false, error: null });
-
-export function useWsStatus() {
-  return useContext(WsContext);
-}
+export function useWsStatus() { return useContext(WsContext); }
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false);
@@ -165,35 +142,26 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function connect() {
       try {
-        // Get port from Electron preload or fall back to env/default
         let port: number;
         if (window.taskflow) {
           port = await window.taskflow.getBackendPort();
         } else {
-          // Dev mode: read from env or default
           port = parseInt(import.meta.env.VITE_BACKEND_PORT ?? '0');
           if (!port) {
-            // Try reading port file via fetch to a local endpoint
             const resp = await fetch('/api/port');
             port = parseInt(await resp.text());
           }
         }
-
         await connectWebSocket(port);
         setConnected(true);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Connection failed');
       }
     }
-
     connect();
   }, []);
 
-  return (
-    <WsContext.Provider value={{ connected, error }}>
-      {children}
-    </WsContext.Provider>
-  );
+  return <WsContext.Provider value={{ connected, error }}>{children}</WsContext.Provider>;
 }
 ```
 
@@ -233,19 +201,16 @@ interface ProjectStore {
 export const useProjectStore = create<ProjectStore>((set) => ({
   projects: [],
   loading: false,
-
   async fetchProjects() {
     set({ loading: true });
     const { projects } = await sendRequest<{ projects: Project[] }>(MSG.PROJECT_LIST);
     set({ projects, loading: false });
   },
-
   async addProject(name, path) {
     const project = await sendRequest<Project>(MSG.PROJECT_ADD, { name, path });
     set((s) => ({ projects: [...s.projects, project] }));
     return project;
   },
-
   async removeProject(id) {
     await sendRequest(MSG.PROJECT_REMOVE, { id });
     set((s) => ({ projects: s.projects.filter((p) => p.id !== id) }));
@@ -279,24 +244,20 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   activeTaskId: null,
   loading: false,
-
   async fetchTasks() {
     set({ loading: true });
     const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST);
     set({ tasks, loading: false });
   },
-
   async createTask(projectId, title) {
     const task = await sendRequest<Task>(MSG.TASK_CREATE, { projectId, title });
     set((s) => ({ tasks: [...s.tasks, task] }));
     return task;
   },
-
   async updateTask(id, updates) {
     const updated = await sendRequest<Task>(MSG.TASK_UPDATE, { id, ...updates });
     set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? updated : t)) }));
   },
-
   async archiveTask(id) {
     await sendRequest(MSG.TASK_ARCHIVE, { id });
     set((s) => ({
@@ -304,7 +265,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       activeTaskId: s.activeTaskId === id ? null : s.activeTaskId,
     }));
   },
-
   async deleteTask(id) {
     await sendRequest(MSG.TASK_DELETE, { id });
     set((s) => ({
@@ -312,11 +272,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       activeTaskId: s.activeTaskId === id ? null : s.activeTaskId,
     }));
   },
-
-  setActiveTask(id) {
-    set({ activeTaskId: id });
-  },
-
+  setActiveTask(id) { set({ activeTaskId: id }); },
   getActiveTask() {
     const { tasks, activeTaskId } = get();
     return tasks.find((t) => t.id === activeTaskId);
@@ -336,9 +292,9 @@ export interface Tab {
   id: string;
   type: 'claude' | 'codex' | 'editor' | 'changes' | 'browser';
   label: string;
-  sessionId?: string; // For terminal tabs
-  filePath?: string;  // For editor tabs
-  url?: string;       // For browser tabs
+  sessionId?: string;
+  filePath?: string;
+  url?: string;
 }
 
 interface SessionStore {
@@ -358,75 +314,35 @@ interface SessionStore {
 export const useSessionStore = create<SessionStore>((set, get) => ({
   tabsByTask: {},
   activeTabByTask: {},
-
   async createSession(taskId, type, label) {
-    const { sessionId } = await sendRequest<{ sessionId: string }>(
-      MSG.SESSION_CREATE, { taskId, type, label }
-    );
-    const tab: Tab = {
-      id: sessionId,
-      type,
-      label: label ?? `${type} session`,
-      sessionId,
-    };
+    const { sessionId } = await sendRequest<{ sessionId: string }>(MSG.SESSION_CREATE, { taskId, type, label });
+    const tab: Tab = { id: sessionId, type, label: label ?? `${type} session`, sessionId };
     get().addTab(taskId, tab);
     return sessionId;
   },
-
-  async closeSession(sessionId) {
-    await sendRequest(MSG.SESSION_CLOSE, { sessionId });
-  },
-
-  sendInput(sessionId, data) {
-    sendRequest(MSG.SESSION_INPUT, { sessionId, data }).catch(console.error);
-  },
-
-  resizeTerminal(sessionId, cols, rows) {
-    sendRequest(MSG.TERMINAL_RESIZE, { sessionId, cols, rows }).catch(console.error);
-  },
-
+  async closeSession(sessionId) { await sendRequest(MSG.SESSION_CLOSE, { sessionId }); },
+  sendInput(sessionId, data) { sendRequest(MSG.SESSION_INPUT, { sessionId, data }).catch(console.error); },
+  resizeTerminal(sessionId, cols, rows) { sendRequest(MSG.TERMINAL_RESIZE, { sessionId, cols, rows }).catch(console.error); },
   addTab(taskId, tab) {
-    set((s) => {
-      const tabs = [...(s.tabsByTask[taskId] ?? []), tab];
-      return {
-        tabsByTask: { ...s.tabsByTask, [taskId]: tabs },
-        activeTabByTask: { ...s.activeTabByTask, [taskId]: tab.id },
-      };
-    });
-  },
-
-  async closeTab(taskId, tabId) {
-    const tab = (get().tabsByTask[taskId] ?? []).find((entry) => entry.id === tabId);
-    if (tab?.sessionId) {
-      await sendRequest(MSG.SESSION_CLOSE, { sessionId: tab.sessionId });
-    }
-
-    set((s) => {
-      const tabs = (s.tabsByTask[taskId] ?? []).filter((t) => t.id !== tabId);
-      const activeId = s.activeTabByTask[taskId] === tabId
-        ? tabs[tabs.length - 1]?.id ?? ''
-        : s.activeTabByTask[taskId];
-      return {
-        tabsByTask: { ...s.tabsByTask, [taskId]: tabs },
-        activeTabByTask: { ...s.activeTabByTask, [taskId]: activeId },
-      };
-    });
-  },
-
-  setActiveTab(taskId, tabId) {
     set((s) => ({
-      activeTabByTask: { ...s.activeTabByTask, [taskId]: tabId },
+      tabsByTask: { ...s.tabsByTask, [taskId]: [...(s.tabsByTask[taskId] ?? []), tab] },
+      activeTabByTask: { ...s.activeTabByTask, [taskId]: tab.id },
     }));
   },
-
-  getTabs(taskId) {
-    return get().tabsByTask[taskId] ?? [];
+  async closeTab(taskId, tabId) {
+    const tab = (get().tabsByTask[taskId] ?? []).find((entry) => entry.id === tabId);
+    if (tab?.sessionId) await sendRequest(MSG.SESSION_CLOSE, { sessionId: tab.sessionId });
+    set((s) => {
+      const tabs = (s.tabsByTask[taskId] ?? []).filter((t) => t.id !== tabId);
+      const activeId = s.activeTabByTask[taskId] === tabId ? tabs[tabs.length - 1]?.id ?? '' : s.activeTabByTask[taskId];
+      return { tabsByTask: { ...s.tabsByTask, [taskId]: tabs }, activeTabByTask: { ...s.activeTabByTask, [taskId]: activeId } };
+    });
   },
-
+  setActiveTab(taskId, tabId) { set((s) => ({ activeTabByTask: { ...s.activeTabByTask, [taskId]: tabId } })); },
+  getTabs(taskId) { return get().tabsByTask[taskId] ?? []; },
   getActiveTab(taskId) {
     const tabs = get().getTabs(taskId);
-    const activeId = get().activeTabByTask[taskId];
-    return tabs.find((t) => t.id === activeId);
+    return tabs.find((t) => t.id === get().activeTabByTask[taskId]);
   },
 }));
 ```
@@ -456,32 +372,24 @@ let fileChangeSubscriptionReady = false;
 let fileChangeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useFileStore = create<FileStore>((set, get) => ({
-  tree: null,
-  gitStatus: null,
-  watchedPath: null,
-  loading: false,
-
+  tree: null, gitStatus: null, watchedPath: null, loading: false,
   async fetchTree(path) {
     set({ loading: true });
     const { tree } = await sendRequest<{ tree: FileNode }>(MSG.FILE_TREE, { path });
     set({ tree, loading: false });
   },
-
   async fetchGitStatus(path) {
     const { status } = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path });
     set({ gitStatus: status });
   },
-
   async watchPath(path) {
     set({ watchedPath: path });
-
     if (!fileChangeSubscriptionReady) {
       fileChangeSubscriptionReady = true;
       onEvent(MSG.FILE_CHANGED, (payload) => {
         const event = payload as FileChangeEvent;
         const watchedPath = get().watchedPath;
         if (!watchedPath || !event.path.startsWith(watchedPath)) return;
-
         if (fileChangeRefreshTimer) clearTimeout(fileChangeRefreshTimer);
         fileChangeRefreshTimer = setTimeout(() => {
           get().fetchTree(watchedPath).catch(console.error);
@@ -489,21 +397,16 @@ export const useFileStore = create<FileStore>((set, get) => ({
         }, 150);
       });
     }
-
     await sendRequest(MSG.FILE_WATCH, { path });
   },
-
   async readFile(path) {
     const { content } = await sendRequest<{ content: string }>(MSG.FILE_READ, { path });
     return content;
   },
-
   async writeFile(path, content) {
     await sendRequest(MSG.FILE_WRITE, { path, content });
     const watchedPath = get().watchedPath;
-    if (watchedPath && path.startsWith(watchedPath)) {
-      await get().fetchGitStatus(watchedPath);
-    }
+    if (watchedPath && path.startsWith(watchedPath)) await get().fetchGitStatus(watchedPath);
   },
 }));
 ```
@@ -527,40 +430,33 @@ export const useUIStore = create<UIStore>((set) => ({
   fileExplorerOpen: false,
   taskInfoOpen: false,
   sidebarWidth: 220,
-
-  toggleFileExplorer() {
-    set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen }));
-  },
-
-  toggleTaskInfo() {
-    set((s) => ({ taskInfoOpen: !s.taskInfoOpen }));
-  },
-
-  setSidebarWidth(width) {
-    set({ sidebarWidth: width });
-  },
+  toggleFileExplorer() { set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen })); },
+  toggleTaskInfo() { set((s) => ({ taskInfoOpen: !s.taskInfoOpen })); },
+  setSidebarWidth(width) { set({ sidebarWidth: width }); },
 }));
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/ui/src/stores/
+git add packages/ui/src/stores/project-store.ts packages/ui/src/stores/task-store.ts packages/ui/src/stores/session-store.ts packages/ui/src/stores/file-store.ts packages/ui/src/stores/ui-store.ts
 git commit -m "feat: add Zustand stores for projects, tasks, sessions, files, UI"
 ```
 
 ### Task 5.4: AppShell layout component
 
 **Files:**
-- Modify: `packages/ui/src/App.tsx`
 - Create: `packages/ui/src/components/AppShell.tsx`
+- Modify: `packages/ui/src/App.tsx`
 
 - [ ] **Step 1: Create AppShell**
 
 File: `packages/ui/src/components/AppShell.tsx`
 ```tsx
 import type { ReactNode } from 'react';
-import { useUIStore } from '../stores/ui-store';
+import { useUIStore } from '@/stores/ui-store';
+import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 
 interface AppShellProps {
   sidebar: ReactNode;
@@ -573,87 +469,53 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
   const { fileExplorerOpen, taskInfoOpen, sidebarWidth } = useUIStore();
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      {/* Task sidebar */}
-      <div style={{
-        width: sidebarWidth,
-        minWidth: 180,
-        maxWidth: 350,
-        background: 'var(--bg-surface)',
-        borderRight: '1px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'column',
-      }}>
+    <div className="flex h-screen overflow-hidden">
+      <div
+        className="min-w-[180px] max-w-[350px] bg-card flex flex-col"
+        style={{ width: sidebarWidth }}
+      >
         {sidebar}
       </div>
 
-      {/* File explorer rail */}
+      <Separator orientation="vertical" />
+
       {fileExplorerOpen ? (
-        <div style={{
-          width: 220,
-          background: 'var(--bg-surface)',
-          borderRight: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
+        <div className="w-[220px] bg-card flex flex-col">
           {fileExplorer}
         </div>
       ) : (
         <div
           onClick={() => useUIStore.getState().toggleFileExplorer()}
-          style={{
-            width: 24,
-            background: 'var(--bg-surface)',
-            borderRight: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            writingMode: 'vertical-rl',
-            transform: 'rotate(180deg)',
-            fontSize: 9,
-            color: 'var(--text-muted)',
-            letterSpacing: 2,
-            userSelect: 'none',
-          }}
+          className={cn(
+            'w-6 bg-card flex items-center justify-center',
+            'cursor-pointer [writing-mode:vertical-rl] rotate-180',
+            'text-[9px] text-muted-foreground tracking-widest select-none',
+            'hover:bg-muted/50 transition-colors',
+          )}
         >
           FILES
         </div>
       )}
 
-      {/* Main workspace */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {workspace}
-      </div>
+      <Separator orientation="vertical" />
 
-      {/* Task info rail */}
+      <div className="flex-1 flex flex-col overflow-hidden">{workspace}</div>
+
+      <Separator orientation="vertical" />
+
       {taskInfoOpen ? (
-        <div style={{
-          width: 220,
-          background: 'var(--bg-surface)',
-          borderLeft: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
+        <div className="w-[220px] bg-card flex flex-col">
           {taskInfo}
         </div>
       ) : (
         <div
           onClick={() => useUIStore.getState().toggleTaskInfo()}
-          style={{
-            width: 24,
-            background: 'var(--bg-surface)',
-            borderLeft: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            writingMode: 'vertical-rl',
-            fontSize: 9,
-            color: 'var(--text-muted)',
-            letterSpacing: 2,
-            userSelect: 'none',
-          }}
+          className={cn(
+            'w-6 bg-card flex items-center justify-center',
+            'cursor-pointer [writing-mode:vertical-rl]',
+            'text-[9px] text-muted-foreground tracking-widest select-none',
+            'hover:bg-muted/50 transition-colors',
+          )}
         >
           TASK
         </div>
@@ -667,29 +529,24 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
 
 File: `packages/ui/src/App.tsx`
 ```tsx
-import { WebSocketProvider } from './providers/WebSocketProvider';
-import { AppShell } from './components/AppShell';
+import { WebSocketProvider } from '@/providers/WebSocketProvider';
+import { AppShell } from '@/components/AppShell';
 
 export function App() {
   return (
     <WebSocketProvider>
       <AppShell
-        sidebar={<div style={{ padding: 12, color: 'var(--text-muted)' }}>Task Sidebar</div>}
-        fileExplorer={<div style={{ padding: 12, color: 'var(--text-muted)' }}>File Explorer</div>}
-        workspace={<div style={{ padding: 12, color: 'var(--text-muted)' }}>Workspace</div>}
-        taskInfo={<div style={{ padding: 12, color: 'var(--text-muted)' }}>Task Info</div>}
+        sidebar={<div className="p-3 text-muted-foreground">Task Sidebar</div>}
+        fileExplorer={<div className="p-3 text-muted-foreground">File Explorer</div>}
+        workspace={<div className="p-3 text-muted-foreground">Workspace</div>}
+        taskInfo={<div className="p-3 text-muted-foreground">Task Info</div>}
       />
     </WebSocketProvider>
   );
 }
 ```
 
-- [ ] **Step 3: Verify UI renders in dev mode**
-
-Run: `cd packages/ui && bunx vite &; sleep 3; curl -s http://localhost:5173 | head -5; kill %1 2>/dev/null; true`
-Expected: HTML output with Taskflow
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add packages/ui/src/components/AppShell.tsx packages/ui/src/App.tsx
@@ -699,56 +556,61 @@ git commit -m "feat: add AppShell 3-zone layout with collapsible panels"
 ### Task 5.5: Task sidebar components
 
 **Files:**
-- Create: `packages/ui/src/components/sidebar/TaskSidebar.tsx`
-- Create: `packages/ui/src/components/sidebar/ProjectGroup.tsx`
 - Create: `packages/ui/src/components/sidebar/TaskCard.tsx`
+- Create: `packages/ui/src/components/sidebar/ProjectGroup.tsx`
+- Create: `packages/ui/src/components/sidebar/TaskSidebar.tsx`
 
 - [ ] **Step 1: Create TaskCard**
 
 File: `packages/ui/src/components/sidebar/TaskCard.tsx`
 ```tsx
+import { cva, type VariantProps } from 'class-variance-authority';
 import type { Task } from '@taskflow/shared';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
-interface TaskCardProps {
+const taskCardVariants = cva(
+  'px-2.5 py-1.5 mx-1.5 my-0.5 rounded cursor-pointer border-l-[3px]',
+  {
+    variants: {
+      active: {
+        true: 'bg-muted',
+        false: 'bg-transparent hover:bg-muted/50',
+      },
+      status: {
+        active: 'border-l-accent',
+        archived: 'border-l-success',
+        default: 'border-l-warning',
+      },
+    },
+    defaultVariants: { active: false, status: 'default' },
+  },
+);
+
+interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
   task: Task;
   isActive: boolean;
   onClick: () => void;
+  className?: string;
 }
 
-export function TaskCard({ task, isActive, onClick }: TaskCardProps) {
-  const borderColor = task.status === 'archived'
-    ? 'var(--accent-green)'
-    : isActive ? 'var(--accent-blue)' : 'var(--accent-yellow)';
+export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) {
+  const status = task.status === 'archived' ? 'archived' : task.status === 'active' ? 'active' : 'default';
 
   return (
-    <div
-      onClick={onClick}
-      style={{
-        padding: '6px 10px',
-        margin: '2px 6px',
-        borderRadius: 4,
-        borderLeft: `3px solid ${borderColor}`,
-        background: isActive ? 'var(--bg-overlay)' : 'transparent',
-        cursor: 'pointer',
-      }}
-    >
-      <div style={{
-        color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-        fontSize: 12,
-        fontWeight: isActive ? 'bold' : 'normal',
-      }}>
+    <div onClick={onClick} className={cn(taskCardVariants({ active: isActive, status }), className)}>
+      <div className={cn('text-xs', isActive ? 'text-foreground font-bold' : 'text-secondary-foreground')}>
         {task.title}
       </div>
-      <div style={{ color: 'var(--text-muted)', fontSize: 10, marginTop: 2 }}>
-        {task.sessions.map((s) => (
-          <span key={s.id} style={{
-            color: s.type === 'claude' ? 'var(--accent-green)' : 'var(--accent-yellow)',
-            marginRight: 6,
-          }}>
-            ● {s.type}
-          </span>
-        ))}
-      </div>
+      {task.sessions.length > 0 && (
+        <div className="flex gap-1.5 mt-0.5">
+          {task.sessions.map((s) => (
+            <Badge key={s.id} variant="outline" colorScheme={s.type === 'claude' ? 'claude' : 'codex'} className="text-[10px] px-1 py-0">
+              {s.type}
+            </Badge>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -760,7 +622,10 @@ File: `packages/ui/src/components/sidebar/ProjectGroup.tsx`
 ```tsx
 import { useState } from 'react';
 import type { Project, Task } from '@taskflow/shared';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Badge } from '@/components/ui/badge';
 import { TaskCard } from './TaskCard';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 interface ProjectGroupProps {
   project: Project;
@@ -770,43 +635,23 @@ interface ProjectGroupProps {
 }
 
 export function ProjectGroup({ project, tasks, activeTaskId, onTaskClick }: ProjectGroupProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [open, setOpen] = useState(true);
 
   return (
-    <div>
-      <div
-        onClick={() => setCollapsed(!collapsed)}
-        style={{
-          padding: '4px 10px',
-          color: 'var(--text-muted)',
-          fontSize: 9,
-          textTransform: 'uppercase',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-      >
-        <span>{collapsed ? '▸' : '▾'} {project.name}</span>
-        <span style={{
-          background: 'var(--bg-overlay)',
-          borderRadius: 8,
-          padding: '0 5px',
-          fontSize: 8,
-        }}>
-          {tasks.length}
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="w-full px-2.5 py-1 flex justify-between items-center cursor-pointer select-none hover:bg-muted/50 transition-colors">
+        <span className="text-muted-foreground text-[9px] uppercase flex items-center gap-1">
+          {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          {project.name}
         </span>
-      </div>
-      {!collapsed && tasks.map((task) => (
-        <TaskCard
-          key={task.id}
-          task={task}
-          isActive={task.id === activeTaskId}
-          onClick={() => onTaskClick(task.id)}
-        />
-      ))}
-    </div>
+        <Badge variant="secondary" className="text-[8px] px-1.5 py-0">{tasks.length}</Badge>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        {tasks.map((task) => (
+          <TaskCard key={task.id} task={task} isActive={task.id === activeTaskId} onClick={() => onTaskClick(task.id)} />
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 ```
@@ -816,26 +661,27 @@ export function ProjectGroup({ project, tasks, activeTaskId, onTaskClick }: Proj
 File: `packages/ui/src/components/sidebar/TaskSidebar.tsx`
 ```tsx
 import { useEffect } from 'react';
-import { useProjectStore } from '../../stores/project-store';
-import { useTaskStore } from '../../stores/task-store';
+import { useProjectStore } from '@/stores/project-store';
+import { useTaskStore } from '@/stores/task-store';
 import { ProjectGroup } from './ProjectGroup';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Plus } from 'lucide-react';
 
 export function TaskSidebar() {
   const { projects, fetchProjects, addProject } = useProjectStore();
   const { tasks, activeTaskId, fetchTasks, setActiveTask, createTask } = useTaskStore();
 
-  useEffect(() => {
-    fetchProjects();
-    fetchTasks();
-  }, []);
+  useEffect(() => { fetchProjects(); fetchTasks(); }, []);
 
-  const tasksByProject = (projectId: string) =>
-    tasks.filter((t) => t.projectId === projectId);
+  const tasksByProject = (projectId: string) => tasks.filter((t) => t.projectId === projectId);
 
+  // TODO: Replace window.prompt() with shadcn Dialog for consistent UX
   const handleAddProject = async (): Promise<string | null> => {
     const path = await window.taskflow?.selectProjectDirectory?.();
     if (!path) return null;
-
     const suggestedName = path.split('/').pop() ?? '';
     const input = window.prompt('Project name (optional)', suggestedName);
     const project = await addProject(input?.trim() || undefined, path);
@@ -843,103 +689,35 @@ export function TaskSidebar() {
   };
 
   const handleNewTask = async () => {
-    let projectId = activeTaskId
-      ? tasks.find((task) => task.id === activeTaskId)?.projectId
-      : projects[0]?.id;
-
-    if (!projectId) {
-      projectId = await handleAddProject();
-      if (!projectId) return;
-    }
-
+    let projectId = activeTaskId ? tasks.find((t) => t.id === activeTaskId)?.projectId : projects[0]?.id;
+    if (!projectId) { projectId = await handleAddProject(); if (!projectId) return; }
     const title = window.prompt('Task title');
     if (!title?.trim()) return;
-
     const task = await createTask(projectId, title.trim());
     setActiveTask(task.id);
   };
 
   return (
     <>
-      {/* Search + New */}
-      <div style={{
-        padding: 8,
-        borderBottom: '1px solid var(--border)',
-        display: 'flex',
-        gap: 4,
-      }}>
-        <input
-          placeholder="Search tasks..."
-          style={{
-            flex: 1,
-            background: 'var(--bg-overlay)',
-            border: 'none',
-            borderRadius: 3,
-            padding: '3px 6px',
-            color: 'var(--text-primary)',
-            fontSize: 11,
-            outline: 'none',
-          }}
-        />
-        <button
-          onClick={handleNewTask}
-          style={{
-          background: 'var(--bg-overlay)',
-          border: 'none',
-          borderRadius: 3,
-          padding: '3px 8px',
-          color: 'var(--accent-blue)',
-          cursor: 'pointer',
-          fontSize: 12,
-        }}
-        >
-          +
-        </button>
+      <div className="p-2 border-b border-border flex gap-1">
+        <Input placeholder="Search tasks..." className="flex-1 h-7 text-xs" />
+        <Button variant="ghost" size="icon-sm" onClick={handleNewTask}><Plus className="h-3 w-3" /></Button>
       </div>
-
-      {/* Project groups */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '4px 0' }}>
+      <ScrollArea className="flex-1 py-1">
         {projects.length === 0 && (
-          <div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 11 }}>
-            <div style={{ marginBottom: 8 }}>No projects yet.</div>
-            <button
-              onClick={handleAddProject}
-              style={{
-                background: 'var(--bg-overlay)',
-                border: 'none',
-                borderRadius: 3,
-                padding: '4px 8px',
-                color: 'var(--accent-blue)',
-                cursor: 'pointer',
-                fontSize: 11,
-              }}
-            >
-              Add Project
-            </button>
+          <div className="p-3 text-muted-foreground text-[11px]">
+            <div className="mb-2">No projects yet.</div>
+            <Button variant="ghost" size="sm" onClick={handleAddProject} className="text-accent text-[11px]">Add Project</Button>
           </div>
         )}
         {projects.map((project) => (
-          <ProjectGroup
-            key={project.id}
-            project={project}
-            tasks={tasksByProject(project.id)}
-            activeTaskId={activeTaskId}
-            onTaskClick={setActiveTask}
-          />
+          <ProjectGroup key={project.id} project={project} tasks={tasksByProject(project.id)} activeTaskId={activeTaskId} onTaskClick={setActiveTask} />
         ))}
-      </div>
-
-      {/* Bottom bar */}
-      <div style={{
-        borderTop: '1px solid var(--border)',
-        padding: '6px 10px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        color: 'var(--text-muted)',
-        fontSize: 11,
-      }}>
-        <span style={{ cursor: 'pointer' }} onClick={handleAddProject}>Add Project</span>
-        <span style={{ cursor: 'pointer' }}>Settings</span>
+      </ScrollArea>
+      <Separator />
+      <div className="px-2.5 py-1.5 flex justify-between">
+        <Button variant="ghost" size="sm" onClick={handleAddProject} className="text-muted-foreground text-[11px]">Add Project</Button>
+        <Button variant="ghost" size="sm" className="text-muted-foreground text-[11px]">Settings</Button>
       </div>
     </>
   );
@@ -949,57 +727,36 @@ export function TaskSidebar() {
 - [ ] **Step 4: Commit**
 
 ```bash
-git add packages/ui/src/components/sidebar/
+git add packages/ui/src/components/sidebar/TaskSidebar.tsx packages/ui/src/components/sidebar/ProjectGroup.tsx packages/ui/src/components/sidebar/TaskCard.tsx
 git commit -m "feat: add task sidebar with project groups and task cards"
 ```
 
 ### Task 5.6: Workspace skeleton
 
 **Files:**
-- Create: `packages/ui/src/components/workspace/Workspace.tsx`
 - Create: `packages/ui/src/components/workspace/TaskHeader.tsx`
 - Create: `packages/ui/src/components/workspace/TabBar.tsx`
 - Create: `packages/ui/src/components/workspace/TabContent.tsx`
+- Create: `packages/ui/src/components/workspace/Workspace.tsx`
+- Modify: `packages/ui/src/App.tsx`
 
 - [ ] **Step 1: Create TaskHeader**
 
 File: `packages/ui/src/components/workspace/TaskHeader.tsx`
 ```tsx
 import type { Task, Project } from '@taskflow/shared';
+import { Badge } from '@/components/ui/badge';
 
-interface TaskHeaderProps {
-  task: Task;
-  project: Project | undefined;
-}
+interface TaskHeaderProps { task: Task; project: Project | undefined; }
 
 export function TaskHeader({ task, project }: TaskHeaderProps) {
   return (
-    <div style={{
-      padding: '5px 12px',
-      borderBottom: '1px solid var(--border)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ color: 'var(--text-primary)', fontWeight: 'bold', fontSize: 13 }}>
-          {task.title}
-        </span>
-        <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-          {project?.name}
-        </span>
-        {task.worktree.branch && (
-          <span style={{
-            color: 'var(--text-muted)',
-            fontSize: 9,
-            background: 'var(--bg-overlay)',
-            padding: '1px 6px',
-            borderRadius: 3,
-          }}>
-            {task.worktree.branch}
-          </span>
-        )}
-      </div>
+    <div className="px-3 py-1.5 border-b border-border flex items-center gap-2">
+      <span className="text-foreground font-bold text-[13px]">{task.title}</span>
+      <span className="text-muted-foreground text-[11px]">{project?.name}</span>
+      {task.worktree?.branch && (
+        <Badge variant="outline" className="text-[9px] px-1.5 py-0">{task.worktree.branch}</Badge>
+      )}
     </div>
   );
 }
@@ -1009,7 +766,23 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
 
 File: `packages/ui/src/components/workspace/TabBar.tsx`
 ```tsx
-import type { Tab } from '../../stores/session-store';
+import { cva } from 'class-variance-authority';
+import type { Tab } from '@/stores/session-store';
+import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { X, Plus, Terminal, Code, Globe } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const tabVariants = cva(
+  'px-2 py-0.5 rounded-sm cursor-pointer flex items-center gap-1 text-[11px] transition-colors',
+  {
+    variants: {
+      type: { claude: 'text-success', codex: 'text-warning', editor: 'text-muted-foreground', changes: 'text-muted-foreground', browser: 'text-muted-foreground' },
+      active: { true: 'bg-muted', false: 'bg-transparent hover:bg-muted/50' },
+    },
+    defaultVariants: { type: 'editor', active: false },
+  },
+);
 
 interface TabBarProps {
   tabs: Tab[];
@@ -1020,103 +793,46 @@ interface TabBarProps {
 }
 
 export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: TabBarProps) {
-  const tabColor = (tab: Tab) => {
-    if (tab.type === 'claude') return 'var(--accent-green)';
-    if (tab.type === 'codex') return 'var(--accent-yellow)';
-    return 'var(--text-muted)';
-  };
-
   return (
-    <div style={{
-      padding: '3px 8px',
-      background: 'var(--bg-surface)',
-      display: 'flex',
-      gap: 2,
-      fontSize: 11,
-      borderBottom: '1px solid var(--border)',
-      alignItems: 'center',
-    }}>
+    <div className="px-2 py-0.5 bg-card flex gap-0.5 border-b border-border items-center">
       {tabs.map((tab) => (
-        <div
-          key={tab.id}
-          onClick={() => onTabClick(tab.id)}
-          style={{
-            padding: '2px 8px',
-            borderRadius: 3,
-            background: tab.id === activeTabId ? 'var(--bg-overlay)' : 'transparent',
-            color: tabColor(tab),
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-          }}
-        >
+        <div key={tab.id} onClick={() => onTabClick(tab.id)} className={cn(tabVariants({ type: tab.type, active: tab.id === activeTabId }))}>
           <span>{tab.label}</span>
-          <span
-            onClick={(e) => { e.stopPropagation(); onTabClose(tab.id); }}
-            style={{ color: 'var(--text-muted)', fontSize: 9, cursor: 'pointer' }}
-          >
-            ✕
-          </span>
+          <Button variant="ghost" size="icon-sm" className="h-4 w-4 ml-0.5" onClick={(e) => { e.stopPropagation(); onTabClose(tab.id); }}>
+            <X className="h-2.5 w-2.5" />
+          </Button>
         </div>
       ))}
-
-      {/* New tab dropdown */}
-      <div style={{ position: 'relative' }}>
-        <select
-          onChange={(e) => {
-            if (e.target.value) {
-              onNewTab(e.target.value as 'claude' | 'codex' | 'browser');
-              e.target.value = '';
-            }
-          }}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            fontSize: 11,
-          }}
-        >
-          <option value="">+</option>
-          <option value="claude">Claude Code</option>
-          <option value="codex">Codex</option>
-          <option value="browser">Browser</option>
-        </select>
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm"><Plus className="h-3 w-3" /></Button></DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onClick={() => onNewTab('claude')}><Terminal className="h-3.5 w-3.5 mr-2" />Claude Code</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onNewTab('codex')}><Code className="h-3.5 w-3.5 mr-2" />Codex</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onNewTab('browser')}><Globe className="h-3.5 w-3.5 mr-2" />Browser</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
 ```
 
+Note: TabBar uses a custom cva-driven tab strip rather than shadcn `<Tabs>` because the tab behavior here is non-standard — tabs are dynamic (created/closed at runtime), have per-tab close buttons, and are managed by the session store rather than by Radix state. shadcn `<Tabs>` is designed for static, content-switching tabs.
+
 - [ ] **Step 3: Create TabContent**
 
 File: `packages/ui/src/components/workspace/TabContent.tsx`
 ```tsx
-import type { Tab } from '../../stores/session-store';
+import type { Tab } from '@/stores/session-store';
 
-interface TabContentProps {
-  tab: Tab | undefined;
-}
+interface TabContentProps { tab: Tab | undefined; }
 
 export function TabContent({ tab }: TabContentProps) {
   if (!tab) {
-    return (
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'var(--text-muted)',
-      }}>
-        No active tab. Create a session with +
-      </div>
-    );
+    return <div className="flex-1 flex items-center justify-center text-muted-foreground">No active tab. Create a session with +</div>;
   }
-
-  // Placeholder — will be replaced with real pane components in Chunk 6
+  // Placeholder — replaced with real pane components in Chunk 6
   return (
-    <div style={{ flex: 1, padding: 12, color: 'var(--text-secondary)' }}>
+    <div className="flex-1 p-3 text-secondary-foreground">
       <p>Tab: {tab.label} ({tab.type})</p>
       {tab.sessionId && <p>Session: {tab.sessionId}</p>}
       {tab.filePath && <p>File: {tab.filePath}</p>}
@@ -1130,33 +846,20 @@ export function TabContent({ tab }: TabContentProps) {
 
 File: `packages/ui/src/components/workspace/Workspace.tsx`
 ```tsx
-import { useTaskStore } from '../../stores/task-store';
-import { useProjectStore } from '../../stores/project-store';
-import { useSessionStore } from '../../stores/session-store';
+import { useTaskStore } from '@/stores/task-store';
+import { useProjectStore } from '@/stores/project-store';
+import { useSessionStore } from '@/stores/session-store';
 import { TaskHeader } from './TaskHeader';
 import { TabBar } from './TabBar';
 import { TabContent } from './TabContent';
 
 export function Workspace() {
-  const { activeTaskId } = useTaskStore();
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
   const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
-
   const { getTabs, getActiveTab, setActiveTab, closeTab, createSession, addTab } = useSessionStore();
 
   if (!task) {
-    return (
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'var(--text-muted)',
-        fontSize: 14,
-      }}>
-        Select a task from the sidebar
-      </div>
-    );
+    return <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">Select a task from the sidebar</div>;
   }
 
   const tabs = getTabs(task.id);
@@ -1164,12 +867,7 @@ export function Workspace() {
 
   const handleNewTab = async (type: 'claude' | 'codex' | 'browser') => {
     if (type === 'browser') {
-      addTab(task.id, {
-        id: crypto.randomUUID(),
-        type: 'browser',
-        label: 'Browser',
-        url: 'http://localhost:3000',
-      });
+      addTab(task.id, { id: crypto.randomUUID(), type: 'browser', label: 'Browser', url: 'http://localhost:3000' });
     } else {
       await createSession(task.id, type);
     }
@@ -1178,13 +876,7 @@ export function Workspace() {
   return (
     <>
       <TaskHeader task={task} project={project} />
-      <TabBar
-        tabs={tabs}
-        activeTabId={activeTab?.id ?? ''}
-        onTabClick={(id) => setActiveTab(task.id, id)}
-        onTabClose={(id) => { void closeTab(task.id, id); }}
-        onNewTab={handleNewTab}
-      />
+      <TabBar tabs={tabs} activeTabId={activeTab?.id ?? ''} onTabClick={(id) => setActiveTab(task.id, id)} onTabClose={(id) => { void closeTab(task.id, id); }} onNewTab={handleNewTab} />
       <TabContent tab={activeTab} />
     </>
   );
@@ -1195,28 +887,33 @@ export function Workspace() {
 
 File: `packages/ui/src/App.tsx`
 ```tsx
-import { WebSocketProvider } from './providers/WebSocketProvider';
-import { AppShell } from './components/AppShell';
-import { TaskSidebar } from './components/sidebar/TaskSidebar';
-import { Workspace } from './components/workspace/Workspace';
+import { WebSocketProvider } from '@/providers/WebSocketProvider';
+import { AppShell } from '@/components/AppShell';
+import { TaskSidebar } from '@/components/sidebar/TaskSidebar';
+import { Workspace } from '@/components/workspace/Workspace';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 export function App() {
   return (
     <WebSocketProvider>
-      <AppShell
-        sidebar={<TaskSidebar />}
-        fileExplorer={<div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 11 }}>File Explorer (coming in Chunk 6)</div>}
-        workspace={<Workspace />}
-        taskInfo={<div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 11 }}>Task Info (coming in Chunk 6)</div>}
-      />
+      <TooltipProvider>
+        <AppShell
+          sidebar={<TaskSidebar />}
+          fileExplorer={<div className="p-3 text-muted-foreground text-[11px]">File Explorer (coming in Chunk 6)</div>}
+          workspace={<Workspace />}
+          taskInfo={<div className="p-3 text-muted-foreground text-[11px]">Task Info (coming in Chunk 6)</div>}
+        />
+      </TooltipProvider>
     </WebSocketProvider>
   );
 }
 ```
 
+Note: `<TooltipProvider>` wraps the app so tooltips work throughout (required by Radix).
+
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/ui/src/components/workspace/ packages/ui/src/App.tsx
+git add packages/ui/src/components/workspace/TaskHeader.tsx packages/ui/src/components/workspace/TabBar.tsx packages/ui/src/components/workspace/TabContent.tsx packages/ui/src/components/workspace/Workspace.tsx packages/ui/src/App.tsx
 git commit -m "feat: add workspace with task header, tab bar, and tab content"
 ```
