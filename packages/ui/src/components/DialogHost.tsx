@@ -55,7 +55,7 @@ export function DialogHost() {
         </AlertDialogHeader>
         <AlertDialogFooter>
           {mode === 'confirm' && (
-            <AlertDialogCancel onClick={handleCancel} disabled={loading}>
+            <AlertDialogCancel disabled={loading}>
               {cancelLabel}
             </AlertDialogCancel>
           )}
