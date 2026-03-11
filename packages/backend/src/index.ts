@@ -1,4 +1,5 @@
 import { MSG } from '@taskflow/shared';
+import type { BrowserOpenPayload } from '@taskflow/shared';
 import { ensureDirectories, config } from './config';
 import { Router } from './ws/router';
 import { createServer } from './ws/server';
@@ -71,6 +72,12 @@ async function main() {
       taskStore: store,
       ptyManager,
       broadcast: server.broadcast,
+    });
+
+    router.register(MSG.BROWSER_OPEN, async (payload) => {
+      const typed = payload as BrowserOpenPayload;
+      server.broadcast({ type: MSG.BROWSER_OPEN, payload: typed });
+      return { success: true };
     });
 
     const editors = await detectEditors();

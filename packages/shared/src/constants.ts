@@ -39,6 +39,9 @@ export const MSG = {
   GIT_REVERT_FILE: 'git:revert-file',
   GIT_WORKTREE_CREATE: 'git:worktree-create',
 
+  // Browser
+  BROWSER_OPEN: 'browser:open',
+
   // System
   SYSTEM_INFO: 'system:info',
 } as const;

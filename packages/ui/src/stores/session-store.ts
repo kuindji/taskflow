@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import type { SessionRef, Task } from '@taskflow/shared';
+import type { SessionRef, Task, BrowserOpenPayload } from '@taskflow/shared';
 import { MSG } from '@taskflow/shared';
-import { sendRequest, sendFireAndForget } from '../hooks/useWebSocket';
+import { sendRequest, sendFireAndForget, onEvent } from '../hooks/useWebSocket';
 import { useTaskStore } from './task-store';
 
 interface Tab {
@@ -118,3 +118,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
   },
 }));
+
+// Listen for browser:open events from backend (e.g., agent API calls).
+// Module-level listener — singleton store, registered once.
+let _unsubBrowserOpen: (() => void) | undefined;
+_unsubBrowserOpen?.(); // Clean up on HMR re-evaluation
+_unsubBrowserOpen = onEvent(MSG.BROWSER_OPEN, (payload) => {
+  if (!payload || typeof payload !== 'object' || !('taskId' in payload) || !('url' in payload)) return;
+  const { taskId, url, label } = payload as BrowserOpenPayload;
+  useSessionStore.getState().addTab(taskId, {
+    id: crypto.randomUUID(),
+    type: 'browser',
+    label: label ?? 'Browser',
+    url,
+  });
+});

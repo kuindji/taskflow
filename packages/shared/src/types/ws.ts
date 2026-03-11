@@ -184,5 +184,12 @@ export interface GitWorktreeCreatePayload {
   path: string;
 }
 
+// Browser messages
+export interface BrowserOpenPayload {
+  taskId: string;
+  url: string;
+  label?: string;
+}
+
 // System messages
 export interface SystemInfoResponse extends SystemInfo {}

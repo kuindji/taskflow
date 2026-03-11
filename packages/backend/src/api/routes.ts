@@ -62,6 +62,29 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
     }
   });
 
+  apiRouter.register('POST', '/api/tasks/:taskId/browser', async (req, params) => {
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+
+    const url = body.url;
+    if (typeof url !== 'string' || !url.trim()) {
+      return errorResponse('Field "url" is required and must be a non-empty string', 400);
+    }
+
+    const label = typeof body.label === 'string' ? body.label : undefined;
+
+    broadcast({
+      type: MSG.BROWSER_OPEN,
+      payload: { taskId: params.taskId, url, label },
+    });
+
+    return jsonResponse({ success: true });
+  });
+
   apiRouter.register('POST', '/api/sessions/:sessionId/done', async (_req, params) => {
     const { sessionId } = params;
 

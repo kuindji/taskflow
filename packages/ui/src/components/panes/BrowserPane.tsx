@@ -1,54 +1,124 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, RotateCw } from 'lucide-react';
+import useIsElectron from '@/hooks/useIsElectron';
+import { normalizeUrl } from '@/utils/url';
 
 interface BrowserPaneProps {
   initialUrl: string;
 }
 
 function BrowserPane({ initialUrl }: BrowserPaneProps) {
-  const [url, setUrl] = useState(initialUrl);
-  const [inputUrl, setInputUrl] = useState(initialUrl);
+  const isElectron = useIsElectron();
+  const normalizedInitial = normalizeUrl(initialUrl);
+  const hasInitialUrl = Boolean(normalizedInitial) && normalizedInitial !== 'about:blank';
+  const [url, setUrl] = useState(normalizedInitial);
+  const [inputUrl, setInputUrl] = useState(normalizedInitial);
+  const [history, setHistory] = useState<string[]>(() =>
+    hasInitialUrl ? [normalizedInitial] : []
+  );
+  const [historyIndex, setHistoryIndex] = useState(() =>
+    hasInitialUrl ? 0 : -1
+  );
+  const [reloadKey, setReloadKey] = useState(0);
   const webviewRef = useRef<WebviewElement | null>(null);
 
-  useEffect(() => {
-    setUrl(initialUrl);
-    setInputUrl(initialUrl);
-  }, [initialUrl]);
+  const navigate = useCallback((raw: string) => {
+    const normalized = normalizeUrl(raw);
+    if (!normalized) return;
+    setUrl(normalized);
+    setInputUrl(normalized);
+    setHistoryIndex((prevIndex) => {
+      setHistory((prev) => {
+        const next = prev.slice(0, prevIndex + 1);
+        next.push(normalized);
+        return next;
+      });
+      return prevIndex + 1;
+    });
+  }, []);
+
+  const canGoBack = isElectron
+    ? Boolean(webviewRef.current?.canGoBack())
+    : historyIndex > 0;
+
+  const goBack = useCallback(() => {
+    if (isElectron) {
+      webviewRef.current?.goBack();
+      return;
+    }
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      setHistoryIndex(newIndex);
+      setUrl(history[newIndex]);
+      setInputUrl(history[newIndex]);
+    }
+  }, [isElectron, historyIndex, history]);
+
+  const reload = useCallback(() => {
+    if (isElectron) {
+      webviewRef.current?.reload();
+      return;
+    }
+    setReloadKey((k) => k + 1);
+  }, [isElectron]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      navigate(e.currentTarget.value);
+    }
+  }, [navigate]);
+
+  const frameStyle: React.CSSProperties = {
+    width: '100%',
+    height: '100%',
+    border: 'none',
+    flex: 1,
+  };
 
   return (
     <div className="flex-1 flex flex-col">
-      {/* URL bar */}
       <div className="px-2 py-1 border-b border-border flex gap-1 items-center">
         <Button
           variant="ghost"
           size="icon-sm"
-          onClick={() => webviewRef.current?.goBack()}
+          onClick={goBack}
+          disabled={!canGoBack}
         >
           <ArrowLeft className="h-3 w-3" />
         </Button>
         <Button
           variant="ghost"
           size="icon-sm"
-          onClick={() => webviewRef.current?.reload()}
+          onClick={reload}
         >
           <RotateCw className="h-3 w-3" />
         </Button>
         <Input
           value={inputUrl}
           onChange={(e) => setInputUrl(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') setUrl(inputUrl); }}
+          onKeyDown={handleKeyDown}
           className="flex-1 h-7 text-xs"
+          placeholder="Enter URL..."
         />
       </div>
 
-      {/* Webview */}
-      <webview
-        ref={webviewRef}
-        src={url}
-        className="flex-1"
-      />
+      {isElectron ? (
+        <webview
+          ref={webviewRef}
+          src={url}
+          style={frameStyle}
+        />
+      ) : (
+        <iframe
+          key={reloadKey}
+          src={url}
+          style={frameStyle}
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          title="Browser"
+        />
+      )}
     </div>
   );
 }
