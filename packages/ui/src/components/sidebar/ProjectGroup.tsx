@@ -3,6 +3,7 @@ import type { Project, Task } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { TaskCard } from "./TaskCard";
+import { Input } from "@/components/ui/input";
 import { ChevronDown, ChevronRight, Pencil } from "lucide-react";
 
 interface ProjectGroupProps {
@@ -65,16 +66,16 @@ export function ProjectGroup({
 
     return (
         <Collapsible open={open} onOpenChange={setOpen}>
-            <CollapsibleTrigger className="hover:bg-muted/50 group mx-2 flex w-[calc(100%-1rem)] cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 transition-colors select-none">
+            <CollapsibleTrigger className="hover:bg-muted/50 group mx-2 flex w-[calc(100%-1rem)] cursor-pointer items-center justify-between overflow-hidden rounded-lg px-3 py-2.5 transition-colors select-none">
                 {editing ? (
-                    <input
+                    <Input
                         ref={inputRef}
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
                         onKeyDown={handleEditKeyDown}
                         onBlur={submitEdit}
                         onClick={(e) => e.stopPropagation()}
-                        className="border-border focus:ring-ring text-foreground mr-2 h-7 flex-1 rounded-md border bg-transparent px-2 text-xs outline-none focus:ring-1"
+                        className="mr-2 h-6 w-full text-xs"
                     />
                 ) : (
                     <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium tracking-wide">

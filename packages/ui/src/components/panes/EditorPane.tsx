@@ -31,6 +31,27 @@ function getLanguage(path: string): string {
     return EXT_TO_LANGUAGE[ext] ?? "plaintext";
 }
 
+const jsxCompilerOptions: monaco.languages.typescript.CompilerOptions = {
+    jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+    target: monaco.languages.typescript.ScriptTarget.ES2022,
+    module: monaco.languages.typescript.ModuleKind.ESNext,
+    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+    allowJs: true,
+    allowNonTsExtensions: true,
+    esModuleInterop: true,
+};
+
+monaco.languages.typescript.typescriptDefaults.setCompilerOptions(jsxCompilerOptions);
+monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSuggestionDiagnostics: true,
+});
+monaco.languages.typescript.javascriptDefaults.setCompilerOptions(jsxCompilerOptions);
+monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSuggestionDiagnostics: true,
+});
+
 function EditorPane({ filePath }: EditorPaneProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -47,9 +68,13 @@ function EditorPane({ filePath }: EditorPaneProps) {
         setLoading(true);
         setDirty(false);
 
+        const uri = monaco.Uri.file(filePath);
+        const existingModel = monaco.editor.getModel(uri);
+        const model = existingModel ?? monaco.editor.createModel("", getLanguage(filePath), uri);
+
         const editor = monaco.editor.create(containerRef.current, {
+            model,
             theme: "vs-dark",
-            language: getLanguage(filePath),
             minimap: { enabled: false },
             fontSize: 13,
             fontFamily: "JetBrains Mono, Menlo, Monaco, monospace",
@@ -98,6 +123,9 @@ function EditorPane({ filePath }: EditorPaneProps) {
             }
             changeDisposable.dispose();
             editor.dispose();
+            if (!existingModel) {
+                model.dispose();
+            }
         };
     }, [filePath, readFile, writeFile]);
 

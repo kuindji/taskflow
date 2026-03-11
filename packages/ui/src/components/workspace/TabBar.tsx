@@ -16,7 +16,7 @@ import { X, Plus, Terminal, Code, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabVariants = cva(
-    "px-3 py-1 rounded-md cursor-pointer flex items-center gap-1 text-sm transition-colors",
+    "px-1.5 py-1 rounded-md cursor-pointer flex items-center gap-1 text-sm transition-colors",
     {
         variants: {
             type: {
