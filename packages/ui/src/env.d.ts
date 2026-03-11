@@ -6,6 +6,13 @@ interface TaskflowBridge {
 }
 
 declare global {
+    interface FontData {
+        family: string;
+        fullName: string;
+        postscriptName: string;
+        style: string;
+    }
+
     interface WebviewElement extends HTMLElement {
         src: string;
         goBack(): void;
@@ -16,6 +23,7 @@ declare global {
 
     interface Window {
         taskflow?: TaskflowBridge;
+        queryLocalFonts(): Promise<FontData[]>;
     }
 
     namespace JSX {
