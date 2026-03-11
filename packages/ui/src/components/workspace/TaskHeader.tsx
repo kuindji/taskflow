@@ -15,7 +15,6 @@ import {
     PanelRightOpen,
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
-import { NewTaskControl } from "@/components/sidebar/NewTaskControl";
 
 interface TaskHeaderProps {
     task?: Task;
@@ -84,7 +83,6 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
                 </div>
             )}
             <div className="flex-1" />
-            {isElectron && <NewTaskControl className="pr-1" />}
             {task && (
                 <>
                     <Button

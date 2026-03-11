@@ -12,10 +12,8 @@ import { NewTaskControl } from "./NewTaskControl";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import useIsElectron from "@/hooks/useIsElectron";
 
 export function TaskSidebar() {
-    const isElectron = useIsElectron();
     const { connected } = useWsStatus();
     const { projects, fetchProjects, addProject, updateProject } = useProjectStore();
     const { tasks, activeTaskId, fetchTasks, setActiveTask } = useTaskStore();
@@ -82,13 +80,9 @@ export function TaskSidebar() {
 
     return (
         <>
-            {isElectron ? (
-                <div className="border-border h-9 border-b" />
-            ) : (
-                <div className="border-border flex justify-end border-b px-1.5 py-1.5">
-                    <NewTaskControl />
-                </div>
-            )}
+            <div className="border-border flex justify-end border-b px-1.5 py-1.5">
+                <NewTaskControl />
+            </div>
             <ScrollArea className="flex-1 py-1">
                 {projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
