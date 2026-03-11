@@ -1,14 +1,43 @@
 {
-    "name": "@taskflow/electron",
+    "name": "taskflow",
     "version": "0.1.0",
     "private": true,
     "main": "dist/main.js",
     "scripts": {
         "dev": "cd .. && bun run build && cd electron && electron .",
         "build": "bun build src/main.ts --outdir dist --target node --format cjs --external electron && bun build src/preload.ts --outdir dist --target node --format cjs --external electron",
-        "typecheck": "bunx tsc --noEmit"
+        "typecheck": "bunx tsc --noEmit",
+        "pack": "electron-builder --dir",
+        "dist": "electron-builder"
+    },
+    "build": {
+        "appId": "com.taskflow.app",
+        "productName": "Taskflow",
+        "directories": {
+            "output": "release"
+        },
+        "files": [
+            "dist/**/*"
+        ],
+        "extraResources": [
+            {
+                "from": "../packages/backend/dist/taskflow-backend",
+                "to": "backend/taskflow-backend"
+            },
+            {
+                "from": "../packages/ui/dist",
+                "to": "ui"
+            }
+        ],
+        "mac": {
+            "category": "public.app-category.developer-tools",
+            "target": [
+                "dmg"
+            ]
+        }
     },
     "devDependencies": {
-        "electron": "^33.0.0"
+        "electron": "^33.0.0",
+        "electron-builder": "^26.8.1"
     }
 }

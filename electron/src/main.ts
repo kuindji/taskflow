@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
-import { spawn, type ChildProcess } from "child_process";
+import { spawn, execFile, type ChildProcess } from "child_process";
 import { constants } from "fs";
 import { access, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
@@ -11,9 +11,31 @@ let backendPort: number | null = null;
 let backendPortFile: string | null = null;
 
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
-const BACKEND_ENTRY = UI_DEV_SERVER_URL
-    ? join(__dirname, "..", "..", "packages", "backend", "src", "index.ts")
-    : join(__dirname, "..", "..", "packages", "backend", "dist", "index.js");
+
+function getBackendPath(): { binary: string; args: string[] } {
+    if (UI_DEV_SERVER_URL) {
+        // Dev mode: run source with bun
+        const entry = join(__dirname, "..", "..", "packages", "backend", "src", "index.ts");
+        return { binary: "bun", args: ["run", entry] };
+    }
+
+    if (app.isPackaged) {
+        // Packaged mode: use compiled standalone binary from resources
+        const binary = join(process.resourcesPath, "backend", "taskflow-backend");
+        return { binary, args: [] };
+    }
+
+    // Local build mode: run dist with bun
+    const entry = join(__dirname, "..", "..", "packages", "backend", "dist", "index.js");
+    return { binary: "bun", args: ["run", entry] };
+}
+
+function getUIPath(): string {
+    if (app.isPackaged) {
+        return join(process.resourcesPath, "ui", "index.html");
+    }
+    return join(__dirname, "..", "..", "packages", "ui", "dist", "index.html");
+}
 
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,13 +77,26 @@ async function cleanupBackendArtifacts(): Promise<void> {
 async function startBackend(): Promise<number> {
     backendPortFile = join(tmpdir(), `taskflow-port-${process.pid}-${Date.now()}`);
 
-    backendProcess = spawn("bun", ["run", BACKEND_ENTRY], {
-        stdio: ["ignore", "pipe", "pipe"],
-        env: {
-            ...process.env,
-            TASKFLOW_PORT_FILE: backendPortFile,
-        },
-    });
+    const { binary, args } = getBackendPath();
+
+    if (args.length > 0) {
+        backendProcess = spawn(binary, args, {
+            stdio: ["ignore", "pipe", "pipe"],
+            env: {
+                ...process.env,
+                TASKFLOW_PORT_FILE: backendPortFile,
+            },
+        });
+    } else {
+        // Standalone compiled binary — use execFile
+        backendProcess = execFile(binary, [], {
+            stdio: ["ignore", "pipe", "pipe"] as never,
+            env: {
+                ...process.env,
+                TASKFLOW_PORT_FILE: backendPortFile,
+            },
+        });
+    }
 
     backendProcess.stdout?.on("data", (data: Buffer) => {
         console.log("[backend]", data.toString().trim());
@@ -105,9 +140,7 @@ function createWindow() {
     if (UI_DEV_SERVER_URL) {
         void mainWindow.loadURL(UI_DEV_SERVER_URL);
     } else {
-        void mainWindow.loadFile(
-            join(__dirname, "..", "..", "packages", "ui", "dist", "index.html"),
-        );
+        void mainWindow.loadFile(getUIPath());
     }
 
     mainWindow.on("closed", () => {

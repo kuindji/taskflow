@@ -62,9 +62,15 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
         <div className="bg-island-base flex h-screen flex-col overflow-hidden">
             <div className="flex flex-1 overflow-hidden p-1.5">
                 <div
-                    className={`bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50 ${isElectron ? "pt-8" : ""}`}
+                    className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50"
                     style={{ width: sidebarWidth }}
                 >
+                    {isElectron && (
+                        <div
+                            className="h-8 shrink-0"
+                            style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+                        />
+                    )}
                     {sidebar}
                 </div>
 
