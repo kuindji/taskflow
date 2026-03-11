@@ -14,6 +14,16 @@ interface TerminalPaneProps {
     visible: boolean;
 }
 
+/** Fit terminal to container, subtracting 1 column to prevent subpixel overflow */
+function fitTerminal(fit: FitAddon, term: Terminal): void {
+    const dims = fit.proposeDimensions();
+    if (!dims || isNaN(dims.cols) || isNaN(dims.rows)) return;
+    const cols = Math.max(2, dims.cols - 1);
+    if (term.cols !== cols || term.rows !== dims.rows) {
+        term.resize(cols, dims.rows);
+    }
+}
+
 function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
@@ -59,7 +69,7 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
         fitRef.current = fit;
 
         if (visible) {
-            fit.fit();
+            fitTerminal(fit, term);
             resizeTerminal(sessionId, term.cols, term.rows);
         }
 
@@ -111,7 +121,7 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
         // Resize on container resize
         const resizeObserver = new ResizeObserver(() => {
             if (!visibleRef.current || !fitRef.current || !termRef.current) return;
-            fitRef.current.fit();
+            fitTerminal(fitRef.current, termRef.current);
             resizeTerminal(sessionId, termRef.current.cols, termRef.current.rows);
         });
         resizeObserver.observe(containerRef.current);
@@ -135,7 +145,7 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
         // otherwise FitAddon measures zero dimensions from display:none.
         const raf = requestAnimationFrame(() => {
             if (!fitRef.current || !termRef.current) return;
-            fitRef.current.fit();
+            fitTerminal(fitRef.current, termRef.current);
             resizeTerminal(sessionId, termRef.current.cols, termRef.current.rows);
         });
         return () => cancelAnimationFrame(raf);
