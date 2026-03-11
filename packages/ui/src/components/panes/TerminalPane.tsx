@@ -239,7 +239,10 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
         const cached = terminalCache.get(sessionId);
         if (!cached || terminalFontFamily === undefined) return;
         cached.term.options.fontFamily = terminalFontFamily;
-    }, [sessionId, terminalFontFamily]);
+        if (visible) {
+            fitTerminal(cached.fit, cached.term);
+        }
+    }, [sessionId, terminalFontFamily, visible]);
 
     useEffect(() => {
         const cached = terminalCache.get(sessionId);
@@ -255,4 +258,3 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
 }
 
 export { TerminalPane, destroyTerminal };
-export type { TerminalPaneProps };
