@@ -92,8 +92,10 @@ export class PtyManager {
         session.terminal?.write(data);
     }
 
-    resize(_id: string, _cols: number, _rows: number): void {
-        // Bun's terminal option does not yet support dynamic resize.
+    resize(id: string, cols: number, rows: number): void {
+        const session = this.sessions.get(id);
+        if (!session) return;
+        session.terminal?.resize(cols, rows);
     }
 
     close(id: string): void {
