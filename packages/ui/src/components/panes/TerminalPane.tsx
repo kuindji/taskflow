@@ -5,7 +5,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { onEvent, sendRequest } from "@/hooks/useWebSocket";
-import { MSG } from "@taskflow/shared";
+import { DEFAULT_TERMINAL_FONT_FAMILY, MSG } from "@taskflow/shared";
 import type { TerminalOutputEvent, SessionExitedEvent, SessionHistoryResponse } from "@taskflow/shared";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
@@ -42,10 +42,18 @@ const terminalCache = new Map<string, CachedTerminal>();
 function fitTerminal(fit: FitAddon, term: Terminal): boolean {
     const dims = fit.proposeDimensions();
     if (!dims || isNaN(dims.cols) || isNaN(dims.rows)) return false;
+    const cols = Math.max(2, dims.cols - 1);
     const prevCols = term.cols;
     const prevRows = term.rows;
-    fit.fit();
-    return term.cols !== prevCols || term.rows !== prevRows;
+    if (prevCols !== cols || prevRows !== dims.rows) {
+        term.resize(cols, dims.rows);
+    }
+    return cols !== prevCols || dims.rows !== prevRows;
+}
+
+function refreshTerminal(term: Terminal): void {
+    if (term.rows <= 0) return;
+    term.refresh(0, term.rows - 1);
 }
 
 function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal {
@@ -68,7 +76,7 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
             cyan: "#94e2d5",
             white: "#bac2de",
         },
-        fontFamily: terminalSettings?.fontFamily ?? "CaskaydiaCove Nerd Font Mono, monospace",
+        fontFamily: terminalSettings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
         fontSize: terminalSettings?.fontSize ?? 13,
         cursorBlink: true,
     });
@@ -186,6 +194,7 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
                 if (!visibleRef.current || !fitRef.current || !termRef.current) return;
                 const resized = fitTerminal(fitRef.current, termRef.current);
                 sendResizeIfNeeded(forceResize || resized);
+                refreshTerminal(termRef.current);
                 if (focus) termRef.current.focus();
             });
         },
@@ -242,28 +251,34 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
         scheduleFit(true, true);
     }, [visible, sessionId, scheduleFit]);
 
-    // Live-update terminal font when settings change
     const terminalFontFamily = useSettingsStore((s) => s.settings?.terminal?.fontFamily);
     const terminalFontSize = useSettingsStore((s) => s.settings?.terminal?.fontSize);
 
     useEffect(() => {
         const cached = terminalCache.get(sessionId);
-        if (!cached || terminalFontFamily === undefined) return;
+        if (!cached || terminalFontFamily === undefined || terminalFontSize === undefined) return;
         cached.term.options.fontFamily = terminalFontFamily;
+        cached.term.options.fontSize = terminalFontSize;
         if (visible) {
-            fitTerminal(cached.fit, cached.term);
+            scheduleFit(true);
         }
-    }, [sessionId, terminalFontFamily, visible]);
+    }, [sessionId, scheduleFit, terminalFontFamily, terminalFontSize, visible]);
 
     useEffect(() => {
-        const cached = terminalCache.get(sessionId);
-        if (!cached || terminalFontSize === undefined) return;
-        cached.term.options.fontSize = terminalFontSize;
-        // Only fit if the terminal is currently visible
-        if (visible) {
-            fitTerminal(cached.fit, cached.term);
-        }
-    }, [sessionId, terminalFontSize, visible]);
+        if (typeof document === "undefined" || !("fonts" in document)) return;
+
+        const handleFontMetricsChange = () => {
+            if (!visibleRef.current) return;
+            scheduleFit(true);
+        };
+
+        void document.fonts.ready.then(handleFontMetricsChange);
+        document.fonts.addEventListener("loadingdone", handleFontMetricsChange);
+
+        return () => {
+            document.fonts.removeEventListener("loadingdone", handleFontMetricsChange);
+        };
+    }, [scheduleFit]);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         if (!e.dataTransfer.types.includes("application/x-taskflow-path")) return;

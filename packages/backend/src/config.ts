@@ -12,6 +12,7 @@ export const config = {
     tasksDir: join(CONFIG_DIR, "tasks"),
     archiveDir: join(CONFIG_DIR, "archive"),
     sessionLogsDir: join(CONFIG_DIR, "session-logs"),
+    agentSkillsDir: join(CONFIG_DIR, "agent-skills"),
     settingsFile: join(CONFIG_DIR, "settings.json"),
     portFile: process.env.TASKFLOW_PORT_FILE ?? join(tmpdir(), `.taskflow-port-${process.pid}`),
     port: Number.isInteger(devPort) && devPort > 0 ? devPort : 0,
@@ -22,4 +23,5 @@ export async function ensureDirectories(): Promise<void> {
     await mkdir(config.tasksDir, { recursive: true });
     await mkdir(config.archiveDir, { recursive: true });
     await mkdir(config.sessionLogsDir, { recursive: true });
+    await mkdir(config.agentSkillsDir, { recursive: true });
 }

@@ -10,6 +10,8 @@ import type {
 import type { Router } from "../ws/router";
 import type { PtyManager } from "../services/pty-manager";
 import type { TaskStore } from "../services/task-store";
+import { config } from "../config";
+import { buildAgentLaunchSpec, ensureInternalAgentSkillFile } from "../services/internal-agent-skill";
 
 interface SessionHandlerDeps {
     router: Router;
@@ -66,11 +68,10 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             if (!shell) throw new Error("shell path is required for shell sessions");
             command = shell;
         } else {
-            const bin = type === "claude" ? "claude" : "codex";
-            const escaped = prompt ? `${bin} '${prompt.replace(/'/g, "'\\''")}'` : bin;
-            const userShell = process.env.SHELL ?? "/bin/zsh";
-            command = userShell;
-            args.push("-lc", escaped);
+            const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
+            const spec = buildAgentLaunchSpec(type, prompt, skillPath);
+            command = spec.command;
+            args.push(...spec.args);
         }
 
         const sessionId = crypto.randomUUID();

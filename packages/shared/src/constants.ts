@@ -18,6 +18,7 @@ export const MSG = {
     SESSION_CREATE: "session:create",
     SESSION_CLOSE: "session:close",
     SESSION_INPUT: "session:input",
+    SESSION_STATUS: "session:status",
     SESSION_EXITED: "session:exited",
     SHELLS_LIST: "shells:list",
 
@@ -54,6 +55,9 @@ export const MSG = {
 
 // Archive expiry (safe to import in browser)
 export const ARCHIVE_EXPIRY_DAYS = 30;
+
+export const DEFAULT_TERMINAL_FONT_FAMILY =
+    '"CaskaydiaCove Nerd Font Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 
 // NOTE: Config paths (CONFIG_DIR, PROJECTS_FILE, etc.) live in
 // packages/backend/src/config.ts — not here, because process.env.HOME

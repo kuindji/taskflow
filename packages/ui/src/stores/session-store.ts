@@ -4,6 +4,7 @@ import type {
     Task,
     BrowserOpenPayload,
     SessionStatus,
+    SessionStatusEvent,
     TerminalOutputEvent,
     SessionExitedEvent,
 } from "@taskflow/shared";
@@ -64,6 +65,20 @@ function isSessionFocused(sessionId: string): boolean {
     const tabs = store.tabsByTask[activeTaskId] ?? [];
     const activeTab = tabs.find((t) => t.id === activeTabId);
     return activeTab?.sessionId === sessionId;
+}
+
+function getSessionTab(sessionId: string): Tab | undefined {
+    const store = useSessionStore.getState();
+    for (const tabs of Object.values(store.tabsByTask)) {
+        const tab = tabs.find((entry) => entry.sessionId === sessionId);
+        if (tab) return tab;
+    }
+    return undefined;
+}
+
+function usesTerminalActivityStatus(sessionId: string): boolean {
+    const type = getSessionTab(sessionId)?.type;
+    return type === "shell";
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -278,6 +293,7 @@ const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
     const { sessionId, data } = payload as TerminalOutputEvent;
     if (shouldIgnoreRecentEcho(sessionId, data)) return;
+    if (!usesTerminalActivityStatus(sessionId)) return;
 
     const store = useSessionStore.getState();
     if (store.sessionStatus[sessionId] !== "working") {
@@ -295,6 +311,21 @@ const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
             useSessionStore.getState().setSessionStatus(sessionId, status);
         }, ACTIVITY_TIMEOUT),
     );
+});
+
+const _unsubSessionStatus = onEvent(MSG.SESSION_STATUS, (payload) => {
+    if (
+        !payload ||
+        typeof payload !== "object" ||
+        !("sessionId" in payload) ||
+        !("status" in payload)
+    ) {
+        return;
+    }
+
+    const { sessionId, status } = payload as SessionStatusEvent;
+    clearActivityTimer(sessionId);
+    useSessionStore.getState().setSessionStatus(sessionId, status);
 });
 
 // Clean up status when session exits

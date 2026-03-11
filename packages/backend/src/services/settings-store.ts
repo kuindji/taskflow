@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "fs/promises";
+import { DEFAULT_TERMINAL_FONT_FAMILY } from "@taskflow/shared";
 import type { AppSettings, SettingsUpdatePayload } from "@taskflow/shared";
 
 const DEFAULTS: AppSettings = {
@@ -7,7 +8,7 @@ const DEFAULTS: AppSettings = {
         fontSize: 13,
     },
     terminal: {
-        fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
+        fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
         fontSize: 13,
     },
 };

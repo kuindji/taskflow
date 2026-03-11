@@ -1,5 +1,5 @@
 import type { Project } from "./project";
-import type { Task } from "./task";
+import type { SessionStatus, Task } from "./task";
 import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus } from "./git";
 import type { SystemInfo } from "./system";
@@ -93,6 +93,11 @@ export interface SessionClosePayload {
 export interface SessionInputPayload {
     sessionId: string;
     data: string;
+}
+
+export interface SessionStatusEvent {
+    sessionId: string;
+    status: SessionStatus;
 }
 
 export interface SessionExitedEvent {

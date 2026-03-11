@@ -1,7 +1,7 @@
 import type { ApiRouter } from "./router";
 import type { TaskStore } from "../services/task-store";
 import type { PtyManager } from "../services/pty-manager";
-import type { Task, WsEvent } from "@taskflow/shared";
+import type { SessionStatus, Task, WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 
 interface ApiRouteDeps {
@@ -24,6 +24,7 @@ function errorResponse(message: string, status: number): Response {
 
 export function registerApiRoutes(deps: ApiRouteDeps): void {
     const { apiRouter, taskStore, ptyManager, broadcast } = deps;
+    const allowedSessionStatuses = new Set<SessionStatus>(["idle", "working", "attention"]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
         let body: Record<string, unknown>;
@@ -80,6 +81,34 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         broadcast({
             type: MSG.BROWSER_OPEN,
             payload: { taskId: params.taskId, url, label },
+        });
+
+        return jsonResponse({ success: true });
+    });
+
+    apiRouter.register("POST", "/api/sessions/:sessionId/status", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const status = body.status;
+        if (typeof status !== "string" || !allowedSessionStatuses.has(status as SessionStatus)) {
+            return errorResponse(
+                'Field "status" must be one of: idle, working, attention',
+                400,
+            );
+        }
+
+        if (!ptyManager.has(params.sessionId)) {
+            return errorResponse(`Session not found: ${params.sessionId}`, 404);
+        }
+
+        broadcast({
+            type: MSG.SESSION_STATUS,
+            payload: { sessionId: params.sessionId, status },
         });
 
         return jsonResponse({ success: true });
