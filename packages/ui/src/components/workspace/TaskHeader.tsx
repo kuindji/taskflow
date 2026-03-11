@@ -13,6 +13,7 @@ import {
     PanelRightClose,
     PanelRightOpen,
 } from "lucide-react";
+import useIsElectron from "@/hooks/useIsElectron";
 
 interface TaskHeaderProps {
     task: Task;
@@ -26,6 +27,7 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const archiveTask = useTaskStore((s) => s.archiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
+    const isElectron = useIsElectron();
 
     const handleArchive = useCallback(() => {
         void confirm({
@@ -47,12 +49,13 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
     }, [task.id, task.title, deleteTask]);
 
     return (
-        <div className="border-border flex items-center gap-2 border-b px-3 py-1.5">
+        <div className={`border-border flex items-center gap-2 border-b px-3 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
             <Button
                 variant="ghost"
                 size="icon-sm"
                 onClick={toggleFileExplorer}
                 aria-label={fileExplorerOpen ? "Hide file explorer" : "Show file explorer"}
+                className="[-webkit-app-region:no-drag]"
             >
                 {fileExplorerOpen ? (
                     <PanelLeftClose className="h-3.5 w-3.5" />
@@ -63,7 +66,7 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
             <span className="text-foreground text-[13px] font-bold">{task.title}</span>
             <span className="text-muted-foreground text-[11px]">{project?.name}</span>
             {task.worktree?.branch && (
-                <Badge variant="outline" className="px-1.5 py-0 text-[9px]">
+                <Badge variant="outline" className="px-1.5 py-0 text-[9px] [-webkit-app-region:no-drag]">
                     {task.worktree.branch}
                 </Badge>
             )}
@@ -73,6 +76,7 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
                 size="icon-sm"
                 onClick={handleArchive}
                 aria-label="Archive task"
+                className="[-webkit-app-region:no-drag]"
             >
                 <Archive className="h-3.5 w-3.5" />
             </Button>
@@ -81,7 +85,7 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
                 size="icon-sm"
                 onClick={handleDelete}
                 aria-label="Delete task"
-                className="text-destructive hover:text-destructive"
+                className="text-destructive hover:text-destructive [-webkit-app-region:no-drag]"
             >
                 <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -90,6 +94,7 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
                 size="icon-sm"
                 onClick={toggleTaskInfo}
                 aria-label={taskInfoOpen ? "Hide task info" : "Show task info"}
+                className="[-webkit-app-region:no-drag]"
             >
                 {taskInfoOpen ? (
                     <PanelRightClose className="h-3.5 w-3.5" />
