@@ -4,6 +4,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useUIStore } from "@/stores/ui-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
 import { NewTaskDialog } from "./NewTaskDialog";
@@ -12,14 +13,17 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Plus } from "lucide-react";
+import useIsElectron from "@/hooks/useIsElectron";
 
 export function TaskSidebar() {
+    const isElectron = useIsElectron();
     const { connected } = useWsStatus();
     const { projects, fetchProjects, addProject, updateProject } = useProjectStore();
     const { tasks, activeTaskId, fetchTasks, setActiveTask, createTask } = useTaskStore();
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
     const createSession = useSessionStore((s) => s.createSession);
     const fetchSettings = useSettingsStore((s) => s.fetchSettings);
+    const toggleSettings = useUIStore((s) => s.toggleSettings);
     const [newTaskOpen, setNewTaskOpen] = useState(false);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
@@ -116,18 +120,18 @@ export function TaskSidebar() {
 
     return (
         <>
-            <div className="border-border flex border-b px-1.5 py-1.5">
+            <div className={`border-border flex justify-end border-b px-1.5 py-1.5 ${isElectron ? "pt-2.5" : ""}`}>
                 <Button
                     variant="ghost"
                     size="xs"
                     onClick={handleNewTask}
-                    className="text-muted-foreground text-sm"
+                    className="text-muted-foreground text-sm [-webkit-app-region:no-drag]"
                 >
                     <Plus className="h-4 w-4" />
                     New Task
                 </Button>
             </div>
-            <ScrollArea className="flex-1 py-1">
+            <ScrollArea className="flex-1 py-1 [-webkit-app-region:no-drag]">
                 {projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>
@@ -153,7 +157,7 @@ export function TaskSidebar() {
                 ))}
             </ScrollArea>
             <Separator />
-            <div className="flex justify-between px-1.5 py-1.5">
+            <div className="flex justify-between px-1.5 py-1.5 [-webkit-app-region:no-drag]">
                 <Button
                     variant="ghost"
                     size="xs"
@@ -162,7 +166,7 @@ export function TaskSidebar() {
                 >
                     Add Project
                 </Button>
-                <Button variant="ghost" size="xs" className="text-muted-foreground text-sm">
+                <Button variant="ghost" size="xs" onClick={toggleSettings} className="text-muted-foreground text-sm">
                     Settings
                 </Button>
             </div>
