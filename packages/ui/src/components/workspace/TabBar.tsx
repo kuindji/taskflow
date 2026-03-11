@@ -12,7 +12,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { X, Plus, Terminal, Code, Globe } from "lucide-react";
+import { X, Plus, Play, Terminal, Code, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabVariants = cva(
@@ -73,9 +73,10 @@ interface TabBarProps {
         type: "claude" | "codex" | "changes" | "browser" | "shell",
         shellPath?: string,
     ) => void;
+    onRunTab: (type: "claude" | "codex") => void;
 }
 
-export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: TabBarProps) {
+export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab, onRunTab }: TabBarProps) {
     const [shells, setShells] = useState<ShellInfo[]>([]);
 
     useEffect(() => {
@@ -87,15 +88,23 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: 
 
     return (
         <div className="bg-card border-border flex items-center gap-1 border-b px-1.5 py-1.5">
-            {tabs.map((tab) => (
-                <TabItem
-                    key={tab.id}
-                    tab={tab}
-                    isActive={tab.id === activeTabId}
-                    onTabClick={onTabClick}
-                    onTabClose={onTabClose}
-                />
-            ))}
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon-xs">
+                        <Play className="h-3.5 w-3.5" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={() => onRunTab("claude")}>
+                        <Terminal className="mr-2 h-4 w-4" />
+                        Claude Code
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onRunTab("codex")}>
+                        <Code className="mr-2 h-4 w-4" />
+                        Codex
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon-xs">
@@ -132,6 +141,15 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: 
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
+            {tabs.map((tab) => (
+                <TabItem
+                    key={tab.id}
+                    tab={tab}
+                    isActive={tab.id === activeTabId}
+                    onTabClick={onTabClick}
+                    onTabClose={onTabClose}
+                />
+            ))}
         </div>
     );
 }

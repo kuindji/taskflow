@@ -30,6 +30,7 @@ interface NewTaskDialogProps {
         title?: string;
         description: string;
         worktree: boolean;
+        startWith?: "claude" | "codex";
     }) => void;
 }
 
@@ -44,11 +45,13 @@ export function NewTaskDialog({
     const [description, setDescription] = useState("");
     const [title, setTitle] = useState("");
     const [worktree, setWorktree] = useState(false);
+    const [startWith, setStartWith] = useState("none");
 
     const resetForm = useCallback(() => {
         setDescription("");
         setTitle("");
         setWorktree(false);
+        setStartWith("none");
     }, []);
 
     const handleOpenChange = useCallback(
@@ -69,10 +72,11 @@ export function NewTaskDialog({
             title: title.trim() || undefined,
             description: description.trim(),
             worktree,
+            startWith: startWith === "claude" || startWith === "codex" ? startWith : undefined,
         });
         resetForm();
         onOpenChange(false);
-    }, [canSubmit, projectId, title, description, worktree, onSubmit, resetForm, onOpenChange]);
+    }, [canSubmit, projectId, title, description, worktree, startWith, onSubmit, resetForm, onOpenChange]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -146,6 +150,20 @@ export function NewTaskDialog({
                         >
                             Use git worktree
                         </Label>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="new-task-start-with">Start immediately with</Label>
+                        <Select value={startWith} onValueChange={setStartWith}>
+                            <SelectTrigger id="new-task-start-with" className="w-full">
+                                <SelectValue placeholder="Don't start" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">Don't start</SelectItem>
+                                <SelectItem value="claude">Claude Code</SelectItem>
+                                <SelectItem value="codex">Codex</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                 </div>
 

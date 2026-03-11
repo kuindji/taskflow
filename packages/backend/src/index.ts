@@ -14,6 +14,8 @@ import { registerTaskHandlers } from "./handlers/task";
 import { registerSessionHandlers } from "./handlers/session";
 import { registerFileHandlers } from "./handlers/file";
 import { registerGitHandlers } from "./handlers/git";
+import { registerSettingsHandlers } from "./handlers/settings";
+import { SettingsStore } from "./services/settings-store";
 import { ApiRouter } from "./api/router";
 import { registerApiRoutes } from "./api/routes";
 import { createTitleGenerator } from "./services/title-generator";
@@ -72,6 +74,9 @@ async function main() {
             broadcast: server.broadcast,
         });
         registerGitHandlers({ router, git: gitService, taskStore: store });
+
+        const settingsStore = new SettingsStore(config.settingsFile);
+        registerSettingsHandlers(router, settingsStore);
         registerApiRoutes({
             apiRouter,
             taskStore: store,

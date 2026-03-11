@@ -47,8 +47,12 @@ export function Workspace() {
             const shellName = shellPath.split("/").pop() ?? "shell";
             await createSession(task.id, "shell", shellName, undefined, shellPath);
         } else {
-            await createSession(task.id, type, undefined, task.description || undefined);
+            await createSession(task.id, type);
         }
+    };
+
+    const handleRunTab = async (type: "claude" | "codex") => {
+        await createSession(task.id, type, undefined, task.description || undefined);
     };
 
     return (
@@ -62,6 +66,7 @@ export function Workspace() {
                     void closeTab(task.id, id);
                 }}
                 onNewTab={handleNewTab}
+                onRunTab={handleRunTab}
             />
             <TabContent tabs={tabs} activeTabId={activeTab?.id ?? ""} />
         </>

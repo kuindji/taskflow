@@ -43,6 +43,10 @@ export const MSG = {
     // Browser
     BROWSER_OPEN: "browser:open",
 
+    // Settings
+    SETTINGS_GET: "settings:get",
+    SETTINGS_UPDATE: "settings:update",
+
     // System
     SYSTEM_INFO: "system:info",
 } as const;

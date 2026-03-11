@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 const taskCardVariants = cva(
-    "px-3 py-2.5 mx-2 my-0.5 rounded-lg cursor-pointer transition-colors",
+    "px-3 py-2.5 mx-1.5 my-0.5 rounded-lg cursor-pointer transition-colors",
     {
         variants: {
             active: {

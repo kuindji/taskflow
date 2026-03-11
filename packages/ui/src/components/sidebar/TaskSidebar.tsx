@@ -3,6 +3,7 @@ import type { Task } from "@taskflow/shared";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
 import { NewTaskDialog } from "./NewTaskDialog";
@@ -17,6 +18,8 @@ export function TaskSidebar() {
     const { projects, fetchProjects, addProject, updateProject } = useProjectStore();
     const { tasks, activeTaskId, fetchTasks, setActiveTask, createTask } = useTaskStore();
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
+    const createSession = useSessionStore((s) => s.createSession);
+    const fetchSettings = useSettingsStore((s) => s.fetchSettings);
     const [newTaskOpen, setNewTaskOpen] = useState(false);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
@@ -26,7 +29,8 @@ export function TaskSidebar() {
         if (!connected) return;
         void fetchProjects();
         void fetchTasks();
-    }, [connected, fetchProjects, fetchTasks]);
+        void fetchSettings();
+    }, [connected, fetchProjects, fetchTasks, fetchSettings]);
 
     useEffect(() => {
         syncWithTasks(tasks);
@@ -97,10 +101,14 @@ export function TaskSidebar() {
         title?: string;
         description: string;
         worktree: boolean;
+        startWith?: "claude" | "codex";
     }) => {
         try {
             const task = await createTask(data);
             setActiveTask(task.id);
+            if (data.startWith) {
+                await createSession(task.id, data.startWith, undefined, data.description);
+            }
         } catch (err) {
             console.error("Failed to create task:", err);
         }

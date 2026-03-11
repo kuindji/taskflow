@@ -11,6 +11,7 @@ export const config = {
     projectsFile: join(CONFIG_DIR, "projects.json"),
     tasksDir: join(CONFIG_DIR, "tasks"),
     archiveDir: join(CONFIG_DIR, "archive"),
+    settingsFile: join(CONFIG_DIR, "settings.json"),
     portFile: process.env.TASKFLOW_PORT_FILE ?? join(tmpdir(), `.taskflow-port-${process.pid}`),
     port: Number.isInteger(devPort) && devPort > 0 ? devPort : 0,
 };

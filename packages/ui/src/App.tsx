@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { WebSocketProvider } from "@/providers/WebSocketProvider";
 import { useWsStatus } from "@/providers/ws-context";
+import { useSettingsStore } from "@/stores/settings-store";
 import { AppShell } from "@/components/AppShell";
 import { DialogHost } from "@/components/DialogHost";
 import { TaskSidebar } from "@/components/sidebar/TaskSidebar";
@@ -25,18 +27,29 @@ function ConnectionOverlay() {
 }
 
 export function App() {
+    const general = useSettingsStore((s) => s.settings?.general);
+    const rootStyle = useMemo(
+        () =>
+            general
+                ? ({ fontFamily: general.fontFamily, fontSize: general.fontSize } as React.CSSProperties)
+                : undefined,
+        [general],
+    );
+
     return (
         <WebSocketProvider>
-            <ConnectionOverlay />
-            <DialogHost />
-            <TooltipProvider>
-                <AppShell
-                    sidebar={<TaskSidebar />}
-                    fileExplorer={<FileExplorer />}
-                    workspace={<Workspace />}
-                    taskInfo={<TaskInfoPanel />}
-                />
-            </TooltipProvider>
+            <div style={rootStyle} className="contents">
+                <ConnectionOverlay />
+                <DialogHost />
+                <TooltipProvider>
+                    <AppShell
+                        sidebar={<TaskSidebar />}
+                        fileExplorer={<FileExplorer />}
+                        workspace={<Workspace />}
+                        taskInfo={<TaskInfoPanel />}
+                    />
+                </TooltipProvider>
+            </div>
         </WebSocketProvider>
     );
 }

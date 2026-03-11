@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import type { Subprocess } from "bun";
+import type { Subprocess, Terminal } from "bun";
 
 interface SpawnOptions {
     command: string;
@@ -12,13 +12,9 @@ interface SpawnOptions {
     env?: Record<string, string>;
 }
 
-interface BunTerminal {
-    write(data: string): void;
-}
-
 interface Session {
     proc: Subprocess;
-    terminal: BunTerminal | null;
+    terminal: Terminal | null;
 }
 
 function buildShellPath(): string {

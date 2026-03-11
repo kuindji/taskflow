@@ -65,10 +65,11 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             if (!shell) throw new Error("shell path is required for shell sessions");
             command = shell;
         } else {
-            command = type === "claude" ? "claude" : "codex";
-            if (prompt) {
-                args.push(prompt);
-            }
+            const bin = type === "claude" ? "claude" : "codex";
+            const escaped = prompt ? `${bin} '${prompt.replace(/'/g, "'\\''")}'` : bin;
+            const userShell = process.env.SHELL ?? "/bin/zsh";
+            command = userShell;
+            args.push("-lc", escaped);
         }
 
         const sessionId = crypto.randomUUID();

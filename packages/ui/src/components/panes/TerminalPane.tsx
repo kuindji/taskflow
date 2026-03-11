@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useSessionStore } from "@/stores/session-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { onEvent } from "@/hooks/useWebSocket";
 import { MSG } from "@taskflow/shared";
 import type { TerminalOutputEvent, SessionExitedEvent } from "@taskflow/shared";
@@ -28,6 +29,7 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
     useEffect(() => {
         if (!containerRef.current) return;
 
+        const terminalSettings = useSettingsStore.getState().settings?.terminal;
         const term = new Terminal({
             theme: {
                 background: "#1e1e2e",
@@ -43,8 +45,8 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
                 cyan: "#94e2d5",
                 white: "#bac2de",
             },
-            fontFamily: "JetBrains Mono, Menlo, Monaco, monospace",
-            fontSize: 13,
+            fontFamily: terminalSettings?.fontFamily ?? "CaskaydiaCove Nerd Font Mono, monospace",
+            fontSize: terminalSettings?.fontSize ?? 13,
             cursorBlink: true,
         });
 
