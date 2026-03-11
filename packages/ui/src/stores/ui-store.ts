@@ -3,12 +3,14 @@ import { create } from "zustand";
 interface UIStore {
     fileExplorerOpen: boolean;
     taskInfoOpen: boolean;
+    settingsOpen: boolean;
     sidebarWidth: number;
     fileExplorerWidth: number;
     taskInfoWidth: number;
     panelGap: number;
     toggleFileExplorer(): void;
     toggleTaskInfo(): void;
+    toggleSettings(): void;
     setSidebarWidth(width: number): void;
     setFileExplorerWidth(width: number): void;
     setTaskInfoWidth(width: number): void;
@@ -18,6 +20,7 @@ interface UIStore {
 export const useUIStore = create<UIStore>((set) => ({
     fileExplorerOpen: false,
     taskInfoOpen: false,
+    settingsOpen: false,
     sidebarWidth: 220,
     fileExplorerWidth: 220,
     taskInfoWidth: 220,
@@ -27,6 +30,9 @@ export const useUIStore = create<UIStore>((set) => ({
     },
     toggleTaskInfo() {
         set((s) => ({ taskInfoOpen: !s.taskInfoOpen }));
+    },
+    toggleSettings() {
+        set((s) => ({ settingsOpen: !s.settingsOpen }));
     },
     setSidebarWidth(width) {
         set({ sidebarWidth: width });
