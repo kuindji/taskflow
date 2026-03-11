@@ -1,49 +1,69 @@
-import { useTaskStore } from '@/stores/task-store';
-import { useProjectStore } from '@/stores/project-store';
-import { useSessionStore } from '@/stores/session-store';
-import type { Tab } from '@/stores/session-store';
-import { TaskHeader } from './TaskHeader';
-import { TabBar } from './TabBar';
-import { TabContent } from './TabContent';
+import { useTaskStore } from "@/stores/task-store";
+import { useProjectStore } from "@/stores/project-store";
+import { useSessionStore } from "@/stores/session-store";
+import type { Tab } from "@/stores/session-store";
+import { TaskHeader } from "./TaskHeader";
+import { TabBar } from "./TabBar";
+import { TabContent } from "./TabContent";
 
 const emptyTabs: Tab[] = [];
 
 export function Workspace() {
-  const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
-  const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
-  const tabs = useSessionStore((s) => task ? (s.tabsByTask[task.id] ?? emptyTabs) : emptyTabs);
-  const activeTabId = useSessionStore((s) => task ? (s.activeTabByTask[task.id] ?? '') : '');
-  const { setActiveTab, closeTab, createSession, addTab } = useSessionStore();
+    const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
+    const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
+    const tabs = useSessionStore((s) => (task ? (s.tabsByTask[task.id] ?? emptyTabs) : emptyTabs));
+    const activeTabId = useSessionStore((s) => (task ? (s.activeTabByTask[task.id] ?? "") : ""));
+    const { setActiveTab, closeTab, createSession, addTab } = useSessionStore();
 
-  if (!task) {
-    return <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">Select a task from the sidebar</div>;
-  }
-
-  const activeTab = tabs.find((t) => t.id === activeTabId);
-
-  const handleNewTab = async (type: 'claude' | 'codex' | 'changes' | 'browser' | 'shell', shellPath?: string) => {
-    if (type === 'browser') {
-      addTab(task.id, { id: crypto.randomUUID(), type: 'browser', label: 'New Tab', url: 'about:blank' });
-    } else if (type === 'changes') {
-      const existingChangesTab = tabs.find((tab) => tab.type === 'changes');
-      if (existingChangesTab) {
-        setActiveTab(task.id, existingChangesTab.id);
-        return;
-      }
-      addTab(task.id, { id: crypto.randomUUID(), type: 'changes', label: 'Changes' });
-    } else if (type === 'shell' && shellPath) {
-      const shellName = shellPath.split('/').pop() ?? 'shell';
-      await createSession(task.id, 'shell', shellName, undefined, shellPath);
-    } else {
-      await createSession(task.id, type, undefined, task.description || undefined);
+    if (!task) {
+        return (
+            <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+                Select a task from the sidebar
+            </div>
+        );
     }
-  };
 
-  return (
-    <>
-      <TaskHeader task={task} project={project} />
-      <TabBar tabs={tabs} activeTabId={activeTab?.id ?? ''} onTabClick={(id) => setActiveTab(task.id, id)} onTabClose={(id) => { void closeTab(task.id, id); }} onNewTab={handleNewTab} />
-      <TabContent tabs={tabs} activeTabId={activeTab?.id ?? ''} />
-    </>
-  );
+    const activeTab = tabs.find((t) => t.id === activeTabId);
+
+    const handleNewTab = async (
+        type: "claude" | "codex" | "changes" | "browser" | "shell",
+        shellPath?: string,
+    ) => {
+        if (type === "browser") {
+            addTab(task.id, {
+                id: crypto.randomUUID(),
+                type: "browser",
+                label: "New Tab",
+                url: "about:blank",
+            });
+        } else if (type === "changes") {
+            const existingChangesTab = tabs.find((tab) => tab.type === "changes");
+            if (existingChangesTab) {
+                setActiveTab(task.id, existingChangesTab.id);
+                return;
+            }
+            addTab(task.id, { id: crypto.randomUUID(), type: "changes", label: "Changes" });
+        } else if (type === "shell" && shellPath) {
+            const shellName = shellPath.split("/").pop() ?? "shell";
+            await createSession(task.id, "shell", shellName, undefined, shellPath);
+        } else {
+            await createSession(task.id, type, undefined, task.description || undefined);
+        }
+    };
+
+    return (
+        <>
+            <TaskHeader task={task} project={project} />
+            <TabBar
+                tabs={tabs}
+                activeTabId={activeTab?.id ?? ""}
+                onTabClick={(id) => setActiveTab(task.id, id)}
+                onTabClose={(id) => {
+                    void closeTab(task.id, id);
+                }}
+                onNewTab={handleNewTab}
+            />
+            <TabContent tabs={tabs} activeTabId={activeTab?.id ?? ""} />
+        </>
+    );
 }

@@ -1,9 +1,9 @@
 export interface EditorInfo {
-  id: string;
-  name: string;
-  command: string;
+    id: string;
+    name: string;
+    command: string;
 }
 
 export interface SystemInfo {
-  editors: EditorInfo[];
+    editors: EditorInfo[];
 }

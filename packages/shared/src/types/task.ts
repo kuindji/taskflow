@@ -1,25 +1,25 @@
 export interface SessionRef {
-  id: string;
-  type: 'claude' | 'codex' | 'shell';
-  label: string;
-  createdAt: string;
+    id: string;
+    type: "claude" | "codex" | "shell";
+    label: string;
+    createdAt: string;
 }
 
 export interface TaskWorktree {
-  enabled: boolean;
-  path: string | null;
-  branch: string | null;
+    enabled: boolean;
+    path: string | null;
+    branch: string | null;
 }
 
 export interface Task {
-  id: string;
-  projectId: string;
-  title: string;
-  description: string;
-  notes: string;
-  worktree: TaskWorktree;
-  sessions: SessionRef[];
-  createdAt: string;
-  status: 'active' | 'archived';
-  archivedAt: string | null;
+    id: string;
+    projectId: string;
+    title: string;
+    description: string;
+    notes: string;
+    worktree: TaskWorktree;
+    sessions: SessionRef[];
+    createdAt: string;
+    status: "active" | "archived";
+    archivedAt: string | null;
 }

@@ -1,200 +1,200 @@
-import type { Project } from './project';
-import type { Task } from './task';
-import type { FileNode, FileChangeEvent } from './file';
-import type { GitStatusResult, GitDiffResult, GitFileStatus } from './git';
-import type { SystemInfo } from './system';
+import type { Project } from "./project";
+import type { Task } from "./task";
+import type { FileNode, FileChangeEvent } from "./file";
+import type { GitStatusResult, GitDiffResult, GitFileStatus } from "./git";
+import type { SystemInfo } from "./system";
 
 // Base message types
 export interface WsRequest<T = unknown> {
-  correlationId: string;
-  type: string;
-  payload: T;
+    correlationId: string;
+    type: string;
+    payload: T;
 }
 
 export interface WsResponse<T = unknown> {
-  correlationId: string;
-  type: string;
-  payload: T;
-  error?: string;
+    correlationId: string;
+    type: string;
+    payload: T;
+    error?: string;
 }
 
 export interface WsEvent<T = unknown> {
-  type: string;
-  payload: T;
+    type: string;
+    payload: T;
 }
 
 // Project messages
 export interface ProjectListResponse {
-  projects: Project[];
+    projects: Project[];
 }
 
 export interface ProjectAddPayload {
-  name?: string;
-  path: string;
+    name?: string;
+    path: string;
 }
 
 export interface ProjectRemovePayload {
-  id: string;
+    id: string;
 }
 
 export interface ProjectUpdatePayload {
-  id: string;
-  name: string;
+    id: string;
+    name: string;
 }
 
 // Task messages
 export interface TaskListPayload {
-  projectId?: string;
+    projectId?: string;
 }
 
 export interface TaskListResponse {
-  tasks: Task[];
+    tasks: Task[];
 }
 
 export interface TaskCreatePayload {
-  projectId: string;
-  title?: string;
-  description: string;
-  worktree?: boolean;
+    projectId: string;
+    title?: string;
+    description: string;
+    worktree?: boolean;
 }
 
 export interface TaskUpdatePayload {
-  id: string;
-  title?: string;
-  description?: string;
-  notes?: string;
+    id: string;
+    title?: string;
+    description?: string;
+    notes?: string;
 }
 
 export interface TaskArchivePayload {
-  id: string;
+    id: string;
 }
 
 export interface TaskDeletePayload {
-  id: string;
+    id: string;
 }
 
 // Session messages
 export interface SessionCreatePayload {
-  taskId: string;
-  type: 'claude' | 'codex' | 'shell';
-  label?: string;
-  prompt?: string;
-  shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
+    taskId: string;
+    type: "claude" | "codex" | "shell";
+    label?: string;
+    prompt?: string;
+    shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
 }
 
 export interface SessionCreateResponse {
-  sessionId: string;
+    sessionId: string;
 }
 
 export interface SessionClosePayload {
-  sessionId: string;
+    sessionId: string;
 }
 
 export interface SessionInputPayload {
-  sessionId: string;
-  data: string;
+    sessionId: string;
+    data: string;
 }
 
 export interface SessionExitedEvent {
-  sessionId: string;
-  exitCode: number;
+    sessionId: string;
+    exitCode: number;
 }
 
 // Terminal events
 export interface TerminalOutputEvent {
-  sessionId: string;
-  data: string;
+    sessionId: string;
+    data: string;
 }
 
 export interface TerminalResizePayload {
-  sessionId: string;
-  cols: number;
-  rows: number;
+    sessionId: string;
+    cols: number;
+    rows: number;
 }
 
 // Shell detection
 export interface ShellInfo {
-  name: string;
-  path: string;
+    name: string;
+    path: string;
 }
 
 // File messages
 export interface FileTreePayload {
-  path: string;
+    path: string;
 }
 
 export interface FileTreeResponse {
-  tree: FileNode;
+    tree: FileNode;
 }
 
 export interface FileReadPayload {
-  path: string;
+    path: string;
 }
 
 export interface FileReadResponse {
-  content: string;
+    content: string;
 }
 
 export interface FileWatchPayload {
-  path: string;
+    path: string;
 }
 
 export interface FileUnwatchPayload {
-  path: string;
+    path: string;
 }
 
 export interface FileWritePayload {
-  path: string;
-  content: string;
+    path: string;
+    content: string;
 }
 
-export interface FileChangedEvent extends FileChangeEvent {}
+export type FileChangedEvent = FileChangeEvent;
 
 // Git messages
 export interface GitStatusPayload {
-  path: string;
+    path: string;
 }
 
 export interface GitStatusResponse {
-  status: GitStatusResult;
+    status: GitStatusResult;
 }
 
 export interface GitDiffPayload {
-  path: string;
+    path: string;
 }
 
 export interface GitDiffResponse {
-  diff: GitDiffResult;
+    diff: GitDiffResult;
 }
 
 export interface GitDiffFilePayload {
-  repoPath: string;
-  filePath: string;
+    repoPath: string;
+    filePath: string;
 }
 
 export interface GitDiffFileResponse {
-  diff: string;
+    diff: string;
 }
 
 export interface GitRevertFilePayload {
-  repoPath: string;
-  filePath: string;
-  status: GitFileStatus['status'];
-  previousPath?: string;
+    repoPath: string;
+    filePath: string;
+    status: GitFileStatus["status"];
+    previousPath?: string;
 }
 
 export interface GitWorktreeCreatePayload {
-  repoPath: string;
-  branch: string;
-  path: string;
+    repoPath: string;
+    branch: string;
+    path: string;
 }
 
 // Browser messages
 export interface BrowserOpenPayload {
-  taskId: string;
-  url: string;
-  label?: string;
+    taskId: string;
+    url: string;
+    label?: string;
 }
 
 // System messages
-export interface SystemInfoResponse extends SystemInfo {}
+export type SystemInfoResponse = SystemInfo;

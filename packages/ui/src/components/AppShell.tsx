@@ -1,13 +1,13 @@
-import { useCallback, type ReactNode } from 'react';
-import { useUIStore } from '@/stores/ui-store';
-import { ResizeHandle } from '@/components/ResizeHandle';
-import useIsElectron from '@/hooks/useIsElectron';
+import { useCallback, type ReactNode } from "react";
+import { useUIStore } from "@/stores/ui-store";
+import { ResizeHandle } from "@/components/ResizeHandle";
+import useIsElectron from "@/hooks/useIsElectron";
 
 interface AppShellProps {
-  sidebar: ReactNode;
-  fileExplorer: ReactNode;
-  workspace: ReactNode;
-  taskInfo: ReactNode;
+    sidebar: ReactNode;
+    fileExplorer: ReactNode;
+    workspace: ReactNode;
+    taskInfo: ReactNode;
 }
 
 const SIDEBAR_MIN = 180;
@@ -18,85 +18,86 @@ const TASK_INFO_MIN = 150;
 const TASK_INFO_MAX = 500;
 
 function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
+    return Math.min(max, Math.max(min, value));
 }
 
 export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShellProps) {
-  const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
-  const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
-  const sidebarWidth = useUIStore((s) => s.sidebarWidth);
-  const fileExplorerWidth = useUIStore((s) => s.fileExplorerWidth);
-  const taskInfoWidth = useUIStore((s) => s.taskInfoWidth);
-  const panelGap = useUIStore((s) => s.panelGap);
-  const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
-  const setFileExplorerWidth = useUIStore((s) => s.setFileExplorerWidth);
-  const setTaskInfoWidth = useUIStore((s) => s.setTaskInfoWidth);
+    const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
+    const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
+    const sidebarWidth = useUIStore((s) => s.sidebarWidth);
+    const fileExplorerWidth = useUIStore((s) => s.fileExplorerWidth);
+    const taskInfoWidth = useUIStore((s) => s.taskInfoWidth);
+    const panelGap = useUIStore((s) => s.panelGap);
+    const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
+    const setFileExplorerWidth = useUIStore((s) => s.setFileExplorerWidth);
+    const setTaskInfoWidth = useUIStore((s) => s.setTaskInfoWidth);
 
-  const handleSidebarResize = useCallback(
-    (delta: number) => {
-      const current = useUIStore.getState().sidebarWidth;
-      setSidebarWidth(clamp(current + delta, SIDEBAR_MIN, SIDEBAR_MAX));
-    },
-    [setSidebarWidth],
-  );
+    const handleSidebarResize = useCallback(
+        (delta: number) => {
+            const current = useUIStore.getState().sidebarWidth;
+            setSidebarWidth(clamp(current + delta, SIDEBAR_MIN, SIDEBAR_MAX));
+        },
+        [setSidebarWidth],
+    );
 
-  const handleFileExplorerResize = useCallback(
-    (delta: number) => {
-      const current = useUIStore.getState().fileExplorerWidth;
-      setFileExplorerWidth(clamp(current + delta, FILE_EXPLORER_MIN, FILE_EXPLORER_MAX));
-    },
-    [setFileExplorerWidth],
-  );
+    const handleFileExplorerResize = useCallback(
+        (delta: number) => {
+            const current = useUIStore.getState().fileExplorerWidth;
+            setFileExplorerWidth(clamp(current + delta, FILE_EXPLORER_MIN, FILE_EXPLORER_MAX));
+        },
+        [setFileExplorerWidth],
+    );
 
-  const handleTaskInfoResize = useCallback(
-    (delta: number) => {
-      const current = useUIStore.getState().taskInfoWidth;
-      setTaskInfoWidth(clamp(current - delta, TASK_INFO_MIN, TASK_INFO_MAX));
-    },
-    [setTaskInfoWidth],
-  );
+    const handleTaskInfoResize = useCallback(
+        (delta: number) => {
+            const current = useUIStore.getState().taskInfoWidth;
+            setTaskInfoWidth(clamp(current - delta, TASK_INFO_MIN, TASK_INFO_MAX));
+        },
+        [setTaskInfoWidth],
+    );
 
-  const isElectron = useIsElectron();
+    const isElectron = useIsElectron();
 
-  return (
-    <div className="flex flex-col h-screen overflow-hidden">
-      {isElectron && (
-        <div
-          className="h-9 shrink-0 bg-card [-webkit-app-region:drag] flex items-center px-20"
-        />
-      )}
-      <div className="flex flex-1 overflow-hidden">
-      <div
-        className="bg-card flex flex-col shrink-0"
-        style={{ width: sidebarWidth }}
-      >
-        {sidebar}
-      </div>
+    return (
+        <div className="flex h-screen flex-col overflow-hidden">
+            {isElectron && (
+                <div className="bg-card flex h-9 shrink-0 items-center px-20 [-webkit-app-region:drag]" />
+            )}
+            <div className="flex flex-1 overflow-hidden">
+                <div className="bg-card flex shrink-0 flex-col" style={{ width: sidebarWidth }}>
+                    {sidebar}
+                </div>
 
-      <ResizeHandle onResize={handleSidebarResize} panelGap={panelGap} />
+                <ResizeHandle onResize={handleSidebarResize} panelGap={panelGap} />
 
-      {fileExplorerOpen && (
-        <div className="bg-card flex flex-col shrink-0" style={{ width: fileExplorerWidth }}>
-          {fileExplorer}
+                {fileExplorerOpen && (
+                    <div
+                        className="bg-card flex shrink-0 flex-col"
+                        style={{ width: fileExplorerWidth }}
+                    >
+                        {fileExplorer}
+                    </div>
+                )}
+
+                {fileExplorerOpen && (
+                    <ResizeHandle onResize={handleFileExplorerResize} panelGap={panelGap} />
+                )}
+
+                <div className="flex flex-1 flex-col overflow-hidden">{workspace}</div>
+
+                {taskInfoOpen && (
+                    <ResizeHandle onResize={handleTaskInfoResize} panelGap={panelGap} />
+                )}
+
+                {taskInfoOpen && (
+                    <div
+                        className="bg-card flex shrink-0 flex-col"
+                        style={{ width: taskInfoWidth }}
+                    >
+                        {taskInfo}
+                    </div>
+                )}
+            </div>
         </div>
-      )}
-
-      {fileExplorerOpen && (
-        <ResizeHandle onResize={handleFileExplorerResize} panelGap={panelGap} />
-      )}
-
-      <div className="flex-1 flex flex-col overflow-hidden">{workspace}</div>
-
-      {taskInfoOpen && (
-        <ResizeHandle onResize={handleTaskInfoResize} panelGap={panelGap} />
-      )}
-
-      {taskInfoOpen && (
-        <div className="bg-card flex flex-col shrink-0" style={{ width: taskInfoWidth }}>
-          {taskInfo}
-        </div>
-      )}
-      </div>
-    </div>
-  );
+    );
 }

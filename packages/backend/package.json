@@ -1,17 +1,18 @@
 {
-  "name": "@taskflow/backend",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "start": "bun run src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
-    "test": "bun test"
-  },
-  "dependencies": {
-    "@taskflow/shared": "workspace:*",
-    "node-pty": "^1.0.0",
-    "chokidar": "^3.6.0"
-  }
+    "name": "@taskflow/backend",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "bun run --watch src/index.ts",
+        "start": "bun run src/index.ts",
+        "build": "bun build src/index.ts --outdir dist --target bun",
+        "test": "bun test",
+        "typecheck": "bunx tsc --noEmit"
+    },
+    "dependencies": {
+        "@taskflow/shared": "workspace:*",
+        "node-pty": "^1.0.0",
+        "chokidar": "^3.6.0"
+    }
 }

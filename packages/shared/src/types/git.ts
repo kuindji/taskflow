@@ -1,22 +1,22 @@
 export interface GitFileStatus {
-  path: string;
-  absolutePath?: string;
-  previousPath?: string;
-  status: 'new' | 'modified' | 'deleted' | 'untracked' | 'renamed';
+    path: string;
+    absolutePath?: string;
+    previousPath?: string;
+    status: "new" | "modified" | "deleted" | "untracked" | "renamed";
 }
 
 export interface GitStatusResult {
-  branch: string | null;
-  files: GitFileStatus[];
+    branch: string | null;
+    files: GitFileStatus[];
 }
 
 export interface GitDiffResult {
-  files: GitDiffFile[];
+    files: GitDiffFile[];
 }
 
 export interface GitDiffFile {
-  path: string;
-  additions: number;
-  deletions: number;
-  diff: string;
+    path: string;
+    additions: number;
+    deletions: number;
+    diff: string;
 }
