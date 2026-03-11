@@ -83,39 +83,39 @@ function TaskInfoPanel() {
     }, [persistDrafts, taskId]);
 
     if (!task) {
-        return <div className="text-muted-foreground p-2 text-[11px]">Select a task</div>;
+        return <div className="text-muted-foreground p-2 text-sm">Select a task</div>;
     }
 
     return (
         <div className="flex h-full flex-col">
-            <div className="flex items-center px-2 py-1.5">
-                <span className="text-muted-foreground text-[9px] tracking-wider uppercase">
+            <div className="flex items-center px-3 py-2.5">
+                <span className="text-muted-foreground text-xs font-medium">
                     Task Info
                 </span>
             </div>
             <Separator />
 
-            <ScrollArea className="flex-1 p-2">
-                <div className="space-y-3">
+            <ScrollArea className="flex-1 p-3">
+                <div className="space-y-4">
                     {/* Description */}
                     <div>
-                        <label className="text-muted-foreground text-[9px] tracking-wider uppercase">
+                        <label className="text-muted-foreground text-xs font-medium">
                             Description
                         </label>
                         <Textarea
                             value={descriptionDraft}
                             onChange={(e) => setDescriptionDraft(e.target.value)}
                             rows={4}
-                            className="mt-1 text-[11px]"
+                            className="mt-1 text-sm"
                         />
                     </div>
 
-                    <Separator className="my-3" />
+                    <Separator className="my-4" />
 
                     {/* Branch */}
                     {task.worktree.branch && (
                         <div>
-                            <label className="text-muted-foreground text-[9px] tracking-wider uppercase">
+                            <label className="text-muted-foreground text-xs font-medium">
                                 Branch
                             </label>
                             <div className="mt-1">
@@ -129,32 +129,32 @@ function TaskInfoPanel() {
                     {/* Worktree */}
                     {task.worktree.path && (
                         <div>
-                            <label className="text-muted-foreground text-[9px] tracking-wider uppercase">
+                            <label className="text-muted-foreground text-xs font-medium">
                                 Worktree
                             </label>
-                            <div className="text-secondary-foreground mt-1 text-[11px]">
+                            <div className="text-secondary-foreground mt-1 text-sm">
                                 {task.worktree.path}
                             </div>
                         </div>
                     )}
 
-                    <Separator className="my-3" />
+                    <Separator className="my-4" />
 
                     {/* Created */}
                     <div>
-                        <label className="text-muted-foreground text-[9px] tracking-wider uppercase">
+                        <label className="text-muted-foreground text-xs font-medium">
                             Created
                         </label>
-                        <div className="text-secondary-foreground mt-1 text-[11px]">
+                        <div className="text-secondary-foreground mt-1 text-sm">
                             {new Date(task.createdAt).toLocaleString()}
                         </div>
                     </div>
 
-                    <Separator className="my-3" />
+                    <Separator className="my-4" />
 
                     {/* Notes */}
                     <div>
-                        <label className="text-muted-foreground text-[9px] tracking-wider uppercase">
+                        <label className="text-muted-foreground text-xs font-medium">
                             Notes
                         </label>
                         <Textarea
@@ -162,7 +162,7 @@ function TaskInfoPanel() {
                             onChange={(e) => setNotesDraft(e.target.value)}
                             rows={6}
                             placeholder="Add notes..."
-                            className="mt-1 text-[11px]"
+                            className="mt-1 text-sm"
                         />
                     </div>
                 </div>

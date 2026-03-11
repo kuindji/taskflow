@@ -108,26 +108,26 @@ export function TaskSidebar() {
 
     return (
         <>
-            <div className="border-border flex border-b p-2">
+            <div className="border-border flex border-b px-1.5 py-1.5">
                 <Button
                     variant="ghost"
-                    size="sm"
+                    size="xs"
                     onClick={handleNewTask}
-                    className="text-muted-foreground gap-1 text-[11px]"
+                    className="text-muted-foreground text-sm"
                 >
-                    <Plus className="h-3 w-3" />
+                    <Plus className="h-4 w-4" />
                     New Task
                 </Button>
             </div>
             <ScrollArea className="flex-1 py-1">
                 {projects.length === 0 && (
-                    <div className="text-muted-foreground p-3 text-[11px]">
+                    <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>
                         <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => handleOpenProjectDialog()}
-                            className="text-accent text-[11px]"
+                            className="text-accent text-sm"
                         >
                             Add Project
                         </Button>
@@ -145,16 +145,16 @@ export function TaskSidebar() {
                 ))}
             </ScrollArea>
             <Separator />
-            <div className="flex justify-between px-2.5 py-1.5">
+            <div className="flex justify-between px-1.5 py-1.5">
                 <Button
                     variant="ghost"
-                    size="sm"
+                    size="xs"
                     onClick={() => handleOpenProjectDialog()}
-                    className="text-muted-foreground text-[11px]"
+                    className="text-muted-foreground text-sm"
                 >
                     Add Project
                 </Button>
-                <Button variant="ghost" size="sm" className="text-muted-foreground text-[11px]">
+                <Button variant="ghost" size="xs" className="text-muted-foreground text-sm">
                     Settings
                 </Button>
             </div>

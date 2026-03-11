@@ -16,7 +16,7 @@ import { X, Plus, Terminal, Code, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabVariants = cva(
-    "px-2 py-0.5 rounded-sm cursor-pointer flex items-center gap-1 text-[11px] transition-colors",
+    "px-3 py-1 rounded-md cursor-pointer flex items-center gap-1 text-sm transition-colors",
     {
         variants: {
             type: {
@@ -52,13 +52,13 @@ function TabItem({ tab, isActive, onTabClick, onTabClose }: TabItemProps) {
             <Button
                 variant="ghost"
                 size="icon-sm"
-                className="ml-0.5 h-4 w-4"
+                className="ml-0.5 h-5 w-5"
                 onClick={(e) => {
                     e.stopPropagation();
                     onTabClose(tab.id);
                 }}
             >
-                <X className="h-2.5 w-2.5" />
+                <X className="h-3.5 w-3.5" />
             </Button>
         </div>
     );
@@ -86,7 +86,7 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: 
     }, []);
 
     return (
-        <div className="bg-card border-border flex items-center gap-0.5 border-b px-2 py-0.5">
+        <div className="bg-card border-border flex items-center gap-1 border-b px-1.5 py-1.5">
             {tabs.map((tab) => (
                 <TabItem
                     key={tab.id}
@@ -98,17 +98,17 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: 
             ))}
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon-sm">
-                        <Plus className="h-3 w-3" />
+                    <Button variant="ghost" size="icon-xs">
+                        <Plus className="h-4 w-4" />
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                     <DropdownMenuItem onClick={() => onNewTab("claude")}>
-                        <Terminal className="mr-2 h-3.5 w-3.5" />
+                        <Terminal className="mr-2 h-4 w-4" />
                         Claude Code
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onNewTab("codex")}>
-                        <Code className="mr-2 h-3.5 w-3.5" />
+                        <Code className="mr-2 h-4 w-4" />
                         Codex
                     </DropdownMenuItem>
                     {shells.length > 0 && <DropdownMenuSeparator />}
@@ -117,17 +117,17 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab }: 
                             key={shell.path}
                             onClick={() => onNewTab("shell", shell.path)}
                         >
-                            <Terminal className="mr-2 h-3.5 w-3.5" />
+                            <Terminal className="mr-2 h-4 w-4" />
                             {shell.name.charAt(0).toUpperCase() + shell.name.slice(1)}
                         </DropdownMenuItem>
                     ))}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => onNewTab("changes")}>
-                        <Code className="mr-2 h-3.5 w-3.5" />
+                        <Code className="mr-2 h-4 w-4" />
                         Changes
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onNewTab("browser")}>
-                        <Globe className="mr-2 h-3.5 w-3.5" />
+                        <Globe className="mr-2 h-4 w-4" />
                         Browser
                     </DropdownMenuItem>
                 </DropdownMenuContent>

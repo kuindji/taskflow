@@ -49,57 +49,57 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
     }, [task.id, task.title, deleteTask]);
 
     return (
-        <div className={`border-border flex items-center gap-2 border-b px-3 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
+        <div className={`border-border flex items-center gap-1.5 border-b px-1.5 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
             <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon-xs"
                 onClick={toggleFileExplorer}
                 aria-label={fileExplorerOpen ? "Hide file explorer" : "Show file explorer"}
                 className="[-webkit-app-region:no-drag]"
             >
                 {fileExplorerOpen ? (
-                    <PanelLeftClose className="h-3.5 w-3.5" />
+                    <PanelLeftClose className="h-4 w-4" />
                 ) : (
-                    <PanelLeftOpen className="h-3.5 w-3.5" />
+                    <PanelLeftOpen className="h-4 w-4" />
                 )}
             </Button>
-            <span className="text-foreground text-[13px] font-bold">{task.title}</span>
-            <span className="text-muted-foreground text-[11px]">{project?.name}</span>
+            <span className="text-foreground text-sm font-semibold">{task.title}</span>
+            <span className="text-muted-foreground text-sm">{project?.name}</span>
             {task.worktree?.branch && (
-                <Badge variant="outline" className="px-1.5 py-0 text-[9px] [-webkit-app-region:no-drag]">
+                <Badge variant="outline" className="px-2 py-0.5 text-xs [-webkit-app-region:no-drag]">
                     {task.worktree.branch}
                 </Badge>
             )}
             <div className="flex-1" />
             <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon-xs"
                 onClick={handleArchive}
                 aria-label="Archive task"
                 className="[-webkit-app-region:no-drag]"
             >
-                <Archive className="h-3.5 w-3.5" />
+                <Archive className="h-4 w-4" />
             </Button>
             <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon-xs"
                 onClick={handleDelete}
                 aria-label="Delete task"
                 className="text-destructive hover:text-destructive [-webkit-app-region:no-drag]"
             >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-4 w-4" />
             </Button>
             <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon-xs"
                 onClick={toggleTaskInfo}
                 aria-label={taskInfoOpen ? "Hide task info" : "Show task info"}
                 className="[-webkit-app-region:no-drag]"
             >
                 {taskInfoOpen ? (
-                    <PanelRightClose className="h-3.5 w-3.5" />
+                    <PanelRightClose className="h-4 w-4" />
                 ) : (
-                    <PanelRightOpen className="h-3.5 w-3.5" />
+                    <PanelRightOpen className="h-4 w-4" />
                 )}
             </Button>
         </div>

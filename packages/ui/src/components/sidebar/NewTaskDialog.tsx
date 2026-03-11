@@ -122,7 +122,7 @@ export function NewTaskDialog({
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="new-task-title">
                             Title{" "}
-                            <span className="text-muted-foreground/60 text-[10px] tracking-normal normal-case">
+                            <span className="text-muted-foreground/60 text-xs tracking-normal normal-case">
                                 (optional — auto-generated from description)
                             </span>
                         </Label>

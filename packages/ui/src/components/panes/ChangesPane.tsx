@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 
 type BadgeColorScheme = "claude" | "codex" | "active" | "archived";
 
-const diffLineVariants = cva("font-mono text-xs leading-relaxed whitespace-pre-wrap", {
+const diffLineVariants = cva("font-mono text-sm leading-relaxed whitespace-pre-wrap", {
     variants: {
         type: {
             added: "text-success",
@@ -65,7 +65,7 @@ function FileStatusRow({ file, isSelected, onSelect, onRevert }: FileStatusRowPr
     const rowClasses = useMemo(
         () =>
             cn(
-                "flex justify-between items-center px-1 py-0.5 cursor-pointer rounded-sm text-[11px]",
+                "flex justify-between items-center px-1 py-0.5 cursor-pointer rounded-md text-sm",
                 isSelected && "bg-muted",
             ),
         [isSelected],
@@ -74,7 +74,7 @@ function FileStatusRow({ file, isSelected, onSelect, onRevert }: FileStatusRowPr
     const badgeClasses = useMemo(
         () =>
             cn(
-                "text-[9px] px-1 py-0 font-mono",
+                "text-xs px-1 py-0 font-mono",
                 file.status === "deleted" && "text-destructive border-destructive/30",
             ),
         [file.status],
@@ -209,16 +209,16 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
     return (
         <div className={containerClasses}>
             {/* File list */}
-            <ScrollArea className="border-border max-h-[40%] border-b p-2">
+            <ScrollArea className="border-border max-h-[40%] border-b p-3">
                 {status?.branch && (
                     <div className="mb-1.5">
-                        <Badge variant="outline" className="text-[10px]">
+                        <Badge variant="outline" className="text-xs">
                             {status.branch}
                         </Badge>
                     </div>
                 )}
                 {status?.files.length === 0 && (
-                    <div className="text-muted-foreground text-xs">No changes</div>
+                    <div className="text-muted-foreground text-sm">No changes</div>
                 )}
                 {status?.files.map((file) => (
                     <FileStatusRow
@@ -232,9 +232,9 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
             </ScrollArea>
 
             {/* Diff view */}
-            <ScrollArea className="flex-1 p-2">
+            <ScrollArea className="flex-1 p-3">
                 {diffLoading ? (
-                    <div className="text-muted-foreground text-xs">Loading diff...</div>
+                    <div className="text-muted-foreground text-sm">Loading diff...</div>
                 ) : diff ? (
                     <pre className="m-0">
                         {diff.split("\n").map((line, i) => (
@@ -247,11 +247,11 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                         ))}
                     </pre>
                 ) : selectedFile ? (
-                    <div className="text-muted-foreground text-xs">
+                    <div className="text-muted-foreground text-sm">
                         No textual diff available for this file
                     </div>
                 ) : (
-                    <div className="text-muted-foreground text-xs">
+                    <div className="text-muted-foreground text-sm">
                         Click a file to see its diff
                     </div>
                 )}

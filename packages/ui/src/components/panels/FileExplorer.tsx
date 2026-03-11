@@ -73,8 +73,8 @@ function FileExplorer() {
 
     return (
         <div className="flex h-full flex-col">
-            <div className="flex items-center px-2 py-1.5">
-                <span className="text-muted-foreground text-[9px] tracking-wider uppercase">
+            <div className="flex items-center px-1.5 py-1.5">
+                <span className="text-muted-foreground flex h-6 items-center text-xs font-medium">
                     Files
                 </span>
             </div>
@@ -83,7 +83,7 @@ function FileExplorer() {
                 {tree && treePath === workingDir ? (
                     <FileTree node={tree} gitFiles={gitFiles} onFileClick={handleFileClick} />
                 ) : (
-                    <div className="text-muted-foreground p-2 text-[11px]">
+                    <div className="text-muted-foreground p-2 text-sm">
                         {workingDir ? "Loading..." : "Select a task"}
                     </div>
                 )}

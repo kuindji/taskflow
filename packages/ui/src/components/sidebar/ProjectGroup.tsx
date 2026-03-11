@@ -65,7 +65,7 @@ export function ProjectGroup({
 
     return (
         <Collapsible open={open} onOpenChange={setOpen}>
-            <CollapsibleTrigger className="hover:bg-muted/50 group flex w-full cursor-pointer items-center justify-between px-2.5 py-1 transition-colors select-none">
+            <CollapsibleTrigger className="hover:bg-muted/50 group mx-2 flex w-[calc(100%-1rem)] cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 transition-colors select-none">
                 {editing ? (
                     <input
                         ref={inputRef}
@@ -74,14 +74,14 @@ export function ProjectGroup({
                         onKeyDown={handleEditKeyDown}
                         onBlur={submitEdit}
                         onClick={(e) => e.stopPropagation()}
-                        className="border-border focus:ring-ring text-foreground mr-2 h-5 flex-1 rounded border bg-transparent px-1 text-[9px] uppercase outline-none focus:ring-1"
+                        className="border-border focus:ring-ring text-foreground mr-2 h-7 flex-1 rounded-md border bg-transparent px-2 text-xs outline-none focus:ring-1"
                     />
                 ) : (
-                    <span className="text-muted-foreground flex items-center gap-1 text-[9px] uppercase">
+                    <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium tracking-wide">
                         {open ? (
-                            <ChevronDown className="h-3 w-3" />
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                         ) : (
-                            <ChevronRight className="h-3 w-3" />
+                            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                         )}
                         {project.name}
                         <button
@@ -92,11 +92,11 @@ export function ProjectGroup({
                             }}
                             className="ml-0.5 opacity-0 transition-opacity group-hover:opacity-100"
                         >
-                            <Pencil className="h-2.5 w-2.5" />
+                            <Pencil className="h-3.5 w-3.5" />
                         </button>
                     </span>
                 )}
-                <Badge variant="secondary" className="px-1.5 py-0 text-[8px]">
+                <Badge variant="secondary" className="min-w-5 px-1.5 py-0 text-center text-[10px] font-normal">
                     {tasks.length}
                 </Badge>
             </CollapsibleTrigger>

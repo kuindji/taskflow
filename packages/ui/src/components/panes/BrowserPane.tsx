@@ -86,18 +86,18 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
 
     return (
         <div className="flex flex-1 flex-col">
-            <div className="border-border flex items-center gap-1 border-b px-2 py-1">
-                <Button variant="ghost" size="icon-sm" onClick={goBack} disabled={!canGoBack}>
-                    <ArrowLeft className="h-3 w-3" />
+            <div className="border-border flex items-center gap-1 border-b px-1.5 py-1.5">
+                <Button variant="ghost" size="icon-xs" onClick={goBack} disabled={!canGoBack}>
+                    <ArrowLeft className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="icon-sm" onClick={reload}>
-                    <RotateCw className="h-3 w-3" />
+                <Button variant="ghost" size="icon-xs" onClick={reload}>
+                    <RotateCw className="h-4 w-4" />
                 </Button>
                 <Input
                     value={inputUrl}
                     onChange={(e) => setInputUrl(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className="h-7 flex-1 text-xs"
+                    className="h-8 flex-1 text-sm"
                     placeholder="Enter URL..."
                 />
             </div>
