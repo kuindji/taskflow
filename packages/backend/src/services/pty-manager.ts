@@ -6,7 +6,7 @@ interface SpawnOptions {
     command: string;
     args: string[];
     cwd: string;
-    onData: (data: string) => void;
+    onData: (data: string, sequence: number) => void;
     onExit: (exitCode: number) => void;
     cols?: number;
     rows?: number;
@@ -19,8 +19,15 @@ interface Session {
     proc: Subprocess;
     terminal: Terminal | null;
     scrollback: string[];
-    scrollbackLen: number;
+    lastSequence: number;
 }
+
+interface ScrollbackSnapshot {
+    data: string;
+    lastSequence: number;
+}
+
+type PtySubprocess = Subprocess & { terminal?: Terminal | null };
 
 export class PtyManager {
     private sessions = new Map<string, Session>();
@@ -32,9 +39,10 @@ export class PtyManager {
         const rows = options.rows ?? 40;
 
         const decoder = new TextDecoder();
-        let terminal: Terminal | null = null;
         const scrollback: string[] = [];
         let scrollbackLen = 0;
+        let lastSequence = 0;
+        let sessionEntry: Session | null = null;
 
         const proc = Bun.spawn([options.command, ...options.args], {
             cwd: options.cwd,
@@ -48,33 +56,32 @@ export class PtyManager {
                 rows,
                 cols,
                 data: (term: Terminal, data: Uint8Array) => {
-                    terminal = term;
+                    if (sessionEntry) sessionEntry.terminal = term;
                     const text = decoder.decode(data);
                     scrollback.push(text);
                     scrollbackLen += text.length;
+                    lastSequence += 1;
+                    if (sessionEntry) sessionEntry.lastSequence = lastSequence;
                     // Trim oldest chunks when over the cap
                     while (scrollbackLen > MAX_SCROLLBACK && scrollback.length > 1) {
                         const removed = scrollback.shift();
                         if (removed) scrollbackLen -= removed.length;
                     }
-                    options.onData(text);
+                    options.onData(text, lastSequence);
                 },
             },
-        });
+        }) as PtySubprocess;
 
         void proc.exited.then((exitCode) => {
             this.sessions.delete(id);
             options.onExit(exitCode);
         });
 
-        // Store a lazy terminal reference — it's set on first data callback
-        const sessionEntry: Session = {
+        sessionEntry = {
             proc,
+            terminal: proc.terminal ?? null,
             scrollback,
-            scrollbackLen,
-            get terminal() {
-                return terminal;
-            },
+            lastSequence,
         };
 
         this.sessions.set(id, sessionEntry);
@@ -107,10 +114,13 @@ export class PtyManager {
         }
     }
 
-    getScrollback(id: string): string {
+    getScrollback(id: string): ScrollbackSnapshot {
         const session = this.sessions.get(id);
-        if (!session) return "";
-        return session.scrollback.join("");
+        if (!session) return { data: "", lastSequence: 0 };
+        return {
+            data: session.scrollback.join(""),
+            lastSequence: session.lastSequence,
+        };
     }
 
     list(): string[] {

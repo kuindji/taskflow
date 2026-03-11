@@ -104,6 +104,7 @@ export interface SessionExitedEvent {
 export interface TerminalOutputEvent {
     sessionId: string;
     data: string;
+    sequence: number;
 }
 
 export interface TerminalResizePayload {
@@ -118,6 +119,7 @@ export interface SessionHistoryPayload {
 
 export interface SessionHistoryResponse {
     data: string;
+    lastSequence: number;
 }
 
 // Shell detection
