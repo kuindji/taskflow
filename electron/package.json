@@ -5,7 +5,7 @@
     "main": "dist/main.js",
     "scripts": {
         "dev": "cd .. && bun run build && cd electron && electron .",
-        "build": "bun build src/main.ts --outdir dist --target node --format cjs --external electron && bun build src/preload.ts --outdir dist --target node --format cjs --external electron",
+        "build": "bun build src/main.ts --outdir dist --target node --format cjs --external electron --external electron-updater && bun build src/preload.ts --outdir dist --target node --format cjs --external electron",
         "typecheck": "bunx tsc --noEmit",
         "pack": "electron-builder --dir",
         "dist": "electron-builder"
@@ -29,15 +29,24 @@
                 "to": "ui"
             }
         ],
+        "publish": {
+            "provider": "github",
+            "owner": "kuindji",
+            "repo": "taskflow"
+        },
         "mac": {
             "category": "public.app-category.developer-tools",
             "target": [
-                "dmg"
+                "dmg",
+                "zip"
             ]
         }
     },
     "devDependencies": {
         "electron": "^33.0.0",
         "electron-builder": "^26.8.1"
+    },
+    "dependencies": {
+        "electron-updater": "^6.8.3"
     }
 }

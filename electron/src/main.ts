@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { autoUpdater } from "electron-updater";
 import { spawn, execFile, type ChildProcess } from "child_process";
 import { constants } from "fs";
 import { access, readFile, rm } from "fs/promises";
@@ -148,11 +149,47 @@ function createWindow() {
     });
 }
 
+function setupAutoUpdater() {
+    if (!app.isPackaged) return;
+
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on("update-available", (info) => {
+        console.log(`[updater] Update available: v${info.version}`);
+    });
+
+    autoUpdater.on("update-downloaded", (info) => {
+        console.log(`[updater] Update downloaded: v${info.version}`);
+        void dialog
+            .showMessageBox({
+                type: "info",
+                title: "Update Ready",
+                message: `Version ${info.version} has been downloaded.`,
+                detail: "The update will be installed when you restart the app.",
+                buttons: ["Restart Now", "Later"],
+                defaultId: 0,
+            })
+            .then(({ response }) => {
+                if (response === 0) {
+                    autoUpdater.quitAndInstall();
+                }
+            });
+    });
+
+    autoUpdater.on("error", (err) => {
+        console.error("[updater] Error:", err.message);
+    });
+
+    void autoUpdater.checkForUpdates();
+}
+
 void app.whenReady().then(async () => {
     try {
         backendPort = await startBackend();
         console.log(`Backend started on port ${backendPort}`);
         createWindow();
+        setupAutoUpdater();
     } catch (err) {
         console.error("Failed to start backend:", err);
         app.quit();
