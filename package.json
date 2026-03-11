@@ -24,7 +24,9 @@
         "package": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run pack",
         "dist": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run dist",
         "release": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run publish",
-        "open": "open electron/release/mac-arm64/Taskflow.app"
+        "open": "open electron/release/mac-arm64/Taskflow.app",
+        "open:dev": "bun run dev:electron",
+        "rebuild:packaged": "bun run package"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
