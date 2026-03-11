@@ -203,29 +203,66 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 // Debounce timers for working → attention transitions
 const activityTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const ACTIVITY_TIMEOUT = 3000;
-const recentInput = new Map<string, { at: number; data: string }>();
+interface RecentInputChunk {
+    at: number;
+    data: string;
+}
+
+const recentInput = new Map<string, RecentInputChunk[]>();
 const TYPING_ACTIVITY_SUPPRESSION_MS = 400;
+const MAX_PENDING_INPUT_CHUNKS = 64;
 
 function markRecentInput(sessionId: string, data: string): void {
-    recentInput.set(sessionId, { at: Date.now(), data });
+    const now = Date.now();
+    const pending = recentInput.get(sessionId) ?? [];
+    const next = pending
+        .filter((chunk) => now - chunk.at <= TYPING_ACTIVITY_SUPPRESSION_MS)
+        .concat({ at: now, data })
+        .slice(-MAX_PENDING_INPUT_CHUNKS);
+    recentInput.set(sessionId, next);
 }
 
 function clearRecentInput(sessionId: string): void {
     recentInput.delete(sessionId);
 }
 
-function shouldIgnoreRecentEcho(sessionId: string, data: string): boolean {
-    const lastInput = recentInput.get(sessionId);
-    if (!lastInput) return false;
-    if (Date.now() - lastInput.at > TYPING_ACTIVITY_SUPPRESSION_MS) {
+function pruneRecentInput(sessionId: string, now: number): RecentInputChunk[] {
+    const pending = recentInput.get(sessionId) ?? [];
+    const next = pending.filter((chunk) => now - chunk.at <= TYPING_ACTIVITY_SUPPRESSION_MS);
+    if (next.length === 0) {
         recentInput.delete(sessionId);
-        return false;
+        return [];
     }
+    recentInput.set(sessionId, next);
+    return next;
+}
+
+function shouldIgnoreRecentEcho(sessionId: string, data: string): boolean {
+    const pending = pruneRecentInput(sessionId, Date.now());
+    if (pending.length === 0) return false;
     if (!isSessionFocused(sessionId)) return false;
 
-    const isDirectEcho = data === lastInput.data;
-    const isEnterEcho = lastInput.data === "\r" && data === "\r\n";
-    return isDirectEcho || isEnterEcho;
+    let matchedCount = 0;
+    let combined = "";
+
+    for (const chunk of pending) {
+        combined += chunk.data;
+        matchedCount += 1;
+
+        const isDirectEcho = data === combined;
+        const isEnterEcho = combined === "\r" && data === "\r\n";
+        if (!isDirectEcho && !isEnterEcho) continue;
+
+        const remaining = pending.slice(matchedCount);
+        if (remaining.length === 0) {
+            recentInput.delete(sessionId);
+        } else {
+            recentInput.set(sessionId, remaining);
+        }
+        return true;
+    }
+
+    return false;
 }
 
 function clearActivityTimer(sessionId: string): void {

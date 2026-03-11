@@ -52,7 +52,9 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
     }, [deleteTask, task]);
 
     return (
-        <div className={`border-border flex items-center gap-1.5 border-b px-1.5 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
+        <div
+            className={`border-border flex min-h-9 items-center gap-1.5 border-b px-1.5 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
+        >
             {task ? (
                 <>
                     <Button
