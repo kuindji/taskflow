@@ -7,27 +7,23 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
-import { NewTaskDialog } from "./NewTaskDialog";
 import { NewProjectDialog } from "./NewProjectDialog";
+import { NewTaskControl } from "./NewTaskControl";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Plus } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
 
 export function TaskSidebar() {
     const isElectron = useIsElectron();
     const { connected } = useWsStatus();
     const { projects, fetchProjects, addProject, updateProject } = useProjectStore();
-    const { tasks, activeTaskId, fetchTasks, setActiveTask, createTask } = useTaskStore();
+    const { tasks, activeTaskId, fetchTasks, setActiveTask } = useTaskStore();
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
-    const createSession = useSessionStore((s) => s.createSession);
     const fetchSettings = useSettingsStore((s) => s.fetchSettings);
     const toggleSettings = useUIStore((s) => s.toggleSettings);
-    const [newTaskOpen, setNewTaskOpen] = useState(false);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
-    const [openTaskAfterProject, setOpenTaskAfterProject] = useState(false);
 
     useEffect(() => {
         if (!connected) return;
@@ -50,9 +46,8 @@ export function TaskSidebar() {
         return map;
     }, [tasks]);
 
-    const handleOpenProjectDialog = useCallback((thenOpenTask = false) => {
+    const handleOpenProjectDialog = useCallback(() => {
         setProjectError(null);
-        setOpenTaskAfterProject(thenOpenTask);
         setNewProjectOpen(true);
     }, []);
 
@@ -62,14 +57,11 @@ export function TaskSidebar() {
                 setProjectError(null);
                 await addProject(path);
                 setNewProjectOpen(false);
-                if (openTaskAfterProject) {
-                    setNewTaskOpen(true);
-                }
             } catch (err) {
                 setProjectError(err instanceof Error ? err.message : "Failed to add project");
             }
         },
-        [addProject, openTaskAfterProject],
+        [addProject],
     );
 
     const handleProjectDialogChange = useCallback((open: boolean) => {
@@ -88,50 +80,16 @@ export function TaskSidebar() {
         [updateProject],
     );
 
-    const handleNewTask = () => {
-        if (projects.length === 0) {
-            handleOpenProjectDialog(true);
-            return;
-        }
-        setNewTaskOpen(true);
-    };
-
-    const defaultProjectId = activeTaskId
-        ? (tasks.find((t) => t.id === activeTaskId)?.projectId ?? projects[0]?.id)
-        : projects[0]?.id;
-
-    const handleCreateTask = async (data: {
-        projectId: string;
-        title?: string;
-        description: string;
-        worktree: boolean;
-        startWith?: "claude" | "codex";
-    }) => {
-        try {
-            const task = await createTask(data);
-            setActiveTask(task.id);
-            if (data.startWith) {
-                await createSession(task.id, data.startWith, undefined, data.description);
-            }
-        } catch (err) {
-            console.error("Failed to create task:", err);
-        }
-    };
-
     return (
         <>
-            <div className={`border-border flex justify-end border-b px-1.5 py-1.5 ${isElectron ? "pt-2.5" : ""}`}>
-                <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={handleNewTask}
-                    className="text-muted-foreground text-sm [-webkit-app-region:no-drag]"
-                >
-                    <Plus className="h-4 w-4" />
-                    New Task
-                </Button>
-            </div>
-            <ScrollArea className="flex-1 py-1 [-webkit-app-region:no-drag]">
+            {isElectron ? (
+                <div className="border-border h-9 border-b" />
+            ) : (
+                <div className="border-border flex justify-end border-b px-1.5 py-1.5">
+                    <NewTaskControl />
+                </div>
+            )}
+            <ScrollArea className="flex-1 py-1">
                 {projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>
@@ -139,7 +97,7 @@ export function TaskSidebar() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleOpenProjectDialog()}
-                            className="text-accent text-sm"
+                            className="text-accent text-sm [-webkit-app-region:no-drag]"
                         >
                             Add Project
                         </Button>
@@ -157,16 +115,21 @@ export function TaskSidebar() {
                 ))}
             </ScrollArea>
             <Separator />
-            <div className="flex justify-between px-1.5 py-1.5 [-webkit-app-region:no-drag]">
+            <div className="flex justify-between px-1.5 py-1.5">
                 <Button
                     variant="ghost"
                     size="xs"
                     onClick={() => handleOpenProjectDialog()}
-                    className="text-muted-foreground text-sm"
+                    className="text-muted-foreground text-sm [-webkit-app-region:no-drag]"
                 >
                     Add Project
                 </Button>
-                <Button variant="ghost" size="xs" onClick={toggleSettings} className="text-muted-foreground text-sm">
+                <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={toggleSettings}
+                    className="text-muted-foreground text-sm [-webkit-app-region:no-drag]"
+                >
                     Settings
                 </Button>
             </div>
@@ -175,13 +138,6 @@ export function TaskSidebar() {
                 onOpenChange={handleProjectDialogChange}
                 onSubmit={(path) => void handleProjectSubmit(path)}
                 error={projectError}
-            />
-            <NewTaskDialog
-                open={newTaskOpen}
-                onOpenChange={setNewTaskOpen}
-                projects={projects}
-                defaultProjectId={defaultProjectId}
-                onSubmit={(data) => void handleCreateTask(data)}
             />
         </>
     );

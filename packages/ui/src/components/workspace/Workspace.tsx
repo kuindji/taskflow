@@ -6,10 +6,12 @@ import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
 import { destroyTerminal } from "@/components/panes/TerminalPane";
+import useIsElectron from "@/hooks/useIsElectron";
 
 const emptyTabs: Tab[] = [];
 
 export function Workspace() {
+    const isElectron = useIsElectron();
     const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
     const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
     const tabs = useSessionStore((s) => (task ? (s.tabsByTask[task.id] ?? emptyTabs) : emptyTabs));
@@ -18,9 +20,12 @@ export function Workspace() {
 
     if (!task) {
         return (
-            <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
-                Select a task from the sidebar
-            </div>
+            <>
+                {isElectron && <TaskHeader />}
+                <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+                    Select a task from the sidebar
+                </div>
+            </>
         );
     }
 

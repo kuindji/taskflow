@@ -66,7 +66,7 @@ export function ProjectGroup({
 
     return (
         <Collapsible open={open} onOpenChange={setOpen}>
-            <CollapsibleTrigger className="hover:bg-muted/50 group mx-1.5 flex w-[calc(100%-0.75rem)] cursor-pointer items-center justify-between overflow-hidden rounded-lg px-3 py-2.5 transition-colors select-none">
+            <CollapsibleTrigger className="hover:bg-muted/50 group mx-1.5 flex w-[calc(100%-0.75rem)] cursor-pointer items-center justify-between overflow-hidden rounded-lg px-3 py-2.5 transition-colors select-none [-webkit-app-region:no-drag]">
                 {editing ? (
                     <Input
                         ref={inputRef}

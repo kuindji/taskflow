@@ -43,7 +43,7 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
             : null;
 
     return (
-        <div onClick={onClick} className={cardClasses}>
+        <div onClick={onClick} className={cn(cardClasses, "[-webkit-app-region:no-drag]")}>
             <div className={cn("text-sm font-medium flex items-center gap-1.5", isActive && "text-foreground")}>
                 <StatusDot status={taskStatus} />
                 {title}
