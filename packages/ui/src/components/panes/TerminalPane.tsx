@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -7,9 +7,18 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { onEvent, sendRequest } from "@/hooks/useWebSocket";
 import { MSG } from "@taskflow/shared";
 import type { TerminalOutputEvent, SessionExitedEvent, SessionHistoryResponse } from "@taskflow/shared";
+import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
+const SHELL_UNSAFE = /[^a-zA-Z0-9_./:@=+-]/;
+
+function shellQuote(path: string): string {
+    if (!SHELL_UNSAFE.test(path)) return path;
+    return `'${path.replace(/'/g, "'\\''")}'`;
+}
+
 interface TerminalPaneProps {
+    taskId: string;
     sessionId: string;
     visible: boolean;
 }
@@ -39,7 +48,7 @@ function fitTerminal(fit: FitAddon, term: Terminal): boolean {
     return term.cols !== prevCols || term.rows !== prevRows;
 }
 
-function getOrCreateTerminal(sessionId: string): CachedTerminal {
+function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal {
     const existing = terminalCache.get(sessionId);
     if (existing) return existing;
 
@@ -100,7 +109,7 @@ function getOrCreateTerminal(sessionId: string): CachedTerminal {
     });
 
     // Replay scrollback then flush buffered live data
-    sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, { sessionId })
+    sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, { taskId, sessionId })
         .then(({ data, lastSequence }) => {
             if (data) term.write(data);
             historyLoaded = true;
@@ -131,13 +140,15 @@ function destroyTerminal(sessionId: string): void {
     cached.term.dispose();
 }
 
-function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
+function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const visibleRef = useRef(visible);
     const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const resizeFrameRef = useRef<number | null>(null);
+    const [dragOver, setDragOver] = useState(false);
+    const dragCounterRef = useRef(0);
     const sendInput = useSessionStore((s) => s.sendInput);
     const resizeTerminal = useSessionStore((s) => s.resizeTerminal);
 
@@ -184,7 +195,7 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
     useEffect(() => {
         if (!containerRef.current) return;
 
-        const cached = getOrCreateTerminal(sessionId);
+        const cached = getOrCreateTerminal(taskId, sessionId);
         const { term, fit, element } = cached;
 
         termRef.current = term;
@@ -222,7 +233,7 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
             fitRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- terminal setup should not re-run on visibility change
-    }, [scheduleFit, sessionId]);
+    }, [scheduleFit, sessionId, taskId]);
 
     useEffect(() => {
         if (!visible || !termRef.current || !fitRef.current) return;
@@ -254,7 +265,49 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
         }
     }, [sessionId, terminalFontSize, visible]);
 
-    return <div ref={containerRef} className="flex-1 overflow-hidden" />;
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        if (!e.dataTransfer.types.includes("application/x-taskflow-path")) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+    }, []);
+
+    const handleDragEnter = useCallback((e: React.DragEvent) => {
+        if (!e.dataTransfer.types.includes("application/x-taskflow-path")) return;
+        e.preventDefault();
+        dragCounterRef.current++;
+        setDragOver(true);
+    }, []);
+
+    const handleDragLeave = useCallback(() => {
+        dragCounterRef.current--;
+        if (dragCounterRef.current <= 0) {
+            dragCounterRef.current = 0;
+            setDragOver(false);
+        }
+    }, []);
+
+    const handleDrop = useCallback(
+        (e: React.DragEvent) => {
+            e.preventDefault();
+            dragCounterRef.current = 0;
+            setDragOver(false);
+            const path = e.dataTransfer.getData("text/plain");
+            if (!path) return;
+            sendInputRef.current(sessionId, shellQuote(path));
+        },
+        [sessionId],
+    );
+
+    return (
+        <div
+            ref={containerRef}
+            className={cn("flex-1 overflow-hidden", dragOver && "ring-2 ring-primary/50 ring-inset")}
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        />
+    );
 }
 
 export { TerminalPane, destroyTerminal };

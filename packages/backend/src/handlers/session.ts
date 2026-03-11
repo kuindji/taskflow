@@ -87,6 +87,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             cwd,
             env: taskflowEnv,
             onData: (data, sequence) => {
+                void taskStore.appendSessionOutput(taskId, sessionId, sequence, data);
                 broadcast({
                     type: MSG.TERMINAL_OUTPUT,
                     payload: { sessionId, data, sequence },
@@ -134,7 +135,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     });
 
     router.register(MSG.SESSION_HISTORY, async (payload) => {
-        const { sessionId } = payload as SessionHistoryPayload;
-        return ptyManager.getScrollback(sessionId);
+        const { taskId, sessionId } = payload as SessionHistoryPayload;
+        return taskStore.getSessionHistory(taskId, sessionId);
     });
 }

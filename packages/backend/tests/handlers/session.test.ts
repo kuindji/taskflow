@@ -12,12 +12,21 @@ import { GitService } from "../../src/services/git-service";
 
 class FakePtyManager {
     private nextId = 0;
-    private sessions = new Map<string, { onExit: (exitCode: number) => void }>();
+    private sessions = new Map<
+        string,
+        { onData: (data: string, sequence: number) => void; onExit: (exitCode: number) => void }
+    >();
+    private sequenceBySession = new Map<string, number>();
     closed: string[] = [];
 
-    spawn(options: { onExit: (exitCode: number) => void }): string {
-        const id = `session-${(this.nextId += 1)}`;
+    spawn(options: {
+        id?: string;
+        onData: (data: string, sequence: number) => void;
+        onExit: (exitCode: number) => void;
+    }): string {
+        const id = options.id ?? `session-${(this.nextId += 1)}`;
         this.sessions.set(id, options);
+        this.sequenceBySession.set(id, 0);
         return id;
     }
 
@@ -25,10 +34,19 @@ class FakePtyManager {
 
     resize(): void {}
 
+    emit(id: string, data: string): void {
+        const session = this.sessions.get(id);
+        if (!session) return;
+        const sequence = (this.sequenceBySession.get(id) ?? 0) + 1;
+        this.sequenceBySession.set(id, sequence);
+        session.onData(data, sequence);
+    }
+
     close(id: string): void {
         this.closed.push(id);
         const session = this.sessions.get(id);
         this.sessions.delete(id);
+        this.sequenceBySession.delete(id);
         session?.onExit(0);
     }
 }
@@ -47,6 +65,7 @@ describe("session handlers", () => {
             projectsFile: join(tempDir, "projects.json"),
             tasksDir: join(tempDir, "tasks"),
             archiveDir: join(tempDir, "archive"),
+            sessionLogsDir: join(tempDir, "session-logs"),
         });
         await store.init();
         router = new Router();
@@ -112,5 +131,30 @@ describe("session handlers", () => {
         expect(ptyManager.closed).toContain(created.sessionId);
         const archived = (await store.listArchived()).find((entry) => entry.id === task.id);
         expect(archived?.sessions).toHaveLength(0);
+    });
+
+    it("returns persisted session history after a session is no longer active", async () => {
+        const task = (await router.handle(MSG.TASK_CREATE, {
+            projectId,
+            title: "Task",
+        })) as { id: string };
+        const created = (await router.handle(MSG.SESSION_CREATE, {
+            taskId: task.id,
+            type: "codex",
+        })) as { sessionId: string };
+
+        ptyManager.emit(created.sessionId, "step 1\n");
+        ptyManager.emit(created.sessionId, "step 2\n");
+        ptyManager.close(created.sessionId);
+
+        await expect(
+            router.handle(MSG.SESSION_HISTORY, {
+                taskId: task.id,
+                sessionId: created.sessionId,
+            }),
+        ).resolves.toEqual({
+            data: "step 1\nstep 2\n",
+            lastSequence: 2,
+        });
     });
 });

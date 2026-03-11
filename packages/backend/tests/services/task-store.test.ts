@@ -14,6 +14,7 @@ describe("TaskStore", () => {
             projectsFile: join(tempDir, "projects.json"),
             tasksDir: join(tempDir, "tasks"),
             archiveDir: join(tempDir, "archive"),
+            sessionLogsDir: join(tempDir, "session-logs"),
         });
         await store.init();
     });
@@ -83,6 +84,7 @@ describe("TaskStore", () => {
                 projectsFile: tempDir,
                 tasksDir: join(tempDir, "tasks"),
                 archiveDir: join(tempDir, "archive"),
+                sessionLogsDir: join(tempDir, "session-logs"),
             });
 
             expect(unreadableStore.listProjects()).rejects.toThrow();
@@ -135,6 +137,24 @@ describe("TaskStore", () => {
             expect(updated.notes).toBe("some notes");
         });
 
+        it("persists session history independently from the live PTY", async () => {
+            const projectDir = await createProjectDir("test");
+            const project = await store.addProject({ name: "test", path: projectDir });
+            const task = await store.createTask({
+                projectId: project.id,
+                title: "Task",
+                description: "test",
+            });
+
+            await store.appendSessionOutput(task.id, "session-1", 1, "hello");
+            await store.appendSessionOutput(task.id, "session-1", 2, " world");
+
+            await expect(store.getSessionHistory(task.id, "session-1")).resolves.toEqual({
+                data: "hello world",
+                lastSequence: 2,
+            });
+        });
+
         it("archives tasks", async () => {
             const projectDir = await createProjectDir("test");
             const project = await store.addProject({ name: "test", path: projectDir });
@@ -162,10 +182,15 @@ describe("TaskStore", () => {
                 title: "Task",
                 description: "test",
             });
+            await store.appendSessionOutput(task.id, "session-1", 1, "history");
             await store.deleteTask(task.id);
 
             const tasks = await store.listTasks();
             expect(tasks).toEqual([]);
+            await expect(store.getSessionHistory(task.id, "session-1")).resolves.toEqual({
+                data: "",
+                lastSequence: 0,
+            });
         });
 
         it("drops corrupt task files during project removal checks", async () => {

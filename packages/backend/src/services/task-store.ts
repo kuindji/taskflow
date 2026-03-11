@@ -1,6 +1,15 @@
 import type { Project, Task, TaskWorktree } from "@taskflow/shared";
 import { ARCHIVE_EXPIRY_DAYS } from "@taskflow/shared";
-import { readFile, writeFile, readdir, unlink, mkdir, realpath, stat } from "fs/promises";
+import {
+    appendFile,
+    readFile,
+    writeFile,
+    readdir,
+    unlink,
+    mkdir,
+    realpath,
+    stat,
+} from "fs/promises";
 import { basename, join } from "path";
 import { randomUUID } from "crypto";
 
@@ -8,6 +17,7 @@ interface TaskStoreConfig {
     projectsFile: string;
     tasksDir: string;
     archiveDir: string;
+    sessionLogsDir: string;
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
@@ -21,6 +31,7 @@ function isJsonParseError(error: unknown): error is SyntaxError {
 export class TaskStore {
     private config: TaskStoreConfig;
     private taskMutations = new Map<string, Promise<void>>();
+    private sessionLogMutations = new Map<string, Promise<void>>();
 
     constructor(config: TaskStoreConfig) {
         this.config = config;
@@ -29,6 +40,7 @@ export class TaskStore {
     async init(): Promise<void> {
         await mkdir(this.config.tasksDir, { recursive: true });
         await mkdir(this.config.archiveDir, { recursive: true });
+        await mkdir(this.config.sessionLogsDir, { recursive: true });
     }
 
     async clearAllSessions(): Promise<void> {
@@ -177,8 +189,112 @@ export class TaskStore {
         return join(this.config.archiveDir, `${id}.json`);
     }
 
+    private sessionLogPath(taskId: string, sessionId: string): string {
+        return join(this.config.sessionLogsDir, `${taskId}--${sessionId}.jsonl`);
+    }
+
     private async writeTask(filePath: string, task: Task): Promise<void> {
         await writeFile(filePath, JSON.stringify(task, null, 2));
+    }
+
+    private async withSessionLogMutation<T>(key: string, mutation: () => Promise<T>): Promise<T> {
+        const previous = this.sessionLogMutations.get(key) ?? Promise.resolve();
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const queued = previous.catch(() => undefined).then(() => gate);
+
+        this.sessionLogMutations.set(key, queued);
+        await previous.catch(() => undefined);
+
+        try {
+            return await mutation();
+        } finally {
+            release();
+            if (this.sessionLogMutations.get(key) === queued) {
+                this.sessionLogMutations.delete(key);
+            }
+        }
+    }
+
+    async appendSessionOutput(
+        taskId: string,
+        sessionId: string,
+        sequence: number,
+        data: string,
+    ): Promise<void> {
+        const logPath = this.sessionLogPath(taskId, sessionId);
+        const entry = JSON.stringify({ sequence, data }) + "\n";
+        await this.withSessionLogMutation(logPath, async () => {
+            await appendFile(logPath, entry, "utf-8");
+        });
+    }
+
+    async getSessionHistory(
+        taskId: string,
+        sessionId: string,
+    ): Promise<{ data: string; lastSequence: number }> {
+        const logPath = this.sessionLogPath(taskId, sessionId);
+        await this.sessionLogMutations.get(logPath)?.catch(() => undefined);
+
+        let raw: string;
+        try {
+            raw = await readFile(logPath, "utf-8");
+        } catch (error) {
+            if (isMissingFileError(error)) {
+                return { data: "", lastSequence: 0 };
+            }
+            throw error;
+        }
+
+        let data = "";
+        let lastSequence = 0;
+        for (const line of raw.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+                const entry = JSON.parse(line) as { sequence?: number; data?: string };
+                if (typeof entry.data === "string") {
+                    data += entry.data;
+                }
+                if (typeof entry.sequence === "number" && entry.sequence > lastSequence) {
+                    lastSequence = entry.sequence;
+                }
+            } catch {
+                continue;
+            }
+        }
+
+        return { data, lastSequence };
+    }
+
+    async deleteSessionHistory(taskId: string, sessionId: string): Promise<void> {
+        const logPath = this.sessionLogPath(taskId, sessionId);
+        await this.withSessionLogMutation(logPath, async () => {
+            await this.unlinkIfPresent(logPath);
+        });
+    }
+
+    async deleteTaskSessionHistory(taskId: string): Promise<void> {
+        let files: string[];
+        try {
+            files = await readdir(this.config.sessionLogsDir);
+        } catch (error) {
+            if (isMissingFileError(error)) {
+                return;
+            }
+            throw error;
+        }
+
+        await Promise.all(
+            files
+                .filter((file) => file.startsWith(`${taskId}--`) && file.endsWith(".jsonl"))
+                .map((file) =>
+                    this.withSessionLogMutation(join(this.config.sessionLogsDir, file), async () => {
+                        await this.unlinkIfPresent(join(this.config.sessionLogsDir, file));
+                    }),
+                ),
+        );
     }
 
     async createTask(input: {
@@ -275,6 +391,7 @@ export class TaskStore {
         await this.withTaskMutation(id, async () => {
             await this.unlinkIfPresent(this.taskPath(id));
         });
+        await this.deleteTaskSessionHistory(id);
     }
 
     async listArchived(): Promise<Task[]> {
@@ -303,6 +420,7 @@ export class TaskStore {
                 const archivedTime = new Date(task.archivedAt).getTime();
                 if (now - archivedTime > expiryMs) {
                     await this.unlinkIfPresent(this.archivePath(task.id));
+                    await this.deleteTaskSessionHistory(task.id);
                     cleaned++;
                 }
             }

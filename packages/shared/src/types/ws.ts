@@ -114,6 +114,7 @@ export interface TerminalResizePayload {
 }
 
 export interface SessionHistoryPayload {
+    taskId: string;
     sessionId: string;
 }
 

@@ -45,7 +45,11 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                         // Terminal panes are always mounted but hidden when inactive
                         // so PTY output is buffered and state is preserved across tab switches
                         pane = tab.sessionId ? (
-                            <TerminalPane sessionId={tab.sessionId} visible={isActive} />
+                            <TerminalPane
+                                taskId={task?.id ?? ""}
+                                sessionId={tab.sessionId}
+                                visible={isActive}
+                            />
                         ) : (
                             <div className="text-muted-foreground p-3">Session not found</div>
                         );

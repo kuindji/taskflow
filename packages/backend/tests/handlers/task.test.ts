@@ -22,6 +22,7 @@ describe("task handlers", () => {
             projectsFile: join(tempDir, "projects.json"),
             tasksDir: join(tempDir, "tasks"),
             archiveDir: join(tempDir, "archive"),
+            sessionLogsDir: join(tempDir, "session-logs"),
         });
         await store.init();
         router = new Router();
