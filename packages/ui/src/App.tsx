@@ -4,6 +4,7 @@ import { useWsStatus } from "@/providers/ws-context";
 import { useSettingsStore } from "@/stores/settings-store";
 import { AppShell } from "@/components/AppShell";
 import { DialogHost } from "@/components/DialogHost";
+import { SettingsModal } from "@/components/settings/SettingsModal";
 import { TaskSidebar } from "@/components/sidebar/TaskSidebar";
 import { FileExplorer } from "@/components/panels/FileExplorer";
 import { TaskInfoPanel } from "@/components/panels/TaskInfoPanel";
@@ -41,6 +42,7 @@ export function App() {
             <div style={rootStyle} className="contents">
                 <ConnectionOverlay />
                 <DialogHost />
+                <SettingsModal />
                 <TooltipProvider>
                     <AppShell
                         sidebar={<TaskSidebar />}
