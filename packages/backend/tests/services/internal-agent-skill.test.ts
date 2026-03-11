@@ -4,6 +4,17 @@ import {
     buildAgentLaunchSpec,
 } from "../../src/services/internal-agent-skill";
 
+function escapeTomlBasicString(value: string): string {
+    return value
+        .replaceAll("\\", "\\\\")
+        .replaceAll("\b", "\\b")
+        .replaceAll("\t", "\\t")
+        .replaceAll("\n", "\\n")
+        .replaceAll("\f", "\\f")
+        .replaceAll("\r", "\\r")
+        .replaceAll('"', '\\"');
+}
+
 describe("internal agent skill", () => {
     it("configures Codex to load the Taskflow internal skill", () => {
         const spec = buildAgentLaunchSpec(
@@ -14,6 +25,8 @@ describe("internal agent skill", () => {
 
         expect(spec.command).toBe("codex");
         expect(spec.args).toEqual([
+            "-c",
+            `developer_instructions="${escapeTomlBasicString(INTERNAL_AGENT_SYSTEM_PROMPT)}"`,
             "-c",
             'skills.config=[{path="/tmp/taskflow-internal-api/SKILL.md", enabled=true}]',
             "Investigate the failing build",

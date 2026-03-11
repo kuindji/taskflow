@@ -68,8 +68,15 @@ Close the current Taskflow session when the job is complete:
 - \`POST $TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/done\`
 `;
 
-function escapeTomlString(value: string): string {
-    return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+function escapeTomlBasicString(value: string): string {
+    return value
+        .replaceAll("\\", "\\\\")
+        .replaceAll("\b", "\\b")
+        .replaceAll("\t", "\\t")
+        .replaceAll("\n", "\\n")
+        .replaceAll("\f", "\\f")
+        .replaceAll("\r", "\\r")
+        .replaceAll('"', '\\"');
 }
 
 export async function ensureInternalAgentSkillFile(baseDir: string): Promise<string> {
@@ -108,7 +115,9 @@ export function buildAgentLaunchSpec(
         command: "codex",
         args: [
             "-c",
-            `skills.config=[{path="${escapeTomlString(skillPath)}", enabled=true}]`,
+            `developer_instructions="${escapeTomlBasicString(INTERNAL_AGENT_SYSTEM_PROMPT)}"`,
+            "-c",
+            `skills.config=[{path="${escapeTomlBasicString(skillPath)}", enabled=true}]`,
             ...(prompt ? [prompt] : []),
         ],
     };
