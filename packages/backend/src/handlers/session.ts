@@ -3,6 +3,7 @@ import type {
     SessionCreatePayload,
     SessionClosePayload,
     SessionInputPayload,
+    SessionHistoryPayload,
     TerminalResizePayload,
     WsEvent,
 } from "@taskflow/shared";
@@ -130,5 +131,10 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
         const { sessionId, cols, rows } = payload as TerminalResizePayload;
         ptyManager.resize(sessionId, cols, rows);
         return { success: true };
+    });
+
+    router.register(MSG.SESSION_HISTORY, async (payload) => {
+        const { sessionId } = payload as SessionHistoryPayload;
+        return { data: ptyManager.getScrollback(sessionId) };
     });
 }

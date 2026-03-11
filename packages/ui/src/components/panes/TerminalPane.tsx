@@ -4,9 +4,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { onEvent } from "@/hooks/useWebSocket";
+import { onEvent, sendRequest } from "@/hooks/useWebSocket";
 import { MSG } from "@taskflow/shared";
-import type { TerminalOutputEvent, SessionExitedEvent } from "@taskflow/shared";
+import type { TerminalOutputEvent, SessionExitedEvent, SessionHistoryResponse } from "@taskflow/shared";
 import "@xterm/xterm/css/xterm.css";
 
 interface TerminalPaneProps {
@@ -63,19 +63,42 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
             resizeTerminal(sessionId, term.cols, term.rows);
         }
 
+        // Buffer live output until history is loaded, then flush in order
+        const pendingData: string[] = [];
+        let historyLoaded = false;
+
+        const unsubscribe = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
+            const event = payload as TerminalOutputEvent;
+            if (event.sessionId === sessionId) {
+                if (historyLoaded) {
+                    term.write(event.data);
+                } else {
+                    pendingData.push(event.data);
+                }
+            }
+        });
+
+        // Replay scrollback from backend, then flush any buffered live data
+        sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, { sessionId })
+            .then(({ data }) => {
+                if (data) term.write(data);
+                historyLoaded = true;
+                for (const chunk of pendingData) term.write(chunk);
+                pendingData.length = 0;
+            })
+            .catch(() => {
+                // If history fetch fails, just start writing live data
+                historyLoaded = true;
+                for (const chunk of pendingData) term.write(chunk);
+                pendingData.length = 0;
+            });
+
         const dataDisposable = term.onData((data) => {
             sendInput(sessionId, data);
         });
 
         const resizeDisposable = term.onResize(({ cols, rows }) => {
             resizeTerminal(sessionId, cols, rows);
-        });
-
-        const unsubscribe = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
-            const event = payload as TerminalOutputEvent;
-            if (event.sessionId === sessionId) {
-                term.write(event.data);
-            }
         });
 
         const unsubExit = onEvent(MSG.SESSION_EXITED, (payload) => {
@@ -108,8 +131,14 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
 
     useEffect(() => {
         if (!visible || !termRef.current || !fitRef.current) return;
-        fitRef.current.fit();
-        resizeTerminal(sessionId, termRef.current.cols, termRef.current.rows);
+        // Defer fit until the browser has painted the now-visible container,
+        // otherwise FitAddon measures zero dimensions from display:none.
+        const raf = requestAnimationFrame(() => {
+            if (!fitRef.current || !termRef.current) return;
+            fitRef.current.fit();
+            resizeTerminal(sessionId, termRef.current.cols, termRef.current.rows);
+        });
+        return () => cancelAnimationFrame(raf);
     }, [visible, sessionId, resizeTerminal]);
 
     return <div ref={containerRef} className="flex-1 overflow-hidden" />;

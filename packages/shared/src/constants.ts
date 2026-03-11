@@ -24,6 +24,7 @@ export const MSG = {
     // Terminal
     TERMINAL_OUTPUT: "terminal:output",
     TERMINAL_RESIZE: "terminal:resize",
+    SESSION_HISTORY: "session:history",
 
     // Files
     FILE_TREE: "file:tree",

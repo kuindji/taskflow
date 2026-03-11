@@ -12,9 +12,13 @@ interface SpawnOptions {
     env?: Record<string, string>;
 }
 
+const MAX_SCROLLBACK = 50_000;
+
 interface Session {
     proc: Subprocess;
     terminal: Terminal | null;
+    scrollback: string[];
+    scrollbackLen: number;
 }
 
 function buildShellPath(): string {
@@ -50,6 +54,8 @@ export class PtyManager {
 
         const decoder = new TextDecoder();
         let terminal: BunTerminal | null = null;
+        const scrollback: string[] = [];
+        let scrollbackLen = 0;
 
         const proc = Bun.spawn([options.command, ...options.args], {
             cwd: options.cwd,
@@ -64,7 +70,14 @@ export class PtyManager {
                 cols,
                 data: (term: BunTerminal, data: Uint8Array) => {
                     terminal = term;
-                    options.onData(decoder.decode(data));
+                    const text = decoder.decode(data);
+                    scrollback.push(text);
+                    scrollbackLen += text.length;
+                    // Trim oldest chunks when over the cap
+                    while (scrollbackLen > MAX_SCROLLBACK && scrollback.length > 1) {
+                        scrollbackLen -= scrollback.shift()!.length;
+                    }
+                    options.onData(text);
                 },
             },
         });
@@ -77,6 +90,8 @@ export class PtyManager {
         // Store a lazy terminal reference — it's set on first data callback
         const sessionEntry: Session = {
             proc,
+            scrollback,
+            scrollbackLen,
             get terminal() {
                 return terminal;
             },
@@ -110,6 +125,12 @@ export class PtyManager {
         for (const [id] of this.sessions) {
             this.close(id);
         }
+    }
+
+    getScrollback(id: string): string {
+        const session = this.sessions.get(id);
+        if (!session) return "";
+        return session.scrollback.join("");
     }
 
     list(): string[] {

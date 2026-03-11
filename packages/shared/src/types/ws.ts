@@ -112,6 +112,14 @@ export interface TerminalResizePayload {
     rows: number;
 }
 
+export interface SessionHistoryPayload {
+    sessionId: string;
+}
+
+export interface SessionHistoryResponse {
+    data: string;
+}
+
 // Shell detection
 export interface ShellInfo {
     name: string;
