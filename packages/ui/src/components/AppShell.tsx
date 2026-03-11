@@ -60,7 +60,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
 
     return (
         <div className="bg-island-base flex h-screen flex-col overflow-hidden">
-            <div className="flex flex-1 overflow-hidden p-1.5">
+            <div className="flex flex-1 overflow-hidden" style={{ padding: panelGap }}>
                 <div
                     className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50"
                     style={{

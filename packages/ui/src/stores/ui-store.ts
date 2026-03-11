@@ -24,7 +24,7 @@ export const useUIStore = create<UIStore>((set) => ({
     sidebarWidth: 220,
     fileExplorerWidth: 220,
     taskInfoWidth: 220,
-    panelGap: 1,
+    panelGap: 6,
     toggleFileExplorer() {
         set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen }));
     },
