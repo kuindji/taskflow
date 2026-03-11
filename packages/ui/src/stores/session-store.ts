@@ -25,6 +25,7 @@ interface SessionStore {
     tabsByTask: Record<string, Tab[]>;
     activeTabByTask: Record<string, string>;
     sessionStatus: Record<string, SessionStatus>;
+    lastTerminalSize: { cols: number; rows: number } | null;
     createSession(
         taskId: string,
         type: "claude" | "codex" | "shell",
@@ -85,13 +86,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     tabsByTask: {},
     activeTabByTask: {},
     sessionStatus: {},
+    lastTerminalSize: null,
     async createSession(taskId, type, label, prompt, shell) {
+        const lastTerminalSize = get().lastTerminalSize;
         const { sessionId } = await sendRequest<{ sessionId: string }>(MSG.SESSION_CREATE, {
             taskId,
             type,
             label,
             prompt,
             shell,
+            cols: lastTerminalSize?.cols,
+            rows: lastTerminalSize?.rows,
         });
         const tab: Tab = { id: sessionId, type, label: label ?? `${type} session`, sessionId };
         get().addTab(taskId, tab);
@@ -107,6 +112,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         sendFireAndForget(MSG.SESSION_INPUT, { sessionId, data });
     },
     resizeTerminal(sessionId, cols, rows) {
+        set({ lastTerminalSize: { cols, rows } });
         sendFireAndForget(MSG.TERMINAL_RESIZE, { sessionId, cols, rows });
     },
     addTab(taskId, tab) {

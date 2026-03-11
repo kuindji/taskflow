@@ -54,7 +54,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     }
 
     router.register(MSG.SESSION_CREATE, async (payload) => {
-        const { taskId, type, label, prompt, shell } = payload as SessionCreatePayload;
+        const { taskId, type, label, prompt, shell, cols, rows } = payload as SessionCreatePayload;
         const task = await taskStore.getTask(taskId);
         if (!task) throw new Error(`Task not found: ${taskId}`);
 
@@ -87,6 +87,8 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             args,
             cwd,
             env: taskflowEnv,
+            cols,
+            rows,
             onData: (data, sequence) => {
                 void taskStore.appendSessionOutput(taskId, sessionId, sequence, data);
                 broadcast({

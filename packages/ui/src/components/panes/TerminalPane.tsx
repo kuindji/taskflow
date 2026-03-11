@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -29,6 +30,7 @@ interface CachedTerminal {
     element: HTMLDivElement;
     unsubOutput: () => void;
     unsubExit: () => void;
+    disposeRuntime: () => void;
 }
 
 interface BufferedTerminalChunk {
@@ -50,18 +52,76 @@ function fitTerminal(fit: FitAddon, term: Terminal): FitResult {
         return { measured: false, resized: false };
     }
 
-    const cols = Math.max(2, dims.cols - 1);
+    const cols = Math.max(2, dims.cols);
+    const rows = Math.max(1, dims.rows);
     const prevCols = term.cols;
     const prevRows = term.rows;
-    if (prevCols !== cols || prevRows !== dims.rows) {
-        term.resize(cols, dims.rows);
+    if (prevCols !== cols || prevRows !== rows) {
+        term.resize(cols, rows);
     }
-    return { measured: true, resized: cols !== prevCols || dims.rows !== prevRows };
+    return { measured: true, resized: cols !== prevCols || rows !== prevRows };
 }
 
 function refreshTerminal(term: Terminal): void {
     if (term.rows <= 0) return;
     term.refresh(0, term.rows - 1);
+}
+
+function createBufferedWriter(term: Terminal): { write: (data: string) => void; dispose: () => void } {
+    let frameId: number | null = null;
+    const chunks: string[] = [];
+
+    const flush = () => {
+        frameId = null;
+        if (chunks.length === 0) return;
+        term.write(chunks.join(""));
+        chunks.length = 0;
+    };
+
+    return {
+        write(data) {
+            if (!data) return;
+            chunks.push(data);
+            if (frameId !== null) return;
+            frameId = window.requestAnimationFrame(flush);
+        },
+        dispose() {
+            if (frameId !== null) {
+                window.cancelAnimationFrame(frameId);
+                frameId = null;
+            }
+            chunks.length = 0;
+        },
+    };
+}
+
+function loadBestEffortWebglAddon(term: Terminal): () => void {
+    let disposed = false;
+    let cleanup: (() => void) | null = null;
+
+    void import("@xterm/addon-webgl")
+        .then(({ WebglAddon }) => {
+            if (disposed) return;
+            const addon = new WebglAddon();
+            term.loadAddon(addon);
+            const contextLossDisposable = addon.onContextLoss(() => {
+                cleanup?.();
+                cleanup = null;
+            });
+            cleanup = () => {
+                contextLossDisposable.dispose();
+                addon.dispose();
+            };
+        })
+        .catch(() => {
+            // Canvas renderer remains the fallback when WebGL is unavailable.
+        });
+
+    return () => {
+        disposed = true;
+        cleanup?.();
+        cleanup = null;
+    };
 }
 
 function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal {
@@ -91,6 +151,9 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
 
     const fit = new FitAddon();
     term.loadAddon(fit);
+    const unicode = new Unicode11Addon();
+    term.loadAddon(unicode);
+    term.unicode.activeVersion = "11";
     term.loadAddon(new WebLinksAddon());
 
     // Create a dedicated wrapper div that persists across mounts
@@ -98,6 +161,8 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
     element.style.width = "100%";
     element.style.height = "100%";
     term.open(element);
+    const disposeWebgl = loadBestEffortWebglAddon(term);
+    const writer = createBufferedWriter(term);
 
     // Buffer live output until history is loaded, then write directly
     const pendingData: BufferedTerminalChunk[] = [];
@@ -107,7 +172,7 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
         const event = payload as TerminalOutputEvent;
         if (event.sessionId === sessionId) {
             if (historyLoaded) {
-                term.write(event.data);
+                writer.write(event.data);
             } else {
                 pendingData.push({ data: event.data, sequence: event.sequence });
             }
@@ -117,7 +182,7 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
     const unsubExit = onEvent(MSG.SESSION_EXITED, (payload) => {
         const event = payload as SessionExitedEvent;
         if (event.sessionId === sessionId) {
-            term.writeln(`\r\n\x1b[90m[Process exited with code ${event.exitCode}]\x1b[0m`);
+            writer.write(`\r\n\x1b[90m[Process exited with code ${event.exitCode}]\x1b[0m\r\n`);
             // Don't destroy immediately — user may still want to scroll through output.
             // The cache entry will be cleaned up when the tab is closed (component unmounts
             // for the last time and closeTab calls destroyTerminal).
@@ -127,20 +192,30 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
     // Replay scrollback then flush buffered live data
     sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, { taskId, sessionId })
         .then(({ data, lastSequence }) => {
-            if (data) term.write(data);
+            if (data) writer.write(data);
             historyLoaded = true;
             for (const chunk of pendingData) {
-                if (chunk.sequence > lastSequence) term.write(chunk.data);
+                if (chunk.sequence > lastSequence) writer.write(chunk.data);
             }
             pendingData.length = 0;
         })
         .catch(() => {
             historyLoaded = true;
-            for (const chunk of pendingData) term.write(chunk.data);
+            for (const chunk of pendingData) writer.write(chunk.data);
             pendingData.length = 0;
         });
 
-    const cached: CachedTerminal = { term, fit, element, unsubOutput, unsubExit };
+    const cached: CachedTerminal = {
+        term,
+        fit,
+        element,
+        unsubOutput,
+        unsubExit,
+        disposeRuntime: () => {
+            disposeWebgl();
+            writer.dispose();
+        },
+    };
     terminalCache.set(sessionId, cached);
     return cached;
 }
@@ -152,6 +227,7 @@ function destroyTerminal(sessionId: string): void {
     terminalCache.delete(sessionId);
     cached.unsubOutput();
     cached.unsubExit();
+    cached.disposeRuntime();
     cached.element.remove();
     cached.term.dispose();
 }

@@ -80,6 +80,8 @@ export interface SessionCreatePayload {
     label?: string;
     prompt?: string;
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
+    cols?: number;
+    rows?: number;
 }
 
 export interface SessionCreateResponse {
