@@ -71,9 +71,11 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
             <PopoverTrigger asChild>
                 <Button
                     variant="outline"
-                    className="h-8 w-full justify-between text-sm font-normal"
+                    className="h-8 w-full min-w-0 justify-between overflow-hidden text-sm font-normal"
                 >
-                    <span className="truncate">{value || "Select font..."}</span>
+                    <span className="min-w-0 flex-1 truncate text-left">
+                        {value || "Select font..."}
+                    </span>
                     <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
@@ -101,12 +103,12 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
                             <button
                                 key={family}
                                 type="button"
-                                className={`flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-hidden hover:bg-accent hover:text-accent-foreground ${
+                                className={`flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-left text-sm outline-hidden hover:bg-accent hover:text-accent-foreground ${
                                     family === value ? "bg-accent text-accent-foreground" : ""
                                 }`}
                                 onClick={() => handleSelect(family)}
                             >
-                                {family}
+                                <span className="truncate">{family}</span>
                             </button>
                         ))
                     )}

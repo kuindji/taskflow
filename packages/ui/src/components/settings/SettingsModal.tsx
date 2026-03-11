@@ -63,7 +63,7 @@ function SettingsModal() {
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="w-[min(42rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-[42rem]">
                 <DialogHeader>
                     <DialogTitle>Settings</DialogTitle>
                     <DialogDescription>
@@ -73,8 +73,8 @@ function SettingsModal() {
                 <div className="space-y-6">
                     <section className="space-y-3">
                         <h3 className="text-sm font-medium">Application Font</h3>
-                        <div className="grid grid-cols-[1fr_80px] gap-3 items-center">
-                            <div className="space-y-1">
+                        <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
+                            <div className="min-w-0 space-y-1">
                                 <Label className="text-xs text-muted-foreground">Family</Label>
                                 <FontFamilySelect
                                     value={settings.general.fontFamily}
@@ -96,8 +96,8 @@ function SettingsModal() {
                     </section>
                     <section className="space-y-3">
                         <h3 className="text-sm font-medium">Terminal Font</h3>
-                        <div className="grid grid-cols-[1fr_80px] gap-3 items-center">
-                            <div className="space-y-1">
+                        <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
+                            <div className="min-w-0 space-y-1">
                                 <Label className="text-xs text-muted-foreground">Family</Label>
                                 <FontFamilySelect
                                     value={settings.terminal.fontFamily}
