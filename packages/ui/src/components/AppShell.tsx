@@ -59,12 +59,12 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
     const isElectron = useIsElectron();
 
     return (
-        <div className="flex h-screen flex-col overflow-hidden">
-            {isElectron && (
-                <div className="bg-card flex h-9 shrink-0 items-center px-20 [-webkit-app-region:drag]" />
-            )}
-            <div className="flex flex-1 overflow-hidden">
-                <div className="bg-card flex shrink-0 flex-col" style={{ width: sidebarWidth }}>
+        <div className="bg-island-base flex h-screen flex-col overflow-hidden">
+            <div className="flex flex-1 gap-1.5 overflow-hidden p-1.5">
+                <div
+                    className={`bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50 ${isElectron ? "pt-8" : ""}`}
+                    style={{ width: sidebarWidth }}
+                >
                     {sidebar}
                 </div>
 
@@ -72,7 +72,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
 
                 {fileExplorerOpen && (
                     <div
-                        className="bg-card flex shrink-0 flex-col"
+                        className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50"
                         style={{ width: fileExplorerWidth }}
                     >
                         {fileExplorer}
@@ -83,7 +83,9 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
                     <ResizeHandle onResize={handleFileExplorerResize} panelGap={panelGap} />
                 )}
 
-                <div className="flex flex-1 flex-col overflow-hidden">{workspace}</div>
+                <div className="bg-card flex flex-1 flex-col overflow-hidden rounded-lg border border-border/50">
+                    {workspace}
+                </div>
 
                 {taskInfoOpen && (
                     <ResizeHandle onResize={handleTaskInfoResize} panelGap={panelGap} />
@@ -91,7 +93,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
 
                 {taskInfoOpen && (
                     <div
-                        className="bg-card flex shrink-0 flex-col"
+                        className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50"
                         style={{ width: taskInfoWidth }}
                     >
                         {taskInfo}
