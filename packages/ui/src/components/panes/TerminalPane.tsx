@@ -36,19 +36,27 @@ interface BufferedTerminalChunk {
     sequence: number;
 }
 
+interface FitResult {
+    measured: boolean;
+    resized: boolean;
+}
+
 /** Module-level cache: keeps xterm instances alive across task switches */
 const terminalCache = new Map<string, CachedTerminal>();
 
-function fitTerminal(fit: FitAddon, term: Terminal): boolean {
+function fitTerminal(fit: FitAddon, term: Terminal): FitResult {
     const dims = fit.proposeDimensions();
-    if (!dims || isNaN(dims.cols) || isNaN(dims.rows)) return false;
+    if (!dims || isNaN(dims.cols) || isNaN(dims.rows) || dims.cols < 2 || dims.rows < 1) {
+        return { measured: false, resized: false };
+    }
+
     const cols = Math.max(2, dims.cols - 1);
     const prevCols = term.cols;
     const prevRows = term.rows;
     if (prevCols !== cols || prevRows !== dims.rows) {
         term.resize(cols, dims.rows);
     }
-    return cols !== prevCols || dims.rows !== prevRows;
+    return { measured: true, resized: cols !== prevCols || dims.rows !== prevRows };
 }
 
 function refreshTerminal(term: Terminal): void {
@@ -185,15 +193,25 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
     );
 
     const scheduleFit = useCallback(
-        (forceResize = false, focus = false) => {
+        (forceResize = false, focus = false, scrollToBottom = false, retries = 2) => {
             if (resizeFrameRef.current !== null) {
                 cancelAnimationFrame(resizeFrameRef.current);
             }
             resizeFrameRef.current = requestAnimationFrame(() => {
                 resizeFrameRef.current = null;
                 if (!visibleRef.current || !fitRef.current || !termRef.current) return;
-                const resized = fitTerminal(fitRef.current, termRef.current);
-                sendResizeIfNeeded(forceResize || resized);
+                const fitResult = fitTerminal(fitRef.current, termRef.current);
+                if (!fitResult.measured) {
+                    if (retries > 0) {
+                        scheduleFit(forceResize, focus, scrollToBottom, retries - 1);
+                    }
+                    return;
+                }
+
+                sendResizeIfNeeded(forceResize || fitResult.resized);
+                if (scrollToBottom) {
+                    termRef.current.scrollToBottom();
+                }
                 refreshTerminal(termRef.current);
                 if (focus) termRef.current.focus();
             });
@@ -214,7 +232,7 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
         containerRef.current.appendChild(element);
 
         if (visible) {
-            scheduleFit(true);
+            scheduleFit(true, false, true);
         }
 
         // User input: only active while mounted
@@ -248,7 +266,7 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
         if (!visible || !termRef.current || !fitRef.current) return;
         // Defer fit until the browser has painted the now-visible container,
         // otherwise FitAddon measures zero dimensions from display:none.
-        scheduleFit(true, true);
+        scheduleFit(true, true, true);
     }, [visible, sessionId, scheduleFit]);
 
     const terminalFontFamily = useSettingsStore((s) => s.settings?.terminal?.fontFamily);
