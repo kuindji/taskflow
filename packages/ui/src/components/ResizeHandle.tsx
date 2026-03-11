@@ -40,15 +40,15 @@ function ResizeHandle({ onResize, onResizeEnd, panelGap }: ResizeHandleProps) {
         [onResize, onResizeEnd],
     );
 
-    const width = Math.max(panelGap, 4);
+    const width = Math.max(panelGap, 8);
 
     return (
         <div
             onMouseDown={handleMouseDown}
             style={{ width }}
-            className="group relative shrink-0 cursor-col-resize"
+            className="group relative flex shrink-0 cursor-col-resize items-center justify-center"
         >
-            <div className="bg-border group-hover:bg-ring absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-all group-hover:w-[2px]" />
+            <div className="bg-border/40 group-hover:bg-border/70 h-8 w-0.5 rounded-full transition-colors" />
         </div>
     );
 }
