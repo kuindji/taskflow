@@ -50,6 +50,7 @@ export class PtyManager {
                 ...cleanEnv,
                 PATH: buildShellPath(),
                 TERM: "xterm-256color",
+                COLORTERM: "truecolor",
                 ...options.env,
             },
             terminal: {

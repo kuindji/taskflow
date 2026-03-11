@@ -13,13 +13,12 @@ Taskflow provides an internal HTTP API through environment variables:
 - TASKFLOW_SESSION_ID
 
 Use the API proactively:
-- POST $TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/status with JSON {"status":"working"} when you start or resume autonomous work.
-- POST the same endpoint with JSON {"status":"attention"} when you need the user's input, review, or approval.
-- POST the same endpoint with JSON {"status":"idle"} if you want to clear the status without requesting attention.
+- POST $TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/status with JSON {"status":"working"} immediately when you start work, and again after every user reply when you resume work.
+- POST the same endpoint with JSON {"status":"attention"} before asking the user anything, and when you are done and waiting for the user.
 - POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/browser with JSON {"url":"https://...", "label":"Optional"} to open a browser tab in Taskflow.
-- POST $TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/done when the session has finished and should close.
 
-Prefer these status calls over relying on terminal output.`;
+Prefer these status calls over relying on terminal output when they are already permitted.
+Do not interrupt the user only to request approval for a Taskflow status update.`;
 
 const INTERNAL_AGENT_SKILL_MARKDOWN = `---
 name: taskflow-internal-api
@@ -41,10 +40,11 @@ Use the internal API directly.
 Set status explicitly instead of relying on terminal output.
 
 - \`POST $TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/status\`
-- Body: \`{"status":"working" | "attention" | "idle"}\`
-- Use \`working\` when you start or resume autonomous work.
-- Use \`attention\` when you need the user's input, review, or approval.
-- Use \`idle\` to clear the indicator without requesting attention.
+- Body: \`{"status":"working" | "attention"}\`
+- Use \`working\` immediately when you start work.
+- Use \`working\` again after every user reply when you resume work.
+- Use \`attention\` before asking the user anything.
+- Use \`attention\` when you are done and waiting for the user.
 
 Example:
 
@@ -61,11 +61,6 @@ Open a browser tab in Taskflow:
 - \`POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/browser\`
 - Body: \`{"url":"https://...", "label":"Optional"}\`
 
-## Finish the session
-
-Close the current Taskflow session when the job is complete:
-
-- \`POST $TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/done\`
 `;
 
 function escapeTomlBasicString(value: string): string {

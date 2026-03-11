@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CanvasAddon } from "@xterm/addon-canvas";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -43,8 +44,13 @@ interface FitResult {
     resized: boolean;
 }
 
+interface TerminalViewportSnapshot {
+    distanceFromBottom: number;
+}
+
 /** Module-level cache: keeps xterm instances alive across task switches */
 const terminalCache = new Map<string, CachedTerminal>();
+const RESIZE_DEBOUNCE_MS = 250;
 
 function fitTerminal(fit: FitAddon, term: Terminal): FitResult {
     const dims = fit.proposeDimensions();
@@ -67,37 +73,35 @@ function refreshTerminal(term: Terminal): void {
     term.refresh(0, term.rows - 1);
 }
 
-function createBufferedWriter(term: Terminal): { write: (data: string) => void; dispose: () => void } {
-    let frameId: number | null = null;
-    const chunks: string[] = [];
-
-    const flush = () => {
-        frameId = null;
-        if (chunks.length === 0) return;
-        term.write(chunks.join(""));
-        chunks.length = 0;
-    };
-
+function captureViewport(term: Terminal): TerminalViewportSnapshot {
+    const buffer = term.buffer.active;
     return {
-        write(data) {
-            if (!data) return;
-            chunks.push(data);
-            if (frameId !== null) return;
-            frameId = window.requestAnimationFrame(flush);
-        },
-        dispose() {
-            if (frameId !== null) {
-                window.cancelAnimationFrame(frameId);
-                frameId = null;
-            }
-            chunks.length = 0;
-        },
+        distanceFromBottom: Math.max(0, buffer.baseY - buffer.viewportY),
     };
 }
 
-function loadBestEffortWebglAddon(term: Terminal): () => void {
+function restoreViewport(term: Terminal, snapshot: TerminalViewportSnapshot): void {
+    const buffer = term.buffer.active;
+    const targetLine = Math.max(0, buffer.baseY - snapshot.distanceFromBottom);
+    term.scrollToLine(targetLine);
+}
+
+function createTerminalWriter(term: Terminal): { write: (data: string) => void; dispose: () => void } {
+    return {
+        write(data) {
+            if (!data) return;
+            term.write(data);
+        },
+        dispose() {},
+    };
+}
+
+function loadBestEffortRendererAddons(term: Terminal): () => void {
+    const canvas = new CanvasAddon();
+    term.loadAddon(canvas);
+
     let disposed = false;
-    let cleanup: (() => void) | null = null;
+    let cleanupWebgl: (() => void) | null = null;
 
     void import("@xterm/addon-webgl")
         .then(({ WebglAddon }) => {
@@ -105,22 +109,23 @@ function loadBestEffortWebglAddon(term: Terminal): () => void {
             const addon = new WebglAddon();
             term.loadAddon(addon);
             const contextLossDisposable = addon.onContextLoss(() => {
-                cleanup?.();
-                cleanup = null;
+                cleanupWebgl?.();
+                cleanupWebgl = null;
             });
-            cleanup = () => {
+            cleanupWebgl = () => {
                 contextLossDisposable.dispose();
                 addon.dispose();
             };
         })
         .catch(() => {
-            // Canvas renderer remains the fallback when WebGL is unavailable.
+            // Canvas remains the baseline renderer when WebGL is unavailable.
         });
 
     return () => {
         disposed = true;
-        cleanup?.();
-        cleanup = null;
+        cleanupWebgl?.();
+        cleanupWebgl = null;
+        canvas.dispose();
     };
 }
 
@@ -162,8 +167,8 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
     element.style.width = "100%";
     element.style.height = "100%";
     term.open(element);
-    const disposeWebgl = loadBestEffortWebglAddon(term);
-    const writer = createBufferedWriter(term);
+    const disposeRendererAddons = loadBestEffortRendererAddons(term);
+    const writer = createTerminalWriter(term);
 
     // Buffer live output until history is loaded, then write directly
     const pendingData: BufferedTerminalChunk[] = [];
@@ -213,7 +218,7 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
         unsubOutput,
         unsubExit,
         disposeRuntime: () => {
-            disposeWebgl();
+            disposeRendererAddons();
             writer.dispose();
         },
     };
@@ -239,7 +244,8 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
     const fitRef = useRef<FitAddon | null>(null);
     const visibleRef = useRef(visible);
     const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
-    const resizeFrameRef = useRef<number | null>(null);
+    const fitFrameRef = useRef<number | null>(null);
+    const resizeDebounceTimeoutRef = useRef<number | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const dragCounterRef = useRef(0);
     const sendInput = useSessionStore((s) => s.sendInput);
@@ -271,12 +277,13 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
 
     const scheduleFit = useCallback(
         (forceResize = false, focus = false, scrollToBottom = false, retries = 2) => {
-            if (resizeFrameRef.current !== null) {
-                cancelAnimationFrame(resizeFrameRef.current);
+            if (fitFrameRef.current !== null) {
+                cancelAnimationFrame(fitFrameRef.current);
             }
-            resizeFrameRef.current = requestAnimationFrame(() => {
-                resizeFrameRef.current = null;
+            fitFrameRef.current = requestAnimationFrame(() => {
+                fitFrameRef.current = null;
                 if (!visibleRef.current || !fitRef.current || !termRef.current) return;
+                const viewportSnapshot = scrollToBottom ? null : captureViewport(termRef.current);
                 const fitResult = fitTerminal(fitRef.current, termRef.current);
                 if (!fitResult.measured) {
                     if (retries > 0) {
@@ -288,6 +295,8 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
                 sendResizeIfNeeded(forceResize || fitResult.resized);
                 if (scrollToBottom) {
                     termRef.current.scrollToBottom();
+                } else if (viewportSnapshot) {
+                    restoreViewport(termRef.current, viewportSnapshot);
                 }
                 refreshTerminal(termRef.current);
                 if (focus) termRef.current.focus();
@@ -295,6 +304,16 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
         },
         [sendResizeIfNeeded],
     );
+
+    const scheduleResizeObserverFit = useCallback(() => {
+        if (resizeDebounceTimeoutRef.current !== null) {
+            window.clearTimeout(resizeDebounceTimeoutRef.current);
+        }
+        resizeDebounceTimeoutRef.current = window.setTimeout(() => {
+            resizeDebounceTimeoutRef.current = null;
+            scheduleFit();
+        }, RESIZE_DEBOUNCE_MS);
+    }, [scheduleFit]);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -317,19 +336,23 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
             sendInputRef.current(sessionId, data);
         });
 
-        // Resize on container resize, but coalesce rapid layout changes into one frame.
+        // Debounce resize observer churn so PTY size only updates after layout settles.
         const resizeObserver = new ResizeObserver(() => {
             if (!visibleRef.current) return;
-            scheduleFit();
+            scheduleResizeObserverFit();
         });
         resizeObserver.observe(containerRef.current);
 
         return () => {
             resizeObserver.disconnect();
             dataDisposable.dispose();
-            if (resizeFrameRef.current !== null) {
-                cancelAnimationFrame(resizeFrameRef.current);
-                resizeFrameRef.current = null;
+            if (fitFrameRef.current !== null) {
+                cancelAnimationFrame(fitFrameRef.current);
+                fitFrameRef.current = null;
+            }
+            if (resizeDebounceTimeoutRef.current !== null) {
+                window.clearTimeout(resizeDebounceTimeoutRef.current);
+                resizeDebounceTimeoutRef.current = null;
             }
             // Detach from DOM but keep terminal alive in cache
             element.remove();
@@ -337,7 +360,7 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
             fitRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- terminal setup should not re-run on visibility change
-    }, [scheduleFit, sessionId, taskId]);
+    }, [scheduleFit, scheduleResizeObserverFit, sessionId, taskId]);
 
     useEffect(() => {
         if (!visible || !termRef.current || !fitRef.current) return;

@@ -16,6 +16,17 @@ function escapeTomlBasicString(value: string): string {
 }
 
 describe("internal agent skill", () => {
+    it("uses only working and attention session states", () => {
+        expect(INTERNAL_AGENT_SYSTEM_PROMPT).toContain(
+            'status with JSON {"status":"working"} immediately when you start work',
+        );
+        expect(INTERNAL_AGENT_SYSTEM_PROMPT).toContain(
+            'the same endpoint with JSON {"status":"attention"} before asking the user anything, and when you are done and waiting for the user.',
+        );
+        expect(INTERNAL_AGENT_SYSTEM_PROMPT).not.toContain('{"status":"idle"}');
+        expect(INTERNAL_AGENT_SYSTEM_PROMPT).not.toContain("/done");
+    });
+
     it("configures Codex to load the Taskflow internal skill", () => {
         const spec = buildAgentLaunchSpec(
             "codex",

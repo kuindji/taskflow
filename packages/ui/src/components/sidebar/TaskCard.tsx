@@ -48,7 +48,11 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
     );
 
     const usingDescriptionAsTitle = !task.title && !!task.description;
-    const title = task.title || task.description || "Untitled";
+    const rawTitle = task.title || task.description || "Untitled";
+    const title =
+        usingDescriptionAsTitle && rawTitle.length > 50
+            ? rawTitle.slice(0, 50) + "\u2026"
+            : rawTitle;
     const description =
         !usingDescriptionAsTitle && task.description
             ? task.description.length > 60

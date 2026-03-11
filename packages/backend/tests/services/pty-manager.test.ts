@@ -63,6 +63,23 @@ describe("PtyManager", () => {
         expect(output).toContain("24 80");
     });
 
+    it("sets COLORTERM=truecolor for PTY sessions", async () => {
+        let output = "";
+        const sessionId = manager.spawn({
+            command: "/bin/sh",
+            args: ["-lc", "printf %s \"$COLORTERM\""],
+            cwd: "/tmp",
+            onData: (data) => {
+                output += data;
+            },
+            onExit: () => {},
+        });
+
+        expect(sessionId).toBeTruthy();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        expect(output).toContain("truecolor");
+    });
+
     it("lists active sessions", () => {
         const id1 = manager.spawn({
             command: "/bin/cat",
