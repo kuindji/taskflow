@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -22,17 +22,21 @@ interface CachedTerminal {
     unsubExit: () => void;
 }
 
+interface BufferedTerminalChunk {
+    data: string;
+    sequence: number;
+}
+
 /** Module-level cache: keeps xterm instances alive across task switches */
 const terminalCache = new Map<string, CachedTerminal>();
 
-/** Fit terminal to container, subtracting 1 column to prevent subpixel overflow */
-function fitTerminal(fit: FitAddon, term: Terminal): void {
+function fitTerminal(fit: FitAddon, term: Terminal): boolean {
     const dims = fit.proposeDimensions();
-    if (!dims || isNaN(dims.cols) || isNaN(dims.rows)) return;
-    const cols = Math.max(2, dims.cols - 1);
-    if (term.cols !== cols || term.rows !== dims.rows) {
-        term.resize(cols, dims.rows);
-    }
+    if (!dims || isNaN(dims.cols) || isNaN(dims.rows)) return false;
+    const prevCols = term.cols;
+    const prevRows = term.rows;
+    fit.fit();
+    return term.cols !== prevCols || term.rows !== prevRows;
 }
 
 function getOrCreateTerminal(sessionId: string): CachedTerminal {
@@ -71,7 +75,7 @@ function getOrCreateTerminal(sessionId: string): CachedTerminal {
     term.open(element);
 
     // Buffer live output until history is loaded, then write directly
-    const pendingData: string[] = [];
+    const pendingData: BufferedTerminalChunk[] = [];
     let historyLoaded = false;
 
     const unsubOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
@@ -80,7 +84,7 @@ function getOrCreateTerminal(sessionId: string): CachedTerminal {
             if (historyLoaded) {
                 term.write(event.data);
             } else {
-                pendingData.push(event.data);
+                pendingData.push({ data: event.data, sequence: event.sequence });
             }
         }
     });
@@ -97,15 +101,17 @@ function getOrCreateTerminal(sessionId: string): CachedTerminal {
 
     // Replay scrollback then flush buffered live data
     sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, { sessionId })
-        .then(({ data }) => {
+        .then(({ data, lastSequence }) => {
             if (data) term.write(data);
             historyLoaded = true;
-            for (const chunk of pendingData) term.write(chunk);
+            for (const chunk of pendingData) {
+                if (chunk.sequence > lastSequence) term.write(chunk.data);
+            }
             pendingData.length = 0;
         })
         .catch(() => {
             historyLoaded = true;
-            for (const chunk of pendingData) term.write(chunk);
+            for (const chunk of pendingData) term.write(chunk.data);
             pendingData.length = 0;
         });
 
@@ -130,6 +136,8 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
     const termRef = useRef<Terminal | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const visibleRef = useRef(visible);
+    const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
+    const resizeFrameRef = useRef<number | null>(null);
     const sendInput = useSessionStore((s) => s.sendInput);
     const resizeTerminal = useSessionStore((s) => s.resizeTerminal);
 
@@ -144,6 +152,35 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
     const resizeTerminalRef = useRef(resizeTerminal);
     resizeTerminalRef.current = resizeTerminal;
 
+    const sendResizeIfNeeded = useCallback(
+        (force = false) => {
+            const term = termRef.current;
+            if (!term) return;
+            const next = { cols: term.cols, rows: term.rows };
+            const prev = lastSentSizeRef.current;
+            if (!force && prev && prev.cols === next.cols && prev.rows === next.rows) return;
+            lastSentSizeRef.current = next;
+            resizeTerminalRef.current(sessionId, next.cols, next.rows);
+        },
+        [sessionId],
+    );
+
+    const scheduleFit = useCallback(
+        (forceResize = false, focus = false) => {
+            if (resizeFrameRef.current !== null) {
+                cancelAnimationFrame(resizeFrameRef.current);
+            }
+            resizeFrameRef.current = requestAnimationFrame(() => {
+                resizeFrameRef.current = null;
+                if (!visibleRef.current || !fitRef.current || !termRef.current) return;
+                const resized = fitTerminal(fitRef.current, termRef.current);
+                sendResizeIfNeeded(forceResize || resized);
+                if (focus) termRef.current.focus();
+            });
+        },
+        [sendResizeIfNeeded],
+    );
+
     useEffect(() => {
         if (!containerRef.current) return;
 
@@ -157,8 +194,7 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
         containerRef.current.appendChild(element);
 
         if (visible) {
-            fitTerminal(fit, term);
-            resizeTerminalRef.current(sessionId, term.cols, term.rows);
+            scheduleFit(true);
         }
 
         // User input: only active while mounted
@@ -166,42 +202,54 @@ function TerminalPane({ sessionId, visible }: TerminalPaneProps) {
             sendInputRef.current(sessionId, data);
         });
 
-        // Resize notifications: only while mounted
-        const resizeDisposable = term.onResize(({ cols, rows }) => {
-            resizeTerminalRef.current(sessionId, cols, rows);
-        });
-
-        // Resize on container resize
+        // Resize on container resize, but coalesce rapid layout changes into one frame.
         const resizeObserver = new ResizeObserver(() => {
-            if (!visibleRef.current || !fitRef.current || !termRef.current) return;
-            fitTerminal(fitRef.current, termRef.current);
-            resizeTerminalRef.current(sessionId, termRef.current.cols, termRef.current.rows);
+            if (!visibleRef.current) return;
+            scheduleFit();
         });
         resizeObserver.observe(containerRef.current);
 
         return () => {
             resizeObserver.disconnect();
             dataDisposable.dispose();
-            resizeDisposable.dispose();
+            if (resizeFrameRef.current !== null) {
+                cancelAnimationFrame(resizeFrameRef.current);
+                resizeFrameRef.current = null;
+            }
             // Detach from DOM but keep terminal alive in cache
             element.remove();
             termRef.current = null;
             fitRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- terminal setup should not re-run on visibility change
-    }, [sessionId]);
+    }, [scheduleFit, sessionId]);
 
     useEffect(() => {
         if (!visible || !termRef.current || !fitRef.current) return;
         // Defer fit until the browser has painted the now-visible container,
         // otherwise FitAddon measures zero dimensions from display:none.
-        const raf = requestAnimationFrame(() => {
-            if (!fitRef.current || !termRef.current) return;
-            fitTerminal(fitRef.current, termRef.current);
-            resizeTerminal(sessionId, termRef.current.cols, termRef.current.rows);
-        });
-        return () => cancelAnimationFrame(raf);
-    }, [visible, sessionId, resizeTerminal]);
+        scheduleFit(true, true);
+    }, [visible, sessionId, scheduleFit]);
+
+    // Live-update terminal font when settings change
+    const terminalFontFamily = useSettingsStore((s) => s.settings?.terminal?.fontFamily);
+    const terminalFontSize = useSettingsStore((s) => s.settings?.terminal?.fontSize);
+
+    useEffect(() => {
+        const cached = terminalCache.get(sessionId);
+        if (!cached || terminalFontFamily === undefined) return;
+        cached.term.options.fontFamily = terminalFontFamily;
+    }, [sessionId, terminalFontFamily]);
+
+    useEffect(() => {
+        const cached = terminalCache.get(sessionId);
+        if (!cached || terminalFontSize === undefined) return;
+        cached.term.options.fontSize = terminalFontSize;
+        // Only fit if the terminal is currently visible
+        if (visible) {
+            fitTerminal(cached.fit, cached.term);
+        }
+    }, [sessionId, terminalFontSize, visible]);
 
     return <div ref={containerRef} className="flex-1 overflow-hidden" />;
 }
