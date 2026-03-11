@@ -33,7 +33,7 @@ function getLanguage(path: string): string {
 
 const jsxCompilerOptions: monaco.languages.typescript.CompilerOptions = {
     jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
-    target: monaco.languages.typescript.ScriptTarget.ES2022,
+    target: monaco.languages.typescript.ScriptTarget.ESNext,
     module: monaco.languages.typescript.ModuleKind.ESNext,
     moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
     allowJs: true,

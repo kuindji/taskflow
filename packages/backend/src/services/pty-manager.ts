@@ -53,7 +53,7 @@ export class PtyManager {
         const rows = options.rows ?? 40;
 
         const decoder = new TextDecoder();
-        let terminal: BunTerminal | null = null;
+        let terminal: Terminal | null = null;
         const scrollback: string[] = [];
         let scrollbackLen = 0;
 
@@ -68,14 +68,15 @@ export class PtyManager {
             terminal: {
                 rows,
                 cols,
-                data: (term: BunTerminal, data: Uint8Array) => {
+                data: (term: Terminal, data: Uint8Array) => {
                     terminal = term;
                     const text = decoder.decode(data);
                     scrollback.push(text);
                     scrollbackLen += text.length;
                     // Trim oldest chunks when over the cap
                     while (scrollbackLen > MAX_SCROLLBACK && scrollback.length > 1) {
-                        scrollbackLen -= scrollback.shift()!.length;
+                        const removed = scrollback.shift();
+                        if (removed) scrollbackLen -= removed.length;
                     }
                     options.onData(text);
                 },
