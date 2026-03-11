@@ -130,6 +130,10 @@ export class TaskStore {
     }
 
     const projects = await this.listProjects();
+    const duplicate = projects.find((p) => p.path === resolvedPath);
+    if (duplicate) {
+      throw new Error(`A project already exists at this path: ${duplicate.name}`);
+    }
     const project: Project = {
       id: randomUUID(),
       name: input.name?.trim() || basename(resolvedPath),
@@ -139,6 +143,17 @@ export class TaskStore {
     projects.push(project);
     await writeFile(this.config.projectsFile, JSON.stringify(projects, null, 2));
     return project;
+  }
+
+  async updateProject(id: string, updates: { name: string }): Promise<Project> {
+    const projects = await this.listProjects();
+    const index = projects.findIndex((p) => p.id === id);
+    if (index === -1) {
+      throw new Error(`Project not found: ${id}`);
+    }
+    projects[index] = { ...projects[index], name: updates.name.trim() };
+    await writeFile(this.config.projectsFile, JSON.stringify(projects, null, 2));
+    return projects[index];
   }
 
   async removeProject(id: string): Promise<void> {

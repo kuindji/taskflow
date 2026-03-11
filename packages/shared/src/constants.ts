@@ -4,6 +4,7 @@ export const MSG = {
   PROJECT_LIST: 'project:list',
   PROJECT_ADD: 'project:add',
   PROJECT_REMOVE: 'project:remove',
+  PROJECT_UPDATE: 'project:update',
 
   // Tasks
   TASK_LIST: 'task:list',

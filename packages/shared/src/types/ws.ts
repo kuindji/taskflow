@@ -37,6 +37,11 @@ export interface ProjectRemovePayload {
   id: string;
 }
 
+export interface ProjectUpdatePayload {
+  id: string;
+  name: string;
+}
+
 // Task messages
 export interface TaskListPayload {
   projectId?: string;

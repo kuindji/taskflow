@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import type { Task } from '@taskflow/shared';
 import { useProjectStore } from '@/stores/project-store';
 import { useTaskStore } from '@/stores/task-store';
@@ -6,6 +6,7 @@ import { useSessionStore } from '@/stores/session-store';
 import { useWsStatus } from '@/providers/WebSocketProvider';
 import { ProjectGroup } from './ProjectGroup';
 import { NewTaskDialog } from './NewTaskDialog';
+import { NewProjectDialog } from './NewProjectDialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -13,10 +14,13 @@ import { Plus } from 'lucide-react';
 
 export function TaskSidebar() {
   const { connected } = useWsStatus();
-  const { projects, fetchProjects, addProject } = useProjectStore();
+  const { projects, fetchProjects, addProject, updateProject } = useProjectStore();
   const { tasks, activeTaskId, fetchTasks, setActiveTask, createTask } = useTaskStore();
   const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [openTaskAfterProject, setOpenTaskAfterProject] = useState(false);
 
   useEffect(() => {
     if (!connected) return;
@@ -38,26 +42,41 @@ export function TaskSidebar() {
     return map;
   }, [tasks]);
 
-  // TODO: Replace window.prompt() with shadcn Dialog for consistent UX
-  const handleAddProject = async (): Promise<string | null> => {
-    let path: string | null | undefined;
-    if (window.taskflow?.selectProjectDirectory) {
-      path = await window.taskflow.selectProjectDirectory();
-    } else {
-      path = window.prompt('Project directory path');
+  const handleOpenProjectDialog = useCallback((thenOpenTask = false) => {
+    setProjectError(null);
+    setOpenTaskAfterProject(thenOpenTask);
+    setNewProjectOpen(true);
+  }, []);
+
+  const handleProjectSubmit = useCallback(async (path: string) => {
+    try {
+      setProjectError(null);
+      await addProject(path);
+      setNewProjectOpen(false);
+      if (openTaskAfterProject) {
+        setNewTaskOpen(true);
+      }
+    } catch (err) {
+      setProjectError(err instanceof Error ? err.message : 'Failed to add project');
     }
-    if (!path) return null;
-    const suggestedName = path.split('/').pop() ?? '';
-    const input = window.prompt('Project name (optional)', suggestedName);
-    const project = await addProject(input?.trim() || undefined, path);
-    return project.id;
-  };
+  }, [addProject, openTaskAfterProject]);
+
+  const handleProjectDialogChange = useCallback((open: boolean) => {
+    if (!open) setProjectError(null);
+    setNewProjectOpen(open);
+  }, []);
+
+  const handleRenameProject = useCallback(async (id: string, name: string) => {
+    try {
+      await updateProject(id, name);
+    } catch (err) {
+      console.error('Failed to rename project:', err);
+    }
+  }, [updateProject]);
 
   const handleNewTask = () => {
     if (projects.length === 0) {
-      void handleAddProject().then((id) => {
-        if (id) setNewTaskOpen(true);
-      }).catch(() => {});
+      handleOpenProjectDialog(true);
       return;
     }
     setNewTaskOpen(true);
@@ -90,18 +109,31 @@ export function TaskSidebar() {
         {projects.length === 0 && (
           <div className="p-3 text-muted-foreground text-[11px]">
             <div className="mb-2">No projects yet.</div>
-            <Button variant="ghost" size="sm" onClick={handleAddProject} className="text-accent text-[11px]">Add Project</Button>
+            <Button variant="ghost" size="sm" onClick={() => handleOpenProjectDialog()} className="text-accent text-[11px]">Add Project</Button>
           </div>
         )}
         {projects.map((project) => (
-          <ProjectGroup key={project.id} project={project} tasks={tasksByProject.get(project.id) ?? []} activeTaskId={activeTaskId} onTaskClick={setActiveTask} />
+          <ProjectGroup
+            key={project.id}
+            project={project}
+            tasks={tasksByProject.get(project.id) ?? []}
+            activeTaskId={activeTaskId}
+            onTaskClick={setActiveTask}
+            onRename={handleRenameProject}
+          />
         ))}
       </ScrollArea>
       <Separator />
       <div className="px-2.5 py-1.5 flex justify-between">
-        <Button variant="ghost" size="sm" onClick={handleAddProject} className="text-muted-foreground text-[11px]">Add Project</Button>
+        <Button variant="ghost" size="sm" onClick={() => handleOpenProjectDialog()} className="text-muted-foreground text-[11px]">Add Project</Button>
         <Button variant="ghost" size="sm" className="text-muted-foreground text-[11px]">Settings</Button>
       </div>
+      <NewProjectDialog
+        open={newProjectOpen}
+        onOpenChange={handleProjectDialogChange}
+        onSubmit={(path) => void handleProjectSubmit(path)}
+        error={projectError}
+      />
       <NewTaskDialog
         open={newTaskOpen}
         onOpenChange={setNewTaskOpen}

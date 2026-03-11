@@ -24,6 +24,16 @@ async function git(
 }
 
 export class GitService {
+  async getBranch(repoPath: string): Promise<string | null> {
+    try {
+      const output = await git(['branch', '--show-current'], repoPath);
+      const branch = output.trim();
+      return branch || null;
+    } catch {
+      return null;
+    }
+  }
+
   async status(repoPath: string): Promise<GitStatusResult> {
     const branchOutput = await git(['branch', '--show-current'], repoPath);
     // Use the NUL-delimited porcelain format so paths are machine-safe even when

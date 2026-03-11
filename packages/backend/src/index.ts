@@ -47,7 +47,7 @@ async function main() {
       broadcast: server.broadcast,
     });
 
-    registerProjectHandlers(router, store);
+    registerProjectHandlers(router, store, gitService);
     registerTaskHandlers({
       router,
       store,
