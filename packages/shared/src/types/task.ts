@@ -1,3 +1,5 @@
+export type SessionStatus = "idle" | "working" | "attention";
+
 export interface SessionRef {
     id: string;
     type: "claude" | "codex" | "shell";

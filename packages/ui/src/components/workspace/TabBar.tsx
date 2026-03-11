@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useState } from "react";
 import { cva } from "class-variance-authority";
 import type { Tab } from "@/stores/session-store";
+import { useSessionStore } from "@/stores/session-store";
 import type { ShellInfo } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
@@ -12,6 +13,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { StatusDot } from "@/components/ui/status-dot";
 import { X, Plus, Play, Terminal, Code, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -45,9 +47,13 @@ function TabItem({ tab, isActive, onTabClick, onTabClose }: TabItemProps) {
         () => cn(tabVariants({ type: tab.type, active: isActive })),
         [tab.type, isActive],
     );
+    const status = useSessionStore(
+        (s) => (tab.sessionId ? (s.sessionStatus[tab.sessionId] ?? "idle") : "idle"),
+    );
 
     return (
         <div onClick={() => onTabClick(tab.id)} className={classes}>
+            {tab.sessionId && <StatusDot status={status} />}
             <span>{tab.label}</span>
             <Button
                 variant="ghost"

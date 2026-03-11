@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import type { Task } from "@taskflow/shared";
+import { useSessionStore } from "@/stores/session-store";
 import { Badge } from "@/components/ui/badge";
+import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 
 const taskCardVariants = cva(
@@ -29,6 +31,7 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
         () => cn(taskCardVariants({ active: isActive }), className),
         [isActive, className],
     );
+    const taskStatus = useSessionStore((s) => s.getTaskStatus(task.id));
 
     const usingDescriptionAsTitle = !task.title && !!task.description;
     const title = task.title || task.description || "Untitled";
@@ -41,7 +44,8 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
 
     return (
         <div onClick={onClick} className={cardClasses}>
-            <div className={cn("text-sm font-medium", isActive && "text-foreground")}>
+            <div className={cn("text-sm font-medium flex items-center gap-1.5", isActive && "text-foreground")}>
+                <StatusDot status={taskStatus} />
                 {title}
             </div>
             {description && (
