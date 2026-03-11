@@ -88,6 +88,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         await useTaskStore.getState().fetchTasks();
     },
     sendInput(sessionId, data) {
+        markRecentInput(sessionId, data);
         sendFireAndForget(MSG.SESSION_INPUT, { sessionId, data });
     },
     resizeTerminal(sessionId, cols, rows) {
@@ -202,6 +203,30 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 // Debounce timers for working → attention transitions
 const activityTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const ACTIVITY_TIMEOUT = 3000;
+const recentInput = new Map<string, { at: number; data: string }>();
+const TYPING_ACTIVITY_SUPPRESSION_MS = 400;
+
+function markRecentInput(sessionId: string, data: string): void {
+    recentInput.set(sessionId, { at: Date.now(), data });
+}
+
+function clearRecentInput(sessionId: string): void {
+    recentInput.delete(sessionId);
+}
+
+function shouldIgnoreRecentEcho(sessionId: string, data: string): boolean {
+    const lastInput = recentInput.get(sessionId);
+    if (!lastInput) return false;
+    if (Date.now() - lastInput.at > TYPING_ACTIVITY_SUPPRESSION_MS) {
+        recentInput.delete(sessionId);
+        return false;
+    }
+    if (!isSessionFocused(sessionId)) return false;
+
+    const isDirectEcho = data === lastInput.data;
+    const isEnterEcho = lastInput.data === "\r" && data === "\r\n";
+    return isDirectEcho || isEnterEcho;
+}
 
 function clearActivityTimer(sessionId: string): void {
     const timer = activityTimers.get(sessionId);
@@ -214,7 +239,8 @@ function clearActivityTimer(sessionId: string): void {
 // Track terminal output → working / attention status
 const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
-    const { sessionId } = payload as TerminalOutputEvent;
+    const { sessionId, data } = payload as TerminalOutputEvent;
+    if (shouldIgnoreRecentEcho(sessionId, data)) return;
 
     const store = useSessionStore.getState();
     if (store.sessionStatus[sessionId] !== "working") {
@@ -239,6 +265,7 @@ const _unsubSessionExited = onEvent(MSG.SESSION_EXITED, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
     const { sessionId } = payload as SessionExitedEvent;
     clearActivityTimer(sessionId);
+    clearRecentInput(sessionId);
     const { [sessionId]: _, ...remaining } = useSessionStore.getState().sessionStatus;
     useSessionStore.setState({ sessionStatus: remaining });
 });

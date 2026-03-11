@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import type { Task } from "@taskflow/shared";
+import type { SessionRef, Task } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
 import { Badge } from "@/components/ui/badge";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -26,12 +26,26 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     className?: string;
 }
 
+function SessionBadge({ session }: { session: SessionRef }) {
+    const status = useSessionStore((s) => s.sessionStatus[session.id] ?? "idle");
+
+    return (
+        <Badge
+            variant="outline"
+            colorScheme={session.type === "claude" ? "claude" : "codex"}
+            className="px-1 py-0 text-xs"
+        >
+            <StatusDot status={status} className="mr-0.5" />
+            {session.type}
+        </Badge>
+    );
+}
+
 export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) {
     const cardClasses = useMemo(
         () => cn(taskCardVariants({ active: isActive }), className),
         [isActive, className],
     );
-    const taskStatus = useSessionStore((s) => s.getTaskStatus(task.id));
 
     const usingDescriptionAsTitle = !task.title && !!task.description;
     const title = task.title || task.description || "Untitled";
@@ -44,10 +58,7 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
 
     return (
         <div onClick={onClick} className={cn(cardClasses, "[-webkit-app-region:no-drag]")}>
-            <div className={cn("text-sm font-medium flex items-center gap-1.5", isActive && "text-foreground")}>
-                <StatusDot status={taskStatus} />
-                {title}
-            </div>
+            <div className={cn("text-sm font-medium", isActive && "text-foreground")}>{title}</div>
             {description && (
                 <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
                     {description}
@@ -55,15 +66,8 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
             )}
             {task.sessions.length > 0 && (
                 <div className="mt-1.5 flex gap-1.5">
-                    {task.sessions.map((s) => (
-                        <Badge
-                            key={s.id}
-                            variant="outline"
-                            colorScheme={s.type === "claude" ? "claude" : "codex"}
-                            className="px-1 py-0 text-xs"
-                        >
-                            {s.type}
-                        </Badge>
+                    {task.sessions.map((session) => (
+                        <SessionBadge key={session.id} session={session} />
                     ))}
                 </div>
             )}
