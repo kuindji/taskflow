@@ -4,8 +4,7 @@ import { TerminalPane } from "@/components/panes/TerminalPane";
 import { EditorPane } from "@/components/panes/EditorPane";
 import { ChangesPane } from "@/components/panes/ChangesPane";
 import { BrowserPane } from "@/components/panes/BrowserPane";
-import { useTaskStore } from "@/stores/task-store";
-import { useProjectStore } from "@/stores/project-store";
+import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 
 interface TabContentProps {
     tabs: Tab[];
@@ -13,8 +12,7 @@ interface TabContentProps {
 }
 
 function TabContent({ tabs, activeTabId }: TabContentProps) {
-    const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
-    const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
+    const workspace = useActiveWorkspace();
 
     if (tabs.length === 0) {
         return (
@@ -25,9 +23,6 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
             </div>
         );
     }
-
-    const workingDir =
-        task?.worktree.enabled && task.worktree.path ? task.worktree.path : (project?.path ?? "");
 
     return (
         <div className="m-1.5 flex flex-1 overflow-hidden rounded-md border border-border/30">
@@ -46,7 +41,8 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                         // so PTY output is buffered and state is preserved across tab switches
                         pane = tab.sessionId ? (
                             <TerminalPane
-                                taskId={task?.id ?? ""}
+                                taskId={workspace.task?.id}
+                                projectId={workspace.task ? undefined : workspace.project?.id}
                                 sessionId={tab.sessionId}
                                 visible={isActive}
                             />
@@ -68,7 +64,11 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                     case "changes":
                         label = "Changes";
                         if (!isActive) return null;
-                        pane = <ChangesPane repoPath={workingDir} />;
+                        pane = workspace.workingDir ? (
+                            <ChangesPane repoPath={workspace.workingDir} />
+                        ) : (
+                            <div className="text-muted-foreground p-3">Repository not available</div>
+                        );
                         break;
 
                     case "browser":

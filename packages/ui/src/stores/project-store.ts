@@ -2,6 +2,8 @@ import { create } from "zustand";
 import type { Project } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "../hooks/useWebSocket";
+import { useTaskStore } from "./task-store";
+import { useUIStore } from "./ui-store";
 
 interface ProjectStore {
     projects: Project[];
@@ -19,6 +21,10 @@ export const useProjectStore = create<ProjectStore>((set) => ({
         set({ loading: true });
         const { projects } = await sendRequest<{ projects: Project[] }>(MSG.PROJECT_LIST);
         set({ projects, loading: false });
+        const activeProjectId = useUIStore.getState().activeProjectId;
+        if (activeProjectId && !projects.some((project) => project.id === activeProjectId)) {
+            useUIStore.getState().setActiveProject(null);
+        }
     },
     async addProject(path) {
         const project = await sendRequest<Project>(MSG.PROJECT_ADD, { path });
@@ -35,5 +41,9 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     async removeProject(id) {
         await sendRequest(MSG.PROJECT_REMOVE, { id });
         set((s) => ({ projects: s.projects.filter((p) => p.id !== id) }));
+        if (useUIStore.getState().activeProjectId === id) {
+            useUIStore.getState().setActiveProject(null);
+        }
+        await useTaskStore.getState().fetchTasks();
     },
 }));

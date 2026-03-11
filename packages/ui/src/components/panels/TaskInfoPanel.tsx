@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTaskStore } from "@/stores/task-store";
+import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 function TaskInfoPanel() {
-    const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
+    const workspace = useActiveWorkspace();
+    const task = workspace.task;
     const { updateTask } = useTaskStore();
     const [descriptionDraft, setDescriptionDraft] = useState("");
     const [notesDraft, setNotesDraft] = useState("");
@@ -82,8 +84,55 @@ function TaskInfoPanel() {
         };
     }, [persistDrafts, taskId]);
 
+    if (workspace.scope === "project" && workspace.project) {
+        return (
+            <div className="flex h-full flex-col">
+                <div className="flex items-center px-3 py-2.5">
+                    <span className="text-muted-foreground text-xs font-medium">
+                        Project Info
+                    </span>
+                </div>
+                <Separator />
+                <ScrollArea className="flex-1 p-3">
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-muted-foreground text-xs font-medium">
+                                Name
+                            </label>
+                            <div className="text-secondary-foreground mt-1 text-sm">
+                                {workspace.project.name}
+                            </div>
+                        </div>
+
+                        <Separator className="my-4" />
+
+                        <div>
+                            <label className="text-muted-foreground text-xs font-medium">
+                                Path
+                            </label>
+                            <div className="text-secondary-foreground mt-1 text-sm break-all">
+                                {workspace.project.path}
+                            </div>
+                        </div>
+
+                        <Separator className="my-4" />
+
+                        <div>
+                            <label className="text-muted-foreground text-xs font-medium">
+                                Created
+                            </label>
+                            <div className="text-secondary-foreground mt-1 text-sm">
+                                {new Date(workspace.project.createdAt).toLocaleString()}
+                            </div>
+                        </div>
+                    </div>
+                </ScrollArea>
+            </div>
+        );
+    }
+
     if (!task) {
-        return <div className="text-muted-foreground p-2 text-sm">Select a task</div>;
+        return <div className="text-muted-foreground p-2 text-sm">Select a task or project</div>;
     }
 
     return (

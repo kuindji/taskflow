@@ -12,6 +12,7 @@ export function registerProjectHandlers(
     router: Router,
     store: TaskStore,
     gitService: GitService,
+    closeSession?: (sessionId: string) => void,
 ): void {
     router.register(MSG.PROJECT_LIST, async () => {
         const projects = await store.listProjects();
@@ -31,6 +32,16 @@ export function registerProjectHandlers(
 
     router.register(MSG.PROJECT_REMOVE, async (payload) => {
         const { id } = payload as ProjectRemovePayload;
+        const project = await store.getProject(id);
+        const tasks = await store.listTasks(id);
+        for (const session of project?.sessions ?? []) {
+            closeSession?.(session.id);
+        }
+        for (const task of tasks) {
+            for (const session of task.sessions) {
+                closeSession?.(session.id);
+            }
+        }
         await store.removeProject(id);
         return { success: true };
     });

@@ -64,15 +64,17 @@ describe("project handlers", () => {
         expect(result.projects).toHaveLength(0);
     });
 
-    it("rejects removing a project with existing tasks", async () => {
+    it("removes a project with existing tasks", async () => {
         const projectDir = await createProjectDir("test");
         const added = (await router.handle(MSG.PROJECT_ADD, {
             name: "test",
             path: projectDir,
         })) as { id: string };
         await store.createTask({ projectId: added.id, title: "Task", description: "test" });
-        expect(router.handle(MSG.PROJECT_REMOVE, { id: added.id })).rejects.toThrow(
-            "Cannot remove project with existing tasks",
-        );
+        await router.handle(MSG.PROJECT_REMOVE, { id: added.id });
+        const result = (await router.handle(MSG.PROJECT_LIST, {})) as {
+            projects: unknown[];
+        };
+        expect(result.projects).toHaveLength(0);
     });
 });

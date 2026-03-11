@@ -24,7 +24,7 @@ function errorResponse(message: string, status: number): Response {
 
 export function registerApiRoutes(deps: ApiRouteDeps): void {
     const { apiRouter, taskStore, ptyManager, broadcast } = deps;
-    const allowedSessionStatuses = new Set<SessionStatus>(["idle", "working", "attention"]);
+    const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention"]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
         let body: Record<string, unknown>;
@@ -86,6 +86,29 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         return jsonResponse({ success: true });
     });
 
+    apiRouter.register("POST", "/api/projects/:projectId/browser", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const url = body.url;
+        if (typeof url !== "string" || !url.trim()) {
+            return errorResponse('Field "url" is required and must be a non-empty string', 400);
+        }
+
+        const label = typeof body.label === "string" ? body.label : undefined;
+
+        broadcast({
+            type: MSG.BROWSER_OPEN,
+            payload: { projectId: params.projectId, url, label },
+        });
+
+        return jsonResponse({ success: true });
+    });
+
     apiRouter.register("POST", "/api/sessions/:sessionId/status", async (req, params) => {
         let body: Record<string, unknown>;
         try {
@@ -96,10 +119,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
         const status = body.status;
         if (typeof status !== "string" || !allowedSessionStatuses.has(status as SessionStatus)) {
-            return errorResponse(
-                'Field "status" must be one of: idle, working, attention',
-                400,
-            );
+            return errorResponse('Field "status" must be one of: working, attention', 400);
         }
 
         if (!ptyManager.has(params.sessionId)) {

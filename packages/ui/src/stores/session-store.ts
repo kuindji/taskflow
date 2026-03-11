@@ -11,6 +11,9 @@ import type {
 import { MSG } from "@taskflow/shared";
 import { sendRequest, sendFireAndForget, onEvent } from "../hooks/useWebSocket";
 import { useTaskStore } from "./task-store";
+import { useProjectStore } from "./project-store";
+import { useUIStore } from "./ui-store";
+import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
 
 interface Tab {
     id: string;
@@ -22,12 +25,12 @@ interface Tab {
 }
 
 interface SessionStore {
-    tabsByTask: Record<string, Tab[]>;
-    activeTabByTask: Record<string, string>;
-    sessionStatus: Record<string, SessionStatus>;
+    tabsByWorkspace: Record<string, Tab[]>;
+    activeTabByWorkspace: Record<string, string>;
+    sessionStatus: Partial<Record<string, SessionStatus>>;
     lastTerminalSize: { cols: number; rows: number } | null;
     createSession(
-        taskId: string,
+        owner: { taskId?: string; projectId?: string },
         type: "claude" | "codex" | "shell",
         label?: string,
         prompt?: string,
@@ -36,14 +39,15 @@ interface SessionStore {
     closeSession(sessionId: string): Promise<void>;
     sendInput(sessionId: string, data: string): void;
     resizeTerminal(sessionId: string, cols: number, rows: number): void;
-    addTab(taskId: string, tab: Tab): void;
-    closeTab(taskId: string, tabId: string): Promise<void>;
-    setActiveTab(taskId: string, tabId: string): void;
-    setSessionStatus(sessionId: string, status: SessionStatus): void;
-    getTaskStatus(taskId: string): SessionStatus;
-    getTabs(taskId: string): Tab[];
-    getActiveTab(taskId: string): Tab | undefined;
+    addTab(workspaceKey: string, tab: Tab): void;
+    closeTab(workspaceKey: string, tabId: string): Promise<void>;
+    setActiveTab(workspaceKey: string, tabId: string): void;
+    setSessionStatus(sessionId: string, status?: SessionStatus): void;
+    getTaskStatus(taskId: string): SessionStatus | undefined;
+    getTabs(workspaceKey: string): Tab[];
+    getActiveTab(workspaceKey: string): Tab | undefined;
     syncWithTasks(tasks: Task[]): void;
+    syncWithProjects(projects: { id: string; sessions: SessionRef[] }[]): void;
 }
 
 export type { Tab };
@@ -60,17 +64,23 @@ function createSessionTab(session: SessionRef): Tab {
 /** Check whether a session's tab is currently visible (active task + active tab). */
 function isSessionFocused(sessionId: string): boolean {
     const activeTaskId = useTaskStore.getState().activeTaskId;
-    if (!activeTaskId) return false;
+    const activeProjectId = useUIStore.getState().activeProjectId;
+    const workspaceKey = activeTaskId
+        ? getTaskWorkspaceKey(activeTaskId)
+        : activeProjectId
+          ? getProjectWorkspaceKey(activeProjectId)
+          : null;
+    if (!workspaceKey) return false;
     const store = useSessionStore.getState();
-    const activeTabId = store.activeTabByTask[activeTaskId];
-    const tabs = store.tabsByTask[activeTaskId] ?? [];
+    const activeTabId = store.activeTabByWorkspace[workspaceKey];
+    const tabs = store.tabsByWorkspace[workspaceKey] ?? [];
     const activeTab = tabs.find((t) => t.id === activeTabId);
     return activeTab?.sessionId === sessionId;
 }
 
 function getSessionTab(sessionId: string): Tab | undefined {
     const store = useSessionStore.getState();
-    for (const tabs of Object.values(store.tabsByTask)) {
+    for (const tabs of Object.values(store.tabsByWorkspace)) {
         const tab = tabs.find((entry) => entry.sessionId === sessionId);
         if (tab) return tab;
     }
@@ -79,18 +89,20 @@ function getSessionTab(sessionId: string): Tab | undefined {
 
 function usesTerminalActivityStatus(sessionId: string): boolean {
     const type = getSessionTab(sessionId)?.type;
-    return type === "shell";
+    return type === "claude" || type === "codex";
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
-    tabsByTask: {},
-    activeTabByTask: {},
+    tabsByWorkspace: {},
+    activeTabByWorkspace: {},
     sessionStatus: {},
     lastTerminalSize: null,
-    async createSession(taskId, type, label, prompt, shell) {
+    async createSession(owner, type, label, prompt, shell) {
+        const ownerId = owner.taskId ?? owner.projectId;
+        if (!ownerId) throw new Error("Either taskId or projectId is required");
         const lastTerminalSize = get().lastTerminalSize;
         const { sessionId } = await sendRequest<{ sessionId: string }>(MSG.SESSION_CREATE, {
-            taskId,
+            ...owner,
             type,
             label,
             prompt,
@@ -99,13 +111,22 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             rows: lastTerminalSize?.rows,
         });
         const tab: Tab = { id: sessionId, type, label: label ?? `${type} session`, sessionId };
-        get().addTab(taskId, tab);
-        await useTaskStore.getState().fetchTasks();
+        const workspaceKey = owner.taskId
+            ? getTaskWorkspaceKey(owner.taskId)
+            : getProjectWorkspaceKey(ownerId);
+        get().addTab(workspaceKey, tab);
+        await Promise.all([
+            owner.taskId ? useTaskStore.getState().fetchTasks() : Promise.resolve(),
+            owner.projectId ? useProjectStore.getState().fetchProjects() : Promise.resolve(),
+        ]);
         return sessionId;
     },
     async closeSession(sessionId) {
         await sendRequest(MSG.SESSION_CLOSE, { sessionId });
-        await useTaskStore.getState().fetchTasks();
+        await Promise.all([
+            useTaskStore.getState().fetchTasks(),
+            useProjectStore.getState().fetchProjects(),
+        ]);
     },
     sendInput(sessionId, data) {
         markRecentInput(sessionId, data);
@@ -115,52 +136,71 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         set({ lastTerminalSize: { cols, rows } });
         sendFireAndForget(MSG.TERMINAL_RESIZE, { sessionId, cols, rows });
     },
-    addTab(taskId, tab) {
+    addTab(workspaceKey, tab) {
         set((s) => ({
-            tabsByTask: { ...s.tabsByTask, [taskId]: [...(s.tabsByTask[taskId] ?? []), tab] },
-            activeTabByTask: { ...s.activeTabByTask, [taskId]: tab.id },
+            tabsByWorkspace: {
+                ...s.tabsByWorkspace,
+                [workspaceKey]: [...(s.tabsByWorkspace[workspaceKey] ?? []), tab],
+            },
+            activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: tab.id },
         }));
     },
-    async closeTab(taskId, tabId) {
-        const tab = (get().tabsByTask[taskId] ?? []).find((entry) => entry.id === tabId);
+    async closeTab(workspaceKey, tabId) {
+        const tab = (get().tabsByWorkspace[workspaceKey] ?? []).find((entry) => entry.id === tabId);
         if (tab?.sessionId) {
             await get().closeSession(tab.sessionId);
         }
         set((s) => {
-            const tabs = (s.tabsByTask[taskId] ?? []).filter((t) => t.id !== tabId);
+            const tabs = (s.tabsByWorkspace[workspaceKey] ?? []).filter((t) => t.id !== tabId);
             const activeId =
-                s.activeTabByTask[taskId] === tabId
+                s.activeTabByWorkspace[workspaceKey] === tabId
                     ? (tabs[tabs.length - 1]?.id ?? "")
-                    : s.activeTabByTask[taskId];
+                    : s.activeTabByWorkspace[workspaceKey];
             const { [tab?.sessionId ?? ""]: _, ...remainingStatus } = s.sessionStatus;
             return {
-                tabsByTask: { ...s.tabsByTask, [taskId]: tabs },
-                activeTabByTask: { ...s.activeTabByTask, [taskId]: activeId },
+                tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: tabs },
+                activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: activeId },
                 sessionStatus: tab?.sessionId ? remainingStatus : s.sessionStatus,
             };
         });
     },
-    setActiveTab(taskId, tabId) {
+    setActiveTab(workspaceKey, tabId) {
         set((s) => {
-            const next = { activeTabByTask: { ...s.activeTabByTask, [taskId]: tabId } };
-            // Reset attention → idle when focusing a tab with an attention session
-            const tab = (s.tabsByTask[taskId] ?? []).find((t) => t.id === tabId);
-            if (tab?.sessionId && s.sessionStatus[tab.sessionId] === "attention") {
+            const next = { activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: tabId } };
+            const previousTab = (s.tabsByWorkspace[workspaceKey] ?? []).find(
+                (tab) => tab.id === s.activeTabByWorkspace[workspaceKey],
+            );
+
+            if (
+                previousTab?.sessionId &&
+                previousTab.id !== tabId &&
+                s.sessionStatus[previousTab.sessionId] === "attention"
+            ) {
+                const { [previousTab.sessionId]: _, ...nextStatus } = s.sessionStatus;
                 return {
                     ...next,
-                    sessionStatus: { ...s.sessionStatus, [tab.sessionId]: "idle" },
+                    sessionStatus: nextStatus,
                 };
             }
+
             return next;
         });
     },
     setSessionStatus(sessionId, status) {
-        set((s) => ({
-            sessionStatus: { ...s.sessionStatus, [sessionId]: status },
-        }));
+        set((s) => {
+            if (!status) {
+                if (!(sessionId in s.sessionStatus)) return s;
+                const { [sessionId]: _, ...nextStatus } = s.sessionStatus;
+                return { sessionStatus: nextStatus };
+            }
+
+            return {
+                sessionStatus: { ...s.sessionStatus, [sessionId]: status },
+            };
+        });
     },
     getTaskStatus(taskId) {
-        const tabs = get().tabsByTask[taskId] ?? [];
+        const tabs = get().tabsByWorkspace[getTaskWorkspaceKey(taskId)] ?? [];
         const statuses = get().sessionStatus;
         let hasAttention = false;
         for (const tab of tabs) {
@@ -169,22 +209,27 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             if (s === "working") return "working";
             if (s === "attention") hasAttention = true;
         }
-        return hasAttention ? "attention" : "idle";
+        return hasAttention ? "attention" : undefined;
     },
-    getTabs(taskId) {
-        return get().tabsByTask[taskId] ?? [];
+    getTabs(workspaceKey) {
+        return get().tabsByWorkspace[workspaceKey] ?? [];
     },
-    getActiveTab(taskId) {
-        const tabs = get().getTabs(taskId);
-        return tabs.find((t) => t.id === get().activeTabByTask[taskId]);
+    getActiveTab(workspaceKey) {
+        const tabs = get().getTabs(workspaceKey);
+        return tabs.find((t) => t.id === get().activeTabByWorkspace[workspaceKey]);
     },
     syncWithTasks(tasks) {
         set((state) => {
-            const nextTabsByTask: Record<string, Tab[]> = {};
-            const nextActiveTabByTask: Record<string, string> = {};
+            const nextTabsByWorkspace: Record<string, Tab[]> = Object.fromEntries(
+                Object.entries(state.tabsByWorkspace).filter(([key]) => !key.startsWith("task:")),
+            );
+            const nextActiveTabByWorkspace: Record<string, string> = Object.fromEntries(
+                Object.entries(state.activeTabByWorkspace).filter(([key]) => !key.startsWith("task:")),
+            );
 
             for (const task of tasks) {
-                const existingTabs = state.tabsByTask[task.id] ?? [];
+                const workspaceKey = getTaskWorkspaceKey(task.id);
+                const existingTabs = state.tabsByWorkspace[workspaceKey] ?? [];
                 const sessionsById = new Map(task.sessions.map((session) => [session.id, session]));
                 const tabs = existingTabs
                     .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
@@ -204,16 +249,60 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                     continue;
                 }
 
-                nextTabsByTask[task.id] = tabs;
-                const currentActiveId = state.activeTabByTask[task.id];
-                nextActiveTabByTask[task.id] = tabs.some((tab) => tab.id === currentActiveId)
+                nextTabsByWorkspace[workspaceKey] = tabs;
+                const currentActiveId = state.activeTabByWorkspace[workspaceKey];
+                nextActiveTabByWorkspace[workspaceKey] = tabs.some((tab) => tab.id === currentActiveId)
                     ? currentActiveId
                     : tabs[0].id;
             }
 
             return {
-                tabsByTask: nextTabsByTask,
-                activeTabByTask: nextActiveTabByTask,
+                tabsByWorkspace: nextTabsByWorkspace,
+                activeTabByWorkspace: nextActiveTabByWorkspace,
+            };
+        });
+    },
+    syncWithProjects(projects) {
+        set((state) => {
+            const nextTabsByWorkspace: Record<string, Tab[]> = Object.fromEntries(
+                Object.entries(state.tabsByWorkspace).filter(([key]) => !key.startsWith("project:")),
+            );
+            const nextActiveTabByWorkspace: Record<string, string> = Object.fromEntries(
+                Object.entries(state.activeTabByWorkspace).filter(([key]) => !key.startsWith("project:")),
+            );
+
+            for (const project of projects) {
+                const workspaceKey = getProjectWorkspaceKey(project.id);
+                const existingTabs = state.tabsByWorkspace[workspaceKey] ?? [];
+                const sessionsById = new Map(project.sessions.map((session) => [session.id, session]));
+                const tabs = existingTabs
+                    .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
+                    .map((tab) => {
+                        if (!tab.sessionId) return tab;
+                        const session = sessionsById.get(tab.sessionId);
+                        return session ? { ...tab, type: session.type, label: session.label } : tab;
+                    });
+
+                for (const session of project.sessions) {
+                    if (!tabs.some((tab) => tab.sessionId === session.id)) {
+                        tabs.push(createSessionTab(session));
+                    }
+                }
+
+                if (tabs.length === 0) {
+                    continue;
+                }
+
+                nextTabsByWorkspace[workspaceKey] = tabs;
+                const currentActiveId = state.activeTabByWorkspace[workspaceKey];
+                nextActiveTabByWorkspace[workspaceKey] = tabs.some((tab) => tab.id === currentActiveId)
+                    ? currentActiveId
+                    : tabs[0].id;
+            }
+
+            return {
+                tabsByWorkspace: nextTabsByWorkspace,
+                activeTabByWorkspace: nextActiveTabByWorkspace,
             };
         });
     },
@@ -294,6 +383,22 @@ function clearActivityTimer(sessionId: string): void {
     }
 }
 
+function settleInactiveSession(sessionId: string): void {
+    const status = isSessionFocused(sessionId) ? "attention" : undefined;
+    useSessionStore.getState().setSessionStatus(sessionId, status);
+}
+
+function scheduleActivityTimeout(sessionId: string): void {
+    clearActivityTimer(sessionId);
+    activityTimers.set(
+        sessionId,
+        setTimeout(() => {
+            activityTimers.delete(sessionId);
+            settleInactiveSession(sessionId);
+        }, ACTIVITY_TIMEOUT),
+    );
+}
+
 // Track terminal output → working / attention status
 const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
@@ -306,17 +411,7 @@ const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
         store.setSessionStatus(sessionId, "working");
     }
 
-    // Reset debounce timer
-    clearActivityTimer(sessionId);
-    activityTimers.set(
-        sessionId,
-        setTimeout(() => {
-            activityTimers.delete(sessionId);
-            // If the session's tab is focused, go straight to idle
-            const status = isSessionFocused(sessionId) ? "idle" : "attention";
-            useSessionStore.getState().setSessionStatus(sessionId, status);
-        }, ACTIVITY_TIMEOUT),
-    );
+    scheduleActivityTimeout(sessionId);
 });
 
 const _unsubSessionStatus = onEvent(MSG.SESSION_STATUS, (payload) => {
@@ -330,8 +425,14 @@ const _unsubSessionStatus = onEvent(MSG.SESSION_STATUS, (payload) => {
     }
 
     const { sessionId, status } = payload as SessionStatusEvent;
-    clearActivityTimer(sessionId);
     useSessionStore.getState().setSessionStatus(sessionId, status);
+
+    if (status === "working") {
+        scheduleActivityTimeout(sessionId);
+        return;
+    }
+
+    clearActivityTimer(sessionId);
 });
 
 // Clean up status when session exits
@@ -346,13 +447,59 @@ const _unsubSessionExited = onEvent(MSG.SESSION_EXITED, (payload) => {
 
 // Listen for browser:open events from backend (e.g., agent API calls).
 const _unsubBrowserOpen = onEvent(MSG.BROWSER_OPEN, (payload) => {
-    if (!payload || typeof payload !== "object" || !("taskId" in payload) || !("url" in payload))
+    if (!payload || typeof payload !== "object" || !("url" in payload))
         return;
-    const { taskId, url, label } = payload as BrowserOpenPayload;
-    useSessionStore.getState().addTab(taskId, {
+    const { taskId, projectId, url, label } = payload as BrowserOpenPayload;
+    const workspaceKey = taskId
+        ? getTaskWorkspaceKey(taskId)
+        : projectId
+          ? getProjectWorkspaceKey(projectId)
+          : null;
+    if (!workspaceKey) return;
+    useSessionStore.getState().addTab(workspaceKey, {
         id: crypto.randomUUID(),
         type: "browser",
         label: label ?? "Browser",
         url,
     });
+});
+
+const _unsubActiveTask = useTaskStore.subscribe((state, prevState) => {
+    if (state.activeTaskId === prevState.activeTaskId || !prevState.activeTaskId) {
+        return;
+    }
+
+    const sessionStore = useSessionStore.getState();
+    const workspaceKey = getTaskWorkspaceKey(prevState.activeTaskId);
+    const previousTabId = sessionStore.activeTabByWorkspace[workspaceKey];
+    const previousTab = (sessionStore.tabsByWorkspace[workspaceKey] ?? []).find(
+        (tab) => tab.id === previousTabId,
+    );
+
+    if (
+        previousTab?.sessionId &&
+        sessionStore.sessionStatus[previousTab.sessionId] === "attention"
+    ) {
+        sessionStore.setSessionStatus(previousTab.sessionId, undefined);
+    }
+});
+
+const _unsubActiveProject = useUIStore.subscribe((state, prevState) => {
+    if (state.activeProjectId === prevState.activeProjectId || !prevState.activeProjectId) {
+        return;
+    }
+
+    const sessionStore = useSessionStore.getState();
+    const workspaceKey = getProjectWorkspaceKey(prevState.activeProjectId);
+    const previousTabId = sessionStore.activeTabByWorkspace[workspaceKey];
+    const previousTab = (sessionStore.tabsByWorkspace[workspaceKey] ?? []).find(
+        (tab) => tab.id === previousTabId,
+    );
+
+    if (
+        previousTab?.sessionId &&
+        sessionStore.sessionStatus[previousTab.sessionId] === "attention"
+    ) {
+        sessionStore.setSessionStatus(previousTab.sessionId, undefined);
+    }
 });

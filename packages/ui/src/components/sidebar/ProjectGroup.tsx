@@ -1,15 +1,19 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { Project, Task } from "@taskflow/shared";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { TaskCard } from "./TaskCard";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronRight, Pencil } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ProjectGroupProps {
     project: Project;
     tasks: Task[];
     activeTaskId: string | null;
+    isActive: boolean;
+    diffStats?: { additions: number; deletions: number } | null;
+    onProjectClick: (projectId: string) => void;
     onTaskClick: (taskId: string) => void;
     onRename: (id: string, name: string) => void;
 }
@@ -18,6 +22,9 @@ export function ProjectGroup({
     project,
     tasks,
     activeTaskId,
+    isActive,
+    diffStats,
+    onProjectClick,
     onTaskClick,
     onRename,
 }: ProjectGroupProps) {
@@ -66,7 +73,24 @@ export function ProjectGroup({
 
     return (
         <Collapsible open={open} onOpenChange={setOpen}>
-            <CollapsibleTrigger className="hover:bg-muted/50 group mx-1.5 flex w-[calc(100%-0.75rem)] cursor-pointer items-center justify-between overflow-hidden rounded-lg px-3 py-2.5 transition-colors select-none [-webkit-app-region:no-drag]">
+            <div
+                className={cn(
+                    "group mx-1.5 flex w-[calc(100%-0.75rem)] items-center gap-1 overflow-hidden rounded-lg px-1.5 py-1.5 transition-colors [-webkit-app-region:no-drag]",
+                    isActive ? "bg-accent/15" : "hover:bg-muted/50",
+                )}
+            >
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => setOpen((value) => !value)}
+                    className="text-muted-foreground h-6 w-6 shrink-0"
+                >
+                    {open ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                </Button>
                 {editing ? (
                     <Input
                         ref={inputRef}
@@ -78,29 +102,34 @@ export function ProjectGroup({
                         className="mr-2 h-6 w-full text-xs"
                     />
                 ) : (
-                    <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium tracking-wide">
-                        {open ? (
-                            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                        ) : (
-                            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                        )}
-                        {project.name}
+                    <>
+                        <button
+                            onClick={() => onProjectClick(project.id)}
+                            className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                        >
+                            <span className="text-muted-foreground truncate text-xs font-medium tracking-wide">
+                                {project.name}
+                            </span>
+                        </button>
                         <button
                             onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 startEditing();
                             }}
-                            className="ml-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                            className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
                         >
                             <Pencil className="h-3.5 w-3.5" />
                         </button>
-                    </span>
+                        {diffStats && (
+                            <div className="ml-1 flex shrink-0 items-center gap-2 text-[10px] font-medium">
+                                <span className="text-success">+{diffStats.additions}</span>
+                                <span className="text-destructive">-{diffStats.deletions}</span>
+                            </div>
+                        )}
+                    </>
                 )}
-                <Badge variant="secondary" className="min-w-5 px-1.5 py-0 text-center text-[10px] font-normal">
-                    {tasks.length}
-                </Badge>
-            </CollapsibleTrigger>
+            </div>
             <CollapsibleContent>
                 {tasks.map((task) => (
                     <TaskCard

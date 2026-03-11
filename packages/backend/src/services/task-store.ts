@@ -44,10 +44,15 @@ export class TaskStore {
     }
 
     async clearAllSessions(): Promise<void> {
-        const tasks = await this.listTasks();
+        const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
         for (const task of tasks) {
             if (task.sessions.length > 0) {
                 await this.updateTask(task.id, { sessions: [] });
+            }
+        }
+        for (const project of projects) {
+            if (project.sessions.length > 0) {
+                await this.updateProject(project.id, { sessions: [] });
             }
         }
     }
@@ -66,7 +71,11 @@ export class TaskStore {
         }
 
         try {
-            return JSON.parse(data) as Project[];
+            const parsed = JSON.parse(data) as Array<Project & { sessions?: Project["sessions"] }>;
+            return parsed.map((project) => ({
+                ...project,
+                sessions: project.sessions ?? [],
+            }));
         } catch (error) {
             if (isJsonParseError(error)) {
                 return [];
@@ -150,6 +159,7 @@ export class TaskStore {
             id: randomUUID(),
             name: input.name?.trim() || basename(resolvedPath),
             path: resolvedPath,
+            sessions: [],
             createdAt: new Date().toISOString(),
         };
         projects.push(project);
@@ -157,23 +167,52 @@ export class TaskStore {
         return project;
     }
 
-    async updateProject(id: string, updates: { name: string }): Promise<Project> {
+    async getProject(id: string): Promise<Project | null> {
+        const projects = await this.listProjects();
+        return projects.find((project) => project.id === id) ?? null;
+    }
+
+    async updateProject(
+        id: string,
+        updates:
+            | Partial<Pick<Project, "name" | "sessions">>
+            | ((project: Project) => Partial<Pick<Project, "name" | "sessions">>),
+    ): Promise<Project> {
         const projects = await this.listProjects();
         const index = projects.findIndex((p) => p.id === id);
         if (index === -1) {
             throw new Error(`Project not found: ${id}`);
         }
-        projects[index] = { ...projects[index], name: updates.name.trim() };
+        const resolvedUpdates = typeof updates === "function" ? updates(projects[index]) : updates;
+        projects[index] = {
+            ...projects[index],
+            ...resolvedUpdates,
+            name: resolvedUpdates.name ? resolvedUpdates.name.trim() : projects[index].name,
+            sessions: resolvedUpdates.sessions ?? projects[index].sessions,
+        };
         await writeFile(this.config.projectsFile, JSON.stringify(projects, null, 2));
         return projects[index];
     }
 
     async removeProject(id: string): Promise<void> {
-        const [tasks, archived] = await Promise.all([this.listTasks(id), this.listArchived()]);
-        const archivedForProject = archived.filter((t) => t.projectId === id);
-        if (tasks.length > 0 || archivedForProject.length > 0) {
-            throw new Error(`Cannot remove project with existing tasks: ${id}`);
-        }
+        const [tasks, archived, project] = await Promise.all([
+            this.listTasks(id),
+            this.listArchived(),
+            this.getProject(id),
+        ]);
+        const archivedForProject = archived.filter((task) => task.projectId === id);
+
+        await Promise.all(tasks.map((task) => this.deleteTask(task.id)));
+        await Promise.all((project?.sessions ?? []).map((session) => this.deleteSessionHistory(id, session.id)));
+        await Promise.all(
+            archivedForProject.map(async (task) => {
+                await this.withTaskMutation(task.id, async () => {
+                    await this.unlinkIfPresent(this.archivePath(task.id));
+                });
+                await this.deleteTaskSessionHistory(task.id);
+            }),
+        );
+
         const projects = await this.listProjects();
         const filtered = projects.filter((p) => p.id !== id);
         await writeFile(this.config.projectsFile, JSON.stringify(filtered, null, 2));

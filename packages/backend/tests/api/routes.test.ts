@@ -60,4 +60,22 @@ describe("api routes", () => {
         expect(response?.status).toBe(400);
         expect(events).toHaveLength(0);
     });
+
+    it("broadcasts project-scoped browser tabs", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/projects/project-1/browser", {
+                method: "POST",
+                body: JSON.stringify({ url: "https://example.com", label: "Docs" }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+
+        expect(response?.status).toBe(200);
+        expect(events).toEqual([
+            {
+                type: MSG.BROWSER_OPEN,
+                payload: { projectId: "project-1", url: "https://example.com", label: "Docs" },
+            },
+        ]);
+    });
 });

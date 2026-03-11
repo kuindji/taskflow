@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import { autoUpdater } from "electron-updater";
-import { spawn, execFile, type ChildProcess } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import { constants } from "fs";
 import { access, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
@@ -80,24 +80,13 @@ async function startBackend(): Promise<number> {
 
     const { binary, args } = getBackendPath();
 
-    if (args.length > 0) {
-        backendProcess = spawn(binary, args, {
-            stdio: ["ignore", "pipe", "pipe"],
-            env: {
-                ...process.env,
-                TASKFLOW_PORT_FILE: backendPortFile,
-            },
-        });
-    } else {
-        // Standalone compiled binary — use execFile
-        backendProcess = execFile(binary, [], {
-            stdio: ["ignore", "pipe", "pipe"] as never,
-            env: {
-                ...process.env,
-                TASKFLOW_PORT_FILE: backendPortFile,
-            },
-        });
-    }
+    backendProcess = spawn(binary, args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+            ...process.env,
+            TASKFLOW_PORT_FILE: backendPortFile,
+        },
+    });
 
     backendProcess.stdout?.on("data", (data: Buffer) => {
         console.log("[backend]", data.toString().trim());

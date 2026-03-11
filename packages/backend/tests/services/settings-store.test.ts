@@ -43,7 +43,7 @@ describe("SettingsStore", () => {
 
         first.editor.fontSize = 20;
 
-        await expect(store.get()).resolves.toEqual({
+        expect(await store.get()).toEqual({
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 13,
@@ -68,7 +68,7 @@ describe("SettingsStore", () => {
             }),
         );
 
-        await expect(store.get()).resolves.toEqual({
+        expect(await store.get()).toEqual({
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 15,
@@ -83,7 +83,7 @@ describe("SettingsStore", () => {
             },
         });
 
-        await expect(store.update({ editor: { fontSize: 16 } })).resolves.toEqual({
+        expect(await store.update({ editor: { fontSize: 16 } })).toEqual({
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 15,

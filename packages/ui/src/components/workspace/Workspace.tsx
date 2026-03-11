@@ -1,7 +1,7 @@
-import { useTaskStore } from "@/stores/task-store";
-import { useProjectStore } from "@/stores/project-store";
+import { useEffect, useMemo } from "react";
 import { useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
+import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
@@ -12,71 +12,114 @@ const emptyTabs: Tab[] = [];
 
 export function Workspace() {
     const isElectron = useIsElectron();
-    const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
-    const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
-    const tabs = useSessionStore((s) => (task ? (s.tabsByTask[task.id] ?? emptyTabs) : emptyTabs));
-    const activeTabId = useSessionStore((s) => (task ? (s.activeTabByTask[task.id] ?? "") : ""));
+    const workspace = useActiveWorkspace();
+    const tabs = useSessionStore((s) =>
+        workspace.workspaceKey ? (s.tabsByWorkspace[workspace.workspaceKey] ?? emptyTabs) : emptyTabs,
+    );
+    const activeTabId = useSessionStore((s) =>
+        workspace.workspaceKey ? (s.activeTabByWorkspace[workspace.workspaceKey] ?? "") : "",
+    );
     const { setActiveTab, closeTab, createSession, addTab } = useSessionStore();
 
-    if (!task) {
+    const visibleTabs = useMemo(
+        () => (workspace.scope === "task" ? tabs.filter((tab) => tab.type !== "changes") : tabs),
+        [tabs, workspace.scope],
+    );
+
+    const activeTab = visibleTabs.find((t) => t.id === activeTabId) ?? visibleTabs[0];
+
+    useEffect(() => {
+        if (!workspace.workspaceKey || !activeTab || activeTab.id === activeTabId) {
+            return;
+        }
+        setActiveTab(workspace.workspaceKey, activeTab.id);
+    }, [activeTab, activeTabId, setActiveTab, workspace.workspaceKey]);
+
+    if (!workspace.scope || !workspace.project) {
         return (
             <>
                 {isElectron && <TaskHeader />}
                 <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
-                    Select a task from the sidebar
+                    Select a task or project from the sidebar
                 </div>
             </>
         );
     }
 
-    const activeTab = tabs.find((t) => t.id === activeTabId);
-
     const handleNewTab = async (
         type: "claude" | "codex" | "changes" | "browser" | "shell",
         shellPath?: string,
     ) => {
+        if (!workspace.workspaceKey) return;
         if (type === "browser") {
-            addTab(task.id, {
+            addTab(workspace.workspaceKey, {
                 id: crypto.randomUUID(),
                 type: "browser",
                 label: "New Tab",
                 url: "about:blank",
             });
         } else if (type === "changes") {
-            const existingChangesTab = tabs.find((tab) => tab.type === "changes");
+            const existingChangesTab = visibleTabs.find((tab) => tab.type === "changes");
             if (existingChangesTab) {
-                setActiveTab(task.id, existingChangesTab.id);
+                setActiveTab(workspace.workspaceKey, existingChangesTab.id);
                 return;
             }
-            addTab(task.id, { id: crypto.randomUUID(), type: "changes", label: "Changes" });
+            addTab(workspace.workspaceKey, {
+                id: crypto.randomUUID(),
+                type: "changes",
+                label: "Changes",
+            });
         } else if (type === "shell" && shellPath) {
             const shellName = shellPath.split("/").pop() ?? "shell";
-            await createSession(task.id, "shell", shellName, undefined, shellPath);
+            await createSession(
+                workspace.scope === "task"
+                    ? { taskId: workspace.task.id }
+                    : { projectId: workspace.project.id },
+                "shell",
+                shellName,
+                undefined,
+                shellPath,
+            );
         } else {
-            await createSession(task.id, type);
+            await createSession(
+                workspace.scope === "task"
+                    ? { taskId: workspace.task.id }
+                    : { projectId: workspace.project.id },
+                type,
+            );
         }
     };
 
     const handleRunTab = async (type: "claude" | "codex") => {
-        await createSession(task.id, type, undefined, task.description || undefined);
+        if (workspace.scope !== "task" || !workspace.task) return;
+        await createSession(
+            { taskId: workspace.task.id },
+            type,
+            undefined,
+            workspace.task.description || undefined,
+        );
     };
 
     return (
         <>
-            <TaskHeader task={task} project={project} />
+            <TaskHeader task={workspace.task ?? undefined} project={workspace.project} />
             <TabBar
-                tabs={tabs}
+                tabs={visibleTabs}
                 activeTabId={activeTab?.id ?? ""}
-                onTabClick={(id) => setActiveTab(task.id, id)}
+                onTabClick={(id) => workspace.workspaceKey && setActiveTab(workspace.workspaceKey, id)}
                 onTabClose={(id) => {
-                    const tab = tabs.find((t) => t.id === id);
+                    if (!workspace.workspaceKey) return;
+                    const tab = visibleTabs.find((t) => t.id === id);
                     if (tab?.sessionId) destroyTerminal(tab.sessionId);
-                    void closeTab(task.id, id);
+                    void closeTab(workspace.workspaceKey, id);
                 }}
                 onNewTab={handleNewTab}
                 onRunTab={handleRunTab}
+                showRunButton={workspace.scope === "task"}
+                allowChangesTab={workspace.scope === "project"}
+                allowSessionTabs={true}
             />
-            <TabContent tabs={tabs} activeTabId={activeTab?.id ?? ""} />
+            <TabContent tabs={visibleTabs} activeTabId={activeTab?.id ?? ""} />
         </>
     );
 }

@@ -1,8 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { useFileStore } from "@/stores/file-store";
-import { useTaskStore } from "@/stores/task-store";
-import { useProjectStore } from "@/stores/project-store";
 import { useSessionStore } from "@/stores/session-store";
+import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { FileTree } from "./FileTree";
@@ -19,12 +18,9 @@ function FileExplorer() {
         unwatchPath,
         clearExplorerState,
     } = useFileStore();
-    const task = useTaskStore((s) => s.tasks.find((t) => t.id === s.activeTaskId));
-    const project = useProjectStore((s) => s.projects.find((p) => p.id === task?.projectId));
+    const workspace = useActiveWorkspace();
     const { addTab, getTabs, setActiveTab } = useSessionStore();
-
-    const workingDir =
-        task?.worktree.enabled && task.worktree.path ? task.worktree.path : project?.path;
+    const workingDir = workspace.workingDir;
 
     useEffect(() => {
         if (!workingDir) {
@@ -53,17 +49,17 @@ function FileExplorer() {
     }, [gitStatus, gitStatusPath, workingDir]);
 
     const handleFileClick = (path: string) => {
-        if (!task) return;
+        if (!workspace.workspaceKey) return;
 
-        const existingTab = getTabs(task.id).find(
+        const existingTab = getTabs(workspace.workspaceKey).find(
             (tab) => tab.type === "editor" && tab.filePath === path,
         );
         if (existingTab) {
-            setActiveTab(task.id, existingTab.id);
+            setActiveTab(workspace.workspaceKey, existingTab.id);
             return;
         }
 
-        addTab(task.id, {
+        addTab(workspace.workspaceKey, {
             id: crypto.randomUUID(),
             type: "editor",
             label: path.split("/").pop() ?? path,
@@ -84,7 +80,7 @@ function FileExplorer() {
                     <FileTree node={tree} gitFiles={gitFiles} onFileClick={handleFileClick} />
                 ) : (
                     <div className="text-muted-foreground p-2 text-sm">
-                        {workingDir ? "Loading..." : "Select a task"}
+                        {workingDir ? "Loading..." : "Select a task or project"}
                     </div>
                 )}
             </ScrollArea>

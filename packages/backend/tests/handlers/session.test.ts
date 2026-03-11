@@ -57,6 +57,7 @@ describe("session handlers", () => {
     let tempDir: string;
     let projectId: string;
     let ptyManager: FakePtyManager;
+    let events: { type: string; payload: unknown }[];
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-session-test-"));
@@ -70,6 +71,7 @@ describe("session handlers", () => {
         await store.init();
         router = new Router();
         ptyManager = new FakePtyManager();
+        events = [];
 
         registerProjectHandlers(router, store, new GitService());
         registerTaskHandlers({
@@ -83,7 +85,9 @@ describe("session handlers", () => {
             router,
             ptyManager: ptyManager as never,
             taskStore: store,
-            broadcast: () => {},
+            broadcast: (event) => {
+                events.push(event);
+            },
             getPort: () => 0,
         });
 
@@ -114,6 +118,33 @@ describe("session handlers", () => {
             "claude",
             "codex",
         ]);
+    });
+
+    it("marks agent sessions as working when they start", async () => {
+        const task = (await router.handle(MSG.TASK_CREATE, {
+            projectId,
+            title: "Task",
+        })) as { id: string };
+        const created = (await router.handle(MSG.SESSION_CREATE, {
+            taskId: task.id,
+            type: "codex",
+        })) as { sessionId: string };
+
+        expect(events).toContainEqual({
+            type: MSG.SESSION_STATUS,
+            payload: { sessionId: created.sessionId, status: "working" },
+        });
+    });
+
+    it("persists project-level sessions on the project", async () => {
+        const created = (await router.handle(MSG.SESSION_CREATE, {
+            projectId,
+            type: "codex",
+        })) as { sessionId: string };
+
+        const project = await store.getProject(projectId);
+        expect(project?.sessions).toHaveLength(1);
+        expect(project?.sessions[0]?.id).toBe(created.sessionId);
     });
 
     it("closes live sessions and clears archived session refs before archiving", async () => {
@@ -147,14 +178,34 @@ describe("session handlers", () => {
         ptyManager.emit(created.sessionId, "step 2\n");
         ptyManager.close(created.sessionId);
 
-        await expect(
-            router.handle(MSG.SESSION_HISTORY, {
+        expect(
+            await router.handle(MSG.SESSION_HISTORY, {
                 taskId: task.id,
                 sessionId: created.sessionId,
             }),
-        ).resolves.toEqual({
+        ).toEqual({
             data: "step 1\nstep 2\n",
             lastSequence: 2,
+        });
+    });
+
+    it("returns persisted session history for project-level sessions", async () => {
+        const created = (await router.handle(MSG.SESSION_CREATE, {
+            projectId,
+            type: "codex",
+        })) as { sessionId: string };
+
+        ptyManager.emit(created.sessionId, "project step\n");
+        ptyManager.close(created.sessionId);
+
+        expect(
+            await router.handle(MSG.SESSION_HISTORY, {
+                projectId,
+                sessionId: created.sessionId,
+            }),
+        ).toEqual({
+            data: "project step\n",
+            lastSequence: 1,
         });
     });
 });

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 interface UIStore {
+    activeProjectId: string | null;
     fileExplorerOpen: boolean;
     taskInfoOpen: boolean;
     settingsOpen: boolean;
@@ -11,6 +12,7 @@ interface UIStore {
     toggleFileExplorer(): void;
     toggleTaskInfo(): void;
     toggleSettings(): void;
+    setActiveProject(id: string | null): void;
     setSidebarWidth(width: number): void;
     setFileExplorerWidth(width: number): void;
     setTaskInfoWidth(width: number): void;
@@ -18,6 +20,7 @@ interface UIStore {
 }
 
 export const useUIStore = create<UIStore>((set) => ({
+    activeProjectId: null,
     fileExplorerOpen: false,
     taskInfoOpen: false,
     settingsOpen: false,
@@ -33,6 +36,9 @@ export const useUIStore = create<UIStore>((set) => ({
     },
     toggleSettings() {
         set((s) => ({ settingsOpen: !s.settingsOpen }));
+    },
+    setActiveProject(id) {
+        set({ activeProjectId: id });
     },
     setSidebarWidth(width) {
         set({ sidebarWidth: width });

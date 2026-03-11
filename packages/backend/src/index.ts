@@ -50,7 +50,9 @@ async function main() {
             broadcast: server.broadcast,
         });
 
-        registerProjectHandlers(router, store, gitService);
+        registerProjectHandlers(router, store, gitService, (sessionId) => {
+            ptyManager.close(sessionId);
+        });
         registerTaskHandlers({
             router,
             store,

@@ -28,7 +28,11 @@ export const useTaskStore = create<TaskStore>((set) => ({
     async fetchTasks() {
         set({ loading: true });
         const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST);
-        set({ tasks, loading: false });
+        set((state) => ({
+            tasks,
+            loading: false,
+            activeTaskId: tasks.some((task) => task.id === state.activeTaskId) ? state.activeTaskId : null,
+        }));
     },
     async createTask(payload) {
         const task = await sendRequest<Task>(MSG.TASK_CREATE, payload);

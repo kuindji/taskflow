@@ -14,6 +14,54 @@ interface SpawnOptions {
 }
 
 const MAX_SCROLLBACK = 50_000;
+const BATCH_MAX_SIZE = 200 * 1024; // 200KB
+const BATCH_MAX_MS = 16; // ~1 frame at 60fps
+
+/**
+ * Batches PTY output chunks to reduce WebSocket message frequency.
+ * Flushes when either the size threshold or time threshold is reached,
+ * ensuring escape sequences stay intact within each batch.
+ */
+class DataBatcher {
+    private buffer = "";
+    private timer: ReturnType<typeof setTimeout> | null = null;
+    private onFlush: (data: string) => void;
+
+    constructor(onFlush: (data: string) => void) {
+        this.onFlush = onFlush;
+    }
+
+    add(data: string): void {
+        this.buffer += data;
+        if (this.buffer.length >= BATCH_MAX_SIZE) {
+            this.flush();
+            return;
+        }
+        if (this.timer === null) {
+            this.timer = setTimeout(() => this.flush(), BATCH_MAX_MS);
+        }
+    }
+
+    flush(): void {
+        if (this.timer !== null) {
+            clearTimeout(this.timer);
+            this.timer = null;
+        }
+        if (this.buffer.length > 0) {
+            const data = this.buffer;
+            this.buffer = "";
+            this.onFlush(data);
+        }
+    }
+
+    dispose(): void {
+        if (this.timer !== null) {
+            clearTimeout(this.timer);
+            this.timer = null;
+        }
+        this.buffer = "";
+    }
+}
 
 interface Session {
     proc: Subprocess;
@@ -44,6 +92,18 @@ export class PtyManager {
         let lastSequence = 0;
         let sessionEntry: Session | null = null;
 
+        const batcher = new DataBatcher((batchedData) => {
+            lastSequence += 1;
+            if (sessionEntry) sessionEntry.lastSequence = lastSequence;
+            scrollback.push(batchedData);
+            scrollbackLen += batchedData.length;
+            while (scrollbackLen > MAX_SCROLLBACK && scrollback.length > 1) {
+                const removed = scrollback.shift();
+                if (removed) scrollbackLen -= removed.length;
+            }
+            options.onData(batchedData, lastSequence);
+        });
+
         const proc = Bun.spawn([options.command, ...options.args], {
             cwd: options.cwd,
             env: {
@@ -51,6 +111,8 @@ export class PtyManager {
                 PATH: buildShellPath(),
                 TERM: "xterm-256color",
                 COLORTERM: "truecolor",
+                LANG: cleanEnv.LANG || "en_US.UTF-8",
+                LC_ALL: cleanEnv.LC_ALL || "en_US.UTF-8",
                 ...options.env,
             },
             terminal: {
@@ -58,22 +120,14 @@ export class PtyManager {
                 cols,
                 data: (term: Terminal, data: Uint8Array) => {
                     if (sessionEntry) sessionEntry.terminal = term;
-                    const text = decoder.decode(data);
-                    scrollback.push(text);
-                    scrollbackLen += text.length;
-                    lastSequence += 1;
-                    if (sessionEntry) sessionEntry.lastSequence = lastSequence;
-                    // Trim oldest chunks when over the cap
-                    while (scrollbackLen > MAX_SCROLLBACK && scrollback.length > 1) {
-                        const removed = scrollback.shift();
-                        if (removed) scrollbackLen -= removed.length;
-                    }
-                    options.onData(text, lastSequence);
+                    batcher.add(decoder.decode(data));
                 },
             },
         }) as PtySubprocess;
 
         void proc.exited.then((exitCode) => {
+            batcher.flush();
+            batcher.dispose();
             this.sessions.delete(id);
             options.onExit(exitCode);
         });

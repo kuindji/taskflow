@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useProjectStore } from "@/stores/project-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useTaskStore } from "@/stores/task-store";
+import { useUIStore } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskDialog } from "./NewTaskDialog";
@@ -21,6 +22,8 @@ export function NewTaskControl({
 }: NewTaskControlProps) {
     const { projects, addProject } = useProjectStore();
     const { tasks, activeTaskId, setActiveTask, createTask } = useTaskStore();
+    const activeProjectId = useUIStore((s) => s.activeProjectId);
+    const setActiveProject = useUIStore((s) => s.setActiveProject);
     const createSession = useSessionStore((s) => s.createSession);
     const [newTaskOpen, setNewTaskOpen] = useState(false);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -64,7 +67,7 @@ export function NewTaskControl({
 
     const defaultProjectId = activeTaskId
         ? (tasks.find((task) => task.id === activeTaskId)?.projectId ?? projects[0]?.id)
-        : projects[0]?.id;
+        : (activeProjectId ?? projects[0]?.id);
 
     const handleCreateTask = useCallback(
         async (data: {
@@ -76,15 +79,21 @@ export function NewTaskControl({
         }) => {
             try {
                 const task = await createTask(data);
+                setActiveProject(task.projectId);
                 setActiveTask(task.id);
                 if (data.startWith) {
-                    await createSession(task.id, data.startWith, undefined, data.description);
+                    await createSession(
+                        { taskId: task.id },
+                        data.startWith,
+                        undefined,
+                        data.description,
+                    );
                 }
             } catch (err) {
                 console.error("Failed to create task:", err);
             }
         },
-        [createSession, createTask, setActiveTask],
+        [createSession, createTask, setActiveProject, setActiveTask],
     );
 
     return (

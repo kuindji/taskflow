@@ -47,9 +47,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose }: TabItemProps) {
         () => cn(tabVariants({ type: tab.type, active: isActive })),
         [tab.type, isActive],
     );
-    const status = useSessionStore(
-        (s) => (tab.sessionId ? (s.sessionStatus[tab.sessionId] ?? "idle") : "idle"),
-    );
+    const status = useSessionStore((s) => (tab.sessionId ? s.sessionStatus[tab.sessionId] : undefined));
 
     return (
         <div onClick={() => onTabClick(tab.id)} className={classes}>
@@ -80,37 +78,56 @@ interface TabBarProps {
         shellPath?: string,
     ) => void;
     onRunTab: (type: "claude" | "codex") => void;
+    showRunButton: boolean;
+    allowChangesTab: boolean;
+    allowSessionTabs: boolean;
 }
 
-export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab, onRunTab }: TabBarProps) {
+export function TabBar({
+    tabs,
+    activeTabId,
+    onTabClick,
+    onTabClose,
+    onNewTab,
+    onRunTab,
+    showRunButton,
+    allowChangesTab,
+    allowSessionTabs,
+}: TabBarProps) {
     const [shells, setShells] = useState<ShellInfo[]>([]);
 
     useEffect(() => {
+        if (!allowSessionTabs) {
+            setShells([]);
+            return;
+        }
         sendRequest<{ shells: ShellInfo[] }>(MSG.SHELLS_LIST, {}).then(
             (res) => setShells(res.shells),
             () => {},
         );
-    }, []);
+    }, [allowSessionTabs]);
 
     return (
         <div className="bg-card border-border flex items-center gap-1 border-b px-1.5 py-1.5">
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon-xs">
-                        <Play className="h-3.5 w-3.5" />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                    <DropdownMenuItem onClick={() => onRunTab("claude")}>
-                        <Terminal className="mr-2 h-4 w-4" />
-                        Claude Code
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onRunTab("codex")}>
-                        <Code className="mr-2 h-4 w-4" />
-                        Codex
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
+            {showRunButton && (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-xs">
+                            <Play className="h-3.5 w-3.5" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                        <DropdownMenuItem onClick={() => onRunTab("claude")}>
+                            <Terminal className="mr-2 h-4 w-4" />
+                            Claude Code
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onRunTab("codex")}>
+                            <Code className="mr-2 h-4 w-4" />
+                            Codex
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            )}
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon-xs">
@@ -118,29 +135,38 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab, on
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
-                    <DropdownMenuItem onClick={() => onNewTab("claude")}>
-                        <Terminal className="mr-2 h-4 w-4" />
-                        Claude Code
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onNewTab("codex")}>
-                        <Code className="mr-2 h-4 w-4" />
-                        Codex
-                    </DropdownMenuItem>
-                    {shells.length > 0 && <DropdownMenuSeparator />}
-                    {shells.map((shell) => (
-                        <DropdownMenuItem
-                            key={shell.path}
-                            onClick={() => onNewTab("shell", shell.path)}
-                        >
-                            <Terminal className="mr-2 h-4 w-4" />
-                            {shell.name.charAt(0).toUpperCase() + shell.name.slice(1)}
-                        </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => onNewTab("changes")}>
-                        <Code className="mr-2 h-4 w-4" />
-                        Changes
-                    </DropdownMenuItem>
+                    {allowSessionTabs && (
+                        <>
+                            <DropdownMenuItem onClick={() => onNewTab("claude")}>
+                                <Terminal className="mr-2 h-4 w-4" />
+                                Claude Code
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onNewTab("codex")}>
+                                <Code className="mr-2 h-4 w-4" />
+                                Codex
+                            </DropdownMenuItem>
+                            {shells.length > 0 && <DropdownMenuSeparator />}
+                            {shells.map((shell) => (
+                                <DropdownMenuItem
+                                    key={shell.path}
+                                    onClick={() => onNewTab("shell", shell.path)}
+                                >
+                                    <Terminal className="mr-2 h-4 w-4" />
+                                    {shell.name.charAt(0).toUpperCase() + shell.name.slice(1)}
+                                </DropdownMenuItem>
+                            ))}
+                        </>
+                    )}
+                    {allowChangesTab && (
+                        <>
+                            {allowSessionTabs && <DropdownMenuSeparator />}
+                            <DropdownMenuItem onClick={() => onNewTab("changes")}>
+                                <Code className="mr-2 h-4 w-4" />
+                                Changes
+                            </DropdownMenuItem>
+                        </>
+                    )}
+                    {(allowSessionTabs || allowChangesTab) && <DropdownMenuSeparator />}
                     <DropdownMenuItem onClick={() => onNewTab("browser")}>
                         <Globe className="mr-2 h-4 w-4" />
                         Browser

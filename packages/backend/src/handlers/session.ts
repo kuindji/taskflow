@@ -24,8 +24,11 @@ interface SessionHandlerDeps {
 export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     const { router, ptyManager, taskStore, broadcast, getPort } = deps;
 
-    async function removeSessionFromTask(sessionId: string, taskId?: string): Promise<void> {
-        const targetTask = taskId ? await taskStore.getTask(taskId) : null;
+    async function removeSessionFromOwner(
+        sessionId: string,
+        owner?: { taskId?: string; projectId?: string },
+    ): Promise<void> {
+        const targetTask = owner?.taskId ? await taskStore.getTask(owner.taskId) : null;
         if (targetTask?.sessions.some((session) => session.id === sessionId)) {
             await taskStore.updateTask(targetTask.id, (task) => ({
                 sessions: task.sessions.filter((session) => session.id !== sessionId),
@@ -33,12 +36,30 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             return;
         }
 
-        const activeOwner = (taskId ? [] : await taskStore.listTasks()).find((task) =>
+        const targetProject = owner?.projectId ? await taskStore.getProject(owner.projectId) : null;
+        if (targetProject?.sessions.some((session) => session.id === sessionId)) {
+            await taskStore.updateProject(targetProject.id, (project) => ({
+                sessions: project.sessions.filter((session) => session.id !== sessionId),
+            }));
+            return;
+        }
+
+        const activeOwner = (owner?.taskId ? [] : await taskStore.listTasks()).find((task) =>
             task.sessions.some((session) => session.id === sessionId),
         );
         if (activeOwner) {
             await taskStore.updateTask(activeOwner.id, (task) => ({
                 sessions: task.sessions.filter((session) => session.id !== sessionId),
+            }));
+            return;
+        }
+
+        const activeProjectOwner = (owner?.projectId ? [] : await taskStore.listProjects()).find((project) =>
+            project.sessions.some((session) => session.id === sessionId),
+        );
+        if (activeProjectOwner) {
+            await taskStore.updateProject(activeProjectOwner.id, (project) => ({
+                sessions: project.sessions.filter((session) => session.id !== sessionId),
             }));
             return;
         }
@@ -54,13 +75,21 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     }
 
     router.register(MSG.SESSION_CREATE, async (payload) => {
-        const { taskId, type, label, prompt, shell, cols, rows } = payload as SessionCreatePayload;
-        const task = await taskStore.getTask(taskId);
-        if (!task) throw new Error(`Task not found: ${taskId}`);
+        const { taskId, projectId, type, label, prompt, shell, cols, rows } = payload as SessionCreatePayload;
+        if ((taskId ? 1 : 0) + (projectId ? 1 : 0) !== 1) {
+            throw new Error("Exactly one of taskId or projectId is required");
+        }
 
-        const project = (await taskStore.listProjects()).find((p) => p.id === task.projectId);
-        if (!project) throw new Error(`Project not found: ${task.projectId}`);
-        const cwd = task.worktree.enabled && task.worktree.path ? task.worktree.path : project.path;
+        const task = taskId ? await taskStore.getTask(taskId) : null;
+        if (taskId && !task) throw new Error(`Task not found: ${taskId}`);
+
+        const project = task
+            ? await taskStore.getProject(task.projectId)
+            : projectId
+              ? await taskStore.getProject(projectId)
+              : null;
+        if (!project) throw new Error(`Project not found: ${task?.projectId ?? projectId}`);
+        const cwd = task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path;
 
         let command: string;
         const args: string[] = [];
@@ -77,8 +106,9 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
         const sessionId = crypto.randomUUID();
         const taskflowEnv = {
             TASKFLOW_API_URL: `http://localhost:${getPort()}`,
-            TASKFLOW_TASK_ID: taskId,
             TASKFLOW_SESSION_ID: sessionId,
+            ...(task ? { TASKFLOW_TASK_ID: task.id } : {}),
+            ...(project ? { TASKFLOW_PROJECT_ID: project.id } : {}),
         };
 
         ptyManager.spawn({
@@ -90,7 +120,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             cols,
             rows,
             onData: (data, sequence) => {
-                void taskStore.appendSessionOutput(taskId, sessionId, sequence, data);
+                void taskStore.appendSessionOutput(task?.id ?? project.id, sessionId, sequence, data);
                 broadcast({
                     type: MSG.TERMINAL_OUTPUT,
                     payload: { sessionId, data, sequence },
@@ -101,7 +131,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
                     type: MSG.SESSION_EXITED,
                     payload: { sessionId, exitCode },
                 });
-                void removeSessionFromTask(sessionId, taskId);
+                void removeSessionFromOwner(sessionId, { taskId: task?.id, projectId: project.id });
             },
         });
 
@@ -111,9 +141,22 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             label: label ?? `${type} session`,
             createdAt: new Date().toISOString(),
         };
-        await taskStore.updateTask(taskId, (currentTask) => ({
-            sessions: [...currentTask.sessions, sessionRef],
-        }));
+        if (task) {
+            await taskStore.updateTask(task.id, (currentTask) => ({
+                sessions: [...currentTask.sessions, sessionRef],
+            }));
+        } else {
+            await taskStore.updateProject(project.id, (currentProject) => ({
+                sessions: [...currentProject.sessions, sessionRef],
+            }));
+        }
+
+        if (type !== "shell") {
+            broadcast({
+                type: MSG.SESSION_STATUS,
+                payload: { sessionId, status: "working" },
+            });
+        }
 
         return { sessionId };
     });
@@ -126,7 +169,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
 
     router.register(MSG.SESSION_CLOSE, async (payload) => {
         const { sessionId } = payload as SessionClosePayload;
-        await removeSessionFromTask(sessionId);
+        await removeSessionFromOwner(sessionId);
         ptyManager.close(sessionId);
         return { success: true };
     });
@@ -138,7 +181,11 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     });
 
     router.register(MSG.SESSION_HISTORY, async (payload) => {
-        const { taskId, sessionId } = payload as SessionHistoryPayload;
-        return taskStore.getSessionHistory(taskId, sessionId);
+        const { taskId, projectId, sessionId } = payload as SessionHistoryPayload;
+        const ownerId = taskId ?? projectId;
+        if (!ownerId || (taskId && projectId)) {
+            throw new Error("Exactly one of taskId or projectId is required");
+        }
+        return taskStore.getSessionHistory(ownerId, sessionId);
     });
 }

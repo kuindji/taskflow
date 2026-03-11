@@ -27,7 +27,7 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
 }
 
 function SessionBadge({ session }: { session: SessionRef }) {
-    const status = useSessionStore((s) => s.sessionStatus[session.id] ?? "idle");
+    const status = useSessionStore((s) => s.sessionStatus[session.id]);
 
     return (
         <Badge

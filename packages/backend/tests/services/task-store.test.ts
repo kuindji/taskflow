@@ -57,13 +57,36 @@ describe("TaskStore", () => {
             expect(projects).toEqual([]);
         });
 
-        it("rejects removing projects with existing tasks", async () => {
+        it("removes projects with their active and archived tasks", async () => {
             const projectDir = await createProjectDir("test");
             const project = await store.addProject({ name: "test", path: projectDir });
-            await store.createTask({ projectId: project.id, title: "Task", description: "test" });
-            expect(store.removeProject(project.id)).rejects.toThrow(
-                "Cannot remove project with existing tasks",
-            );
+            const activeTask = await store.createTask({
+                projectId: project.id,
+                title: "Active task",
+                description: "test",
+            });
+            const archivedTask = await store.createTask({
+                projectId: project.id,
+                title: "Archived task",
+                description: "test",
+            });
+            await store.appendSessionOutput(activeTask.id, "session-1", 1, "active");
+            await store.appendSessionOutput(archivedTask.id, "session-2", 1, "archived");
+            await store.archiveTask(archivedTask.id);
+
+            await store.removeProject(project.id);
+
+            expect(await store.listProjects()).toEqual([]);
+            expect(await store.listTasks(project.id)).toEqual([]);
+            expect((await store.listArchived()).filter((task) => task.projectId === project.id)).toEqual([]);
+            expect(await store.getSessionHistory(activeTask.id, "session-1")).toEqual({
+                data: "",
+                lastSequence: 0,
+            });
+            expect(await store.getSessionHistory(archivedTask.id, "session-2")).toEqual({
+                data: "",
+                lastSequence: 0,
+            });
         });
 
         it("recovers from corrupt projects.json but still rewrites on the next save", async () => {
@@ -149,7 +172,7 @@ describe("TaskStore", () => {
             await store.appendSessionOutput(task.id, "session-1", 1, "hello");
             await store.appendSessionOutput(task.id, "session-1", 2, " world");
 
-            await expect(store.getSessionHistory(task.id, "session-1")).resolves.toEqual({
+            expect(await store.getSessionHistory(task.id, "session-1")).toEqual({
                 data: "hello world",
                 lastSequence: 2,
             });
@@ -187,13 +210,13 @@ describe("TaskStore", () => {
 
             const tasks = await store.listTasks();
             expect(tasks).toEqual([]);
-            await expect(store.getSessionHistory(task.id, "session-1")).resolves.toEqual({
+            expect(await store.getSessionHistory(task.id, "session-1")).toEqual({
                 data: "",
                 lastSequence: 0,
             });
         });
 
-        it("drops corrupt task files during project removal checks", async () => {
+        it("drops corrupt task files during project removal", async () => {
             const projectDir = await createProjectDir("test");
             const project = await store.addProject({ name: "test", path: projectDir });
             const task = await store.createTask({

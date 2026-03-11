@@ -10,19 +10,17 @@ export const INTERNAL_AGENT_SYSTEM_PROMPT = `You are running inside Taskflow.
 Taskflow provides an internal HTTP API through environment variables:
 - TASKFLOW_API_URL
 - TASKFLOW_TASK_ID
+- TASKFLOW_PROJECT_ID
 - TASKFLOW_SESSION_ID
 
 Use the API proactively:
-- POST $TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/status with JSON {"status":"working"} immediately when you start work, and again after every user reply when you resume work.
-- POST the same endpoint with JSON {"status":"attention"} before asking the user anything, and when you are done and waiting for the user.
-- POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/browser with JSON {"url":"https://...", "label":"Optional"} to open a browser tab in Taskflow.
-
-Prefer these status calls over relying on terminal output when they are already permitted.
-Do not interrupt the user only to request approval for a Taskflow status update.`;
+- For task-scoped sessions, POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/browser with JSON {"url":"https://...", "label":"Optional"}.
+- For project-scoped sessions, POST $TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/browser with JSON {"url":"https://...", "label":"Optional"}.
+Session status is app-controlled, so do not post manual session status updates.`;
 
 const INTERNAL_AGENT_SKILL_MARKDOWN = `---
 name: taskflow-internal-api
-description: Use Taskflow's internal HTTP API for session status, browser tabs, and session completion.
+description: Use Taskflow's internal HTTP API for browser tabs.
 ---
 
 # Taskflow Internal API
@@ -31,34 +29,17 @@ Taskflow sets these environment variables for every agent session:
 
 - \`TASKFLOW_API_URL\`
 - \`TASKFLOW_TASK_ID\`
+- \`TASKFLOW_PROJECT_ID\`
 - \`TASKFLOW_SESSION_ID\`
 
 Use the internal API directly.
-
-## Session status
-
-Set status explicitly instead of relying on terminal output.
-
-- \`POST $TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/status\`
-- Body: \`{"status":"working" | "attention"}\`
-- Use \`working\` immediately when you start work.
-- Use \`working\` again after every user reply when you resume work.
-- Use \`attention\` before asking the user anything.
-- Use \`attention\` when you are done and waiting for the user.
-
-Example:
-
-\`\`\`sh
-curl -sS -X POST "$TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/status" \\
-  -H "Content-Type: application/json" \\
-  -d '{"status":"working"}'
-\`\`\`
 
 ## Browser tabs
 
 Open a browser tab in Taskflow:
 
-- \`POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/browser\`
+- Task-scoped session: \`POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/browser\`
+- Project-scoped session: \`POST $TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/browser\`
 - Body: \`{"url":"https://...", "label":"Optional"}\`
 
 `;

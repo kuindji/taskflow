@@ -75,7 +75,8 @@ export interface TaskDeletePayload {
 
 // Session messages
 export interface SessionCreatePayload {
-    taskId: string;
+    taskId?: string;
+    projectId?: string;
     type: "claude" | "codex" | "shell";
     label?: string;
     prompt?: string;
@@ -121,7 +122,8 @@ export interface TerminalResizePayload {
 }
 
 export interface SessionHistoryPayload {
-    taskId: string;
+    taskId?: string;
+    projectId?: string;
     sessionId: string;
 }
 
@@ -209,7 +211,8 @@ export interface GitWorktreeCreatePayload {
 
 // Browser messages
 export interface BrowserOpenPayload {
-    taskId: string;
+    taskId?: string;
+    projectId?: string;
     url: string;
     label?: string;
 }

@@ -16,15 +16,15 @@ function escapeTomlBasicString(value: string): string {
 }
 
 describe("internal agent skill", () => {
-    it("uses only working and attention session states", () => {
+    it("leaves session status under app control", () => {
+        expect(INTERNAL_AGENT_SYSTEM_PROMPT).toContain("TASKFLOW_PROJECT_ID");
+        expect(INTERNAL_AGENT_SYSTEM_PROMPT).toContain("/api/projects/$TASKFLOW_PROJECT_ID/browser");
         expect(INTERNAL_AGENT_SYSTEM_PROMPT).toContain(
-            'status with JSON {"status":"working"} immediately when you start work',
+            "Session status is app-controlled, so do not post manual session status updates.",
         );
-        expect(INTERNAL_AGENT_SYSTEM_PROMPT).toContain(
-            'the same endpoint with JSON {"status":"attention"} before asking the user anything, and when you are done and waiting for the user.',
-        );
-        expect(INTERNAL_AGENT_SYSTEM_PROMPT).not.toContain('{"status":"idle"}');
-        expect(INTERNAL_AGENT_SYSTEM_PROMPT).not.toContain("/done");
+        expect(INTERNAL_AGENT_SYSTEM_PROMPT).not.toContain("/api/sessions/");
+        expect(INTERNAL_AGENT_SYSTEM_PROMPT).not.toContain('{"status":"working"}');
+        expect(INTERNAL_AGENT_SYSTEM_PROMPT).not.toContain('{"status":"attention"}');
     });
 
     it("configures Codex to load the Taskflow internal skill", () => {

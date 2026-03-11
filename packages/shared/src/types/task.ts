@@ -1,4 +1,4 @@
-export type SessionStatus = "idle" | "working" | "attention";
+export type SessionStatus = "working" | "attention";
 
 export interface SessionRef {
     id: string;

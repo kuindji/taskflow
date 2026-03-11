@@ -69,8 +69,10 @@ function EditorPane({ filePath }: EditorPaneProps) {
     const [loading, setLoading] = useState(true);
     const [dirty, setDirty] = useState(false);
 
-    editorFontFamilyRef.current = editorFontFamily;
-    editorFontSizeRef.current = editorFontSize;
+    useEffect(() => {
+        editorFontFamilyRef.current = editorFontFamily;
+        editorFontSizeRef.current = editorFontSize;
+    }, [editorFontFamily, editorFontSize]);
 
     useEffect(() => {
         if (!containerRef.current) return;

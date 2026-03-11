@@ -20,7 +20,8 @@ function shellQuote(path: string): string {
 }
 
 interface TerminalPaneProps {
-    taskId: string;
+    taskId?: string;
+    projectId?: string;
     sessionId: string;
     visible: boolean;
 }
@@ -129,7 +130,11 @@ function loadBestEffortRendererAddons(term: Terminal): () => void {
     };
 }
 
-function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal {
+function getOrCreateTerminal(
+    sessionId: string,
+    taskId?: string,
+    projectId?: string,
+): CachedTerminal {
     const existing = terminalCache.get(sessionId);
     if (existing) return existing;
 
@@ -139,6 +144,7 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
             background: "#1e1e2e",
             foreground: "#cdd6f4",
             cursor: "#f5e0dc",
+            cursorAccent: "#1e1e2e",
             selectionBackground: "#45475a",
             black: "#45475a",
             red: "#f38ba8",
@@ -148,18 +154,27 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
             magenta: "#cba6f7",
             cyan: "#94e2d5",
             white: "#bac2de",
+            brightBlack: "#585b70",
+            brightRed: "#f38ba8",
+            brightGreen: "#a6e3a1",
+            brightYellow: "#f9e2af",
+            brightBlue: "#89b4fa",
+            brightMagenta: "#cba6f7",
+            brightCyan: "#94e2d5",
+            brightWhite: "#a6adc8",
         },
         fontFamily: terminalSettings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
         fontSize: terminalSettings?.fontSize ?? 13,
+        fontWeight: "normal",
+        fontWeightBold: "bold",
+        lineHeight: 1.0,
+        letterSpacing: 0,
         cursorBlink: true,
         allowProposedApi: true,
     });
 
     const fit = new FitAddon();
     term.loadAddon(fit);
-    const unicode = new Unicode11Addon();
-    term.loadAddon(unicode);
-    term.unicode.activeVersion = "11";
     term.loadAddon(new WebLinksAddon());
 
     // Create a dedicated wrapper div that persists across mounts
@@ -167,7 +182,14 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
     element.style.width = "100%";
     element.style.height = "100%";
     term.open(element);
+
+    // Renderer addons must load before Unicode (renderer initialization first)
     const disposeRendererAddons = loadBestEffortRendererAddons(term);
+
+    // Unicode support loaded after renderer is ready
+    const unicode = new Unicode11Addon();
+    term.loadAddon(unicode);
+    term.unicode.activeVersion = "11";
     const writer = createTerminalWriter(term);
 
     // Buffer live output until history is loaded, then write directly
@@ -196,7 +218,7 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
     });
 
     // Replay scrollback then flush buffered live data
-    sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, { taskId, sessionId })
+    sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, { taskId, projectId, sessionId })
         .then(({ data, lastSequence }) => {
             if (data) writer.write(data);
             historyLoaded = true;
@@ -238,7 +260,7 @@ function destroyTerminal(sessionId: string): void {
     cached.term.dispose();
 }
 
-function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
+function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPaneProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
@@ -318,7 +340,7 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
     useEffect(() => {
         if (!containerRef.current) return;
 
-        const cached = getOrCreateTerminal(taskId, sessionId);
+        const cached = getOrCreateTerminal(sessionId, taskId, projectId);
         const { term, fit, element } = cached;
 
         termRef.current = term;
@@ -360,7 +382,7 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
             fitRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- terminal setup should not re-run on visibility change
-    }, [scheduleFit, scheduleResizeObserverFit, sessionId, taskId]);
+    }, [projectId, scheduleFit, scheduleResizeObserverFit, sessionId, taskId]);
 
     useEffect(() => {
         if (!visible || !termRef.current || !fitRef.current) return;
@@ -443,4 +465,5 @@ function TerminalPane({ taskId, sessionId, visible }: TerminalPaneProps) {
     );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- destroyTerminal manages the module-level terminal cache
 export { TerminalPane, destroyTerminal };
