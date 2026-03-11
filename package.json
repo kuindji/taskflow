@@ -22,7 +22,8 @@
         "build:ui": "cd packages/ui && bun run build",
         "build:electron": "cd electron && bun run build",
         "package": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run pack",
-        "dist": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run dist"
+        "dist": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run dist",
+        "release": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run publish"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
