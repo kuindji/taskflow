@@ -147,6 +147,7 @@ function getOrCreateTerminal(taskId: string, sessionId: string): CachedTerminal 
         fontFamily: terminalSettings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
         fontSize: terminalSettings?.fontSize ?? 13,
         cursorBlink: true,
+        allowProposedApi: true,
     });
 
     const fit = new FitAddon();
