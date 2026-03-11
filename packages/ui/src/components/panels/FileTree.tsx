@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { cva } from "class-variance-authority";
 import type { FileNode } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -46,10 +46,21 @@ function FileTree({ node, depth = 0, gitFiles, onFileClick }: FileTreeProps) {
         [gitStatus],
     );
 
+    const handleDragStart = useCallback(
+        (e: React.DragEvent) => {
+            e.dataTransfer.setData("text/plain", node.path);
+            e.dataTransfer.setData("application/x-taskflow-path", node.path);
+            e.dataTransfer.effectAllowed = "copy";
+        },
+        [node.path],
+    );
+
     if (node.type === "file") {
         return (
             <div
                 onClick={() => onFileClick(node.path)}
+                draggable
+                onDragStart={handleDragStart}
                 className={fileClasses}
                 style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
                 title={node.path}
@@ -62,6 +73,8 @@ function FileTree({ node, depth = 0, gitFiles, onFileClick }: FileTreeProps) {
     return (
         <Collapsible open={open} onOpenChange={setOpen}>
             <CollapsibleTrigger
+                draggable
+                onDragStart={handleDragStart}
                 className="text-muted-foreground hover:bg-muted/50 flex w-full cursor-pointer items-center px-3 py-1 text-sm select-none"
                 style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
             >
