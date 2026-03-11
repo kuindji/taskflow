@@ -59,6 +59,23 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleEditorFontFamily = useCallback(
+        (fontFamily: string) => {
+            void updateSettings({ editor: { fontFamily } });
+        },
+        [updateSettings],
+    );
+
+    const handleEditorFontSize = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            const fontSize = parseInt(e.target.value, 10);
+            if (!isNaN(fontSize) && fontSize > 0) {
+                void updateSettings({ editor: { fontSize } });
+            }
+        },
+        [updateSettings],
+    );
+
     if (!settings) return null;
 
     return (
@@ -112,6 +129,29 @@ function SettingsModal() {
                                     max={32}
                                     value={settings.terminal.fontSize}
                                     onChange={handleTerminalFontSize}
+                                    className="h-8 text-sm"
+                                />
+                            </div>
+                        </div>
+                    </section>
+                    <section className="space-y-3">
+                        <h3 className="text-sm font-medium">Editor Font</h3>
+                        <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
+                            <div className="min-w-0 space-y-1">
+                                <Label className="text-xs text-muted-foreground">Family</Label>
+                                <FontFamilySelect
+                                    value={settings.editor.fontFamily}
+                                    onChange={handleEditorFontFamily}
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs text-muted-foreground">Size</Label>
+                                <Input
+                                    type="number"
+                                    min={8}
+                                    max={32}
+                                    value={settings.editor.fontSize}
+                                    onChange={handleEditorFontSize}
                                     className="h-8 text-sm"
                                 />
                             </div>

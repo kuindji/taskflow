@@ -59,6 +59,9 @@ export const ARCHIVE_EXPIRY_DAYS = 30;
 export const DEFAULT_TERMINAL_FONT_FAMILY =
     '"CaskaydiaCove Nerd Font Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 
+export const DEFAULT_EDITOR_FONT_FAMILY = '"JetBrains Mono", Menlo, Monaco, monospace';
+export const DEFAULT_EDITOR_FONT_SIZE = 13;
+
 // NOTE: Config paths (CONFIG_DIR, PROJECTS_FILE, etc.) live in
 // packages/backend/src/config.ts — not here, because process.env.HOME
 // is unavailable in the browser renderer.

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import * as monaco from "monaco-editor";
+import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_EDITOR_FONT_SIZE } from "@taskflow/shared";
 import { useFileStore } from "@/stores/file-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { Button } from "@/components/ui/button";
 
 interface EditorPaneProps {
@@ -57,9 +59,18 @@ function EditorPane({ filePath }: EditorPaneProps) {
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     const loadRequestIdRef = useRef(0);
     const editorReadyRef = useRef(false);
+    const editorFontFamily = useSettingsStore(
+        (s) => s.settings?.editor?.fontFamily ?? DEFAULT_EDITOR_FONT_FAMILY,
+    );
+    const editorFontSize = useSettingsStore((s) => s.settings?.editor?.fontSize ?? DEFAULT_EDITOR_FONT_SIZE);
+    const editorFontFamilyRef = useRef(editorFontFamily);
+    const editorFontSizeRef = useRef(editorFontSize);
     const { readFile, writeFile } = useFileStore();
     const [loading, setLoading] = useState(true);
     const [dirty, setDirty] = useState(false);
+
+    editorFontFamilyRef.current = editorFontFamily;
+    editorFontSizeRef.current = editorFontSize;
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -76,8 +87,8 @@ function EditorPane({ filePath }: EditorPaneProps) {
             model,
             theme: "vs-dark",
             minimap: { enabled: false },
-            fontSize: 13,
-            fontFamily: "JetBrains Mono, Menlo, Monaco, monospace",
+            fontSize: editorFontSizeRef.current,
+            fontFamily: editorFontFamilyRef.current,
             scrollBeyondLastLine: false,
             automaticLayout: true,
             readOnly: false,
@@ -128,6 +139,18 @@ function EditorPane({ filePath }: EditorPaneProps) {
             }
         };
     }, [filePath, readFile, writeFile]);
+
+    useEffect(() => {
+        const editor = editorRef.current;
+        if (!editor) return;
+
+        editor.updateOptions({
+            fontFamily: editorFontFamily,
+            fontSize: editorFontSize,
+        });
+        monaco.editor.remeasureFonts();
+        editor.layout();
+    }, [editorFontFamily, editorFontSize]);
 
     return (
         <div className="relative flex-1">
