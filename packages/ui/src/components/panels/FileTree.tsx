@@ -36,7 +36,7 @@ interface FileTreeProps {
 }
 
 function FileTree({ node, depth = 0, gitFiles, onFileClick }: FileTreeProps) {
-    const [open, setOpen] = useState(depth < 2);
+    const [open, setOpen] = useState(depth < 1);
     const rawStatus = gitFiles?.get(node.path);
     const gitStatus: GitStatusVariant =
         rawStatus && VALID_GIT_STATUSES.has(rawStatus) ? (rawStatus as GitStatusVariant) : "clean";
