@@ -30,12 +30,14 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
         [isActive, className],
     );
 
-    const title = task.title || "Untitled";
-    const description = task.description
-        ? task.description.length > 60
-            ? task.description.slice(0, 60) + "\u2026"
-            : task.description
-        : null;
+    const usingDescriptionAsTitle = !task.title && !!task.description;
+    const title = task.title || task.description || "Untitled";
+    const description =
+        !usingDescriptionAsTitle && task.description
+            ? task.description.length > 60
+                ? task.description.slice(0, 60) + "\u2026"
+                : task.description
+            : null;
 
     return (
         <div onClick={onClick} className={cardClasses}>

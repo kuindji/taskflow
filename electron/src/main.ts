@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import { autoUpdater } from "electron-updater";
 import { spawn, execFile, type ChildProcess } from "child_process";
 import { constants } from "fs";
@@ -149,6 +149,66 @@ function createWindow() {
     });
 }
 
+let isCheckingForUpdates = false;
+
+function checkForUpdatesManually() {
+    if (isCheckingForUpdates) return;
+    isCheckingForUpdates = true;
+
+    const onNotAvailable = () => {
+        isCheckingForUpdates = false;
+        void dialog.showMessageBox({
+            type: "info",
+            title: "No Updates",
+            message: "You're up to date!",
+            detail: `Taskflow ${app.getVersion()} is the latest version.`,
+        });
+    };
+
+    const onAvailable = () => {
+        isCheckingForUpdates = false;
+    };
+
+    const onError = () => {
+        isCheckingForUpdates = false;
+    };
+
+    autoUpdater.once("update-not-available", onNotAvailable);
+    autoUpdater.once("update-available", onAvailable);
+    autoUpdater.once("error", onError);
+
+    void autoUpdater.checkForUpdates();
+}
+
+function buildAppMenu() {
+    const template: Electron.MenuItemConstructorOptions[] = [
+        {
+            role: "appMenu",
+            submenu: [
+                { role: "about" },
+                { type: "separator" },
+                {
+                    label: "Check for Updates…",
+                    click: checkForUpdatesManually,
+                },
+                { type: "separator" },
+                { role: "services" },
+                { type: "separator" },
+                { role: "hide" },
+                { role: "hideOthers" },
+                { role: "unhide" },
+                { type: "separator" },
+                { role: "quit" },
+            ],
+        },
+        { role: "editMenu" },
+        { role: "viewMenu" },
+        { role: "windowMenu" },
+    ];
+
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function setupAutoUpdater() {
     if (!app.isPackaged) return;
 
@@ -189,6 +249,7 @@ void app.whenReady().then(async () => {
         backendPort = await startBackend();
         console.log(`Backend started on port ${backendPort}`);
         createWindow();
+        buildAppMenu();
         setupAutoUpdater();
     } catch (err) {
         console.error("Failed to start backend:", err);

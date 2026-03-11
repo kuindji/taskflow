@@ -5,6 +5,7 @@ import type { Tab } from "@/stores/session-store";
 import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
+import { destroyTerminal } from "@/components/panes/TerminalPane";
 
 const emptyTabs: Tab[] = [];
 
@@ -63,6 +64,8 @@ export function Workspace() {
                 activeTabId={activeTab?.id ?? ""}
                 onTabClick={(id) => setActiveTab(task.id, id)}
                 onTabClose={(id) => {
+                    const tab = tabs.find((t) => t.id === id);
+                    if (tab?.sessionId) destroyTerminal(tab.sessionId);
                     void closeTab(task.id, id);
                 }}
                 onNewTab={handleNewTab}

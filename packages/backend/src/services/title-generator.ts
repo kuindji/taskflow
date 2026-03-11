@@ -1,6 +1,7 @@
 import type { TaskStore } from "./task-store";
 import type { WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
+import { buildShellPath } from "./shell-path";
 
 interface TitleGeneratorDeps {
     taskStore: TaskStore;
@@ -21,7 +22,7 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
                 stdin: "pipe",
                 stdout: "pipe",
                 stderr: "pipe",
-                env: cleanEnv,
+                env: { ...cleanEnv, PATH: buildShellPath() },
             });
             void proc.stdin.write(prompt);
             void proc.stdin.end();
