@@ -18,8 +18,10 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
 
     if (tabs.length === 0) {
         return (
-            <div className="text-muted-foreground flex flex-1 items-center justify-center">
-                No active tab. Create a session with +
+            <div className="m-1.5 flex flex-1 overflow-hidden rounded-md border border-border/30">
+                <div className="text-muted-foreground flex flex-1 items-center justify-center">
+                    No active tab. Create a session with +
+                </div>
             </div>
         );
     }
@@ -28,7 +30,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
         task?.worktree.enabled && task.worktree.path ? task.worktree.path : (project?.path ?? "");
 
     return (
-        <>
+        <div className="m-1.5 flex flex-1 overflow-hidden rounded-md border border-border/30">
             {tabs.map((tab) => {
                 const isActive = tab.id === activeTabId;
 
@@ -76,11 +78,11 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
 
                 return (
                     <ErrorBoundary key={tab.id} fallbackLabel={label}>
-                        <div style={{ display: isActive ? "contents" : "none" }}>{pane}</div>
+                        <div className="flex-1" style={{ display: isActive ? "flex" : "none" }}>{pane}</div>
                     </ErrorBoundary>
                 );
             })}
-        </>
+        </div>
     );
 }
 
