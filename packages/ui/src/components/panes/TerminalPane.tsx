@@ -56,7 +56,7 @@ interface TerminalViewportSnapshot {
     distanceFromBottom: number;
 }
 
-/** Module-level cache: keeps xterm instances alive across task switches */
+/** Module-level cache: keeps one xterm instance per mounted terminal tab. */
 const terminalCache = new Map<string, CachedTerminal>();
 const RESIZE_DEBOUNCE_MS = 250;
 
@@ -634,8 +634,10 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 window.clearTimeout(resizeDebounceTimeoutRef.current);
                 resizeDebounceTimeoutRef.current = null;
             }
-            // Detach from DOM but keep terminal alive in cache
-            element.remove();
+            // Workspace switches unmount the pane completely. Rebuild the
+            // terminal UI from backend history on return instead of reusing a
+            // detached xterm viewport whose scroll state can go stale.
+            destroyTerminal(sessionId);
             termRef.current = null;
             fitRef.current = null;
         };
