@@ -167,20 +167,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     setActiveTab(workspaceKey, tabId) {
         set((s) => {
             const next = { activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: tabId } };
-            const previousTab = (s.tabsByWorkspace[workspaceKey] ?? []).find(
-                (tab) => tab.id === s.activeTabByWorkspace[workspaceKey],
-            );
+            const newTab = (s.tabsByWorkspace[workspaceKey] ?? []).find((tab) => tab.id === tabId);
+            const sessionIdToClear = newTab?.sessionId &&
+                s.sessionStatus[newTab.sessionId] === "attention"
+                ? newTab.sessionId
+                : undefined;
 
-            if (
-                previousTab?.sessionId &&
-                previousTab.id !== tabId &&
-                s.sessionStatus[previousTab.sessionId] === "attention"
-            ) {
-                const { [previousTab.sessionId]: _, ...nextStatus } = s.sessionStatus;
-                return {
-                    ...next,
-                    sessionStatus: nextStatus,
-                };
+            if (sessionIdToClear) {
+                const { [sessionIdToClear]: _, ...nextStatus } = s.sessionStatus;
+                return { ...next, sessionStatus: nextStatus };
             }
 
             return next;
@@ -384,7 +379,7 @@ function clearActivityTimer(sessionId: string): void {
 }
 
 function settleInactiveSession(sessionId: string): void {
-    const status = isSessionFocused(sessionId) ? "attention" : undefined;
+    const status = isSessionFocused(sessionId) ? undefined : "attention";
     useSessionStore.getState().setSessionStatus(sessionId, status);
 }
 
@@ -465,41 +460,41 @@ const _unsubBrowserOpen = onEvent(MSG.BROWSER_OPEN, (payload) => {
 });
 
 const _unsubActiveTask = useTaskStore.subscribe((state, prevState) => {
-    if (state.activeTaskId === prevState.activeTaskId || !prevState.activeTaskId) {
+    if (state.activeTaskId === prevState.activeTaskId || !state.activeTaskId) {
         return;
     }
 
     const sessionStore = useSessionStore.getState();
-    const workspaceKey = getTaskWorkspaceKey(prevState.activeTaskId);
-    const previousTabId = sessionStore.activeTabByWorkspace[workspaceKey];
-    const previousTab = (sessionStore.tabsByWorkspace[workspaceKey] ?? []).find(
-        (tab) => tab.id === previousTabId,
+    const workspaceKey = getTaskWorkspaceKey(state.activeTaskId);
+    const activeTabId = sessionStore.activeTabByWorkspace[workspaceKey];
+    const activeTab = (sessionStore.tabsByWorkspace[workspaceKey] ?? []).find(
+        (tab) => tab.id === activeTabId,
     );
 
     if (
-        previousTab?.sessionId &&
-        sessionStore.sessionStatus[previousTab.sessionId] === "attention"
+        activeTab?.sessionId &&
+        sessionStore.sessionStatus[activeTab.sessionId] === "attention"
     ) {
-        sessionStore.setSessionStatus(previousTab.sessionId, undefined);
+        sessionStore.setSessionStatus(activeTab.sessionId, undefined);
     }
 });
 
 const _unsubActiveProject = useUIStore.subscribe((state, prevState) => {
-    if (state.activeProjectId === prevState.activeProjectId || !prevState.activeProjectId) {
+    if (state.activeProjectId === prevState.activeProjectId || !state.activeProjectId) {
         return;
     }
 
     const sessionStore = useSessionStore.getState();
-    const workspaceKey = getProjectWorkspaceKey(prevState.activeProjectId);
-    const previousTabId = sessionStore.activeTabByWorkspace[workspaceKey];
-    const previousTab = (sessionStore.tabsByWorkspace[workspaceKey] ?? []).find(
-        (tab) => tab.id === previousTabId,
+    const workspaceKey = getProjectWorkspaceKey(state.activeProjectId);
+    const activeTabId = sessionStore.activeTabByWorkspace[workspaceKey];
+    const activeTab = (sessionStore.tabsByWorkspace[workspaceKey] ?? []).find(
+        (tab) => tab.id === activeTabId,
     );
 
     if (
-        previousTab?.sessionId &&
-        sessionStore.sessionStatus[previousTab.sessionId] === "attention"
+        activeTab?.sessionId &&
+        sessionStore.sessionStatus[activeTab.sessionId] === "attention"
     ) {
-        sessionStore.setSessionStatus(previousTab.sessionId, undefined);
+        sessionStore.setSessionStatus(activeTab.sessionId, undefined);
     }
 });

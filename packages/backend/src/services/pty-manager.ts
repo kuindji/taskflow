@@ -83,10 +83,10 @@ export class PtyManager {
     spawn(options: SpawnOptions & { id?: string }): string {
         const id = options.id ?? randomUUID();
         const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = process.env;
-        const cols = options.cols ?? 120;
-        const rows = options.rows ?? 40;
+        const cols = options.cols ?? 80;
+        const rows = options.rows ?? 24;
 
-        const decoder = new TextDecoder();
+        const decoder = new TextDecoder("utf-8", { fatal: false });
         const scrollback: string[] = [];
         let scrollbackLen = 0;
         let lastSequence = 0;
@@ -110,6 +110,7 @@ export class PtyManager {
                 ...cleanEnv,
                 PATH: buildShellPath(),
                 TERM: "xterm-256color",
+                TERM_PROGRAM: "xterm-256color",
                 COLORTERM: "truecolor",
                 LANG: cleanEnv.LANG || "en_US.UTF-8",
                 LC_ALL: cleanEnv.LC_ALL || "en_US.UTF-8",
@@ -120,7 +121,7 @@ export class PtyManager {
                 cols,
                 data: (term: Terminal, data: Uint8Array) => {
                     if (sessionEntry) sessionEntry.terminal = term;
-                    batcher.add(decoder.decode(data));
+                    batcher.add(decoder.decode(data, { stream: true }));
                 },
             },
         }) as PtySubprocess;

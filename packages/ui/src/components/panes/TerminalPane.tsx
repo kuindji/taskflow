@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -169,6 +169,7 @@ function getOrCreateTerminal(
         fontWeightBold: "bold",
         lineHeight: 1.0,
         letterSpacing: 0,
+        scrollback: 10000,
         cursorBlink: true,
         allowProposedApi: true,
     });
@@ -186,10 +187,8 @@ function getOrCreateTerminal(
     // Renderer addons must load before Unicode (renderer initialization first)
     const disposeRendererAddons = loadBestEffortRendererAddons(term);
 
-    // Unicode support loaded after renderer is ready
-    const unicode = new Unicode11Addon();
-    term.loadAddon(unicode);
-    term.unicode.activeVersion = "11";
+    // Unicode support loaded after renderer is ready (auto-activates '15-graphemes')
+    term.loadAddon(new UnicodeGraphemesAddon());
     const writer = createTerminalWriter(term);
 
     // Buffer live output until history is loaded, then write directly
