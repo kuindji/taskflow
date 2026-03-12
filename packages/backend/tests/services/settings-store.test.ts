@@ -37,6 +37,8 @@ describe("SettingsStore", () => {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 13,
                 externalEditor: "system",
+                defaultAgent: "claude",
+                defaultRuntime: "bun",
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -57,6 +59,8 @@ describe("SettingsStore", () => {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 13,
                 externalEditor: "system",
+                defaultAgent: "claude",
+                defaultRuntime: "bun",
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -85,6 +89,8 @@ describe("SettingsStore", () => {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 15,
                 externalEditor: "system",
+                defaultAgent: "claude",
+                defaultRuntime: "bun",
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -103,6 +109,8 @@ describe("SettingsStore", () => {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 15,
                 externalEditor: "system",
+                defaultAgent: "claude",
+                defaultRuntime: "bun",
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -194,5 +202,16 @@ describe("SettingsStore", () => {
             height: 800,
             isMaximized: true,
         });
+    });
+
+    it("persists defaultAgent and defaultRuntime settings", async () => {
+        const result = await store.update({
+            general: { defaultAgent: "codex", defaultRuntime: "node" },
+        });
+
+        expect(result.general.defaultAgent).toBe("codex");
+        expect(result.general.defaultRuntime).toBe("node");
+        expect((await store.get()).general.defaultAgent).toBe("codex");
+        expect((await store.get()).general.defaultRuntime).toBe("node");
     });
 });
