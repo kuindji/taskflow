@@ -85,19 +85,12 @@ function ResizeHandle({
             }`}
         >
             <div
-                className={`pointer-events-none absolute rounded-full bg-accent/18 transition-opacity duration-200 ease-out ${
-                    orientation === "vertical"
-                        ? "inset-y-2 left-1/2 w-[3px] -translate-x-1/2"
-                        : "inset-x-2 top-1/2 h-[3px] -translate-y-1/2"
-                } ${isDragging ? "opacity-100" : "opacity-60 group-hover:opacity-90"}`}
-            />
-            <div
                 style={{ ...lineStyle, opacity: isDragging ? 1 : undefined }}
                 className={`pointer-events-none absolute transition-opacity duration-200 ease-out ${
                     orientation === "vertical"
                         ? "inset-y-0 left-1/2 w-px -translate-x-1/2"
                         : "inset-x-0 top-1/2 h-px -translate-y-1/2"
-                } ${isDragging ? "opacity-100" : "opacity-70 group-hover:opacity-100"}`}
+                } ${isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
             />
         </div>
     );
