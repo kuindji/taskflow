@@ -81,7 +81,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     }
 
     router.register(MSG.SESSION_CREATE, async (payload) => {
-        const { taskId, projectId, type, label, prompt, shell, cols, rows } = payload as SessionCreatePayload;
+        const { taskId, projectId, type, label, prompt, shell, cols, rows, agentOptions } = payload as SessionCreatePayload;
         if ((taskId ? 1 : 0) + (projectId ? 1 : 0) !== 1) {
             throw new Error("Exactly one of taskId or projectId is required");
         }
@@ -104,7 +104,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             command = shell;
         } else {
             const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
-            const spec = buildAgentLaunchSpec(type, prompt, skillPath);
+            const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions);
             command = spec.command;
             args.push(...spec.args);
         }
