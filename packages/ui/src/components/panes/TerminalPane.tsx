@@ -9,7 +9,11 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { onEvent, sendRequest } from "@/hooks/useWebSocket";
 import { DEFAULT_TERMINAL_FONT_FAMILY, MSG } from "@taskflow/shared";
-import type { TerminalOutputEvent, SessionExitedEvent, SessionHistoryResponse } from "@taskflow/shared";
+import type { TerminalOutputEvent, SessionExitedEvent, SessionHistoryResponse, FileStatResponse } from "@taskflow/shared";
+import { useTaskStore } from "@/stores/task-store";
+import { useProjectStore } from "@/stores/project-store";
+// TODO: enable after Task 5 adds setExpandToPath
+// import { useFileStore } from "@/stores/file-store";
 import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
@@ -60,6 +64,21 @@ const RESIZE_DEBOUNCE_MS = 250;
 function getWorkspaceKey(taskId?: string, projectId?: string): string | null {
     if (taskId) return getTaskWorkspaceKey(taskId);
     if (projectId) return getProjectWorkspaceKey(projectId);
+    return null;
+}
+
+function getWorkingDir(taskId?: string, projectId?: string): string | null {
+    if (taskId) {
+        const task = useTaskStore.getState().tasks.find((t) => t.id === taskId);
+        if (!task) return null;
+        const project = useProjectStore.getState().projects.find((p) => p.id === task.projectId);
+        if (!project) return null;
+        return task.worktree.enabled && task.worktree.path ? task.worktree.path : project.path;
+    }
+    if (projectId) {
+        const project = useProjectStore.getState().projects.find((p) => p.id === projectId);
+        return project?.path ?? null;
+    }
     return null;
 }
 
@@ -131,8 +150,45 @@ function createWebLinkHandler(taskId?: string, projectId?: string) {
 
 // ─── File path link provider ─────────────────────────────────────────────────
 
-// Matches absolute paths with optional :line:col suffix
-const FILE_PATH_RE = /(?:^|\s|["'(=])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\d+))?)?)/;
+// Absolute: /path/to/file with optional :line:col
+const ABS_PATH_RE = /(?:^|\s|["`'(=])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\d+))?)?)/g;
+
+// Relative: dir/file or ./dir/file with optional :line:col
+// Must contain at least one "/". False positives (e.g., "yes/no") are acceptable
+// because the file:stat check at click time gracefully handles non-existent paths.
+const REL_PATH_RE = /(?:^|\s|["`'(=])((?:\.\.?\/)?[\w.@+-]+\/[\w.@+\-/]*[\w.@+-](?::(\d+)(?::(\d+))?)?)/g;
+
+/** Collapse `.` and `..` segments in an absolute path without filesystem I/O. */
+function normalizePath(absolute: string): string {
+    const parts = absolute.split("/");
+    const stack: string[] = [];
+    for (const p of parts) {
+        if (p === "..") stack.pop();
+        else if (p && p !== ".") stack.push(p);
+    }
+    return "/" + stack.join("/");
+}
+
+function resolvePath(raw: string, workingDir: string | null): string | null {
+    if (!raw) return null;
+    const pathOnly = raw.replace(/:\d+(?::\d+)?$/, "");
+    if (pathOnly.startsWith("/")) {
+        // Absolute: must be within workingDir
+        if (!workingDir) return null;
+        if (pathOnly !== workingDir && !pathOnly.startsWith(workingDir + "/")) {
+            return null;
+        }
+        return pathOnly;
+    }
+    // Relative: resolve against workingDir
+    if (!workingDir) return null;
+    const normalized = normalizePath(workingDir + "/" + pathOnly);
+    // Reject paths that escape workingDir via ../
+    if (normalized !== workingDir && !normalized.startsWith(workingDir + "/")) {
+        return null;
+    }
+    return normalized;
+}
 
 function createFilePathLinkProvider(term: Terminal, taskId?: string, projectId?: string): ILinkProvider {
     const workspaceKey = getWorkspaceKey(taskId, projectId);
@@ -145,43 +201,81 @@ function createFilePathLinkProvider(term: Terminal, taskId?: string, projectId?:
                 return;
             }
 
+            const workingDir = getWorkingDir(taskId, projectId);
             const lineText = line.translateToString(true);
             const links: ILink[] = [];
-            let searchOffset = 0;
+            const seen = new Set<string>();
 
-            while (searchOffset < lineText.length) {
-                const remaining = lineText.slice(searchOffset);
-                const match = FILE_PATH_RE.exec(remaining);
-                if (!match) break;
+            for (const re of [ABS_PATH_RE, REL_PATH_RE]) {
+                re.lastIndex = 0;
+                let match: RegExpExecArray | null;
+                while ((match = re.exec(lineText)) !== null) {
+                    const fullMatch = match[1];
+                    const matchIndex = match.index + (match[0].length - fullMatch.length);
 
-                const fullMatch = match[1];
-                const matchIndex = searchOffset + match.index + (match[0].length - fullMatch.length);
+                    // Deduplicate overlapping matches
+                    const key = `${matchIndex}:${fullMatch.length}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
 
-                links.push({
-                    range: {
-                        start: { x: matchIndex + 1, y: bufferLineNumber },
-                        end: { x: matchIndex + fullMatch.length + 1, y: bufferLineNumber },
-                    },
-                    text: fullMatch,
-                    activate(event: MouseEvent, text: string) {
-                        const pathOnly = text.replace(/:\d+(?::\d+)?$/, "");
-                        if (event.metaKey || event.ctrlKey) {
-                            const lineMatch = text.match(/:(\d+)(?::(\d+))?$/);
-                            const line = lineMatch?.[1] ? Number(lineMatch[1]) : undefined;
-                            const col = lineMatch?.[2] ? Number(lineMatch[2]) : undefined;
-                            openExternalFile(pathOnly, { line, col });
-                        } else {
-                            openFileInApp(pathOnly, workspaceKey);
-                        }
-                    },
-                });
+                    const resolved = resolvePath(fullMatch, workingDir);
+                    if (!resolved) continue;
 
-                searchOffset = matchIndex + fullMatch.length;
+                    links.push({
+                        range: {
+                            start: { x: matchIndex + 1, y: bufferLineNumber },
+                            end: { x: matchIndex + fullMatch.length + 1, y: bufferLineNumber },
+                        },
+                        text: fullMatch,
+                        activate(event: MouseEvent, text: string) {
+                            void handlePathActivation(text, workingDir, workspaceKey, event);
+                        },
+                    });
+                }
             }
 
             callback(links.length > 0 ? links : undefined);
         },
     };
+}
+
+async function handlePathActivation(
+    text: string,
+    workingDir: string | null,
+    workspaceKey: string | null,
+    event: MouseEvent,
+): Promise<void> {
+    const resolved = resolvePath(text, workingDir);
+    if (!resolved) return;
+
+    const lineMatch = text.match(/:(\d+)(?::(\d+))?$/);
+    const line = lineMatch?.[1] ? Number(lineMatch[1]) : undefined;
+    const col = lineMatch?.[2] ? Number(lineMatch[2]) : undefined;
+
+    let stat: FileStatResponse;
+    try {
+        stat = await sendRequest<FileStatResponse>(MSG.FILE_STAT, { path: resolved });
+    } catch {
+        return;
+    }
+    if (!stat.exists) return;
+
+    const isExternal = event.metaKey || event.ctrlKey;
+
+    if (stat.isDirectory) {
+        if (isExternal) {
+            window.taskflow?.showItemInFolder(resolved);
+        } else {
+            // TODO: enable after Task 5 adds setExpandToPath
+            // useFileStore.getState().setExpandToPath(resolved);
+        }
+    } else {
+        if (isExternal) {
+            openExternalFile(resolved, { line, col });
+        } else {
+            openFileInApp(resolved, workspaceKey);
+        }
+    }
 }
 
 function fitTerminal(fit: FitAddon, term: Terminal, forceViewportRecalc = false): FitResult {
@@ -493,12 +587,22 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 };
 
                 if (forceViewportRecalc) {
-                    // After display:none → visible recovery, the browser needs an
-                    // extra layout pass after resize before scroll positions are
-                    // reliable. Defer scroll/refresh/focus to the next frame.
+                    // After display:none → visible recovery, the browser needs
+                    // multiple layout passes before scroll positions are reliable.
+                    // Frame 2: force DOM viewport scroll sync so the browser
+                    // recalculates scroll dimensions with correct metrics.
                     scrollFrameRef.current = requestAnimationFrame(() => {
-                        scrollFrameRef.current = null;
-                        finalize();
+                        if (!termRef.current) { scrollFrameRef.current = null; return; }
+                        const vp = termRef.current.element?.querySelector('.xterm-viewport') as HTMLElement | null;
+                        if (vp) {
+                            void vp.scrollHeight;          // force reflow
+                            vp.scrollTop = vp.scrollHeight; // sync DOM to bottom
+                        }
+                        // Frame 3: now scroll state is reliable — finalize.
+                        scrollFrameRef.current = requestAnimationFrame(() => {
+                            scrollFrameRef.current = null;
+                            finalize();
+                        });
                     });
                 } else {
                     finalize();
@@ -586,7 +690,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         // Force viewport recalculation: after display:none toggle or DOM
         // detach/reattach, xterm's scroll height is stale even if dimensions
         // haven't changed.
-        scheduleFit(true, true, false, true);
+        scheduleFit(true, true, true, true);
     }, [visible, sessionId, scheduleFit]);
 
     // Dedicated focus effect — independent of fit/resize logic.
