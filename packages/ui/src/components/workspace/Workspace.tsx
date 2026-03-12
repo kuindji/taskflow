@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AgentLaunchOptions, PackageManager, ScriptsListResponse, ShellListResponse } from "@taskflow/shared";
+import type { AgentLaunchOptions, ScriptsListResponse, ShellListResponse } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
@@ -47,11 +47,11 @@ export function Workspace() {
     const setActiveProject = useUIStore((s) => s.setActiveProject);
     const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
-    const [packageManager, setPackageManager] = useState<PackageManager>("npm");
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
+    const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
 
     const worktreePending =
         workspace.scope === "task" &&
@@ -94,7 +94,6 @@ export function Workspace() {
             .then((res) => {
                 if (cancelled) return;
                 setScripts(res.scripts);
-                setPackageManager(res.packageManager);
             })
             .catch(() => {
                 if (!cancelled) setScripts(emptyScripts);
@@ -273,14 +272,20 @@ export function Workspace() {
         );
     };
 
-    const handleRunScript = async (scriptName: string, pm: string) => {
-        if (!workspace.workspaceKey || !defaultShellPath) return;
+    const handleRunScript = async (scriptName: string) => {
+        if (!workspace.workspaceKey) return;
+        let shell = defaultShellPath;
+        if (!shell) {
+            const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
+            shell = resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell);
+        }
+        if (!shell) return;
         const owner =
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
                 : { projectId: workspace.project.id };
-        const sessionId = await createSession(owner, "shell", scriptName, undefined, defaultShellPath);
-        sendInput(sessionId, `${pm} run ${scriptName}\r`);
+        const sessionId = await createSession(owner, "shell", scriptName, undefined, shell);
+        sendInput(sessionId, `${defaultRuntime} run ${scriptName}\r`);
     };
 
     return (
@@ -311,7 +316,7 @@ export function Workspace() {
                         onRunTab={handleRunTab}
                         onRunScript={handleRunScript}
                         scripts={scripts}
-                        packageManager={packageManager}
+                        defaultRuntime={defaultRuntime}
                         showRunButton={workspace.scope === "task" || hasScripts}
                         showAgentOptions={workspace.scope === "task"}
                         allowSessionTabs={true}

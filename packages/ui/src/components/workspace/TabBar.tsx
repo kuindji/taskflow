@@ -3,7 +3,7 @@ import { cva } from "class-variance-authority";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import type { AgentLaunchOptions, PackageManager, ShellInfo } from "@taskflow/shared";
+import type { AgentLaunchOptions, ShellInfo } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG, type ShellListResponse } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { Button } from "@/components/ui/button";
@@ -94,9 +94,9 @@ interface TabBarProps {
         agentOptions?: AgentLaunchOptions,
     ) => void;
     onRunTab: (type: "claude" | "codex", agentOptions?: AgentLaunchOptions) => void;
-    onRunScript: (scriptName: string, packageManager: PackageManager) => void;
+    onRunScript: (scriptName: string) => void;
     scripts: Record<string, string>;
-    packageManager: PackageManager;
+    defaultRuntime: string;
     showRunButton: boolean;
     showAgentOptions: boolean;
     allowSessionTabs: boolean;
@@ -111,7 +111,7 @@ export function TabBar({
     onRunTab,
     onRunScript,
     scripts,
-    packageManager,
+    defaultRuntime,
     showRunButton,
     showAgentOptions,
     allowSessionTabs,
@@ -165,12 +165,12 @@ export function TabBar({
                             scriptNames.map((name) => (
                                 <DropdownMenuItem
                                     key={name}
-                                    onClick={() => onRunScript(name, packageManager)}
+                                    onClick={() => onRunScript(name)}
                                 >
                                     <SquareTerminal className="mr-2 h-4 w-4" />
                                     {name}
                                     <span className="text-muted-foreground ml-auto text-xs">
-                                        {packageManager}
+                                        {defaultRuntime}
                                     </span>
                                 </DropdownMenuItem>
                             ))}

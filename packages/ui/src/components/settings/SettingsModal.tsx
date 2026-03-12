@@ -165,7 +165,7 @@ function SettingsModal() {
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="w-[min(48rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-[48rem]">
+            <DialogContent className="w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-[36rem]">
                 <DialogHeader>
                     <DialogTitle>Settings</DialogTitle>
                     <DialogDescription>
@@ -284,7 +284,7 @@ function SettingsModal() {
                                             value={settings.general.externalEditor}
                                             onValueChange={handleExternalEditor}
                                         >
-                                            <SelectTrigger className="w-full h-8 text-sm">
+                                            <SelectTrigger className="w-64 h-8 text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -307,7 +307,7 @@ function SettingsModal() {
                                             value={settings.general.defaultAgent}
                                             onValueChange={handleDefaultAgent}
                                         >
-                                            <SelectTrigger className="w-full h-8 text-sm">
+                                            <SelectTrigger className="w-64 h-8 text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -331,7 +331,7 @@ function SettingsModal() {
                                             }
                                             onValueChange={handleDefaultShell}
                                         >
-                                            <SelectTrigger className="w-full h-8 text-sm">
+                                            <SelectTrigger className="w-64 h-8 text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -374,7 +374,7 @@ function SettingsModal() {
                                             }
                                             onValueChange={handleDefaultRuntime}
                                         >
-                                            <SelectTrigger className="w-full h-8 text-sm">
+                                            <SelectTrigger className="w-64 h-8 text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>

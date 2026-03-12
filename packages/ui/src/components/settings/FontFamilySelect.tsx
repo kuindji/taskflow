@@ -80,7 +80,7 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
                 <PopoverTrigger asChild>
                     <Button
                         variant="outline"
-                        className="h-8 w-full min-w-0 justify-between overflow-hidden text-sm font-normal sm:w-1/2"
+                        className="h-8 w-full min-w-0 justify-between overflow-hidden text-sm font-normal"
                     >
                         <span className="min-w-0 flex-1 truncate text-left">
                             {value || "Select font..."}
