@@ -33,6 +33,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
     const setFileExplorerWidth = useUIStore((s) => s.setFileExplorerWidth);
     const setTaskInfoWidth = useUIStore((s) => s.setTaskInfoWidth);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
+    const innerPanelGap = Math.max(panelGap - 1, 0);
 
     const handleSidebarResize = useCallback(
         (delta: number) => {
@@ -71,7 +72,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
         <div className="bg-island-base flex h-screen flex-col overflow-hidden">
             <div className="flex flex-1 overflow-hidden" style={{ padding: panelGap }}>
                 <div
-                    className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50 shadow-lg shadow-black/20"
+                    className="bg-card flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border border-border/50 shadow-lg shadow-black/20"
                     style={{
                         width: sidebarWidth,
                         ...(isElectron ? { WebkitAppRegion: "drag" } as React.CSSProperties : {}),
@@ -80,11 +81,15 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
                     {sidebar}
                 </div>
 
-                <ResizeHandle onResize={handleSidebarResize} onResizeEnd={handleResizeEnd} panelGap={panelGap} />
+                <ResizeHandle
+                    onResize={handleSidebarResize}
+                    onResizeEnd={handleResizeEnd}
+                    panelGap={innerPanelGap}
+                />
 
                 {fileExplorerOpen && (
                     <div
-                        className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50 shadow-lg shadow-black/20"
+                        className="bg-card flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border border-border/50 shadow-lg shadow-black/20"
                         style={{ width: fileExplorerWidth }}
                     >
                         {fileExplorer}
@@ -92,20 +97,28 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
                 )}
 
                 {fileExplorerOpen && (
-                    <ResizeHandle onResize={handleFileExplorerResize} onResizeEnd={handleResizeEnd} panelGap={panelGap} />
+                    <ResizeHandle
+                        onResize={handleFileExplorerResize}
+                        onResizeEnd={handleResizeEnd}
+                        panelGap={innerPanelGap}
+                    />
                 )}
 
-                <div className="bg-card flex flex-1 flex-col overflow-hidden rounded-lg border border-border/50 shadow-lg shadow-black/20">
+                <div className="bg-card flex flex-1 flex-col overflow-hidden rounded-[var(--window-radius)] border border-border/50 shadow-lg shadow-black/20">
                     {workspace}
                 </div>
 
                 {taskInfoOpen && (
-                    <ResizeHandle onResize={handleTaskInfoResize} onResizeEnd={handleResizeEnd} panelGap={panelGap} />
+                    <ResizeHandle
+                        onResize={handleTaskInfoResize}
+                        onResizeEnd={handleResizeEnd}
+                        panelGap={innerPanelGap}
+                    />
                 )}
 
                 {taskInfoOpen && (
                     <div
-                        className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50 shadow-lg shadow-black/20"
+                        className="bg-card flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border border-border/50 shadow-lg shadow-black/20"
                         style={{ width: taskInfoWidth }}
                     >
                         {taskInfo}

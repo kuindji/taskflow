@@ -254,8 +254,8 @@ export function TabBar({
                     <Button
                         variant="ghost"
                         size="icon-xs"
-                        aria-label="New terminal tab"
-                        tooltip={`New ${defaultShellSummary} terminal`}
+                        aria-label="New terminal"
+                        tooltip="New terminal"
                         disabled={!defaultShellPath}
                         onClick={() => {
                             if (defaultShellPath) onNewTab("shell", defaultShellPath);
