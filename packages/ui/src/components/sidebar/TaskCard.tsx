@@ -1,6 +1,6 @@
 import { useMemo, useState, type MouseEvent } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Archive, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import type { SessionRef, Task } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
 import { useTaskStore } from "@/stores/task-store";
@@ -37,6 +37,7 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     isActive: boolean;
     onClick: () => void;
     className?: string;
+    archived?: boolean;
 }
 
 function SessionBadge({ session }: { session: SessionRef }) {
@@ -54,9 +55,10 @@ function SessionBadge({ session }: { session: SessionRef }) {
     );
 }
 
-export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) {
+export function TaskCard({ task, isActive, onClick, className, archived }: TaskCardProps) {
     const [deleteOpen, setDeleteOpen] = useState(false);
     const archiveTask = useTaskStore((s) => s.archiveTask);
+    const unarchiveTask = useTaskStore((s) => s.unarchiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
 
     const cardClasses = useMemo(
@@ -80,6 +82,11 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
     const handleArchive = (e: MouseEvent) => {
         e.stopPropagation();
         void archiveTask(task.id);
+    };
+
+    const handleUnarchive = (e: MouseEvent) => {
+        e.stopPropagation();
+        void unarchiveTask(task.id);
     };
 
     const handleDeleteClick = (e: MouseEvent) => {
@@ -108,16 +115,29 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
                     </div>
                 )}
                 <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={handleArchive}
-                        className="h-6 w-6 border border-border/60 bg-background p-0 text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground"
-                        aria-label="Archive task"
-                        tooltip="Archive task"
-                    >
-                        <Archive className="h-3.5 w-3.5" />
-                    </Button>
+                    {archived ? (
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={handleUnarchive}
+                            className="h-6 w-6 border border-border/60 bg-background p-0 text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground"
+                            aria-label="Unarchive task"
+                            tooltip="Unarchive task"
+                        >
+                            <ArchiveRestore className="h-3.5 w-3.5" />
+                        </Button>
+                    ) : (
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={handleArchive}
+                            className="h-6 w-6 border border-border/60 bg-background p-0 text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground"
+                            aria-label="Archive task"
+                            tooltip="Archive task"
+                        >
+                            <Archive className="h-3.5 w-3.5" />
+                        </Button>
+                    )}
                     <Button
                         variant="ghost"
                         size="xs"

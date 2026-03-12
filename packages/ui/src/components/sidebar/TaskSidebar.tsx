@@ -11,9 +11,12 @@ import { onEvent, sendRequest } from "@/hooks/useWebSocket";
 import { ProjectGroup } from "./ProjectGroup";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 function isWithinProjectPath(filePath: string, projectPath: string): boolean {
     return filePath === projectPath || filePath.startsWith(`${projectPath}/`);
@@ -23,6 +26,9 @@ export function TaskSidebar() {
     const { connected } = useWsStatus();
     const { projects, fetchProjects, addProject } = useProjectStore();
     const { tasks, activeTaskId, fetchTasks, setActiveTask } = useTaskStore();
+    const archivedTasks = useTaskStore((s) => s.archivedTasks);
+    const showArchive = useTaskStore((s) => s.showArchive);
+    const setShowArchive = useTaskStore((s) => s.setShowArchive);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
@@ -139,15 +145,17 @@ export function TaskSidebar() {
         };
     }, [connected, fetchProjectDiffStats, projects]);
 
+    const displayTasks = showArchive ? archivedTasks : tasks;
+
     const tasksByProject = useMemo(() => {
         const map = new Map<string, Task[]>();
-        for (const task of tasks) {
+        for (const task of displayTasks) {
             const list = map.get(task.projectId) ?? [];
             list.push(task);
             map.set(task.projectId, list);
         }
         return map;
-    }, [tasks]);
+    }, [displayTasks]);
 
     const handleOpenProjectDialog = useCallback(() => {
         setProjectError(null);
@@ -191,11 +199,24 @@ export function TaskSidebar() {
 
     return (
         <>
-            <div className="border-border flex justify-end border-b px-1.5 py-1.5">
-                <NewTaskControl />
+            <div className="border-border flex justify-end gap-1 border-b px-1.5 py-1.5">
+                {!showArchive && (
+                    <>
+                        <NewTaskControl />
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => handleOpenProjectDialog()}
+                            className="text-muted-foreground text-sm [-webkit-app-region:no-drag]"
+                        >
+                            <Plus className="h-4 w-4" />
+                            Project
+                        </Button>
+                    </>
+                )}
             </div>
             <ScrollArea className="flex-1 py-1">
-                {projects.length === 0 && (
+                {!showArchive && projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>
                         <Button
@@ -208,29 +229,45 @@ export function TaskSidebar() {
                         </Button>
                     </div>
                 )}
-                {projects.map((project) => (
-                    <ProjectGroup
-                        key={project.id}
-                        project={project}
-                        tasks={tasksByProject.get(project.id) ?? []}
-                        activeTaskId={activeTaskId}
-                        isActive={!activeTaskId && activeProjectId === project.id}
-                        diffStats={diffStatsByProject[project.id]}
-                        onProjectClick={handleProjectClick}
-                        onTaskClick={handleTaskClick}
-/>
-                ))}
+                {showArchive && displayTasks.length === 0 && (
+                    <div className="text-muted-foreground p-3 text-sm">
+                        No archived tasks.
+                    </div>
+                )}
+                {projects.map((project) => {
+                    const projectTasks = tasksByProject.get(project.id) ?? [];
+                    if (showArchive && projectTasks.length === 0) return null;
+                    return (
+                        <ProjectGroup
+                            key={project.id}
+                            project={project}
+                            tasks={projectTasks}
+                            activeTaskId={activeTaskId}
+                            isActive={!activeTaskId && activeProjectId === project.id}
+                            diffStats={diffStatsByProject[project.id]}
+                            onProjectClick={handleProjectClick}
+                            onTaskClick={handleTaskClick}
+                            archived={showArchive}
+                        />
+                    );
+                })}
             </ScrollArea>
             <Separator />
-            <div className="flex justify-between px-1.5 py-1.5">
-                <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => handleOpenProjectDialog()}
-                    className="text-muted-foreground text-sm [-webkit-app-region:no-drag]"
-                >
-                    Add Project
-                </Button>
+            <div className="flex items-center justify-between px-1.5 py-1.5">
+                <div className="flex items-center gap-1.5 [-webkit-app-region:no-drag]">
+                    <Switch
+                        id="archive-toggle"
+                        checked={showArchive}
+                        onCheckedChange={setShowArchive}
+                        className="scale-75"
+                    />
+                    <Label
+                        htmlFor="archive-toggle"
+                        className="text-muted-foreground cursor-pointer text-sm"
+                    >
+                        Archive
+                    </Label>
+                </div>
                 <Button
                     variant="ghost"
                     size="xs"

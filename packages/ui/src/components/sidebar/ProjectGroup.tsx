@@ -14,6 +14,7 @@ interface ProjectGroupProps {
     diffStats?: { additions: number; deletions: number } | null;
     onProjectClick: (projectId: string) => void;
     onTaskClick: (taskId: string) => void;
+    archived?: boolean;
 }
 
 export function ProjectGroup({
@@ -24,6 +25,7 @@ export function ProjectGroup({
     diffStats,
     onProjectClick,
     onTaskClick,
+    archived,
 }: ProjectGroupProps) {
     const [open, setOpen] = useState(true);
 
@@ -56,9 +58,9 @@ export function ProjectGroup({
                 </Tooltip>
                 <button
                     onClick={() => onProjectClick(project.id)}
-                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1.5 pr-1.5 text-left"
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden py-1.5 pr-1.5 text-left"
                 >
-                    <span className="text-muted-foreground truncate text-xs font-medium tracking-wide">
+                    <span className="text-muted-foreground block min-w-0 truncate text-xs font-medium tracking-wide">
                         {project.name}
                     </span>
                 </button>
@@ -76,6 +78,7 @@ export function ProjectGroup({
                         task={task}
                         isActive={task.id === activeTaskId}
                         onClick={() => onTaskClick(task.id)}
+                        archived={archived}
                     />
                 ))}
             </CollapsibleContent>

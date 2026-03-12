@@ -4,6 +4,7 @@ import type {
     TaskCreatePayload,
     TaskUpdatePayload,
     TaskArchivePayload,
+    TaskUnarchivePayload,
     TaskDeletePayload,
     TaskLogListPayload,
 } from "@taskflow/shared";
@@ -68,12 +69,27 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         return store.archiveTask(id);
     });
 
+    router.register(MSG.TASK_LIST_ARCHIVED, async () => {
+        const tasks = await store.listArchived();
+        return { tasks };
+    });
+
+    router.register(MSG.TASK_UNARCHIVE, async (payload) => {
+        const { id } = payload as TaskUnarchivePayload;
+        return store.unarchiveTask(id);
+    });
+
     router.register(MSG.TASK_DELETE, async (payload) => {
         const { id } = payload as TaskDeletePayload;
         const task = await store.getTask(id);
-        if (!task) throw new Error(`Task not found: ${id}`);
-        await stopTaskSessions(task, false);
-        await store.deleteTask(id);
+        if (task) {
+            await stopTaskSessions(task, false);
+            await store.deleteTask(id);
+        } else {
+            const archived = await store.getArchived(id);
+            if (!archived) throw new Error(`Task not found: ${id}`);
+            await store.deleteArchived(id);
+        }
         return { success: true };
     });
 

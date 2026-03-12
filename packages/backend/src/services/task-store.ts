@@ -536,8 +536,31 @@ export class TaskStore {
         await this.deleteTaskLog(id);
     }
 
+    async deleteArchived(id: string): Promise<void> {
+        await this.withTaskMutation(id, async () => {
+            await this.unlinkIfPresent(this.archivePath(id));
+        });
+        await this.deleteTaskSessionHistory(id);
+        await this.deleteTaskLog(id);
+    }
+
     async listArchived(): Promise<Task[]> {
         return this.readTasksFromDir(this.config.archiveDir);
+    }
+
+    async unarchiveTask(id: string): Promise<Task> {
+        return this.withTaskMutation(id, async () => {
+            const task = await this.readTask(this.archivePath(id));
+            if (!task) throw new Error(`Archived task not found: ${id}`);
+            const restored: Task = {
+                ...task,
+                status: "active",
+                archivedAt: null,
+            };
+            await this.writeTask(this.taskPath(id), restored);
+            await this.unlinkIfPresent(this.archivePath(id));
+            return restored;
+        });
     }
 
     async updateArchived(

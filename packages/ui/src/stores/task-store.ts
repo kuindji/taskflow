@@ -5,10 +5,14 @@ import { sendRequest, onEvent } from "../hooks/useWebSocket";
 
 interface TaskStore {
     tasks: Task[];
+    archivedTasks: Task[];
+    showArchive: boolean;
     activeTaskId: string | null;
     loading: boolean;
     taskLogs: Record<string, TaskLogEntry[]>;
     fetchTasks(): Promise<void>;
+    fetchArchivedTasks(): Promise<void>;
+    setShowArchive(show: boolean): void;
     createTask(payload: {
         projectId: string;
         title?: string;
@@ -18,6 +22,7 @@ interface TaskStore {
     applyTaskUpdate(task: Task): void;
     updateTask(id: string, updates: Partial<Task>): Promise<void>;
     archiveTask(id: string): Promise<void>;
+    unarchiveTask(id: string): Promise<void>;
     deleteTask(id: string): Promise<void>;
     setActiveTask(id: string | null): void;
     fetchTaskLog(taskId: string): Promise<void>;
@@ -42,6 +47,8 @@ function sortTasksByCreatedAtDesc(tasks: Task[]): Task[] {
 
 export const useTaskStore = create<TaskStore>((set) => ({
     tasks: [],
+    archivedTasks: [],
+    showArchive: false,
     activeTaskId: null,
     loading: false,
     taskLogs: {},
@@ -56,6 +63,16 @@ export const useTaskStore = create<TaskStore>((set) => ({
                 ? state.activeTaskId
                 : null,
         }));
+    },
+    async fetchArchivedTasks() {
+        const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST_ARCHIVED);
+        set({ archivedTasks: sortTasksByCreatedAtDesc(tasks) });
+    },
+    setShowArchive(show) {
+        set({ showArchive: show });
+        if (show) {
+            void useTaskStore.getState().fetchArchivedTasks();
+        }
     },
     async createTask(payload) {
         const task = await sendRequest<Task>(MSG.TASK_CREATE, payload);
@@ -79,11 +96,22 @@ export const useTaskStore = create<TaskStore>((set) => ({
             tasks: s.tasks.filter((t) => t.id !== id),
             activeTaskId: s.activeTaskId === id ? null : s.activeTaskId,
         }));
+        if (useTaskStore.getState().showArchive) {
+            void useTaskStore.getState().fetchArchivedTasks();
+        }
+    },
+    async unarchiveTask(id) {
+        await sendRequest(MSG.TASK_UNARCHIVE, { id });
+        set((s) => ({
+            archivedTasks: s.archivedTasks.filter((t) => t.id !== id),
+        }));
+        void useTaskStore.getState().fetchTasks();
     },
     async deleteTask(id) {
         await sendRequest(MSG.TASK_DELETE, { id });
         set((s) => ({
             tasks: s.tasks.filter((t) => t.id !== id),
+            archivedTasks: s.archivedTasks.filter((t) => t.id !== id),
             activeTaskId: s.activeTaskId === id ? null : s.activeTaskId,
         }));
     },
