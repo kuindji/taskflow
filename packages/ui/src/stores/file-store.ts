@@ -18,6 +18,10 @@ interface FileStore {
     clearExplorerState(): void;
     readFile(path: string): Promise<string>;
     writeFile(path: string, content: string): Promise<void>;
+    renameFile(oldPath: string, newPath: string): Promise<void>;
+    deleteFile(path: string): Promise<void>;
+    openExternal(path: string): Promise<void>;
+    revealInFinder(path: string): Promise<void>;
     setExpandToPath(path: string | null): void;
 }
 
@@ -105,5 +109,17 @@ export const useFileStore = create<FileStore>((set, get) => ({
         await sendRequest(MSG.FILE_WRITE, { path, content });
         const watchedPath = get().watchedPath;
         if (watchedPath && path.startsWith(watchedPath)) await get().fetchGitStatus(watchedPath);
+    },
+    async renameFile(oldPath, newPath) {
+        await sendRequest(MSG.FILE_RENAME, { oldPath, newPath });
+    },
+    async deleteFile(path) {
+        await sendRequest(MSG.FILE_DELETE_FILE, { path });
+    },
+    async openExternal(path) {
+        await sendRequest(MSG.FILE_OPEN_EXTERNAL, { path });
+    },
+    async revealInFinder(path) {
+        await sendRequest(MSG.FILE_REVEAL, { path });
     },
 }));
