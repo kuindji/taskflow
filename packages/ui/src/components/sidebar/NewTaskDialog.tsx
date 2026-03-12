@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import type { AgentLaunchOptions } from "@taskflow/shared";
 import type { Project } from "@taskflow/shared";
 import {
@@ -50,6 +50,7 @@ export function NewTaskDialog({
     const [worktree, setWorktree] = useState(false);
     const [startWith, setStartWith] = useState("none");
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
+    const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
     const resetForm = useCallback(() => {
         setDescription("");
@@ -99,9 +100,18 @@ export function NewTaskDialog({
         [canSubmit, handleSubmit],
     );
 
+    const handleOpenAutoFocus = useCallback((e: Event) => {
+        e.preventDefault();
+        descriptionRef.current?.focus();
+    }, []);
+
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="sm:max-w-md" onKeyDown={handleKeyDown}>
+            <DialogContent
+                className="sm:max-w-md"
+                onKeyDown={handleKeyDown}
+                onOpenAutoFocus={handleOpenAutoFocus}
+            >
                 <DialogHeader>
                     <DialogTitle>New Task</DialogTitle>
                 </DialogHeader>
@@ -127,6 +137,7 @@ export function NewTaskDialog({
                         <Label htmlFor="new-task-description">Description</Label>
                         <Textarea
                             id="new-task-description"
+                            ref={descriptionRef}
                             placeholder="Describe what this task should accomplish..."
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
