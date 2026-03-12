@@ -378,7 +378,7 @@ function scheduleActivityTimeout(sessionId: string): void {
 // Track terminal output → working / attention status
 const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
-    const { sessionId, data } = payload as TerminalOutputEvent;
+    const { sessionId } = payload as TerminalOutputEvent;
     if (isUserInteracting(sessionId)) return;
     if (!usesTerminalActivityStatus(sessionId)) return;
 
