@@ -13,7 +13,6 @@ import {
     Archive,
     Diff,
     Pencil,
-    Plus,
     Trash2,
     PanelLeftClose,
     PanelLeftOpen,
@@ -149,7 +148,6 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                 </>
             ) : (
                 <div className="flex min-h-6 items-center gap-1.5">
-                    <Plus className="text-muted-foreground h-3.5 w-3.5" />
                     <span className="text-muted-foreground text-sm">No task selected</span>
                 </div>
             )}
