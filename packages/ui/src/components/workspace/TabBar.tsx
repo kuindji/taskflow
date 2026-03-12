@@ -13,11 +13,13 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StatusDot } from "@/components/ui/status-dot";
-import { X, Plus, Play, Terminal, Code, Globe } from "lucide-react";
+import { X, Plus, Play, Terminal, Globe } from "lucide-react";
+import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
+import { CodexIcon } from "@/components/icons/CodexIcon";
 import { cn } from "@/lib/utils";
 
 const tabVariants = cva(
-    "px-1.5 py-1 rounded-md cursor-pointer flex items-center gap-1 text-sm transition-colors",
+    "px-1.5 h-6 rounded-md cursor-pointer flex items-center gap-1 text-sm transition-colors",
     {
         variants: {
             type: {
@@ -105,7 +107,7 @@ export function TabBar({
     }, [allowSessionTabs]);
 
     return (
-        <div className="bg-card border-border flex items-center gap-1 border-b px-1.5 py-1.5">
+        <div className="bg-card border-border flex min-h-9 items-center gap-1 border-b px-1.5 py-1.5">
             {showRunButton && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -115,11 +117,11 @@ export function TabBar({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
                         <DropdownMenuItem onClick={() => onRunTab("claude")}>
-                            <Terminal className="mr-2 h-4 w-4" />
+                            <ClaudeIcon className="mr-2 h-4 w-4" />
                             Claude Code
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onRunTab("codex")}>
-                            <Code className="mr-2 h-4 w-4" />
+                            <CodexIcon className="mr-2 h-4 w-4" />
                             Codex
                         </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -133,7 +135,7 @@ export function TabBar({
                         className="text-success"
                         onClick={() => onNewTab("claude")}
                     >
-                        <Terminal className="h-3.5 w-3.5" />
+                        <ClaudeIcon className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                         variant="ghost"
@@ -141,7 +143,7 @@ export function TabBar({
                         className="text-warning"
                         onClick={() => onNewTab("codex")}
                     >
-                        <Code className="h-3.5 w-3.5" />
+                        <CodexIcon className="h-3.5 w-3.5" />
                     </Button>
                 </>
             )}

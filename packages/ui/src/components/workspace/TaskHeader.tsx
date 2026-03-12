@@ -158,12 +158,12 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                     {showDiffButton && (
                         <Button
                             variant="ghost"
-                            size="sm"
+                            size="xs"
                             onClick={onDiff}
                             aria-label="Show diff"
-                            className="gap-1 px-2 [-webkit-app-region:no-drag]"
+                            className="[-webkit-app-region:no-drag]"
                         >
-                            <Diff className="h-4 w-4" />
+                            <Diff className="h-3 w-3" />
                             <span className="text-xs">Diff</span>
                             {diffStats &&
                                 (diffStats.additions > 0 || diffStats.deletions > 0) && (

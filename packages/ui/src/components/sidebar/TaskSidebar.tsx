@@ -60,7 +60,10 @@ export function TaskSidebar() {
                 }),
                 { additions: 0, deletions: 0 },
             );
-            setDiffStatsByProject((current) => ({ ...current, [projectId]: summary }));
+            setDiffStatsByProject((current) => ({
+                ...current,
+                [projectId]: summary.additions === 0 && summary.deletions === 0 ? null : summary,
+            }));
         } catch {
             setDiffStatsByProject((current) => ({ ...current, [projectId]: null }));
         }
@@ -109,6 +112,30 @@ export function TaskSidebar() {
         return () => {
             unsubscribe();
             refreshTimers.forEach((timer) => clearTimeout(timer));
+        };
+    }, [connected, fetchProjectDiffStats, projects]);
+
+    useEffect(() => {
+        if (!connected || projects.length === 0) return;
+
+        const refreshAll = () => {
+            projects.forEach((project) => {
+                void fetchProjectDiffStats(project.id, project.path);
+            });
+        };
+
+        const interval = setInterval(refreshAll, 30_000);
+
+        const onVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                refreshAll();
+            }
+        };
+        document.addEventListener("visibilitychange", onVisibilityChange);
+
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener("visibilitychange", onVisibilityChange);
         };
     }, [connected, fetchProjectDiffStats, projects]);
 
