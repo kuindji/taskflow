@@ -1,15 +1,16 @@
+type AgentType = "claude" | "codex";
+
 interface ClaudeLaunchOptions {
-    type: "claude";
+    type: Extract<AgentType, "claude">;
     fullAccess?: boolean;
-    worktree?: boolean;
     model?: "opus" | "sonnet" | "haiku";
 }
 
 interface CodexLaunchOptions {
-    type: "codex";
+    type: Extract<AgentType, "codex">;
     fullAccess?: boolean;
 }
 
 type AgentLaunchOptions = ClaudeLaunchOptions | CodexLaunchOptions;
 
-export type { ClaudeLaunchOptions, CodexLaunchOptions, AgentLaunchOptions };
+export type { AgentType, ClaudeLaunchOptions, CodexLaunchOptions, AgentLaunchOptions };
