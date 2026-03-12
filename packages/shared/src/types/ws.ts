@@ -3,6 +3,7 @@ import type { SessionStatus, Task, TaskLogEntry } from "./task";
 import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus } from "./git";
 import type { SystemInfo } from "./system";
+import type { AgentLaunchOptions } from "./agent";
 
 // Base message types
 export interface WsRequest<T = unknown> {
@@ -97,6 +98,7 @@ export interface SessionCreatePayload {
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
     cols?: number;
     rows?: number;
+    agentOptions?: AgentLaunchOptions;
 }
 
 export interface SessionCreateResponse {
