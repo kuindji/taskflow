@@ -55,7 +55,7 @@ Panel open/closed state (`fileExplorerOpen`, `taskInfoOpen`) is excluded — the
 On `before-quit`, the Electron main process:
 1. Reads `mainWindow.isMaximized()`.
 2. If not maximized, reads `mainWindow.getBounds()` → `{ x, y, width, height }`.
-3. If maximized, uses the last non-maximized bounds (tracked via `resize`/`move` events) so that un-maximizing restores the right size.
+3. If maximized, uses the last non-maximized bounds (tracked via `moved`/`will-resize` events, which fire once after the operation, only stored when `isMaximized()` is false) so that un-maximizing restores the right size.
 4. Makes an HTTP `PATCH /api/settings` to the backend with the window layout.
 5. **Awaits the response before killing the backend.** The shutdown sequence must be: save layout → await response (with a short timeout, e.g. 1s) → kill backend → quit. If the PATCH times out, proceed with shutdown anyway (layout state is best-effort).
 
@@ -65,9 +65,10 @@ On `before-quit`, the Electron main process:
 
 In `createWindow()`, before constructing `BrowserWindow`:
 1. HTTP `GET /api/settings` from the backend.
-2. If `layout.window` exists and has `x`/`y`, validate the position is on a connected display using Electron's `screen.getDisplayMatching()` (imported from `electron`, only usable after `app.whenReady()`). If the saved rect doesn't overlap any display, fall back to defaults.
-3. If `isMaximized`, create the window at saved size/position, then call `mainWindow.maximize()` after creation.
-4. Falls back to `1400x900`, centered, if no saved state.
+2. Clamp restored `width`/`height` against `minWidth`/`minHeight` (800x600) and the available display bounds.
+3. If `layout.window` exists and has `x`/`y`, validate the position is on a connected display using Electron's `screen.getDisplayMatching()` (imported from `electron`, only usable after `app.whenReady()`). Require a meaningful overlap (at least 100px in each dimension) — if the window is mostly off-screen, fall back to defaults.
+4. If `isMaximized`, create the window at saved size/position, then call `mainWindow.maximize()` after creation.
+5. Falls back to `1400x900`, centered, if no saved state.
 
 ### Panel Widths
 
@@ -80,6 +81,24 @@ The hydration is called inside `fetchSettings()` in the settings store for simpl
 ### SettingsStore
 
 Add `layout` to defaults in `createDefaultSettings()` and merge logic in `get()` and `update()`. The merge for `layout` must be two-level deep: merge `window` fields separately from `panels` fields (unlike the existing flat sections which use single-level `Object.assign`).
+
+In `get()`:
+```typescript
+layout: {
+    window: { ...defaults.layout.window, ...parsed.layout?.window },
+    panels: { ...defaults.layout.panels, ...parsed.layout?.panels },
+}
+```
+
+In `update()`:
+```typescript
+if (partial.layout?.window) {
+    Object.assign(current.layout.window, partial.layout.window);
+}
+if (partial.layout?.panels) {
+    Object.assign(current.layout.panels, partial.layout.panels);
+}
+```
 
 ### HTTP Settings Endpoint
 
