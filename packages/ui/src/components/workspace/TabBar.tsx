@@ -64,7 +64,6 @@ function TabItem({ tab, isActive, onTabClick, onTabClose }: TabItemProps) {
                 size="icon-sm"
                 className="ml-0.5 h-5 w-5"
                 aria-label="Close tab"
-                tooltip="Close tab"
                 onClick={(e) => {
                     e.stopPropagation();
                     onTabClose(tab.id);
