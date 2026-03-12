@@ -9,9 +9,11 @@ import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { confirm } from "@/stores/dialog-store";
 import { RenameProjectDialog } from "./RenameProjectDialog";
+import { CommitDialog } from "./CommitDialog";
 import {
     Archive,
     Diff,
+    GitCommitHorizontal,
     Pencil,
     Trash2,
     PanelLeftClose,
@@ -38,12 +40,14 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const removeProject = useProjectStore((s) => s.removeProject);
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
+    const [commitOpen, setCommitOpen] = useState(false);
     const [diffStats, setDiffStats] = useState<{ additions: number; deletions: number } | null>(
         null,
     );
     const diffVersionRef = useRef(0);
 
     const showDiffButton = !task && !!project && !!onDiff;
+    const showCommitButton = !task && !!project;
 
     useEffect(() => {
         if (!showDiffButton || !project) {
@@ -154,6 +158,18 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
             <div className="flex-1" />
             {(task || project) && (
                 <>
+                    {showCommitButton && (
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => setCommitOpen(true)}
+                            aria-label="Commit"
+                            className="[-webkit-app-region:no-drag]"
+                        >
+                            <GitCommitHorizontal className="h-3 w-3" />
+                            <span className="text-xs">Commit</span>
+                        </Button>
+                    )}
                     {showDiffButton && (
                         <Button
                             variant="ghost"
@@ -231,6 +247,13 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                     currentName={project.name}
                     onOpenChange={setRenameOpen}
                     onSubmit={handleRename}
+                />
+            )}
+            {project && (
+                <CommitDialog
+                    open={commitOpen}
+                    onOpenChange={setCommitOpen}
+                    project={project}
                 />
             )}
         </div>
