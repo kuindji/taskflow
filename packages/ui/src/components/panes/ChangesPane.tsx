@@ -7,7 +7,6 @@ import { confirm } from "@/stores/dialog-store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -92,22 +91,19 @@ function FileStatusRow({ file, isSelected, onSelect, onRevert }: FileStatusRowPr
                 </Badge>
                 <span className="text-secondary-foreground">{displayPath(file)}</span>
             </span>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="text-destructive h-5 w-5"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onRevert(file);
-                        }}
-                    >
-                        <Undo2 className="h-3 w-3" />
-                    </Button>
-                </TooltipTrigger>
-                <TooltipContent>Revert change</TooltipContent>
-            </Tooltip>
+            <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-destructive h-5 w-5"
+                aria-label="Revert change"
+                tooltip="Revert change"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onRevert(file);
+                }}
+            >
+                <Undo2 className="h-3 w-3" />
+            </Button>
         </div>
     );
 }

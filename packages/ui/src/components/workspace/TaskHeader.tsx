@@ -126,6 +126,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         size="icon-xs"
                         onClick={toggleFileExplorer}
                         aria-label={fileExplorerOpen ? "Hide file explorer" : "Show file explorer"}
+                        tooltip={fileExplorerOpen ? "Hide file explorer" : "Show file explorer"}
                         className="[-webkit-app-region:no-drag]"
                     >
                         {fileExplorerOpen ? (
@@ -182,6 +183,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             size="icon-xs"
                             onClick={handleArchive}
                             aria-label="Archive task"
+                            tooltip="Archive task"
                             className="[-webkit-app-region:no-drag]"
                         >
                             <Archive className="h-4 w-4" />
@@ -193,6 +195,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             size="icon-xs"
                             onClick={() => setRenameOpen(true)}
                             aria-label="Rename project"
+                            tooltip="Rename project"
                             className="[-webkit-app-region:no-drag]"
                         >
                             <Pencil className="h-4 w-4" />
@@ -203,6 +206,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         size="icon-xs"
                         onClick={handleDelete}
                         aria-label={task ? "Delete task" : "Remove project"}
+                        tooltip={task ? "Delete task" : "Remove project"}
                         className="text-destructive hover:text-destructive [-webkit-app-region:no-drag]"
                     >
                         <Trash2 className="h-4 w-4" />
@@ -212,6 +216,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         size="icon-xs"
                         onClick={toggleTaskInfo}
                         aria-label={taskInfoOpen ? "Hide task info" : "Show task info"}
+                        tooltip={taskInfoOpen ? "Hide task info" : "Show task info"}
                         className="[-webkit-app-region:no-drag]"
                     >
                         {taskInfoOpen ? (

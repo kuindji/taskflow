@@ -112,8 +112,9 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
                         variant="ghost"
                         size="xs"
                         onClick={handleArchive}
-                        className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                        title="Archive"
+                        className="h-6 w-6 border border-border/60 bg-background p-0 text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground"
+                        aria-label="Archive task"
+                        tooltip="Archive task"
                     >
                         <Archive className="h-3.5 w-3.5" />
                     </Button>
@@ -121,8 +122,9 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
                         variant="ghost"
                         size="xs"
                         onClick={handleDeleteClick}
-                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                        title="Delete"
+                        className="h-6 w-6 border border-border/60 bg-background p-0 text-muted-foreground shadow-xs hover:bg-accent hover:text-destructive"
+                        aria-label="Delete task"
+                        tooltip="Delete task"
                     >
                         <Trash2 className="h-3.5 w-3.5" />
                     </Button>

@@ -87,10 +87,23 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
     return (
         <div className="flex flex-1 flex-col">
             <div className="border-border flex items-center gap-1 border-b px-1.5 py-1.5">
-                <Button variant="ghost" size="icon-xs" onClick={goBack} disabled={!canGoBack}>
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={goBack}
+                    disabled={!canGoBack}
+                    aria-label="Go back"
+                    tooltip="Go back"
+                >
                     <ArrowLeft className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="icon-xs" onClick={reload}>
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={reload}
+                    aria-label="Reload"
+                    tooltip="Reload"
+                >
                     <RotateCw className="h-4 w-4" />
                 </Button>
                 <Input

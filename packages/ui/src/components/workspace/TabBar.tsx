@@ -58,6 +58,8 @@ function TabItem({ tab, isActive, onTabClick, onTabClose }: TabItemProps) {
                 variant="ghost"
                 size="icon-sm"
                 className="ml-0.5 h-5 w-5"
+                aria-label="Close tab"
+                tooltip="Close tab"
                 onClick={(e) => {
                     e.stopPropagation();
                     onTabClose(tab.id);
@@ -111,7 +113,12 @@ export function TabBar({
             {showRunButton && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-xs">
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Run agent"
+                            tooltip="Run agent"
+                        >
                             <Play className="h-3.5 w-3.5" />
                         </Button>
                     </DropdownMenuTrigger>
@@ -134,6 +141,8 @@ export function TabBar({
                         size="icon-xs"
                         className="text-success"
                         onClick={() => onNewTab("claude")}
+                        aria-label="New Claude session"
+                        tooltip="New Claude session"
                     >
                         <ClaudeIcon className="h-3.5 w-3.5" />
                     </Button>
@@ -142,6 +151,8 @@ export function TabBar({
                         size="icon-xs"
                         className="text-warning"
                         onClick={() => onNewTab("codex")}
+                        aria-label="New Codex session"
+                        tooltip="New Codex session"
                     >
                         <CodexIcon className="h-3.5 w-3.5" />
                     </Button>
@@ -151,13 +162,20 @@ export function TabBar({
                 variant="ghost"
                 size="icon-xs"
                 onClick={() => onNewTab("browser")}
+                aria-label="New browser tab"
+                tooltip="New browser tab"
             >
                 <Globe className="h-3.5 w-3.5" />
             </Button>
             {shells.length > 0 && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-xs">
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="New terminal tab"
+                            tooltip="New terminal tab"
+                        >
                             <Plus className="h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>

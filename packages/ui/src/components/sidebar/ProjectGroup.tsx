@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Project, Task } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TaskCard } from "./TaskCard";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -34,19 +35,25 @@ export function ProjectGroup({
                     isActive ? "bg-accent/15" : "hover:bg-muted/50",
                 )}
             >
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setOpen((value) => !value);
-                    }}
-                    className="text-muted-foreground flex h-full shrink-0 items-center px-1.5 py-1.5"
-                >
-                    {open ? (
-                        <ChevronDown className="h-3.5 w-3.5" />
-                    ) : (
-                        <ChevronRight className="h-3.5 w-3.5" />
-                    )}
-                </button>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setOpen((value) => !value);
+                            }}
+                            aria-label={open ? "Collapse project" : "Expand project"}
+                            className="text-muted-foreground flex h-full shrink-0 items-center px-1.5 py-1.5"
+                        >
+                            {open ? (
+                                <ChevronDown className="h-3.5 w-3.5" />
+                            ) : (
+                                <ChevronRight className="h-3.5 w-3.5" />
+                            )}
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent>{open ? "Collapse project" : "Expand project"}</TooltipContent>
+                </Tooltip>
                 <button
                     onClick={() => onProjectClick(project.id)}
                     className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1.5 pr-1.5 text-left"

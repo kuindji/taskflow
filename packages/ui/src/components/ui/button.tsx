@@ -4,6 +4,7 @@ import { Slot } from "radix-ui";
 import { Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const buttonVariants = cva(
     "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -44,6 +45,7 @@ function Button({
     size = "default",
     asChild = false,
     loading = false,
+    tooltip,
     disabled,
     children,
     ...props
@@ -51,22 +53,19 @@ function Button({
     VariantProps<typeof buttonVariants> & {
         asChild?: boolean;
         loading?: boolean;
+        tooltip?: React.ReactNode;
     }) {
-    if (asChild) {
-        return (
-            <Slot.Root
-                data-slot="button"
-                data-variant={variant}
-                data-size={size}
-                className={cn(buttonVariants({ variant, size, className }))}
-                {...props}
-            >
-                {children}
-            </Slot.Root>
-        );
-    }
-
-    return (
+    const button = asChild ? (
+        <Slot.Root
+            data-slot="button"
+            data-variant={variant}
+            data-size={size}
+            className={cn(buttonVariants({ variant, size, className }))}
+            {...props}
+        >
+            {children}
+        </Slot.Root>
+    ) : (
         <button
             data-slot="button"
             data-variant={variant}
@@ -78,6 +77,20 @@ function Button({
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             {children}
         </button>
+    );
+
+    if (!tooltip) {
+        return button;
+    }
+
+    const trigger =
+        !asChild && (disabled || loading) ? <span className="inline-flex">{button}</span> : button;
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+            <TooltipContent>{tooltip}</TooltipContent>
+        </Tooltip>
     );
 }
 
