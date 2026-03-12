@@ -113,8 +113,6 @@ it("merges partial layout.window with defaults", async () => {
 
     const settings = await store.get();
     expect(settings.layout.window).toEqual({
-        x: 0,
-        y: 0,
         width: 1600,
         height: 1000,
         isMaximized: false,
