@@ -35,6 +35,7 @@ describe("SettingsStore", () => {
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 13,
+                externalEditor: "system",
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -53,6 +54,7 @@ describe("SettingsStore", () => {
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 13,
+                externalEditor: "system",
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -79,6 +81,7 @@ describe("SettingsStore", () => {
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 15,
+                externalEditor: "system",
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -95,6 +98,7 @@ describe("SettingsStore", () => {
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 15,
+                externalEditor: "system",
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,

@@ -21,6 +21,16 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
     const [historyIndex, setHistoryIndex] = useState(() => (hasInitialUrl ? 0 : -1));
     const [reloadKey, setReloadKey] = useState(0);
     const webviewRef = useRef<WebviewElement | null>(null);
+    const [webviewReady, setWebviewReady] = useState(false);
+
+    useEffect(() => {
+        const wv = webviewRef.current;
+        if (!wv || !isElectron) return;
+
+        const onReady = () => setWebviewReady(true);
+        wv.addEventListener("dom-ready", onReady);
+        return () => wv.removeEventListener("dom-ready", onReady);
+    }, [isElectron]);
 
     const navigate = useCallback((raw: string) => {
         const normalized = normalizeUrl(raw);
@@ -41,15 +51,15 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
 
     useEffect(() => {
         if (isElectron) {
-            setCanGoBack(Boolean(webviewRef.current?.canGoBack()));
+            setCanGoBack(webviewReady && Boolean(webviewRef.current?.canGoBack()));
         } else {
             setCanGoBack(historyIndex > 0);
         }
-    }, [isElectron, historyIndex, url]);
+    }, [isElectron, webviewReady, historyIndex, url]);
 
     const goBack = useCallback(() => {
         if (isElectron) {
-            webviewRef.current?.goBack();
+            if (webviewReady) webviewRef.current?.goBack();
             return;
         }
         if (historyIndex > 0) {
@@ -58,15 +68,15 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
             setUrl(history[newIndex]);
             setInputUrl(history[newIndex]);
         }
-    }, [isElectron, historyIndex, history]);
+    }, [isElectron, webviewReady, historyIndex, history]);
 
     const reload = useCallback(() => {
         if (isElectron) {
-            webviewRef.current?.reload();
+            if (webviewReady) webviewRef.current?.reload();
             return;
         }
         setReloadKey((k) => k + 1);
-    }, [isElectron]);
+    }, [isElectron, webviewReady]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent<HTMLInputElement>) => {

@@ -4,7 +4,8 @@ contextBridge.exposeInMainWorld("taskflow", {
     getBackendPort: () => ipcRenderer.invoke("get-backend-port"),
     selectProjectDirectory: () => ipcRenderer.invoke("select-project-directory"),
     openExternalUrl: (url: string) => ipcRenderer.invoke("open-external-url", url),
-    openExternalFile: (filePath: string) => ipcRenderer.invoke("open-external-file", filePath),
+    openExternalFile: (filePath: string, opts?: { line?: number; col?: number; editor?: string }) =>
+        ipcRenderer.invoke("open-external-file", filePath, opts),
     onCloseTab: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("close-tab", listener);

@@ -10,6 +10,7 @@ const DEFAULTS: AppSettings = {
     general: {
         fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
         fontSize: 13,
+        externalEditor: "system",
     },
     terminal: {
         fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,

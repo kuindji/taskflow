@@ -1,6 +1,7 @@
 export interface GeneralSettings {
     fontFamily: string;
     fontSize: number;
+    externalEditor: string;
 }
 
 export interface TerminalSettings {

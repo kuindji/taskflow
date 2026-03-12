@@ -8,9 +8,28 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { useUIStore } from "@/stores/ui-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { FontFamilySelect } from "./FontFamilySelect";
+
+const EDITOR_OPTIONS = [
+    { value: "system", label: "System Default" },
+    { value: "vscode", label: "VS Code" },
+    { value: "cursor", label: "Cursor" },
+    { value: "windsurf", label: "Windsurf" },
+    { value: "zed", label: "Zed" },
+    { value: "sublime", label: "Sublime Text" },
+    { value: "webstorm", label: "WebStorm" },
+    { value: "idea", label: "IntelliJ IDEA" },
+    { value: "emacs", label: "Emacs" },
+] as const;
 
 function SettingsModal() {
     const open = useUIStore((s) => s.settingsOpen);
@@ -76,6 +95,13 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleExternalEditor = useCallback(
+        (externalEditor: string) => {
+            void updateSettings({ general: { externalEditor } });
+        },
+        [updateSettings],
+    );
+
     if (!settings) return null;
 
     return (
@@ -88,6 +114,29 @@ function SettingsModal() {
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-6">
+                    <section className="space-y-3">
+                        <h3 className="text-sm font-medium">External Editor</h3>
+                        <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">
+                                Used when opening files with Cmd+Click in the terminal
+                            </Label>
+                            <Select
+                                value={settings.general.externalEditor}
+                                onValueChange={handleExternalEditor}
+                            >
+                                <SelectTrigger className="w-full h-8 text-sm">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {EDITOR_OPTIONS.map((opt) => (
+                                        <SelectItem key={opt.value} value={opt.value}>
+                                            {opt.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </section>
                     <section className="space-y-3">
                         <h3 className="text-sm font-medium">Application Font</h3>
                         <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">

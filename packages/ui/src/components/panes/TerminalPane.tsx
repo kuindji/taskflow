@@ -111,9 +111,10 @@ function openExternalUrl(url: string) {
     }
 }
 
-function openExternalFile(filePath: string) {
+function openExternalFile(filePath: string, opts?: { line?: number; col?: number }) {
     if (window.taskflow) {
-        void window.taskflow.openExternalFile(filePath);
+        const editor = useSettingsStore.getState().settings?.general.externalEditor;
+        void window.taskflow.openExternalFile(filePath, { ...opts, editor });
     }
 }
 
@@ -165,7 +166,10 @@ function createFilePathLinkProvider(term: Terminal, taskId?: string, projectId?:
                     activate(event: MouseEvent, text: string) {
                         const pathOnly = text.replace(/:\d+(?::\d+)?$/, "");
                         if (event.metaKey || event.ctrlKey) {
-                            openExternalFile(pathOnly);
+                            const lineMatch = text.match(/:(\d+)(?::(\d+))?$/);
+                            const line = lineMatch?.[1] ? Number(lineMatch[1]) : undefined;
+                            const col = lineMatch?.[2] ? Number(lineMatch[2]) : undefined;
+                            openExternalFile(pathOnly, { line, col });
                         } else {
                             openFileInApp(pathOnly, workspaceKey);
                         }
@@ -472,6 +476,13 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
 
                 const finalize = () => {
                     if (!termRef.current) return;
+                    // After display:none recovery, force browser to recalculate
+                    // scroll dimensions before any scroll operations so scrollTop
+                    // isn't clamped to a stale scrollHeight.
+                    if (forceViewportRecalc) {
+                        const viewportEl = termRef.current.element?.querySelector('.xterm-viewport');
+                        if (viewportEl) void (viewportEl as HTMLElement).scrollHeight;
+                    }
                     if (scrollToBottom) {
                         termRef.current.scrollToBottom();
                     } else if (viewportSnapshot) {
@@ -526,9 +537,11 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         // Shift+Enter → send the same escape sequence as Alt+Enter (\x1b\r)
         // so Claude Code treats it as "newline without submit".
         term.attachCustomKeyEventHandler((event) => {
-            if (event.type === "keydown" && event.shiftKey && event.key === "Enter") {
-                sendInputRef.current(sessionId, "\x1b\r");
-                return false; // prevent xterm default handling
+            if (event.shiftKey && event.key === "Enter") {
+                if (event.type === "keydown") {
+                    sendInputRef.current(sessionId, "\x1b\r");
+                }
+                return false; // prevent xterm default handling for all event phases
             }
             return true;
         });
@@ -573,7 +586,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         // Force viewport recalculation: after display:none toggle or DOM
         // detach/reattach, xterm's scroll height is stale even if dimensions
         // haven't changed.
-        scheduleFit(true, true, true, true);
+        scheduleFit(true, true, false, true);
     }, [visible, sessionId, scheduleFit]);
 
     // Dedicated focus effect — independent of fit/resize logic.

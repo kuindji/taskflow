@@ -18,7 +18,7 @@ function escapeTomlBasicString(value: string): string {
 describe("internal agent skill", () => {
     it("leaves session status under app control", () => {
         expect(INTERNAL_AGENT_SYSTEM_PROMPT).toContain("TASKFLOW_PROJECT_ID");
-        expect(INTERNAL_AGENT_SYSTEM_PROMPT).toContain("/api/projects/$TASKFLOW_PROJECT_ID/browser");
+        expect(INTERNAL_AGENT_SYSTEM_PROMPT).toContain("--project");
         expect(INTERNAL_AGENT_SYSTEM_PROMPT).toContain(
             "Session status is app-controlled, so do not post manual session status updates.",
         );
@@ -48,6 +48,6 @@ describe("internal agent skill", () => {
         const spec = buildAgentLaunchSpec("claude", undefined, "/tmp/ignored/SKILL.md");
 
         expect(spec.command).toBe("claude");
-        expect(spec.args).toEqual(["--append-system-prompt", INTERNAL_AGENT_SYSTEM_PROMPT]);
+        expect(spec.args).toEqual(["--allowedTools", "Bash(taskflow-cli*)", "--append-system-prompt", INTERNAL_AGENT_SYSTEM_PROMPT]);
     });
 });

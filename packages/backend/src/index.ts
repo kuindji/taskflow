@@ -19,10 +19,12 @@ import { SettingsStore } from "./services/settings-store";
 import { ApiRouter } from "./api/router";
 import { registerApiRoutes } from "./api/routes";
 import { createTitleGenerator } from "./services/title-generator";
+import { ensureCliScript } from "./services/internal-agent-skill";
 import { writeFile } from "fs/promises";
 
 async function main() {
     await ensureDirectories();
+    await ensureCliScript(config.binDir);
     let stop: (() => void) | undefined;
 
     try {

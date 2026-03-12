@@ -14,7 +14,7 @@ export function StatusDot({ status, className }: StatusDotProps) {
             className={cn(
                 "inline-block h-2 w-2 rounded-full shrink-0",
                 status === "working" && "bg-success",
-                status === "attention" && "bg-warning",
+                status === "attention" && "bg-warning animate-pulse",
                 className,
             )}
         />

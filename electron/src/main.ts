@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from "electron";
 import { autoUpdater } from "electron-updater";
-import { spawn, type ChildProcess } from "child_process";
+import { spawn, execFile, type ChildProcess } from "child_process";
 import { constants } from "fs";
 import { access, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
@@ -373,7 +373,52 @@ app.on("before-quit", (e) => {
 
 ipcMain.handle("get-backend-port", () => backendPort);
 ipcMain.handle("open-external-url", (_event, url: string) => shell.openExternal(url));
-ipcMain.handle("open-external-file", (_event, filePath: string) => shell.openPath(filePath));
+ipcMain.handle(
+    "open-external-file",
+    (_event, filePath: string, opts?: { line?: number; col?: number; editor?: string }) => {
+        const editor = opts?.editor ?? "system";
+        if (editor === "system") return shell.openPath(filePath);
+
+        const line = opts?.line;
+        const col = opts?.col;
+
+        const editorCommands: Record<string, () => string[]> = {
+            vscode: () => ["code", "--goto", `${filePath}:${line ?? 1}:${col ?? 1}`],
+            cursor: () => ["cursor", "--goto", `${filePath}:${line ?? 1}:${col ?? 1}`],
+            windsurf: () => ["windsurf", "--goto", `${filePath}:${line ?? 1}:${col ?? 1}`],
+            zed: () => ["zed", `${filePath}:${line ?? 1}:${col ?? 1}`],
+            sublime: () => ["subl", `${filePath}:${line ?? 1}:${col ?? 1}`],
+            webstorm: () => [
+                "webstorm",
+                ...(line != null ? ["--line", String(line)] : []),
+                ...(col != null ? ["--column", String(col)] : []),
+                filePath,
+            ],
+            idea: () => [
+                "idea",
+                ...(line != null ? ["--line", String(line)] : []),
+                ...(col != null ? ["--column", String(col)] : []),
+                filePath,
+            ],
+            emacs: () => ["emacs", line != null ? `+${line}:${col ?? 1}` : "+1", filePath],
+        };
+
+        const buildArgs = editorCommands[editor];
+        if (!buildArgs) return shell.openPath(filePath);
+
+        const [cmd, ...args] = buildArgs();
+        return new Promise<string>((resolve) => {
+            execFile(cmd, args, { timeout: 5000 }, (err) => {
+                if (err) {
+                    // Fall back to system default on failure
+                    void shell.openPath(filePath).then(resolve);
+                } else {
+                    resolve("");
+                }
+            });
+        });
+    },
+);
 ipcMain.handle("select-project-directory", async () => {
     const result = await dialog.showOpenDialog({
         properties: ["openDirectory"],
