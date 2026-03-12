@@ -53,7 +53,7 @@ interface TerminalViewportSnapshot {
 const terminalCache = new Map<string, CachedTerminal>();
 const RESIZE_DEBOUNCE_MS = 250;
 
-function fitTerminal(fit: FitAddon, term: Terminal): FitResult {
+function fitTerminal(fit: FitAddon, term: Terminal, forceViewportRecalc = false): FitResult {
     const dims = fit.proposeDimensions();
     if (!dims || isNaN(dims.cols) || isNaN(dims.rows) || dims.cols < 2 || dims.rows < 1) {
         return { measured: false, resized: false };
@@ -63,10 +63,17 @@ function fitTerminal(fit: FitAddon, term: Terminal): FitResult {
     const rows = Math.max(1, dims.rows);
     const prevCols = term.cols;
     const prevRows = term.rows;
-    if (prevCols !== cols || prevRows !== rows) {
+    const needsResize = prevCols !== cols || prevRows !== rows;
+    if (needsResize) {
+        term.resize(cols, rows);
+    } else if (forceViewportRecalc) {
+        // After DOM detach/reattach or display:none toggle, xterm's internal
+        // viewport scroll height becomes stale. Force recalculation by cycling
+        // through a different size.
+        term.resize(cols + 1, rows);
         term.resize(cols, rows);
     }
-    return { measured: true, resized: cols !== prevCols || rows !== prevRows };
+    return { measured: true, resized: needsResize || forceViewportRecalc };
 }
 
 function refreshTerminal(term: Terminal): void {
@@ -297,7 +304,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     );
 
     const scheduleFit = useCallback(
-        (forceResize = false, focus = false, scrollToBottom = false, retries = 2) => {
+        (forceResize = false, focus = false, scrollToBottom = false, forceViewportRecalc = false, retries = 2) => {
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
             }
@@ -305,10 +312,12 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 fitFrameRef.current = null;
                 if (!visibleRef.current || !fitRef.current || !termRef.current) return;
                 const viewportSnapshot = scrollToBottom ? null : captureViewport(termRef.current);
-                const fitResult = fitTerminal(fitRef.current, termRef.current);
+                const fitResult = fitTerminal(fitRef.current, termRef.current, forceViewportRecalc);
                 if (!fitResult.measured) {
                     if (retries > 0) {
-                        scheduleFit(forceResize, focus, scrollToBottom, retries - 1);
+                        scheduleFit(forceResize, focus, scrollToBottom, forceViewportRecalc, retries - 1);
+                    } else if (focus && termRef.current) {
+                        termRef.current.focus();
                     }
                     return;
                 }
@@ -349,7 +358,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         containerRef.current.appendChild(element);
 
         if (visible) {
-            scheduleFit(true, false, true);
+            scheduleFit(true, true, true, true);
         }
 
         // User input: only active while mounted
@@ -385,9 +394,10 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
 
     useEffect(() => {
         if (!visible || !termRef.current || !fitRef.current) return;
-        // Defer fit until the browser has painted the now-visible container,
-        // otherwise FitAddon measures zero dimensions from display:none.
-        scheduleFit(true, true, true);
+        // Force viewport recalculation: after display:none toggle or DOM
+        // detach/reattach, xterm's scroll height is stale even if dimensions
+        // haven't changed.
+        scheduleFit(true, true, true, true);
     }, [visible, sessionId, scheduleFit]);
 
     const terminalFontFamily = useSettingsStore((s) => s.settings?.terminal?.fontFamily);

@@ -67,6 +67,7 @@ describe("session handlers", () => {
             tasksDir: join(tempDir, "tasks"),
             archiveDir: join(tempDir, "archive"),
             sessionLogsDir: join(tempDir, "session-logs"),
+            taskLogsDir: join(tempDir, "task-logs"),
         });
         await store.init();
         router = new Router();
@@ -145,6 +146,20 @@ describe("session handlers", () => {
         const project = await store.getProject(projectId);
         expect(project?.sessions).toHaveLength(1);
         expect(project?.sessions[0]?.id).toBe(created.sessionId);
+    });
+
+    it("defaults agent session labels to the agent name", async () => {
+        await router.handle(MSG.SESSION_CREATE, {
+            projectId,
+            type: "codex",
+        });
+        await router.handle(MSG.SESSION_CREATE, {
+            projectId,
+            type: "claude",
+        });
+
+        const project = await store.getProject(projectId);
+        expect(project?.sessions.map((session) => session.label)).toEqual(["Codex", "Claude"]);
     });
 
     it("closes live sessions and clears archived session refs before archiving", async () => {

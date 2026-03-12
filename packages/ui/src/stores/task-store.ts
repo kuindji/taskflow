@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Task } from "@taskflow/shared";
+import type { Task, TaskLogEntry, TaskLogAddedEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 
@@ -7,6 +7,7 @@ interface TaskStore {
     tasks: Task[];
     activeTaskId: string | null;
     loading: boolean;
+    taskLogs: Record<string, TaskLogEntry[]>;
     fetchTasks(): Promise<void>;
     createTask(payload: {
         projectId: string;
@@ -19,12 +20,15 @@ interface TaskStore {
     archiveTask(id: string): Promise<void>;
     deleteTask(id: string): Promise<void>;
     setActiveTask(id: string | null): void;
+    fetchTaskLog(taskId: string): Promise<void>;
+    appendLogEntry(taskId: string, entry: TaskLogEntry): void;
 }
 
 export const useTaskStore = create<TaskStore>((set) => ({
     tasks: [],
     activeTaskId: null,
     loading: false,
+    taskLogs: {},
     async fetchTasks() {
         set({ loading: true });
         const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST);
@@ -65,6 +69,20 @@ export const useTaskStore = create<TaskStore>((set) => ({
     setActiveTask(id) {
         set({ activeTaskId: id });
     },
+    async fetchTaskLog(taskId) {
+        const { entries } = await sendRequest<{ entries: TaskLogEntry[] }>(MSG.TASK_LOG_LIST, { taskId });
+        set((s) => ({
+            taskLogs: { ...s.taskLogs, [taskId]: entries },
+        }));
+    },
+    appendLogEntry(taskId, entry) {
+        set((s) => ({
+            taskLogs: {
+                ...s.taskLogs,
+                [taskId]: [...(s.taskLogs[taskId] ?? []), entry],
+            },
+        }));
+    },
 }));
 
 // Listen for task updates from the HTTP API (e.g., title generation).
@@ -72,5 +90,12 @@ export const useTaskStore = create<TaskStore>((set) => ({
 const _unsubTaskUpdated = onEvent(MSG.TASK_UPDATED, (payload) => {
     if (payload && typeof payload === "object" && "id" in payload) {
         useTaskStore.getState().applyTaskUpdate(payload as Task);
+    }
+});
+
+const _unsubTaskLogAdded = onEvent(MSG.TASK_LOG_ADDED, (payload) => {
+    const event = payload as TaskLogAddedEvent;
+    if (event?.taskId && event?.entry) {
+        useTaskStore.getState().appendLogEntry(event.taskId, event.entry);
     }
 });

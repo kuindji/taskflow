@@ -1,7 +1,7 @@
 import type { ApiRouter } from "./router";
 import type { TaskStore } from "../services/task-store";
 import type { PtyManager } from "../services/pty-manager";
-import type { SessionStatus, Task, WsEvent } from "@taskflow/shared";
+import type { SessionStatus, Task, TaskLogEntryType, WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 
 interface ApiRouteDeps {
@@ -60,6 +60,78 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
                 return errorResponse(message, 404);
             }
             return errorResponse(message, 500);
+        }
+    });
+
+    apiRouter.register("GET", "/api/tasks/:taskId", async (_req, params) => {
+        try {
+            const task = await taskStore.getTask(params.taskId);
+            if (!task) {
+                return errorResponse(`Task not found: ${params.taskId}`, 404);
+            }
+            const log = await taskStore.getTaskLog(params.taskId);
+            return jsonResponse({ task, log });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, 500);
+        }
+    });
+
+    const allowedLogTypes = new Set<TaskLogEntryType>(["info", "commit", "warning", "error"]);
+
+    apiRouter.register("POST", "/api/tasks/:taskId/log", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const type = body.type;
+        if (typeof type !== "string" || !allowedLogTypes.has(type as TaskLogEntryType)) {
+            return errorResponse('Field "type" must be one of: info, commit, warning, error', 400);
+        }
+
+        const message = body.message;
+        if (typeof message !== "string" || !message.trim()) {
+            return errorResponse('Field "message" is required and must be a non-empty string', 400);
+        }
+
+        const sessionId = typeof body.sessionId === "string" ? body.sessionId : req.headers.get("x-taskflow-session-id") ?? "unknown";
+
+        let meta: Record<string, string> | undefined;
+        if (body.meta && typeof body.meta === "object" && !Array.isArray(body.meta)) {
+            meta = {};
+            for (const [k, v] of Object.entries(body.meta as Record<string, unknown>)) {
+                if (typeof v === "string") {
+                    meta[k] = v;
+                }
+            }
+        }
+
+        try {
+            const task = await taskStore.getTask(params.taskId);
+            if (!task) {
+                return errorResponse(`Task not found: ${params.taskId}`, 404);
+            }
+
+            const entry = await taskStore.appendTaskLog(
+                params.taskId,
+                sessionId,
+                type as TaskLogEntryType,
+                message.trim(),
+                meta,
+            );
+
+            broadcast({
+                type: MSG.TASK_LOG_ADDED,
+                payload: { taskId: params.taskId, entry },
+            });
+
+            return jsonResponse({ entry }, 201);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(msg, 500);
         }
     });
 

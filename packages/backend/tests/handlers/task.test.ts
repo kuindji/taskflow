@@ -23,6 +23,7 @@ describe("task handlers", () => {
             tasksDir: join(tempDir, "tasks"),
             archiveDir: join(tempDir, "archive"),
             sessionLogsDir: join(tempDir, "session-logs"),
+            taskLogsDir: join(tempDir, "task-logs"),
         });
         await store.init();
         router = new Router();

@@ -21,6 +21,12 @@ interface SessionHandlerDeps {
     getPort: () => number;
 }
 
+function getDefaultSessionLabel(type: SessionCreatePayload["type"]): string {
+    if (type === "claude") return "Claude";
+    if (type === "codex") return "Codex";
+    return `${type} session`;
+}
+
 export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     const { router, ptyManager, taskStore, broadcast, getPort } = deps;
 
@@ -138,7 +144,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
         const sessionRef = {
             id: sessionId,
             type,
-            label: label ?? `${type} session`,
+            label: label ?? getDefaultSessionLabel(type),
             createdAt: new Date().toISOString(),
         };
         if (task) {

@@ -14,8 +14,12 @@ Taskflow provides an internal HTTP API through environment variables:
 - TASKFLOW_SESSION_ID
 
 Use the API proactively:
-- For task-scoped sessions, POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/browser with JSON {"url":"https://...", "label":"Optional"}.
-- For project-scoped sessions, POST $TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/browser with JSON {"url":"https://...", "label":"Optional"}.
+- At session start, read task context: GET $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID (returns task info and log from prior sessions).
+- Log significant findings: POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log with JSON {"type":"info","message":"...","sessionId":"$TASKFLOW_SESSION_ID"}.
+- After committing, log the commit: POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log with JSON {"type":"commit","message":"<commit message>","sessionId":"$TASKFLOW_SESSION_ID","meta":{"hash":"<commit hash>"}}.
+- Log types: "info" (findings/progress), "commit" (commits), "warning" (concerns), "error" (failures).
+- For browser tabs: POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/browser with JSON {"url":"https://...", "label":"Optional"}.
+- For project-scoped browser tabs: POST $TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/browser with JSON {"url":"https://...", "label":"Optional"}.
 Session status is app-controlled, so do not post manual session status updates.`;
 
 const INTERNAL_AGENT_SKILL_MARKDOWN = `---
@@ -33,6 +37,21 @@ Taskflow sets these environment variables for every agent session:
 - \`TASKFLOW_SESSION_ID\`
 
 Use the internal API directly.
+
+## Task context
+
+Read task info and log from prior sessions at the start of your session:
+
+- \`GET $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID\`
+- Returns: \`{ "task": {...}, "log": [{...}, ...] }\`
+
+## Task log
+
+Log your findings, progress, and commits so future sessions have context:
+
+- \`POST $TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log\`
+- Body: \`{"type":"info|commit|warning|error", "message":"...", "sessionId":"$TASKFLOW_SESSION_ID"}\`
+- For commits, add meta: \`{"type":"commit", "message":"...", "sessionId":"...", "meta":{"hash":"abc123"}}\`
 
 ## Browser tabs
 

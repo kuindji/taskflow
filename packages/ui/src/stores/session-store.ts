@@ -52,11 +52,24 @@ interface SessionStore {
 
 export type { Tab };
 
+function getDefaultSessionLabel(type: Tab["type"]): string {
+    if (type === "claude") return "Claude";
+    if (type === "codex") return "Codex";
+    return `${type} session`;
+}
+
+function normalizeSessionLabel(type: SessionRef["type"], label?: string): string {
+    if (!label || label === `${type} session`) {
+        return getDefaultSessionLabel(type);
+    }
+    return label;
+}
+
 function createSessionTab(session: SessionRef): Tab {
     return {
         id: session.id,
         type: session.type,
-        label: session.label,
+        label: normalizeSessionLabel(session.type, session.label),
         sessionId: session.id,
     };
 }
@@ -110,7 +123,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             cols: lastTerminalSize?.cols,
             rows: lastTerminalSize?.rows,
         });
-        const tab: Tab = { id: sessionId, type, label: label ?? `${type} session`, sessionId };
+        const tab: Tab = { id: sessionId, type, label: normalizeSessionLabel(type, label), sessionId };
         const workspaceKey = owner.taskId
             ? getTaskWorkspaceKey(owner.taskId)
             : getProjectWorkspaceKey(ownerId);
@@ -129,10 +142,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         ]);
     },
     sendInput(sessionId, data) {
-        markRecentInput(sessionId, data);
+        markInteraction(sessionId);
         sendFireAndForget(MSG.SESSION_INPUT, { sessionId, data });
     },
     resizeTerminal(sessionId, cols, rows) {
+        markInteraction(sessionId);
         set({ lastTerminalSize: { cols, rows } });
         sendFireAndForget(MSG.TERMINAL_RESIZE, { sessionId, cols, rows });
     },
@@ -231,7 +245,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                     .map((tab) => {
                         if (!tab.sessionId) return tab;
                         const session = sessionsById.get(tab.sessionId);
-                        return session ? { ...tab, type: session.type, label: session.label } : tab;
+                        return session
+                            ? {
+                                  ...tab,
+                                  type: session.type,
+                                  label: normalizeSessionLabel(session.type, session.label),
+                              }
+                            : tab;
                     });
 
                 for (const session of task.sessions) {
@@ -275,7 +295,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                     .map((tab) => {
                         if (!tab.sessionId) return tab;
                         const session = sessionsById.get(tab.sessionId);
-                        return session ? { ...tab, type: session.type, label: session.label } : tab;
+                        return session
+                            ? {
+                                  ...tab,
+                                  type: session.type,
+                                  label: normalizeSessionLabel(session.type, session.label),
+                              }
+                            : tab;
                     });
 
                 for (const session of project.sessions) {
@@ -308,66 +334,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 // Debounce timers for working → attention transitions
 const activityTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const ACTIVITY_TIMEOUT = 3000;
-interface RecentInputChunk {
-    at: number;
-    data: string;
+const lastInteractionAt = new Map<string, number>();
+const INTERACTION_SUPPRESSION_MS = 500;
+
+function markInteraction(sessionId: string): void {
+    lastInteractionAt.set(sessionId, Date.now());
 }
 
-const recentInput = new Map<string, RecentInputChunk[]>();
-const TYPING_ACTIVITY_SUPPRESSION_MS = 400;
-const MAX_PENDING_INPUT_CHUNKS = 64;
-
-function markRecentInput(sessionId: string, data: string): void {
-    const now = Date.now();
-    const pending = recentInput.get(sessionId) ?? [];
-    const next = pending
-        .filter((chunk) => now - chunk.at <= TYPING_ACTIVITY_SUPPRESSION_MS)
-        .concat({ at: now, data })
-        .slice(-MAX_PENDING_INPUT_CHUNKS);
-    recentInput.set(sessionId, next);
+function clearInteraction(sessionId: string): void {
+    lastInteractionAt.delete(sessionId);
 }
 
-function clearRecentInput(sessionId: string): void {
-    recentInput.delete(sessionId);
-}
-
-function pruneRecentInput(sessionId: string, now: number): RecentInputChunk[] {
-    const pending = recentInput.get(sessionId) ?? [];
-    const next = pending.filter((chunk) => now - chunk.at <= TYPING_ACTIVITY_SUPPRESSION_MS);
-    if (next.length === 0) {
-        recentInput.delete(sessionId);
-        return [];
-    }
-    recentInput.set(sessionId, next);
-    return next;
-}
-
-function shouldIgnoreRecentEcho(sessionId: string, data: string): boolean {
-    const pending = pruneRecentInput(sessionId, Date.now());
-    if (pending.length === 0) return false;
-    if (!isSessionFocused(sessionId)) return false;
-
-    let matchedCount = 0;
-    let combined = "";
-
-    for (const chunk of pending) {
-        combined += chunk.data;
-        matchedCount += 1;
-
-        const isDirectEcho = data === combined;
-        const isEnterEcho = combined === "\r" && data === "\r\n";
-        if (!isDirectEcho && !isEnterEcho) continue;
-
-        const remaining = pending.slice(matchedCount);
-        if (remaining.length === 0) {
-            recentInput.delete(sessionId);
-        } else {
-            recentInput.set(sessionId, remaining);
-        }
-        return true;
-    }
-
-    return false;
+function isUserInteracting(sessionId: string): boolean {
+    const lastAt = lastInteractionAt.get(sessionId);
+    if (lastAt === undefined) return false;
+    return Date.now() - lastAt < INTERACTION_SUPPRESSION_MS;
 }
 
 function clearActivityTimer(sessionId: string): void {
@@ -398,7 +379,7 @@ function scheduleActivityTimeout(sessionId: string): void {
 const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
     const { sessionId, data } = payload as TerminalOutputEvent;
-    if (shouldIgnoreRecentEcho(sessionId, data)) return;
+    if (isUserInteracting(sessionId)) return;
     if (!usesTerminalActivityStatus(sessionId)) return;
 
     const store = useSessionStore.getState();
@@ -435,7 +416,7 @@ const _unsubSessionExited = onEvent(MSG.SESSION_EXITED, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
     const { sessionId } = payload as SessionExitedEvent;
     clearActivityTimer(sessionId);
-    clearRecentInput(sessionId);
+    clearInteraction(sessionId);
     const { [sessionId]: _, ...remaining } = useSessionStore.getState().sessionStatus;
     useSessionStore.setState({ sessionStatus: remaining });
 });

@@ -1,4 +1,4 @@
-import type { Project, Task, TaskWorktree } from "@taskflow/shared";
+import type { Project, Task, TaskLogEntry, TaskLogEntryType, TaskWorktree } from "@taskflow/shared";
 import { ARCHIVE_EXPIRY_DAYS } from "@taskflow/shared";
 import {
     appendFile,
@@ -18,6 +18,7 @@ interface TaskStoreConfig {
     tasksDir: string;
     archiveDir: string;
     sessionLogsDir: string;
+    taskLogsDir: string;
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
@@ -41,6 +42,7 @@ export class TaskStore {
         await mkdir(this.config.tasksDir, { recursive: true });
         await mkdir(this.config.archiveDir, { recursive: true });
         await mkdir(this.config.sessionLogsDir, { recursive: true });
+        await mkdir(this.config.taskLogsDir, { recursive: true });
     }
 
     async clearAllSessions(): Promise<void> {
@@ -210,6 +212,7 @@ export class TaskStore {
                     await this.unlinkIfPresent(this.archivePath(task.id));
                 });
                 await this.deleteTaskSessionHistory(task.id);
+                await this.deleteTaskLog(task.id);
             }),
         );
 
@@ -336,6 +339,91 @@ export class TaskStore {
         );
     }
 
+    // --- Task Logs ---
+
+    private taskLogPath(taskId: string): string {
+        return join(this.config.taskLogsDir, `${taskId}.jsonl`);
+    }
+
+    private taskLogMutations = new Map<string, Promise<void>>();
+
+    private async withTaskLogMutation<T>(key: string, mutation: () => Promise<T>): Promise<T> {
+        const previous = this.taskLogMutations.get(key) ?? Promise.resolve();
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const queued = previous.catch(() => undefined).then(() => gate);
+
+        this.taskLogMutations.set(key, queued);
+        await previous.catch(() => undefined);
+
+        try {
+            return await mutation();
+        } finally {
+            release();
+            if (this.taskLogMutations.get(key) === queued) {
+                this.taskLogMutations.delete(key);
+            }
+        }
+    }
+
+    async appendTaskLog(
+        taskId: string,
+        sessionId: string,
+        type: TaskLogEntryType,
+        message: string,
+        meta?: Record<string, string>,
+    ): Promise<TaskLogEntry> {
+        const entry: TaskLogEntry = {
+            id: randomUUID(),
+            sessionId,
+            timestamp: new Date().toISOString(),
+            type,
+            message,
+            ...(meta ? { meta } : {}),
+        };
+        const logPath = this.taskLogPath(taskId);
+        const line = JSON.stringify(entry) + "\n";
+        await this.withTaskLogMutation(logPath, async () => {
+            await appendFile(logPath, line, "utf-8");
+        });
+        return entry;
+    }
+
+    async getTaskLog(taskId: string): Promise<TaskLogEntry[]> {
+        const logPath = this.taskLogPath(taskId);
+        await this.taskLogMutations.get(logPath)?.catch(() => undefined);
+
+        let raw: string;
+        try {
+            raw = await readFile(logPath, "utf-8");
+        } catch (error) {
+            if (isMissingFileError(error)) {
+                return [];
+            }
+            throw error;
+        }
+
+        const entries: TaskLogEntry[] = [];
+        for (const line of raw.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+                entries.push(JSON.parse(line) as TaskLogEntry);
+            } catch {
+                continue;
+            }
+        }
+        return entries;
+    }
+
+    async deleteTaskLog(taskId: string): Promise<void> {
+        const logPath = this.taskLogPath(taskId);
+        await this.withTaskLogMutation(logPath, async () => {
+            await this.unlinkIfPresent(logPath);
+        });
+    }
+
     async createTask(input: {
         projectId: string;
         title: string;
@@ -431,6 +519,7 @@ export class TaskStore {
             await this.unlinkIfPresent(this.taskPath(id));
         });
         await this.deleteTaskSessionHistory(id);
+        await this.deleteTaskLog(id);
     }
 
     async listArchived(): Promise<Task[]> {
@@ -460,6 +549,7 @@ export class TaskStore {
                 if (now - archivedTime > expiryMs) {
                     await this.unlinkIfPresent(this.archivePath(task.id));
                     await this.deleteTaskSessionHistory(task.id);
+                    await this.deleteTaskLog(task.id);
                     cleaned++;
                 }
             }

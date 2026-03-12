@@ -1,5 +1,5 @@
 import type { Project } from "./project";
-import type { SessionStatus, Task } from "./task";
+import type { SessionStatus, Task, TaskLogEntry } from "./task";
 import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus } from "./git";
 import type { SystemInfo } from "./system";
@@ -71,6 +71,20 @@ export interface TaskArchivePayload {
 
 export interface TaskDeletePayload {
     id: string;
+}
+
+// Task log messages
+export interface TaskLogListPayload {
+    taskId: string;
+}
+
+export interface TaskLogListResponse {
+    entries: TaskLogEntry[];
+}
+
+export interface TaskLogAddedEvent {
+    taskId: string;
+    entry: TaskLogEntry;
 }
 
 // Session messages

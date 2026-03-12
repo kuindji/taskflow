@@ -13,6 +13,8 @@ export const MSG = {
     TASK_UPDATED: "task:updated",
     TASK_ARCHIVE: "task:archive",
     TASK_DELETE: "task:delete",
+    TASK_LOG_LIST: "task:log-list",
+    TASK_LOG_ADDED: "task:log-added",
 
     // Sessions
     SESSION_CREATE: "session:create",

@@ -5,6 +5,7 @@ import type {
     TaskUpdatePayload,
     TaskArchivePayload,
     TaskDeletePayload,
+    TaskLogListPayload,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
@@ -74,5 +75,11 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         await stopTaskSessions(task, false);
         await store.deleteTask(id);
         return { success: true };
+    });
+
+    router.register(MSG.TASK_LOG_LIST, async (payload) => {
+        const { taskId } = payload as TaskLogListPayload;
+        const entries = await store.getTaskLog(taskId);
+        return { entries };
     });
 }

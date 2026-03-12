@@ -31,6 +31,7 @@ async function main() {
             tasksDir: config.tasksDir,
             archiveDir: config.archiveDir,
             sessionLogsDir: config.sessionLogsDir,
+            taskLogsDir: config.taskLogsDir,
         });
         await store.init();
         await store.clearAllSessions();

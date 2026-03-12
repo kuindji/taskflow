@@ -25,3 +25,14 @@ export interface Task {
     status: "active" | "archived";
     archivedAt: string | null;
 }
+
+export type TaskLogEntryType = "info" | "commit" | "warning" | "error";
+
+export interface TaskLogEntry {
+    id: string;
+    sessionId: string;
+    timestamp: string;
+    type: TaskLogEntryType;
+    message: string;
+    meta?: Record<string, string>;
+}
