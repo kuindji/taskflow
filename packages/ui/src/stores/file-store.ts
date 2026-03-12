@@ -10,6 +10,7 @@ interface FileStore {
     gitStatusPath: string | null;
     watchedPath: string | null;
     loading: boolean;
+    expandToPath: string | null;
     fetchTree(path: string): Promise<void>;
     fetchGitStatus(path: string): Promise<void>;
     watchPath(path: string): Promise<void>;
@@ -17,6 +18,7 @@ interface FileStore {
     clearExplorerState(): void;
     readFile(path: string): Promise<string>;
     writeFile(path: string, content: string): Promise<void>;
+    setExpandToPath(path: string | null): void;
 }
 
 let fileChangeSubscriptionReady = false;
@@ -31,6 +33,10 @@ export const useFileStore = create<FileStore>((set, get) => ({
     gitStatusPath: null,
     watchedPath: null,
     loading: false,
+    expandToPath: null,
+    setExpandToPath(path) {
+        set({ expandToPath: path });
+    },
     async fetchTree(path) {
         const requestId = ++treeRequestId;
         set((state) => ({
