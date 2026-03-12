@@ -199,9 +199,12 @@ export function TaskSidebar() {
 
     return (
         <>
-            <div className="border-border flex justify-end gap-1 border-b px-1.5 py-1.5">
+            <div className="border-border flex min-h-9 items-center justify-between gap-2 border-b px-1.5 py-1.5">
+                <span className="text-muted-foreground px-1 text-xs font-medium">
+                    {showArchive ? "Archived Tasks" : "Tasks"}
+                </span>
                 {!showArchive && (
-                    <>
+                    <div className="flex items-center justify-end gap-1">
                         <NewTaskControl />
                         <Button
                             variant="ghost"
@@ -212,7 +215,7 @@ export function TaskSidebar() {
                             <Plus className="h-4 w-4" />
                             Project
                         </Button>
-                    </>
+                    </div>
                 )}
             </div>
             <ScrollArea className="flex-1 py-1">
@@ -265,7 +268,7 @@ export function TaskSidebar() {
                         htmlFor="archive-toggle"
                         className="text-muted-foreground cursor-pointer text-sm"
                     >
-                        Archive
+                        Show archive
                     </Label>
                 </div>
                 <Button

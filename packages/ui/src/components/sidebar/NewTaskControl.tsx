@@ -21,6 +21,7 @@ export function NewTaskControl({
             variant="ghost"
             size={size}
             onClick={requestNewTask}
+            tooltip="New task (Cmd+N)"
             className={cn("text-muted-foreground text-sm [-webkit-app-region:no-drag]", className)}
         >
             <Plus className={cn("h-4 w-4", iconClassName)} />

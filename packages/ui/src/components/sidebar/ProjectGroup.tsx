@@ -30,10 +30,10 @@ export function ProjectGroup({
     const [open, setOpen] = useState(true);
 
     return (
-        <Collapsible open={open} onOpenChange={setOpen}>
+        <Collapsible open={open} onOpenChange={setOpen} className="min-w-0">
             <div
                 className={cn(
-                    "group mx-1.5 flex w-[calc(100%-0.75rem)] cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
+                    "group mx-1.5 flex min-w-0 max-w-[calc(100%-0.75rem)] cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
                     isActive ? "bg-accent/15" : "hover:bg-muted/50",
                 )}
             >
@@ -58,9 +58,10 @@ export function ProjectGroup({
                 </Tooltip>
                 <button
                     onClick={() => onProjectClick(project.id)}
-                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden py-1.5 pr-1.5 text-left"
+                    className="flex w-0 min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden py-1.5 pr-1.5 text-left"
+                    title={project.name}
                 >
-                    <span className="text-muted-foreground block min-w-0 truncate text-xs font-medium tracking-wide">
+                    <span className="text-muted-foreground block w-full min-w-0 truncate text-xs font-medium tracking-wide">
                         {project.name}
                     </span>
                 </button>
