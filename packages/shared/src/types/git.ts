@@ -8,6 +8,7 @@ export interface GitFileStatus {
 export interface GitStatusResult {
     branch: string | null;
     files: GitFileStatus[];
+    ahead: number;
 }
 
 export interface GitDiffResult {

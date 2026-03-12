@@ -47,6 +47,7 @@ export const MSG = {
     GIT_REVERT_FILE: "git:revert-file",
     GIT_WORKTREE_CREATE: "git:worktree-create",
     GIT_COMMIT: "git:commit",
+    GIT_PUSH: "git:push",
     GIT_GENERATE_COMMIT_MSG: "git:generate-commit-msg",
     GIT_CREATE_PR: "git:create-pr",
 

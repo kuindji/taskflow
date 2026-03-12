@@ -6,6 +6,7 @@ import type {
     GitRevertFilePayload,
     GitWorktreeCreatePayload,
     GitCommitPayload,
+    GitPushPayload,
     GitCreatePrPayload,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
@@ -66,6 +67,13 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
         const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
         const worktreePath = assertWorktreePath(repoPath, path);
         await git.createWorktree(repoPath, branch, worktreePath);
+        return { success: true };
+    });
+
+    router.register(MSG.GIT_PUSH, async (payload) => {
+        const { path } = payload as GitPushPayload;
+        const repoPath = await assertWorkspaceRepo(taskStore, path);
+        await git.push(repoPath);
         return { success: true };
     });
 

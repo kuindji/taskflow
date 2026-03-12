@@ -67,7 +67,15 @@ export class GitService {
             });
         }
 
-        return { branch: branchOutput.trim() || null, files };
+        let ahead = 0;
+        try {
+            const revList = await git(["rev-list", "--count", "@{u}..HEAD"], repoPath);
+            ahead = parseInt(revList.trim(), 10) || 0;
+        } catch {
+            // No upstream configured — treat as 0
+        }
+
+        return { branch: branchOutput.trim() || null, files, ahead };
     }
 
     private parseStatus(xy: string): GitFileStatus["status"] {
@@ -192,6 +200,10 @@ export class GitService {
     async createWorktree(repoPath: string, branch: string, worktreePath: string): Promise<void> {
         await mkdir(dirname(worktreePath), { recursive: true });
         await git(["worktree", "add", "-b", branch, worktreePath], repoPath);
+    }
+
+    async push(repoPath: string): Promise<void> {
+        await git(["push"], repoPath);
     }
 
     async commit(repoPath: string, message: string, push: boolean): Promise<{ hash: string; message: string }> {

@@ -254,6 +254,10 @@ export interface GitCommitResult {
     message: string;
 }
 
+export interface GitPushPayload {
+    path: string;
+}
+
 export interface GitCreatePrPayload {
     path: string;
     title: string;

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { Task, Project, GitDiffResult } from "@taskflow/shared";
+import type { Task, Project, GitDiffResult, GitStatusResult } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { Badge } from "@/components/ui/badge";
@@ -44,7 +44,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const [diffStats, setDiffStats] = useState<{ additions: number; deletions: number } | null>(
         null,
     );
+    const [commitDisabled, setCommitDisabled] = useState(true);
     const diffVersionRef = useRef(0);
+    const statusVersionRef = useRef(0);
 
     const showDiffButton = !task && !!project && !!onDiff;
     const showCommitButton = !task && !!project;
@@ -78,6 +80,29 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
         const interval = setInterval(fetchDiff, 10_000);
         return () => clearInterval(interval);
     }, [showDiffButton, project]);
+
+    useEffect(() => {
+        if (!showCommitButton || !project) {
+            setCommitDisabled(true);
+            return;
+        }
+        const version = ++statusVersionRef.current;
+        const fetchStatus = () => {
+            sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: project.path }).then(
+                (res) => {
+                    if (version !== statusVersionRef.current) return;
+                    setCommitDisabled(res.status.files.length === 0 && res.status.ahead === 0);
+                },
+                () => {
+                    if (version !== statusVersionRef.current) return;
+                    setCommitDisabled(false);
+                },
+            );
+        };
+        fetchStatus();
+        const interval = setInterval(fetchStatus, 10_000);
+        return () => clearInterval(interval);
+    }, [showCommitButton, project]);
 
     const handleRename = useCallback(
         (name: string) => {
@@ -163,11 +188,12 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             variant="ghost"
                             size="xs"
                             onClick={() => setCommitOpen(true)}
-                            aria-label="Commit"
+                            disabled={commitDisabled}
+                            aria-label="Commit / Push"
                             className="[-webkit-app-region:no-drag]"
                         >
                             <GitCommitHorizontal className="h-3 w-3" />
-                            <span className="text-xs">Commit</span>
+                            <span className="text-xs">Commit / Push</span>
                         </Button>
                     )}
                     {showDiffButton && (
