@@ -2,7 +2,7 @@ import { useMemo, useEffect, useState } from "react";
 import { cva } from "class-variance-authority";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
-import type { ShellInfo } from "@taskflow/shared";
+import type { AgentLaunchOptions, ShellInfo } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,12 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
+    DropdownMenuSub,
+    DropdownMenuSubTrigger,
+    DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { AgentOptionsPanel } from "./AgentOptionsPanel";
 import { StatusDot } from "@/components/ui/status-dot";
 import { X, Plus, Play, Terminal, Globe } from "lucide-react";
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
@@ -79,8 +84,9 @@ interface TabBarProps {
     onNewTab: (
         type: "claude" | "codex" | "browser" | "shell",
         shellPath?: string,
+        agentOptions?: AgentLaunchOptions,
     ) => void;
-    onRunTab: (type: "claude" | "codex") => void;
+    onRunTab: (type: "claude" | "codex", agentOptions?: AgentLaunchOptions) => void;
     showRunButton: boolean;
     allowSessionTabs: boolean;
 }
@@ -96,6 +102,8 @@ export function TabBar({
     allowSessionTabs,
 }: TabBarProps) {
     const [shells, setShells] = useState<ShellInfo[]>([]);
+    const [claudePopoverOpen, setClaudePopoverOpen] = useState(false);
+    const [codexPopoverOpen, setCodexPopoverOpen] = useState(false);
 
     useEffect(() => {
         if (!allowSessionTabs) {
@@ -127,35 +135,97 @@ export function TabBar({
                             <ClaudeIcon className="mr-2 h-4 w-4" />
                             Claude Code
                         </DropdownMenuItem>
+                        <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                                <ClaudeIcon className="mr-2 h-4 w-4" />
+                                Claude Code with options
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="p-0">
+                                <AgentOptionsPanel
+                                    agentType="claude"
+                                    onRun={(options) => onRunTab("claude", options)}
+                                />
+                            </DropdownMenuSubContent>
+                        </DropdownMenuSub>
                         <DropdownMenuItem onClick={() => onRunTab("codex")}>
                             <CodexIcon className="mr-2 h-4 w-4" />
                             Codex
                         </DropdownMenuItem>
+                        <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                                <CodexIcon className="mr-2 h-4 w-4" />
+                                Codex with options
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="p-0">
+                                <AgentOptionsPanel
+                                    agentType="codex"
+                                    onRun={(options) => onRunTab("codex", options)}
+                                />
+                            </DropdownMenuSubContent>
+                        </DropdownMenuSub>
                     </DropdownMenuContent>
                 </DropdownMenu>
             )}
             {allowSessionTabs && (
                 <>
-                    <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="text-warning"
-                        onClick={() => onNewTab("claude")}
-                        aria-label="New Claude session"
-                        tooltip="New Claude session"
-                    >
-                        <ClaudeIcon className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="text-success"
-                        onClick={() => onNewTab("codex")}
-                        aria-label="New Codex session"
-                        tooltip="New Codex session"
-                    >
-                        <CodexIcon className="h-3.5 w-3.5" />
-                    </Button>
+                    <Popover open={claudePopoverOpen} onOpenChange={setClaudePopoverOpen}>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="text-warning"
+                                onClick={(e) => {
+                                    if (e.shiftKey) {
+                                        setClaudePopoverOpen(true);
+                                    } else {
+                                        onNewTab("claude");
+                                    }
+                                }}
+                                aria-label="New Claude session"
+                                tooltip="New Claude session (Shift+click for options)"
+                            >
+                                <ClaudeIcon className="h-3.5 w-3.5" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-0">
+                            <AgentOptionsPanel
+                                agentType="claude"
+                                onRun={(options) => {
+                                    setClaudePopoverOpen(false);
+                                    onNewTab("claude", undefined, options);
+                                }}
+                            />
+                        </PopoverContent>
+                    </Popover>
+                    <Popover open={codexPopoverOpen} onOpenChange={setCodexPopoverOpen}>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="text-success"
+                                onClick={(e) => {
+                                    if (e.shiftKey) {
+                                        setCodexPopoverOpen(true);
+                                    } else {
+                                        onNewTab("codex");
+                                    }
+                                }}
+                                aria-label="New Codex session"
+                                tooltip="New Codex session (Shift+click for options)"
+                            >
+                                <CodexIcon className="h-3.5 w-3.5" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-0">
+                            <AgentOptionsPanel
+                                agentType="codex"
+                                onRun={(options) => {
+                                    setCodexPopoverOpen(false);
+                                    onNewTab("codex", undefined, options);
+                                }}
+                            />
+                        </PopoverContent>
+                    </Popover>
                 </>
             )}
             <Button
