@@ -9,12 +9,14 @@ import { GitService } from "./services/git-service";
 import { FileWatcher } from "./services/file-watcher";
 import { detectEditors } from "./services/editor-detector";
 import { detectShells, resolveSystemShellPath } from "./services/shell-detector";
+import { detectRuntimes } from "./services/runtime-detector";
 import { registerProjectHandlers } from "./handlers/project";
 import { registerTaskHandlers } from "./handlers/task";
 import { registerSessionHandlers } from "./handlers/session";
 import { registerFileHandlers } from "./handlers/file";
 import { registerGitHandlers } from "./handlers/git";
 import { registerSettingsHandlers } from "./handlers/settings";
+import { registerScriptsHandlers } from "./handlers/scripts";
 import { SettingsStore } from "./services/settings-store";
 import { ApiRouter } from "./api/router";
 import { registerApiRoutes } from "./api/routes";
@@ -50,6 +52,7 @@ async function main() {
 
         const titleGenerator = createTitleGenerator({
             taskStore: store,
+            gitService,
             broadcast: server.broadcast,
         });
 
@@ -59,6 +62,7 @@ async function main() {
         registerTaskHandlers({
             router,
             store,
+            gitService,
             closeSession: (sessionId) => {
                 ptyManager.close(sessionId);
             },
@@ -83,6 +87,7 @@ async function main() {
 
         const settingsStore = new SettingsStore(config.settingsFile);
         registerSettingsHandlers(router, settingsStore);
+        registerScriptsHandlers(router);
         registerApiRoutes({
             apiRouter,
             taskStore: store,
@@ -99,12 +104,15 @@ async function main() {
 
         const editors = await detectEditors();
         const shells = await detectShells();
+        const runtimes = await detectRuntimes();
         router.register(MSG.SYSTEM_INFO, async () => ({ editors }));
         router.register(MSG.SHELLS_LIST, async () => ({
             shells,
             systemShellPath: resolveSystemShellPath(shells),
         }));
+        router.register(MSG.RUNTIMES_LIST, async () => ({ runtimes }));
         console.log(`Detected shells: ${shells.map((s) => s.name).join(", ") || "none"}`);
+        console.log(`Detected runtimes: ${runtimes.map((r) => r.name + " " + r.version).join(", ") || "none"}`);
 
         const startedServer = await server.start();
         serverPort = startedServer.port;
