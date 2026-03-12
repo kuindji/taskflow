@@ -200,23 +200,26 @@ export function TaskSidebar() {
     return (
         <>
             <div className="border-border flex min-h-9 items-center justify-between gap-2 border-b px-1.5 py-1.5">
-                <span className="text-muted-foreground px-1 text-xs font-medium">
-                    {showArchive ? "Archived Tasks" : "Tasks"}
-                </span>
-                {!showArchive && (
-                    <div className="flex items-center justify-end gap-1">
-                        <NewTaskControl />
-                        <Button
-                            variant="ghost"
-                            size="xs"
-                            onClick={() => handleOpenProjectDialog()}
-                            className="text-muted-foreground text-sm [-webkit-app-region:no-drag]"
-                        >
-                            <Plus className="h-4 w-4" />
-                            Project
-                        </Button>
-                    </div>
-                )}
+                <div className="flex flex-1 items-center justify-end gap-1">
+                    {showArchive ? (
+                        <span className="text-muted-foreground px-1 text-xs font-medium">
+                            Archived Tasks
+                        </span>
+                    ) : (
+                        <>
+                            <NewTaskControl />
+                            <Button
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => handleOpenProjectDialog()}
+                                className="text-muted-foreground text-sm [-webkit-app-region:no-drag]"
+                            >
+                                <Plus className="h-4 w-4" />
+                                Project
+                            </Button>
+                        </>
+                    )}
+                </div>
             </div>
             <ScrollArea className="flex-1 py-1">
                 {!showArchive && projects.length === 0 && (
@@ -266,7 +269,7 @@ export function TaskSidebar() {
                     />
                     <Label
                         htmlFor="archive-toggle"
-                        className="text-muted-foreground cursor-pointer text-sm"
+                        className="text-muted-foreground cursor-pointer whitespace-nowrap text-sm tracking-normal normal-case"
                     >
                         Show archive
                     </Label>

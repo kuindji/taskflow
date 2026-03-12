@@ -3,7 +3,7 @@ import type { Project, Task } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TaskCard } from "./TaskCard";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ProjectGroupProps {
@@ -65,12 +65,15 @@ export function ProjectGroup({
                         {project.name}
                     </span>
                 </button>
-                {diffStats && (
-                    <div className="mr-1.5 flex shrink-0 items-center gap-2 text-[10px] font-medium">
-                        <span className="text-success">+{diffStats.additions}</span>
-                        <span className="text-destructive">-{diffStats.deletions}</span>
-                    </div>
-                )}
+                <div className="relative mr-1.5 flex shrink-0 items-center">
+                    {diffStats && (
+                        <div className="flex items-center gap-2 text-[10px] font-medium transition-opacity group-hover:opacity-0">
+                            <span className="text-success">+{diffStats.additions}</span>
+                            <span className="text-destructive">-{diffStats.deletions}</span>
+                        </div>
+                    )}
+                    <ArrowRight className="text-accent absolute right-0 h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+                </div>
             </div>
             <CollapsibleContent>
                 {tasks.map((task) => (
