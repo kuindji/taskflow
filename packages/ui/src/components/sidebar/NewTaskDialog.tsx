@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import type { AgentLaunchOptions } from "@taskflow/shared";
 import type { Project } from "@taskflow/shared";
 import {
     Dialog,
@@ -19,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 
 interface NewTaskDialogProps {
     open: boolean;
@@ -31,6 +33,7 @@ interface NewTaskDialogProps {
         description: string;
         worktree: boolean;
         startWith?: "claude" | "codex";
+        agentOptions?: AgentLaunchOptions;
     }) => void;
 }
 
@@ -46,12 +49,19 @@ export function NewTaskDialog({
     const [title, setTitle] = useState("");
     const [worktree, setWorktree] = useState(false);
     const [startWith, setStartWith] = useState("none");
+    const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
 
     const resetForm = useCallback(() => {
         setDescription("");
         setTitle("");
         setWorktree(false);
         setStartWith("none");
+        setAgentOptions(undefined);
+    }, []);
+
+    const handleStartWithChange = useCallback((value: string) => {
+        setStartWith(value);
+        if (value === "none") setAgentOptions(undefined);
     }, []);
 
     const handleOpenChange = useCallback(
@@ -73,10 +83,11 @@ export function NewTaskDialog({
             description: description.trim(),
             worktree,
             startWith: startWith === "claude" || startWith === "codex" ? startWith : undefined,
+            agentOptions,
         });
         resetForm();
         onOpenChange(false);
-    }, [canSubmit, projectId, title, description, worktree, startWith, onSubmit, resetForm, onOpenChange]);
+    }, [canSubmit, projectId, title, description, worktree, startWith, agentOptions, onSubmit, resetForm, onOpenChange]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -154,7 +165,7 @@ export function NewTaskDialog({
 
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="new-task-start-with">Start immediately with</Label>
-                        <Select value={startWith} onValueChange={setStartWith}>
+                        <Select value={startWith} onValueChange={handleStartWithChange}>
                             <SelectTrigger id="new-task-start-with" className="w-full">
                                 <SelectValue placeholder="Don't start" />
                             </SelectTrigger>
@@ -165,6 +176,15 @@ export function NewTaskDialog({
                             </SelectContent>
                         </Select>
                     </div>
+
+                    {(startWith === "claude" || startWith === "codex") && (
+                        <div className="border-border rounded-md border p-1">
+                            <AgentOptionsPanel
+                                agentType={startWith}
+                                onChange={setAgentOptions}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter>
