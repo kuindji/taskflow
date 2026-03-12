@@ -41,6 +41,10 @@ export const MSG = {
     FILE_WATCH: "file:watch",
     FILE_UNWATCH: "file:unwatch",
     FILE_STAT: "file:stat",
+    FILE_RENAME: "file:rename",
+    FILE_DELETE_FILE: "file:delete",
+    FILE_OPEN_EXTERNAL: "file:open-external",
+    FILE_REVEAL: "file:reveal",
 
     // Git
     GIT_STATUS: "git:status",

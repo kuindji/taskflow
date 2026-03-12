@@ -215,6 +215,15 @@ export interface FileStatResponse {
     isDirectory: boolean;
 }
 
+export interface FileRenamePayload {
+    oldPath: string;
+    newPath: string;
+}
+
+export interface FilePathPayload {
+    path: string;
+}
+
 export type FileChangedEvent = FileChangeEvent;
 
 // Git messages
