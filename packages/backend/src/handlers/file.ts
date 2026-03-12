@@ -5,12 +5,13 @@ import type {
     FileWatchPayload,
     FileUnwatchPayload,
     FileWritePayload,
+    FileStatPayload,
     WsEvent,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { FileWatcher } from "../services/file-watcher";
 import type { TaskStore } from "../services/task-store";
-import { readFile, writeFile } from "fs/promises";
+import { readFile, writeFile, stat as fsStat } from "fs/promises";
 import { assertWorkspacePath } from "../utils/path-validation";
 
 interface FileHandlerDeps {
@@ -58,5 +59,16 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         const workspacePath = await assertWorkspacePath(taskStore, path);
         fileWatcher.stop(workspacePath);
         return { success: true };
+    });
+
+    router.register(MSG.FILE_STAT, async (payload) => {
+        const { path } = payload as FileStatPayload;
+        const workspacePath = await assertWorkspacePath(taskStore, path);
+        try {
+            const stats = await fsStat(workspacePath);
+            return { exists: true, isDirectory: stats.isDirectory() };
+        } catch {
+            return { exists: false, isDirectory: false };
+        }
     });
 }
