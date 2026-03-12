@@ -19,7 +19,14 @@ import { useUIStore } from "@/stores/ui-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { getShellDisplayName, getTerminalShellSummary, isConfiguredShellAvailable } from "@/lib/terminal-shells";
-import { DEFAULT_TERMINAL_SHELL, MSG, type ShellInfo, type ShellListResponse } from "@taskflow/shared";
+import {
+    DEFAULT_TERMINAL_SHELL,
+    MSG,
+    type ShellInfo,
+    type ShellListResponse,
+    type RuntimeInfo,
+    type RuntimeListResponse,
+} from "@taskflow/shared";
 import { FontFamilySelect } from "./FontFamilySelect";
 
 const EDITOR_OPTIONS = [
@@ -41,6 +48,8 @@ function SettingsModal() {
     const updateSettings = useSettingsStore((s) => s.updateSettings);
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
+    const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
+    const [section, setSection] = useState<"fonts" | "defaults">("fonts");
 
     useEffect(() => {
         if (!open) return;
@@ -54,6 +63,11 @@ function SettingsModal() {
                 setShells([]);
                 setSystemShellPath(null);
             },
+        );
+
+        sendRequest<RuntimeListResponse>(MSG.RUNTIMES_LIST, {}).then(
+            (response) => setRuntimes(response.runtimes),
+            () => setRuntimes([]),
         );
     }, [open]);
 
@@ -129,152 +143,264 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleDefaultAgent = useCallback(
+        (value: string) => {
+            if (value === "claude" || value === "codex") {
+                void updateSettings({ general: { defaultAgent: value } });
+            }
+        },
+        [updateSettings],
+    );
+
+    const handleDefaultRuntime = useCallback(
+        (defaultRuntime: string) => {
+            void updateSettings({ general: { defaultRuntime } });
+        },
+        [updateSettings],
+    );
+
     if (!settings) return null;
 
     const configuredShellAvailable = isConfiguredShellAvailable(shells, settings.terminal.defaultShell);
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="w-[min(42rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-[42rem]">
+            <DialogContent className="w-[min(48rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-[48rem]">
                 <DialogHeader>
                     <DialogTitle>Settings</DialogTitle>
                     <DialogDescription>
                         Changes apply immediately.
                     </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-6">
-                    <section className="space-y-3">
-                        <h3 className="text-sm font-medium">External Editor</h3>
-                        <div className="space-y-1">
-                            <Label className="text-xs text-muted-foreground">
-                                Used when opening files with Cmd+Click in the terminal
-                            </Label>
-                            <Select
-                                value={settings.general.externalEditor}
-                                onValueChange={handleExternalEditor}
-                            >
-                                <SelectTrigger className="w-full h-8 text-sm">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {EDITOR_OPTIONS.map((opt) => (
-                                        <SelectItem key={opt.value} value={opt.value}>
-                                            {opt.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </section>
-                    <section className="space-y-3">
-                        <h3 className="text-sm font-medium">Application Font</h3>
-                        <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
-                            <div className="min-w-0 space-y-1">
-                                <Label className="text-xs text-muted-foreground">Family</Label>
-                                <FontFamilySelect
-                                    value={settings.general.fontFamily}
-                                    onChange={handleGeneralFontFamily}
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <Label className="text-xs text-muted-foreground">Size</Label>
-                                <Input
-                                    type="number"
-                                    min={8}
-                                    max={32}
-                                    value={settings.general.fontSize}
-                                    onChange={handleGeneralFontSize}
-                                    className="h-8 text-sm"
-                                />
-                            </div>
-                        </div>
-                    </section>
-                    <section className="space-y-3">
-                        <h3 className="text-sm font-medium">Terminal Font</h3>
-                        <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
-                            <div className="min-w-0 space-y-1">
-                                <Label className="text-xs text-muted-foreground">Family</Label>
-                                <FontFamilySelect
-                                    value={settings.terminal.fontFamily}
-                                    onChange={handleTerminalFontFamily}
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <Label className="text-xs text-muted-foreground">Size</Label>
-                                <Input
-                                    type="number"
-                                    min={8}
-                                    max={32}
-                                    value={settings.terminal.fontSize}
-                                    onChange={handleTerminalFontSize}
-                                    className="h-8 text-sm"
-                                />
-                            </div>
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs text-muted-foreground">
-                                Default shell for new terminal tabs
-                            </Label>
-                            <Select
-                                value={
-                                    configuredShellAvailable
-                                        ? settings.terminal.defaultShell
-                                        : "__missing__"
-                                }
-                                onValueChange={handleDefaultShell}
-                            >
-                                <SelectTrigger className="w-full h-8 text-sm">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value={DEFAULT_TERMINAL_SHELL}>
-                                        {getTerminalShellSummary(
-                                            shells,
-                                            systemShellPath,
-                                            DEFAULT_TERMINAL_SHELL,
-                                        )}
-                                    </SelectItem>
-                                    {shells.map((shell) => (
-                                        <SelectItem key={shell.path} value={shell.path}>
-                                            {getShellDisplayName(shell)}
-                                        </SelectItem>
-                                    ))}
-                                    {!configuredShellAvailable && (
-                                        <SelectItem value="__missing__" disabled>
-                                            {getTerminalShellSummary(
-                                                shells,
-                                                systemShellPath,
-                                                settings.terminal.defaultShell,
-                                            )}
-                                        </SelectItem>
-                                    )}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </section>
-                    <section className="space-y-3">
-                        <h3 className="text-sm font-medium">Editor Font</h3>
-                        <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
-                            <div className="min-w-0 space-y-1">
-                                <Label className="text-xs text-muted-foreground">Family</Label>
-                                <FontFamilySelect
-                                    value={settings.editor.fontFamily}
-                                    onChange={handleEditorFontFamily}
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <Label className="text-xs text-muted-foreground">Size</Label>
-                                <Input
-                                    type="number"
-                                    min={8}
-                                    max={32}
-                                    value={settings.editor.fontSize}
-                                    onChange={handleEditorFontSize}
-                                    className="h-8 text-sm"
-                                />
-                            </div>
-                        </div>
-                    </section>
+                <div className="flex min-h-[360px]">
+                    {/* Sidebar */}
+                    <nav className="w-40 shrink-0 border-r border-border pr-2 space-y-1">
+                        <button
+                            className={`w-full text-left px-3 py-1.5 rounded-md text-sm ${
+                                section === "fonts"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                            }`}
+                            onClick={() => setSection("fonts")}
+                        >
+                            Fonts
+                        </button>
+                        <button
+                            className={`w-full text-left px-3 py-1.5 rounded-md text-sm ${
+                                section === "defaults"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                            }`}
+                            onClick={() => setSection("defaults")}
+                        >
+                            Defaults
+                        </button>
+                    </nav>
+
+                    {/* Content */}
+                    <div className="flex-1 pl-6 space-y-6">
+                        {section === "fonts" && (
+                            <>
+                                <section className="space-y-3">
+                                    <h3 className="text-sm font-medium">Application Font</h3>
+                                    <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
+                                        <div className="min-w-0 space-y-1">
+                                            <Label className="text-xs text-muted-foreground">Family</Label>
+                                            <FontFamilySelect
+                                                value={settings.general.fontFamily}
+                                                onChange={handleGeneralFontFamily}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-xs text-muted-foreground">Size</Label>
+                                            <Input
+                                                type="number"
+                                                min={8}
+                                                max={32}
+                                                value={settings.general.fontSize}
+                                                onChange={handleGeneralFontSize}
+                                                className="h-8 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                </section>
+                                <section className="space-y-3">
+                                    <h3 className="text-sm font-medium">Terminal Font</h3>
+                                    <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
+                                        <div className="min-w-0 space-y-1">
+                                            <Label className="text-xs text-muted-foreground">Family</Label>
+                                            <FontFamilySelect
+                                                value={settings.terminal.fontFamily}
+                                                onChange={handleTerminalFontFamily}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-xs text-muted-foreground">Size</Label>
+                                            <Input
+                                                type="number"
+                                                min={8}
+                                                max={32}
+                                                value={settings.terminal.fontSize}
+                                                onChange={handleTerminalFontSize}
+                                                className="h-8 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                </section>
+                                <section className="space-y-3">
+                                    <h3 className="text-sm font-medium">Editor Font</h3>
+                                    <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
+                                        <div className="min-w-0 space-y-1">
+                                            <Label className="text-xs text-muted-foreground">Family</Label>
+                                            <FontFamilySelect
+                                                value={settings.editor.fontFamily}
+                                                onChange={handleEditorFontFamily}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-xs text-muted-foreground">Size</Label>
+                                            <Input
+                                                type="number"
+                                                min={8}
+                                                max={32}
+                                                value={settings.editor.fontSize}
+                                                onChange={handleEditorFontSize}
+                                                className="h-8 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                </section>
+                            </>
+                        )}
+                        {section === "defaults" && (
+                            <>
+                                <section className="space-y-3">
+                                    <h3 className="text-sm font-medium">External Editor</h3>
+                                    <div className="space-y-1">
+                                        <Label className="text-xs text-muted-foreground">
+                                            Used when opening files with Cmd+Click in the terminal
+                                        </Label>
+                                        <Select
+                                            value={settings.general.externalEditor}
+                                            onValueChange={handleExternalEditor}
+                                        >
+                                            <SelectTrigger className="w-full h-8 text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {EDITOR_OPTIONS.map((opt) => (
+                                                    <SelectItem key={opt.value} value={opt.value}>
+                                                        {opt.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </section>
+                                <section className="space-y-3">
+                                    <h3 className="text-sm font-medium">Default Agent</h3>
+                                    <div className="space-y-1">
+                                        <Label className="text-xs text-muted-foreground">
+                                            Pre-selected agent for new tasks, title generation, and commit messages
+                                        </Label>
+                                        <Select
+                                            value={settings.general.defaultAgent}
+                                            onValueChange={handleDefaultAgent}
+                                        >
+                                            <SelectTrigger className="w-full h-8 text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="claude">Claude</SelectItem>
+                                                <SelectItem value="codex">Codex</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </section>
+                                <section className="space-y-3">
+                                    <h3 className="text-sm font-medium">Default Shell</h3>
+                                    <div className="space-y-1">
+                                        <Label className="text-xs text-muted-foreground">
+                                            Default shell for new terminal tabs
+                                        </Label>
+                                        <Select
+                                            value={
+                                                configuredShellAvailable
+                                                    ? settings.terminal.defaultShell
+                                                    : "__missing__"
+                                            }
+                                            onValueChange={handleDefaultShell}
+                                        >
+                                            <SelectTrigger className="w-full h-8 text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value={DEFAULT_TERMINAL_SHELL}>
+                                                    {getTerminalShellSummary(
+                                                        shells,
+                                                        systemShellPath,
+                                                        DEFAULT_TERMINAL_SHELL,
+                                                    )}
+                                                </SelectItem>
+                                                {shells.map((shell) => (
+                                                    <SelectItem key={shell.path} value={shell.path}>
+                                                        {getShellDisplayName(shell)}
+                                                    </SelectItem>
+                                                ))}
+                                                {!configuredShellAvailable && (
+                                                    <SelectItem value="__missing__" disabled>
+                                                        {getTerminalShellSummary(
+                                                            shells,
+                                                            systemShellPath,
+                                                            settings.terminal.defaultShell,
+                                                        )}
+                                                    </SelectItem>
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </section>
+                                <section className="space-y-3">
+                                    <h3 className="text-sm font-medium">Default Runtime</h3>
+                                    <div className="space-y-1">
+                                        <Label className="text-xs text-muted-foreground">
+                                            Runtime for executing scripts and commands
+                                        </Label>
+                                        <Select
+                                            value={
+                                                runtimes.some((r) => r.name === settings.general.defaultRuntime)
+                                                    ? settings.general.defaultRuntime
+                                                    : "__missing__"
+                                            }
+                                            onValueChange={handleDefaultRuntime}
+                                        >
+                                            <SelectTrigger className="w-full h-8 text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {runtimes.length === 0 && (
+                                                    <SelectItem value="__none__" disabled>
+                                                        No runtimes detected
+                                                    </SelectItem>
+                                                )}
+                                                {runtimes.map((rt) => (
+                                                    <SelectItem key={rt.name} value={rt.name}>
+                                                        {rt.name} ({rt.version})
+                                                    </SelectItem>
+                                                ))}
+                                                {runtimes.length > 0 &&
+                                                    !runtimes.some((r) => r.name === settings.general.defaultRuntime) && (
+                                                    <SelectItem value="__missing__" disabled>
+                                                        {settings.general.defaultRuntime} (not found)
+                                                    </SelectItem>
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </section>
+                            </>
+                        )}
+                    </div>
                 </div>
             </DialogContent>
         </Dialog>
