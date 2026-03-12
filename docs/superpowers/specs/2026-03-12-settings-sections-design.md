@@ -11,7 +11,7 @@ The settings dialog uses a two-panel layout:
 - **Left sidebar** (~160px): vertical list of section names. Active section highlighted. Clicking a section switches the right panel content.
 - **Right content panel**: displays the active section's settings. Only one section visible at a time.
 - Section state is local to the component (no store needed).
-- Dialog width bumped to ~48rem to accommodate the sidebar comfortably.
+- Dialog width bumped to ~48rem to accommodate the sidebar comfortably. Update all three width references: `w-[min(...)]`, `max-w-[...]`, and `sm:max-w-[...]`.
 
 ## Sections
 
@@ -29,7 +29,7 @@ Contains all default behavior settings:
 
 - **External Editor** — dropdown with editor options (system, vscode, cursor, windsurf, zed, sublime, webstorm, idea, emacs). Existing logic, moved from top-level.
 - **Default Agent** — dropdown: Claude, Codex. Affects new task dialog pre-selection, run button default, title generation, and commit message generation. Default: `"claude"`.
-- **Default Shell** — dropdown with detected shells. Existing logic, moved from Terminal Font section. Uses existing `SHELLS_LIST` WebSocket message.
+- **Default Shell** — dropdown with detected shells. Existing logic, moved from Terminal Font section in the UI only — `defaultShell` remains in `TerminalSettings` for type and persistence purposes. Uses existing `SHELLS_LIST` WebSocket message.
 - **Default Runtime** — dropdown: bun, node (only shows installed). Detected on backend via PATH lookup. Default: `"bun"`. Used for executing scripts and commands.
 
 ## Type Changes
@@ -46,24 +46,27 @@ Add `SettingsUpdatePayload.general` gains the same optional fields via `Partial<
 
 ### `packages/shared/src/types/agent.ts`
 
-Export agent type string literal as a reusable type:
+Add and export `AgentType` (add to the existing `export type { ... }` block):
 ```ts
 type AgentType = "claude" | "codex";
 ```
 
-Use `AgentType` in `GeneralSettings` and `AgentLaunchOptions`.
+Use `AgentType` in `GeneralSettings.defaultAgent` and in `AgentLaunchOptions` member types.
 
 ## Backend Changes
 
 ### Runtime Detection
 
-New WebSocket message `MSG.RUNTIMES_LIST` (pattern follows `SHELLS_LIST`):
+New WebSocket message — add `RUNTIMES_LIST: "runtimes:list"` to the `MSG` object in `packages/shared/src/constants.ts`. Pattern follows `SHELLS_LIST`.
 
-- Handler checks for `bun` and `node` on PATH using `Bun.which()` or equivalent.
-- Returns list of `{ name: string; path: string; version: string }` objects for each detected runtime.
+- Handler checks for `bun` and `node` on PATH using `Bun.which()`.
+- For each found runtime, spawn `<runtime> --version` to get the version string. If the version subprocess fails, use `"unknown"`.
+- Returns list of `RuntimeInfo` objects for each detected runtime.
 - Called by the UI when the settings modal opens (same pattern as shell list fetching).
+- If zero runtimes detected, the UI shows a disabled dropdown with placeholder "No runtimes detected" (mirrors the `__missing__` shell pattern).
+- If the saved `defaultRuntime` is not in the detected list, show it as a disabled option with "(not found)" suffix, same as the missing shell UX.
 
-New shared types:
+New shared types in `packages/shared/src/types/ws.ts` (alongside `ShellInfo`/`ShellListResponse`):
 ```ts
 interface RuntimeInfo {
     name: string;
@@ -75,6 +78,8 @@ interface RuntimeListResponse {
     runtimes: RuntimeInfo[];
 }
 ```
+
+Export these from `packages/shared/src/index.ts`.
 
 ### Default Settings
 
@@ -109,7 +114,7 @@ Dialog
 - External Editor: existing `Select` with `EDITOR_OPTIONS`
 - Default Agent: new `Select` with options `[{value: "claude", label: "Claude"}, {value: "codex", label: "Codex"}]`
 - Default Shell: existing shell select logic (fetches via `SHELLS_LIST`)
-- Default Runtime: new `Select` populated from `RUNTIMES_LIST` response. Shows runtime name. If only one runtime detected, still show dropdown but with single option.
+- Default Runtime: new `Select` populated from `RUNTIMES_LIST` response. Shows runtime name + version. If only one runtime detected, still show dropdown but with single option. If configured runtime not found, show `__missing__` disabled option (same pattern as shell).
 
 ## Migration
 
