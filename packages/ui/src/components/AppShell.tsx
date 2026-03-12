@@ -1,5 +1,6 @@
 import { useCallback, type ReactNode } from "react";
 import { useUIStore } from "@/stores/ui-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import useIsElectron from "@/hooks/useIsElectron";
 
@@ -31,6 +32,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
     const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
     const setFileExplorerWidth = useUIStore((s) => s.setFileExplorerWidth);
     const setTaskInfoWidth = useUIStore((s) => s.setTaskInfoWidth);
+    const updateSettings = useSettingsStore((s) => s.updateSettings);
 
     const handleSidebarResize = useCallback(
         (delta: number) => {
@@ -56,6 +58,13 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
         [setTaskInfoWidth],
     );
 
+    const handleResizeEnd = useCallback(() => {
+        const { sidebarWidth, fileExplorerWidth, taskInfoWidth } = useUIStore.getState();
+        void updateSettings({
+            layout: { panels: { sidebarWidth, fileExplorerWidth, taskInfoWidth } },
+        });
+    }, [updateSettings]);
+
     const isElectron = useIsElectron();
 
     return (
@@ -71,7 +80,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
                     {sidebar}
                 </div>
 
-                <ResizeHandle onResize={handleSidebarResize} panelGap={panelGap} />
+                <ResizeHandle onResize={handleSidebarResize} onResizeEnd={handleResizeEnd} panelGap={panelGap} />
 
                 {fileExplorerOpen && (
                     <div
@@ -83,7 +92,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
                 )}
 
                 {fileExplorerOpen && (
-                    <ResizeHandle onResize={handleFileExplorerResize} panelGap={panelGap} />
+                    <ResizeHandle onResize={handleFileExplorerResize} onResizeEnd={handleResizeEnd} panelGap={panelGap} />
                 )}
 
                 <div className="bg-card flex flex-1 flex-col overflow-hidden rounded-lg border border-border/50">
@@ -91,7 +100,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
                 </div>
 
                 {taskInfoOpen && (
-                    <ResizeHandle onResize={handleTaskInfoResize} panelGap={panelGap} />
+                    <ResizeHandle onResize={handleTaskInfoResize} onResizeEnd={handleResizeEnd} panelGap={panelGap} />
                 )}
 
                 {taskInfoOpen && (
