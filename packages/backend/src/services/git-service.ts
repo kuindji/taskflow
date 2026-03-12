@@ -238,7 +238,7 @@ export class GitService {
             diffText,
         ].join("\n");
 
-        const env = { ...process.env } as Record<string, string>;
+        const env: Record<string, string | undefined> = { ...process.env };
         delete env.CLAUDECODE;
         delete env.CLAUDE_CODE_ENTRYPOINT;
 
