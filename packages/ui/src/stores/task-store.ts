@@ -24,6 +24,22 @@ interface TaskStore {
     appendLogEntry(taskId: string, entry: TaskLogEntry): void;
 }
 
+function getCreatedAtTimestamp(value: string): number {
+    const timestamp = Date.parse(value);
+    return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function sortTasksByCreatedAtDesc(tasks: Task[]): Task[] {
+    return [...tasks].sort((a, b) => {
+        const createdAtDiff = getCreatedAtTimestamp(b.createdAt) - getCreatedAtTimestamp(a.createdAt);
+        if (createdAtDiff !== 0) {
+            return createdAtDiff;
+        }
+
+        return a.id.localeCompare(b.id);
+    });
+}
+
 export const useTaskStore = create<TaskStore>((set) => ({
     tasks: [],
     activeTaskId: null,
@@ -32,25 +48,30 @@ export const useTaskStore = create<TaskStore>((set) => ({
     async fetchTasks() {
         set({ loading: true });
         const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST);
+        const sortedTasks = sortTasksByCreatedAtDesc(tasks);
         set((state) => ({
-            tasks,
+            tasks: sortedTasks,
             loading: false,
-            activeTaskId: tasks.some((task) => task.id === state.activeTaskId) ? state.activeTaskId : null,
+            activeTaskId: sortedTasks.some((task) => task.id === state.activeTaskId)
+                ? state.activeTaskId
+                : null,
         }));
     },
     async createTask(payload) {
         const task = await sendRequest<Task>(MSG.TASK_CREATE, payload);
-        set((s) => ({ tasks: [...s.tasks, task] }));
+        set((s) => ({ tasks: sortTasksByCreatedAtDesc([...s.tasks, task]) }));
         return task;
     },
     applyTaskUpdate(task) {
         set((s) => ({
-            tasks: s.tasks.map((t) => (t.id === task.id ? task : t)),
+            tasks: sortTasksByCreatedAtDesc(s.tasks.map((t) => (t.id === task.id ? task : t))),
         }));
     },
     async updateTask(id, updates) {
         const updated = await sendRequest<Task>(MSG.TASK_UPDATE, { id, ...updates });
-        set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? updated : t)) }));
+        set((s) => ({
+            tasks: sortTasksByCreatedAtDesc(s.tasks.map((t) => (t.id === id ? updated : t))),
+        }));
     },
     async archiveTask(id) {
         await sendRequest(MSG.TASK_ARCHIVE, { id });

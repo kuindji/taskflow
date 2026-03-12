@@ -25,7 +25,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
     }
 
     return (
-        <div className="m-1.5 flex flex-1 overflow-hidden rounded-md border border-border/30">
+        <div className="m-1.5 flex flex-1 overflow-hidden rounded-md border border-border/30 bg-background">
             {tabs.map((tab) => {
                 const isActive = tab.id === activeTabId;
 

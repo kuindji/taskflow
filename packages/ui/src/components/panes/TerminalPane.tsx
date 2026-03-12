@@ -137,6 +137,36 @@ function loadBestEffortRendererAddons(term: Terminal): () => void {
     };
 }
 
+function getCssVar(name: string): string {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function getTerminalTheme(): Record<string, string> {
+    return {
+        background: getCssVar("--background"),
+        foreground: getCssVar("--foreground"),
+        cursor: "#f5e0dc",
+        cursorAccent: getCssVar("--background"),
+        selectionBackground: getCssVar("--muted"),
+        black: getCssVar("--muted"),
+        red: getCssVar("--destructive"),
+        green: getCssVar("--success"),
+        yellow: getCssVar("--warning"),
+        blue: getCssVar("--accent"),
+        magenta: "#cba6f7",
+        cyan: "#94e2d5",
+        white: "#bac2de",
+        brightBlack: getCssVar("--muted-foreground"),
+        brightRed: getCssVar("--destructive"),
+        brightGreen: getCssVar("--success"),
+        brightYellow: getCssVar("--warning"),
+        brightBlue: getCssVar("--accent"),
+        brightMagenta: "#cba6f7",
+        brightCyan: "#94e2d5",
+        brightWhite: "#a6adc8",
+    };
+}
+
 function getOrCreateTerminal(
     sessionId: string,
     taskId?: string,
@@ -147,29 +177,7 @@ function getOrCreateTerminal(
 
     const terminalSettings = useSettingsStore.getState().settings?.terminal;
     const term = new Terminal({
-        theme: {
-            background: "#1e1e2e",
-            foreground: "#cdd6f4",
-            cursor: "#f5e0dc",
-            cursorAccent: "#1e1e2e",
-            selectionBackground: "#45475a",
-            black: "#45475a",
-            red: "#f38ba8",
-            green: "#a6e3a1",
-            yellow: "#f9e2af",
-            blue: "#89b4fa",
-            magenta: "#cba6f7",
-            cyan: "#94e2d5",
-            white: "#bac2de",
-            brightBlack: "#585b70",
-            brightRed: "#f38ba8",
-            brightGreen: "#a6e3a1",
-            brightYellow: "#f9e2af",
-            brightBlue: "#89b4fa",
-            brightMagenta: "#cba6f7",
-            brightCyan: "#94e2d5",
-            brightWhite: "#a6adc8",
-        },
+        theme: getTerminalTheme(),
         fontFamily: terminalSettings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
         fontSize: terminalSettings?.fontSize ?? 13,
         fontWeight: "normal",
@@ -400,6 +408,38 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         scheduleFit(true, true, true, true);
     }, [visible, sessionId, scheduleFit]);
 
+    // Dedicated focus effect — independent of fit/resize logic.
+    // Uses rAF for fast path + bounded retry loop as fallback for cases
+    // where the terminal element isn't ready yet (freshly mounted, layout pending).
+    useEffect(() => {
+        if (!visible) return;
+
+        let cancelled = false;
+        let attempts = 0;
+        const MAX_ATTEMPTS = 10;
+        const ATTEMPT_INTERVAL = 50;
+
+        function tryFocus() {
+            if (cancelled) return;
+            attempts++;
+            const term = termRef.current;
+            if (term) {
+                term.focus();
+                return;
+            }
+            if (attempts < MAX_ATTEMPTS) {
+                setTimeout(tryFocus, ATTEMPT_INTERVAL);
+            }
+        }
+
+        const rafId = requestAnimationFrame(tryFocus);
+
+        return () => {
+            cancelled = true;
+            cancelAnimationFrame(rafId);
+        };
+    }, [visible, sessionId]);
+
     const terminalFontFamily = useSettingsStore((s) => s.settings?.terminal?.fontFamily);
     const terminalFontSize = useSettingsStore((s) => s.settings?.terminal?.fontSize);
 
@@ -450,6 +490,10 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         }
     }, []);
 
+    const handleContainerClick = useCallback(() => {
+        termRef.current?.focus();
+    }, []);
+
     const handleDrop = useCallback(
         (e: React.DragEvent) => {
             e.preventDefault();
@@ -470,6 +514,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            onClick={handleContainerClick}
         />
     );
 }

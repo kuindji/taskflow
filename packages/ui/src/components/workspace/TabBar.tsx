@@ -51,7 +51,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose }: TabItemProps) {
 
     return (
         <div onClick={() => onTabClick(tab.id)} className={classes}>
-            {tab.sessionId && <StatusDot status={status} />}
+            {tab.sessionId && <StatusDot status={status} className="mr-1" />}
             <span>{tab.label}</span>
             <Button
                 variant="ghost"

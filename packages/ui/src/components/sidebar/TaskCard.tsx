@@ -1,9 +1,22 @@
-import { useMemo } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
+import { Archive, Trash2 } from "lucide-react";
 import type { SessionRef, Task } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
+import { useTaskStore } from "@/stores/task-store";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
 const taskCardVariants = cva(
@@ -42,6 +55,10 @@ function SessionBadge({ session }: { session: SessionRef }) {
 }
 
 export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) {
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const archiveTask = useTaskStore((s) => s.archiveTask);
+    const deleteTask = useTaskStore((s) => s.deleteTask);
+
     const cardClasses = useMemo(
         () => cn(taskCardVariants({ active: isActive }), className),
         [isActive, className],
@@ -60,21 +77,73 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
                 : task.description
             : null;
 
+    const handleArchive = (e: MouseEvent) => {
+        e.stopPropagation();
+        archiveTask(task.id);
+    };
+
+    const handleDeleteClick = (e: MouseEvent) => {
+        e.stopPropagation();
+        setDeleteOpen(true);
+    };
+
+    const handleDeleteConfirm = () => {
+        deleteTask(task.id);
+    };
+
     return (
-        <div onClick={onClick} className={cn(cardClasses, "[-webkit-app-region:no-drag]")}>
-            <div className={cn("text-sm font-medium", isActive && "text-foreground")}>{title}</div>
-            {description && (
-                <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
-                    {description}
+        <>
+            <div onClick={onClick} className={cn(cardClasses, "relative group [-webkit-app-region:no-drag]")}>
+                <div className={cn("text-sm font-medium", isActive && "text-foreground")}>{title}</div>
+                {description && (
+                    <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
+                        {description}
+                    </div>
+                )}
+                {task.sessions.length > 0 && (
+                    <div className="mt-1.5 flex gap-1.5">
+                        {task.sessions.map((session) => (
+                            <SessionBadge key={session.id} session={session} />
+                        ))}
+                    </div>
+                )}
+                <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={handleArchive}
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                        title="Archive"
+                    >
+                        <Archive className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={handleDeleteClick}
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                        title="Delete"
+                    >
+                        <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                 </div>
-            )}
-            {task.sessions.length > 0 && (
-                <div className="mt-1.5 flex gap-1.5">
-                    {task.sessions.map((session) => (
-                        <SessionBadge key={session.id} session={session} />
-                    ))}
-                </div>
-            )}
-        </div>
+            </div>
+            <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                <AlertDialogContent onClick={(e: MouseEvent) => e.stopPropagation()}>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete task</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete this task, its sessions, and all logs. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
     );
 }

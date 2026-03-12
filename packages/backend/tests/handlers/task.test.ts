@@ -8,6 +8,8 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 import { GitService } from "../../src/services/git-service";
+import type { Task } from "@taskflow/shared";
+import { writeFile } from "fs/promises";
 
 describe("task handlers", () => {
     let router: Router;
@@ -53,6 +55,32 @@ describe("task handlers", () => {
             tasks: unknown[];
         };
         expect(result.tasks).toHaveLength(1);
+    });
+
+    it("lists tasks by newest creation date first", async () => {
+        const firstTask = (await router.handle(MSG.TASK_CREATE, {
+            projectId,
+            title: "First",
+        })) as Task;
+        const secondTask = (await router.handle(MSG.TASK_CREATE, {
+            projectId,
+            title: "Second",
+        })) as Task;
+
+        await writeFile(
+            join(tempDir, "tasks", `${firstTask.id}.json`),
+            JSON.stringify({ ...firstTask, createdAt: "2026-01-01T00:00:00.000Z" }, null, 2),
+        );
+        await writeFile(
+            join(tempDir, "tasks", `${secondTask.id}.json`),
+            JSON.stringify({ ...secondTask, createdAt: "2026-02-01T00:00:00.000Z" }, null, 2),
+        );
+
+        const result = (await router.handle(MSG.TASK_LIST, {})) as {
+            tasks: Task[];
+        };
+
+        expect(result.tasks.map((task) => task.id)).toEqual([secondTask.id, firstTask.id]);
     });
 
     it("updates a task", async () => {

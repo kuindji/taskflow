@@ -29,6 +29,20 @@ function isJsonParseError(error: unknown): error is SyntaxError {
     return error instanceof SyntaxError;
 }
 
+function getCreatedAtTimestamp(value: string): number {
+    const timestamp = Date.parse(value);
+    return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function compareTasksByCreatedAtDesc(a: Task, b: Task): number {
+    const createdAtDiff = getCreatedAtTimestamp(b.createdAt) - getCreatedAtTimestamp(a.createdAt);
+    if (createdAtDiff !== 0) {
+        return createdAtDiff;
+    }
+
+    return a.id.localeCompare(b.id);
+}
+
 export class TaskStore {
     private config: TaskStoreConfig;
     private taskMutations = new Map<string, Promise<void>>();
@@ -142,7 +156,7 @@ export class TaskStore {
             }
         }
 
-        return tasks;
+        return tasks.sort(compareTasksByCreatedAtDesc);
     }
 
     async addProject(input: { name?: string; path: string }): Promise<Project> {
