@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { AppSettings, SettingsUpdatePayload } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "../hooks/useWebSocket";
+import { useUIStore } from "./ui-store";
 
 interface SettingsStore {
     settings: AppSettings | null;
@@ -14,6 +15,9 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
     async fetchSettings() {
         const settings = await sendRequest<AppSettings>(MSG.SETTINGS_GET);
         set({ settings });
+        if (settings.layout?.panels) {
+            useUIStore.getState().hydrateLayout(settings.layout.panels);
+        }
     },
     async updateSettings(partial) {
         const settings = await sendRequest<AppSettings>(MSG.SETTINGS_UPDATE, partial);
