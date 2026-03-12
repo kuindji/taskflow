@@ -25,6 +25,8 @@ export const MSG = {
     SESSION_STATUS: "session:status",
     SESSION_EXITED: "session:exited",
     SHELLS_LIST: "shells:list",
+    SCRIPTS_LIST: "scripts:list",
+    RUNTIMES_LIST: "runtimes:list",
 
     // Terminal
     TERMINAL_OUTPUT: "terminal:output",

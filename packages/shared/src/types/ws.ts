@@ -1,5 +1,5 @@
 import type { Project } from "./project";
-import type { SessionStatus, Task, TaskLogEntry } from "./task";
+import type { SessionStatus, Task, TaskLogEntry, TaskWorktree } from "./task";
 import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus } from "./git";
 import type { SystemInfo } from "./system";
@@ -64,6 +64,7 @@ export interface TaskUpdatePayload {
     title?: string;
     description?: string;
     notes?: string;
+    worktree?: TaskWorktree;
 }
 
 export interface TaskArchivePayload {
@@ -76,6 +77,7 @@ export interface TaskUnarchivePayload {
 
 export interface TaskDeletePayload {
     id: string;
+    deleteWorktree?: boolean;
 }
 
 // Task log messages
@@ -161,6 +163,17 @@ export interface ShellInfo {
 export interface ShellListResponse {
     shells: ShellInfo[];
     systemShellPath: string | null;
+}
+
+// Runtime detection
+export interface RuntimeInfo {
+    name: string;
+    path: string;
+    version: string;
+}
+
+export interface RuntimeListResponse {
+    runtimes: RuntimeInfo[];
 }
 
 // File messages
@@ -266,6 +279,18 @@ export interface GitCreatePrPayload {
 
 export interface GitCreatePrResult {
     url: string;
+}
+
+// Scripts messages
+export interface ScriptsListPayload {
+    path: string;
+}
+
+export type PackageManager = "bun" | "yarn" | "npm";
+
+export interface ScriptsListResponse {
+    scripts: Record<string, string>;
+    packageManager: PackageManager;
 }
 
 // Browser messages
