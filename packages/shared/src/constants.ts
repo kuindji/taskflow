@@ -36,6 +36,7 @@ export const MSG = {
     FILE_CHANGED: "file:changed",
     FILE_WATCH: "file:watch",
     FILE_UNWATCH: "file:unwatch",
+    FILE_STAT: "file:stat",
 
     // Git
     GIT_STATUS: "git:status",

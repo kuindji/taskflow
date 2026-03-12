@@ -184,6 +184,15 @@ export interface FileWritePayload {
     content: string;
 }
 
+export interface FileStatPayload {
+    path: string;
+}
+
+export interface FileStatResponse {
+    exists: boolean;
+    isDirectory: boolean;
+}
+
 export type FileChangedEvent = FileChangeEvent;
 
 // Git messages
