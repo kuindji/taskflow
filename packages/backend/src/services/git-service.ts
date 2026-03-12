@@ -193,4 +193,67 @@ export class GitService {
         await mkdir(dirname(worktreePath), { recursive: true });
         await git(["worktree", "add", "-b", branch, worktreePath], repoPath);
     }
+
+    async commit(repoPath: string, message: string, push: boolean): Promise<{ hash: string; message: string }> {
+        await git(["add", "-A"], repoPath);
+        await git(["commit", "-m", message], repoPath);
+        const hashOutput = await git(["rev-parse", "--short", "HEAD"], repoPath);
+        if (push) {
+            await git(["push"], repoPath);
+        }
+        return { hash: hashOutput.trim(), message };
+    }
+
+    async createPr(repoPath: string, title: string, body?: string): Promise<{ url: string }> {
+        const args = ["pr", "create", "--title", title];
+        if (body) {
+            args.push("--body", body);
+        } else {
+            args.push("--body", "");
+        }
+        const proc = Bun.spawn(["gh", ...args], { cwd: repoPath, stdout: "pipe", stderr: "pipe" });
+        const [stdout, stderr, exitCode] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+            proc.exited,
+        ]);
+        if (exitCode !== 0) {
+            throw new Error(stderr.trim() || stdout.trim() || `gh pr create failed with exit code ${exitCode}`);
+        }
+        return { url: stdout.trim() };
+    }
+
+    async generateCommitMessage(repoPath: string): Promise<string> {
+        const diffResult = await this.diff(repoPath);
+        const diffText = diffResult.files.map((f) => f.diff).join("\n");
+        if (!diffText.trim()) {
+            throw new Error("No changes to commit");
+        }
+
+        const prompt = [
+            "Generate a concise git commit message for the following changes.",
+            "Output ONLY the commit message — no explanation, no markdown, no quotes.",
+            "Use conventional commit format (e.g. feat:, fix:, refactor:).",
+            "",
+            diffText,
+        ].join("\n");
+
+        const env = { ...process.env } as Record<string, string>;
+        delete env.CLAUDECODE;
+        delete env.CLAUDE_CODE_ENTRYPOINT;
+
+        const proc = Bun.spawn(
+            ["claude", "-p", prompt],
+            { cwd: repoPath, stdout: "pipe", stderr: "pipe", env },
+        );
+        const [stdout, , exitCode] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+            proc.exited,
+        ]);
+        if (exitCode !== 0 || !stdout.trim()) {
+            throw new Error("Failed to generate commit message");
+        }
+        return stdout.trim();
+    }
 }
