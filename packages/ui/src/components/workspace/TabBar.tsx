@@ -23,8 +23,8 @@ const tabVariants = cva(
     {
         variants: {
             type: {
-                claude: "text-success",
-                codex: "text-warning",
+                claude: "text-warning",
+                codex: "text-success",
                 shell: "text-info",
                 editor: "text-muted-foreground",
                 changes: "text-muted-foreground",
@@ -116,8 +116,8 @@ export function TabBar({
                         <Button
                             variant="ghost"
                             size="icon-xs"
-                            aria-label="Run agent"
-                            tooltip="Run agent"
+                            aria-label="Run agent with task description"
+                            tooltip="Run agent with task description"
                         >
                             <Play className="h-3.5 w-3.5" />
                         </Button>
@@ -139,7 +139,7 @@ export function TabBar({
                     <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="text-success"
+                        className="text-warning"
                         onClick={() => onNewTab("claude")}
                         aria-label="New Claude session"
                         tooltip="New Claude session"
@@ -149,7 +149,7 @@ export function TabBar({
                     <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="text-warning"
+                        className="text-success"
                         onClick={() => onNewTab("codex")}
                         aria-label="New Codex session"
                         tooltip="New Codex session"

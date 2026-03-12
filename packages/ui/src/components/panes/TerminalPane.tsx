@@ -414,6 +414,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     const visibleRef = useRef(visible);
     const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const fitFrameRef = useRef<number | null>(null);
+    const scrollFrameRef = useRef<number | null>(null);
     const resizeDebounceTimeoutRef = useRef<number | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const dragCounterRef = useRef(0);
@@ -449,6 +450,10 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
             }
+            if (scrollFrameRef.current !== null) {
+                cancelAnimationFrame(scrollFrameRef.current);
+                scrollFrameRef.current = null;
+            }
             fitFrameRef.current = requestAnimationFrame(() => {
                 fitFrameRef.current = null;
                 if (!visibleRef.current || !fitRef.current || !termRef.current) return;
@@ -464,13 +469,29 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 }
 
                 sendResizeIfNeeded(forceResize || fitResult.resized);
-                if (scrollToBottom) {
-                    termRef.current.scrollToBottom();
-                } else if (viewportSnapshot) {
-                    restoreViewport(termRef.current, viewportSnapshot);
+
+                const finalize = () => {
+                    if (!termRef.current) return;
+                    if (scrollToBottom) {
+                        termRef.current.scrollToBottom();
+                    } else if (viewportSnapshot) {
+                        restoreViewport(termRef.current, viewportSnapshot);
+                    }
+                    refreshTerminal(termRef.current);
+                    if (focus) termRef.current.focus();
+                };
+
+                if (forceViewportRecalc) {
+                    // After display:none → visible recovery, the browser needs an
+                    // extra layout pass after resize before scroll positions are
+                    // reliable. Defer scroll/refresh/focus to the next frame.
+                    scrollFrameRef.current = requestAnimationFrame(() => {
+                        scrollFrameRef.current = null;
+                        finalize();
+                    });
+                } else {
+                    finalize();
                 }
-                refreshTerminal(termRef.current);
-                if (focus) termRef.current.focus();
             });
         },
         [sendResizeIfNeeded],
@@ -502,6 +523,16 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
             scheduleFit(true, true, true, true);
         }
 
+        // Shift+Enter → send the same escape sequence as Alt+Enter (\x1b\r)
+        // so Claude Code treats it as "newline without submit".
+        term.attachCustomKeyEventHandler((event) => {
+            if (event.type === "keydown" && event.shiftKey && event.key === "Enter") {
+                sendInputRef.current(sessionId, "\x1b\r");
+                return false; // prevent xterm default handling
+            }
+            return true;
+        });
+
         // User input: only active while mounted
         const dataDisposable = term.onData((data) => {
             sendInputRef.current(sessionId, data);
@@ -520,6 +551,10 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
                 fitFrameRef.current = null;
+            }
+            if (scrollFrameRef.current !== null) {
+                cancelAnimationFrame(scrollFrameRef.current);
+                scrollFrameRef.current = null;
             }
             if (resizeDebounceTimeoutRef.current !== null) {
                 window.clearTimeout(resizeDebounceTimeoutRef.current);

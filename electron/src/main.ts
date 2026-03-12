@@ -274,7 +274,23 @@ function buildAppMenu() {
         },
         { role: "editMenu" },
         { role: "viewMenu" },
-        { role: "windowMenu" },
+        {
+            label: "Window",
+            submenu: [
+                {
+                    label: "Close Tab",
+                    accelerator: "CmdOrCtrl+W",
+                    click: () => {
+                        mainWindow?.webContents.send("close-tab");
+                    },
+                },
+                { type: "separator" },
+                { role: "minimize" },
+                { role: "zoom" },
+                { type: "separator" },
+                { role: "front" },
+            ],
+        },
     ];
 
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));

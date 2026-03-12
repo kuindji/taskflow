@@ -1,7 +1,9 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { useTaskStore } from "@/stores/task-store";
+import { useUIStore } from "@/stores/ui-store";
 import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
@@ -20,6 +22,8 @@ export function Workspace() {
         workspace.workspaceKey ? (s.activeTabByWorkspace[workspace.workspaceKey] ?? "") : "",
     );
     const { setActiveTab, closeTab, createSession, addTab } = useSessionStore();
+    const setActiveTask = useTaskStore((s) => s.setActiveTask);
+    const setActiveProject = useUIStore((s) => s.setActiveProject);
 
     const visibleTabs = useMemo(
         () => (workspace.scope === "task" ? tabs.filter((tab) => tab.type !== "changes") : tabs),
@@ -27,6 +31,31 @@ export function Workspace() {
     );
 
     const activeTab = visibleTabs.find((t) => t.id === activeTabId) ?? visibleTabs[0];
+
+    const handleCloseActiveTab = useCallback(() => {
+        if (activeTab && workspace.workspaceKey) {
+            if (activeTab.sessionId) destroyTerminal(activeTab.sessionId);
+            void closeTab(workspace.workspaceKey, activeTab.id);
+        } else if (workspace.scope === "task") {
+            setActiveTask(null);
+        } else if (workspace.scope === "project") {
+            setActiveProject(null);
+        }
+    }, [activeTab, workspace.workspaceKey, workspace.scope, closeTab, setActiveTask, setActiveProject]);
+
+    useEffect(() => {
+        if (isElectron && window.taskflow?.onCloseTab) {
+            return window.taskflow.onCloseTab(handleCloseActiveTab);
+        }
+        const onKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "w") {
+                e.preventDefault();
+                handleCloseActiveTab();
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [isElectron, handleCloseActiveTab]);
 
     useEffect(() => {
         if (!workspace.workspaceKey || !activeTab || activeTab.id === activeTabId) {

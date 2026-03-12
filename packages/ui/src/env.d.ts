@@ -5,6 +5,7 @@ interface TaskflowBridge {
     selectProjectDirectory(): Promise<string | null>;
     openExternalUrl(url: string): Promise<void>;
     openExternalFile(filePath: string): Promise<string>;
+    onCloseTab(callback: () => void): () => void;
 }
 
 declare global {

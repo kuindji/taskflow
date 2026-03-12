@@ -29,12 +29,12 @@ const badgeVariants = cva(
             {
                 variant: "outline",
                 colorScheme: "claude",
-                className: "bg-success/20 text-success border-success/30",
+                className: "bg-warning/20 text-warning border-warning/30",
             },
             {
                 variant: "outline",
                 colorScheme: "codex",
-                className: "bg-warning/20 text-warning border-warning/30",
+                className: "bg-success/20 text-success border-success/30",
             },
             {
                 variant: "outline",
@@ -49,12 +49,12 @@ const badgeVariants = cva(
             {
                 variant: "default",
                 colorScheme: "claude",
-                className: "bg-success/20 text-success border-success/30",
+                className: "bg-warning/20 text-warning border-warning/30",
             },
             {
                 variant: "default",
                 colorScheme: "codex",
-                className: "bg-warning/20 text-warning border-warning/30",
+                className: "bg-success/20 text-success border-success/30",
             },
             {
                 variant: "default",
