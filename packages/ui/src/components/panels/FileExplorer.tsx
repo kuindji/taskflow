@@ -22,6 +22,30 @@ function FileExplorer() {
     const { addTab, getTabs, setActiveTab } = useSessionStore();
     const workingDir = workspace.workingDir;
 
+    const expandToPath = useFileStore((s) => s.expandToPath);
+    const setExpandToPath = useFileStore((s) => s.setExpandToPath);
+
+    const expandedPaths = useMemo(() => {
+        if (!expandToPath || !workingDir) return null;
+        const paths = new Set<string>();
+        let current = expandToPath;
+        while (current !== workingDir && current.length > workingDir.length) {
+            paths.add(current);
+            const lastSlash = current.lastIndexOf("/");
+            if (lastSlash <= 0) break;
+            current = current.slice(0, lastSlash);
+        }
+        return paths;
+    }, [expandToPath, workingDir]);
+
+    // Clear expandToPath after it has been consumed
+    useEffect(() => {
+        if (expandToPath) {
+            const id = requestAnimationFrame(() => setExpandToPath(null));
+            return () => cancelAnimationFrame(id);
+        }
+    }, [expandToPath, setExpandToPath]);
+
     useEffect(() => {
         if (!workingDir) {
             clearExplorerState();
@@ -77,7 +101,7 @@ function FileExplorer() {
             <Separator />
             <ScrollArea className="flex-1 py-1">
                 {tree && treePath === workingDir ? (
-                    <FileTree node={tree} gitFiles={gitFiles} onFileClick={handleFileClick} />
+                    <FileTree node={tree} gitFiles={gitFiles} onFileClick={handleFileClick} expandedPaths={expandedPaths} />
                 ) : (
                     <div className="text-muted-foreground p-2 text-sm">
                         {workingDir ? "Loading..." : "Select a task or project"}

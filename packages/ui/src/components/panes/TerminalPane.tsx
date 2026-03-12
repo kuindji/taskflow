@@ -12,8 +12,8 @@ import { DEFAULT_TERMINAL_FONT_FAMILY, MSG } from "@taskflow/shared";
 import type { TerminalOutputEvent, SessionExitedEvent, SessionHistoryResponse, FileStatResponse } from "@taskflow/shared";
 import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
-// TODO: enable after Task 5 adds setExpandToPath
-// import { useFileStore } from "@/stores/file-store";
+import { useFileStore } from "@/stores/file-store";
+import { useUIStore } from "@/stores/ui-store";
 import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
@@ -266,8 +266,10 @@ async function handlePathActivation(
         if (isExternal) {
             window.taskflow?.showItemInFolder(resolved);
         } else {
-            // TODO: enable after Task 5 adds setExpandToPath
-            // useFileStore.getState().setExpandToPath(resolved);
+            useFileStore.getState().setExpandToPath(resolved);
+            if (!useUIStore.getState().fileExplorerOpen) {
+                useUIStore.getState().toggleFileExplorer();
+            }
         }
     } else {
         if (isExternal) {

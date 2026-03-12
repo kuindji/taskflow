@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { cva } from "class-variance-authority";
 import type { FileNode } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -33,10 +33,18 @@ interface FileTreeProps {
     depth?: number;
     gitFiles?: Map<string, string>;
     onFileClick: (path: string) => void;
+    expandedPaths?: Set<string> | null;
 }
 
-function FileTree({ node, depth = 0, gitFiles, onFileClick }: FileTreeProps) {
+function FileTree({ node, depth = 0, gitFiles, onFileClick, expandedPaths }: FileTreeProps) {
     const [open, setOpen] = useState(depth < 1);
+
+    // Latch: when expandedPaths includes this node, permanently open it
+    useEffect(() => {
+        if (expandedPaths?.has(node.path)) {
+            setOpen(true);
+        }
+    }, [expandedPaths, node.path]);
     const rawStatus = gitFiles?.get(node.path);
     const gitStatus: GitStatusVariant =
         rawStatus && VALID_GIT_STATUSES.has(rawStatus) ? (rawStatus as GitStatusVariant) : "clean";
@@ -93,6 +101,7 @@ function FileTree({ node, depth = 0, gitFiles, onFileClick }: FileTreeProps) {
                         depth={depth + 1}
                         gitFiles={gitFiles}
                         onFileClick={onFileClick}
+                        expandedPaths={expandedPaths}
                     />
                 ))}
             </CollapsibleContent>
