@@ -21,7 +21,7 @@ function isWithinProjectPath(filePath: string, projectPath: string): boolean {
 
 export function TaskSidebar() {
     const { connected } = useWsStatus();
-    const { projects, fetchProjects, addProject, updateProject } = useProjectStore();
+    const { projects, fetchProjects, addProject } = useProjectStore();
     const { tasks, activeTaskId, fetchTasks, setActiveTask } = useTaskStore();
     const activeProjectId = useUIStore((s) => s.activeProjectId);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
@@ -145,17 +145,6 @@ export function TaskSidebar() {
         setNewProjectOpen(open);
     }, []);
 
-    const handleRenameProject = useCallback(
-        async (id: string, name: string) => {
-            try {
-                await updateProject(id, name);
-            } catch (err) {
-                console.error("Failed to rename project:", err);
-            }
-        },
-        [updateProject],
-    );
-
     const handleProjectClick = useCallback(
         (projectId: string) => {
             setActiveProject(projectId);
@@ -202,8 +191,7 @@ export function TaskSidebar() {
                         diffStats={diffStatsByProject[project.id]}
                         onProjectClick={handleProjectClick}
                         onTaskClick={handleTaskClick}
-                        onRename={handleRenameProject}
-                    />
+/>
                 ))}
             </ScrollArea>
             <Separator />

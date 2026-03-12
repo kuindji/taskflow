@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useState, useCallback } from "react";
 import type { Task, Project } from "@taskflow/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,8 +6,10 @@ import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { confirm } from "@/stores/dialog-store";
+import { RenameProjectDialog } from "./RenameProjectDialog";
 import {
     Archive,
+    Pencil,
     Plus,
     Trash2,
     PanelLeftClose,
@@ -29,8 +31,18 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const archiveTask = useTaskStore((s) => s.archiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
+    const updateProject = useProjectStore((s) => s.updateProject);
     const removeProject = useProjectStore((s) => s.removeProject);
     const isElectron = useIsElectron();
+    const [renameOpen, setRenameOpen] = useState(false);
+
+    const handleRename = useCallback(
+        (name: string) => {
+            if (!project) return;
+            void updateProject(project.id, name);
+        },
+        [project, updateProject],
+    );
 
     const handleArchive = useCallback(() => {
         if (!task) return;
@@ -114,6 +126,17 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
                             <Archive className="h-4 w-4" />
                         </Button>
                     )}
+                    {!task && project && (
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => setRenameOpen(true)}
+                            aria-label="Rename project"
+                            className="[-webkit-app-region:no-drag]"
+                        >
+                            <Pencil className="h-4 w-4" />
+                        </Button>
+                    )}
                     <Button
                         variant="ghost"
                         size="icon-xs"
@@ -137,6 +160,14 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
                         )}
                     </Button>
                 </>
+            )}
+            {project && (
+                <RenameProjectDialog
+                    open={renameOpen}
+                    currentName={project.name}
+                    onOpenChange={setRenameOpen}
+                    onSubmit={handleRename}
+                />
             )}
         </div>
     );
