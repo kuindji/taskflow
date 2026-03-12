@@ -8,6 +8,17 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 
+async function expectRejects(fn: () => Promise<unknown>, match?: string) {
+    try {
+        await fn();
+        expect.unreachable("Expected promise to reject");
+    } catch (err) {
+        if (match) {
+            expect(String(err)).toContain(match);
+        }
+    }
+}
+
 describe("file handlers", () => {
     let router: Router;
     let store: TaskStore;
@@ -53,7 +64,7 @@ describe("file handlers", () => {
             expect(result).toEqual({ success: true });
             const content = await readFile(newPath, "utf-8");
             expect(content).toBe("hello");
-            await expect(stat(filePath)).rejects.toThrow();
+            await expectRejects(() => stat(filePath));
         });
 
         it("rejects rename when target exists", async () => {
@@ -62,26 +73,30 @@ describe("file handlers", () => {
             await writeFile(filePath, "a");
             await writeFile(targetPath, "b");
 
-            await expect(
-                router.handle(MSG.FILE_RENAME, { oldPath: filePath, newPath: targetPath }),
-            ).rejects.toThrow("already exists");
+            await expectRejects(
+                () => router.handle(MSG.FILE_RENAME, { oldPath: filePath, newPath: targetPath }),
+                "already exists",
+            );
         });
 
         it("rejects rename of workspace root", async () => {
             const newPath = join(tempDir, "renamed-project");
-            await expect(
-                router.handle(MSG.FILE_RENAME, { oldPath: projectDir, newPath }),
-            ).rejects.toThrow("Cannot modify workspace root");
+            await expectRejects(
+                () => router.handle(MSG.FILE_RENAME, { oldPath: projectDir, newPath }),
+                "Cannot modify workspace root",
+            );
         });
 
         it("rejects rename outside workspace", async () => {
             const outsidePath = join(tmpdir(), "outside.txt");
-            await expect(
-                router.handle(MSG.FILE_RENAME, {
-                    oldPath: join(projectDir, "a.txt"),
-                    newPath: outsidePath,
-                }),
-            ).rejects.toThrow("outside");
+            await expectRejects(
+                () =>
+                    router.handle(MSG.FILE_RENAME, {
+                        oldPath: join(projectDir, "a.txt"),
+                        newPath: outsidePath,
+                    }),
+                "outside",
+            );
         });
     });
 
@@ -93,7 +108,7 @@ describe("file handlers", () => {
             const result = await router.handle(MSG.FILE_DELETE_FILE, { path: filePath });
 
             expect(result).toEqual({ success: true });
-            await expect(stat(filePath)).rejects.toThrow();
+            await expectRejects(() => stat(filePath));
         });
 
         it("deletes a directory recursively", async () => {
@@ -104,13 +119,14 @@ describe("file handlers", () => {
             const result = await router.handle(MSG.FILE_DELETE_FILE, { path: dirPath });
 
             expect(result).toEqual({ success: true });
-            await expect(stat(dirPath)).rejects.toThrow();
+            await expectRejects(() => stat(dirPath));
         });
 
         it("rejects delete of workspace root", async () => {
-            await expect(
-                router.handle(MSG.FILE_DELETE_FILE, { path: projectDir }),
-            ).rejects.toThrow("Cannot modify workspace root");
+            await expectRejects(
+                () => router.handle(MSG.FILE_DELETE_FILE, { path: projectDir }),
+                "Cannot modify workspace root",
+            );
         });
     });
 

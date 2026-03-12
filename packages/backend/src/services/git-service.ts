@@ -202,6 +202,14 @@ export class GitService {
         await git(["worktree", "add", "-b", branch, worktreePath], repoPath);
     }
 
+    async removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
+        await git(["worktree", "remove", worktreePath, "--force"], repoPath);
+    }
+
+    async deleteBranch(repoPath: string, branch: string): Promise<void> {
+        await git(["branch", "-D", branch], repoPath);
+    }
+
     async push(repoPath: string): Promise<void> {
         await git(["push"], repoPath);
     }

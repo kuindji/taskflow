@@ -23,7 +23,7 @@ interface TaskStore {
     updateTask(id: string, updates: Partial<Task>): Promise<void>;
     archiveTask(id: string): Promise<void>;
     unarchiveTask(id: string): Promise<void>;
-    deleteTask(id: string): Promise<void>;
+    deleteTask(id: string, options?: { deleteWorktree?: boolean }): Promise<void>;
     setActiveTask(id: string | null): void;
     fetchTaskLog(taskId: string): Promise<void>;
     appendLogEntry(taskId: string, entry: TaskLogEntry): void;
@@ -107,8 +107,8 @@ export const useTaskStore = create<TaskStore>((set) => ({
         }));
         void useTaskStore.getState().fetchTasks();
     },
-    async deleteTask(id) {
-        await sendRequest(MSG.TASK_DELETE, { id });
+    async deleteTask(id, options) {
+        await sendRequest(MSG.TASK_DELETE, { id, deleteWorktree: options?.deleteWorktree });
         set((s) => ({
             tasks: s.tasks.filter((t) => t.id !== id),
             archivedTasks: s.archivedTasks.filter((t) => t.id !== id),

@@ -11,8 +11,8 @@ describe("detectRuntimes", () => {
         const runtimes = await detectRuntimes();
         const bun = runtimes.find((r) => r.name === "bun");
         expect(bun).toBeDefined();
-        expect(bun!.path).toBeTruthy();
-        expect(bun!.version).not.toBe("unknown");
+        expect(bun?.path).toBeTruthy();
+        expect(bun?.version).not.toBe("unknown");
     });
 
     it("returns name, path, and version for each runtime", async () => {

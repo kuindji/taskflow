@@ -3,7 +3,7 @@ import { cva } from "class-variance-authority";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import type { AgentLaunchOptions, ShellInfo } from "@taskflow/shared";
+import type { AgentLaunchOptions, PackageManager, ShellInfo } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG, type ShellListResponse } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AgentOptionsPanel } from "./AgentOptionsPanel";
 import { StatusDot } from "@/components/ui/status-dot";
-import { X, Play, Terminal, Globe, ChevronDown } from "lucide-react";
+import { X, Play, Terminal, Globe, ChevronDown, SquareTerminal } from "lucide-react";
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
 import { CodexIcon } from "@/components/icons/CodexIcon";
 import { cn } from "@/lib/utils";
@@ -94,7 +94,11 @@ interface TabBarProps {
         agentOptions?: AgentLaunchOptions,
     ) => void;
     onRunTab: (type: "claude" | "codex", agentOptions?: AgentLaunchOptions) => void;
+    onRunScript: (scriptName: string, packageManager: PackageManager) => void;
+    scripts: Record<string, string>;
+    packageManager: PackageManager;
     showRunButton: boolean;
+    showAgentOptions: boolean;
     allowSessionTabs: boolean;
 }
 
@@ -105,7 +109,11 @@ export function TabBar({
     onTabClose,
     onNewTab,
     onRunTab,
+    onRunScript,
+    scripts,
+    packageManager,
     showRunButton,
+    showAgentOptions,
     allowSessionTabs,
 }: TabBarProps) {
     const [shells, setShells] = useState<ShellInfo[]>([]);
@@ -136,6 +144,7 @@ export function TabBar({
 
     const defaultShellPath = resolveTerminalShellPath(shells, systemShellPath, configuredShell);
     const defaultShellSummary = getTerminalShellSummary(shells, systemShellPath, configuredShell);
+    const scriptNames = useMemo(() => Object.keys(scripts), [scripts]);
 
     return (
         <div className="bg-card border-border flex min-h-9 items-center gap-1 border-b px-1.5 py-1.5">
@@ -145,45 +154,63 @@ export function TabBar({
                         <Button
                             variant="ghost"
                             size="icon-xs"
-                            aria-label="Run agent with task description"
-                            tooltip="Run agent with task description"
+                            aria-label="Run"
+                            tooltip="Run"
                         >
                             <Play className="h-3.5 w-3.5" />
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                        <DropdownMenuItem onClick={() => onRunTab("claude")}>
-                            <ClaudeIcon className="mr-2 h-4 w-4" />
-                            Claude Code
-                        </DropdownMenuItem>
-                        <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
-                                <ClaudeIcon className="mr-2 h-4 w-4" />
-                                Claude Code with options
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="p-0">
-                                <AgentOptionsPanel
-                                    agentType="claude"
-                                    onRun={(options) => onRunTab("claude", options)}
-                                />
-                            </DropdownMenuSubContent>
-                        </DropdownMenuSub>
-                        <DropdownMenuItem onClick={() => onRunTab("codex")}>
-                            <CodexIcon className="mr-2 h-4 w-4" />
-                            Codex
-                        </DropdownMenuItem>
-                        <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
-                                <CodexIcon className="mr-2 h-4 w-4" />
-                                Codex with options
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="p-0">
-                                <AgentOptionsPanel
-                                    agentType="codex"
-                                    onRun={(options) => onRunTab("codex", options)}
-                                />
-                            </DropdownMenuSubContent>
-                        </DropdownMenuSub>
+                        {scriptNames.length > 0 &&
+                            scriptNames.map((name) => (
+                                <DropdownMenuItem
+                                    key={name}
+                                    onClick={() => onRunScript(name, packageManager)}
+                                >
+                                    <SquareTerminal className="mr-2 h-4 w-4" />
+                                    {name}
+                                    <span className="text-muted-foreground ml-auto text-xs">
+                                        {packageManager}
+                                    </span>
+                                </DropdownMenuItem>
+                            ))}
+                        {showAgentOptions && (
+                            <>
+                                {scriptNames.length > 0 && <DropdownMenuSeparator />}
+                                <DropdownMenuItem onClick={() => onRunTab("claude")}>
+                                    <ClaudeIcon className="mr-2 h-4 w-4" />
+                                    Claude Code
+                                </DropdownMenuItem>
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger>
+                                        <ClaudeIcon className="mr-2 h-4 w-4" />
+                                        Claude Code with options
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent className="p-0">
+                                        <AgentOptionsPanel
+                                            agentType="claude"
+                                            onRun={(options) => onRunTab("claude", options)}
+                                        />
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                                <DropdownMenuItem onClick={() => onRunTab("codex")}>
+                                    <CodexIcon className="mr-2 h-4 w-4" />
+                                    Codex
+                                </DropdownMenuItem>
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger>
+                                        <CodexIcon className="mr-2 h-4 w-4" />
+                                        Codex with options
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent className="p-0">
+                                        <AgentOptionsPanel
+                                            agentType="codex"
+                                            onRun={(options) => onRunTab("codex", options)}
+                                        />
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            </>
+                        )}
                     </DropdownMenuContent>
                 </DropdownMenu>
             )}

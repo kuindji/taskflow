@@ -1,18 +1,34 @@
-import { useCallback, useEffect, useMemo } from "react";
-import type { AgentLaunchOptions } from "@taskflow/shared";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { AgentLaunchOptions, PackageManager, ScriptsListResponse, ShellListResponse } from "@taskflow/shared";
+import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
+import { sendRequest } from "@/hooks/useWebSocket";
 import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
 import { destroyTerminal } from "@/components/panes/TerminalPane";
+import { resolveTerminalShellPath } from "@/lib/terminal-shells";
+import { useSettingsStore } from "@/stores/settings-store";
 import useIsElectron from "@/hooks/useIsElectron";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Loader2 } from "lucide-react";
 
 const emptyTabs: Tab[] = [];
+const emptyScripts: Record<string, string> = {};
 
 export function Workspace() {
     const isElectron = useIsElectron();
@@ -23,10 +39,93 @@ export function Workspace() {
     const activeTabId = useSessionStore((s) =>
         workspace.workspaceKey ? (s.activeTabByWorkspace[workspace.workspaceKey] ?? "") : "",
     );
-    const { setActiveTab, closeTab, createSession, addTab } = useSessionStore();
+    const { setActiveTab, closeTab, createSession, addTab, sendInput } = useSessionStore();
     const setActiveTask = useTaskStore((s) => s.setActiveTask);
+    const updateTask = useTaskStore((s) => s.updateTask);
+    const deleteTask = useTaskStore((s) => s.deleteTask);
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
+    const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
+    const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
+    const [packageManager, setPackageManager] = useState<PackageManager>("npm");
+    const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
+    const configuredShell = useSettingsStore(
+        (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
+    );
+
+    const worktreePending =
+        workspace.scope === "task" &&
+        workspace.task?.worktree.enabled &&
+        !workspace.task.worktree.path;
+
+    // Validate worktree existence when task is activated
+    useEffect(() => {
+        if (
+            workspace.scope !== "task" ||
+            !workspace.task?.worktree.enabled ||
+            !workspace.task.worktree.path
+        ) {
+            return;
+        }
+
+        let cancelled = false;
+        sendRequest<{ exists: boolean }>(MSG.FILE_STAT, { path: workspace.task.worktree.path })
+            .then(({ exists }) => {
+                if (!cancelled && !exists) {
+                    setWorktreeMissingDialogOpen(true);
+                }
+            })
+            .catch(() => {
+                // Ignore errors — worktree path might just not exist yet
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [workspace.scope, workspace.task?.id, workspace.task?.worktree.enabled, workspace.task?.worktree.path]);
+
+    useEffect(() => {
+        if (!workspace.workingDir) {
+            setScripts(emptyScripts);
+            return;
+        }
+        let cancelled = false;
+        sendRequest<ScriptsListResponse>(MSG.SCRIPTS_LIST, { path: workspace.workingDir })
+            .then((res) => {
+                if (cancelled) return;
+                setScripts(res.scripts);
+                setPackageManager(res.packageManager);
+            })
+            .catch(() => {
+                if (!cancelled) setScripts(emptyScripts);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [workspace.workingDir]);
+
+    useEffect(() => {
+        sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {}).then(
+            (res) => setDefaultShellPath(resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell)),
+            () => setDefaultShellPath(null),
+        );
+    }, [configuredShell]);
+
+    const handleWorktreeReset = useCallback(() => {
+        if (!workspace.task) return;
+        void updateTask(workspace.task.id, {
+            worktree: { enabled: false, path: null, branch: null },
+        });
+        setWorktreeMissingDialogOpen(false);
+    }, [workspace.task, updateTask]);
+
+    const handleWorktreeDeleteTask = useCallback(() => {
+        if (!workspace.task) return;
+        void deleteTask(workspace.task.id);
+        setWorktreeMissingDialogOpen(false);
+    }, [workspace.task, deleteTask]);
+
+    const hasScripts = useMemo(() => Object.keys(scripts).length > 0, [scripts]);
 
     const visibleTabs = useMemo(
         () => (workspace.scope === "task" ? tabs.filter((tab) => tab.type !== "changes") : tabs),
@@ -174,6 +273,16 @@ export function Workspace() {
         );
     };
 
+    const handleRunScript = async (scriptName: string, pm: string) => {
+        if (!workspace.workspaceKey || !defaultShellPath) return;
+        const owner =
+            workspace.scope === "task"
+                ? { taskId: workspace.task.id }
+                : { projectId: workspace.project.id };
+        const sessionId = await createSession(owner, "shell", scriptName, undefined, defaultShellPath);
+        sendInput(sessionId, `${pm} run ${scriptName}\r`);
+    };
+
     return (
         <>
             <TaskHeader
@@ -181,22 +290,60 @@ export function Workspace() {
                 project={workspace.project}
                 onDiff={workspace.scope === "project" ? handleDiffTab : undefined}
             />
-            <TabBar
-                tabs={visibleTabs}
-                activeTabId={activeTab?.id ?? ""}
-                onTabClick={(id) => workspace.workspaceKey && setActiveTab(workspace.workspaceKey, id)}
-                onTabClose={(id) => {
-                    if (!workspace.workspaceKey) return;
-                    const tab = visibleTabs.find((t) => t.id === id);
-                    if (tab?.sessionId) destroyTerminal(tab.sessionId);
-                    void closeTab(workspace.workspaceKey, id);
-                }}
-                onNewTab={handleNewTab}
-                onRunTab={handleRunTab}
-                showRunButton={workspace.scope === "task"}
-                allowSessionTabs={true}
-            />
-            <TabContent tabs={visibleTabs} activeTabId={activeTab?.id ?? ""} />
+            {worktreePending ? (
+                <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-sm">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Setting up worktree...
+                </div>
+            ) : (
+                <>
+                    <TabBar
+                        tabs={visibleTabs}
+                        activeTabId={activeTab?.id ?? ""}
+                        onTabClick={(id) => workspace.workspaceKey && setActiveTab(workspace.workspaceKey, id)}
+                        onTabClose={(id) => {
+                            if (!workspace.workspaceKey) return;
+                            const tab = visibleTabs.find((t) => t.id === id);
+                            if (tab?.sessionId) destroyTerminal(tab.sessionId);
+                            void closeTab(workspace.workspaceKey, id);
+                        }}
+                        onNewTab={handleNewTab}
+                        onRunTab={handleRunTab}
+                        onRunScript={handleRunScript}
+                        scripts={scripts}
+                        packageManager={packageManager}
+                        showRunButton={workspace.scope === "task" || hasScripts}
+                        showAgentOptions={workspace.scope === "task"}
+                        allowSessionTabs={true}
+                    />
+                    <TabContent tabs={visibleTabs} activeTabId={activeTab?.id ?? ""} />
+                </>
+            )}
+            <AlertDialog open={worktreeMissingDialogOpen} onOpenChange={setWorktreeMissingDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Worktree not found</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            The worktree directory for this task no longer exists
+                            {workspace.task?.worktree.branch && (
+                                <> (branch: {workspace.task.worktree.branch})</>
+                            )}
+                            . It may have been removed externally.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction
+                            onClick={handleWorktreeDeleteTask}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            Delete task
+                        </AlertDialogAction>
+                        <AlertDialogCancel onClick={handleWorktreeReset}>
+                            Reset to project root
+                        </AlertDialogCancel>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }

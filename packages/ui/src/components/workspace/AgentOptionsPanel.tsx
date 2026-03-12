@@ -20,7 +20,6 @@ interface AgentOptionsPanelProps {
 
 function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProps) {
     const [fullAccess, setFullAccess] = useState(false);
-    const [worktree, setWorktree] = useState(false);
     const [model, setModel] = useState("default");
 
     const isFirstRender = useRef(true);
@@ -35,7 +34,6 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
             onChange({
                 type: "claude",
                 fullAccess: fullAccess || undefined,
-                worktree: worktree || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
             });
         } else {
@@ -44,7 +42,7 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
                 fullAccess: fullAccess || undefined,
             });
         }
-    }, [agentType, fullAccess, worktree, model, onChange]);
+    }, [agentType, fullAccess, model, onChange]);
 
     const handleRun = () => {
         if (!onRun) return;
@@ -52,7 +50,6 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
             onRun({
                 type: "claude",
                 fullAccess: fullAccess || undefined,
-                worktree: worktree || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
             });
         } else {
@@ -78,17 +75,6 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
 
             {agentType === "claude" && (
                 <>
-                    <div className="flex items-center gap-2">
-                        <Switch
-                            id="agent-worktree"
-                            checked={worktree}
-                            onCheckedChange={setWorktree}
-                        />
-                        <Label htmlFor="agent-worktree" className="cursor-pointer text-xs">
-                            Worktree
-                        </Label>
-                    </div>
-
                     <div className="flex flex-col gap-1">
                         <Label htmlFor="agent-model" className="text-xs">
                             Model

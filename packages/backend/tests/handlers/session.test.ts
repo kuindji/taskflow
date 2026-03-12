@@ -78,6 +78,7 @@ describe("session handlers", () => {
         registerTaskHandlers({
             router,
             store,
+            gitService: new GitService(),
             closeSession: (sessionId) => {
                 ptyManager.close(sessionId);
             },

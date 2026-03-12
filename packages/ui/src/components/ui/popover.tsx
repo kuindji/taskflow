@@ -14,14 +14,18 @@ function PopoverAnchor({ ...props }: React.ComponentProps<typeof PopoverPrimitiv
     return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />;
 }
 
+type PopoverContentProps = React.ComponentProps<typeof PopoverPrimitive.Content> &
+    Pick<React.ComponentProps<typeof PopoverPrimitive.Portal>, "container">;
+
 function PopoverContent({
     className,
     align = "start",
     sideOffset = 4,
+    container,
     ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: PopoverContentProps) {
     return (
-        <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Portal container={container}>
             <PopoverPrimitive.Content
                 data-slot="popover-content"
                 align={align}

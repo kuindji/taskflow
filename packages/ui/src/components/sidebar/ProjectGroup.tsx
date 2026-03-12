@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Project, Task } from "@taskflow/shared";
+import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TaskCard } from "./TaskCard";
@@ -15,6 +16,7 @@ interface ProjectGroupProps {
     onProjectClick: (projectId: string) => void;
     onTaskClick: (taskId: string) => void;
     archived?: boolean;
+    isFirstVisibleProject?: boolean;
 }
 
 export function ProjectGroup({
@@ -26,6 +28,7 @@ export function ProjectGroup({
     onProjectClick,
     onTaskClick,
     archived,
+    isFirstVisibleProject = false,
 }: ProjectGroupProps) {
     const [open, setOpen] = useState(true);
 
@@ -54,7 +57,9 @@ export function ProjectGroup({
                             )}
                         </button>
                     </TooltipTrigger>
-                    <TooltipContent>{open ? "Collapse project" : "Expand project"}</TooltipContent>
+                    <TooltipContent side={isFirstVisibleProject ? "bottom" : undefined} sideOffset={4}>
+                        {open ? "Collapse project" : "Expand project"}
+                    </TooltipContent>
                 </Tooltip>
                 <button
                     onClick={() => onProjectClick(project.id)}
@@ -67,10 +72,13 @@ export function ProjectGroup({
                 </button>
                 <div className="relative mr-1.5 flex shrink-0 items-center">
                     {diffStats && (
-                        <div className="flex items-center gap-2 text-[10px] font-medium transition-opacity group-hover:opacity-0">
+                        <Badge
+                            variant="outline"
+                            className="gap-1.5 border-border/60 bg-muted/50 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0"
+                        >
                             <span className="text-success">+{diffStats.additions}</span>
                             <span className="text-destructive">-{diffStats.deletions}</span>
-                        </div>
+                        </Badge>
                     )}
                     <ArrowRight className="text-accent absolute right-0 h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
                 </div>

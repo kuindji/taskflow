@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { AgentLaunchOptions } from "@taskflow/shared";
 import { useProjectStore } from "@/stores/project-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -7,6 +7,13 @@ import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskDialog } from "./NewTaskDialog";
+
+interface PendingSession {
+    taskId: string;
+    type: "claude" | "codex";
+    description: string;
+    agentOptions?: AgentLaunchOptions;
+}
 
 export function TaskCreationDialogHost() {
     const { projects, addProject } = useProjectStore();
@@ -24,9 +31,35 @@ export function TaskCreationDialogHost() {
         handleProjectCreated,
     } = useTaskCreationStore();
 
+    const pendingSessionRef = useRef<PendingSession | null>(null);
+
     const defaultProjectId = activeTaskId
         ? (tasks.find((task) => task.id === activeTaskId)?.projectId ?? projects[0]?.id)
         : (activeProjectId ?? projects[0]?.id);
+
+    // Watch for worktree readiness and start deferred session
+    useEffect(() => {
+        const pending = pendingSessionRef.current;
+        if (!pending) return;
+
+        const task = tasks.find((t) => t.id === pending.taskId);
+        if (!task) {
+            pendingSessionRef.current = null;
+            return;
+        }
+
+        if (!task.worktree.enabled || task.worktree.path) {
+            pendingSessionRef.current = null;
+            void createSession(
+                { taskId: pending.taskId },
+                pending.type,
+                undefined,
+                pending.description,
+                undefined,
+                pending.agentOptions,
+            );
+        }
+    }, [tasks, createSession]);
 
     const handleProjectSubmit = useCallback(
         async (path: string) => {
@@ -55,14 +88,24 @@ export function TaskCreationDialogHost() {
                 setActiveProject(task.projectId);
                 setActiveTask(task.id);
                 if (data.startWith) {
-                    await createSession(
-                        { taskId: task.id },
-                        data.startWith,
-                        undefined,
-                        data.description,
-                        undefined,
-                        data.agentOptions,
-                    );
+                    if (data.worktree) {
+                        // Defer session start until worktree is ready
+                        pendingSessionRef.current = {
+                            taskId: task.id,
+                            type: data.startWith,
+                            description: data.description,
+                            agentOptions: data.agentOptions,
+                        };
+                    } else {
+                        await createSession(
+                            { taskId: task.id },
+                            data.startWith,
+                            undefined,
+                            data.description,
+                            undefined,
+                            data.agentOptions,
+                        );
+                    }
                 }
             } catch (err) {
                 console.error("Failed to create task:", err);

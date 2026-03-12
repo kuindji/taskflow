@@ -10,17 +10,19 @@ import type {
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
+import type { GitService } from "../services/git-service";
 import type { Task } from "@taskflow/shared";
 
 interface TaskHandlerDeps {
     router: Router;
     store: TaskStore;
+    gitService: GitService;
     closeSession?: (sessionId: string) => void;
     generateTitle?: (taskId: string, description: string) => void;
 }
 
 export function registerTaskHandlers(deps: TaskHandlerDeps): void {
-    const { router, store, closeSession, generateTitle } = deps;
+    const { router, store, gitService, closeSession, generateTitle } = deps;
 
     async function stopTaskSessions(task: Task, clearPersistedSessions: boolean): Promise<void> {
         if (task.sessions.length === 0) {
@@ -80,16 +82,29 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
     });
 
     router.register(MSG.TASK_DELETE, async (payload) => {
-        const { id } = payload as TaskDeletePayload;
-        const task = await store.getTask(id);
-        if (task) {
+        const { id, deleteWorktree } = payload as TaskDeletePayload;
+        const task = (await store.getTask(id)) ?? (await store.getArchived(id));
+        if (!task) throw new Error(`Task not found: ${id}`);
+
+        if (task.status === "active") {
             await stopTaskSessions(task, false);
             await store.deleteTask(id);
         } else {
-            const archived = await store.getArchived(id);
-            if (!archived) throw new Error(`Task not found: ${id}`);
             await store.deleteArchived(id);
         }
+
+        if (deleteWorktree && task.worktree.enabled && task.worktree.path && task.worktree.branch) {
+            const project = await store.getProject(task.projectId);
+            if (project) {
+                try {
+                    await gitService.removeWorktree(project.path, task.worktree.path);
+                    await gitService.deleteBranch(project.path, task.worktree.branch);
+                } catch (error) {
+                    console.error(`Failed to clean up worktree for task ${id}:`, error);
+                }
+            }
+        }
+
         return { success: true };
     });
 

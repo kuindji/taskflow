@@ -219,7 +219,6 @@ export function buildAgentLaunchSpec(
         const optionArgs: string[] = [];
         if (agentOptions?.type === "claude") {
             if (agentOptions.fullAccess) optionArgs.push("--dangerously-skip-permissions");
-            if (agentOptions.worktree) optionArgs.push("--worktree");
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
         }
         return {

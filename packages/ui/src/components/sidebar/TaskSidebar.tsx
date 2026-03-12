@@ -67,6 +67,15 @@ export function TaskSidebar() {
         return map;
     }, [displayTasks]);
 
+    const visibleProjects = useMemo(
+        () =>
+            projects.filter((project) => {
+                if (!showArchive) return true;
+                return (tasksByProject.get(project.id) ?? []).length > 0;
+            }),
+        [projects, showArchive, tasksByProject],
+    );
+
     const handleOpenProjectDialog = useCallback(() => {
         setProjectError(null);
         setNewProjectOpen(true);
@@ -150,9 +159,8 @@ export function TaskSidebar() {
                         No archived tasks.
                     </div>
                 )}
-                {projects.map((project) => {
+                {visibleProjects.map((project, index) => {
                     const projectTasks = tasksByProject.get(project.id) ?? [];
-                    if (showArchive && projectTasks.length === 0) return null;
                     return (
                         <ProjectGroup
                             key={project.id}
@@ -164,6 +172,7 @@ export function TaskSidebar() {
                             onProjectClick={handleProjectClick}
                             onTaskClick={handleTaskClick}
                             archived={showArchive}
+                            isFirstVisibleProject={index === 0}
                         />
                     );
                 })}

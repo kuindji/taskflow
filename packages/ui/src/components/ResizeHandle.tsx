@@ -57,8 +57,8 @@ function ResizeHandle({
                   backgroundImage: `linear-gradient(to bottom,
                       transparent 0%,
                       transparent 33%,
-                      color-mix(in srgb, var(--accent) 82%, transparent) 40%,
-                      color-mix(in srgb, var(--accent) 82%, transparent) 60%,
+                      color-mix(in srgb, var(--accent) 72%, transparent) 40%,
+                      color-mix(in srgb, var(--accent) 72%, transparent) 60%,
                       transparent 67%,
                       transparent 100%)`,
               }
@@ -66,8 +66,8 @@ function ResizeHandle({
                   backgroundImage: `linear-gradient(to right,
                       transparent 0%,
                       transparent 33%,
-                      color-mix(in srgb, var(--accent) 82%, transparent) 40%,
-                      color-mix(in srgb, var(--accent) 82%, transparent) 60%,
+                      color-mix(in srgb, var(--accent) 72%, transparent) 40%,
+                      color-mix(in srgb, var(--accent) 72%, transparent) 60%,
                       transparent 67%,
                       transparent 100%)`,
               };

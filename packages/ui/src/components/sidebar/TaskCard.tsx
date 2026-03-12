@@ -1,6 +1,6 @@
-import { useMemo, useState, type MouseEvent } from "react";
+import { useMemo, useState, useCallback, type MouseEvent } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, GitBranch, Trash2 } from "lucide-react";
 import type { SessionRef, Task } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
 import { useTaskStore } from "@/stores/task-store";
@@ -57,9 +57,11 @@ function SessionBadge({ session }: { session: SessionRef }) {
 
 export function TaskCard({ task, isActive, onClick, className, archived }: TaskCardProps) {
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleteWorktree, setDeleteWorktree] = useState(false);
     const archiveTask = useTaskStore((s) => s.archiveTask);
     const unarchiveTask = useTaskStore((s) => s.unarchiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
+    const hasWorktree = task.worktree.enabled && !!task.worktree.path;
 
     const cardClasses = useMemo(
         () => cn(taskCardVariants({ active: isActive }), className),
@@ -91,12 +93,13 @@ export function TaskCard({ task, isActive, onClick, className, archived }: TaskC
 
     const handleDeleteClick = (e: MouseEvent) => {
         e.stopPropagation();
+        setDeleteWorktree(false);
         setDeleteOpen(true);
     };
 
-    const handleDeleteConfirm = () => {
-        void deleteTask(task.id);
-    };
+    const handleDeleteConfirm = useCallback(() => {
+        void deleteTask(task.id, hasWorktree ? { deleteWorktree } : undefined);
+    }, [deleteTask, task.id, hasWorktree, deleteWorktree]);
 
     return (
         <>
@@ -107,8 +110,14 @@ export function TaskCard({ task, isActive, onClick, className, archived }: TaskC
                         {description}
                     </div>
                 )}
-                {task.sessions.length > 0 && (
+                {(task.sessions.length > 0 || task.worktree.enabled) && (
                     <div className="mt-1.5 flex gap-1.5">
+                        {task.worktree.enabled && (
+                            <Badge variant="outline" className="px-1 py-0 text-xs text-muted-foreground">
+                                <GitBranch className="mr-0.5 h-3 w-3" />
+                                {task.worktree.branch ?? "pending"}
+                            </Badge>
+                        )}
                         {task.sessions.map((session) => (
                             <SessionBadge key={session.id} session={session} />
                         ))}
@@ -158,6 +167,19 @@ export function TaskCard({ task, isActive, onClick, className, archived }: TaskC
                             This will permanently delete this task, its sessions, and all logs. This action cannot be undone.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
+                    {hasWorktree && (
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={deleteWorktree}
+                                onChange={(e) => setDeleteWorktree(e.target.checked)}
+                                className="rounded"
+                            />
+                            <span className="text-muted-foreground">
+                                Also delete worktree and branch ({task.worktree.branch})
+                            </span>
+                        </label>
+                    )}
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
