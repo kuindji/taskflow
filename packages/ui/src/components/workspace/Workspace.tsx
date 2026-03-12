@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
+import type { AgentLaunchOptions } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
@@ -92,6 +93,7 @@ export function Workspace() {
     const handleNewTab = async (
         type: "claude" | "codex" | "browser" | "shell",
         shellPath?: string,
+        agentOptions?: AgentLaunchOptions,
     ) => {
         if (!workspace.workspaceKey) return;
         if (type === "browser") {
@@ -118,17 +120,23 @@ export function Workspace() {
                     ? { taskId: workspace.task.id }
                     : { projectId: workspace.project.id },
                 type,
+                undefined,
+                undefined,
+                undefined,
+                agentOptions,
             );
         }
     };
 
-    const handleRunTab = async (type: "claude" | "codex") => {
+    const handleRunTab = async (type: "claude" | "codex", agentOptions?: AgentLaunchOptions) => {
         if (workspace.scope !== "task" || !workspace.task) return;
         await createSession(
             { taskId: workspace.task.id },
             type,
             undefined,
             workspace.task.description || undefined,
+            undefined,
+            agentOptions,
         );
     };
 
