@@ -19,6 +19,10 @@ const DEFAULTS: AppSettings = {
         fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
         fontSize: DEFAULT_EDITOR_FONT_SIZE,
     },
+    layout: {
+        window: { width: 1400, height: 900, isMaximized: false },
+        panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220 },
+    },
 };
 
 function createDefaultSettings(): AppSettings {
@@ -26,6 +30,10 @@ function createDefaultSettings(): AppSettings {
         general: { ...DEFAULTS.general },
         terminal: { ...DEFAULTS.terminal },
         editor: { ...DEFAULTS.editor },
+        layout: {
+            window: { ...DEFAULTS.layout.window },
+            panels: { ...DEFAULTS.layout.panels },
+        },
     };
 }
 
@@ -41,6 +49,10 @@ export class SettingsStore {
                 general: { ...defaults.general, ...parsed.general },
                 terminal: { ...defaults.terminal, ...parsed.terminal },
                 editor: { ...defaults.editor, ...parsed.editor },
+                layout: {
+                    window: { ...defaults.layout.window, ...parsed.layout?.window },
+                    panels: { ...defaults.layout.panels, ...parsed.layout?.panels },
+                },
             };
         } catch {
             return createDefaultSettings();
@@ -57,6 +69,12 @@ export class SettingsStore {
         }
         if (partial.editor) {
             Object.assign(current.editor, partial.editor);
+        }
+        if (partial.layout?.window) {
+            Object.assign(current.layout.window, partial.layout.window);
+        }
+        if (partial.layout?.panels) {
+            Object.assign(current.layout.panels, partial.layout.panels);
         }
         await writeFile(this.filePath, JSON.stringify(current, null, 2));
         return current;

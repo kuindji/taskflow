@@ -9,6 +9,11 @@ import {
 } from "@taskflow/shared";
 import { SettingsStore } from "../../src/services/settings-store";
 
+const DEFAULT_LAYOUT = {
+    window: { width: 1400, height: 900, isMaximized: false },
+    panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220 },
+};
+
 describe("SettingsStore", () => {
     let tempDir: string;
     let settingsFile: string;
@@ -39,6 +44,7 @@ describe("SettingsStore", () => {
                 fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
             },
+            layout: DEFAULT_LAYOUT,
         });
 
         first.editor.fontSize = 20;
@@ -56,6 +62,7 @@ describe("SettingsStore", () => {
                 fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
             },
+            layout: DEFAULT_LAYOUT,
         });
     });
 
@@ -81,6 +88,7 @@ describe("SettingsStore", () => {
                 fontFamily: "Fira Code",
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
             },
+            layout: DEFAULT_LAYOUT,
         });
 
         expect(await store.update({ editor: { fontSize: 16 } })).toEqual({
@@ -96,6 +104,77 @@ describe("SettingsStore", () => {
                 fontFamily: "Fira Code",
                 fontSize: 16,
             },
+            layout: DEFAULT_LAYOUT,
+        });
+    });
+
+    it("returns layout defaults when no file exists", async () => {
+        const settings = await store.get();
+        expect(settings.layout).toEqual({
+            window: { width: 1400, height: 900, isMaximized: false },
+            panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220 },
+        });
+    });
+
+    it("merges partial layout.window with defaults", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({
+                layout: { window: { width: 1600, height: 1000 } },
+            }),
+        );
+
+        const settings = await store.get();
+        expect(settings.layout.window).toEqual({
+            width: 1600,
+            height: 1000,
+            isMaximized: false,
+        });
+        expect(settings.layout.panels).toEqual({
+            sidebarWidth: 220,
+            fileExplorerWidth: 220,
+            taskInfoWidth: 220,
+        });
+    });
+
+    it("updates layout.panels without clobbering layout.window", async () => {
+        await store.update({
+            layout: { window: { x: 100, y: 200, width: 1600, height: 1000, isMaximized: false } },
+        });
+
+        const result = await store.update({
+            layout: { panels: { sidebarWidth: 280 } },
+        });
+
+        expect(result.layout.window).toEqual({
+            x: 100,
+            y: 200,
+            width: 1600,
+            height: 1000,
+            isMaximized: false,
+        });
+        expect(result.layout.panels).toEqual({
+            sidebarWidth: 280,
+            fileExplorerWidth: 220,
+            taskInfoWidth: 220,
+        });
+    });
+
+    it("updates individual window fields without clobbering others", async () => {
+        await store.update({
+            layout: { window: { x: 50, y: 75, width: 1200, height: 800, isMaximized: false } },
+        });
+
+        const result = await store.update({
+            layout: { window: { isMaximized: true } },
+        });
+
+        expect(result.layout.window).toEqual({
+            x: 50,
+            y: 75,
+            width: 1200,
+            height: 800,
+            isMaximized: true,
         });
     });
 });
