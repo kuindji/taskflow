@@ -1,12 +1,11 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import type { Task, Project, GitDiffResult, GitStatusResult } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { useState, useCallback } from "react";
+import type { Task, Project } from "@taskflow/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
+import { useDiffStore } from "@/stores/diff-store";
 import { confirm } from "@/stores/dialog-store";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
@@ -41,68 +40,13 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
     const [commitOpen, setCommitOpen] = useState(false);
-    const [diffStats, setDiffStats] = useState<{ additions: number; deletions: number } | null>(
-        null,
+    const diffStats = useDiffStore((s) => (project ? s.statsByProject[project.id] ?? null : null));
+    const commitDisabled = useDiffStore((s) =>
+        project ? (s.commitDisabledByProject[project.id] ?? true) : true,
     );
-    const [commitDisabled, setCommitDisabled] = useState(true);
-    const diffVersionRef = useRef(0);
-    const statusVersionRef = useRef(0);
 
     const showDiffButton = !task && !!project && !!onDiff;
     const showCommitButton = !task && !!project;
-
-    useEffect(() => {
-        if (!showDiffButton || !project) {
-            setDiffStats(null);
-            return;
-        }
-        const version = ++diffVersionRef.current;
-        const fetchDiff = () => {
-            sendRequest<{ diff: GitDiffResult }>(MSG.GIT_DIFF, { path: project.path }).then(
-                (res) => {
-                    if (version !== diffVersionRef.current) return;
-                    const totals = res.diff.files.reduce(
-                        (acc, f) => ({
-                            additions: acc.additions + f.additions,
-                            deletions: acc.deletions + f.deletions,
-                        }),
-                        { additions: 0, deletions: 0 },
-                    );
-                    setDiffStats(totals);
-                },
-                () => {
-                    if (version !== diffVersionRef.current) return;
-                    setDiffStats(null);
-                },
-            );
-        };
-        fetchDiff();
-        const interval = setInterval(fetchDiff, 10_000);
-        return () => clearInterval(interval);
-    }, [showDiffButton, project]);
-
-    useEffect(() => {
-        if (!showCommitButton || !project) {
-            setCommitDisabled(true);
-            return;
-        }
-        const version = ++statusVersionRef.current;
-        const fetchStatus = () => {
-            sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: project.path }).then(
-                (res) => {
-                    if (version !== statusVersionRef.current) return;
-                    setCommitDisabled(res.status.files.length === 0 && res.status.ahead === 0);
-                },
-                () => {
-                    if (version !== statusVersionRef.current) return;
-                    setCommitDisabled(false);
-                },
-            );
-        };
-        fetchStatus();
-        const interval = setInterval(fetchStatus, 10_000);
-        return () => clearInterval(interval);
-    }, [showCommitButton, project]);
 
     const handleRename = useCallback(
         (name: string) => {
