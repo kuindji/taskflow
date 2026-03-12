@@ -10,7 +10,7 @@ let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
 let backendPort: number | null = null;
 let backendPortFile: string | null = null;
-let windowSavePromise: Promise<void | Response> | null = null;
+let windowSavePromise: Promise<Response | undefined> | null = null;
 let quitting = false;
 
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
@@ -206,7 +206,7 @@ async function createWindow() {
                 },
             }),
             signal: AbortSignal.timeout(1000),
-        }).catch(() => {});
+        }).catch(() => undefined);
     });
 
     if (UI_DEV_SERVER_URL) {
@@ -337,7 +337,7 @@ app.on("before-quit", (e) => {
     if (windowSavePromise) {
         quitting = true;
         e.preventDefault();
-        windowSavePromise.then(() => {
+        void windowSavePromise.then(() => {
             windowSavePromise = null;
             if (backendProcess) {
                 backendProcess.kill();

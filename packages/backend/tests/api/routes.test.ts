@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it } from "bun:test";
-import { MSG, type WsEvent } from "@taskflow/shared";
+import { MSG, type AppSettings, type WsEvent } from "@taskflow/shared";
 import { ApiRouter } from "../../src/api/router";
 import { registerApiRoutes } from "../../src/api/routes";
 import { SettingsStore } from "../../src/services/settings-store";
@@ -117,8 +117,9 @@ describe("settings routes", () => {
         const response = await apiRouter.handle(
             new Request("http://localhost/api/settings", { method: "GET" }),
         );
+        expect(response).not.toBeNull();
         expect(response?.status).toBe(200);
-        const body = await response!.json();
+        const body = (await response?.json()) as AppSettings;
         expect(body.layout.window.width).toBe(1400);
         expect(body.layout.panels.sidebarWidth).toBe(220);
     });
@@ -133,8 +134,9 @@ describe("settings routes", () => {
                 headers: { "Content-Type": "application/json" },
             }),
         );
+        expect(response).not.toBeNull();
         expect(response?.status).toBe(200);
-        const body = await response!.json();
+        const body = (await response?.json()) as AppSettings;
         expect(body.layout.window.width).toBe(1600);
         expect(body.layout.window.height).toBe(1000);
         expect(body.layout.window.isMaximized).toBe(false);

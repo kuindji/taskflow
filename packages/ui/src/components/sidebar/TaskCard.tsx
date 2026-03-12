@@ -79,7 +79,7 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
 
     const handleArchive = (e: MouseEvent) => {
         e.stopPropagation();
-        archiveTask(task.id);
+        void archiveTask(task.id);
     };
 
     const handleDeleteClick = (e: MouseEvent) => {
@@ -88,7 +88,7 @@ export function TaskCard({ task, isActive, onClick, className }: TaskCardProps) 
     };
 
     const handleDeleteConfirm = () => {
-        deleteTask(task.id);
+        void deleteTask(task.id);
     };
 
     return (
