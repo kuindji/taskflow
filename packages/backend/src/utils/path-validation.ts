@@ -30,6 +30,20 @@ async function resolveWorkspacePath(path: string): Promise<string> {
     });
 }
 
+export async function assertMutableWorkspacePath(taskStore: TaskStore, path: string): Promise<string> {
+    const [roots, resolvedPath] = await Promise.all([
+        listWorkspaceRoots(taskStore),
+        resolveWorkspacePath(path),
+    ]);
+    if (!roots.some((root) => isWithinRoot(resolvedPath, root))) {
+        throw new Error(`Path is outside known workspaces: ${path}`);
+    }
+    if (roots.includes(resolvedPath)) {
+        throw new Error("Cannot modify workspace root");
+    }
+    return resolvedPath;
+}
+
 export async function assertWorkspacePath(taskStore: TaskStore, path: string): Promise<string> {
     const [roots, resolvedPath] = await Promise.all([
         listWorkspaceRoots(taskStore),

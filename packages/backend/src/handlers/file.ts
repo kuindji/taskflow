@@ -6,13 +6,15 @@ import type {
     FileUnwatchPayload,
     FileWritePayload,
     FileStatPayload,
+    FileRenamePayload,
+    FilePathPayload,
     WsEvent,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { FileWatcher } from "../services/file-watcher";
 import type { TaskStore } from "../services/task-store";
-import { readFile, writeFile, stat as fsStat } from "fs/promises";
-import { assertWorkspacePath } from "../utils/path-validation";
+import { readFile, writeFile, stat as fsStat, rename, rm } from "fs/promises";
+import { assertWorkspacePath, assertMutableWorkspacePath } from "../utils/path-validation";
 
 interface FileHandlerDeps {
     router: Router;
@@ -70,5 +72,50 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         } catch {
             return { exists: false, isDirectory: false };
         }
+    });
+
+    router.register(MSG.FILE_RENAME, async (payload) => {
+        const { oldPath, newPath } = payload as FileRenamePayload;
+        const resolvedOld = await assertMutableWorkspacePath(taskStore, oldPath);
+        const resolvedNew = await assertWorkspacePath(taskStore, newPath);
+        try {
+            await fsStat(resolvedNew);
+            throw new Error("A file or folder with that name already exists");
+        } catch (e) {
+            if (e instanceof Error && e.message === "A file or folder with that name already exists") throw e;
+            // ENOENT is expected — target doesn't exist, proceed
+        }
+        await rename(resolvedOld, resolvedNew);
+        return { success: true };
+    });
+
+    router.register(MSG.FILE_DELETE_FILE, async (payload) => {
+        const { path } = payload as FilePathPayload;
+        const resolvedPath = await assertMutableWorkspacePath(taskStore, path);
+        await rm(resolvedPath, { recursive: true });
+        return { success: true };
+    });
+
+    router.register(MSG.FILE_OPEN_EXTERNAL, async (payload) => {
+        const { path } = payload as FilePathPayload;
+        const resolvedPath = await assertWorkspacePath(taskStore, path);
+        const editor = process.env.EDITOR || "code";
+        const which = Bun.which(editor);
+        if (!which) {
+            throw new Error(`Editor "${editor}" not found on PATH`);
+        }
+        Bun.spawn([which, resolvedPath], {
+            stdio: ["ignore", "ignore", "ignore"],
+        });
+        return { success: true };
+    });
+
+    router.register(MSG.FILE_REVEAL, async (payload) => {
+        const { path } = payload as FilePathPayload;
+        const resolvedPath = await assertWorkspacePath(taskStore, path);
+        Bun.spawn(["open", "-R", resolvedPath], {
+            stdio: ["ignore", "ignore", "ignore"],
+        });
+        return { success: true };
     });
 }
