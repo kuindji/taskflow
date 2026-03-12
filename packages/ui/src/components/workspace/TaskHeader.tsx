@@ -1,5 +1,7 @@
-import { useState, useCallback } from "react";
-import type { Task, Project } from "@taskflow/shared";
+import { useState, useCallback, useEffect, useRef } from "react";
+import type { Task, Project, GitDiffResult } from "@taskflow/shared";
+import { MSG } from "@taskflow/shared";
+import { sendRequest } from "@/hooks/useWebSocket";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
@@ -9,6 +11,7 @@ import { confirm } from "@/stores/dialog-store";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import {
     Archive,
+    Diff,
     Pencil,
     Plus,
     Trash2,
@@ -22,9 +25,10 @@ import useIsElectron from "@/hooks/useIsElectron";
 interface TaskHeaderProps {
     task?: Task;
     project?: Project;
+    onDiff?: () => void;
 }
 
-export function TaskHeader({ task, project }: TaskHeaderProps) {
+export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
     const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
@@ -35,6 +39,42 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
     const removeProject = useProjectStore((s) => s.removeProject);
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
+    const [diffStats, setDiffStats] = useState<{ additions: number; deletions: number } | null>(
+        null,
+    );
+    const diffVersionRef = useRef(0);
+
+    const showDiffButton = !task && !!project && !!onDiff;
+
+    useEffect(() => {
+        if (!showDiffButton || !project) {
+            setDiffStats(null);
+            return;
+        }
+        const version = ++diffVersionRef.current;
+        const fetchDiff = () => {
+            sendRequest<{ diff: GitDiffResult }>(MSG.GIT_DIFF, { path: project.path }).then(
+                (res) => {
+                    if (version !== diffVersionRef.current) return;
+                    const totals = res.diff.files.reduce(
+                        (acc, f) => ({
+                            additions: acc.additions + f.additions,
+                            deletions: acc.deletions + f.deletions,
+                        }),
+                        { additions: 0, deletions: 0 },
+                    );
+                    setDiffStats(totals);
+                },
+                () => {
+                    if (version !== diffVersionRef.current) return;
+                    setDiffStats(null);
+                },
+            );
+        };
+        fetchDiff();
+        const interval = setInterval(fetchDiff, 10_000);
+        return () => clearInterval(interval);
+    }, [showDiffButton, project]);
 
     const handleRename = useCallback(
         (name: string) => {
@@ -115,6 +155,27 @@ export function TaskHeader({ task, project }: TaskHeaderProps) {
             <div className="flex-1" />
             {(task || project) && (
                 <>
+                    {showDiffButton && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={onDiff}
+                            aria-label="Show diff"
+                            className="gap-1 px-2 [-webkit-app-region:no-drag]"
+                        >
+                            <Diff className="h-4 w-4" />
+                            <span className="text-xs">Diff</span>
+                            {diffStats &&
+                                (diffStats.additions > 0 || diffStats.deletions > 0) && (
+                                    <span className="text-xs">
+                                        <span className="text-success">+{diffStats.additions}</span>{" "}
+                                        <span className="text-destructive">
+                                            -{diffStats.deletions}
+                                        </span>
+                                    </span>
+                                )}
+                        </Button>
+                    )}
                     {task && (
                         <Button
                             variant="ghost"

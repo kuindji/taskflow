@@ -3,6 +3,8 @@
 interface TaskflowBridge {
     getBackendPort(): Promise<number>;
     selectProjectDirectory(): Promise<string | null>;
+    openExternalUrl(url: string): Promise<void>;
+    openExternalFile(filePath: string): Promise<string>;
 }
 
 declare global {

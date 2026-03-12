@@ -6,9 +6,11 @@ import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { onEvent, sendRequest } from "@/hooks/useWebSocket";
 import { DEFAULT_TERMINAL_FONT_FAMILY, MSG } from "@taskflow/shared";
 import type { TerminalOutputEvent, SessionExitedEvent, SessionHistoryResponse } from "@taskflow/shared";
+import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
@@ -52,6 +54,131 @@ interface TerminalViewportSnapshot {
 /** Module-level cache: keeps xterm instances alive across task switches */
 const terminalCache = new Map<string, CachedTerminal>();
 const RESIZE_DEBOUNCE_MS = 250;
+
+// ─── Link handling ───────────────────────────────────────────────────────────
+
+function getWorkspaceKey(taskId?: string, projectId?: string): string | null {
+    if (taskId) return getTaskWorkspaceKey(taskId);
+    if (projectId) return getProjectWorkspaceKey(projectId);
+    return null;
+}
+
+function openUrlInApp(url: string, workspaceKey: string | null) {
+    if (!workspaceKey) return;
+    const store = useSessionStore.getState();
+    const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
+    const existing = existingTabs.find((t) => t.type === "browser" && t.url === url);
+    if (existing) {
+        store.setActiveTab(workspaceKey, existing.id);
+        return;
+    }
+    let label = url;
+    try {
+        const parsed = new URL(url);
+        label = parsed.hostname + (parsed.pathname !== "/" ? parsed.pathname : "");
+    } catch { /* keep raw url as label */ }
+    store.addTab(workspaceKey, {
+        id: crypto.randomUUID(),
+        type: "browser",
+        label,
+        url,
+    });
+}
+
+function openFileInApp(filePath: string, workspaceKey: string | null) {
+    if (!workspaceKey) return;
+    const store = useSessionStore.getState();
+    const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
+    const existing = existingTabs.find((t) => t.type === "editor" && t.filePath === filePath);
+    if (existing) {
+        store.setActiveTab(workspaceKey, existing.id);
+        return;
+    }
+    const label = filePath.split("/").pop() ?? filePath;
+    store.addTab(workspaceKey, {
+        id: crypto.randomUUID(),
+        type: "editor",
+        label,
+        filePath,
+    });
+}
+
+function openExternalUrl(url: string) {
+    if (window.taskflow) {
+        void window.taskflow.openExternalUrl(url);
+    } else {
+        window.open(url, "_blank");
+    }
+}
+
+function openExternalFile(filePath: string) {
+    if (window.taskflow) {
+        void window.taskflow.openExternalFile(filePath);
+    }
+}
+
+function createWebLinkHandler(taskId?: string, projectId?: string) {
+    const workspaceKey = getWorkspaceKey(taskId, projectId);
+    return (event: MouseEvent, uri: string) => {
+        if (event.metaKey || event.ctrlKey) {
+            openExternalUrl(uri);
+        } else {
+            openUrlInApp(uri, workspaceKey);
+        }
+    };
+}
+
+// ─── File path link provider ─────────────────────────────────────────────────
+
+// Matches absolute paths with optional :line:col suffix
+const FILE_PATH_RE = /(?:^|\s|["'(=])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\d+))?)?)/;
+
+function createFilePathLinkProvider(term: Terminal, taskId?: string, projectId?: string): ILinkProvider {
+    const workspaceKey = getWorkspaceKey(taskId, projectId);
+
+    return {
+        provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) {
+            const line = term.buffer.active.getLine(bufferLineNumber - 1);
+            if (!line) {
+                callback(undefined);
+                return;
+            }
+
+            const lineText = line.translateToString(true);
+            const links: ILink[] = [];
+            let searchOffset = 0;
+
+            while (searchOffset < lineText.length) {
+                const remaining = lineText.slice(searchOffset);
+                const match = FILE_PATH_RE.exec(remaining);
+                if (!match) break;
+
+                const fullMatch = match[1];
+                const matchIndex = searchOffset + match.index + (match[0].length - fullMatch.length);
+
+                links.push({
+                    range: {
+                        start: { x: matchIndex + 1, y: bufferLineNumber },
+                        end: { x: matchIndex + fullMatch.length + 1, y: bufferLineNumber },
+                    },
+                    text: fullMatch,
+                    activate(event: MouseEvent, text: string) {
+                        const pathOnly = text.replace(/:\d+(?::\d+)?$/, "");
+                        if (event.metaKey || event.ctrlKey) {
+                            openExternalFile(pathOnly);
+                        } else {
+                            openFileInApp(pathOnly, workspaceKey);
+                        }
+                    },
+                });
+
+                searchOffset = matchIndex + fullMatch.length;
+            }
+
+            callback(links.length > 0 ? links : undefined);
+        },
+    };
+}
 
 function fitTerminal(fit: FitAddon, term: Terminal, forceViewportRecalc = false): FitResult {
     const dims = fit.proposeDimensions();
@@ -191,13 +318,18 @@ function getOrCreateTerminal(
 
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(new WebLinksAddon(createWebLinkHandler(taskId, projectId)));
 
     // Create a dedicated wrapper div that persists across mounts
     const element = document.createElement("div");
     element.style.width = "100%";
     element.style.height = "100%";
     term.open(element);
+
+    // File path link provider (registered after open so buffer is available)
+    const filePathLinkDisposable = term.registerLinkProvider(
+        createFilePathLinkProvider(term, taskId, projectId),
+    );
 
     // Renderer addons must load before Unicode (renderer initialization first)
     const disposeRendererAddons = loadBestEffortRendererAddons(term);
@@ -254,6 +386,7 @@ function getOrCreateTerminal(
         unsubOutput,
         unsubExit,
         disposeRuntime: () => {
+            filePathLinkDisposable.dispose();
             disposeRendererAddons();
             writer.dispose();
         },

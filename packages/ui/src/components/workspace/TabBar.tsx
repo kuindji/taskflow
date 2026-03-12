@@ -10,7 +10,6 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -74,12 +73,11 @@ interface TabBarProps {
     onTabClick: (tabId: string) => void;
     onTabClose: (tabId: string) => void;
     onNewTab: (
-        type: "claude" | "codex" | "changes" | "browser" | "shell",
+        type: "claude" | "codex" | "browser" | "shell",
         shellPath?: string,
     ) => void;
     onRunTab: (type: "claude" | "codex") => void;
     showRunButton: boolean;
-    allowChangesTab: boolean;
     allowSessionTabs: boolean;
 }
 
@@ -91,7 +89,6 @@ export function TabBar({
     onNewTab,
     onRunTab,
     showRunButton,
-    allowChangesTab,
     allowSessionTabs,
 }: TabBarProps) {
     const [shells, setShells] = useState<ShellInfo[]>([]);
@@ -128,51 +125,53 @@ export function TabBar({
                     </DropdownMenuContent>
                 </DropdownMenu>
             )}
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon-xs">
-                        <Plus className="h-4 w-4" />
+            {allowSessionTabs && (
+                <>
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-success"
+                        onClick={() => onNewTab("claude")}
+                    >
+                        <Terminal className="h-3.5 w-3.5" />
                     </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                    {allowSessionTabs && (
-                        <>
-                            <DropdownMenuItem onClick={() => onNewTab("claude")}>
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-warning"
+                        onClick={() => onNewTab("codex")}
+                    >
+                        <Code className="h-3.5 w-3.5" />
+                    </Button>
+                </>
+            )}
+            <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => onNewTab("browser")}
+            >
+                <Globe className="h-3.5 w-3.5" />
+            </Button>
+            {shells.length > 0 && (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-xs">
+                            <Plus className="h-4 w-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                        {shells.map((shell) => (
+                            <DropdownMenuItem
+                                key={shell.path}
+                                onClick={() => onNewTab("shell", shell.path)}
+                            >
                                 <Terminal className="mr-2 h-4 w-4" />
-                                Claude Code
+                                {shell.name.charAt(0).toUpperCase() + shell.name.slice(1)}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onNewTab("codex")}>
-                                <Code className="mr-2 h-4 w-4" />
-                                Codex
-                            </DropdownMenuItem>
-                            {shells.length > 0 && <DropdownMenuSeparator />}
-                            {shells.map((shell) => (
-                                <DropdownMenuItem
-                                    key={shell.path}
-                                    onClick={() => onNewTab("shell", shell.path)}
-                                >
-                                    <Terminal className="mr-2 h-4 w-4" />
-                                    {shell.name.charAt(0).toUpperCase() + shell.name.slice(1)}
-                                </DropdownMenuItem>
-                            ))}
-                        </>
-                    )}
-                    {allowChangesTab && (
-                        <>
-                            {allowSessionTabs && <DropdownMenuSeparator />}
-                            <DropdownMenuItem onClick={() => onNewTab("changes")}>
-                                <Code className="mr-2 h-4 w-4" />
-                                Changes
-                            </DropdownMenuItem>
-                        </>
-                    )}
-                    {(allowSessionTabs || allowChangesTab) && <DropdownMenuSeparator />}
-                    <DropdownMenuItem onClick={() => onNewTab("browser")}>
-                        <Globe className="mr-2 h-4 w-4" />
-                        Browser
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            )}
             {tabs.map((tab) => (
                 <TabItem
                     key={tab.id}

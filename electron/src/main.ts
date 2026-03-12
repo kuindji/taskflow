@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { spawn, type ChildProcess } from "child_process";
 import { constants } from "fs";
@@ -356,6 +356,8 @@ app.on("before-quit", (e) => {
 });
 
 ipcMain.handle("get-backend-port", () => backendPort);
+ipcMain.handle("open-external-url", (_event, url: string) => shell.openExternal(url));
+ipcMain.handle("open-external-file", (_event, filePath: string) => shell.openPath(filePath));
 ipcMain.handle("select-project-directory", async () => {
     const result = await dialog.showOpenDialog({
         properties: ["openDirectory"],

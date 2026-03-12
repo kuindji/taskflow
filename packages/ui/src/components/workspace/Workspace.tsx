@@ -46,8 +46,22 @@ export function Workspace() {
         );
     }
 
+    const handleDiffTab = () => {
+        if (!workspace.workspaceKey) return;
+        const existingChangesTab = tabs.find((tab) => tab.type === "changes");
+        if (existingChangesTab) {
+            setActiveTab(workspace.workspaceKey, existingChangesTab.id);
+            return;
+        }
+        addTab(workspace.workspaceKey, {
+            id: crypto.randomUUID(),
+            type: "changes",
+            label: "Changes",
+        });
+    };
+
     const handleNewTab = async (
-        type: "claude" | "codex" | "changes" | "browser" | "shell",
+        type: "claude" | "codex" | "browser" | "shell",
         shellPath?: string,
     ) => {
         if (!workspace.workspaceKey) return;
@@ -57,17 +71,6 @@ export function Workspace() {
                 type: "browser",
                 label: "New Tab",
                 url: "about:blank",
-            });
-        } else if (type === "changes") {
-            const existingChangesTab = visibleTabs.find((tab) => tab.type === "changes");
-            if (existingChangesTab) {
-                setActiveTab(workspace.workspaceKey, existingChangesTab.id);
-                return;
-            }
-            addTab(workspace.workspaceKey, {
-                id: crypto.randomUUID(),
-                type: "changes",
-                label: "Changes",
             });
         } else if (type === "shell" && shellPath) {
             const shellName = shellPath.split("/").pop() ?? "shell";
@@ -102,7 +105,11 @@ export function Workspace() {
 
     return (
         <>
-            <TaskHeader task={workspace.task ?? undefined} project={workspace.project} />
+            <TaskHeader
+                task={workspace.task ?? undefined}
+                project={workspace.project}
+                onDiff={workspace.scope === "project" ? handleDiffTab : undefined}
+            />
             <TabBar
                 tabs={visibleTabs}
                 activeTabId={activeTab?.id ?? ""}
@@ -116,7 +123,6 @@ export function Workspace() {
                 onNewTab={handleNewTab}
                 onRunTab={handleRunTab}
                 showRunButton={workspace.scope === "task"}
-                allowChangesTab={workspace.scope === "project"}
                 allowSessionTabs={true}
             />
             <TabContent tabs={visibleTabs} activeTabId={activeTab?.id ?? ""} />
