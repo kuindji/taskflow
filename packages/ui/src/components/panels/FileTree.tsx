@@ -4,6 +4,7 @@ import type { FileNode } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FileContextMenu } from "./FileContextMenu";
 
 type GitStatusVariant = "new" | "untracked" | "modified" | "deleted" | "renamed" | "clean";
 
@@ -34,9 +35,10 @@ interface FileTreeProps {
     gitFiles?: Map<string, string>;
     onFileClick: (path: string) => void;
     expandedPaths?: Set<string> | null;
+    rootPath?: string;
 }
 
-function FileTree({ node, depth = 0, gitFiles, onFileClick, expandedPaths }: FileTreeProps) {
+function FileTree({ node, depth = 0, gitFiles, onFileClick, expandedPaths, rootPath }: FileTreeProps) {
     const [open, setOpen] = useState(depth < 1);
 
     // Latch: when expandedPaths includes this node, permanently open it
@@ -65,34 +67,38 @@ function FileTree({ node, depth = 0, gitFiles, onFileClick, expandedPaths }: Fil
 
     if (node.type === "file") {
         return (
-            <div
-                onClick={() => onFileClick(node.path)}
-                draggable
-                onDragStart={handleDragStart}
-                className={fileClasses}
-                style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
-                title={node.path}
-            >
-                {node.name}
-            </div>
+            <FileContextMenu filePath={node.path} isDirectory={false} rootPath={rootPath ?? ""}>
+                <div
+                    onClick={() => onFileClick(node.path)}
+                    draggable
+                    onDragStart={handleDragStart}
+                    className={fileClasses}
+                    style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
+                    title={node.path}
+                >
+                    {node.name}
+                </div>
+            </FileContextMenu>
         );
     }
 
     return (
         <Collapsible open={open} onOpenChange={setOpen}>
-            <CollapsibleTrigger
-                draggable
-                onDragStart={handleDragStart}
-                className="text-muted-foreground hover:bg-muted/50 flex w-full cursor-pointer items-center px-3 py-1 text-sm select-none"
-                style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
-            >
-                {open ? (
-                    <ChevronDown className="mr-1.5 h-4 w-4 shrink-0" />
-                ) : (
-                    <ChevronRight className="mr-1.5 h-4 w-4 shrink-0" />
-                )}
-                {node.name}
-            </CollapsibleTrigger>
+            <FileContextMenu filePath={node.path} isDirectory={true} rootPath={rootPath ?? ""}>
+                <CollapsibleTrigger
+                    draggable
+                    onDragStart={handleDragStart}
+                    className="text-muted-foreground hover:bg-muted/50 flex w-full cursor-pointer items-center px-3 py-1 text-sm select-none"
+                    style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
+                >
+                    {open ? (
+                        <ChevronDown className="mr-1.5 h-4 w-4 shrink-0" />
+                    ) : (
+                        <ChevronRight className="mr-1.5 h-4 w-4 shrink-0" />
+                    )}
+                    {node.name}
+                </CollapsibleTrigger>
+            </FileContextMenu>
             <CollapsibleContent>
                 {node.children?.map((child) => (
                     <FileTree
@@ -102,6 +108,7 @@ function FileTree({ node, depth = 0, gitFiles, onFileClick, expandedPaths }: Fil
                         gitFiles={gitFiles}
                         onFileClick={onFileClick}
                         expandedPaths={expandedPaths}
+                        rootPath={rootPath}
                     />
                 ))}
             </CollapsibleContent>

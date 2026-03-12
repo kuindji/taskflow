@@ -101,7 +101,7 @@ function FileExplorer() {
             <Separator />
             <ScrollArea className="flex-1 py-1">
                 {tree && treePath === workingDir ? (
-                    <FileTree node={tree} gitFiles={gitFiles} onFileClick={handleFileClick} expandedPaths={expandedPaths} />
+                    <FileTree node={tree} gitFiles={gitFiles} onFileClick={handleFileClick} expandedPaths={expandedPaths} rootPath={workingDir ?? ""} />
                 ) : (
                     <div className="text-muted-foreground p-2 text-sm">
                         {workingDir ? "Loading..." : "Select a task or project"}
