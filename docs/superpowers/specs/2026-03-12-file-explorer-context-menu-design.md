@@ -49,22 +49,24 @@ Use `@radix-ui/react-context-menu` (shadcn `ContextMenu` component — needs to 
 ### `FILE_RENAME`
 
 - **Constant:** `MSG.FILE_RENAME = "file:rename"`
-- **Payload type:** `FileRenamePayload { oldPath: string; newPath: string }`
+- **Payload type:** `FileRenamePayload { oldPath: string; newPath: string }` — both are full absolute paths. The UI constructs `newPath` by replacing the basename in the parent directory.
 - **Handler:**
   1. Validate both paths with `assertWorkspacePath`.
-  2. Check target doesn't exist (`stat`). If it does, return error.
-  3. `rename(oldPath, newPath)` via `fs/promises`.
-  4. Return `{ success: true }`.
+  2. Reject if resolved path equals the workspace root (assertWorkspacePath allows root — add explicit guard).
+  3. Check target doesn't exist (`stat`). If it does, return error via `WsResponse.error`.
+  4. `rename(oldPath, newPath)` via `fs/promises`. Catch errors (e.g. ENOENT if source was deleted concurrently) and return via `WsResponse.error`.
+  5. Return `{ success: true }`.
 - FileWatcher detects the change and broadcasts `FILE_CHANGED`.
 
-### `FILE_DELETE`
+### `FILE_DELETE_FILE`
 
 - **Constant:** `MSG.FILE_DELETE_FILE = "file:delete"`
 - **Payload type:** `FileDeletePayload { path: string }`
 - **Handler:**
   1. Validate path with `assertWorkspacePath`.
-  2. `rm(path, { recursive: true })` via `fs/promises`.
-  3. Return `{ success: true }`.
+  2. Reject if resolved path equals the workspace root.
+  3. `rm(path, { recursive: true })` via `fs/promises`.
+  4. Return `{ success: true }`. Errors returned via `WsResponse.error`.
 - FileWatcher detects the change and broadcasts `FILE_CHANGED`.
 
 ### `FILE_OPEN_EXTERNAL`
@@ -74,8 +76,9 @@ Use `@radix-ui/react-context-menu` (shadcn `ContextMenu` component — needs to 
 - **Handler:**
   1. Validate path with `assertWorkspacePath`.
   2. Determine editor: `process.env.EDITOR` or fall back to `"code"`.
-  3. Spawn `editor <path>` detached.
-  4. Return `{ success: true }`.
+  3. Check editor exists on PATH (via `Bun.which` or equivalent). If not found, return error via `WsResponse.error`.
+  4. Spawn `editor <path>` detached.
+  5. Return `{ success: true }`.
 
 ### `FILE_REVEAL`
 
@@ -114,7 +117,7 @@ User edits name, presses Enter → fileStore.renameFile(oldPath, newPath)
   → FileStore receives event → triggers tree refresh
 ```
 
-Delete follows the same pattern with `FILE_DELETE` instead.
+Delete follows the same pattern with `FILE_DELETE_FILE` instead.
 
 Copy Path / Copy Relative Path are client-only (`navigator.clipboard.writeText`).
 
@@ -126,4 +129,4 @@ Open in External Editor and Reveal in Finder send WS messages; no tree refresh n
 - **Target already exists:** Show inline error "A file with this name already exists."
 - **File deleted externally between menu open and action:** Backend returns error; show toast or ignore gracefully.
 - **Long file names in rename dialog:** Input should scroll horizontally; dialog width is fixed.
-- **Context menu on root node:** All actions available (rename/delete the project root would be blocked by `assertWorkspacePath` if it equals the workspace root).
+- **Context menu on root node:** All actions available. Backend handlers explicitly reject operations where the resolved path equals the workspace root (since `assertWorkspacePath` allows the root path itself).
