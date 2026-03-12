@@ -5,6 +5,7 @@ interface TaskflowBridge {
     selectProjectDirectory(): Promise<string | null>;
     openExternalUrl(url: string): Promise<void>;
     openExternalFile(filePath: string, opts?: { line?: number; col?: number; editor?: string }): Promise<string>;
+    showItemInFolder(filePath: string): void;
     onCloseTab(callback: () => void): () => void;
 }
 

@@ -160,7 +160,8 @@ async function createWindow() {
         minWidth: 800,
         minHeight: 600,
         titleBarStyle: "hiddenInset",
-        backgroundColor: "#1e1e2e",
+        vibrancy: "under-window",
+        visualEffectState: "active",
         webPreferences: {
             preload: join(appPath, "dist", "preload.js"),
             contextIsolation: true,
@@ -373,6 +374,9 @@ app.on("before-quit", (e) => {
 
 ipcMain.handle("get-backend-port", () => backendPort);
 ipcMain.handle("open-external-url", (_event, url: string) => shell.openExternal(url));
+ipcMain.on("show-item-in-folder", (_event, filePath: string) => {
+    shell.showItemInFolder(filePath);
+});
 ipcMain.handle(
     "open-external-file",
     (_event, filePath: string, opts?: { line?: number; col?: number; editor?: string }) => {

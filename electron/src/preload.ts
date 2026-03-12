@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("taskflow", {
     openExternalUrl: (url: string) => ipcRenderer.invoke("open-external-url", url),
     openExternalFile: (filePath: string, opts?: { line?: number; col?: number; editor?: string }) =>
         ipcRenderer.invoke("open-external-file", filePath, opts),
+    showItemInFolder: (filePath: string) => ipcRenderer.send("show-item-in-folder", filePath),
     onCloseTab: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("close-tab", listener);
