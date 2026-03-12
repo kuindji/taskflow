@@ -280,6 +280,14 @@ function buildAppMenu() {
             label: "Window",
             submenu: [
                 {
+                    label: "New Task",
+                    accelerator: "CmdOrCtrl+N",
+                    click: () => {
+                        mainWindow?.webContents.send("new-task");
+                    },
+                },
+                { type: "separator" },
+                {
                     label: "Close Tab",
                     accelerator: "CmdOrCtrl+W",
                     click: () => {

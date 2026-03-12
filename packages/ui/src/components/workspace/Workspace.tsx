@@ -4,6 +4,7 @@ import { useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useTaskStore } from "@/stores/task-store";
+import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
 import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
@@ -24,6 +25,7 @@ export function Workspace() {
     );
     const { setActiveTab, closeTab, createSession, addTab } = useSessionStore();
     const setActiveTask = useTaskStore((s) => s.setActiveTask);
+    const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
 
     const visibleTabs = useMemo(
@@ -44,19 +46,51 @@ export function Workspace() {
         }
     }, [activeTab, workspace.workspaceKey, workspace.scope, closeTab, setActiveTask, setActiveProject]);
 
+    const handleOpenNewTask = useCallback(() => {
+        requestNewTask();
+    }, [requestNewTask]);
+
     useEffect(() => {
-        if (isElectron && window.taskflow?.onCloseTab) {
-            return window.taskflow.onCloseTab(handleCloseActiveTab);
+        const cleanupFns: Array<() => void> = [];
+        const onCloseTab = isElectron ? window.taskflow?.onCloseTab : undefined;
+        const onNewTask = isElectron ? window.taskflow?.onNewTask : undefined;
+
+        if (onCloseTab) {
+            cleanupFns.push(onCloseTab(handleCloseActiveTab));
         }
+        if (onNewTask) {
+            cleanupFns.push(onNewTask(handleOpenNewTask));
+        }
+
+        const needsCloseTabFallback = !onCloseTab;
+        const needsNewTaskFallback = !onNewTask;
+
         const onKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "w") {
+            if (!(e.metaKey || e.ctrlKey)) return;
+
+            if (needsCloseTabFallback && e.key.toLowerCase() === "w") {
                 e.preventDefault();
                 handleCloseActiveTab();
+                return;
+            }
+
+            if (needsNewTaskFallback && e.key.toLowerCase() === "n") {
+                e.preventDefault();
+                handleOpenNewTask();
             }
         };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [isElectron, handleCloseActiveTab]);
+
+        if (needsCloseTabFallback || needsNewTaskFallback) {
+            window.addEventListener("keydown", onKeyDown);
+        }
+
+        return () => {
+            cleanupFns.forEach((cleanup) => cleanup());
+            if (needsCloseTabFallback || needsNewTaskFallback) {
+                window.removeEventListener("keydown", onKeyDown);
+            }
+        };
+    }, [isElectron, handleCloseActiveTab, handleOpenNewTask]);
 
     useEffect(() => {
         if (!workspace.workspaceKey || !activeTab || activeTab.id === activeTabId) {

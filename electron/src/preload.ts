@@ -7,6 +7,13 @@ contextBridge.exposeInMainWorld("taskflow", {
     openExternalFile: (filePath: string, opts?: { line?: number; col?: number; editor?: string }) =>
         ipcRenderer.invoke("open-external-file", filePath, opts),
     showItemInFolder: (filePath: string) => ipcRenderer.send("show-item-in-folder", filePath),
+    onNewTask: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("new-task", listener);
+        return () => {
+            ipcRenderer.removeListener("new-task", listener);
+        };
+    },
     onCloseTab: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("close-tab", listener);
