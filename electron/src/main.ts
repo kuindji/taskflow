@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen } from "electron";
 import { autoUpdater } from "electron-updater";
 import { spawn, type ChildProcess } from "child_process";
 import { constants } from "fs";
@@ -10,6 +10,8 @@ let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
 let backendPort: number | null = null;
 let backendPortFile: string | null = null;
+let windowSavePromise: Promise<void | Response> | null = null;
+let quitting = false;
 
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
 
@@ -109,12 +111,52 @@ async function startBackend(): Promise<number> {
     ]);
 }
 
-function createWindow() {
-    const appPath = app.getAppPath();
+interface SavedWindowBounds {
+    x?: number;
+    y?: number;
+    width: number;
+    height: number;
+    isMaximized: boolean;
+}
 
-    mainWindow = new BrowserWindow({
-        width: 1400,
-        height: 900,
+async function fetchSavedLayout(): Promise<SavedWindowBounds | null> {
+    if (!backendPort) return null;
+    try {
+        const res = await fetch(`http://127.0.0.1:${backendPort}/api/settings`);
+        if (!res.ok) return null;
+        const settings = (await res.json()) as { layout?: { window?: SavedWindowBounds } };
+        return settings.layout?.window ?? null;
+    } catch {
+        return null;
+    }
+}
+
+function validateBounds(
+    bounds: SavedWindowBounds,
+): { x: number; y: number; width: number; height: number } | null {
+    if (bounds.x == null || bounds.y == null) return null;
+    const width = Math.max(bounds.width, 800);
+    const height = Math.max(bounds.height, 600);
+    const rect = { x: bounds.x, y: bounds.y, width, height };
+    const display = screen.getDisplayMatching(rect);
+    const { x: dx, y: dy, width: dw, height: dh } = display.workArea;
+
+    const overlapX = Math.min(rect.x + rect.width, dx + dw) - Math.max(rect.x, dx);
+    const overlapY = Math.min(rect.y + rect.height, dy + dh) - Math.max(rect.y, dy);
+    if (overlapX < 100 || overlapY < 100) return null;
+
+    return rect;
+}
+
+async function createWindow() {
+    const appPath = app.getAppPath();
+    const saved = await fetchSavedLayout();
+    const validBounds = saved ? validateBounds(saved) : null;
+
+    const windowOptions: Electron.BrowserWindowConstructorOptions = {
+        width: validBounds?.width ?? 1400,
+        height: validBounds?.height ?? 900,
+        ...(validBounds ? { x: validBounds.x, y: validBounds.y } : {}),
         minWidth: 800,
         minHeight: 600,
         titleBarStyle: "hiddenInset",
@@ -125,6 +167,46 @@ function createWindow() {
             nodeIntegration: false,
             webviewTag: true,
         },
+    };
+
+    mainWindow = new BrowserWindow(windowOptions);
+
+    if (saved?.isMaximized) {
+        mainWindow.maximize();
+    }
+
+    let lastNonMaximizedBounds = mainWindow.getBounds();
+    mainWindow.on("moved", () => {
+        if (mainWindow && !mainWindow.isMaximized()) {
+            lastNonMaximizedBounds = mainWindow.getBounds();
+        }
+    });
+    mainWindow.on("resize", () => {
+        if (mainWindow && !mainWindow.isMaximized()) {
+            lastNonMaximizedBounds = mainWindow.getBounds();
+        }
+    });
+
+    mainWindow.on("close", () => {
+        if (!mainWindow || !backendPort) return;
+        const isMaximized = mainWindow.isMaximized();
+        const bounds = isMaximized ? lastNonMaximizedBounds : mainWindow.getBounds();
+        windowSavePromise = fetch(`http://127.0.0.1:${backendPort}/api/settings`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                layout: {
+                    window: {
+                        x: bounds.x,
+                        y: bounds.y,
+                        width: bounds.width,
+                        height: bounds.height,
+                        isMaximized,
+                    },
+                },
+            }),
+            signal: AbortSignal.timeout(1000),
+        }).catch(() => {});
     });
 
     if (UI_DEV_SERVER_URL) {
@@ -237,7 +319,7 @@ void app.whenReady().then(async () => {
     try {
         backendPort = await startBackend();
         console.log(`Backend started on port ${backendPort}`);
-        createWindow();
+        await createWindow();
         buildAppMenu();
         setupAutoUpdater();
     } catch (err) {
@@ -247,15 +329,25 @@ void app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-    if (backendProcess) {
-        backendProcess.kill();
-        backendProcess = null;
-    }
-    void cleanupBackendArtifacts();
     app.quit();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (e) => {
+    if (quitting) return;
+    if (windowSavePromise) {
+        quitting = true;
+        e.preventDefault();
+        windowSavePromise.then(() => {
+            windowSavePromise = null;
+            if (backendProcess) {
+                backendProcess.kill();
+                backendProcess = null;
+            }
+            void cleanupBackendArtifacts();
+            app.quit();
+        });
+        return;
+    }
     if (backendProcess) {
         backendProcess.kill();
         backendProcess = null;
