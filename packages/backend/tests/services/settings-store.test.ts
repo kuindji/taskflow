@@ -6,6 +6,7 @@ import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
     DEFAULT_TERMINAL_FONT_FAMILY,
+    DEFAULT_TERMINAL_SHELL,
 } from "@taskflow/shared";
 import { SettingsStore } from "../../src/services/settings-store";
 
@@ -40,6 +41,7 @@ describe("SettingsStore", () => {
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
                 fontSize: 13,
+                defaultShell: DEFAULT_TERMINAL_SHELL,
             },
             editor: {
                 fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
@@ -59,6 +61,7 @@ describe("SettingsStore", () => {
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
                 fontSize: 13,
+                defaultShell: DEFAULT_TERMINAL_SHELL,
             },
             editor: {
                 fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
@@ -86,6 +89,7 @@ describe("SettingsStore", () => {
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
                 fontSize: 13,
+                defaultShell: DEFAULT_TERMINAL_SHELL,
             },
             editor: {
                 fontFamily: "Fira Code",
@@ -103,6 +107,7 @@ describe("SettingsStore", () => {
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
                 fontSize: 13,
+                defaultShell: DEFAULT_TERMINAL_SHELL,
             },
             editor: {
                 fontFamily: "Fira Code",
@@ -118,6 +123,15 @@ describe("SettingsStore", () => {
             window: { width: 1400, height: 900, isMaximized: false },
             panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220 },
         });
+    });
+
+    it("persists the configured default terminal shell", async () => {
+        const result = await store.update({
+            terminal: { defaultShell: "/bin/bash" },
+        });
+
+        expect(result.terminal.defaultShell).toBe("/bin/bash");
+        expect((await store.get()).terminal.defaultShell).toBe("/bin/bash");
     });
 
     it("merges partial layout.window with defaults", async () => {

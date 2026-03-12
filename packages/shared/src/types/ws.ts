@@ -154,6 +154,11 @@ export interface ShellInfo {
     path: string;
 }
 
+export interface ShellListResponse {
+    shells: ShellInfo[];
+    systemShellPath: string | null;
+}
+
 // File messages
 export interface FileTreePayload {
     path: string;

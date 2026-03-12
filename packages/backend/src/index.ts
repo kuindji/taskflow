@@ -8,7 +8,7 @@ import { PtyManager } from "./services/pty-manager";
 import { GitService } from "./services/git-service";
 import { FileWatcher } from "./services/file-watcher";
 import { detectEditors } from "./services/editor-detector";
-import { detectShells } from "./services/shell-detector";
+import { detectShells, resolveSystemShellPath } from "./services/shell-detector";
 import { registerProjectHandlers } from "./handlers/project";
 import { registerTaskHandlers } from "./handlers/task";
 import { registerSessionHandlers } from "./handlers/session";
@@ -100,7 +100,10 @@ async function main() {
         const editors = await detectEditors();
         const shells = await detectShells();
         router.register(MSG.SYSTEM_INFO, async () => ({ editors }));
-        router.register(MSG.SHELLS_LIST, async () => ({ shells }));
+        router.register(MSG.SHELLS_LIST, async () => ({
+            shells,
+            systemShellPath: resolveSystemShellPath(shells),
+        }));
         console.log(`Detected shells: ${shells.map((s) => s.name).join(", ") || "none"}`);
 
         const startedServer = await server.start();

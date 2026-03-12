@@ -14,6 +14,37 @@ async function isExecutable(path: string): Promise<boolean> {
     }
 }
 
+function isSupportedShell(path: string): boolean {
+    return KNOWN_INTERACTIVE_SHELLS.has(basename(path));
+}
+
+export function resolveSystemShellPath(
+    shells: ShellInfo[],
+    envShell = process.env.SHELL ?? null,
+): string | null {
+    const normalizedEnvShell = envShell?.trim();
+    if (normalizedEnvShell && isSupportedShell(normalizedEnvShell)) {
+        const exact = shells.find((shell) => shell.path === normalizedEnvShell);
+        if (exact) return exact.path;
+
+        const envShellName = basename(normalizedEnvShell);
+        const byName = shells.find((shell) => shell.name === envShellName);
+        if (byName) return byName.path;
+    }
+
+    return shells[0]?.path ?? null;
+}
+
+function prioritizeSystemShell(shells: ShellInfo[], envShell = process.env.SHELL ?? null): ShellInfo[] {
+    const systemShellPath = resolveSystemShellPath(shells, envShell);
+    if (!systemShellPath) return shells;
+
+    const index = shells.findIndex((shell) => shell.path === systemShellPath);
+    if (index <= 0) return shells;
+
+    return [shells[index], ...shells.slice(0, index), ...shells.slice(index + 1)];
+}
+
 export async function detectShells(): Promise<ShellInfo[]> {
     let content: string;
     try {
@@ -39,5 +70,5 @@ export async function detectShells(): Promise<ShellInfo[]> {
         }
     }
 
-    return shells;
+    return prioritizeSystemShell(shells);
 }

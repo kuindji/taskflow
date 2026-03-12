@@ -2,14 +2,16 @@ import { useMemo, useEffect, useState } from "react";
 import { cva } from "class-variance-authority";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import type { AgentLaunchOptions, ShellInfo } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import { DEFAULT_TERMINAL_SHELL, MSG, type ShellListResponse } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
     DropdownMenuSub,
     DropdownMenuSubTrigger,
@@ -18,10 +20,16 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AgentOptionsPanel } from "./AgentOptionsPanel";
 import { StatusDot } from "@/components/ui/status-dot";
-import { X, Plus, Play, Terminal, Globe } from "lucide-react";
+import { X, Play, Terminal, Globe, ChevronDown } from "lucide-react";
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
 import { CodexIcon } from "@/components/icons/CodexIcon";
 import { cn } from "@/lib/utils";
+import {
+    getShellDisplayName,
+    getShellNameFromPath,
+    getTerminalShellSummary,
+    resolveTerminalShellPath,
+} from "@/lib/terminal-shells";
 
 const tabVariants = cva(
     "px-1.5 h-6 rounded-md cursor-pointer flex items-center gap-1 text-sm transition-colors",
@@ -101,19 +109,33 @@ export function TabBar({
     allowSessionTabs,
 }: TabBarProps) {
     const [shells, setShells] = useState<ShellInfo[]>([]);
+    const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [claudePopoverOpen, setClaudePopoverOpen] = useState(false);
     const [codexPopoverOpen, setCodexPopoverOpen] = useState(false);
+    const configuredShell = useSettingsStore(
+        (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
+    );
 
     useEffect(() => {
         if (!allowSessionTabs) {
             setShells([]);
+            setSystemShellPath(null);
             return;
         }
-        sendRequest<{ shells: ShellInfo[] }>(MSG.SHELLS_LIST, {}).then(
-            (res) => setShells(res.shells),
-            () => {},
+        sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {}).then(
+            (res) => {
+                setShells(res.shells);
+                setSystemShellPath(res.systemShellPath);
+            },
+            () => {
+                setShells([]);
+                setSystemShellPath(null);
+            },
         );
     }, [allowSessionTabs]);
+
+    const defaultShellPath = resolveTerminalShellPath(shells, systemShellPath, configuredShell);
+    const defaultShellSummary = getTerminalShellSummary(shells, systemShellPath, configuredShell);
 
     return (
         <div className="bg-card border-border flex min-h-9 items-center gap-1 border-b px-1.5 py-1.5">
@@ -227,6 +249,62 @@ export function TabBar({
                     </Popover>
                 </>
             )}
+            {shells.length > 0 && (
+                <>
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="New terminal tab"
+                        tooltip={`New ${defaultShellSummary} terminal`}
+                        disabled={!defaultShellPath}
+                        onClick={() => {
+                            if (defaultShellPath) onNewTab("shell", defaultShellPath);
+                        }}
+                    >
+                        <Terminal className="h-3.5 w-3.5" />
+                    </Button>
+                    {shells.length > 1 && (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    aria-label="Choose terminal shell"
+                                    tooltip="Choose terminal shell"
+                                >
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start">
+                                <DropdownMenuItem
+                                    disabled={!defaultShellPath}
+                                    onClick={() => {
+                                        if (defaultShellPath) onNewTab("shell", defaultShellPath);
+                                    }}
+                                >
+                                    <Terminal className="mr-2 h-4 w-4" />
+                                    Default Terminal
+                                    <span className="text-muted-foreground ml-auto text-xs">
+                                        {configuredShell === DEFAULT_TERMINAL_SHELL
+                                            ? getShellNameFromPath(defaultShellPath ?? systemShellPath ?? "")
+                                            : defaultShellSummary}
+                                    </span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                {shells.map((shell) => (
+                                    <DropdownMenuItem
+                                        key={shell.path}
+                                        onClick={() => onNewTab("shell", shell.path)}
+                                    >
+                                        <Terminal className="mr-2 h-4 w-4" />
+                                        {getShellDisplayName(shell)}
+                                    </DropdownMenuItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    )}
+                </>
+            )}
             <Button
                 variant="ghost"
                 size="icon-xs"
@@ -236,31 +314,6 @@ export function TabBar({
             >
                 <Globe className="h-3.5 w-3.5" />
             </Button>
-            {shells.length > 0 && (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label="New terminal tab"
-                            tooltip="New terminal tab"
-                        >
-                            <Plus className="h-4 w-4" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                        {shells.map((shell) => (
-                            <DropdownMenuItem
-                                key={shell.path}
-                                onClick={() => onNewTab("shell", shell.path)}
-                            >
-                                <Terminal className="mr-2 h-4 w-4" />
-                                {shell.name.charAt(0).toUpperCase() + shell.name.slice(1)}
-                            </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            )}
             {tabs.map((tab) => (
                 <TabItem
                     key={tab.id}

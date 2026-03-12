@@ -7,6 +7,7 @@ export interface GeneralSettings {
 export interface TerminalSettings {
     fontFamily: string;
     fontSize: number;
+    defaultShell: string;
 }
 
 export interface EditorSettings {

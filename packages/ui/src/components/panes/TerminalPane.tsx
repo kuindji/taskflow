@@ -18,6 +18,21 @@ import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
+/** Typed access to xterm.js internal viewport for forced sync. */
+interface XtermViewport {
+    _lastRecordedViewportHeight: number;
+    _lastRecordedBufferHeight: number;
+    syncScrollArea(immediate: boolean): void;
+}
+
+interface XtermCore {
+    viewport?: XtermViewport;
+}
+
+interface TerminalWithCore extends Terminal {
+    _core?: XtermCore;
+}
+
 const SHELL_UNSAFE = /[^a-zA-Z0-9_./:@=+-]/;
 
 function shellQuote(path: string): string {
@@ -280,7 +295,29 @@ async function handlePathActivation(
     }
 }
 
-function fitTerminal(fit: FitAddon, term: Terminal, forceViewportRecalc = false): FitResult {
+/**
+ * Force xterm's Viewport to immediately re-sync its scroll area with the DOM.
+ *
+ * During `display:none`, Viewport._innerRefresh() caches stale measurements
+ * (_lastRecordedViewportHeight = 0 from offsetHeight). syncScrollArea()'s
+ * early-return checks then prevent _innerRefresh from re-running because the
+ * cols-only resize cycle doesn't trip any of the four guards (buffer length,
+ * viewport height, scroll position, cell height).
+ *
+ * By invalidating the cached heights and calling syncScrollArea(true), we
+ * force an immediate _innerRefresh() that reads correct DOM measurements,
+ * sets the proper scroll area height, and updates scrollTop. The immediate
+ * mode also prevents rAF-based races during window resize.
+ */
+function forceViewportSync(term: Terminal): void {
+    const viewport = (term as TerminalWithCore)._core?.viewport;
+    if (!viewport) return;
+    viewport._lastRecordedViewportHeight = 0;
+    viewport._lastRecordedBufferHeight = 0;
+    viewport.syncScrollArea(true);
+}
+
+function fitTerminal(fit: FitAddon, term: Terminal): FitResult {
     const dims = fit.proposeDimensions();
     if (!dims || isNaN(dims.cols) || isNaN(dims.rows) || dims.cols < 2 || dims.rows < 1) {
         return { measured: false, resized: false };
@@ -293,14 +330,8 @@ function fitTerminal(fit: FitAddon, term: Terminal, forceViewportRecalc = false)
     const needsResize = prevCols !== cols || prevRows !== rows;
     if (needsResize) {
         term.resize(cols, rows);
-    } else if (forceViewportRecalc) {
-        // After DOM detach/reattach or display:none toggle, xterm's internal
-        // viewport scroll height becomes stale. Force recalculation by cycling
-        // through a different size.
-        term.resize(cols + 1, rows);
-        term.resize(cols, rows);
     }
-    return { measured: true, resized: needsResize || forceViewportRecalc };
+    return { measured: true, resized: needsResize };
 }
 
 function refreshTerminal(term: Terminal): void {
@@ -514,7 +545,6 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     const visibleRef = useRef(visible);
     const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const fitFrameRef = useRef<number | null>(null);
-    const scrollFrameRef = useRef<number | null>(null);
     const resizeDebounceTimeoutRef = useRef<number | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const dragCounterRef = useRef(0);
@@ -550,15 +580,19 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
             }
-            if (scrollFrameRef.current !== null) {
-                cancelAnimationFrame(scrollFrameRef.current);
-                scrollFrameRef.current = null;
-            }
             fitFrameRef.current = requestAnimationFrame(() => {
                 fitFrameRef.current = null;
                 if (!visibleRef.current || !fitRef.current || !termRef.current) return;
+
+                // After display:none → visible, xterm's cached viewport height
+                // is stale (0). Force an immediate re-sync so scroll area and
+                // scrollTop are correct before we fit or scroll.
+                if (forceViewportRecalc) {
+                    forceViewportSync(termRef.current);
+                }
+
                 const viewportSnapshot = scrollToBottom ? null : captureViewport(termRef.current);
-                const fitResult = fitTerminal(fitRef.current, termRef.current, forceViewportRecalc);
+                const fitResult = fitTerminal(fitRef.current, termRef.current);
                 if (!fitResult.measured) {
                     if (retries > 0) {
                         scheduleFit(forceResize, focus, scrollToBottom, forceViewportRecalc, retries - 1);
@@ -570,45 +604,20 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
 
                 sendResizeIfNeeded(forceResize || fitResult.resized);
 
-                const finalize = () => {
-                    if (!termRef.current) return;
-                    // After display:none recovery, force browser to recalculate
-                    // scroll dimensions before any scroll operations so scrollTop
-                    // isn't clamped to a stale scrollHeight.
-                    if (forceViewportRecalc) {
-                        const viewportEl = termRef.current.element?.querySelector('.xterm-viewport');
-                        if (viewportEl) void (viewportEl as HTMLElement).scrollHeight;
-                    }
-                    if (scrollToBottom) {
-                        termRef.current.scrollToBottom();
-                    } else if (viewportSnapshot) {
-                        restoreViewport(termRef.current, viewportSnapshot);
-                    }
-                    refreshTerminal(termRef.current);
-                    if (focus) termRef.current.focus();
-                };
-
-                if (forceViewportRecalc) {
-                    // After display:none → visible recovery, the browser needs
-                    // multiple layout passes before scroll positions are reliable.
-                    // Frame 2: force DOM viewport scroll sync so the browser
-                    // recalculates scroll dimensions with correct metrics.
-                    scrollFrameRef.current = requestAnimationFrame(() => {
-                        if (!termRef.current) { scrollFrameRef.current = null; return; }
-                        const vp = termRef.current.element?.querySelector('.xterm-viewport') as HTMLElement | null;
-                        if (vp) {
-                            void vp.scrollHeight;          // force reflow
-                            vp.scrollTop = vp.scrollHeight; // sync DOM to bottom
-                        }
-                        // Frame 3: now scroll state is reliable — finalize.
-                        scrollFrameRef.current = requestAnimationFrame(() => {
-                            scrollFrameRef.current = null;
-                            finalize();
-                        });
-                    });
-                } else {
-                    finalize();
+                // After any resize, force immediate viewport sync to prevent
+                // rAF races between our scroll restore and xterm's internal
+                // _innerRefresh (which is deferred via rAF by default).
+                if (fitResult.resized) {
+                    forceViewportSync(termRef.current);
                 }
+
+                if (scrollToBottom) {
+                    termRef.current.scrollToBottom();
+                } else if (viewportSnapshot) {
+                    restoreViewport(termRef.current, viewportSnapshot);
+                }
+                refreshTerminal(termRef.current);
+                if (focus) termRef.current.focus();
             });
         },
         [sendResizeIfNeeded],
@@ -670,10 +679,6 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
                 fitFrameRef.current = null;
-            }
-            if (scrollFrameRef.current !== null) {
-                cancelAnimationFrame(scrollFrameRef.current);
-                scrollFrameRef.current = null;
             }
             if (resizeDebounceTimeoutRef.current !== null) {
                 window.clearTimeout(resizeDebounceTimeoutRef.current);

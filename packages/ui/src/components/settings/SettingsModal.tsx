@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
     Dialog,
     DialogContent,
@@ -17,6 +17,9 @@ import {
 } from "@/components/ui/select";
 import { useUIStore } from "@/stores/ui-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { sendRequest } from "@/hooks/useWebSocket";
+import { getShellDisplayName, getTerminalShellSummary, isConfiguredShellAvailable } from "@/lib/terminal-shells";
+import { DEFAULT_TERMINAL_SHELL, MSG, type ShellInfo, type ShellListResponse } from "@taskflow/shared";
 import { FontFamilySelect } from "./FontFamilySelect";
 
 const EDITOR_OPTIONS = [
@@ -36,6 +39,23 @@ function SettingsModal() {
     const toggleSettings = useUIStore((s) => s.toggleSettings);
     const settings = useSettingsStore((s) => s.settings);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
+    const [shells, setShells] = useState<ShellInfo[]>([]);
+    const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!open) return;
+
+        sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {}).then(
+            (response) => {
+                setShells(response.shells);
+                setSystemShellPath(response.systemShellPath);
+            },
+            () => {
+                setShells([]);
+                setSystemShellPath(null);
+            },
+        );
+    }, [open]);
 
     const handleOpenChange = useCallback(
         (value: boolean) => {
@@ -78,6 +98,13 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleDefaultShell = useCallback(
+        (defaultShell: string) => {
+            void updateSettings({ terminal: { defaultShell } });
+        },
+        [updateSettings],
+    );
+
     const handleEditorFontFamily = useCallback(
         (fontFamily: string) => {
             void updateSettings({ editor: { fontFamily } });
@@ -103,6 +130,8 @@ function SettingsModal() {
     );
 
     if (!settings) return null;
+
+    const configuredShellAvailable = isConfiguredShellAvailable(shells, settings.terminal.defaultShell);
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -181,6 +210,46 @@ function SettingsModal() {
                                     className="h-8 text-sm"
                                 />
                             </div>
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">
+                                Default shell for new terminal tabs
+                            </Label>
+                            <Select
+                                value={
+                                    configuredShellAvailable
+                                        ? settings.terminal.defaultShell
+                                        : "__missing__"
+                                }
+                                onValueChange={handleDefaultShell}
+                            >
+                                <SelectTrigger className="w-full h-8 text-sm">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value={DEFAULT_TERMINAL_SHELL}>
+                                        {getTerminalShellSummary(
+                                            shells,
+                                            systemShellPath,
+                                            DEFAULT_TERMINAL_SHELL,
+                                        )}
+                                    </SelectItem>
+                                    {shells.map((shell) => (
+                                        <SelectItem key={shell.path} value={shell.path}>
+                                            {getShellDisplayName(shell)}
+                                        </SelectItem>
+                                    ))}
+                                    {!configuredShellAvailable && (
+                                        <SelectItem value="__missing__" disabled>
+                                            {getTerminalShellSummary(
+                                                shells,
+                                                systemShellPath,
+                                                settings.terminal.defaultShell,
+                                            )}
+                                        </SelectItem>
+                                    )}
+                                </SelectContent>
+                            </Select>
                         </div>
                     </section>
                     <section className="space-y-3">

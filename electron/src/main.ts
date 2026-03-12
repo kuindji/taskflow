@@ -160,6 +160,7 @@ async function createWindow() {
         minWidth: 800,
         minHeight: 600,
         titleBarStyle: "hiddenInset",
+        backgroundColor: "#00000000",
         vibrancy: "under-window",
         visualEffectState: "active",
         webPreferences: {

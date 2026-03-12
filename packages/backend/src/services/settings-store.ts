@@ -3,6 +3,7 @@ import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
     DEFAULT_TERMINAL_FONT_FAMILY,
+    DEFAULT_TERMINAL_SHELL,
 } from "@taskflow/shared";
 import type { AppSettings, SettingsUpdatePayload } from "@taskflow/shared";
 
@@ -15,6 +16,7 @@ const DEFAULTS: AppSettings = {
     terminal: {
         fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
         fontSize: 13,
+        defaultShell: DEFAULT_TERMINAL_SHELL,
     },
     editor: {
         fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
