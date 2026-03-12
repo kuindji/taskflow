@@ -1,7 +1,11 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, afterEach, describe, expect, it } from "bun:test";
 import { MSG, type WsEvent } from "@taskflow/shared";
 import { ApiRouter } from "../../src/api/router";
 import { registerApiRoutes } from "../../src/api/routes";
+import { SettingsStore } from "../../src/services/settings-store";
+import { mkdtemp, rm } from "fs/promises";
+import { join } from "path";
+import { tmpdir } from "os";
 
 class FakePtyManager {
     constructor(private readonly activeSessionIds = new Set<string>()) {}
@@ -16,8 +20,10 @@ class FakePtyManager {
 describe("api routes", () => {
     let apiRouter: ApiRouter;
     let events: WsEvent[];
+    let tempDir: string;
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-routes-"));
         apiRouter = new ApiRouter();
         events = [];
         registerApiRoutes({
@@ -27,7 +33,12 @@ describe("api routes", () => {
             broadcast: (event) => {
                 events.push(event);
             },
+            settingsStore: new SettingsStore(join(tempDir, "settings.json")),
         });
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, { recursive: true, force: true });
     });
 
     it("broadcasts explicit session status updates", async () => {
@@ -77,5 +88,66 @@ describe("api routes", () => {
                 payload: { projectId: "project-1", url: "https://example.com", label: "Docs" },
             },
         ]);
+    });
+});
+
+describe("settings routes", () => {
+    let apiRouter: ApiRouter;
+    let tempDir: string;
+    let settingsStore: SettingsStore;
+
+    beforeEach(async () => {
+        tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-settings-"));
+        settingsStore = new SettingsStore(join(tempDir, "settings.json"));
+        apiRouter = new ApiRouter();
+        registerApiRoutes({
+            apiRouter,
+            taskStore: {} as never,
+            ptyManager: new FakePtyManager() as never,
+            broadcast: () => {},
+            settingsStore,
+        });
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("GET /api/settings returns defaults", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/settings", { method: "GET" }),
+        );
+        expect(response?.status).toBe(200);
+        const body = await response!.json();
+        expect(body.layout.window.width).toBe(1400);
+        expect(body.layout.panels.sidebarWidth).toBe(220);
+    });
+
+    it("PATCH /api/settings updates and returns full settings", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/settings", {
+                method: "PATCH",
+                body: JSON.stringify({
+                    layout: { window: { width: 1600, height: 1000 } },
+                }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+        expect(response?.status).toBe(200);
+        const body = await response!.json();
+        expect(body.layout.window.width).toBe(1600);
+        expect(body.layout.window.height).toBe(1000);
+        expect(body.layout.window.isMaximized).toBe(false);
+    });
+
+    it("PATCH /api/settings rejects invalid JSON", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/settings", {
+                method: "PATCH",
+                body: "not json",
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+        expect(response?.status).toBe(400);
     });
 });

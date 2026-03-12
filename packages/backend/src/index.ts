@@ -86,6 +86,7 @@ async function main() {
             taskStore: store,
             ptyManager,
             broadcast: server.broadcast,
+            settingsStore,
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {

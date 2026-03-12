@@ -1,7 +1,8 @@
 import type { ApiRouter } from "./router";
 import type { TaskStore } from "../services/task-store";
 import type { PtyManager } from "../services/pty-manager";
-import type { SessionStatus, Task, TaskLogEntryType, WsEvent } from "@taskflow/shared";
+import type { SettingsStore } from "../services/settings-store";
+import type { SessionStatus, Task, TaskLogEntryType, WsEvent, SettingsUpdatePayload } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 
 interface ApiRouteDeps {
@@ -9,6 +10,7 @@ interface ApiRouteDeps {
     taskStore: TaskStore;
     ptyManager: PtyManager;
     broadcast: (event: WsEvent) => void;
+    settingsStore: SettingsStore;
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -23,7 +25,7 @@ function errorResponse(message: string, status: number): Response {
 }
 
 export function registerApiRoutes(deps: ApiRouteDeps): void {
-    const { apiRouter, taskStore, ptyManager, broadcast } = deps;
+    const { apiRouter, taskStore, ptyManager, broadcast, settingsStore } = deps;
     const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention"]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
@@ -215,5 +217,19 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
         ptyManager.close(sessionId);
         return jsonResponse({ success: true });
+    });
+
+    apiRouter.register("GET", "/api/settings", async () => {
+        return jsonResponse(await settingsStore.get());
+    });
+
+    apiRouter.register("PATCH", "/api/settings", async (req) => {
+        let body: SettingsUpdatePayload;
+        try {
+            body = (await req.json()) as SettingsUpdatePayload;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+        return jsonResponse(await settingsStore.update(body));
     });
 }
