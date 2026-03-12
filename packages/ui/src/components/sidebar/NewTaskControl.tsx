@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import type { AgentLaunchOptions } from "@taskflow/shared";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore } from "@/stores/project-store";
@@ -76,6 +77,7 @@ export function NewTaskControl({
             description: string;
             worktree: boolean;
             startWith?: "claude" | "codex";
+            agentOptions?: AgentLaunchOptions;
         }) => {
             try {
                 const task = await createTask(data);
@@ -87,6 +89,8 @@ export function NewTaskControl({
                         data.startWith,
                         undefined,
                         data.description,
+                        undefined,
+                        data.agentOptions,
                     );
                 }
             } catch (err) {
