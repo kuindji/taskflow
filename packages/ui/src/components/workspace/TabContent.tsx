@@ -5,10 +5,16 @@ import { EditorPane } from "@/components/panes/EditorPane";
 import { ChangesPane } from "@/components/panes/ChangesPane";
 import { BrowserPane } from "@/components/panes/BrowserPane";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { cn } from "@/lib/utils";
 
 interface TabContentProps {
     tabs: Tab[];
     activeTabId: string;
+}
+
+/** Tab types that stay mounted when inactive (never display:none) */
+function isAlwaysMounted(type: Tab["type"]): boolean {
+    return type === "claude" || type === "codex" || type === "shell" || type === "browser";
 }
 
 function TabContent({ tabs, activeTabId }: TabContentProps) {
@@ -25,7 +31,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
     }
 
     return (
-        <div className="m-1.5 flex flex-1 overflow-hidden rounded-md">
+        <div className="relative m-1.5 flex flex-1 overflow-hidden rounded-md">
             {tabs.map((tab) => {
                 const isActive = tab.id === activeTabId;
 
@@ -37,8 +43,9 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                     case "codex":
                     case "shell":
                         label = `${tab.type} terminal`;
-                        // Terminal panes are always mounted but hidden when inactive
-                        // so PTY output is buffered and state is preserved across tab switches
+                        // Terminal panes are always mounted and use visibility+absolute
+                        // positioning instead of display:none so xterm.js always has
+                        // valid DOM measurements for its scroll viewport.
                         pane = tab.sessionId ? (
                             <TerminalPane
                                 taskId={workspace.task?.id}
@@ -80,9 +87,24 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                         return null;
                 }
 
+                // Always-mounted tabs (terminals, browser) use absolute positioning
+                // with visibility toggle instead of display:none. This ensures xterm's
+                // viewport always has valid DOM dimensions for scroll calculations.
+                if (isAlwaysMounted(tab.type)) {
+                    return (
+                        <ErrorBoundary key={tab.id} fallbackLabel={label}>
+                            <div className={cn(
+                                "absolute inset-0 flex",
+                                isActive ? "visible z-10" : "invisible z-0 pointer-events-none",
+                            )}>{pane}</div>
+                        </ErrorBoundary>
+                    );
+                }
+
+                // Unmount-on-hide tabs (editor, changes) use normal flex layout
                 return (
                     <ErrorBoundary key={tab.id} fallbackLabel={label}>
-                        <div className="flex-1" style={{ display: isActive ? "flex" : "none" }}>{pane}</div>
+                        <div className="flex flex-1">{pane}</div>
                     </ErrorBoundary>
                 );
             })}

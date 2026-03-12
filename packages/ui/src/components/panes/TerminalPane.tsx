@@ -18,20 +18,6 @@ import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
-/** Typed access to xterm.js internal viewport for forced sync. */
-interface XtermViewport {
-    _lastRecordedViewportHeight: number;
-    _lastRecordedBufferHeight: number;
-    syncScrollArea(immediate: boolean): void;
-}
-
-interface XtermCore {
-    viewport?: XtermViewport;
-}
-
-interface TerminalWithCore extends Terminal {
-    _core?: XtermCore;
-}
 
 const SHELL_UNSAFE = /[^a-zA-Z0-9_./:@=+-]/;
 
@@ -295,28 +281,6 @@ async function handlePathActivation(
     }
 }
 
-/**
- * Force xterm's Viewport to immediately re-sync its scroll area with the DOM.
- *
- * During `display:none`, Viewport._innerRefresh() caches stale measurements
- * (_lastRecordedViewportHeight = 0 from offsetHeight). syncScrollArea()'s
- * early-return checks then prevent _innerRefresh from re-running because the
- * cols-only resize cycle doesn't trip any of the four guards (buffer length,
- * viewport height, scroll position, cell height).
- *
- * By invalidating the cached heights and calling syncScrollArea(true), we
- * force an immediate _innerRefresh() that reads correct DOM measurements,
- * sets the proper scroll area height, and updates scrollTop. The immediate
- * mode also prevents rAF-based races during window resize.
- */
-function forceViewportSync(term: Terminal): void {
-    const viewport = (term as TerminalWithCore)._core?.viewport;
-    if (!viewport) return;
-    viewport._lastRecordedViewportHeight = 0;
-    viewport._lastRecordedBufferHeight = 0;
-    viewport.syncScrollArea(true);
-}
-
 function fitTerminal(fit: FitAddon, term: Terminal): FitResult {
     const dims = fit.proposeDimensions();
     if (!dims || isNaN(dims.cols) || isNaN(dims.rows) || dims.cols < 2 || dims.rows < 1) {
@@ -576,7 +540,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     );
 
     const scheduleFit = useCallback(
-        (forceResize = false, focus = false, scrollToBottom = false, forceViewportRecalc = false, retries = 2) => {
+        (forceResize = false, focus = false, scrollToBottom = false, retries = 2) => {
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
             }
@@ -584,18 +548,11 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 fitFrameRef.current = null;
                 if (!visibleRef.current || !fitRef.current || !termRef.current) return;
 
-                // After display:none → visible, xterm's cached viewport height
-                // is stale (0). Force an immediate re-sync so scroll area and
-                // scrollTop are correct before we fit or scroll.
-                if (forceViewportRecalc) {
-                    forceViewportSync(termRef.current);
-                }
-
                 const viewportSnapshot = scrollToBottom ? null : captureViewport(termRef.current);
                 const fitResult = fitTerminal(fitRef.current, termRef.current);
                 if (!fitResult.measured) {
                     if (retries > 0) {
-                        scheduleFit(forceResize, focus, scrollToBottom, forceViewportRecalc, retries - 1);
+                        scheduleFit(forceResize, focus, scrollToBottom, retries - 1);
                     } else if (focus && termRef.current) {
                         termRef.current.focus();
                     }
@@ -603,13 +560,6 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 }
 
                 sendResizeIfNeeded(forceResize || fitResult.resized);
-
-                // After any resize, force immediate viewport sync to prevent
-                // rAF races between our scroll restore and xterm's internal
-                // _innerRefresh (which is deferred via rAF by default).
-                if (fitResult.resized) {
-                    forceViewportSync(termRef.current);
-                }
 
                 if (scrollToBottom) {
                     termRef.current.scrollToBottom();
@@ -646,7 +596,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         containerRef.current.appendChild(element);
 
         if (visible) {
-            scheduleFit(true, true, true, true);
+            scheduleFit(true, true, true);
         }
 
         // Shift+Enter → send the same escape sequence as Alt+Enter (\x1b\r)
@@ -697,7 +647,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         // Force viewport recalculation: after display:none toggle or DOM
         // detach/reattach, xterm's scroll height is stale even if dimensions
         // haven't changed.
-        scheduleFit(true, true, true, true);
+        scheduleFit(true, true, true);
     }, [visible, sessionId, scheduleFit]);
 
     // Dedicated focus effect — independent of fit/resize logic.
