@@ -12,6 +12,8 @@ export const MSG = {
     TASK_UPDATE: "task:update",
     TASK_UPDATED: "task:updated",
     TASK_ARCHIVE: "task:archive",
+    TASK_UNARCHIVE: "task:unarchive",
+    TASK_LIST_ARCHIVED: "task:list-archived",
     TASK_DELETE: "task:delete",
     TASK_LOG_LIST: "task:log-list",
     TASK_LOG_ADDED: "task:log-added",
@@ -44,6 +46,9 @@ export const MSG = {
     GIT_DIFF_FILE: "git:diff-file",
     GIT_REVERT_FILE: "git:revert-file",
     GIT_WORKTREE_CREATE: "git:worktree-create",
+    GIT_COMMIT: "git:commit",
+    GIT_GENERATE_COMMIT_MSG: "git:generate-commit-msg",
+    GIT_CREATE_PR: "git:create-pr",
 
     // Browser
     BROWSER_OPEN: "browser:open",

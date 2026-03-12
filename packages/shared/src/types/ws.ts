@@ -70,6 +70,10 @@ export interface TaskArchivePayload {
     id: string;
 }
 
+export interface TaskUnarchivePayload {
+    id: string;
+}
+
 export interface TaskDeletePayload {
     id: string;
 }
@@ -237,6 +241,27 @@ export interface GitWorktreeCreatePayload {
     repoPath: string;
     branch: string;
     path: string;
+}
+
+export interface GitCommitPayload {
+    path: string;
+    message: string;
+    push: boolean;
+}
+
+export interface GitCommitResult {
+    hash: string;
+    message: string;
+}
+
+export interface GitCreatePrPayload {
+    path: string;
+    title: string;
+    body?: string;
+}
+
+export interface GitCreatePrResult {
+    url: string;
 }
 
 // Browser messages
