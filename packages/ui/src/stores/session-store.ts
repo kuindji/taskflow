@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+    AgentLaunchOptions,
     SessionRef,
     Task,
     BrowserOpenPayload,
@@ -35,6 +36,7 @@ interface SessionStore {
         label?: string,
         prompt?: string,
         shell?: string,
+        agentOptions?: AgentLaunchOptions,
     ): Promise<string>;
     closeSession(sessionId: string): Promise<void>;
     sendInput(sessionId: string, data: string): void;
@@ -110,7 +112,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     activeTabByWorkspace: {},
     sessionStatus: {},
     lastTerminalSize: null,
-    async createSession(owner, type, label, prompt, shell) {
+    async createSession(owner, type, label, prompt, shell, agentOptions) {
         const ownerId = owner.taskId ?? owner.projectId;
         if (!ownerId) throw new Error("Either taskId or projectId is required");
         const lastTerminalSize = get().lastTerminalSize;
@@ -122,6 +124,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             shell,
             cols: lastTerminalSize?.cols,
             rows: lastTerminalSize?.rows,
+            agentOptions,
         });
         const tab: Tab = { id: sessionId, type, label: normalizeSessionLabel(type, label), sessionId };
         const workspaceKey = owner.taskId
