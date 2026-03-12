@@ -77,7 +77,7 @@
     --warning-foreground: #1e1e2e;
     --info: #89b4fa;
     --info-foreground: #1e1e2e;
-    --island-base: transparent;
+    --island-base: rgba(24, 24, 37, 0.5);
 }
 
 body {

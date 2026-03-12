@@ -370,10 +370,10 @@ function getCssVar(name: string): string {
 
 function getTerminalTheme(): Record<string, string> {
     return {
-        background: getCssVar("--background"),
+        background: getCssVar("--card"),
         foreground: getCssVar("--foreground"),
         cursor: "#f5e0dc",
-        cursorAccent: getCssVar("--background"),
+        cursorAccent: getCssVar("--card"),
         selectionBackground: getCssVar("--muted"),
         black: getCssVar("--muted"),
         red: getCssVar("--destructive"),

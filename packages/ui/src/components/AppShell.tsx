@@ -71,7 +71,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
         <div className="bg-island-base flex h-screen flex-col overflow-hidden">
             <div className="flex flex-1 overflow-hidden" style={{ padding: panelGap }}>
                 <div
-                    className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50"
+                    className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50 shadow-lg shadow-black/20"
                     style={{
                         width: sidebarWidth,
                         ...(isElectron ? { WebkitAppRegion: "drag" } as React.CSSProperties : {}),
@@ -84,7 +84,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
 
                 {fileExplorerOpen && (
                     <div
-                        className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50"
+                        className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50 shadow-lg shadow-black/20"
                         style={{ width: fileExplorerWidth }}
                     >
                         {fileExplorer}
@@ -95,7 +95,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
                     <ResizeHandle onResize={handleFileExplorerResize} onResizeEnd={handleResizeEnd} panelGap={panelGap} />
                 )}
 
-                <div className="bg-card flex flex-1 flex-col overflow-hidden rounded-lg border border-border/50">
+                <div className="bg-card flex flex-1 flex-col overflow-hidden rounded-lg border border-border/50 shadow-lg shadow-black/20">
                     {workspace}
                 </div>
 
@@ -105,7 +105,7 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
 
                 {taskInfoOpen && (
                     <div
-                        className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50"
+                        className="bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/50 shadow-lg shadow-black/20"
                         style={{ width: taskInfoWidth }}
                     >
                         {taskInfo}
