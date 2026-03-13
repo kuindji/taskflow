@@ -140,11 +140,11 @@ Overrides are applied as a final spread: `{ ...derived, ...theme.overrides }`.
 
 ### xterm.js Theme
 
-Direct passthrough of all 20 terminal colors into the xterm.js `ITheme` object. The `getTerminalTheme()` function in TerminalPane must be **rewritten** to accept the resolved theme object directly rather than reading CSS vars. The current implementation reads a mix of CSS vars and hardcoded Catppuccin hex values — all hardcoded values must be removed. The `useTheme` hook provides the resolved xterm theme object via a store or context.
+Direct passthrough of all 20 terminal colors into the xterm.js `ITheme` object, plus `cursorAccent` mapped to `colors.background`. The `getTerminalTheme()` function in TerminalPane must be **rewritten** to accept the resolved theme object directly rather than reading CSS vars. The current implementation reads a mix of CSS vars and hardcoded Catppuccin hex values — all hardcoded values must be removed. The `useTheme` hook provides the resolved xterm theme object via a store or context.
 
 ### Monaco Editor Theme
 
-Registered once at app startup via `monaco.editor.defineTheme("taskflow", { ... })` before any editor instance is created. The theme name `"taskflow"` is used in all `monaco.editor.create()` calls instead of `"vs-dark"`. When the active theme changes, `useTheme` calls `monaco.editor.defineTheme("taskflow", { ... })` with the new colors followed by `monaco.editor.setTheme("taskflow")` — this is a global call that updates all existing editor instances.
+Registered at module load time (top-level in a `monaco-setup.ts` file or similar, not inside a hook or effect) with Catppuccin Mocha defaults via `monaco.editor.defineTheme("taskflow", { ... })`. This ensures the theme exists before any `EditorPane` mounts. The theme name `"taskflow"` is used in all `monaco.editor.create()` calls instead of `"vs-dark"`. When the active theme changes, `useTheme` calls `monaco.editor.defineTheme("taskflow", { ... })` with the new colors followed by `monaco.editor.setTheme("taskflow")` — this is a global call that updates all existing editor instances.
 
 Maps:
 - Editor background/foreground from theme background/foreground
@@ -152,7 +152,9 @@ Maps:
 
 ### Utilities
 
-One small utility: `lighten(hex, amount)` for `--border` derivation. No external dependencies.
+Small color utilities, no external dependencies:
+- `lighten(hex, amount)` — for `--border` derivation (lighten selection ~10%)
+- `hexToRgba(hex, alpha)` — for `--island-base` derivation (background at 50% opacity, output as `rgba()` string)
 
 ## Appearance Dialog
 
@@ -193,9 +195,10 @@ Click-to-apply with no revert. Clicking a theme immediately:
 - Update `SettingsStore.update()` merge logic to handle the new `appearance` field
 
 ### Backend (`packages/backend`)
-- `config.ts` — add `themesDir: join(CONFIG_DIR, "themes")`
+- `config.ts` — add `themesDir: join(CONFIG_DIR, "themes")` and add it to `ensureDirectories()`
 - New `ThemeService` — loads bundled themes, scans user themes dir, handles parsing
-- New WebSocket messages: `THEMES_LIST`, `THEME_IMPORT`, `THEME_DOWNLOAD`
+- New WebSocket messages added to `MSG` constants in `packages/shared/src/constants.ts`: `THEMES_LIST`, `THEME_IMPORT`, `THEME_DOWNLOAD`
+- Corresponding payload/response types added to `packages/shared/src/types/ws.ts`
 - Active theme name persisted via existing `SETTINGS_UPDATE` flow
 
 ### App Root (`packages/ui/src/App.tsx`)
