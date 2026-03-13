@@ -197,6 +197,10 @@ export class ThemeService {
     }
 
     async importFromFile(filePath: string): Promise<ThemeRecord> {
+        if (!isAbsolute(filePath)) {
+            throw new Error("File path must be absolute");
+        }
+
         const content = await readFile(filePath, "utf-8");
         const ext = extname(filePath).toLowerCase();
         const baseName = filePath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "Imported Theme";
@@ -211,14 +215,14 @@ export class ThemeService {
             try {
                 const parsed: unknown = JSON.parse(content);
                 if (typeof parsed === "object" && parsed !== null && "colors" in parsed) {
-                    // Looks like a ThemeSource
                     const obj = parsed as Record<string, unknown>;
+                    // Construct candidate and let save()'s isValidThemeSource check validate it
                     theme = {
                         version: 1,
                         name: typeof obj.name === "string" ? obj.name : baseName,
-                        origin: "imported",
-                        colors: obj.colors,
-                    } as ThemeSource;
+                        origin: "imported" as const,
+                        colors: obj.colors as ThemeSource["colors"],
+                    };
                 }
             } catch {
                 // Invalid JSON

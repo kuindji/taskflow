@@ -212,4 +212,4 @@ async function parseIterm2(): Promise<ThemeSource[]> {
     }
 }
 
-export { parseIterm2Xml, detectIterm2, parseIterm2, componentToHex, extractColor };
+export { parseIterm2Xml, detectIterm2, parseIterm2 };

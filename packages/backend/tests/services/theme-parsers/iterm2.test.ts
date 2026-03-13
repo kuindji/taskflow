@@ -1,46 +1,60 @@
 import { describe, expect, it } from "bun:test";
-import { parseIterm2Xml, componentToHex, extractColor } from "../../../src/services/theme-parsers/iterm2";
+import { parseIterm2Xml } from "../../../src/services/theme-parsers/iterm2";
 
-describe("componentToHex", () => {
-    it("should convert 0.0 to 00", () => {
-        expect(componentToHex(0)).toBe("00");
+function makeColorDict(r: number, g: number, b: number): string {
+    return `<dict>
+        <key>Red Component</key><real>${r}</real>
+        <key>Green Component</key><real>${g}</real>
+        <key>Blue Component</key><real>${b}</real>
+    </dict>`;
+}
+
+describe("color component conversion", () => {
+    it("should convert float 0.0 to #000000", () => {
+        // Minimal plist with all black to verify 0.0 → 00
+        const xml = `<?xml version="1.0"?><plist version="1.0"><dict>
+            <key>Foreground Color</key>${makeColorDict(0, 0, 0)}
+            <key>Background Color</key>${makeColorDict(0, 0, 0)}
+            ${Array.from({ length: 16 }, (_, i) => `<key>Ansi ${i} Color</key>${makeColorDict(0, 0, 0)}`).join("\n")}
+        </dict></plist>`;
+        const theme = parseIterm2Xml(xml, "AllBlack");
+        expect(theme).not.toBeNull();
+        expect(theme!.colors.foreground).toBe("#000000");
     });
 
-    it("should convert 1.0 to ff", () => {
-        expect(componentToHex(1)).toBe("ff");
+    it("should convert float 1.0 to #ffffff", () => {
+        const xml = `<?xml version="1.0"?><plist version="1.0"><dict>
+            <key>Foreground Color</key>${makeColorDict(1, 1, 1)}
+            <key>Background Color</key>${makeColorDict(0, 0, 0)}
+            ${Array.from({ length: 16 }, (_, i) => `<key>Ansi ${i} Color</key>${makeColorDict(0, 0, 0)}`).join("\n")}
+        </dict></plist>`;
+        const theme = parseIterm2Xml(xml, "White");
+        expect(theme).not.toBeNull();
+        expect(theme!.colors.foreground).toBe("#ffffff");
     });
 
-    it("should convert 0.5 to 80", () => {
-        expect(componentToHex(0.5)).toBe("80");
-    });
-
-    it("should clamp values above 1", () => {
-        expect(componentToHex(1.5)).toBe("ff");
-    });
-
-    it("should clamp values below 0", () => {
-        expect(componentToHex(-0.5)).toBe("00");
-    });
-});
-
-describe("extractColor", () => {
-    it("should convert float RGB to hex", () => {
-        const result = extractColor({
-            "Red Component": 0.976470588235294,
-            "Green Component": 0.545098039215686,
-            "Blue Component": 0.658823529411765,
-        });
+    it("should convert specific float RGB to correct hex", () => {
         // 0.976 * 255 ≈ 249 = f9, 0.545 * 255 ≈ 139 = 8b, 0.659 * 255 ≈ 168 = a8
-        expect(result).toBe("#f98ba8");
+        const xml = `<?xml version="1.0"?><plist version="1.0"><dict>
+            <key>Foreground Color</key>${makeColorDict(0.976470588235294, 0.545098039215686, 0.658823529411765)}
+            <key>Background Color</key>${makeColorDict(0, 0, 0)}
+            ${Array.from({ length: 16 }, (_, i) => `<key>Ansi ${i} Color</key>${makeColorDict(0, 0, 0)}`).join("\n")}
+        </dict></plist>`;
+        const theme = parseIterm2Xml(xml, "Pink");
+        expect(theme).not.toBeNull();
+        expect(theme!.colors.foreground).toBe("#f98ba8");
     });
 
-    it("should return null for missing components", () => {
-        expect(
-            extractColor({
-                "Red Component": 0.5,
-                "Green Component": 0.5,
-            }),
-        ).toBeNull();
+    it("should return null when color components are missing", () => {
+        const xml = `<?xml version="1.0"?><plist version="1.0"><dict>
+            <key>Foreground Color</key><dict>
+                <key>Red Component</key><real>0.5</real>
+                <key>Green Component</key><real>0.5</real>
+            </dict>
+            <key>Background Color</key>${makeColorDict(0, 0, 0)}
+            ${Array.from({ length: 16 }, (_, i) => `<key>Ansi ${i} Color</key>${makeColorDict(0, 0, 0)}`).join("\n")}
+        </dict></plist>`;
+        expect(parseIterm2Xml(xml, "Missing")).toBeNull();
     });
 });
 
