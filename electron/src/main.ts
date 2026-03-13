@@ -224,33 +224,41 @@ async function createWindow() {
 
 let isCheckingForUpdates = false;
 
-function checkForUpdatesManually() {
+async function checkForUpdatesManually() {
     if (isCheckingForUpdates) return;
     isCheckingForUpdates = true;
 
-    const onNotAvailable = () => {
+    const cleanup = () => {
         isCheckingForUpdates = false;
+        clearTimeout(timeout);
+    };
+
+    const timeout = setTimeout(() => {
+        isCheckingForUpdates = false;
+    }, 15_000);
+
+    try {
+        const result = await autoUpdater.checkForUpdates();
+        cleanup();
+
+        if (!result || result.updateInfo.version === app.getVersion()) {
+            void dialog.showMessageBox({
+                type: "info",
+                title: "No Updates",
+                message: "You're up to date!",
+                detail: `Taskflow ${app.getVersion()} is the latest version.`,
+            });
+        }
+    } catch (err) {
+        cleanup();
+        const message = err instanceof Error ? err.message : String(err);
         void dialog.showMessageBox({
-            type: "info",
-            title: "No Updates",
-            message: "You're up to date!",
-            detail: `Taskflow ${app.getVersion()} is the latest version.`,
+            type: "error",
+            title: "Update Check Failed",
+            message: "Could not check for updates.",
+            detail: message,
         });
-    };
-
-    const onAvailable = () => {
-        isCheckingForUpdates = false;
-    };
-
-    const onError = () => {
-        isCheckingForUpdates = false;
-    };
-
-    autoUpdater.once("update-not-available", onNotAvailable);
-    autoUpdater.once("update-available", onAvailable);
-    autoUpdater.once("error", onError);
-
-    void autoUpdater.checkForUpdates();
+    }
 }
 
 function buildAppMenu() {
@@ -262,7 +270,7 @@ function buildAppMenu() {
                 { type: "separator" },
                 {
                     label: "Check for Updates…",
-                    click: checkForUpdatesManually,
+                    click: () => { void checkForUpdatesManually(); },
                 },
                 { type: "separator" },
                 { role: "services" },
@@ -369,7 +377,9 @@ function setupAutoUpdater() {
         console.error("[updater] Error:", err.message);
     });
 
-    void autoUpdater.checkForUpdates();
+    autoUpdater.checkForUpdates().catch((err: unknown) => {
+        console.error("[updater] Startup check failed:", err);
+    });
 }
 
 void app.whenReady().then(async () => {
