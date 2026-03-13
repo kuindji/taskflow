@@ -52,6 +52,8 @@ export const MSG = {
     GIT_DIFF: "git:diff",
     GIT_DIFF_FILE: "git:diff-file",
     GIT_REVERT_FILE: "git:revert-file",
+    GIT_STAGE: "git:stage",
+    GIT_UNSTAGE: "git:unstage",
     GIT_WORKTREE_CREATE: "git:worktree-create",
     GIT_COMMIT: "git:commit",
     GIT_PUSH: "git:push",

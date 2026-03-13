@@ -3,11 +3,13 @@ export interface GitFileStatus {
     absolutePath?: string;
     previousPath?: string;
     status: "new" | "modified" | "deleted" | "untracked" | "renamed";
+    staged: boolean;
 }
 
 export interface GitStatusResult {
     branch: string | null;
-    files: GitFileStatus[];
+    stagedFiles: GitFileStatus[];
+    unstagedFiles: GitFileStatus[];
     ahead: number;
 }
 
@@ -20,4 +22,5 @@ export interface GitDiffFile {
     additions: number;
     deletions: number;
     diff: string;
+    staged: boolean;
 }

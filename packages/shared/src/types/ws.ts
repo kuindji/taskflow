@@ -256,7 +256,8 @@ export interface GitDiffFilePayload {
 }
 
 export interface GitDiffFileResponse {
-    diff: string;
+    staged?: string;
+    unstaged?: string;
 }
 
 export interface GitRevertFilePayload {
@@ -272,15 +273,31 @@ export interface GitWorktreeCreatePayload {
     path: string;
 }
 
+export interface GitStagePayload {
+    repoPath: string;
+    filePath?: string;
+}
+
+export interface GitUnstagePayload {
+    repoPath: string;
+    filePath?: string;
+}
+
 export interface GitCommitPayload {
     path: string;
     message: string;
     push: boolean;
+    includeUnstaged?: boolean;
 }
 
 export interface GitCommitResult {
     hash: string;
     message: string;
+}
+
+export interface GitGenerateCommitMsgPayload {
+    path: string;
+    includeUnstaged?: boolean;
 }
 
 export interface GitPushPayload {
