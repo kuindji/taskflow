@@ -21,7 +21,7 @@ interface ThemeStore {
     themes: ThemeRecord[];
     activeThemeId: string;
     resolved: ResolvedTheme;
-    fetchThemes(): Promise<void>;
+    fetchThemes(options?: { preferredThemeId?: string }): Promise<void>;
     activateTheme(themeId: string): Promise<void>;
     importTheme(theme: ThemeSource): Promise<void>;
     importThemeFile(path: string): Promise<void>;
@@ -56,13 +56,16 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     activeThemeId: defaultRecord.id,
     resolved: defaultResolved,
 
-    async fetchThemes() {
+    async fetchThemes(options) {
         try {
             const { themes } = await sendRequest<ThemeListResponse>(MSG.THEMES_LIST);
 
-            // Prefer persisted settings when available, but preserve the live
-            // selection across reconnects if settings are temporarily unavailable.
+            const preferredThemeId =
+                options?.preferredThemeId && themes.some((t) => t.id === options.preferredThemeId)
+                    ? options.preferredThemeId
+                    : null;
             const activeThemeId =
+                preferredThemeId ??
                 useSettingsStore.getState().settings?.appearance?.theme ??
                 get().activeThemeId ??
                 DEFAULT_THEME_ID;

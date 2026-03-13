@@ -14,7 +14,7 @@ function AppearanceDialog() {
 
     useEffect(() => {
         if (open) {
-            void fetchThemes();
+            void fetchThemes({ preferredThemeId: useThemeStore.getState().activeThemeId });
         }
     }, [open, fetchThemes]);
 
