@@ -56,10 +56,13 @@
 - `packages/backend/tests/services/theme-parsers/alacritty.test.ts`
 - `packages/backend/tests/services/theme-parsers/ghostty.test.ts`
 - `packages/backend/tests/services/theme-parsers/kitty.test.ts`
+- `packages/backend/tests/services/theme-parsers/warp.test.ts`
+- `packages/backend/tests/services/theme-parsers/iterm2.test.ts`
+- `packages/backend/tests/services/theme-parsers/terminal-app.test.ts`
 
 ### Modified Files
 
-- `packages/shared/src/types/settings.ts` — add `AppearanceSettings`, update `AppSettings` and `SettingsUpdatePayload`
+- `packages/shared/src/types/settings.ts` — add appearance section to `AppSettings` and `SettingsUpdatePayload` (no separate named interface needed — inline `{ theme: string }` matches the pattern of other settings sections)
 - `packages/shared/src/constants.ts` — add `THEMES_LIST`, `THEME_IMPORT_SCAN`, `THEME_IMPORT`, `THEME_BROWSE_LIST`, `THEME_DOWNLOAD`, `THEME_DELETE` to `MSG`; add `DEFAULT_THEME_ID`
 - `packages/shared/src/types/ws.ts` — add theme WebSocket payload/response types
 - `packages/shared/src/index.ts` — add theme exports
@@ -222,21 +225,25 @@ git commit -m "feat: add theme type definitions"
 - Modify: `packages/shared/src/types/settings.ts`
 - Modify: `packages/shared/src/constants.ts`
 
-- [ ] **Step 1: Add AppearanceSettings and update AppSettings**
+- [ ] **Step 1: Update AppSettings and SettingsUpdatePayload**
 
-In `packages/shared/src/types/settings.ts`, add:
+In `packages/shared/src/types/settings.ts`, add the `appearance` section inline (matching the pattern of other sections like `general`, `terminal`, `editor` — they are all inline, not separate named interfaces):
 
+Add to `AppSettings` interface:
 ```typescript
-interface AppearanceSettings {
+appearance: {
     theme: string;
-}
+};
 ```
 
-Add `appearance: AppearanceSettings` to `AppSettings` interface.
+Add to `SettingsUpdatePayload` interface:
+```typescript
+appearance?: {
+    theme?: string;
+};
+```
 
-Add `appearance?: Partial<AppearanceSettings>` to `SettingsUpdatePayload` interface.
-
-`appearance.theme` stores the canonical theme id/slug (for example `catppuccin-mocha`), not the display name.
+`appearance.theme` stores the canonical theme id/slug (for example `catppuccin-mocha`), not the display name. Do **not** export a separate `AppearanceSettings` interface — it's only used here.
 
 - [ ] **Step 2: Add theme messages and default to constants**
 
@@ -283,6 +290,7 @@ export interface OnlineThemeRecord {
     name: string;
     author?: string;
     downloadUrl: string;
+    installed: boolean;
 }
 
 export interface ThemeBrowseListResponse {
@@ -686,7 +694,187 @@ Each file follows the `ThemeSource` format. Example for Catppuccin Mocha:
 }
 ```
 
-Create similar files for Dracula, Nord, Gruvbox Dark, Tokyo Night, Solarized Dark using their official terminal color palettes. Research correct hex values from each project's official docs/repos.
+Create the remaining 5 theme files with these exact colors (sourced from each project's official repos):
+
+**Dracula** (`dracula.json`):
+```json
+{
+    "version": 1,
+    "name": "Dracula",
+    "author": "Dracula Theme",
+    "origin": "bundled",
+    "colors": {
+        "foreground": "#f8f8f2",
+        "background": "#282a36",
+        "cursor": "#f8f8f2",
+        "cursorText": "#282a36",
+        "selection": "#44475a",
+        "selectionText": "#f8f8f2",
+        "ansi": {
+            "black": "#21222c",
+            "red": "#ff5555",
+            "green": "#50fa7b",
+            "yellow": "#f1fa8c",
+            "blue": "#bd93f9",
+            "magenta": "#ff79c6",
+            "cyan": "#8be9fd",
+            "white": "#f8f8f2",
+            "brightBlack": "#6272a4",
+            "brightRed": "#ff6e6e",
+            "brightGreen": "#69ff94",
+            "brightYellow": "#ffffa5",
+            "brightBlue": "#d6acff",
+            "brightMagenta": "#ff92df",
+            "brightCyan": "#a4ffff",
+            "brightWhite": "#ffffff"
+        }
+    }
+}
+```
+
+**Nord** (`nord.json`):
+```json
+{
+    "version": 1,
+    "name": "Nord",
+    "author": "Arctic Ice Studio",
+    "origin": "bundled",
+    "colors": {
+        "foreground": "#d8dee9",
+        "background": "#2e3440",
+        "cursor": "#d8dee9",
+        "cursorText": "#2e3440",
+        "selection": "#434c5e",
+        "selectionText": "#d8dee9",
+        "ansi": {
+            "black": "#3b4252",
+            "red": "#bf616a",
+            "green": "#a3be8c",
+            "yellow": "#ebcb8b",
+            "blue": "#81a1c1",
+            "magenta": "#b48ead",
+            "cyan": "#88c0d0",
+            "white": "#e5e9f0",
+            "brightBlack": "#4c566a",
+            "brightRed": "#bf616a",
+            "brightGreen": "#a3be8c",
+            "brightYellow": "#ebcb8b",
+            "brightBlue": "#81a1c1",
+            "brightMagenta": "#b48ead",
+            "brightCyan": "#8fbcbb",
+            "brightWhite": "#eceff4"
+        }
+    }
+}
+```
+
+**Gruvbox Dark** (`gruvbox-dark.json`):
+```json
+{
+    "version": 1,
+    "name": "Gruvbox Dark",
+    "author": "morhetz",
+    "origin": "bundled",
+    "colors": {
+        "foreground": "#ebdbb2",
+        "background": "#282828",
+        "cursor": "#ebdbb2",
+        "cursorText": "#282828",
+        "selection": "#504945",
+        "selectionText": "#ebdbb2",
+        "ansi": {
+            "black": "#282828",
+            "red": "#cc241d",
+            "green": "#98971a",
+            "yellow": "#d79921",
+            "blue": "#458588",
+            "magenta": "#b16286",
+            "cyan": "#689d6a",
+            "white": "#a89984",
+            "brightBlack": "#928374",
+            "brightRed": "#fb4934",
+            "brightGreen": "#b8bb26",
+            "brightYellow": "#fabd2f",
+            "brightBlue": "#83a598",
+            "brightMagenta": "#d3869b",
+            "brightCyan": "#8ec07c",
+            "brightWhite": "#ebdbb2"
+        }
+    }
+}
+```
+
+**Tokyo Night** (`tokyo-night.json`):
+```json
+{
+    "version": 1,
+    "name": "Tokyo Night",
+    "author": "enkia",
+    "origin": "bundled",
+    "colors": {
+        "foreground": "#a9b1d6",
+        "background": "#1a1b26",
+        "cursor": "#c0caf5",
+        "cursorText": "#1a1b26",
+        "selection": "#33467c",
+        "selectionText": "#a9b1d6",
+        "ansi": {
+            "black": "#15161e",
+            "red": "#f7768e",
+            "green": "#9ece6a",
+            "yellow": "#e0af68",
+            "blue": "#7aa2f7",
+            "magenta": "#bb9af7",
+            "cyan": "#7dcfff",
+            "white": "#a9b1d6",
+            "brightBlack": "#414868",
+            "brightRed": "#f7768e",
+            "brightGreen": "#9ece6a",
+            "brightYellow": "#e0af68",
+            "brightBlue": "#7aa2f7",
+            "brightMagenta": "#bb9af7",
+            "brightCyan": "#7dcfff",
+            "brightWhite": "#c0caf5"
+        }
+    }
+}
+```
+
+**Solarized Dark** (`solarized-dark.json`):
+```json
+{
+    "version": 1,
+    "name": "Solarized Dark",
+    "author": "Ethan Schoonover",
+    "origin": "bundled",
+    "colors": {
+        "foreground": "#839496",
+        "background": "#002b36",
+        "cursor": "#839496",
+        "cursorText": "#002b36",
+        "selection": "#073642",
+        "selectionText": "#839496",
+        "ansi": {
+            "black": "#073642",
+            "red": "#dc322f",
+            "green": "#859900",
+            "yellow": "#b58900",
+            "blue": "#268bd2",
+            "magenta": "#d33682",
+            "cyan": "#2aa198",
+            "white": "#eee8d5",
+            "brightBlack": "#586e75",
+            "brightRed": "#cb4b16",
+            "brightGreen": "#586e75",
+            "brightYellow": "#657b83",
+            "brightBlue": "#839496",
+            "brightMagenta": "#6c71c4",
+            "brightCyan": "#93a1a1",
+            "brightWhite": "#fdf6e3"
+        }
+    }
+}
+```
 
 - [ ] **Step 2: Create themes index**
 
@@ -748,31 +936,33 @@ await mkdir(config.themesDir, { recursive: true });
 
 - [ ] **Step 2: Update settings-store.ts defaults and merge logic**
 
-Add to `DEFAULTS`:
+Follow the exact same patterns used by existing settings sections (`general`, `terminal`, `editor`, `claude`, `codex`).
+
+Add to `DEFAULTS` (after `codex`):
 ```typescript
 appearance: {
-    theme: "catppuccin-mocha",
+    theme: DEFAULT_THEME_ID,
 },
 ```
 
-Add to `createDefaultSettings()`:
+Import `DEFAULT_THEME_ID` from `@taskflow/shared` at the top of the file.
+
+Add to `createDefaultSettings()` (after `codex: { ...DEFAULTS.codex }`):
 ```typescript
 appearance: { ...DEFAULTS.appearance },
 ```
 
-Add to `get()` return merge:
+Add to `get()` return merge (after `codex:` line, matching the existing spread pattern):
 ```typescript
 appearance: { ...defaults.appearance, ...parsed.appearance },
 ```
 
-Add to `update()`:
+Add to `update()` (after the `if (partial.codex)` block, matching the existing `Object.assign` pattern):
 ```typescript
 if (partial.appearance) {
     Object.assign(current.appearance, partial.appearance);
 }
 ```
-
-Import `DEFAULT_THEME_ID` from shared and use it instead of the string literal. This value is the persisted canonical id, not the theme display name.
 
 - [ ] **Step 3: Update settings-store tests**
 
@@ -1082,11 +1272,25 @@ function registerThemeHandlers(router: Router, themeService: ThemeService): void
     });
 
     router.register(MSG.THEME_BROWSE_LIST, async () => {
-        const themes = [
-            { id: "dracula-default", name: "Dracula", downloadUrl: "https://terminalcolors.com/downloads/alacritty/dracula-default.toml" },
-            { id: "nord", name: "Nord", downloadUrl: "https://terminalcolors.com/downloads/alacritty/nord.toml" },
-            { id: "tokyo-night", name: "Tokyo Night", downloadUrl: "https://terminalcolors.com/downloads/alacritty/tokyo-night.toml" },
+        // Curated fallback list of popular themes from terminalcolors.com.
+        // Each entry has a stable id and direct Alacritty TOML download URL.
+        const catalog = [
+            { id: "one-dark", name: "One Dark", downloadUrl: "https://terminalcolors.com/downloads/alacritty/one-dark.toml" },
+            { id: "rose-pine", name: "Rosé Pine", downloadUrl: "https://terminalcolors.com/downloads/alacritty/rose-pine.toml" },
+            { id: "monokai-pro", name: "Monokai Pro", downloadUrl: "https://terminalcolors.com/downloads/alacritty/monokai-pro.toml" },
+            { id: "everforest-dark", name: "Everforest Dark", downloadUrl: "https://terminalcolors.com/downloads/alacritty/everforest-dark.toml" },
+            { id: "kanagawa", name: "Kanagawa", downloadUrl: "https://terminalcolors.com/downloads/alacritty/kanagawa.toml" },
+            { id: "ayu-dark", name: "Ayu Dark", downloadUrl: "https://terminalcolors.com/downloads/alacritty/ayu-dark.toml" },
         ];
+
+        // Mark which online themes are already installed locally
+        const installed = await themeService.listAll();
+        const installedIds = new Set(installed.map((t) => t.id));
+        const themes = catalog.map((t) => ({
+            ...t,
+            installed: installedIds.has(t.id),
+        }));
+
         return { themes } satisfies ThemeBrowseListResponse;
     });
 
@@ -1168,16 +1372,20 @@ git commit -m "feat: add appearance dialog state to UI store"
 ```typescript
 // packages/ui/src/stores/theme-store.ts
 import { create } from "zustand";
-import { MSG, DEFAULT_THEME_ID } from "@taskflow/shared";
+import { MSG, DEFAULT_THEME_ID, bundledThemes, deriveTheme } from "@taskflow/shared";
 import type { ResolvedTheme, ThemeListResponse, ThemeRecord, ThemeSource } from "@taskflow/shared";
-import { deriveTheme } from "@taskflow/shared";
 import { sendRequest } from "../hooks/useWebSocket";
 import { useSettingsStore } from "./settings-store";
 
+// Eagerly resolve the default bundled theme so `resolved` is never null.
+// This ensures terminals and Monaco have a valid theme before settings load.
+const defaultRecord = bundledThemes.find((t) => t.id === DEFAULT_THEME_ID) ?? bundledThemes[0];
+const defaultResolved = deriveTheme(defaultRecord.source);
+
 interface ThemeStore {
     themes: ThemeRecord[];
-    activeThemeId: string | null;
-    resolved: ResolvedTheme | null;
+    activeThemeId: string;
+    resolved: ResolvedTheme;
     fetchThemes(): Promise<void>;
     activateTheme(themeId: string): Promise<void>;
     importTheme(theme: ThemeSource): Promise<void>;
@@ -1185,9 +1393,9 @@ interface ThemeStore {
 }
 
 export const useThemeStore = create<ThemeStore>((set, get) => ({
-    themes: [],
-    activeThemeId: null,
-    resolved: null,
+    themes: bundledThemes,
+    activeThemeId: defaultRecord.id,
+    resolved: defaultResolved,
 
     async fetchThemes() {
         const { themes } = await sendRequest<ThemeListResponse>(MSG.THEMES_LIST);
@@ -1198,11 +1406,15 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
         const record = themes.find((t) => t.id === activeThemeId)
             ?? themes.find((t) => t.id === DEFAULT_THEME_ID)
             ?? themes[0];
-        set({
-            themes,
-            activeThemeId: record?.id ?? null,
-            resolved: record ? deriveTheme(record.source) : null,
-        });
+        if (record) {
+            set({
+                themes,
+                activeThemeId: record.id,
+                resolved: deriveTheme(record.source),
+            });
+        } else {
+            set({ themes });
+        }
     },
 
     async activateTheme(themeId: string) {
@@ -1226,13 +1438,17 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
         const deletingActive = themeId === get().activeThemeId;
         const { themes } = await sendRequest<ThemeListResponse>(MSG.THEME_DELETE, { id: themeId });
         const fallbackId = deletingActive ? DEFAULT_THEME_ID : get().activeThemeId;
-        const record = themes.find((t) => t.id === fallbackId) ?? themes[0] ?? null;
+        const record = themes.find((t) => t.id === fallbackId) ?? themes[0];
 
-        set({
-            themes,
-            activeThemeId: record?.id ?? null,
-            resolved: record ? deriveTheme(record.source) : null,
-        });
+        if (record) {
+            set({
+                themes,
+                activeThemeId: record.id,
+                resolved: deriveTheme(record.source),
+            });
+        } else {
+            set({ themes });
+        }
 
         if (deletingActive && record) {
             await useSettingsStore.getState().updateSettings({
@@ -1268,7 +1484,7 @@ const THEME_NAME = "taskflow";
 // This ensures "taskflow" exists before any EditorPane mounts.
 monaco.editor.defineTheme(THEME_NAME, {
     base: "vs-dark",
-    inherit: false,
+    inherit: true,
     rules: [
         { token: "", foreground: "cdd6f4", background: "1e1e2e" },
         { token: "comment", foreground: "585b70", fontStyle: "italic" },
@@ -1309,7 +1525,7 @@ function updateMonacoTheme(resolved: ResolvedTheme): void {
 
     monaco.editor.defineTheme(THEME_NAME, {
         base: "vs-dark",
-        inherit: false,
+        inherit: true,
         rules: [
             { token: "", foreground: fg, background: bg.replace("#", "") },
             { token: "comment", foreground: comment, fontStyle: "italic" },
@@ -1365,11 +1581,10 @@ import { useThemeStore } from "../stores/theme-store";
 import { updateMonacoTheme } from "../lib/monaco-theme";
 
 function useTheme(): void {
+    // resolved is never null — theme store eagerly resolves the default theme
     const resolved = useThemeStore((s) => s.resolved);
 
     useEffect(() => {
-        if (!resolved) return;
-
         // Apply CSS variables to document root
         const root = document.documentElement;
         for (const [key, value] of Object.entries(resolved.css)) {
@@ -1398,40 +1613,20 @@ git commit -m "feat: add useTheme hook for applying theme to DOM and Monaco"
 
 - [ ] **Step 1: Rewrite getTerminalTheme**
 
-Replace the existing `getCssVar` helper and `getTerminalTheme` function. Import `useThemeStore` at the top of the file.
+**Delete** the `getCssVar` helper function entirely (lines 376-378) — it is no longer needed.
 
-Replace `getTerminalTheme()` with a function that reads from the theme store:
+**Delete** the existing `getTerminalTheme` function (lines 380-404) and all hardcoded Catppuccin hex values.
+
+Import `useThemeStore` at the top of the file:
+```typescript
+import { useThemeStore } from "@/stores/theme-store";
+```
+
+Replace with a simple store read. Since the theme store eagerly resolves the default theme at module init time, `resolved` is always available — no fallback needed:
 
 ```typescript
 function getTerminalTheme(): Record<string, string> {
-    const resolved = useThemeStore.getState().resolved;
-    if (!resolved) {
-        // Fallback to CSS var approach during initial load
-        return {
-            background: getCssVar("--card"),
-            foreground: getCssVar("--foreground"),
-            cursor: getCssVar("--foreground"),
-            cursorAccent: getCssVar("--card"),
-            selectionBackground: getCssVar("--muted"),
-            black: getCssVar("--muted"),
-            red: getCssVar("--destructive"),
-            green: getCssVar("--success"),
-            yellow: getCssVar("--warning"),
-            blue: getCssVar("--accent"),
-            magenta: getCssVar("--accent"),
-            cyan: getCssVar("--info"),
-            white: getCssVar("--foreground"),
-            brightBlack: getCssVar("--muted-foreground"),
-            brightRed: getCssVar("--destructive"),
-            brightGreen: getCssVar("--success"),
-            brightYellow: getCssVar("--warning"),
-            brightBlue: getCssVar("--accent"),
-            brightMagenta: getCssVar("--accent"),
-            brightCyan: getCssVar("--info"),
-            brightWhite: getCssVar("--foreground"),
-        };
-    }
-    return { ...resolved.xterm };
+    return { ...useThemeStore.getState().resolved.xterm };
 }
 ```
 
@@ -1564,6 +1759,7 @@ Displays a theme preview card with:
 
 ```typescript
 // packages/ui/src/components/appearance/ThemeCard.tsx
+import { Trash2 } from "lucide-react";
 import type { ThemeRecord } from "@taskflow/shared";
 import { cn } from "@/lib/utils";
 
@@ -1571,11 +1767,13 @@ interface ThemeCardProps {
     theme: ThemeRecord;
     isActive: boolean;
     onClick: () => void;
+    onDelete?: () => void;
 }
 
-function ThemeCard({ theme, isActive, onClick }: ThemeCardProps) {
+function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
     const { source } = theme;
     const { colors } = source;
+    const isDeletable = source.origin !== "bundled";
     const swatches = [
         colors.ansi.red,
         colors.ansi.green,
@@ -1589,11 +1787,31 @@ function ThemeCard({ theme, isActive, onClick }: ThemeCardProps) {
         <button
             onClick={onClick}
             className={cn(
-                "flex flex-col rounded-lg border p-3 text-left transition-colors",
+                "group relative flex flex-col rounded-lg border p-3 text-left transition-colors",
                 "hover:border-accent",
                 isActive ? "border-accent bg-accent/10" : "border-border",
             )}
         >
+            {/* Delete button for non-bundled themes */}
+            {isDeletable && onDelete && (
+                <div
+                    role="button"
+                    tabIndex={0}
+                    className="absolute top-1.5 right-1.5 hidden rounded p-1 text-muted-foreground hover:bg-destructive/20 hover:text-destructive group-hover:block"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete();
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                            e.stopPropagation();
+                            onDelete();
+                        }
+                    }}
+                >
+                    <Trash2 className="h-3 w-3" />
+                </div>
+            )}
             {/* Color preview */}
             <div
                 className="mb-2 flex h-16 items-end gap-0.5 rounded-md p-2"
@@ -1663,6 +1881,7 @@ function ThemeGrid() {
     const themes = useThemeStore((s) => s.themes);
     const activeThemeId = useThemeStore((s) => s.activeThemeId);
     const activateTheme = useThemeStore((s) => s.activateTheme);
+    const deleteTheme = useThemeStore((s) => s.deleteTheme);
     const [search, setSearch] = useState("");
 
     const filtered = useMemo(() => {
@@ -1686,6 +1905,11 @@ function ThemeGrid() {
                         theme={theme}
                         isActive={theme.id === activeThemeId}
                         onClick={() => void activateTheme(theme.id)}
+                        onDelete={
+                            theme.source.origin !== "bundled"
+                                ? () => void deleteTheme(theme.id)
+                                : undefined
+                        }
                     />
                 ))}
             </div>
@@ -1904,6 +2128,26 @@ git commit -m "fix: integration fixes for theming system"
 
 ## Chunk 5: Terminal App Parsers
 
+### Task 22b: Install Parser Dependencies
+
+**Files:**
+- Modify: `packages/backend/package.json`
+
+- [ ] **Step 1: Install TOML and YAML parsing packages**
+
+```bash
+cd packages/backend && bun add smol-toml yaml
+```
+
+`smol-toml` is used for Alacritty TOML themes. `yaml` is used for Warp YAML themes. Both are lightweight and well-maintained.
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add packages/backend/package.json bun.lockb
+git commit -m "feat: add smol-toml and yaml dependencies for theme parsers"
+```
+
 ### Task 23: Alacritty Parser
 
 **Files:**
@@ -1920,7 +2164,7 @@ Run: `cd packages/backend && bun test tests/services/theme-parsers/alacritty.tes
 
 - [ ] **Step 3: Implement parser**
 
-Parse TOML manually (simple key-value + section headers — Alacritty theme TOMLs are simple enough to parse without a full TOML library) or add a lightweight TOML dependency. Extract `colors.primary.foreground`, `colors.primary.background`, `colors.normal.*`, `colors.bright.*`, `colors.selection.*`, `colors.cursor.*` into a `ThemeSource`.
+Use `smol-toml` (installed in Task 22b) to parse the TOML. Extract `colors.primary.foreground`, `colors.primary.background`, `colors.normal.*`, `colors.bright.*`, `colors.selection.*`, `colors.cursor.*` into a `ThemeSource`. Export both `parseAlacrittyToml(toml: string, name: string): ThemeSource` (for online download handler) and `detectAlacritty` / `parseAlacritty` (for import flow).
 
 Detect Alacritty by checking if `~/.config/alacritty/alacritty.toml` exists.
 
@@ -1983,17 +2227,46 @@ git commit -m "feat: add Kitty theme parser"
 
 **Files:**
 - Create: `packages/backend/src/services/theme-parsers/warp.ts`
+- Create: `packages/backend/tests/services/theme-parsers/warp.test.ts`
 
-- [ ] **Step 1: Implement parser**
+- [ ] **Step 1: Write failing tests**
 
-Warp themes are YAML. Keys: `background`, `foreground`, `terminal_colors.normal.black`, etc. Use simple line parsing or a YAML library if one is already available.
+Test parsing of Warp YAML theme format. Sample:
+```yaml
+accent: '#bd93f9'
+background: '#282a36'
+foreground: '#f8f8f2'
+terminal_colors:
+  normal:
+    black: '#21222c'
+    red: '#ff5555'
+    green: '#50fa7b'
+    yellow: '#f1fa8c'
+    blue: '#bd93f9'
+    magenta: '#ff79c6'
+    cyan: '#8be9fd'
+    white: '#f8f8f2'
+  bright:
+    black: '#6272a4'
+    red: '#ff6e6e'
+    green: '#69ff94'
+    yellow: '#ffffa5'
+    blue: '#d6acff'
+    magenta: '#ff92df'
+    cyan: '#a4ffff'
+    white: '#ffffff'
+```
+
+- [ ] **Step 2: Implement parser**
+
+Warp themes are YAML. Use the `yaml` package (installed in Task 22b) to parse. Keys: `background`, `foreground`, `terminal_colors.normal.*`, `terminal_colors.bright.*`. Map `cursor` to foreground if not present.
 
 Detect by scanning `~/.warp/themes/` for `.yaml` files.
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: Run tests, commit**
 
 ```bash
-git add packages/backend/src/services/theme-parsers/warp.ts
+git add packages/backend/src/services/theme-parsers/warp.ts packages/backend/tests/services/theme-parsers/warp.test.ts
 git commit -m "feat: add Warp theme parser"
 ```
 
@@ -2001,17 +2274,24 @@ git commit -m "feat: add Warp theme parser"
 
 **Files:**
 - Create: `packages/backend/src/services/theme-parsers/iterm2.ts`
+- Create: `packages/backend/tests/services/theme-parsers/iterm2.test.ts`
 
-- [ ] **Step 1: Implement parser**
+- [ ] **Step 1: Write failing tests**
+
+Test the color component conversion logic. iTerm2 stores colors as float RGB (0.0-1.0). Test that `{ "Red Component": 0.976, "Green Component": 0.545, "Blue Component": 0.659 }` converts to `#f98ba8` (approx). Test with a sample XML plist snippet.
+
+- [ ] **Step 2: Implement parser**
 
 iTerm2 stores profiles in a plist. Colors are stored as components: `Ansi 0 Color` with sub-keys `Red Component`, `Green Component`, `Blue Component` as float 0-1. Convert float→int→hex.
 
 The plist at `~/Library/Preferences/com.googlecode.iterm2.plist` may be binary — use `plutil -convert xml1 -o -` to convert, then parse XML.
 
-- [ ] **Step 2: Commit**
+Detect by checking if `~/Library/Preferences/com.googlecode.iterm2.plist` exists.
+
+- [ ] **Step 3: Run tests, commit**
 
 ```bash
-git add packages/backend/src/services/theme-parsers/iterm2.ts
+git add packages/backend/src/services/theme-parsers/iterm2.ts packages/backend/tests/services/theme-parsers/iterm2.test.ts
 git commit -m "feat: add iTerm2 theme parser"
 ```
 
@@ -2019,18 +2299,25 @@ git commit -m "feat: add iTerm2 theme parser"
 
 **Files:**
 - Create: `packages/backend/src/services/theme-parsers/terminal-app.ts`
+- Create: `packages/backend/tests/services/theme-parsers/terminal-app.test.ts`
 
-- [ ] **Step 1: Implement best-effort parser**
+- [ ] **Step 1: Write failing tests**
+
+Test with a sample `.terminal` plist XML snippet. Test that parsing failures return an empty array (graceful skip), not an error.
+
+- [ ] **Step 2: Implement best-effort parser**
 
 Terminal.app stores colors as NSKeyedArchiver data blobs in plist files. These are complex to decode. Implement a best-effort approach:
 - Look for `.terminal` files in `~/Library/Preferences/` or common export locations
 - Try to parse the plist XML and extract any color data that's in a recognizable format
-- If decoding fails, skip gracefully
+- If decoding fails, return empty array gracefully
 
-- [ ] **Step 2: Commit**
+Detect by checking for `.terminal` files in the expected location.
+
+- [ ] **Step 3: Run tests, commit**
 
 ```bash
-git add packages/backend/src/services/theme-parsers/terminal-app.ts
+git add packages/backend/src/services/theme-parsers/terminal-app.ts packages/backend/tests/services/theme-parsers/terminal-app.test.ts
 git commit -m "feat: add Terminal.app theme parser (best-effort)"
 ```
 
