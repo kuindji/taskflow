@@ -189,6 +189,7 @@ export interface FileTreePayload {
 
 export interface FileTreeResponse {
     tree: FileNode;
+    gitignorePatterns: string[];
 }
 
 export interface FileReadPayload {
