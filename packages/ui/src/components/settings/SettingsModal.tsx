@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
     Select,
     SelectContent,
@@ -26,6 +27,7 @@ import {
     type ShellListResponse,
     type RuntimeInfo,
     type RuntimeListResponse,
+    type ClaudeSettings,
 } from "@taskflow/shared";
 import { FontFamilySelect } from "./FontFamilySelect";
 
@@ -49,7 +51,7 @@ function SettingsModal() {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
-    const [section, setSection] = useState<"fonts" | "defaults">("fonts");
+    const [section, setSection] = useState<"fonts" | "defaults" | "claude" | "codex">("fonts");
 
     useEffect(() => {
         if (!open) return;
@@ -159,9 +161,31 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleClaudeModel = useCallback(
+        (defaultModel: string) => {
+            void updateSettings({ claude: { defaultModel: defaultModel as ClaudeSettings["defaultModel"] } });
+        },
+        [updateSettings],
+    );
+
+    const handleClaudeFullAccess = useCallback(
+        (fullAccess: boolean) => {
+            void updateSettings({ claude: { fullAccess } });
+        },
+        [updateSettings],
+    );
+
+    const handleCodexFullAccess = useCallback(
+        (fullAccess: boolean) => {
+            void updateSettings({ codex: { fullAccess } });
+        },
+        [updateSettings],
+    );
+
     if (!settings) return null;
 
     const configuredShellAvailable = isConfiguredShellAvailable(shells, settings.terminal.defaultShell);
+    const defaultsSelectLabelClassName = "text-[11px] leading-none text-muted-foreground";
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -194,6 +218,26 @@ function SettingsModal() {
                             onClick={() => setSection("defaults")}
                         >
                             Defaults
+                        </button>
+                        <button
+                            className={`w-full text-left px-3 py-1.5 rounded-md text-sm ${
+                                section === "claude"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                            }`}
+                            onClick={() => setSection("claude")}
+                        >
+                            Claude
+                        </button>
+                        <button
+                            className={`w-full text-left px-3 py-1.5 rounded-md text-sm ${
+                                section === "codex"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                            }`}
+                            onClick={() => setSection("codex")}
+                        >
+                            Codex
                         </button>
                     </nav>
 
@@ -272,19 +316,85 @@ function SettingsModal() {
                                 </section>
                             </>
                         )}
+                        {section === "claude" && (
+                            <>
+                                <section className="space-y-3">
+                                    <h3 className="text-sm font-medium">Default Model</h3>
+                                    <div className="space-y-1">
+                                        <Label className="text-xs text-muted-foreground">
+                                            Pre-selected model when running Claude sessions
+                                        </Label>
+                                        <Select
+                                            value={settings.claude.defaultModel}
+                                            onValueChange={handleClaudeModel}
+                                        >
+                                            <SelectTrigger className="w-64 h-8 text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="default">Default</SelectItem>
+                                                <SelectItem value="opus">Opus</SelectItem>
+                                                <SelectItem value="sonnet">Sonnet</SelectItem>
+                                                <SelectItem value="haiku">Haiku</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </section>
+                                <section className="space-y-3">
+                                    <h3 className="text-sm font-medium">Full Access</h3>
+                                    <div className="space-y-1">
+                                        <Label className="text-xs text-muted-foreground">
+                                            Skip permission prompts by default
+                                        </Label>
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <Switch
+                                                id="claude-full-access"
+                                                checked={settings.claude.fullAccess}
+                                                onCheckedChange={handleClaudeFullAccess}
+                                            />
+                                            <Label htmlFor="claude-full-access" className="cursor-pointer text-sm">
+                                                {settings.claude.fullAccess ? "Enabled" : "Disabled"}
+                                            </Label>
+                                        </div>
+                                    </div>
+                                </section>
+                            </>
+                        )}
+                        {section === "codex" && (
+                            <>
+                                <section className="space-y-3">
+                                    <h3 className="text-sm font-medium">Full Access</h3>
+                                    <div className="space-y-1">
+                                        <Label className="text-xs text-muted-foreground">
+                                            Run in full-auto mode by default
+                                        </Label>
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <Switch
+                                                id="codex-full-access"
+                                                checked={settings.codex.fullAccess}
+                                                onCheckedChange={handleCodexFullAccess}
+                                            />
+                                            <Label htmlFor="codex-full-access" className="cursor-pointer text-sm">
+                                                {settings.codex.fullAccess ? "Enabled" : "Disabled"}
+                                            </Label>
+                                        </div>
+                                    </div>
+                                </section>
+                            </>
+                        )}
                         {section === "defaults" && (
                             <>
                                 <section className="space-y-3">
                                     <h3 className="text-sm font-medium">External Editor</h3>
                                     <div className="space-y-1">
-                                        <Label className="text-xs text-muted-foreground">
+                                        <Label className={defaultsSelectLabelClassName}>
                                             Used when opening files with Cmd+Click in the terminal
                                         </Label>
                                         <Select
                                             value={settings.general.externalEditor}
                                             onValueChange={handleExternalEditor}
                                         >
-                                            <SelectTrigger className="w-64 h-8 text-sm">
+                                            <SelectTrigger className="h-8 w-full text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -300,14 +410,14 @@ function SettingsModal() {
                                 <section className="space-y-3">
                                     <h3 className="text-sm font-medium">Default Agent</h3>
                                     <div className="space-y-1">
-                                        <Label className="text-xs text-muted-foreground">
+                                        <Label className={defaultsSelectLabelClassName}>
                                             Pre-selected agent for new tasks, title generation, and commit messages
                                         </Label>
                                         <Select
                                             value={settings.general.defaultAgent}
                                             onValueChange={handleDefaultAgent}
                                         >
-                                            <SelectTrigger className="w-64 h-8 text-sm">
+                                            <SelectTrigger className="h-8 w-full text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -320,7 +430,7 @@ function SettingsModal() {
                                 <section className="space-y-3">
                                     <h3 className="text-sm font-medium">Default Shell</h3>
                                     <div className="space-y-1">
-                                        <Label className="text-xs text-muted-foreground">
+                                        <Label className={defaultsSelectLabelClassName}>
                                             Default shell for new terminal tabs
                                         </Label>
                                         <Select
@@ -331,7 +441,7 @@ function SettingsModal() {
                                             }
                                             onValueChange={handleDefaultShell}
                                         >
-                                            <SelectTrigger className="w-64 h-8 text-sm">
+                                            <SelectTrigger className="h-8 w-full text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -363,7 +473,7 @@ function SettingsModal() {
                                 <section className="space-y-3">
                                     <h3 className="text-sm font-medium">Default Runtime</h3>
                                     <div className="space-y-1">
-                                        <Label className="text-xs text-muted-foreground">
+                                        <Label className={defaultsSelectLabelClassName}>
                                             Runtime for executing scripts and commands
                                         </Label>
                                         <Select
@@ -374,7 +484,7 @@ function SettingsModal() {
                                             }
                                             onValueChange={handleDefaultRuntime}
                                         >
-                                            <SelectTrigger className="w-64 h-8 text-sm">
+                                            <SelectTrigger className="h-8 w-full text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>

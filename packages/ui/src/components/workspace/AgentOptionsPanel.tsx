@@ -11,6 +11,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Play } from "lucide-react";
+import { useSettingsStore } from "@/stores/settings-store";
 
 interface AgentOptionsPanelProps {
     agentType: "claude" | "codex";
@@ -19,8 +20,16 @@ interface AgentOptionsPanelProps {
 }
 
 function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProps) {
-    const [fullAccess, setFullAccess] = useState(false);
-    const [model, setModel] = useState("default");
+    const claudeSettings = useSettingsStore((s) => s.settings?.claude);
+    const codexSettings = useSettingsStore((s) => s.settings?.codex);
+
+    const defaultFullAccess = agentType === "claude"
+        ? (claudeSettings?.fullAccess ?? false)
+        : (codexSettings?.fullAccess ?? false);
+    const defaultModel = claudeSettings?.defaultModel ?? "default";
+
+    const [fullAccess, setFullAccess] = useState(defaultFullAccess);
+    const [model, setModel] = useState<string>(defaultModel);
 
     const isFirstRender = useRef(true);
 

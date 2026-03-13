@@ -12,8 +12,11 @@ import { SettingsStore } from "../../src/services/settings-store";
 
 const DEFAULT_LAYOUT = {
     window: { width: 1400, height: 900, isMaximized: false },
-    panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220 },
+    panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220, compactSidebar: false },
 };
+
+const DEFAULT_CLAUDE = { defaultModel: "default" as const, fullAccess: false };
+const DEFAULT_CODEX = { fullAccess: false };
 
 describe("SettingsStore", () => {
     let tempDir: string;
@@ -50,6 +53,8 @@ describe("SettingsStore", () => {
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
             },
             layout: DEFAULT_LAYOUT,
+            claude: DEFAULT_CLAUDE,
+            codex: DEFAULT_CODEX,
         });
 
         first.editor.fontSize = 20;
@@ -72,6 +77,8 @@ describe("SettingsStore", () => {
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
             },
             layout: DEFAULT_LAYOUT,
+            claude: DEFAULT_CLAUDE,
+            codex: DEFAULT_CODEX,
         });
     });
 
@@ -102,6 +109,8 @@ describe("SettingsStore", () => {
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
             },
             layout: DEFAULT_LAYOUT,
+            claude: DEFAULT_CLAUDE,
+            codex: DEFAULT_CODEX,
         });
 
         expect(await store.update({ editor: { fontSize: 16 } })).toEqual({
@@ -122,6 +131,8 @@ describe("SettingsStore", () => {
                 fontSize: 16,
             },
             layout: DEFAULT_LAYOUT,
+            claude: DEFAULT_CLAUDE,
+            codex: DEFAULT_CODEX,
         });
     });
 
@@ -129,7 +140,7 @@ describe("SettingsStore", () => {
         const settings = await store.get();
         expect(settings.layout).toEqual({
             window: { width: 1400, height: 900, isMaximized: false },
-            panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220 },
+            panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220, compactSidebar: false },
         });
     });
 
@@ -160,6 +171,7 @@ describe("SettingsStore", () => {
             sidebarWidth: 220,
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
+            compactSidebar: false,
         });
     });
 
@@ -183,6 +195,7 @@ describe("SettingsStore", () => {
             sidebarWidth: 280,
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
+            compactSidebar: false,
         });
     });
 
