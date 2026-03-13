@@ -60,6 +60,25 @@ export const MSG = {
     GIT_GENERATE_COMMIT_MSG: "git:generate-commit-msg",
     GIT_CREATE_PR: "git:create-pr",
 
+    // Flow definitions
+    FLOW_DEFINITIONS_LIST: "flow:definitions-list",
+    FLOW_STEPS_LIST: "flow:steps-list",
+    FLOW_DEFINITION_SAVE: "flow:definition-save",
+    FLOW_STEP_SAVE: "flow:step-save",
+    FLOW_DEFINITION_DELETE: "flow:definition-delete",
+    FLOW_STEP_DELETE: "flow:step-delete",
+
+    // Flow execution
+    FLOW_START: "flow:start",
+    FLOW_STOP: "flow:stop",
+    FLOW_PAUSE: "flow:pause",
+    FLOW_RESUME: "flow:resume",
+    FLOW_SKIP_STEP: "flow:skip-step",
+    FLOW_JUMP_TO_STEP: "flow:jump-to-step",
+    FLOW_RUN_GET: "flow:run-get",
+    FLOW_RUNS_LIST: "flow:runs-list",
+    FLOW_RUN_UPDATED: "flow:run-updated",
+
     // Browser
     BROWSER_OPEN: "browser:open",
 
