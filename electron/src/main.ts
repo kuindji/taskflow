@@ -222,42 +222,17 @@ async function createWindow() {
     });
 }
 
-let isCheckingForUpdates = false;
+let manualCheckInProgress = false;
+let downloadedVersion: string | null = null;
+let showArchiveChecked = false;
+let compactSidebarChecked = false;
 
-async function checkForUpdatesManually() {
-    if (isCheckingForUpdates) return;
-    isCheckingForUpdates = true;
-
-    const cleanup = () => {
-        isCheckingForUpdates = false;
-        clearTimeout(timeout);
-    };
-
-    const timeout = setTimeout(() => {
-        isCheckingForUpdates = false;
-    }, 15_000);
-
-    try {
-        const result = await autoUpdater.checkForUpdates();
-        cleanup();
-
-        if (!result || result.updateInfo.version === app.getVersion()) {
-            void dialog.showMessageBox({
-                type: "info",
-                title: "No Updates",
-                message: "You're up to date!",
-                detail: `Taskflow ${app.getVersion()} is the latest version.`,
-            });
-        }
-    } catch (err) {
-        cleanup();
-        const message = err instanceof Error ? err.message : String(err);
-        void dialog.showMessageBox({
-            type: "error",
-            title: "Update Check Failed",
-            message: "Could not check for updates.",
-            detail: message,
-        });
+function setUpdateMenuItem(label: string, enabled = true) {
+    const menu = Menu.getApplicationMenu();
+    const item = menu?.getMenuItemById("check-for-updates");
+    if (item) {
+        item.label = label;
+        item.enabled = enabled;
     }
 }
 
@@ -269,9 +244,21 @@ function buildAppMenu() {
                 { role: "about" },
                 { type: "separator" },
                 {
-                    label: "Check for Updates…",
+                    id: "check-for-updates",
+                    label: downloadedVersion
+                        ? `Restart to Update to v${downloadedVersion}`
+                        : "Check for Updates…",
                     click: () => {
-                        void checkForUpdatesManually();
+                        if (downloadedVersion) {
+                            autoUpdater.quitAndInstall();
+                            return;
+                        }
+                        if (manualCheckInProgress) return;
+                        manualCheckInProgress = true;
+                        setUpdateMenuItem("Checking for Updates…", false);
+                        autoUpdater.checkForUpdates().catch((err: unknown) => {
+                            console.error("[updater] Manual check failed:", err);
+                        });
                     },
                 },
                 { type: "separator" },
@@ -292,7 +279,7 @@ function buildAppMenu() {
                     id: "toggle-archive",
                     label: "Show Archived Tasks",
                     type: "checkbox",
-                    checked: false,
+                    checked: showArchiveChecked,
                     click: () => {
                         mainWindow?.webContents.send("toggle-archive");
                     },
@@ -301,7 +288,7 @@ function buildAppMenu() {
                     id: "compact-sidebar",
                     label: "Compact Sidebar",
                     type: "checkbox",
-                    checked: false,
+                    checked: compactSidebarChecked,
                     accelerator: "CmdOrCtrl+Shift+C",
                     click: () => {
                         mainWindow?.webContents.send("toggle-compact-sidebar");
@@ -359,35 +346,53 @@ function buildAppMenu() {
 function setupAutoUpdater() {
     if (!app.isPackaged) return;
 
-    autoUpdater.autoDownload = true;
+    autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
 
     autoUpdater.on("update-available", (info) => {
         console.log(`[updater] Update available: v${info.version}`);
+        setUpdateMenuItem(`Downloading v${info.version}…`, false);
+        autoUpdater.downloadUpdate().catch((err: unknown) => {
+            console.error("[updater] Download failed:", err);
+        });
+    });
+
+    autoUpdater.on("update-not-available", () => {
+        if (manualCheckInProgress) {
+            manualCheckInProgress = false;
+            void dialog.showMessageBox({
+                type: "info",
+                title: "No Updates",
+                message: "You're up to date!",
+                detail: `Taskflow ${app.getVersion()} is the latest version.`,
+            });
+        }
+        setUpdateMenuItem("Check for Updates…");
     });
 
     autoUpdater.on("update-downloaded", (info) => {
         console.log(`[updater] Update downloaded: v${info.version}`);
-        void dialog
-            .showMessageBox({
-                type: "info",
-                title: "Update Ready",
-                message: `Version ${info.version} has been downloaded.`,
-                detail: "The update will be installed when you restart the app.",
-                buttons: ["Restart Now", "Later"],
-                defaultId: 0,
-            })
-            .then(({ response }) => {
-                if (response === 0) {
-                    autoUpdater.quitAndInstall();
-                }
-            });
+        manualCheckInProgress = false;
+        downloadedVersion = info.version;
+        // Rebuild menu so the click handler switches to quitAndInstall
+        buildAppMenu();
     });
 
     autoUpdater.on("error", (err) => {
         console.error("[updater] Error:", err.message);
+        if (manualCheckInProgress) {
+            manualCheckInProgress = false;
+            void dialog.showMessageBox({
+                type: "error",
+                title: "Update Check Failed",
+                message: "Could not check for updates.",
+                detail: err.message,
+            });
+        }
+        setUpdateMenuItem("Check for Updates…");
     });
 
+    // Silent check on startup
     autoUpdater.checkForUpdates().catch((err: unknown) => {
         console.error("[updater] Startup check failed:", err);
     });
@@ -434,6 +439,7 @@ app.on("before-quit", (e) => {
 });
 
 ipcMain.on("archive-state-changed", (_event, showArchive: boolean) => {
+    showArchiveChecked = showArchive;
     const menu = Menu.getApplicationMenu();
     const item = menu?.getMenuItemById("toggle-archive");
     if (item) {
@@ -442,6 +448,7 @@ ipcMain.on("archive-state-changed", (_event, showArchive: boolean) => {
 });
 
 ipcMain.on("compact-sidebar-changed", (_event, compact: boolean) => {
+    compactSidebarChecked = compact;
     const menu = Menu.getApplicationMenu();
     const item = menu?.getMenuItemById("compact-sidebar");
     if (item) {
