@@ -51,7 +51,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const handleRename = useCallback(
         (name: string) => {
             if (!project) return;
-            void updateProject(project.id, name);
+            void updateProject(project.id, { name });
         },
         [project, updateProject],
     );
