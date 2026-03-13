@@ -16,6 +16,7 @@ interface UIStore {
     fileExplorerOpen: boolean;
     taskInfoOpen: boolean;
     settingsOpen: boolean;
+    flowManagementOpen: boolean;
     sidebarWidth: number;
     fileExplorerWidth: number;
     taskInfoWidth: number;
@@ -23,6 +24,7 @@ interface UIStore {
     toggleFileExplorer(): void;
     toggleTaskInfo(): void;
     toggleSettings(): void;
+    toggleFlowManagement(): void;
     setActiveProject(id: string | null): void;
     setSidebarWidth(width: number): void;
     setFileExplorerWidth(width: number): void;
@@ -40,6 +42,7 @@ export const useUIStore = create<UIStore>((set) => ({
     fileExplorerOpen: false,
     taskInfoOpen: false,
     settingsOpen: false,
+    flowManagementOpen: false,
     sidebarWidth: 220,
     fileExplorerWidth: 220,
     taskInfoWidth: 220,
@@ -52,6 +55,9 @@ export const useUIStore = create<UIStore>((set) => ({
     },
     toggleSettings() {
         set((s) => ({ settingsOpen: !s.settingsOpen }));
+    },
+    toggleFlowManagement() {
+        set((s) => ({ flowManagementOpen: !s.flowManagementOpen }));
     },
     setActiveProject(id) {
         set({ activeProjectId: id });

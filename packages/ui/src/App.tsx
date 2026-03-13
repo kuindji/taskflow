@@ -5,6 +5,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { AppShell } from "@/components/AppShell";
 import { DialogHost } from "@/components/DialogHost";
 import { SettingsModal } from "@/components/settings/SettingsModal";
+import { FlowManagementDialog } from "@/components/flows/FlowManagementDialog";
 import { TaskCreationDialogHost } from "@/components/sidebar/TaskCreationDialogHost";
 import { TaskSidebar } from "@/components/sidebar/TaskSidebar";
 import { FileExplorer } from "@/components/panels/FileExplorer";
@@ -47,6 +48,7 @@ export function App() {
                 <ConnectionOverlay />
                 <DialogHost />
                 <SettingsModal />
+                <FlowManagementDialog />
                 <TaskCreationDialogHost />
                 <TooltipProvider>
                     <AppShell
