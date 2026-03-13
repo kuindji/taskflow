@@ -4,7 +4,7 @@
 
 **Goal:** Add a theming system that uses terminal color themes as the source of truth for the entire app (UI, xterm.js, Monaco), with bundled themes, terminal app import, custom user themes, and online browsing.
 
-**Architecture:** Terminal themes (20 colors) are mapped through a derivation engine to produce CSS variables, xterm.js theme, and Monaco theme. Raw theme files stay in the `ThemeSource` format, while the backend exposes `ThemeRecord { id, source }` objects so the UI and settings can use a stable canonical theme id. A `ThemeService` on the backend handles loading/parsing/scanning. The UI has a dedicated Appearance dialog with three tabs (Themes, Import, Browse Online). Theme state flows through a Zustand store with a `useTheme` hook applying colors at runtime.
+**Architecture:** Terminal themes (20 colors) are mapped through a derivation engine to produce CSS variables, xterm.js theme, and Monaco theme. Raw theme files stay in the `ThemeSource` format, while the backend exposes `ThemeRecord { id, source }` objects so the UI and settings can use a stable canonical theme id. `ThemeService` reserves bundled ids, generates collision-free ids for imported/custom themes, and only reuses an explicit id when intentionally updating an existing non-bundled theme. A `ThemeService` on the backend handles loading/parsing/scanning. The UI has a dedicated Appearance dialog with three tabs (Themes, Import, Browse Online). Theme state flows through a Zustand store with a `useTheme` hook applying colors at runtime.
 
 **Tech Stack:** TypeScript, React, Zustand, Tailwind CSS v4, xterm.js, Monaco Editor, Bun test runner
 
@@ -63,18 +63,21 @@
 ### Modified Files
 
 - `packages/shared/src/types/settings.ts` — add appearance section to `AppSettings` and `SettingsUpdatePayload` (no separate named interface needed — inline `{ theme: string }` matches the pattern of other settings sections)
-- `packages/shared/src/constants.ts` — add `THEMES_LIST`, `THEME_IMPORT_SCAN`, `THEME_IMPORT`, `THEME_BROWSE_LIST`, `THEME_DOWNLOAD`, `THEME_DELETE` to `MSG`; add `DEFAULT_THEME_ID`
+- `packages/shared/src/constants.ts` — add `THEMES_LIST`, `THEME_IMPORT_SCAN`, `THEME_IMPORT`, `THEME_IMPORT_FILE`, `THEME_BROWSE_LIST`, `THEME_DOWNLOAD`, `THEME_DELETE` to `MSG`; add `DEFAULT_THEME_ID`
 - `packages/shared/src/types/ws.ts` — add theme WebSocket payload/response types
 - `packages/shared/src/index.ts` — add theme exports
 - `packages/backend/src/config.ts` — add `themesDir`, update `ensureDirectories()`
 - `packages/backend/src/services/settings-store.ts` — add `appearance` to defaults, `get()`, and `update()`
 - `packages/backend/src/index.ts` — register theme handlers
 - `packages/backend/tests/services/settings-store.test.ts` — update tests for appearance field
+- `electron/src/preload.ts` — expose `selectThemeFile()` bridge method
+- `electron/src/main.ts` — implement `select-theme-file` IPC handler
 - `packages/ui/src/components/sidebar/TaskSidebar.tsx` — add Appearance button, add `fetchThemes` to startup effect
 - `packages/ui/src/components/panes/TerminalPane.tsx` — rewrite `getTerminalTheme()`, add re-theme on change
 - `packages/ui/src/components/panes/EditorPane.tsx` — use `"taskflow"` theme instead of `"vs-dark"`
 - `packages/ui/src/App.tsx` — add `AppearanceDialog`, import `useTheme` hook, import monaco-theme setup
 - `packages/ui/src/stores/ui-store.ts` — add `appearanceOpen`, `setAppearanceOpen()`, and `toggleAppearance()`
+- `packages/ui/src/env.d.ts` — type `selectThemeFile()` on the renderer bridge
 
 ---
 
@@ -254,6 +257,7 @@ In `packages/shared/src/constants.ts`, add to `MSG` object:
     THEMES_LIST: "theme:list",
     THEME_IMPORT_SCAN: "theme:import-scan",
     THEME_IMPORT: "theme:import",
+    THEME_IMPORT_FILE: "theme:import-file",
     THEME_BROWSE_LIST: "theme:browse-list",
     THEME_DOWNLOAD: "theme:download",
     THEME_DELETE: "theme:delete",
@@ -275,6 +279,15 @@ export interface ThemeListResponse {
 
 export interface ThemeImportPayload {
     theme: ThemeSource;
+}
+
+export interface ThemeImportFilePayload {
+    path: string;
+}
+
+export interface ThemeImportResponse {
+    themes: ThemeRecord[];
+    importedThemeId: string;
 }
 
 export interface ThemeImportScanResponse {
@@ -1133,6 +1146,65 @@ describe("ThemeService", () => {
         const themes = await service.listAll();
         expect(themes.find((t) => t.id === "to-delete")).toBeFalsy();
     });
+
+    it("suffixes ids that would collide with bundled themes", async () => {
+        const theme = {
+            version: 1 as const,
+            name: "Dracula",
+            origin: "imported" as const,
+            colors: {
+                foreground: "#ffffff", background: "#000000",
+                cursor: "#ffffff", cursorText: "#000000",
+                selection: "#333333", selectionText: "#ffffff",
+                ansi: {
+                    black: "#000000", red: "#ff0000", green: "#00ff00",
+                    yellow: "#ffff00", blue: "#0000ff", magenta: "#ff00ff",
+                    cyan: "#00ffff", white: "#ffffff",
+                    brightBlack: "#808080", brightRed: "#ff0000",
+                    brightGreen: "#00ff00", brightYellow: "#ffff00",
+                    brightBlue: "#0000ff", brightMagenta: "#ff00ff",
+                    brightCyan: "#00ffff", brightWhite: "#ffffff",
+                },
+            },
+        };
+
+        const saved = await service.save(theme);
+        expect(saved.id).toBe("dracula-2");
+    });
+
+    it("reuses an explicit id only when overwriting an existing user theme", async () => {
+        const theme = {
+            version: 1 as const,
+            name: "One Dark",
+            origin: "online" as const,
+            colors: {
+                foreground: "#ffffff", background: "#000000",
+                cursor: "#ffffff", cursorText: "#000000",
+                selection: "#333333", selectionText: "#ffffff",
+                ansi: {
+                    black: "#000000", red: "#ff0000", green: "#00ff00",
+                    yellow: "#ffff00", blue: "#0000ff", magenta: "#ff00ff",
+                    cyan: "#00ffff", white: "#ffffff",
+                    brightBlack: "#808080", brightRed: "#ff0000",
+                    brightGreen: "#00ff00", brightYellow: "#ffff00",
+                    brightBlue: "#0000ff", brightMagenta: "#ff00ff",
+                    brightCyan: "#00ffff", brightWhite: "#ffffff",
+                },
+            },
+        };
+
+        await service.save(theme, "one-dark");
+        const updated = await service.save(
+            { ...theme, name: "One Dark Updated" },
+            "one-dark",
+            { overwriteExisting: true },
+        );
+
+        expect(updated.id).toBe("one-dark");
+        expect((await service.listAll()).find((t) => t.id === "one-dark")?.source.name).toBe(
+            "One Dark Updated",
+        );
+    });
 });
 ```
 
@@ -1168,8 +1240,26 @@ class ThemeService {
         return [...bundledThemes, ...userThemes];
     }
 
-    async save(theme: ThemeSource, preferredId?: string): Promise<ThemeRecord> {
-        const id = preferredId ?? slugify(theme.name);
+    async save(
+        theme: ThemeSource,
+        preferredId?: string,
+        options?: { overwriteExisting?: boolean },
+    ): Promise<ThemeRecord> {
+        const bundledIds = new Set(bundledThemes.map((entry) => entry.id));
+        const userThemes = await this.loadUserThemes();
+        const userIds = new Set(userThemes.map((entry) => entry.id));
+        const baseId = preferredId ?? slugify(theme.name);
+        const overwriteExisting = options?.overwriteExisting === true;
+
+        let id = baseId;
+        if (bundledIds.has(id) || (userIds.has(id) && !overwriteExisting)) {
+            let suffix = 2;
+            while (bundledIds.has(id) || userIds.has(id)) {
+                id = `${baseId}-${suffix}`;
+                suffix++;
+            }
+        }
+
         const filename = `${id}.json`;
         await writeFile(
             join(this.themesDir, filename),
@@ -1179,6 +1269,9 @@ class ThemeService {
     }
 
     async delete(id: string): Promise<void> {
+        if (bundledThemes.some((theme) => theme.id === id)) {
+            return;
+        }
         const filename = `${id}.json`;
         await unlink(join(this.themesDir, filename)).catch(() => {});
     }
@@ -1244,6 +1337,7 @@ import type {
     ThemeBrowseListResponse,
     ThemeDeletePayload,
     ThemeDownloadPayload,
+    ThemeImportResponse,
     ThemeImportPayload,
     ThemeListResponse,
     ThemeSource,
@@ -1259,9 +1353,9 @@ function registerThemeHandlers(router: Router, themeService: ThemeService): void
 
     router.register(MSG.THEME_IMPORT, async (payload) => {
         const { theme } = payload as ThemeImportPayload;
-        await themeService.save(theme);
+        const record = await themeService.save(theme);
         const themes = await themeService.listAll();
-        return { themes } satisfies ThemeListResponse;
+        return { themes, importedThemeId: record.id } satisfies ThemeImportResponse;
     });
 
     router.register(MSG.THEME_DELETE, async (payload) => {
@@ -1303,7 +1397,7 @@ function registerThemeHandlers(router: Router, themeService: ThemeService): void
         const { parseAlacrittyToml } = await import("../services/theme-parsers/alacritty");
         const parsed = parseAlacrittyToml(toml, name);
         const theme: ThemeSource = { ...parsed, origin: "online" };
-        await themeService.save(theme, id);
+        await themeService.save(theme, id, { overwriteExisting: true });
         const themes = await themeService.listAll();
         return { themes } satisfies ThemeListResponse;
     });
@@ -1373,7 +1467,13 @@ git commit -m "feat: add appearance dialog state to UI store"
 // packages/ui/src/stores/theme-store.ts
 import { create } from "zustand";
 import { MSG, DEFAULT_THEME_ID, bundledThemes, deriveTheme } from "@taskflow/shared";
-import type { ResolvedTheme, ThemeListResponse, ThemeRecord, ThemeSource } from "@taskflow/shared";
+import type {
+    ResolvedTheme,
+    ThemeImportResponse,
+    ThemeListResponse,
+    ThemeRecord,
+    ThemeSource,
+} from "@taskflow/shared";
 import { sendRequest } from "../hooks/useWebSocket";
 import { useSettingsStore } from "./settings-store";
 
@@ -1389,6 +1489,7 @@ interface ThemeStore {
     fetchThemes(): Promise<void>;
     activateTheme(themeId: string): Promise<void>;
     importTheme(theme: ThemeSource): Promise<void>;
+    importThemeFile(path: string): Promise<void>;
     deleteTheme(themeId: string): Promise<void>;
 }
 
@@ -1398,22 +1499,26 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     resolved: defaultResolved,
 
     async fetchThemes() {
-        const { themes } = await sendRequest<ThemeListResponse>(MSG.THEMES_LIST);
+        try {
+            const { themes } = await sendRequest<ThemeListResponse>(MSG.THEMES_LIST);
 
-        // Resolve the active theme using the persisted canonical id.
-        const activeThemeId =
-            useSettingsStore.getState().settings?.appearance?.theme ?? DEFAULT_THEME_ID;
-        const record = themes.find((t) => t.id === activeThemeId)
-            ?? themes.find((t) => t.id === DEFAULT_THEME_ID)
-            ?? themes[0];
-        if (record) {
-            set({
-                themes,
-                activeThemeId: record.id,
-                resolved: deriveTheme(record.source),
-            });
-        } else {
-            set({ themes });
+            // Resolve the active theme using the persisted canonical id.
+            const activeThemeId =
+                useSettingsStore.getState().settings?.appearance?.theme ?? DEFAULT_THEME_ID;
+            const record = themes.find((t) => t.id === activeThemeId)
+                ?? themes.find((t) => t.id === DEFAULT_THEME_ID)
+                ?? themes[0];
+            if (record) {
+                set({
+                    themes,
+                    activeThemeId: record.id,
+                    resolved: deriveTheme(record.source),
+                });
+            } else {
+                set({ themes });
+            }
+        } catch {
+            // Keep the eagerly resolved bundled default so startup and reconnects remain usable.
         }
     },
 
@@ -1430,8 +1535,47 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     },
 
     async importTheme(theme: ThemeSource) {
-        const { themes } = await sendRequest<ThemeListResponse>(MSG.THEME_IMPORT, { theme });
-        set({ themes });
+        const { themes, importedThemeId } = await sendRequest<ThemeImportResponse>(
+            MSG.THEME_IMPORT,
+            { theme },
+        );
+        const record = themes.find((entry) => entry.id === importedThemeId);
+        set(
+            record
+                ? {
+                      themes,
+                      activeThemeId: record.id,
+                      resolved: deriveTheme(record.source),
+                  }
+                : { themes },
+        );
+        if (record) {
+            await useSettingsStore.getState().updateSettings({
+                appearance: { theme: record.id },
+            });
+        }
+    },
+
+    async importThemeFile(path: string) {
+        const { themes, importedThemeId } = await sendRequest<ThemeImportResponse>(
+            MSG.THEME_IMPORT_FILE,
+            { path },
+        );
+        const record = themes.find((entry) => entry.id === importedThemeId);
+        set(
+            record
+                ? {
+                      themes,
+                      activeThemeId: record.id,
+                      resolved: deriveTheme(record.source),
+                  }
+                : { themes },
+        );
+        if (record) {
+            await useSettingsStore.getState().updateSettings({
+                appearance: { theme: record.id },
+            });
+        }
     },
 
     async deleteTheme(themeId: string) {
@@ -1705,15 +1849,26 @@ export function App() {
 }
 ```
 
-Theme fetch is triggered at startup, but it must happen **after** settings load so the persisted theme id is available before resolution. In `packages/ui/src/components/sidebar/TaskSidebar.tsx`, update the `useEffect` at line 39-44:
+Theme fetch is triggered at startup, but it must not block project/task loading. Fetch projects/tasks independently, then load settings/themes in a separate best-effort branch so a settings/theme failure cannot leave the sidebar empty. In `packages/ui/src/components/sidebar/TaskSidebar.tsx`, update the `useEffect` at line 39-44:
 
 ```typescript
 useEffect(() => {
     if (!connected) return;
+    void fetchProjects();
+    void fetchTasks();
+
     void (async () => {
-        await fetchSettings();
-        await fetchThemes();
-        await Promise.all([fetchProjects(), fetchTasks()]);
+        try {
+            await fetchSettings();
+        } catch {
+            // Keep existing defaults if settings are temporarily unavailable.
+        }
+
+        try {
+            await fetchThemes();
+        } catch {
+            // Theme store already has a bundled fallback; keep the app usable.
+        }
     })();
 }, [connected, fetchProjects, fetchTasks, fetchSettings, fetchThemes]);
 ```
@@ -1934,7 +2089,7 @@ git commit -m "feat: add ThemeGrid component"
 
 - [ ] **Step 1: Create ImportTab component**
 
-This is a placeholder for now — the full parsers come in Chunk 5. For now it shows detected terminal apps and a "From File..." button.
+This is a placeholder for now — the full parser and file-picker flow comes in Chunk 5. For now it only explains that import support is coming soon; do not add a non-functional "From File..." button yet.
 
 ```typescript
 // packages/ui/src/components/appearance/ImportTab.tsx
@@ -2326,7 +2481,12 @@ git commit -m "feat: add Terminal.app theme parser (best-effort)"
 **Files:**
 - Create: `packages/backend/src/services/theme-parsers/index.ts`
 - Modify: `packages/backend/src/handlers/theme.ts`
+- Modify: `packages/backend/src/services/theme-service.ts`
+- Modify: `packages/ui/src/stores/theme-store.ts`
 - Modify: `packages/ui/src/components/appearance/ImportTab.tsx`
+- Modify: `packages/ui/src/env.d.ts`
+- Modify: `electron/src/preload.ts`
+- Modify: `electron/src/main.ts`
 
 - [ ] **Step 1: Create parser index**
 
@@ -2342,13 +2502,18 @@ export { detectIterm2, parseIterm2 } from "./iterm2";
 export { detectTerminalApp, parseTerminalApp } from "./terminal-app";
 ```
 
-- [ ] **Step 2: Add import detection to ThemeService and theme handler**
+- [ ] **Step 2: Add import detection and file import to ThemeService and theme handler**
 
 Add a method to `ThemeService` that runs all detectors and returns which apps have importable themes:
 
 ```typescript
 async detectTerminalApps(): Promise<Array<{ app: string; themes: ThemeSource[] }>> {
     // Call each detector, return results
+}
+
+async importFromFile(path: string): Promise<ThemeRecord> {
+    // Read the selected file, detect format by extension/content, parse into ThemeSource,
+    // then save via ThemeService.save() so id collision rules are preserved.
 }
 ```
 
@@ -2359,16 +2524,45 @@ const apps = await themeService.detectTerminalApps();
 return { apps } satisfies ThemeImportScanResponse;
 ```
 
-Do not overload `THEME_IMPORT`, which remains the write/import action.
+Register `MSG.THEME_IMPORT_FILE` in `packages/backend/src/handlers/theme.ts`:
 
-- [ ] **Step 3: Update ImportTab with real UI**
+```typescript
+const { path } = payload as ThemeImportFilePayload;
+const record = await themeService.importFromFile(path);
+const themes = await themeService.listAll();
+return { themes, importedThemeId: record.id } satisfies ThemeImportResponse;
+```
 
-Replace placeholder with actual terminal app detection results, import buttons, and a "From File..." option.
+Do not overload `THEME_IMPORT`, which remains the direct write/import action when the UI already has a parsed `ThemeSource`.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Add the Electron file-picker bridge**
+
+Add `selectThemeFile(): Promise<string | null>` to `packages/ui/src/env.d.ts`, expose it from `electron/src/preload.ts`, and implement the IPC handler in `electron/src/main.ts` with `dialog.showOpenDialog({ properties: ["openFile"] })`.
+
+Use filters for the formats we support or can sniff:
+- JSON (`.json`)
+- Alacritty (`.toml`)
+- Warp (`.yaml`, `.yml`)
+- macOS theme exports (`.plist`, `.terminal`)
+- Plain text configs (`.conf`, no-extension fallback via "All Files")
+
+- [ ] **Step 4: Update theme store with file import action**
+
+Add `importThemeFile(path: string)` to `packages/ui/src/stores/theme-store.ts`. It should send `MSG.THEME_IMPORT_FILE`, receive `ThemeImportResponse`, refresh `themes`, and activate/persist `importedThemeId` if it is returned.
+
+- [ ] **Step 5: Update ImportTab with real UI**
+
+Replace the placeholder with:
+- terminal app detection results from `MSG.THEME_IMPORT_SCAN`
+- import buttons for detected terminal themes using `importTheme(theme)`
+- a real "From File..." button that calls `window.taskflow?.selectThemeFile()`, then passes the returned path to `importThemeFile(path)`
+
+The renderer should never parse the file itself. File selection happens in Electron, and file reading/parsing stays on the backend so all parser logic remains in one place.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add packages/backend/src/services/theme-parsers/ packages/ui/src/components/appearance/ImportTab.tsx
+git add packages/backend/src/services/theme-parsers/ packages/backend/src/services/theme-service.ts packages/backend/src/handlers/theme.ts packages/ui/src/stores/theme-store.ts packages/ui/src/components/appearance/ImportTab.tsx packages/ui/src/env.d.ts electron/src/preload.ts electron/src/main.ts
 git commit -m "feat: integrate terminal app parsers into import flow"
 ```
 
