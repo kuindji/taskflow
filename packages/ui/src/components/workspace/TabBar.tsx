@@ -202,7 +202,13 @@ export function TabBar({
             {showRunButton && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-xs" aria-label="Run" tooltip="Run">
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Run"
+                            tooltip="Run"
+                            tooltipSide="bottom"
+                        >
                             <Play className="h-3.5 w-3.5" />
                         </Button>
                     </DropdownMenuTrigger>
@@ -286,6 +292,7 @@ export function TabBar({
                                 }}
                                 aria-label="New Claude session"
                                 tooltip="New Claude session (Shift+click for options)"
+                                tooltipSide="bottom"
                             >
                                 <ClaudeIcon className="h-3.5 w-3.5" />
                             </Button>
@@ -315,6 +322,7 @@ export function TabBar({
                                 }}
                                 aria-label="New Codex session"
                                 tooltip="New Codex session (Shift+click for options)"
+                                tooltipSide="bottom"
                             >
                                 <CodexIcon className="h-3.5 w-3.5" />
                             </Button>
@@ -338,6 +346,7 @@ export function TabBar({
                         size="icon-xs"
                         aria-label="New terminal"
                         tooltip="New terminal"
+                        tooltipSide="bottom"
                         disabled={!defaultShellPath}
                         onClick={() => {
                             if (defaultShellPath) onNewTab("shell", defaultShellPath);
@@ -353,6 +362,7 @@ export function TabBar({
                 onClick={() => onNewTab("browser")}
                 aria-label="New browser tab"
                 tooltip="New browser tab"
+                tooltipSide="bottom"
             >
                 <Globe className="h-3.5 w-3.5" />
             </Button>
@@ -364,6 +374,7 @@ export function TabBar({
                             size="icon-xs"
                             aria-label="Choose terminal shell"
                             tooltip="Choose terminal shell"
+                            tooltipSide="bottom"
                         >
                             <ChevronDown className="h-3.5 w-3.5" />
                         </Button>

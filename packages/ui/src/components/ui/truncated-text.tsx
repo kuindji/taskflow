@@ -30,6 +30,7 @@ interface TruncatedTextProps extends React.HTMLAttributes<HTMLElement> {
     tooltipContent?: ReactNode;
     truncate?: boolean;
     tooltip?: boolean;
+    tooltipSide?: React.ComponentProps<typeof TooltipContent>["side"];
 }
 
 function TruncatedText({
@@ -39,6 +40,7 @@ function TruncatedText({
     tooltipContent,
     truncate = true,
     tooltip = false,
+    tooltipSide,
     ...props
 }: TruncatedTextProps) {
     const ref = useRef<HTMLElement>(null);
@@ -84,7 +86,7 @@ function TruncatedText({
                     {children}
                 </Component>
             </TooltipTrigger>
-            <TooltipContent>{tooltipContent ?? children}</TooltipContent>
+            <TooltipContent side={tooltipSide}>{tooltipContent ?? children}</TooltipContent>
         </Tooltip>
     );
 }

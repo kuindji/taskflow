@@ -103,6 +103,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         onClick={toggleFileExplorer}
                         aria-label={fileExplorerOpen ? "Hide file explorer" : "Show file explorer"}
                         tooltip={fileExplorerOpen ? "Hide file explorer" : "Show file explorer"}
+                        tooltipSide="bottom"
                         className="[-webkit-app-region:no-drag]"
                     >
                         {fileExplorerOpen ? (
@@ -112,7 +113,11 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         )}
                     </Button>
                     <div className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden">
-                        <TruncatedText tooltip className="text-foreground shrink text-sm font-semibold">
+                        <TruncatedText
+                            tooltip
+                            tooltipSide="bottom"
+                            className="text-foreground shrink text-sm font-semibold"
+                        >
                             {task?.title ?? project?.name}
                         </TruncatedText>
                         {task && project && (
@@ -124,6 +129,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             <TruncatedText
                                 as="div"
                                 tooltip
+                                tooltipSide="bottom"
                                 className="border-border shrink-[3] rounded-md border px-2 py-0.5 text-xs [-webkit-app-region:no-drag]"
                                 tooltipContent={task.worktree.branch}
                             >
@@ -178,6 +184,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             onClick={handleArchive}
                             aria-label="Archive task"
                             tooltip="Archive task"
+                            tooltipSide="bottom"
                             className="[-webkit-app-region:no-drag]"
                         >
                             <Archive className="h-4 w-4" />
@@ -190,6 +197,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             onClick={() => setRenameOpen(true)}
                             aria-label="Rename project"
                             tooltip="Rename project"
+                            tooltipSide="bottom"
                             className="[-webkit-app-region:no-drag]"
                         >
                             <Pencil className="h-4 w-4" />
@@ -201,6 +209,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         onClick={handleDelete}
                         aria-label={task ? "Delete task" : "Remove project"}
                         tooltip={task ? "Delete task" : "Remove project"}
+                        tooltipSide="bottom"
                         className="text-destructive hover:text-destructive [-webkit-app-region:no-drag]"
                     >
                         <Trash2 className="h-4 w-4" />
@@ -211,6 +220,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         onClick={toggleTaskInfo}
                         aria-label={taskInfoOpen ? "Hide task info" : "Show task info"}
                         tooltip={taskInfoOpen ? "Hide task info" : "Show task info"}
+                        tooltipSide="bottom"
                         className="[-webkit-app-region:no-drag]"
                     >
                         {taskInfoOpen ? (

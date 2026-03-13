@@ -112,6 +112,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                 <TruncatedText
                     truncate={!!compact}
                     tooltip={!!compact}
+                    tooltipSide="right"
                     className={cn(
                         "text-sm font-medium",
                         isActive && "text-foreground",
@@ -133,7 +134,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                                         <GitBranch className="h-3.5 w-3.5" />
                                     </div>
                                 </TooltipTrigger>
-                                <TooltipContent side="top">
+                                <TooltipContent side="right">
                                     {task.worktree.branch ?? "pending"}
                                 </TooltipContent>
                             </Tooltip>
@@ -152,6 +153,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                             className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Unarchive task"
                             tooltip="Unarchive task"
+                            tooltipSide="top"
                         >
                             <ArchiveRestore className="h-3.5 w-3.5" />
                         </Button>
@@ -163,6 +165,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                             className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Archive task"
                             tooltip="Archive task"
+                            tooltipSide="top"
                         >
                             <Archive className="h-3.5 w-3.5" />
                         </Button>
@@ -174,6 +177,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                         className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-destructive h-6 w-6 border p-0 shadow-xs"
                         aria-label="Delete task"
                         tooltip="Delete task"
+                        tooltipSide="top"
                     >
                         <Trash2 className="h-3.5 w-3.5" />
                     </Button>

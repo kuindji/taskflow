@@ -165,7 +165,7 @@ export function TaskSidebar() {
                         </span>
                     ) : (
                         <>
-                            <NewTaskControl />
+                            <NewTaskControl tooltipSide="bottom" />
                             <Button
                                 variant="ghost"
                                 size="xs"
@@ -196,7 +196,7 @@ export function TaskSidebar() {
                 {showArchive && displayTasks.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">No archived tasks.</div>
                 )}
-                {visibleProjects.map((project, index) => {
+                {visibleProjects.map((project) => {
                     const projectTasks = tasksByProject.get(project.id) ?? [];
                     return (
                         <ProjectGroup
@@ -209,7 +209,6 @@ export function TaskSidebar() {
                             onProjectClick={handleProjectClick}
                             onTaskClick={handleTaskClick}
                             archived={showArchive}
-                            isFirstVisibleProject={index === 0}
                             compact={compactSidebar}
                         />
                     );
@@ -223,6 +222,7 @@ export function TaskSidebar() {
                     onClick={toggleSettings}
                     aria-label="Settings"
                     tooltip="Settings"
+                    tooltipSide="bottom"
                     className="text-muted-foreground [-webkit-app-region:no-drag]"
                 >
                     <Settings2 className="h-3.5 w-3.5" />

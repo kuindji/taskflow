@@ -104,6 +104,7 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
                     disabled={!canGoBack}
                     aria-label="Go back"
                     tooltip="Go back"
+                    tooltipSide="bottom"
                 >
                     <ArrowLeft className="h-4 w-4" />
                 </Button>
@@ -113,6 +114,7 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
                     onClick={reload}
                     aria-label="Reload"
                     tooltip="Reload"
+                    tooltipSide="bottom"
                 >
                     <RotateCw className="h-4 w-4" />
                 </Button>

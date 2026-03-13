@@ -46,6 +46,7 @@ function Button({
     asChild = false,
     loading = false,
     tooltip,
+    tooltipSide,
     disabled,
     children,
     ...props
@@ -54,6 +55,7 @@ function Button({
         asChild?: boolean;
         loading?: boolean;
         tooltip?: React.ReactNode;
+        tooltipSide?: React.ComponentProps<typeof TooltipContent>["side"];
     }) {
     const button = asChild ? (
         <Slot.Root
@@ -89,7 +91,7 @@ function Button({
     return (
         <Tooltip>
             <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-            <TooltipContent>{tooltip}</TooltipContent>
+            <TooltipContent side={tooltipSide}>{tooltip}</TooltipContent>
         </Tooltip>
     );
 }

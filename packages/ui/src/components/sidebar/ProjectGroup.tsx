@@ -17,7 +17,6 @@ interface ProjectGroupProps {
     onProjectClick: (projectId: string) => void;
     onTaskClick: (taskId: string) => void;
     archived?: boolean;
-    isFirstVisibleProject?: boolean;
     compact?: boolean;
 }
 
@@ -30,7 +29,6 @@ export function ProjectGroup({
     onProjectClick,
     onTaskClick,
     archived,
-    isFirstVisibleProject = false,
     compact,
 }: ProjectGroupProps) {
     const [open, setOpen] = useState(true);
@@ -72,10 +70,7 @@ export function ProjectGroup({
                                 )}
                             </button>
                         </TooltipTrigger>
-                        <TooltipContent
-                            side={isFirstVisibleProject ? "bottom" : undefined}
-                            sideOffset={4}
-                        >
+                        <TooltipContent side="right" sideOffset={4}>
                             {open ? "Collapse project" : "Expand project"}
                         </TooltipContent>
                     </Tooltip>
@@ -89,10 +84,7 @@ export function ProjectGroup({
                                 <TooltipTrigger asChild>
                                     <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
                                 </TooltipTrigger>
-                                <TooltipContent
-                                    side={isFirstVisibleProject ? "bottom" : undefined}
-                                    sideOffset={4}
-                                >
+                                <TooltipContent side="right" sideOffset={4}>
                                     Project location not found
                                 </TooltipContent>
                             </Tooltip>
