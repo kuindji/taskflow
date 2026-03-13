@@ -7,6 +7,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useDiffStore } from "@/stores/diff-store";
 import { confirm } from "@/stores/dialog-store";
 import { TruncatedText } from "@/components/ui/truncated-text";
+import { CopyButton } from "@/components/ui/copy-button";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
 import {
@@ -121,15 +122,22 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             {task?.title ?? project?.name}
                         </TruncatedText>
                         {task?.worktree?.branch && (
-                            <TruncatedText
-                                as="div"
-                                tooltip
-                                tooltipSide="bottom"
-                                className="border-border shrink-[3] rounded-md border px-2 py-0.5 text-xs [-webkit-app-region:no-drag]"
-                                tooltipContent={task.worktree.branch}
-                            >
-                                {task.worktree.branch}
-                            </TruncatedText>
+                            <>
+                                <TruncatedText
+                                    as="div"
+                                    tooltip
+                                    tooltipSide="bottom"
+                                    className="border-border shrink-[3] rounded-md border px-2 py-0.5 text-xs [-webkit-app-region:no-drag]"
+                                    tooltipContent={task.worktree.branch}
+                                >
+                                    {task.worktree.branch}
+                                </TruncatedText>
+                                <CopyButton
+                                    value={task.worktree.branch}
+                                    tooltip="Copy branch name"
+                                    className="[-webkit-app-region:no-drag]"
+                                />
+                            </>
                         )}
                     </div>
                 </>

@@ -6,6 +6,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -214,10 +215,11 @@ function TaskInfoPanel() {
                             <label className="text-muted-foreground text-xs font-medium">
                                 Branch
                             </label>
-                            <div className="mt-1">
+                            <div className="mt-1 flex items-center gap-1">
                                 <Badge variant="outline" colorScheme="active">
                                     {task.worktree.branch}
                                 </Badge>
+                                <CopyButton value={task.worktree.branch} tooltip="Copy branch name" />
                             </div>
                         </div>
                     )}
@@ -228,8 +230,9 @@ function TaskInfoPanel() {
                             <label className="text-muted-foreground text-xs font-medium">
                                 Worktree
                             </label>
-                            <div className="text-secondary-foreground mt-1 text-sm">
-                                {task.worktree.path}
+                            <div className="text-secondary-foreground mt-1 flex items-center gap-1 text-sm">
+                                <span className="break-all">{task.worktree.path}</span>
+                                <CopyButton value={task.worktree.path} tooltip="Copy worktree path" className="shrink-0" />
                             </div>
                         </div>
                     )}
