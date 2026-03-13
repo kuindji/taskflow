@@ -10,7 +10,7 @@ interface ProjectStore {
     loading: boolean;
     fetchProjects(): Promise<void>;
     addProject(path: string): Promise<Project>;
-    updateProject(id: string, name: string): Promise<Project>;
+    updateProject(id: string, updates: { name?: string; path?: string }): Promise<Project>;
     removeProject(id: string): Promise<void>;
 }
 
@@ -31,8 +31,8 @@ export const useProjectStore = create<ProjectStore>((set) => ({
         set((s) => ({ projects: [...s.projects, project] }));
         return project;
     },
-    async updateProject(id, name) {
-        const project = await sendRequest<Project>(MSG.PROJECT_UPDATE, { id, name });
+    async updateProject(id, updates) {
+        const project = await sendRequest<Project>(MSG.PROJECT_UPDATE, { id, ...updates });
         set((s) => ({
             projects: s.projects.map((p) => (p.id === id ? project : p)),
         }));
