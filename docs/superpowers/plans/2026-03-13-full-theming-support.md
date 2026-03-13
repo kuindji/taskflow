@@ -253,15 +253,15 @@ export const DEFAULT_THEME = "catppuccin-mocha";
 In `packages/shared/src/types/ws.ts`, add theme-related payload and response types:
 
 ```typescript
-interface ThemeImportPayload {
+export interface ThemeImportPayload {
     theme: ThemeSource;
 }
 
-interface ThemeDeletePayload {
+export interface ThemeDeletePayload {
     slug: string;
 }
 
-interface ThemeDownloadPayload {
+export interface ThemeDownloadPayload {
     url: string;
     name: string;
 }
@@ -932,6 +932,15 @@ import { bundledThemes } from "@taskflow/shared";
 import type { ThemeSource } from "@taskflow/shared";
 import { slugify } from "../utils/slugify";
 
+function isValidThemeSource(value: unknown): value is ThemeSource {
+    if (typeof value !== "object" || value === null) return false;
+    const obj = value as Record<string, unknown>;
+    return obj.version === 1
+        && typeof obj.name === "string"
+        && typeof obj.colors === "object"
+        && obj.colors !== null;
+}
+
 class ThemeService {
     constructor(private themesDir: string) {}
 
@@ -973,8 +982,8 @@ class ThemeService {
             try {
                 const raw = await readFile(join(this.themesDir, entry), "utf-8");
                 const parsed = JSON.parse(raw);
-                if (parsed.version !== 1 || !parsed.name || !parsed.colors) continue;
-                themes.push(parsed as ThemeSource);
+                if (!isValidThemeSource(parsed)) continue;
+                themes.push(parsed);
             } catch {
                 // Skip invalid files
             }
@@ -1037,8 +1046,8 @@ function registerThemeHandlers(router: Router, themeService: ThemeService): void
         // Parse Alacritty TOML into ThemeSource (using the Alacritty parser from Chunk 5)
         // For now, import parseAlacrittyToml from theme-parsers/alacritty
         const { parseAlacrittyToml } = await import("../services/theme-parsers/alacritty");
-        const theme = parseAlacrittyToml(toml, name);
-        theme.origin = "online";
+        const parsed = parseAlacrittyToml(toml, name);
+        const theme: ThemeSource = { ...parsed, origin: "online" };
         await themeService.save(theme);
         return themeService.listAll();
     });
