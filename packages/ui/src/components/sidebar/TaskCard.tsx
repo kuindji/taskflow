@@ -6,7 +6,9 @@ import { useSessionStore } from "@/stores/session-store";
 import { useTaskStore } from "@/stores/task-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { StatusDot } from "@/components/ui/status-dot";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import {
@@ -193,17 +195,19 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     {hasWorktree && (
-                        <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input
-                                type="checkbox"
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id={`delete-worktree-${task.id}`}
                                 checked={deleteWorktree}
-                                onChange={(e) => setDeleteWorktree(e.target.checked)}
-                                className="rounded"
+                                onCheckedChange={setDeleteWorktree}
                             />
-                            <span className="text-muted-foreground">
+                            <Label
+                                htmlFor={`delete-worktree-${task.id}`}
+                                className="text-muted-foreground cursor-pointer text-sm tracking-normal normal-case"
+                            >
                                 Also delete worktree and branch ({task.worktree.branch})
-                            </span>
-                        </label>
+                            </Label>
+                        </div>
                     )}
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>

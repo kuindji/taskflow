@@ -119,14 +119,14 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
             <Button
                 variant="ghost"
                 size="icon-sm"
-                className="ml-0.5 h-5 w-5"
+                className="ml-0.5 h-[18px] w-[18px]"
                 aria-label="Close tab"
                 onClick={(e) => {
                     e.stopPropagation();
                     onTabClose(tab.id);
                 }}
             >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-3 w-3" />
             </Button>
         </div>
     );

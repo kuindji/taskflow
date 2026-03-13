@@ -170,7 +170,7 @@ export function TaskSidebar() {
                                 variant="ghost"
                                 size="xs"
                                 onClick={() => handleOpenProjectDialog()}
-                                className="text-muted-foreground text-sm [-webkit-app-region:no-drag]"
+                                className="text-muted-foreground [-webkit-app-region:no-drag]"
                             >
                                 <Plus className="h-4 w-4" />
                                 Project
