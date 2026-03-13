@@ -194,7 +194,7 @@ function SettingsModal() {
         shells,
         settings.terminal.defaultShell,
     );
-    const defaultsSelectLabelClassName = "text-xxs leading-none text-muted-foreground";
+    const defaultsSelectLabelClassName = "text-xxs/none text-muted-foreground";
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
