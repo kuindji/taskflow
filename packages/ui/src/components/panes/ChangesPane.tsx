@@ -7,7 +7,7 @@ import { confirm } from "@/stores/dialog-store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Undo2 } from "lucide-react";
+import { Undo2, Plus, Minus, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type BadgeColorScheme = "claude" | "codex" | "active" | "archived";
@@ -57,14 +57,16 @@ interface FileStatusRowProps {
     file: GitFileStatus;
     isSelected: boolean;
     onSelect: (path: string) => void;
-    onRevert: (file: GitFileStatus) => void;
+    onRevert?: (file: GitFileStatus) => void;
+    onStageToggle?: (file: GitFileStatus) => void;
+    staged: boolean;
 }
 
-function FileStatusRow({ file, isSelected, onSelect, onRevert }: FileStatusRowProps) {
+function FileStatusRow({ file, isSelected, onSelect, onRevert, onStageToggle, staged }: FileStatusRowProps) {
     const rowClasses = useMemo(
         () =>
             cn(
-                "flex justify-between items-center px-1 py-0.5 cursor-pointer rounded-md text-sm",
+                "flex justify-between items-center px-1 py-0.5 cursor-pointer rounded-md text-sm group",
                 isSelected && "bg-muted",
             ),
         [isSelected],
@@ -81,7 +83,7 @@ function FileStatusRow({ file, isSelected, onSelect, onRevert }: FileStatusRowPr
 
     return (
         <div onClick={() => onSelect(file.path)} className={rowClasses}>
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 min-w-0">
                 <Badge
                     variant="outline"
                     colorScheme={gitStatusToColorScheme(file.status)}
@@ -89,21 +91,72 @@ function FileStatusRow({ file, isSelected, onSelect, onRevert }: FileStatusRowPr
                 >
                     {statusPrefix(file.status)}
                 </Badge>
-                <span className="text-secondary-foreground">{displayPath(file)}</span>
+                <span className="text-secondary-foreground truncate">{displayPath(file)}</span>
             </span>
-            <Button
-                variant="ghost"
-                size="icon-sm"
-                className="text-destructive h-5 w-5"
-                aria-label="Revert change"
-                tooltip="Revert change"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onRevert(file);
-                }}
+            <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                {!staged && onRevert && (
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-destructive h-5 w-5"
+                        aria-label="Revert change"
+                        tooltip="Revert change"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onRevert(file);
+                        }}
+                    >
+                        <Undo2 className="h-3 w-3" />
+                    </Button>
+                )}
+                {onStageToggle && (
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="h-5 w-5"
+                        aria-label={staged ? "Unstage file" : "Stage file"}
+                        tooltip={staged ? "Unstage file" : "Stage file"}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onStageToggle(file);
+                        }}
+                    >
+                        {staged ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                    </Button>
+                )}
+            </span>
+        </div>
+    );
+}
+
+interface SectionHeaderProps {
+    label: string;
+    count: number;
+    collapsed: boolean;
+    onToggle: () => void;
+    action?: { label: string; onClick: () => void };
+}
+
+function SectionHeader({ label, count, collapsed, onToggle, action }: SectionHeaderProps) {
+    return (
+        <div className="flex items-center justify-between py-1 px-1">
+            <button
+                onClick={onToggle}
+                className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
-                <Undo2 className="h-3 w-3" />
-            </Button>
+                {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                {label} ({count})
+            </button>
+            {action && count > 0 && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 text-xs px-1.5"
+                    onClick={action.onClick}
+                >
+                    {action.label}
+                </Button>
+            )}
         </div>
     );
 }
@@ -116,8 +169,10 @@ interface ChangesPaneProps {
 function ChangesPane({ repoPath, className }: ChangesPaneProps) {
     const [status, setStatus] = useState<GitStatusResult | null>(null);
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
-    const [diff, setDiff] = useState<string | null>(null);
+    const [diff, setDiff] = useState<{ staged?: string; unstaged?: string } | null>(null);
     const [diffLoading, setDiffLoading] = useState(false);
+    const [stagedCollapsed, setStagedCollapsed] = useState(false);
+    const [unstagedCollapsed, setUnstagedCollapsed] = useState(false);
     const repoVersionRef = useRef(0);
     const diffRequestIdRef = useRef(0);
 
@@ -158,13 +213,13 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
         setDiff(null);
         setDiffLoading(true);
         try {
-            const { diff } = await sendRequest<{ diff: string }>(MSG.GIT_DIFF_FILE, {
+            const result = await sendRequest<{ staged?: string; unstaged?: string }>(MSG.GIT_DIFF_FILE, {
                 repoPath,
                 filePath,
             });
             if (repoVersion !== repoVersionRef.current) return;
             if (requestId !== diffRequestIdRef.current) return;
-            setDiff(diff);
+            setDiff(result);
         } catch (err: unknown) {
             if (repoVersion !== repoVersionRef.current) return;
             if (requestId !== diffRequestIdRef.current) return;
@@ -174,6 +229,46 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
             if (repoVersion === repoVersionRef.current && requestId === diffRequestIdRef.current) {
                 setDiffLoading(false);
             }
+        }
+    }
+
+    async function stageFile(file: GitFileStatus) {
+        try {
+            await sendRequest(MSG.GIT_STAGE, { repoPath, filePath: file.path });
+            await fetchStatus();
+            if (selectedFile === file.path) void showDiff(file.path);
+        } catch (err) {
+            console.error("Failed to stage file:", err);
+        }
+    }
+
+    async function unstageFile(file: GitFileStatus) {
+        try {
+            await sendRequest(MSG.GIT_UNSTAGE, { repoPath, filePath: file.path });
+            await fetchStatus();
+            if (selectedFile === file.path) void showDiff(file.path);
+        } catch (err) {
+            console.error("Failed to unstage file:", err);
+        }
+    }
+
+    async function stageAll() {
+        try {
+            await sendRequest(MSG.GIT_STAGE, { repoPath });
+            await fetchStatus();
+            if (selectedFile) void showDiff(selectedFile);
+        } catch (err) {
+            console.error("Failed to stage all files:", err);
+        }
+    }
+
+    async function unstageAll() {
+        try {
+            await sendRequest(MSG.GIT_UNSTAGE, { repoPath });
+            await fetchStatus();
+            if (selectedFile) void showDiff(selectedFile);
+        } catch (err) {
+            console.error("Failed to unstage all files:", err);
         }
     }
 
@@ -202,6 +297,8 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
         });
     }
 
+    const hasNoChanges = status && status.stagedFiles.length === 0 && status.unstagedFiles.length === 0;
+
     return (
         <div className={containerClasses}>
             {/* File list */}
@@ -213,34 +310,97 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                         </Badge>
                     </div>
                 )}
-                {status?.files.length === 0 && (
+                {hasNoChanges && (
                     <div className="text-muted-foreground text-sm">No changes</div>
                 )}
-                {status?.files.map((file) => (
-                    <FileStatusRow
-                        key={file.path}
-                        file={file}
-                        isSelected={file.path === selectedFile}
-                        onSelect={showDiff}
-                        onRevert={revertFile}
-                    />
-                ))}
+
+                {status && status.stagedFiles.length > 0 && (
+                    <>
+                        <SectionHeader
+                            label="Staged Changes"
+                            count={status.stagedFiles.length}
+                            collapsed={stagedCollapsed}
+                            onToggle={() => setStagedCollapsed((v) => !v)}
+                            action={{ label: "Unstage All", onClick: () => void unstageAll() }}
+                        />
+                        {!stagedCollapsed &&
+                            status.stagedFiles.map((file) => (
+                                <FileStatusRow
+                                    key={`staged-${file.path}`}
+                                    file={file}
+                                    staged
+                                    isSelected={file.path === selectedFile}
+                                    onSelect={showDiff}
+                                    onStageToggle={unstageFile}
+                                />
+                            ))}
+                    </>
+                )}
+
+                {status && status.unstagedFiles.length > 0 && (
+                    <>
+                        <SectionHeader
+                            label="Unstaged Changes"
+                            count={status.unstagedFiles.length}
+                            collapsed={unstagedCollapsed}
+                            onToggle={() => setUnstagedCollapsed((v) => !v)}
+                            action={{ label: "Stage All", onClick: () => void stageAll() }}
+                        />
+                        {!unstagedCollapsed &&
+                            status.unstagedFiles.map((file) => (
+                                <FileStatusRow
+                                    key={`unstaged-${file.path}`}
+                                    file={file}
+                                    staged={false}
+                                    isSelected={file.path === selectedFile}
+                                    onSelect={showDiff}
+                                    onRevert={revertFile}
+                                    onStageToggle={stageFile}
+                                />
+                            ))}
+                    </>
+                )}
             </ScrollArea>
 
             {/* Diff view */}
             <ScrollArea className="flex-1 p-3">
                 {diffLoading ? (
                     <div className="text-muted-foreground text-sm">Loading diff...</div>
-                ) : diff ? (
+                ) : diff && (diff.staged || diff.unstaged) ? (
                     <pre className="m-0">
-                        {diff.split("\n").map((line, i) => (
-                            <div
-                                key={i}
-                                className={diffLineVariants({ type: getDiffLineType(line) })}
-                            >
-                                {line}
-                            </div>
-                        ))}
+                        {diff.staged && (
+                            <>
+                                <div className="text-xs font-semibold text-accent mb-1 px-1 py-0.5 bg-accent/10 rounded">
+                                    Staged Changes
+                                </div>
+                                {diff.staged.split("\n").map((line, i) => (
+                                    <div
+                                        key={`staged-${i}`}
+                                        className={diffLineVariants({ type: getDiffLineType(line) })}
+                                    >
+                                        {line}
+                                    </div>
+                                ))}
+                            </>
+                        )}
+                        {diff.staged && diff.unstaged && (
+                            <div className="border-t border-border my-2" />
+                        )}
+                        {diff.unstaged && (
+                            <>
+                                <div className="text-xs font-semibold text-muted-foreground mb-1 px-1 py-0.5 bg-muted rounded">
+                                    Unstaged Changes
+                                </div>
+                                {diff.unstaged.split("\n").map((line, i) => (
+                                    <div
+                                        key={`unstaged-${i}`}
+                                        className={diffLineVariants({ type: getDiffLineType(line) })}
+                                    >
+                                        {line}
+                                    </div>
+                                ))}
+                            </>
+                        )}
                     </pre>
                 ) : selectedFile ? (
                     <div className="text-muted-foreground text-sm">

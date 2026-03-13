@@ -69,7 +69,13 @@ function FileExplorer() {
     const gitFiles = useMemo(() => {
         const map = new Map<string, string>();
         if (!workingDir || gitStatusPath !== workingDir) return map;
-        gitStatus?.files.forEach((f) => {
+        // Staged first, then unstaged overwrites — unstaged reflects working tree
+        gitStatus?.stagedFiles.forEach((f) => {
+            const absolutePath =
+                f.absolutePath ?? (workingDir ? `${workingDir}/${f.path}` : f.path);
+            map.set(absolutePath, f.status);
+        });
+        gitStatus?.unstagedFiles.forEach((f) => {
             const absolutePath =
                 f.absolutePath ?? (workingDir ? `${workingDir}/${f.path}` : f.path);
             map.set(absolutePath, f.status);

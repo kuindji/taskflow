@@ -64,7 +64,7 @@ export const useDiffStore = create<DiffStore>((set, get) => ({
         let commitDisabled = true;
         if (statusRes.status === "fulfilled") {
             const { status } = statusRes.value;
-            commitDisabled = status.files.length === 0 && status.ahead === 0;
+            commitDisabled = status.stagedFiles.length === 0 && status.unstagedFiles.length === 0 && status.ahead === 0;
         } else {
             commitDisabled = false;
         }

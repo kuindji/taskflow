@@ -32,6 +32,8 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [hasChanges, setHasChanges] = useState<boolean | null>(null);
+    const [hasStagedChanges, setHasStagedChanges] = useState(false);
+    const [includeUnstaged, setIncludeUnstaged] = useState(true);
 
     const createSession = useSessionStore((s) => s.createSession);
 
@@ -43,6 +45,8 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         setLoading(false);
         setError(null);
         setHasChanges(null);
+        setHasStagedChanges(false);
+        setIncludeUnstaged(true);
     }, []);
 
     const handleOpenChange = useCallback(
@@ -58,8 +62,9 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         if (!open) return;
         sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: repoPath }).then(
             (res) => {
-                const changed = res.status.files.length > 0;
+                const changed = res.status.stagedFiles.length > 0 || res.status.unstagedFiles.length > 0;
                 setHasChanges(changed);
+                setHasStagedChanges(res.status.stagedFiles.length > 0);
                 // In push-only mode, push is always on
                 if (!changed) setPush(true);
             },
@@ -73,6 +78,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     }, []);
 
     const pushOnly = hasChanges === false;
+    const commitButtonDisabled = !pushOnly && !includeUnstaged && !hasStagedChanges;
 
     const handleSubmit = useCallback(async () => {
         setError(null);
@@ -99,7 +105,11 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
 
             if (useAgent) {
                 // Agent mode: create a new claude session with a prompt
-                const parts: string[] = ["Create commits for all changes, staged and unstaged."];
+                const parts: string[] = [
+                    includeUnstaged
+                        ? "Create commits for all changes, staged and unstaged."
+                        : "Create commits for staged changes only.",
+                ];
                 if (message.trim()) {
                     parts.push(`Commit message hint: ${message.trim()}`);
                 }
@@ -126,13 +136,14 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
             if (!commitMessage) {
                 const result = await sendRequest<{ message: string }>(MSG.GIT_GENERATE_COMMIT_MSG, {
                     path: repoPath,
+                    includeUnstaged,
                 });
                 commitMessage = result.message;
             }
 
             const commitResult = await sendRequest<{ hash: string; message: string }>(
                 MSG.GIT_COMMIT,
-                { path: repoPath, message: commitMessage, push },
+                { path: repoPath, message: commitMessage, push, includeUnstaged },
             );
 
             if (createPr) {
@@ -148,7 +159,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         } finally {
             setLoading(false);
         }
-    }, [message, useAgent, push, pushOnly, createPr, repoPath, sessionOwner, createSession, handleOpenChange]);
+    }, [message, useAgent, push, pushOnly, createPr, includeUnstaged, repoPath, sessionOwner, createSession, handleOpenChange]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -206,6 +217,20 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
 
                                 <div className="flex items-center gap-2">
                                     <Switch
+                                        id="commit-include-unstaged"
+                                        checked={includeUnstaged}
+                                        onCheckedChange={setIncludeUnstaged}
+                                    />
+                                    <Label
+                                        htmlFor="commit-include-unstaged"
+                                        className="cursor-pointer tracking-normal normal-case"
+                                    >
+                                        Include unstaged changes
+                                    </Label>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <Switch
                                         id="commit-push"
                                         checked={push}
                                         onCheckedChange={handlePushChange}
@@ -246,6 +271,8 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                     <Button
                         onClick={() => void handleSubmit()}
                         loading={loading || hasChanges === null}
+                        disabled={commitButtonDisabled}
+                        tooltip={commitButtonDisabled ? "No staged changes to commit" : undefined}
                         className="bg-accent text-accent-foreground hover:bg-accent/90"
                     >
                         {submitLabel}
