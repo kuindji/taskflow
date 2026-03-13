@@ -1,11 +1,12 @@
 import { create } from "zustand";
-import type { FileNode, GitStatusResult, FileChangeEvent } from "@taskflow/shared";
+import type { FileNode, GitStatusResult, FileChangeEvent, FileTreeResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { onEvent, sendRequest } from "../hooks/useWebSocket";
 
 interface FileStore {
     tree: FileNode | null;
     treePath: string | null;
+    gitignorePatterns: string[];
     gitStatus: GitStatusResult | null;
     gitStatusPath: string | null;
     watchedPath: string | null;
@@ -33,6 +34,7 @@ let gitStatusRequestId = 0;
 export const useFileStore = create<FileStore>((set, get) => ({
     tree: null,
     treePath: null,
+    gitignorePatterns: [],
     gitStatus: null,
     gitStatusPath: null,
     watchedPath: null,
@@ -47,10 +49,11 @@ export const useFileStore = create<FileStore>((set, get) => ({
             loading: true,
             tree: state.treePath === path ? state.tree : null,
             treePath: state.treePath === path ? state.treePath : null,
+            gitignorePatterns: state.treePath === path ? state.gitignorePatterns : [],
         }));
-        const { tree } = await sendRequest<{ tree: FileNode }>(MSG.FILE_TREE, { path });
+        const { tree, gitignorePatterns } = await sendRequest<FileTreeResponse>(MSG.FILE_TREE, { path });
         if (requestId !== treeRequestId) return;
-        set({ tree, treePath: path, loading: false });
+        set({ tree, treePath: path, gitignorePatterns, loading: false });
     },
     async fetchGitStatus(path) {
         const requestId = ++gitStatusRequestId;
@@ -96,6 +99,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
         set({
             tree: null,
             treePath: null,
+            gitignorePatterns: [],
             gitStatus: null,
             gitStatusPath: null,
             loading: false,
