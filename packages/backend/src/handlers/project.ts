@@ -1,5 +1,6 @@
 import { MSG } from "@taskflow/shared";
 import type {
+    Project,
     ProjectAddPayload,
     ProjectRemovePayload,
     ProjectUpdatePayload,
@@ -47,7 +48,13 @@ export function registerProjectHandlers(
     });
 
     router.register(MSG.PROJECT_UPDATE, async (payload) => {
-        const { id, name } = payload as ProjectUpdatePayload;
-        return store.updateProject(id, { name });
+        const { id, name, path } = payload as ProjectUpdatePayload;
+        if (!name && !path) {
+            throw new Error("At least one of name or path must be provided");
+        }
+        const updates: Partial<Pick<Project, "name" | "path">> = {};
+        if (name) updates.name = name;
+        if (path) updates.path = path;
+        return store.updateProject(id, updates);
     });
 }
