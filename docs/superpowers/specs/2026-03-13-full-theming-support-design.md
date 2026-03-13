@@ -10,6 +10,7 @@ Each theme, regardless of source, is represented as a `ThemeSource`:
 
 ```typescript
 interface ThemeSource {
+  version: 1;
   name: string;
   author?: string;
   origin: "bundled" | "imported" | "custom" | "online";
@@ -46,6 +47,8 @@ interface ThemeSource {
 ```
 
 The `overrides` field allows any theme to hand-tune derived CSS variable values where auto-derivation produces poor results.
+
+The `version` field enables future format evolution. The theme loader validates the version field and skips files with unknown versions, logging a warning.
 
 ## Theme Sources & Storage
 
@@ -84,6 +87,8 @@ Each parser is a standalone function. Detection checks if the config file exists
 
 A dedicated dialog fetches the theme list, shows previews, and downloads the Alacritty TOML for the selected theme. Parsed and saved to `~/.config/taskflow/themes/`.
 
+All network requests to terminalcolors.com go through the **backend** (not the renderer) to avoid CORS restrictions. The UI sends a WebSocket message (`THEME_DOWNLOAD`), the backend fetches the TOML, parses it, saves the resulting JSON, and returns the theme to the UI.
+
 ### Settings Persistence
 
 `~/.config/taskflow/settings.json` stores only the active theme name in `appearance.theme`. Theme files live separately.
@@ -92,7 +97,9 @@ A dedicated dialog fetches the theme list, shows previews, and downloads the Ala
 
 A pure function that takes a `ThemeSource` and produces three outputs:
 
-### CSS Variables (~31 tokens)
+### CSS Variables
+
+All variables currently in `:root` in `global.css` must be produced by the derivation engine:
 
 | CSS Variable | Source | Rule |
 |---|---|---|
@@ -100,6 +107,8 @@ A pure function that takes a `ThemeSource` and produces three outputs:
 | `--foreground` | `foreground` | direct |
 | `--card` | `ansi.black` | direct |
 | `--card-foreground` | `foreground` | direct |
+| `--popover` | `selection` | direct |
+| `--popover-foreground` | `foreground` | direct |
 | `--primary` | `foreground` | direct |
 | `--primary-foreground` | `background` | inverted |
 | `--secondary` | `selection` | direct |
@@ -109,10 +118,13 @@ A pure function that takes a `ThemeSource` and produces three outputs:
 | `--muted` | `selection` | direct |
 | `--muted-foreground` | `ansi.brightBlack` | direct |
 | `--destructive` | `ansi.red` | direct |
-| `--destructive-foreground` | `foreground` | direct |
+| `--destructive-foreground` | `background` | direct |
 | `--success` | `ansi.green` | direct |
+| `--success-foreground` | `background` | direct |
 | `--warning` | `ansi.yellow` | direct |
+| `--warning-foreground` | `background` | direct |
 | `--info` | `ansi.cyan` | direct |
+| `--info-foreground` | `background` | direct |
 | `--border` | `selection` | lighten ~10% |
 | `--input` | `selection` | direct |
 | `--ring` | `ansi.blue` | direct |
@@ -128,11 +140,13 @@ Overrides are applied as a final spread: `{ ...derived, ...theme.overrides }`.
 
 ### xterm.js Theme
 
-Direct passthrough of all 20 terminal colors. No derivation — terminal themes are the source of truth.
+Direct passthrough of all 20 terminal colors into the xterm.js `ITheme` object. The `getTerminalTheme()` function in TerminalPane must be **rewritten** to accept the resolved theme object directly rather than reading CSS vars. The current implementation reads a mix of CSS vars and hardcoded Catppuccin hex values — all hardcoded values must be removed. The `useTheme` hook provides the resolved xterm theme object via a store or context.
 
 ### Monaco Editor Theme
 
-Programmatically registered via `monaco.editor.defineTheme()`. Maps:
+Registered once at app startup via `monaco.editor.defineTheme("taskflow", { ... })` before any editor instance is created. The theme name `"taskflow"` is used in all `monaco.editor.create()` calls instead of `"vs-dark"`. When the active theme changes, `useTheme` calls `monaco.editor.defineTheme("taskflow", { ... })` with the new colors followed by `monaco.editor.setTheme("taskflow")` — this is a global call that updates all existing editor instances.
+
+Maps:
 - Editor background/foreground from theme background/foreground
 - Syntax tokens from ANSI colors (strings→green, keywords→blue, errors→red, comments→brightBlack, etc.)
 
@@ -175,6 +189,8 @@ Click-to-apply with no revert. Clicking a theme immediately:
 
 ### Settings Type (`packages/shared/src/types/settings.ts`)
 - Add `appearance: { theme: string }` to `AppSettings`
+- Add `appearance?: { theme?: string }` to `SettingsUpdatePayload`
+- Update `SettingsStore.update()` merge logic to handle the new `appearance` field
 
 ### Backend (`packages/backend`)
 - `config.ts` — add `themesDir: join(CONFIG_DIR, "themes")`
@@ -186,14 +202,14 @@ Click-to-apply with no revert. Clicking a theme immediately:
 - Add `useTheme` hook that watches active theme, runs derivation, applies CSS vars to `document.documentElement.style`
 
 ### Global CSS (`packages/ui/src/styles/global.css`)
-- Remove hardcoded `:root` color values (set dynamically by JS)
+- Keep hardcoded `:root` color values as the **default fallback theme** (Catppuccin Mocha). This ensures the app renders correctly during startup before settings load and `useTheme` applies the active theme. The JS theme application overwrites these values on `document.documentElement.style`, which takes precedence over the stylesheet `:root` block.
 - Keep `@theme inline` Tailwind mappings (reference CSS vars which still exist)
 - Keep radius, font-stack, and non-color tokens static
 
 ### TerminalPane
-- `getTerminalTheme()` already reads CSS vars — mostly works after vars update
-- Add re-theme on change: `term.options.theme = getTerminalTheme()`
-- Remove hardcoded magenta/cyan/white values that bypass CSS vars
+- Rewrite `getTerminalTheme()` to accept the resolved xterm theme from the theme store rather than reading CSS vars
+- Remove all hardcoded Catppuccin hex values (magenta, cyan, white, cursor, etc.)
+- On theme change, update all existing terminal instances: `term.options.theme = newTheme`
 
 ### EditorPane
 - Replace hardcoded `"vs-dark"` with dynamically registered theme
