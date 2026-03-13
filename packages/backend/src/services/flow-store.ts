@@ -4,6 +4,39 @@ import type { StepDefinition, FlowDefinition, FlowRun } from "@taskflow/shared";
 
 const FLOW_RUN_SEPARATOR = "--";
 
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+    return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function assertValidFlowDefinition(flow: FlowDefinition): void {
+    for (const entry of flow.steps) {
+        const hasStepId = entry.stepId !== undefined;
+        const hasInline = entry.inline !== undefined;
+        if (hasStepId === hasInline) {
+            throw new Error(
+                `Flow step "${entry.id}" must define exactly one of stepId or inline`,
+            );
+        }
+
+        if (hasStepId && (typeof entry.stepId !== "string" || entry.stepId.trim().length === 0)) {
+            throw new Error(`Flow step "${entry.id}" must use a non-empty stepId`);
+        }
+
+        if (hasInline) {
+            const inline = entry.inline;
+            if (
+                inline === null ||
+                typeof inline !== "object" ||
+                typeof inline.name !== "string" ||
+                typeof inline.prompt !== "string" ||
+                typeof inline.sessionType !== "string"
+            ) {
+                throw new Error(`Flow step "${entry.id}" must use a valid inline step`);
+            }
+        }
+    }
+}
+
 class FlowStore {
     private flowMutations = new Map<string, Promise<void>>();
 
@@ -24,12 +57,7 @@ class FlowStore {
     }
 
     async getSteps(): Promise<StepDefinition[]> {
-        try {
-            const data = await readFile(this.stepsFile, "utf-8");
-            return JSON.parse(data);
-        } catch {
-            return [];
-        }
+        return (await this.readJsonFile<StepDefinition[]>(this.stepsFile)) ?? [];
     }
 
     async saveStep(step: StepDefinition): Promise<void> {
@@ -46,10 +74,19 @@ class FlowStore {
     }
 
     async deleteStep(id: string): Promise<void> {
-        await this.withMutation("steps", async () => {
-            const steps = await this.getSteps();
-            const filtered = steps.filter((s) => s.id !== id);
-            await writeFile(this.stepsFile, JSON.stringify(filtered, null, 2));
+        await this.withMutation("definitions", async () => {
+            const referencingFlows = await this.getFlowsReferencingStep(id);
+            if (referencingFlows.length > 0) {
+                throw new Error(
+                    `Cannot delete step "${id}" because it is used by: ${referencingFlows.map((flow) => flow.name).join(", ")}`,
+                );
+            }
+
+            await this.withMutation("steps", async () => {
+                const steps = await this.getSteps();
+                const filtered = steps.filter((s) => s.id !== id);
+                await writeFile(this.stepsFile, JSON.stringify(filtered, null, 2));
+            });
         });
     }
 
@@ -60,12 +97,11 @@ class FlowStore {
     }
 
     async getFlows(): Promise<FlowDefinition[]> {
-        try {
-            const data = await readFile(this.definitionsFile, "utf-8");
-            return JSON.parse(data);
-        } catch {
-            return [];
+        const flows = (await this.readJsonFile<FlowDefinition[]>(this.definitionsFile)) ?? [];
+        for (const flow of flows) {
+            assertValidFlowDefinition(flow);
         }
+        return flows;
     }
 
     async getFlowsReferencingStep(stepId: string): Promise<FlowDefinition[]> {
@@ -74,6 +110,7 @@ class FlowStore {
     }
 
     async saveFlow(flow: FlowDefinition): Promise<void> {
+        assertValidFlowDefinition(flow);
         await this.withMutation("definitions", async () => {
             const flows = await this.getFlows();
             const index = flows.findIndex((f) => f.id === flow.id);
@@ -101,12 +138,7 @@ class FlowStore {
     }
 
     async getFlowRun(taskId: string, flowId: string): Promise<FlowRun | null> {
-        try {
-            const data = await readFile(this.flowRunPath(taskId, flowId), "utf-8");
-            return JSON.parse(data);
-        } catch {
-            return null;
-        }
+        return await this.readJsonFile<FlowRun>(this.flowRunPath(taskId, flowId));
     }
 
     async saveFlowRun(run: FlowRun): Promise<void> {
@@ -124,27 +156,50 @@ class FlowStore {
         await this.withMutation(key, async () => {
             try {
                 await unlink(this.flowRunPath(taskId, flowId));
-            } catch {
-                // File doesn't exist, that's fine
+            } catch (error) {
+                if (!isMissingFileError(error)) {
+                    throw error;
+                }
             }
         });
     }
 
     async getFlowRunsForTask(taskId: string): Promise<FlowRun[]> {
         const runs: FlowRun[] = [];
+        let files: string[];
         try {
-            const files = await readdir(this.flowRunsDir);
-            const prefix = `${taskId}${FLOW_RUN_SEPARATOR}`;
-            for (const file of files) {
-                if (file.startsWith(prefix) && file.endsWith(".json")) {
-                    const data = await readFile(join(this.flowRunsDir, file), "utf-8");
-                    runs.push(JSON.parse(data));
+            files = await readdir(this.flowRunsDir);
+        } catch (error) {
+            if (isMissingFileError(error)) {
+                return [];
+            }
+            throw error;
+        }
+
+        const prefix = `${taskId}${FLOW_RUN_SEPARATOR}`;
+        for (const file of files) {
+            if (file.startsWith(prefix) && file.endsWith(".json")) {
+                const run = await this.readJsonFile<FlowRun>(join(this.flowRunsDir, file));
+                if (run) {
+                    runs.push(run);
                 }
             }
-        } catch {
-            // Directory empty or doesn't exist
         }
         return runs;
+    }
+
+    private async readJsonFile<T>(filePath: string): Promise<T | null> {
+        let data: string;
+        try {
+            data = await readFile(filePath, "utf-8");
+        } catch (error) {
+            if (isMissingFileError(error)) {
+                return null;
+            }
+            throw error;
+        }
+
+        return JSON.parse(data) as T;
     }
 
     // --- Mutation serialization ---

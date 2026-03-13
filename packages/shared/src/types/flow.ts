@@ -19,13 +19,22 @@ interface StepInline {
     agentOptions?: AgentLaunchOptions;
 }
 
-// Exactly one of stepId or inline must be defined
-interface FlowStepEntry {
+interface FlowStepEntryBase {
     id: string;
-    stepId?: string;
-    inline?: StepInline;
     label?: string;
 }
+
+interface FlowStepReferenceEntry extends FlowStepEntryBase {
+    stepId: string;
+    inline?: never;
+}
+
+interface FlowStepInlineEntry extends FlowStepEntryBase {
+    inline: StepInline;
+    stepId?: never;
+}
+
+type FlowStepEntry = FlowStepReferenceEntry | FlowStepInlineEntry;
 
 interface FlowDefinition {
     id: string;

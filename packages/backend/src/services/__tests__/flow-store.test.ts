@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { FlowStore } from "../flow-store";
@@ -64,6 +64,33 @@ describe("step definitions", () => {
         expect(steps).toHaveLength(0);
     });
 
+    test("deleteStep rejects a referenced step", async () => {
+        const step = {
+            id: "step-1",
+            name: "Planning",
+            prompt: "Write a plan",
+            sessionType: "claude" as const,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+        const flow = {
+            id: "flow-1",
+            name: "Feature Dev",
+            description: "test",
+            steps: [{ id: "entry-1", stepId: "step-1" }],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+
+        await store.saveStep(step);
+        await store.saveFlow(flow);
+
+        await expect(store.deleteStep("step-1")).rejects.toThrow(
+            'Cannot delete step "step-1" because it is used by: Feature Dev',
+        );
+        await expect(store.getSteps()).resolves.toHaveLength(1);
+    });
+
     test("getFlowsReferencingStep returns flows that use a step", async () => {
         const step = {
             id: "step-1",
@@ -86,6 +113,12 @@ describe("step definitions", () => {
 
         const referencing = await store.getFlowsReferencingStep("step-1");
         expect(referencing.map((entry) => entry.id)).toEqual(["flow-1"]);
+    });
+
+    test("getSteps rethrows malformed JSON", async () => {
+        await writeFile(join(tempDir, "flows", "steps.json"), "{bad json");
+
+        await expect(store.getSteps()).rejects.toThrow();
     });
 });
 
@@ -127,6 +160,38 @@ describe("flow definitions", () => {
         await store.deleteFlow("flow-1");
         const flows = await store.getFlows();
         expect(flows).toHaveLength(0);
+    });
+
+    test("saveFlow rejects entries without exactly one step source", async () => {
+        const createdAt = new Date().toISOString();
+        const invalidFlow = {
+            id: "flow-1",
+            name: "Feature Dev",
+            description: "test",
+            steps: [
+                {
+                    id: "entry-1",
+                    stepId: "step-1",
+                    inline: {
+                        name: "Plan",
+                        prompt: "Plan it",
+                        sessionType: "claude" as const,
+                    },
+                },
+            ],
+            createdAt,
+            updatedAt: createdAt,
+        };
+
+        await expect(store.saveFlow(invalidFlow as never)).rejects.toThrow(
+            'Flow step "entry-1" must define exactly one of stepId or inline',
+        );
+    });
+
+    test("getFlows rethrows malformed JSON", async () => {
+        await writeFile(join(tempDir, "flows", "definitions.json"), "{bad json");
+
+        await expect(store.getFlows()).rejects.toThrow();
     });
 });
 
@@ -172,6 +237,12 @@ describe("flow runs", () => {
         expect(runs).toHaveLength(2);
     });
 
+    test("getFlowRunsForTask rethrows malformed JSON", async () => {
+        await writeFile(join(tempDir, "flow-runs", "task-1--flow-1.json"), "{bad json");
+
+        await expect(store.getFlowRunsForTask("task-1")).rejects.toThrow();
+    });
+
     test("deleteFlowRun removes run", async () => {
         const run = {
             taskId: "task-1",
@@ -186,5 +257,11 @@ describe("flow runs", () => {
         await store.deleteFlowRun("task-1", "flow-1");
         const result = await store.getFlowRun("task-1", "flow-1");
         expect(result).toBeNull();
+    });
+
+    test("getFlowRun rethrows malformed JSON", async () => {
+        await writeFile(join(tempDir, "flow-runs", "task-1--flow-1.json"), "{bad json");
+
+        await expect(store.getFlowRun("task-1", "flow-1")).rejects.toThrow();
     });
 });
