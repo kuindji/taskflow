@@ -11,7 +11,17 @@ Create `packages/backend/src/handlers/flow.ts` following the pattern in `handler
 
 ```typescript
 import { MSG } from "@taskflow/shared";
-import type { FlowDefinition, FlowRun, StepDefinition } from "@taskflow/shared";
+import type {
+  FlowDefinition,
+  FlowRun,
+  StepDefinition,
+  FlowDefinitionDeletePayload,
+  FlowStepDeletePayload,
+  FlowStartPayload,
+  FlowTaskFlowPayload,
+  FlowJumpToStepPayload,
+  FlowTaskPayload,
+} from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { FlowStore } from "../services/flow-store";
 import type { FlowRunner } from "../services/flow-runner";
@@ -35,85 +45,79 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
     return { steps: await flowStore.getSteps() };
   });
 
-  router.register(MSG.FLOW_DEFINITION_SAVE, async (payload) => {
-    const flow = payload as FlowDefinition;
-    await flowStore.saveFlow(flow);
-    return flow;
-  });
+  // Note: Router.Handler is `(payload: unknown) => Promise<unknown>`.
+  // Use a local typed helper to narrow payload types without `as any`:
+  function typed<T>(handler: (payload: T) => Promise<unknown>): (payload: unknown) => Promise<unknown> {
+    return handler as (payload: unknown) => Promise<unknown>;
+  }
 
-  router.register(MSG.FLOW_STEP_SAVE, async (payload) => {
-    const step = payload as StepDefinition;
-    await flowStore.saveStep(step);
-    return step;
-  });
+  router.register(MSG.FLOW_DEFINITION_SAVE, typed<FlowDefinition>(async (payload) => {
+    await flowStore.saveFlow(payload);
+    return payload;
+  }));
 
-  router.register(MSG.FLOW_DEFINITION_DELETE, async (payload) => {
-    const { id } = payload as { id: string };
-    await flowStore.deleteFlow(id);
+  router.register(MSG.FLOW_STEP_SAVE, typed<StepDefinition>(async (payload) => {
+    await flowStore.saveStep(payload);
+    return payload;
+  }));
+
+  router.register(MSG.FLOW_DEFINITION_DELETE, typed<FlowDefinitionDeletePayload>(async (payload) => {
+    await flowStore.deleteFlow(payload.id);
     return { success: true };
-  });
+  }));
 
-  router.register(MSG.FLOW_STEP_DELETE, async (payload) => {
-    const { id } = payload as { id: string };
-    const referencingFlows = await flowStore.getFlowsReferencingStep(id);
+  router.register(MSG.FLOW_STEP_DELETE, typed<FlowStepDeletePayload>(async (payload) => {
+    const referencingFlows = await flowStore.getFlowsReferencingStep(payload.id);
     if (referencingFlows.length > 0) {
       throw new Error(
-        `Cannot delete step "${id}" because it is used by: ${referencingFlows.map((flow) => flow.name).join(", ")}`,
+        `Cannot delete step "${payload.id}" because it is used by: ${referencingFlows.map((flow) => flow.name).join(", ")}`,
       );
     }
-    await flowStore.deleteStep(id);
+    await flowStore.deleteStep(payload.id);
     return { success: true };
-  });
+  }));
 
   // --- Execution ---
 
-  router.register(MSG.FLOW_START, async (payload) => {
-    const { taskId, flowId } = payload as { taskId: string; flowId: string };
+  router.register(MSG.FLOW_START, typed<FlowStartPayload>(async (payload) => {
     const flows = await flowStore.getFlows();
-    const flow = flows.find((f) => f.id === flowId);
-    if (!flow) throw new Error(`Flow not found: ${flowId}`);
-    return await flowRunner.startFlow(taskId, flow);
-  });
+    const flow = flows.find((f) => f.id === payload.flowId);
+    if (!flow) throw new Error(`Flow not found: ${payload.flowId}`);
+    return await flowRunner.startFlow(payload.taskId, flow);
+  }));
 
-  router.register(MSG.FLOW_STOP, async (payload) => {
-    const { taskId, flowId } = payload as { taskId: string; flowId: string };
-    await flowRunner.stopFlow(taskId, flowId);
+  router.register(MSG.FLOW_STOP, typed<FlowTaskFlowPayload>(async (payload) => {
+    await flowRunner.stopFlow(payload.taskId, payload.flowId);
     return { success: true };
-  });
+  }));
 
-  router.register(MSG.FLOW_PAUSE, async (payload) => {
-    const { taskId, flowId } = payload as { taskId: string; flowId: string };
-    await flowRunner.pauseFlow(taskId, flowId);
+  router.register(MSG.FLOW_PAUSE, typed<FlowTaskFlowPayload>(async (payload) => {
+    await flowRunner.pauseFlow(payload.taskId, payload.flowId);
     return { success: true };
-  });
+  }));
 
-  router.register(MSG.FLOW_RESUME, async (payload) => {
-    const { taskId, flowId } = payload as { taskId: string; flowId: string };
-    await flowRunner.resumeFlow(taskId, flowId);
+  router.register(MSG.FLOW_RESUME, typed<FlowTaskFlowPayload>(async (payload) => {
+    await flowRunner.resumeFlow(payload.taskId, payload.flowId);
     return { success: true };
-  });
+  }));
 
-  router.register(MSG.FLOW_SKIP_STEP, async (payload) => {
-    const { taskId, flowId } = payload as { taskId: string; flowId: string };
-    await flowRunner.skipStep(taskId, flowId);
+  router.register(MSG.FLOW_SKIP_STEP, typed<FlowTaskFlowPayload>(async (payload) => {
+    await flowRunner.skipStep(payload.taskId, payload.flowId);
     return { success: true };
-  });
+  }));
 
-  router.register(MSG.FLOW_JUMP_TO_STEP, async (payload) => {
-    const { taskId, flowId, stepIndex } = payload as { taskId: string; flowId: string; stepIndex: number };
-    await flowRunner.jumpToStep(taskId, flowId, stepIndex);
+  router.register(MSG.FLOW_JUMP_TO_STEP, typed<FlowJumpToStepPayload>(async (payload) => {
+    await flowRunner.jumpToStep(payload.taskId, payload.flowId, payload.stepIndex);
     return { success: true };
-  });
+  }));
 
-  router.register(MSG.FLOW_RUN_GET, async (payload) => {
-    const { taskId, flowId } = payload as { taskId: string; flowId: string };
-    return await flowStore.getFlowRun(taskId, flowId);
-  });
+  router.register(MSG.FLOW_RUN_GET, typed<FlowTaskFlowPayload>(async (payload) => {
+    return await flowStore.getFlowRun(payload.taskId, payload.flowId);
+  }));
 
-  router.register(MSG.FLOW_RUNS_LIST, async (payload) => {
-    const { taskId } = payload as { taskId: string };
-    return { runs: await flowStore.getFlowRunsForTask(taskId) };
-  });
+  router.register(MSG.FLOW_RUNS_LIST, typed<FlowTaskPayload>(async (payload) => {
+    return { runs: await flowStore.getFlowRunsForTask(payload.taskId) };
+  }));
 }
 
 export { registerFlowHandlers };
@@ -312,19 +316,108 @@ const flowStore = new FlowStore(config.flowsDir, config.flowRunsDir);
 await flowStore.init();
 ```
 
-Before wiring `FlowRunner`, extract the backend session lifecycle into a reusable helper module instead of duplicating the `SESSION_CREATE` handler logic in `index.ts`.
+Before wiring `FlowRunner`, extract the backend session lifecycle into a reusable helper module. This avoids duplicating the `SESSION_CREATE` handler logic and keeps flow-spawned sessions behaviorally identical to manually-spawned sessions.
 
-Requirements for the helper:
+**File:** Create `packages/backend/src/services/session-lifecycle.ts`
 
-- One function to create a task-owned or project-owned session, covering cwd resolution, PTY spawn, env injection, session persistence, status broadcast, and exit cleanup.
-- One function to remove a persisted session ref from its owner (this can still be split out if useful).
-- Shared callbacks for:
-  - `onSessionExited(sessionId, exitCode)` so `FlowRunner` can be notified for flow-owned sessions.
-  - `broadcastOwnerUpdated(owner)` so task-backed session changes emit `MSG.TASK_UPDATED` with the full updated task payload.
-- `registerSessionHandlers` must call this helper for normal `MSG.SESSION_CREATE`.
-- `FlowRunner` must call the same helper for flow-spawned sessions.
+```typescript
+import { randomUUID } from "crypto";
+import type { AgentLaunchOptions } from "@taskflow/shared";
+import { MSG } from "@taskflow/shared";
+import type { PtyManager } from "./pty-manager";
+import type { TaskStore } from "./task-store";
+import type { SettingsStore } from "./settings-store";
 
-This keeps flow sessions and manual sessions behaviorally identical and avoids drift between two spawn paths.
+interface SessionOwner {
+  taskId?: string;
+  projectId?: string;
+}
+
+interface CreateSessionOpts {
+  owner: SessionOwner;
+  type: "claude" | "codex" | "shell";
+  label: string;
+  prompt: string;
+  agentOptions?: AgentLaunchOptions;
+  flow?: {
+    flowId: string;
+    stepEntryId: string;
+  };
+  cols?: number;
+  rows?: number;
+}
+
+interface SessionLifecycleDeps {
+  ptyManager: PtyManager;
+  taskStore: TaskStore;
+  settingsStore: SettingsStore;
+  broadcast: (msg: { type: string; payload: unknown }) => void;
+  getPort: () => number;
+  onSessionExited?: (sessionId: string, exitCode: number) => void;
+}
+
+function createSessionLifecycle(deps: SessionLifecycleDeps) {
+  const { ptyManager, taskStore, settingsStore, broadcast, getPort } = deps;
+
+  /**
+   * Create a managed session: spawn PTY, persist session ref on owner,
+   * broadcast owner update, wire exit cleanup.
+   * Returns the sessionId.
+   */
+  async function createSession(opts: CreateSessionOpts): Promise<string> {
+    const sessionId = randomUUID();
+    // 1. Resolve cwd from owner (task worktree path or project path)
+    // 2. Build agent launch spec (command, args, env) using buildAgentLaunchSpec()
+    // 3. Inject TASKFLOW_* env vars: API_URL, SESSION_ID, TASK_ID, PROJECT_ID
+    //    For flow sessions, also inject TASKFLOW_FLOW_ID and TASKFLOW_STEP_ENTRY_ID
+    // 4. Spawn PTY via ptyManager.spawn()
+    // 5. Persist session ref on owner:
+    //    - Task-owned: taskStore.updateTask(taskId, add session to sessions[])
+    //    - Project-owned: taskStore.updateProject(projectId, add session)
+    // 6. Broadcast MSG.TASK_UPDATED (or MSG.PROJECT_UPDATED) with full updated entity
+    // 7. Wire onExit callback:
+    //    - Remove session ref from owner
+    //    - Broadcast owner update again
+    //    - Call deps.onSessionExited?.(sessionId, exitCode)
+    return sessionId;
+  }
+
+  /**
+   * Remove a session ref from its owner and broadcast the update.
+   */
+  async function removeSessionFromOwner(
+    sessionId: string,
+    owner: SessionOwner,
+  ): Promise<void> {
+    // Remove from task.sessions[] or project.sessions[]
+    // Broadcast MSG.TASK_UPDATED or MSG.PROJECT_UPDATED
+  }
+
+  return { createSession, removeSessionFromOwner };
+}
+
+export { createSessionLifecycle };
+export type { CreateSessionOpts, SessionOwner, SessionLifecycleDeps };
+```
+
+**Extraction steps (from `packages/backend/src/handlers/session.ts`):**
+
+1. The `MSG.SESSION_CREATE` handler (the block that resolves cwd, calls `buildAgentLaunchSpec`, injects `taskflowEnv`, calls `ptyManager.spawn`, persists the session ref, and sets up `onExit`) should be refactored to call `createSession()` from this helper.
+2. Keep `registerSessionHandlers` as the entry point — it wraps `createSession` with WebSocket request/response framing.
+3. The `onExit` callback in the current handler that removes the session ref and broadcasts the updated task/project should move into the helper's exit cleanup.
+4. After extraction, the `SESSION_CREATE` handler becomes a thin wrapper:
+
+```typescript
+router.register(MSG.SESSION_CREATE, async (payload) => {
+  const { owner, type, label, prompt, agentOptions, cols, rows } = payload as SessionCreatePayload;
+  const sessionId = await sessionLifecycle.createSession({ owner, type, label, prompt, agentOptions, cols, rows });
+  return { sessionId };
+});
+```
+
+**Testing the extraction:**
+- Run the existing backend test suite after extraction to verify no regressions.
+- Manually verify that creating a session via the UI still produces terminal tabs and that session exit still removes tabs.
 
 Move `settingsStore` creation and shell detection earlier in `index.ts` so shell-step launches can reuse the same configured-shell resolution path as normal terminal tabs. `FlowRunner` should receive a small `getDefaultShellPath()` callback rather than reaching into global state.
 
@@ -370,7 +463,10 @@ Important UI sync requirement:
 After creating `FlowRunner`, add startup recovery for flow runs stuck in "running" state from a previous process crash:
 
 ```typescript
-// Recover any flow runs stuck in "running" state from a previous process
+// Recover any flow runs stuck in "running" state from a previous process.
+// The in-memory sessionFlowMap is lost on restart, so we must also clear
+// stale sessionId references from step states — otherwise handleSessionExit
+// would silently ignore exits from sessions that survived the restart.
 const allTasks = await taskStore.listTasks();
 for (const task of allTasks) {
   const runs = await flowStore.getFlowRunsForTask(task.id);
@@ -381,6 +477,7 @@ for (const task of allTasks) {
       if (currentStep?.status === "running") {
         currentStep.status = "failed";
         currentStep.completedAt = new Date().toISOString();
+        currentStep.sessionId = undefined; // Clear stale session reference
       }
       await flowStore.saveFlowRun(run);
     }
@@ -409,6 +506,6 @@ Also update task lifecycle cleanup so flow runs are marked terminal instead of l
 - [ ] **Step 2: Commit**
 
 ```bash
-git add packages/backend/src/index.ts packages/backend/src/handlers/session.ts packages/backend/src/handlers/task.ts
-git commit -m "feat: wire FlowStore and FlowRunner into backend initialization"
+git add packages/backend/src/services/session-lifecycle.ts packages/backend/src/index.ts packages/backend/src/handlers/session.ts packages/backend/src/handlers/task.ts
+git commit -m "feat: extract session lifecycle helper and wire FlowStore/FlowRunner"
 ```

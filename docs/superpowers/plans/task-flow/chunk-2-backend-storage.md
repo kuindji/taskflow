@@ -391,7 +391,9 @@ class FlowStore {
     return runs;
   }
 
-  // --- Mutation serialization (same pattern as TaskStore) ---
+  // --- Mutation serialization ---
+  // Identical to TaskStore.withTaskMutation — serializes concurrent writes
+  // to the same key by chaining promises through a gate.
 
   private async withMutation<T>(key: string, mutation: () => Promise<T>): Promise<T> {
     const previous = this.flowMutations.get(key) ?? Promise.resolve();

@@ -233,9 +233,13 @@ class FlowRunner {
       throw new Error(`Task already has an active flow: ${activeRun.flowId}`);
     }
 
-    // Check if this flow was previously run — overwrite
+    // Check if this flow was previously run — overwrite only terminal runs.
+    // Active (running/paused) runs are already blocked above.
     const existingRun = await this.deps.flowStore.getFlowRun(taskId, flow.id);
     if (existingRun) {
+      if (existingRun.status === "running" || existingRun.status === "paused") {
+        throw new Error(`Flow "${flow.id}" is still active on task "${taskId}"`);
+      }
       await this.deps.flowStore.deleteFlowRun(taskId, flow.id);
     }
 

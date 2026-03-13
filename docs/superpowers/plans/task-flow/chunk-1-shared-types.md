@@ -81,6 +81,41 @@ interface FlowRun {
 
 Export only the interfaces that will be consumed by other packages. Check actual usage as implementation progresses — start with all exported since both backend and UI need them.
 
+Also add handler payload types for WebSocket messages (used in Chunk 4 handlers to avoid `as` casts):
+
+```typescript
+// --- Handler payload types ---
+// Used by flow WebSocket handlers for type-safe payload access.
+
+interface FlowDefinitionDeletePayload {
+  id: string;
+}
+
+interface FlowStepDeletePayload {
+  id: string;
+}
+
+interface FlowStartPayload {
+  taskId: string;
+  flowId: string;
+}
+
+interface FlowTaskFlowPayload {
+  taskId: string;
+  flowId: string;
+}
+
+interface FlowJumpToStepPayload {
+  taskId: string;
+  flowId: string;
+  stepIndex: number;
+}
+
+interface FlowTaskPayload {
+  taskId: string;
+}
+```
+
 - [ ] **Step 2: Export from shared index**
 
 In `packages/shared/src/index.ts`, add alongside the existing `export *` lines:
