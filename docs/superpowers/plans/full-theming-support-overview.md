@@ -21,7 +21,7 @@
 | 3 | `full-theming-support-chunk-3.md` | UI Integration — Theme Store, useTheme Hook, Monaco Setup, Terminal/Editor Updates |
 | 4 | `full-theming-support-chunk-4.md` | Appearance Dialog & Sidebar Button |
 | 5 | `full-theming-support-chunk-5.md` | Terminal App Parsers |
-| 6 | `full-theming-support-chunk-6.md` | Online Theme Browsing |
+| 6 | `full-theming-support-chunk-6.md` | Online Theme Browsing (includes browse/download handlers) |
 
 ---
 
@@ -75,7 +75,7 @@
 
 ### Modified Files
 
-- `packages/shared/src/types/settings.ts` — add appearance section to `AppSettings` and `SettingsUpdatePayload` (no separate named interface needed — inline `{ theme: string }` matches the pattern of other settings sections)
+- `packages/shared/src/types/settings.ts` — add `AppearanceSettings` interface, add `appearance` section to `AppSettings` and `SettingsUpdatePayload` (follows existing named-interface pattern)
 - `packages/shared/src/constants.ts` — add `THEMES_LIST`, `THEME_IMPORT_SCAN`, `THEME_IMPORT`, `THEME_IMPORT_FILE`, `THEME_BROWSE_LIST`, `THEME_DOWNLOAD`, `THEME_DELETE` to `MSG`; add `DEFAULT_THEME_ID`
 - `packages/shared/src/types/ws.ts` — add theme WebSocket payload/response types, including online preview metadata and download responses that return the installed canonical id
 - `packages/shared/src/index.ts` — add theme exports

@@ -52,7 +52,7 @@ interface ThemeSource {
     author?: string;
     origin: ThemeOrigin;
     colors: ThemeColors;
-    overrides?: Partial<CssVariables>;
+    overrides?: Record<string, string>;
 }
 
 interface ThemeRecord {
@@ -92,7 +92,14 @@ interface CssVariables {
     "--chart-3": string;
     "--chart-4": string;
     "--chart-5": string;
-    [key: `--sidebar-${string}`]: string;
+    "--sidebar-background": string;
+    "--sidebar-foreground": string;
+    "--sidebar-primary": string;
+    "--sidebar-primary-foreground": string;
+    "--sidebar-accent": string;
+    "--sidebar-accent-foreground": string;
+    "--sidebar-border": string;
+    "--sidebar-ring": string;
 }
 
 interface XtermTheme {
@@ -151,23 +158,26 @@ git commit -m "feat: add theme type definitions"
 
 - [ ] **Step 1: Update AppSettings and SettingsUpdatePayload**
 
-In `packages/shared/src/types/settings.ts`, add the `appearance` section inline (matching the pattern of other sections like `general`, `terminal`, `editor` — they are all inline, not separate named interfaces):
+In `packages/shared/src/types/settings.ts`, add the `appearance` section following the existing pattern where every section uses a named exported interface:
+
+Add a new interface (after the other settings interfaces):
+```typescript
+export interface AppearanceSettings {
+    theme: string;
+}
+```
 
 Add to `AppSettings` interface:
 ```typescript
-appearance: {
-    theme: string;
-};
+appearance: AppearanceSettings;
 ```
 
 Add to `SettingsUpdatePayload` interface:
 ```typescript
-appearance?: {
-    theme?: string;
-};
+appearance?: Partial<AppearanceSettings>;
 ```
 
-`appearance.theme` stores the canonical theme id/slug (for example `catppuccin-mocha`), not the display name. Do **not** export a separate `AppearanceSettings` interface — it's only used here.
+`appearance.theme` stores the canonical theme id/slug (for example `catppuccin-mocha`), not the display name.
 
 - [ ] **Step 2: Add theme messages and default to constants**
 
@@ -436,15 +446,33 @@ describe("deriveTheme", () => {
         expect(resolved.css["--muted-foreground"]).toBe("#6272a4");
     });
 
-    it("derives border by lightening selection ~10%", () => {
+    it("maps secondary-foreground to ansi.brightWhite", () => {
         const resolved = deriveTheme(dracula);
-        // #44475a lightened 10% → #57596b
-        expect(resolved.css["--border"]).toBe("#57596b");
+        expect(resolved.css["--secondary-foreground"]).toBe("#ffffff");
     });
 
-    it("derives island-base as background with 50% opacity", () => {
+    it("maps border directly to selection", () => {
         const resolved = deriveTheme(dracula);
-        expect(resolved.css["--island-base"]).toBe("rgba(40, 42, 54, 0.5)");
+        expect(resolved.css["--border"]).toBe("#44475a");
+    });
+
+    it("maps info to ansi.blue (same as accent)", () => {
+        const resolved = deriveTheme(dracula);
+        expect(resolved.css["--info"]).toBe("#bd93f9");
+    });
+
+    it("derives island-base as ansi.black with 50% opacity", () => {
+        const resolved = deriveTheme(dracula);
+        expect(resolved.css["--island-base"]).toBe("rgba(33, 34, 44, 0.5)");
+    });
+
+    it("maps chart colors: blue, green, yellow, red, magenta", () => {
+        const resolved = deriveTheme(dracula);
+        expect(resolved.css["--chart-1"]).toBe("#bd93f9");
+        expect(resolved.css["--chart-2"]).toBe("#50fa7b");
+        expect(resolved.css["--chart-3"]).toBe("#f1fa8c");
+        expect(resolved.css["--chart-4"]).toBe("#ff5555");
+        expect(resolved.css["--chart-5"]).toBe("#ff79c6");
     });
 
     it("produces xterm theme with all 20 colors", () => {
@@ -484,7 +512,7 @@ Create `packages/shared/src/themes/derive.ts`:
 
 ```typescript
 import type { ThemeSource, ResolvedTheme, CssVariables, XtermTheme } from "../types/theme";
-import { lighten, hexToRgba } from "./color-utils";
+import { hexToRgba } from "./color-utils";
 
 function deriveTheme(source: ThemeSource): ResolvedTheme {
     const { colors } = source;
@@ -500,7 +528,7 @@ function deriveTheme(source: ThemeSource): ResolvedTheme {
         "--primary": colors.foreground,
         "--primary-foreground": colors.background,
         "--secondary": colors.selection,
-        "--secondary-foreground": colors.foreground,
+        "--secondary-foreground": ansi.brightWhite,
         "--accent": ansi.blue,
         "--accent-foreground": colors.background,
         "--muted": colors.selection,
@@ -511,30 +539,30 @@ function deriveTheme(source: ThemeSource): ResolvedTheme {
         "--success-foreground": colors.background,
         "--warning": ansi.yellow,
         "--warning-foreground": colors.background,
-        "--info": ansi.cyan,
+        "--info": ansi.blue,
         "--info-foreground": colors.background,
-        "--border": lighten(colors.selection, 0.1),
+        "--border": colors.selection,
         "--input": colors.selection,
         "--ring": ansi.blue,
-        "--island-base": hexToRgba(colors.background, 0.5),
+        "--island-base": hexToRgba(ansi.black, 0.5),
         "--chart-1": ansi.blue,
         "--chart-2": ansi.green,
-        "--chart-3": ansi.magenta,
-        "--chart-4": ansi.cyan,
-        "--chart-5": ansi.yellow,
+        "--chart-3": ansi.yellow,
+        "--chart-4": ansi.red,
+        "--chart-5": ansi.magenta,
         "--sidebar-background": colors.background,
         "--sidebar-foreground": colors.foreground,
         "--sidebar-primary": colors.foreground,
         "--sidebar-primary-foreground": colors.background,
         "--sidebar-accent": ansi.blue,
         "--sidebar-accent-foreground": colors.background,
-        "--sidebar-border": lighten(colors.selection, 0.1),
+        "--sidebar-border": colors.selection,
         "--sidebar-ring": ansi.blue,
     };
 
-    // Apply overrides (typed as Partial<CssVariables>, so spread is safe)
+    // Apply overrides — typed as Record<string, string>, so any CSS variable can be overridden
     const css: CssVariables = source.overrides
-        ? { ...derived, ...source.overrides }
+        ? { ...derived, ...(source.overrides as Partial<CssVariables>) }
         : derived;
 
     const xterm: XtermTheme = {
@@ -633,6 +661,9 @@ Each file follows the `ThemeSource` format. Example for Catppuccin Mocha:
             "brightCyan": "#94e2d5",
             "brightWhite": "#a6adc8"
         }
+    },
+    "overrides": {
+        "--warning": "#ffb703"
     }
 }
 ```

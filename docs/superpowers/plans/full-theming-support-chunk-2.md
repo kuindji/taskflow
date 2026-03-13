@@ -488,14 +488,10 @@ git commit -m "feat: add ThemeService for loading and managing themes"
 // packages/backend/src/handlers/theme.ts
 import { MSG } from "@taskflow/shared";
 import type {
-    ThemeBrowseListResponse,
     ThemeDeletePayload,
-    ThemeDownloadPayload,
-    ThemeDownloadResponse,
     ThemeImportResponse,
     ThemeImportPayload,
     ThemeListResponse,
-    ThemeSource,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { ThemeService } from "../services/theme-service";
@@ -520,51 +516,8 @@ function registerThemeHandlers(router: Router, themeService: ThemeService): void
         return { themes } satisfies ThemeListResponse;
     });
 
-    router.register(MSG.THEME_BROWSE_LIST, async () => {
-        // Curated fallback list of popular themes from terminalcolors.com.
-        // Each entry has a backend-owned stable id, preview colors for the UI,
-        // and a direct Alacritty TOML download URL.
-        const catalog = [
-            {
-                id: "terminalcolors-one-dark",
-                name: "One Dark",
-                downloadUrl: "https://terminalcolors.com/downloads/alacritty/one-dark.toml",
-                preview: { /* ThemeColors snapshot checked into the catalog */ },
-            },
-            {
-                id: "terminalcolors-rose-pine",
-                name: "Rosé Pine",
-                downloadUrl: "https://terminalcolors.com/downloads/alacritty/rose-pine.toml",
-                preview: { /* ThemeColors snapshot checked into the catalog */ },
-            },
-            // ...other curated entries...
-        ];
-
-        // Mark which online themes are already installed locally
-        const installed = await themeService.listAll();
-        const installedIds = new Set(installed.map((t) => t.id));
-        const themes = catalog.map((t) => ({
-            ...t,
-            installed: installedIds.has(t.id),
-            installedThemeId: installedIds.has(t.id) ? t.id : undefined,
-        }));
-
-        return { themes } satisfies ThemeBrowseListResponse;
-    });
-
-    router.register(MSG.THEME_DOWNLOAD, async (payload) => {
-        const { id, url, name } = payload as ThemeDownloadPayload;
-        const response = await fetch(url);
-        const toml = await response.text();
-        // Parse Alacritty TOML into ThemeSource (using the Alacritty parser from Chunk 5)
-        // For now, import parseAlacrittyToml from theme-parsers/alacritty
-        const { parseAlacrittyToml } = await import("../services/theme-parsers/alacritty");
-        const parsed = parseAlacrittyToml(toml, name);
-        const theme: ThemeSource = { ...parsed, origin: "online" };
-        const record = await themeService.save(theme, id, { overwriteExisting: true });
-        const themes = await themeService.listAll();
-        return { themes, importedThemeId: record.id } satisfies ThemeDownloadResponse;
-    });
+    // NOTE: THEME_BROWSE_LIST and THEME_DOWNLOAD handlers are registered in Chunk 6
+    // after the Alacritty parser is available from Chunk 5.
 }
 ```
 

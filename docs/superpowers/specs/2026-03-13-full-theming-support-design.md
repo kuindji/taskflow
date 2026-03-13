@@ -42,7 +42,7 @@ interface ThemeSource {
     };
   };
 
-  overrides?: Partial<Record<string, string>>;
+  overrides?: Record<string, string>;
 }
 ```
 
@@ -112,7 +112,7 @@ All variables currently in `:root` in `global.css` must be produced by the deriv
 | `--primary` | `foreground` | direct |
 | `--primary-foreground` | `background` | inverted |
 | `--secondary` | `selection` | direct |
-| `--secondary-foreground` | `foreground` | direct |
+| `--secondary-foreground` | `ansi.brightWhite` | direct |
 | `--accent` | `ansi.blue` | direct |
 | `--accent-foreground` | `background` | direct |
 | `--muted` | `selection` | direct |
@@ -121,19 +121,19 @@ All variables currently in `:root` in `global.css` must be produced by the deriv
 | `--destructive-foreground` | `background` | direct |
 | `--success` | `ansi.green` | direct |
 | `--success-foreground` | `background` | direct |
-| `--warning` | `ansi.yellow` | direct |
+| `--warning` | `ansi.yellow` | direct (override if theme needs custom amber) |
 | `--warning-foreground` | `background` | direct |
-| `--info` | `ansi.cyan` | direct |
+| `--info` | `ansi.blue` | direct (same as accent) |
 | `--info-foreground` | `background` | direct |
-| `--border` | `selection` | lighten ~10% |
+| `--border` | `selection` | direct |
 | `--input` | `selection` | direct |
 | `--ring` | `ansi.blue` | direct |
-| `--island-base` | `background` | 50% opacity |
+| `--island-base` | `ansi.black` | 50% opacity |
 | `--chart-1` | `ansi.blue` | direct |
 | `--chart-2` | `ansi.green` | direct |
-| `--chart-3` | `ansi.magenta` | direct |
-| `--chart-4` | `ansi.cyan` | direct |
-| `--chart-5` | `ansi.yellow` | direct |
+| `--chart-3` | `ansi.yellow` | direct |
+| `--chart-4` | `ansi.red` | direct |
+| `--chart-5` | `ansi.magenta` | direct |
 | `--sidebar-*` | mirrors main tokens | direct |
 
 Overrides are applied as a final spread: `{ ...derived, ...theme.overrides }`.
@@ -153,8 +153,8 @@ Maps:
 ### Utilities
 
 Small color utilities, no external dependencies:
-- `lighten(hex, amount)` — for `--border` derivation (lighten selection ~10%)
-- `hexToRgba(hex, alpha)` — for `--island-base` derivation (background at 50% opacity, output as `rgba()` string)
+- `lighten(hex, amount)` — available for theme overrides or future use
+- `hexToRgba(hex, alpha)` — for `--island-base` derivation (`ansi.black` at 50% opacity, output as `rgba()` string)
 
 ## Appearance Dialog
 
@@ -190,8 +190,9 @@ Click-to-apply with no revert. Clicking a theme immediately:
 ## Integration Points
 
 ### Settings Type (`packages/shared/src/types/settings.ts`)
-- Add `appearance: { theme: string }` to `AppSettings`
-- Add `appearance?: { theme?: string }` to `SettingsUpdatePayload`
+- Add `AppearanceSettings` interface with `theme: string` (follows existing named-interface pattern)
+- Add `appearance: AppearanceSettings` to `AppSettings`
+- Add `appearance?: Partial<AppearanceSettings>` to `SettingsUpdatePayload`
 - Update `SettingsStore.update()` merge logic to handle the new `appearance` field
 
 ### Backend (`packages/backend`)

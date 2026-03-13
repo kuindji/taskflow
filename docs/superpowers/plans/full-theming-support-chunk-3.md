@@ -76,6 +76,28 @@ interface ThemeStore {
     deleteTheme(themeId: string): Promise<void>;
 }
 
+// Helper: given a response with themes + importedThemeId, update store and persist setting.
+function applyImportResponse(
+    set: (state: Partial<ThemeStore>) => void,
+    response: { themes: ThemeRecord[]; importedThemeId: string },
+): void {
+    const record = response.themes.find((t) => t.id === response.importedThemeId);
+    set(
+        record
+            ? {
+                  themes: response.themes,
+                  activeThemeId: record.id,
+                  resolved: deriveTheme(record.source),
+              }
+            : { themes: response.themes },
+    );
+    if (record) {
+        void useSettingsStore.getState().updateSettings({
+            appearance: { theme: record.id },
+        });
+    }
+}
+
 export const useThemeStore = create<ThemeStore>((set, get) => ({
     themes: bundledThemes,
     activeThemeId: defaultRecord.id,
@@ -118,69 +140,27 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     },
 
     async importTheme(theme: ThemeSource) {
-        const { themes, importedThemeId } = await sendRequest<ThemeImportResponse>(
+        const response = await sendRequest<ThemeImportResponse>(
             MSG.THEME_IMPORT,
             { theme },
         );
-        const record = themes.find((entry) => entry.id === importedThemeId);
-        set(
-            record
-                ? {
-                      themes,
-                      activeThemeId: record.id,
-                      resolved: deriveTheme(record.source),
-                  }
-                : { themes },
-        );
-        if (record) {
-            await useSettingsStore.getState().updateSettings({
-                appearance: { theme: record.id },
-            });
-        }
+        applyImportResponse(set, response);
     },
 
     async importThemeFile(path: string) {
-        const { themes, importedThemeId } = await sendRequest<ThemeImportResponse>(
+        const response = await sendRequest<ThemeImportResponse>(
             MSG.THEME_IMPORT_FILE,
             { path },
         );
-        const record = themes.find((entry) => entry.id === importedThemeId);
-        set(
-            record
-                ? {
-                      themes,
-                      activeThemeId: record.id,
-                      resolved: deriveTheme(record.source),
-                  }
-                : { themes },
-        );
-        if (record) {
-            await useSettingsStore.getState().updateSettings({
-                appearance: { theme: record.id },
-            });
-        }
+        applyImportResponse(set, response);
     },
 
     async downloadOnlineTheme(theme) {
-        const { themes, importedThemeId } = await sendRequest<ThemeDownloadResponse>(
+        const response = await sendRequest<ThemeDownloadResponse>(
             MSG.THEME_DOWNLOAD,
             { id: theme.id, url: theme.downloadUrl, name: theme.name },
         );
-        const record = themes.find((entry) => entry.id === importedThemeId);
-        set(
-            record
-                ? {
-                      themes,
-                      activeThemeId: record.id,
-                      resolved: deriveTheme(record.source),
-                  }
-                : { themes },
-        );
-        if (record) {
-            await useSettingsStore.getState().updateSettings({
-                appearance: { theme: record.id },
-            });
-        }
+        applyImportResponse(set, response);
     },
 
     async deleteTheme(themeId: string) {
