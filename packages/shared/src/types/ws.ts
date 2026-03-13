@@ -40,7 +40,8 @@ export interface ProjectRemovePayload {
 
 export interface ProjectUpdatePayload {
     id: string;
-    name: string;
+    name?: string;
+    path?: string;
 }
 
 // Task messages
