@@ -48,6 +48,7 @@ export function Workspace() {
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
+    const openSettings = useUIStore((s) => s.openSettings);
     const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
@@ -205,6 +206,7 @@ export function Workspace() {
         const onCloseTab = isElectron ? window.taskflow?.onCloseTab : undefined;
         const onNewTask = isElectron ? window.taskflow?.onNewTask : undefined;
         const onNewTerminal = isElectron ? window.taskflow?.onNewTerminal : undefined;
+        const onOpenSettings = isElectron ? window.taskflow?.onOpenSettings : undefined;
 
         if (onCloseTab) {
             cleanupFns.push(onCloseTab(handleCloseActiveTab));
@@ -214,6 +216,9 @@ export function Workspace() {
         }
         if (onNewTerminal) {
             cleanupFns.push(onNewTerminal(() => void handleOpenDefaultTerminal()));
+        }
+        if (onOpenSettings) {
+            cleanupFns.push(onOpenSettings(openSettings));
         }
 
         const needsCloseTabFallback = !onCloseTab;
@@ -251,7 +256,13 @@ export function Workspace() {
                 window.removeEventListener("keydown", onKeyDown);
             }
         };
-    }, [isElectron, handleCloseActiveTab, handleOpenDefaultTerminal, handleOpenNewTask]);
+    }, [
+        isElectron,
+        handleCloseActiveTab,
+        handleOpenDefaultTerminal,
+        handleOpenNewTask,
+        openSettings,
+    ]);
 
     useEffect(() => {
         if (!workspace.workspaceKey || !activeTab || activeTab.id === activeTabId) {

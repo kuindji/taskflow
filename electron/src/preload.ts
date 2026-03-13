@@ -28,6 +28,13 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("close-tab", listener);
         };
     },
+    onOpenSettings: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("open-settings", listener);
+        return () => {
+            ipcRenderer.removeListener("open-settings", listener);
+        };
+    },
     onToggleArchive: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("toggle-archive", listener);

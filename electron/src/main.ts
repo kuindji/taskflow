@@ -244,6 +244,13 @@ function buildAppMenu() {
                 { role: "about" },
                 { type: "separator" },
                 {
+                    label: "Settings",
+                    accelerator: "CmdOrCtrl+,",
+                    click: () => {
+                        mainWindow?.webContents.send("open-settings");
+                    },
+                },
+                {
                     id: "check-for-updates",
                     label: downloadedVersion
                         ? `Restart to Update to v${downloadedVersion}`
