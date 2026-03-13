@@ -63,10 +63,11 @@ interface FlowDefinition {
   updatedAt: string
 }
 
+// Exactly one of stepId or inline must be defined
 interface FlowStepEntry {
   id: string              // Unique within the flow
   stepId?: string         // Reference to global StepDefinition
-  inline?: StepInline     // OR an inline step definition
+  inline?: StepInline     // OR an inline step definition (mutually exclusive with stepId)
   label?: string          // Optional override of step name
 }
 
@@ -99,6 +100,7 @@ interface FlowStepState {
   completedAt?: string
 }
 
+// When multiple artifacts share the same type, the latest one wins (most recent createdAt)
 interface FlowArtifact {
   type: string
   path?: string
@@ -121,7 +123,7 @@ interface FlowArtifact {
 ## Backend Services
 
 ### FlowStore
-Persistence layer for definitions and runs. Uses the same `withMutation()` serialization pattern as `TaskStore`.
+Persistence layer for definitions and runs. Uses per-key promise chaining for write serialization (same pattern as `TaskStore`'s `taskMutations` Map).
 
 - `getSteps()`, `saveStep(step)`, `deleteStep(id)`
 - `getFlows()`, `saveFlow(flow)`, `deleteFlow(id)`
@@ -135,7 +137,7 @@ Orchestration engine. Core operations:
 2. Resolves first step definition (global or inline)
 3. Builds session prompt: step prompt + preamble with task description + `taskflow-cli` usage instructions
 4. Spawns session via existing session creation path
-5. Injects `TASKFLOW_FLOW_ID` into the session's env
+5. Injects `TASKFLOW_FLOW_ID` and `TASKFLOW_STEP_ENTRY_ID` into the session's env
 6. Broadcasts `flow:run-updated`
 7. UI shows flow panel, new session appears as a tab
 
@@ -152,10 +154,15 @@ Orchestration engine. Core operations:
 - **Jump to step** — sets index to target. Backward jump re-runs the step. Forward jump marks intermediate steps `skipped`.
 - **Stop** — kills current session, marks flow `failed`
 
+**Session exit notification:** FlowRunner registers a callback with the session exit handler. When a session exits, the handler checks if the session belongs to a flow step and notifies FlowRunner directly (not via broadcast).
+
+**Shell steps:** Shell session types auto-complete when the process exits with code 0. They cannot call `taskflow-cli step complete` since there's no agent — exit code is the signal (0 = complete, non-zero = failed).
+
 **Edge cases:**
-- Session exits without `step complete` → flow pauses, step marked `failed`. User can retry or skip.
+- Session exits without `step complete` (agent sessions) → flow pauses, step marked `failed`. User can retry or skip.
 - Task archived while flow running → existing session cleanup runs, flow marked `failed`.
-- Multiple flows on same task → only one `running` at a time.
+- Multiple flows on same task → only one `running` at a time. Starting a new flow while another is `paused` requires stopping the paused flow first.
+- Re-running a completed flow → overwrites the existing `FlowRun` record (resets all steps to pending, clears artifacts).
 
 ## WebSocket Messages
 
@@ -174,11 +181,12 @@ Orchestration engine. Core operations:
 | `flow:skip-step` | req/res | Skip current step |
 | `flow:jump-to-step` | req/res | Jump to specific step |
 | `flow:run-get` | req/res | Get flow run state |
+| `flow:runs-list` | req/res | List all flow runs for a task |
 | `flow:run-updated` | broadcast | Flow state changed |
 
 ## taskflow-cli Extensions
 
-New commands using `TASKFLOW_TASK_ID`, `TASKFLOW_FLOW_ID`, and `TASKFLOW_SESSION_ID` from env:
+New commands using `TASKFLOW_TASK_ID`, `TASKFLOW_FLOW_ID`, `TASKFLOW_STEP_ENTRY_ID`, and `TASKFLOW_SESSION_ID` from env. These are added as new `case` branches in the CLI shell script (generated in `internal-agent-skill.ts`) and documented in `SKILL.md` / `INTERNAL_AGENT_SYSTEM_PROMPT` for flow-aware sessions.
 
 ```bash
 taskflow-cli step complete                          # Signal step done
@@ -199,8 +207,8 @@ Agents discover context through the CLI — no magic injection into prompts. The
 ## UI Components
 
 ### Flow Execution Panel
-- Position: left column, between task sidebar and file explorer
-- Hidden by default, appears when a flow is active on the current task
+- Position: left column, as a collapsible section between the task sidebar and file explorer within the existing panel layout
+- Hidden by default, appears when a flow is active on the current task (UI checks via `flow:runs-list` for the active task)
 - Shows: flow name, step list with statuses (completed/running/pending/failed/skipped), skip button on active step, stop/pause controls at top
 - Artifacts section at bottom showing type + path/text for each artifact
 - Clicking a completed step could navigate to its session tab (if still open)
