@@ -281,25 +281,47 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const { taskId, flowId, stepEntryId, type, path, text } = body;
+        const { taskId, flowId, stepEntryId, sessionId, type, path, text } = body;
         if (
             typeof taskId !== "string" ||
             typeof flowId !== "string" ||
             typeof stepEntryId !== "string" ||
+            typeof sessionId !== "string" ||
             typeof type !== "string"
         ) {
-            return errorResponse("Fields taskId, flowId, stepEntryId, and type are required strings", 400);
+            return errorResponse(
+                "Fields taskId, flowId, stepEntryId, sessionId, and type are required strings",
+                400,
+            );
+        }
+
+        const hasPath = typeof path === "string";
+        const hasText = typeof text === "string";
+        if (hasPath === hasText) {
+            return errorResponse("Exactly one of path or text is required", 400);
         }
 
         try {
-            await flowRunner.saveArtifact(taskId, flowId, stepEntryId, {
+            await flowRunner.saveArtifact(taskId, flowId, stepEntryId, sessionId, {
                 type,
-                path: typeof path === "string" ? path : undefined,
-                text: typeof text === "string" ? text : undefined,
+                path: hasPath ? path : undefined,
+                text: hasText ? text : undefined,
             });
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            if (message === "No flow run found") {
+                return errorResponse(message, 404);
+            }
+            if (
+                message === "Flow run is not active" ||
+                message === "No running step available for artifact save" ||
+                message === "Artifacts can only be saved for the current step" ||
+                message === "Artifacts can only be saved by the active step session" ||
+                message === "Artifact must include exactly one of path or text"
+            ) {
+                return errorResponse(message, 409);
+            }
             return errorResponse(message, 500);
         }
     });

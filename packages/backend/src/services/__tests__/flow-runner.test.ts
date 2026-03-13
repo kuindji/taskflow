@@ -286,3 +286,51 @@ describe("handleSessionExit", () => {
         expect(spawnedSessions).toHaveLength(2);
     });
 });
+
+describe("saveArtifact", () => {
+    test("saves artifacts for the active step session", async () => {
+        await runner.startFlow("task-1", testFlow);
+
+        await runner.saveArtifact(
+            "task-1",
+            "flow-1",
+            "entry-1",
+            spawnedSessions[0].sessionId,
+            { type: "summary", text: 'line "one"\nline two' },
+        );
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run!.artifacts).toEqual([
+            expect.objectContaining({
+                type: "summary",
+                text: 'line "one"\nline two',
+                stepEntryId: "entry-1",
+            }),
+        ]);
+    });
+
+    test("rejects artifacts for a different step entry", async () => {
+        await runner.startFlow("task-1", testFlow);
+
+        await expect(
+            runner.saveArtifact(
+                "task-1",
+                "flow-1",
+                "entry-2",
+                spawnedSessions[0].sessionId,
+                { type: "summary", text: "bad" },
+            ),
+        ).rejects.toThrow("Artifacts can only be saved for the current step");
+    });
+
+    test("rejects artifacts from a different session", async () => {
+        await runner.startFlow("task-1", testFlow);
+
+        await expect(
+            runner.saveArtifact("task-1", "flow-1", "entry-1", "session-x", {
+                type: "summary",
+                text: "bad",
+            }),
+        ).rejects.toThrow("Artifacts can only be saved by the active step session");
+    });
+});

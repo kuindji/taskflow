@@ -129,6 +129,9 @@ class FlowStore {
 
     async deleteFlow(id: string): Promise<void> {
         await this.withMutation("definitions", async () => {
+            if (await this.hasActiveRunsForFlow(id)) {
+                throw new Error(`Cannot delete flow "${id}" while it has active runs`);
+            }
             const flows = await this.getFlows();
             const filtered = flows.filter((f) => f.id !== id);
             await writeFile(this.definitionsFile, JSON.stringify(filtered, null, 2));
@@ -190,6 +193,33 @@ class FlowStore {
             }
         }
         return runs;
+    }
+
+    private async hasActiveRunsForFlow(flowId: string): Promise<boolean> {
+        let files: string[];
+        try {
+            files = await readdir(this.flowRunsDir);
+        } catch (error) {
+            if (isMissingFileError(error)) {
+                return false;
+            }
+            throw error;
+        }
+
+        for (const file of files) {
+            if (!file.endsWith(".json")) {
+                continue;
+            }
+            const run = await this.readJsonFile<FlowRun>(join(this.flowRunsDir, file));
+            if (!run || run.flowId !== flowId) {
+                continue;
+            }
+            if (run.status === "running" || run.status === "paused") {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async readJsonFile<T>(filePath: string): Promise<T | null> {

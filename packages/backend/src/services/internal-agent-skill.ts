@@ -105,6 +105,23 @@ if [ -z "$TASKFLOW_API_URL" ]; then
   exit 1
 fi
 
+json_string() {
+  printf '%s' "$1" | awk '
+    BEGIN { printf "\\"" }
+    {
+      if (NR > 1) {
+        printf "\\\\n"
+      }
+      gsub(/\\\\/, "\\\\\\\\")
+      gsub(/"/, "\\\\\\"")
+      gsub(/\t/, "\\\\t")
+      gsub(/\r/, "\\\\r")
+      printf "%s", $0
+    }
+    END { printf "\\"" }
+  '
+}
+
 cmd="\${1:-}"
 shift 2>/dev/null || true
 
@@ -139,13 +156,22 @@ case "$cmd" in
     done
 
     if [ -n "$hash" ]; then
+      payload=$(printf '{"type":%s,"message":%s,"sessionId":%s,"meta":{"hash":%s}}' \
+        "$(json_string "$log_type")" \
+        "$(json_string "$log_message")" \
+        "$(json_string "$TASKFLOW_SESSION_ID")" \
+        "$(json_string "$hash")")
       curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"type\\":\\"$log_type\\",\\"message\\":\\"$log_message\\",\\"sessionId\\":\\"$TASKFLOW_SESSION_ID\\",\\"meta\\":{\\"hash\\":\\"$hash\\"}}"
+        -d "$payload"
     else
+      payload=$(printf '{"type":%s,"message":%s,"sessionId":%s}' \
+        "$(json_string "$log_type")" \
+        "$(json_string "$log_message")" \
+        "$(json_string "$TASKFLOW_SESSION_ID")")
       curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"type\\":\\"$log_type\\",\\"message\\":\\"$log_message\\",\\"sessionId\\":\\"$TASKFLOW_SESSION_ID\\"}"
+        -d "$payload"
     fi
     ;;
 
@@ -182,13 +208,17 @@ case "$cmd" in
     fi
 
     if [ -n "$label" ]; then
+      payload=$(printf '{"url":%s,"label":%s}' \
+        "$(json_string "$url")" \
+        "$(json_string "$label")")
       curl -sf -X POST "$endpoint" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"url\\":\\"$url\\",\\"label\\":\\"$label\\"}"
+        -d "$payload"
     else
+      payload=$(printf '{"url":%s}' "$(json_string "$url")")
       curl -sf -X POST "$endpoint" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"url\\":\\"$url\\"}"
+        -d "$payload"
     fi
     ;;
 
@@ -198,9 +228,13 @@ case "$cmd" in
         echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow step)" >&2
         exit 1
       fi
+      payload=$(printf '{"taskId":%s,"flowId":%s,"sessionId":%s}' \
+        "$(json_string "$TASKFLOW_TASK_ID")" \
+        "$(json_string "$TASKFLOW_FLOW_ID")" \
+        "$(json_string "$TASKFLOW_SESSION_ID")")
       curl -sf -X POST "$TASKFLOW_API_URL/api/flow/step-complete" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"taskId\\":\\"$TASKFLOW_TASK_ID\\",\\"flowId\\":\\"$TASKFLOW_FLOW_ID\\",\\"sessionId\\":\\"$TASKFLOW_SESSION_ID\\"}"
+        -d "$payload"
     else
       echo "Usage: taskflow-cli step complete" >&2
       exit 1
@@ -240,13 +274,27 @@ case "$cmd" in
           exit 1
         fi
         if [ -n "$artifact_path" ]; then
+          payload=$(printf '{"taskId":%s,"flowId":%s,"stepEntryId":%s,"sessionId":%s,"type":%s,"path":%s}' \
+            "$(json_string "$TASKFLOW_TASK_ID")" \
+            "$(json_string "$TASKFLOW_FLOW_ID")" \
+            "$(json_string "$TASKFLOW_STEP_ENTRY_ID")" \
+            "$(json_string "$TASKFLOW_SESSION_ID")" \
+            "$(json_string "$artifact_type")" \
+            "$(json_string "$artifact_path")")
           curl -sf -X POST "$TASKFLOW_API_URL/api/flow/artifact" \\
             -H "Content-Type: application/json" \\
-            -d "{\\"taskId\\":\\"$TASKFLOW_TASK_ID\\",\\"flowId\\":\\"$TASKFLOW_FLOW_ID\\",\\"stepEntryId\\":\\"$TASKFLOW_STEP_ENTRY_ID\\",\\"type\\":\\"$artifact_type\\",\\"path\\":\\"$artifact_path\\"}"
+            -d "$payload"
         else
+          payload=$(printf '{"taskId":%s,"flowId":%s,"stepEntryId":%s,"sessionId":%s,"type":%s,"text":%s}' \
+            "$(json_string "$TASKFLOW_TASK_ID")" \
+            "$(json_string "$TASKFLOW_FLOW_ID")" \
+            "$(json_string "$TASKFLOW_STEP_ENTRY_ID")" \
+            "$(json_string "$TASKFLOW_SESSION_ID")" \
+            "$(json_string "$artifact_type")" \
+            "$(json_string "$artifact_text")")
           curl -sf -X POST "$TASKFLOW_API_URL/api/flow/artifact" \\
             -H "Content-Type: application/json" \\
-            -d "{\\"taskId\\":\\"$TASKFLOW_TASK_ID\\",\\"flowId\\":\\"$TASKFLOW_FLOW_ID\\",\\"stepEntryId\\":\\"$TASKFLOW_STEP_ENTRY_ID\\",\\"type\\":\\"$artifact_type\\",\\"text\\":\\"$artifact_text\\"}"
+            -d "$payload"
         fi
         ;;
       list)
@@ -315,6 +363,7 @@ export async function ensureCliScript(binDir: string): Promise<void> {
     await chmod(scriptPath, 0o755);
 }
 
+export { CLI_SCRIPT };
 export function buildAgentLaunchSpec(
     type: "claude" | "codex",
     prompt: string | undefined,

@@ -171,6 +171,41 @@ describe("flow definitions", () => {
         expect(flows).toHaveLength(0);
     });
 
+    test("deleteFlow rejects flows with active runs", async () => {
+        const flow = {
+            id: "flow-1",
+            name: "Feature Dev",
+            description: "test",
+            steps: [
+                {
+                    id: "entry-1",
+                    inline: {
+                        name: "Plan",
+                        prompt: "Plan it",
+                        sessionType: "claude" as const,
+                    },
+                },
+            ],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+        await store.saveFlow(flow);
+        await store.saveFlowRun({
+            taskId: "task-1",
+            flowId: "flow-1",
+            status: "running",
+            currentStepIndex: 0,
+            steps: [{ stepEntryId: "entry-1", status: "running" }],
+            artifacts: [],
+            startedAt: new Date().toISOString(),
+        });
+
+        await expect(store.deleteFlow("flow-1")).rejects.toThrow(
+            'Cannot delete flow "flow-1" while it has active runs',
+        );
+        await expect(store.getFlows()).resolves.toHaveLength(1);
+    });
+
     test("saveFlow rejects entries without exactly one step source", async () => {
         const createdAt = new Date().toISOString();
         const invalidFlow = {

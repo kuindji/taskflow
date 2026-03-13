@@ -266,10 +266,29 @@ class FlowRunner {
         taskId: string,
         flowId: string,
         stepEntryId: string,
+        sessionId: string,
         artifact: Omit<FlowArtifact, "stepEntryId" | "createdAt">,
     ): Promise<void> {
         const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
         if (!run) throw new Error("No flow run found");
+        if (run.status !== "running") throw new Error("Flow run is not active");
+
+        const currentStep = run.steps[run.currentStepIndex];
+        if (!currentStep || currentStep.status !== "running") {
+            throw new Error("No running step available for artifact save");
+        }
+        if (currentStep.stepEntryId !== stepEntryId) {
+            throw new Error("Artifacts can only be saved for the current step");
+        }
+        if (!currentStep.sessionId || currentStep.sessionId !== sessionId) {
+            throw new Error("Artifacts can only be saved by the active step session");
+        }
+
+        const hasPath = artifact.path !== undefined;
+        const hasText = artifact.text !== undefined;
+        if (hasPath === hasText) {
+            throw new Error("Artifact must include exactly one of path or text");
+        }
 
         // Re-saving the same artifact type for the same step replaces the older value
         run.artifacts = run.artifacts.filter(
