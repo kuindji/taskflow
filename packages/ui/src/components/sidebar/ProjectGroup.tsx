@@ -50,7 +50,7 @@ export function ProjectGroup({
             <Collapsible open={open} onOpenChange={setOpen} className="min-w-0">
                 <div
                     className={cn(
-                        "group mx-1.5 flex max-w-[calc(100%-0.75rem)] min-w-0 cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
+                        "group mx-1.5 flex max-w-[calc(100%-0.75rem)] min-w-0 cursor-pointer items-stretch overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
                         isActive && !locationInvalid ? "bg-accent/15" : "hover:bg-muted/50",
                     )}
                 >
@@ -77,37 +77,39 @@ export function ProjectGroup({
                     </Tooltip>
                     <button
                         onClick={handleProjectClick}
-                        className="flex w-0 min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden py-1.5 pr-1.5 text-left"
+                        className="flex w-0 min-w-0 flex-1 cursor-pointer flex-col overflow-hidden py-1.5 pr-1.5 text-left"
                         title={project.name}
                     >
-                        {locationInvalid && (
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
-                                </TooltipTrigger>
-                                <TooltipContent side="right" sideOffset={4}>
-                                    Project location not found
-                                </TooltipContent>
-                            </Tooltip>
-                        )}
-                        <span
-                            className={cn(
-                                "block w-full min-w-0 truncate text-xs font-medium tracking-wide",
-                                locationInvalid
-                                    ? "text-muted-foreground/60"
-                                    : "text-muted-foreground",
+                        <div className="flex min-w-0 items-center gap-1.5">
+                            {locationInvalid && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right" sideOffset={4}>
+                                        Project location not found
+                                    </TooltipContent>
+                                </Tooltip>
                             )}
-                        >
-                            {project.name}
-                        </span>
-                    </button>
-                    {!locationInvalid && project.sessions.length > 0 && (
-                        <div className="flex shrink-0 items-center gap-1">
-                            {project.sessions.map((session) => (
-                                <SessionBadge key={session.id} session={session} />
-                            ))}
+                            <span
+                                className={cn(
+                                    "block w-full min-w-0 truncate text-xs font-medium tracking-wide",
+                                    locationInvalid
+                                        ? "text-muted-foreground/60"
+                                        : "text-muted-foreground",
+                                )}
+                            >
+                                {project.name}
+                            </span>
                         </div>
-                    )}
+                        {!locationInvalid && project.sessions.length > 0 && (
+                            <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
+                                {project.sessions.map((session) => (
+                                    <SessionBadge key={session.id} session={session} />
+                                ))}
+                            </div>
+                        )}
+                    </button>
                     <div className="relative mr-1.5 flex shrink-0 items-center">
                         {!locationInvalid && diffStats && (
                             <Badge
