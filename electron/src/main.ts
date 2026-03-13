@@ -329,6 +329,13 @@ function buildAppMenu() {
                         mainWindow?.webContents.send("new-task");
                     },
                 },
+                {
+                    label: "New Terminal",
+                    accelerator: "CmdOrCtrl+T",
+                    click: () => {
+                        mainWindow?.webContents.send("new-terminal");
+                    },
+                },
                 { type: "separator" },
                 {
                     label: "Close Tab",

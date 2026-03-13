@@ -174,10 +174,37 @@ export function Workspace() {
         requestNewTask();
     }, [requestNewTask]);
 
+    const handleOpenDefaultTerminal = useCallback(async () => {
+        if (workspace.scope !== "task" && workspace.scope !== "project") {
+            return;
+        }
+
+        let shell = defaultShellPath;
+        if (!shell) {
+            const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
+            shell = resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell);
+        }
+        if (!shell) return;
+
+        const owner =
+            workspace.scope === "task"
+                ? { taskId: workspace.task.id }
+                : { projectId: workspace.project.id };
+        await createSession(owner, "shell", undefined, undefined, shell);
+    }, [
+        configuredShell,
+        createSession,
+        defaultShellPath,
+        workspace.project,
+        workspace.scope,
+        workspace.task,
+    ]);
+
     useEffect(() => {
         const cleanupFns: Array<() => void> = [];
         const onCloseTab = isElectron ? window.taskflow?.onCloseTab : undefined;
         const onNewTask = isElectron ? window.taskflow?.onNewTask : undefined;
+        const onNewTerminal = isElectron ? window.taskflow?.onNewTerminal : undefined;
 
         if (onCloseTab) {
             cleanupFns.push(onCloseTab(handleCloseActiveTab));
@@ -185,9 +212,13 @@ export function Workspace() {
         if (onNewTask) {
             cleanupFns.push(onNewTask(handleOpenNewTask));
         }
+        if (onNewTerminal) {
+            cleanupFns.push(onNewTerminal(() => void handleOpenDefaultTerminal()));
+        }
 
         const needsCloseTabFallback = !onCloseTab;
         const needsNewTaskFallback = !onNewTask;
+        const needsNewTerminalFallback = !onNewTerminal;
 
         const onKeyDown = (e: KeyboardEvent) => {
             if (!(e.metaKey || e.ctrlKey)) return;
@@ -201,20 +232,26 @@ export function Workspace() {
             if (needsNewTaskFallback && e.key.toLowerCase() === "n") {
                 e.preventDefault();
                 handleOpenNewTask();
+                return;
+            }
+
+            if (needsNewTerminalFallback && e.key.toLowerCase() === "t") {
+                e.preventDefault();
+                void handleOpenDefaultTerminal();
             }
         };
 
-        if (needsCloseTabFallback || needsNewTaskFallback) {
+        if (needsCloseTabFallback || needsNewTaskFallback || needsNewTerminalFallback) {
             window.addEventListener("keydown", onKeyDown);
         }
 
         return () => {
             cleanupFns.forEach((cleanup) => cleanup());
-            if (needsCloseTabFallback || needsNewTaskFallback) {
+            if (needsCloseTabFallback || needsNewTaskFallback || needsNewTerminalFallback) {
                 window.removeEventListener("keydown", onKeyDown);
             }
         };
-    }, [isElectron, handleCloseActiveTab, handleOpenNewTask]);
+    }, [isElectron, handleCloseActiveTab, handleOpenDefaultTerminal, handleOpenNewTask]);
 
     useEffect(() => {
         if (!workspace.workspaceKey || !activeTab || activeTab.id === activeTabId) {
