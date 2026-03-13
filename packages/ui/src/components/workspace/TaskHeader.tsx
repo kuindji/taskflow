@@ -43,6 +43,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const diffStats = useDiffStore((s) =>
         diffKey ? (s.statsByProject[diffKey] ?? null) : null,
     );
+    const diffDisabled = useDiffStore((s) =>
+        diffKey ? (s.diffDisabledByProject[diffKey] ?? true) : true,
+    );
     const commitDisabled = useDiffStore((s) =>
         diffKey ? (s.commitDisabledByProject[diffKey] ?? true) : true,
     );
@@ -154,7 +157,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             variant="ghost"
                             size="xs"
                             onClick={onDiff}
-                            disabled={commitDisabled}
+                            disabled={diffDisabled}
                             aria-label="Show diff"
                             className="[-webkit-app-region:no-drag]"
                         >
