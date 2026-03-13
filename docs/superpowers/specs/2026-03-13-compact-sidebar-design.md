@@ -24,6 +24,16 @@ Replace `{ role: "viewMenu" }` with a custom View menu containing:
 
 On click, send `toggle-compact-sidebar` IPC event to the renderer. The menu item's `checked` state is kept in sync: the renderer sends `compact-sidebar-changed` back to main whenever the value changes, and main updates the menu item.
 
+### Electron preload — `electron/src/preload.ts`
+
+Add two new bridge methods to `contextBridge.exposeInMainWorld`:
+- `onToggleCompactSidebar(callback: () => void): () => void` — listens for the main process toggle event
+- `sendCompactSidebarState(compact: boolean): void` — sends current state back to main
+
+### UI type declarations — `packages/ui/src/env.d.ts`
+
+Extend the `TaskflowBridge` interface with the two new preload methods so TypeScript recognizes them on `window.taskflow`.
+
 ### UI settings store — `packages/ui/src/stores/settings-store.ts`
 
 - Listen for `toggle-compact-sidebar` IPC event from Electron
@@ -40,6 +50,10 @@ When `compact` is true:
 - Reduce vertical padding from `py-2.5` to `py-1.5`
 - Title and badges (session + worktree) still render on two lines
 
+### ProjectGroup — `packages/ui/src/components/sidebar/ProjectGroup.tsx`
+
+Accept a `compact` prop and forward it to each `TaskCard` it renders.
+
 ### TaskSidebar — `packages/ui/src/components/sidebar/TaskSidebar.tsx`
 
-Read `compactSidebar` from the settings store and pass it to each `TaskCard` as the `compact` prop.
+Read `compactSidebar` from the settings store and pass it through `ProjectGroup` to each `TaskCard`.
