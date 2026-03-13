@@ -32,6 +32,7 @@ describe("theme handlers", () => {
     });
 
     it("rejects invalid import payloads", async () => {
+        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
         await expect(
             router.handle(MSG.THEME_IMPORT, {
                 theme: {
@@ -42,6 +43,7 @@ describe("theme handlers", () => {
     });
 
     it("rejects invalid delete payloads", async () => {
+        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
         await expect(
             router.handle(MSG.THEME_DELETE, {
                 id: "../../etc/passwd",

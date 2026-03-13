@@ -4,7 +4,6 @@ import { join } from "path";
 import { win32 } from "path";
 import { tmpdir } from "os";
 import type { ThemeSource } from "@taskflow/shared";
-import { bundledThemes } from "@taskflow/shared";
 import { isPathInsideDirectory, ThemeService } from "../../src/services/theme-service";
 
 function makeValidSource(overrides: Partial<ThemeSource> = {}): ThemeSource {
@@ -184,7 +183,7 @@ describe("ThemeService", () => {
                 join(tempDir, "dracula-2.json"),
                 "utf-8",
             );
-            const parsed = JSON.parse(raw);
+            const parsed = JSON.parse(raw) as ThemeSource;
             expect(parsed.name).toBe("Dracula");
         });
 
@@ -217,6 +216,7 @@ describe("ThemeService", () => {
         });
 
         it("rejects invalid theme payloads before writing", async () => {
+            // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
             await expect(service.save({ name: "Bad Payload" } as ThemeSource)).rejects.toThrow(
                 "Invalid theme source",
             );
@@ -297,6 +297,7 @@ describe("ThemeService", () => {
         });
 
         it("rejects path traversal IDs", async () => {
+            // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
             await expect(service.delete("../../etc/passwd")).rejects.toThrow(
                 "Invalid theme id",
             );

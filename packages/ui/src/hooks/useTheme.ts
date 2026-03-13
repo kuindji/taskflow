@@ -9,7 +9,7 @@ function useTheme(): void {
     useEffect(() => {
         // Apply CSS variables to document root
         const root = document.documentElement;
-        for (const [key, value] of Object.entries(resolved.css)) {
+        for (const [key, value] of Object.entries(resolved.css) as [string, string][]) {
             root.style.setProperty(key, value);
         }
 
