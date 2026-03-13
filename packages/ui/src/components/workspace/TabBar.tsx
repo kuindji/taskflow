@@ -126,7 +126,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
                     onTabClose(tab.id);
                 }}
             >
-                <X className="h-2.5 w-2.5" />
+                <X className="size-2.5" />
             </Button>
         </div>
     );

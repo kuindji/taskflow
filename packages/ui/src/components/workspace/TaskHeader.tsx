@@ -20,16 +20,14 @@ import { CommitDialog } from "./CommitDialog";
 import {
     Archive,
     Diff,
+    FolderTree,
     GitCommitHorizontal,
+    NotebookText,
     Pencil,
     Trash2,
     Workflow,
     ChevronDown,
     Loader2,
-    PanelLeftClose,
-    PanelLeftOpen,
-    PanelRightClose,
-    PanelRightOpen,
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
 
@@ -56,16 +54,21 @@ export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: Task
     const [renameOpen, setRenameOpen] = useState(false);
     const [commitOpen, setCommitOpen] = useState(false);
     const isWorktreeTask = !!task?.worktree.enabled && !!task.worktree.path;
+    const gitRepoPath = isWorktreeTask ? (task?.worktree.path ?? "") : (project?.path ?? "");
     const diffKey = isWorktreeTask ? task.id : project?.id;
     const diffStats = useDiffStore((s) =>
         diffKey ? (s.statsByProject[diffKey] ?? null) : null,
+    );
+    const diffDisabled = useDiffStore((s) =>
+        diffKey ? (s.diffDisabledByProject[diffKey] ?? true) : true,
     );
     const commitDisabled = useDiffStore((s) =>
         diffKey ? (s.commitDisabledByProject[diffKey] ?? true) : true,
     );
 
-    const showDiffButton = !!onDiff && ((!task && !!project) || isWorktreeTask);
-    const showCommitButton = (!task && !!project) || isWorktreeTask;
+    const showGitButtons = !!project && (!task?.worktree.enabled || isWorktreeTask);
+    const showDiffButton = !!onDiff && showGitButtons;
+    const showCommitButton = showGitButtons;
 
     const handleRename = useCallback(
         (name: string) => {
@@ -121,19 +124,16 @@ export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: Task
             {task || project ? (
                 <>
                     <Button
-                        variant="ghost"
+                        variant={fileExplorerOpen ? "secondary" : "ghost"}
                         size="icon-xs"
                         onClick={toggleFileExplorer}
+                        aria-pressed={fileExplorerOpen}
                         aria-label={fileExplorerOpen ? "Hide file explorer" : "Show file explorer"}
                         tooltip={fileExplorerOpen ? "Hide file explorer" : "Show file explorer"}
                         tooltipSide="bottom"
                         className="[-webkit-app-region:no-drag]"
                     >
-                        {fileExplorerOpen ? (
-                            <PanelLeftClose className="h-4 w-4" />
-                        ) : (
-                            <PanelLeftOpen className="h-4 w-4" />
-                        )}
+                        <FolderTree className="h-4 w-4" />
                     </Button>
                     <div className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden">
                         <TruncatedText
@@ -143,11 +143,6 @@ export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: Task
                         >
                             {task?.title ?? project?.name}
                         </TruncatedText>
-                        {task && project && (
-                            <TruncatedText className="text-muted-foreground shrink-[2] text-sm">
-                                {project.name}
-                            </TruncatedText>
-                        )}
                         {task?.worktree?.branch && (
                             <TruncatedText
                                 as="div"
@@ -231,6 +226,7 @@ export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: Task
                             variant="ghost"
                             size="xs"
                             onClick={onDiff}
+                            disabled={diffDisabled}
                             aria-label="Show diff"
                             className="[-webkit-app-region:no-drag]"
                         >
@@ -282,19 +278,16 @@ export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: Task
                         <Trash2 className="h-4 w-4" />
                     </Button>
                     <Button
-                        variant="ghost"
+                        variant={taskInfoOpen ? "secondary" : "ghost"}
                         size="icon-xs"
                         onClick={toggleTaskInfo}
+                        aria-pressed={taskInfoOpen}
                         aria-label={taskInfoOpen ? "Hide task info" : "Show task info"}
                         tooltip={taskInfoOpen ? "Hide task info" : "Show task info"}
                         tooltipSide="bottom"
                         className="[-webkit-app-region:no-drag]"
                     >
-                        {taskInfoOpen ? (
-                            <PanelRightClose className="h-4 w-4" />
-                        ) : (
-                            <PanelRightOpen className="h-4 w-4" />
-                        )}
+                        <NotebookText className="h-4 w-4" />
                     </Button>
                 </>
             )}
@@ -310,8 +303,8 @@ export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: Task
                 <CommitDialog
                     open={commitOpen}
                     onOpenChange={setCommitOpen}
-                    repoPath={isWorktreeTask ? (task.worktree.path ?? "") : (project?.path ?? "")}
-                    sessionOwner={isWorktreeTask ? { taskId: task.id } : { projectId: project?.id ?? "" }}
+                    repoPath={gitRepoPath}
+                    sessionOwner={task ? { taskId: task.id } : { projectId: project?.id ?? "" }}
                 />
             )}
         </div>

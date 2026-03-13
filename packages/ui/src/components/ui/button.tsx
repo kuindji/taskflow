@@ -85,13 +85,17 @@ function Button({
         return button;
     }
 
+    const tooltipKey =
+        typeof tooltip === "string" || typeof tooltip === "number" ? String(tooltip) : undefined;
     const trigger =
         !asChild && (disabled || loading) ? <span className="inline-flex">{button}</span> : button;
 
     return (
-        <Tooltip>
+        <Tooltip key={tooltipKey}>
             <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-            <TooltipContent side={tooltipSide}>{tooltip}</TooltipContent>
+            <TooltipContent key={tooltipKey} side={tooltipSide}>
+                {tooltip}
+            </TooltipContent>
         </Tooltip>
     );
 }

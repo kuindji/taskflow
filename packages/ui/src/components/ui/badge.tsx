@@ -21,6 +21,7 @@ const badgeVariants = cva(
             colorScheme: {
                 claude: "",
                 codex: "",
+                shell: "",
                 active: "",
                 archived: "",
             },
@@ -35,6 +36,11 @@ const badgeVariants = cva(
                 variant: "outline",
                 colorScheme: "codex",
                 className: "bg-success/20 text-success border-success/30",
+            },
+            {
+                variant: "outline",
+                colorScheme: "shell",
+                className: "bg-info/20 text-info border-info/30",
             },
             {
                 variant: "outline",
@@ -55,6 +61,11 @@ const badgeVariants = cva(
                 variant: "default",
                 colorScheme: "codex",
                 className: "bg-success/20 text-success border-success/30",
+            },
+            {
+                variant: "default",
+                colorScheme: "shell",
+                className: "bg-info/20 text-info border-info/30",
             },
             {
                 variant: "default",

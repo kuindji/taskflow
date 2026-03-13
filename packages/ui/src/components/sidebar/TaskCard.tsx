@@ -1,13 +1,10 @@
 import { useMemo, useState, useCallback, type MouseEvent } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Archive, ArchiveRestore, GitBranch, Trash2 } from "lucide-react";
-import type { SessionRef, Task } from "@taskflow/shared";
-import { useSessionStore } from "@/stores/session-store";
+import type { Task } from "@taskflow/shared";
 import { useTaskStore } from "@/stores/task-store";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { StatusDot } from "@/components/ui/status-dot";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TruncatedText } from "@/components/ui/truncated-text";
@@ -22,6 +19,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { SessionBadge } from "./SessionBadge";
 
 const taskCardVariants = cva(
     "px-3 py-2.5 mx-1.5 my-0.5 rounded-lg cursor-pointer transition-colors",
@@ -43,21 +41,6 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     className?: string;
     archived?: boolean;
     compact?: boolean;
-}
-
-function SessionBadge({ session }: { session: SessionRef }) {
-    const status = useSessionStore((s) => s.sessionStatus[session.id]);
-
-    return (
-        <Badge
-            variant="outline"
-            colorScheme={session.type === "claude" ? "claude" : "codex"}
-            className="px-1 py-0 text-xs"
-        >
-            <StatusDot status={status} className="mr-0.5" />
-            {session.type}
-        </Badge>
-    );
 }
 
 export function TaskCard({ task, isActive, onClick, className, archived, compact }: TaskCardProps) {

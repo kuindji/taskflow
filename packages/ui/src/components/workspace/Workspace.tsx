@@ -13,7 +13,7 @@ import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
 import { FlowPanel } from "@/components/flows/FlowPanel";
 import { destroyTerminal } from "@/components/panes/TerminalPane";
-import { resolveTerminalShellPath } from "@/lib/terminal-shells";
+import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import { useFlowStore } from "@/stores/flow-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import useIsElectron from "@/hooks/useIsElectron";
@@ -50,6 +50,7 @@ export function Workspace() {
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
+    const openSettings = useUIStore((s) => s.openSettings);
     const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
@@ -169,18 +170,13 @@ export function Workspace() {
 
     const hasScripts = useMemo(() => Object.keys(scripts).length > 0, [scripts]);
 
-    const isWorktreeTask =
-        workspace.scope === "task" &&
-        workspace.task?.worktree.enabled &&
-        !!workspace.task.worktree.path;
+    const canShowGitControls =
+        !!workspace.project &&
+        (workspace.scope !== "task" ||
+            !workspace.task?.worktree.enabled ||
+            !!workspace.task.worktree.path);
 
-    const visibleTabs = useMemo(
-        () =>
-            workspace.scope === "task" && !isWorktreeTask
-                ? tabs.filter((tab) => tab.type !== "changes")
-                : tabs,
-        [tabs, workspace.scope, isWorktreeTask],
-    );
+    const visibleTabs = useMemo(() => tabs, [tabs]);
 
     const activeTab = visibleTabs.find((t) => t.id === activeTabId) ?? visibleTabs[0];
 
@@ -206,10 +202,38 @@ export function Workspace() {
         requestNewTask();
     }, [requestNewTask]);
 
+    const handleOpenDefaultTerminal = useCallback(async () => {
+        if (workspace.scope !== "task" && workspace.scope !== "project") {
+            return;
+        }
+
+        let shell = defaultShellPath;
+        if (!shell) {
+            const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
+            shell = resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell);
+        }
+        if (!shell) return;
+
+        const owner =
+            workspace.scope === "task"
+                ? { taskId: workspace.task.id }
+                : { projectId: workspace.project.id };
+        await createSession(owner, "shell", getShellSessionLabel(shell), undefined, shell);
+    }, [
+        configuredShell,
+        createSession,
+        defaultShellPath,
+        workspace.project,
+        workspace.scope,
+        workspace.task,
+    ]);
+
     useEffect(() => {
         const cleanupFns: Array<() => void> = [];
         const onCloseTab = isElectron ? window.taskflow?.onCloseTab : undefined;
         const onNewTask = isElectron ? window.taskflow?.onNewTask : undefined;
+        const onNewTerminal = isElectron ? window.taskflow?.onNewTerminal : undefined;
+        const onOpenSettings = isElectron ? window.taskflow?.onOpenSettings : undefined;
 
         if (onCloseTab) {
             cleanupFns.push(onCloseTab(handleCloseActiveTab));
@@ -217,9 +241,16 @@ export function Workspace() {
         if (onNewTask) {
             cleanupFns.push(onNewTask(handleOpenNewTask));
         }
+        if (onNewTerminal) {
+            cleanupFns.push(onNewTerminal(() => void handleOpenDefaultTerminal()));
+        }
+        if (onOpenSettings) {
+            cleanupFns.push(onOpenSettings(openSettings));
+        }
 
         const needsCloseTabFallback = !onCloseTab;
         const needsNewTaskFallback = !onNewTask;
+        const needsNewTerminalFallback = !onNewTerminal;
 
         const onKeyDown = (e: KeyboardEvent) => {
             if (!(e.metaKey || e.ctrlKey)) return;
@@ -233,20 +264,32 @@ export function Workspace() {
             if (needsNewTaskFallback && e.key.toLowerCase() === "n") {
                 e.preventDefault();
                 handleOpenNewTask();
+                return;
+            }
+
+            if (needsNewTerminalFallback && e.key.toLowerCase() === "t") {
+                e.preventDefault();
+                void handleOpenDefaultTerminal();
             }
         };
 
-        if (needsCloseTabFallback || needsNewTaskFallback) {
+        if (needsCloseTabFallback || needsNewTaskFallback || needsNewTerminalFallback) {
             window.addEventListener("keydown", onKeyDown);
         }
 
         return () => {
             cleanupFns.forEach((cleanup) => cleanup());
-            if (needsCloseTabFallback || needsNewTaskFallback) {
+            if (needsCloseTabFallback || needsNewTaskFallback || needsNewTerminalFallback) {
                 window.removeEventListener("keydown", onKeyDown);
             }
         };
-    }, [isElectron, handleCloseActiveTab, handleOpenNewTask]);
+    }, [
+        isElectron,
+        handleCloseActiveTab,
+        handleOpenDefaultTerminal,
+        handleOpenNewTask,
+        openSettings,
+    ]);
 
     useEffect(() => {
         if (!workspace.workspaceKey || !activeTab || activeTab.id === activeTabId) {
@@ -294,13 +337,12 @@ export function Workspace() {
                 url: "about:blank",
             });
         } else if (type === "shell" && shellPath) {
-            const shellName = shellPath.split("/").pop() ?? "shell";
             await createSession(
                 workspace.scope === "task"
                     ? { taskId: workspace.task.id }
                     : { projectId: workspace.project.id },
                 "shell",
-                shellName,
+                getShellSessionLabel(shellPath),
                 undefined,
                 shellPath,
             );
@@ -351,7 +393,7 @@ export function Workspace() {
             <TaskHeader
                 task={workspace.task ?? undefined}
                 project={workspace.project}
-                onDiff={workspace.scope === "project" || isWorktreeTask ? handleDiffTab : undefined}
+                onDiff={canShowGitControls ? handleDiffTab : undefined}
                 flowRunsReady={flowRunsReady}
             />
             {activeFlowRun && taskId && <FlowPanel taskId={taskId} />}

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TaskLogEntryType } from "@taskflow/shared";
+import { X } from "lucide-react";
 import { useTaskStore } from "@/stores/task-store";
+import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -28,6 +31,7 @@ function TaskInfoPanel() {
     const workspace = useActiveWorkspace();
     const task = workspace.task;
     const { updateTask, fetchTaskLog } = useTaskStore();
+    const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const taskLogs = useTaskStore((s) => (task ? s.taskLogs[task.id] : undefined));
     const [descriptionDraft, setDescriptionDraft] = useState("");
     const [notesDraft, setNotesDraft] = useState("");
@@ -112,8 +116,19 @@ function TaskInfoPanel() {
     if (workspace.scope === "project" && workspace.project) {
         return (
             <div className="flex h-full flex-col">
-                <div className="flex items-center px-3 py-2.5">
+                <div className="flex items-center gap-2 px-3 py-2.5">
                     <span className="text-muted-foreground text-xs font-medium">Project Info</span>
+                    <div className="flex-1" />
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={toggleTaskInfo}
+                        aria-label="Hide task info"
+                        tooltip="Hide task info"
+                        tooltipSide="bottom"
+                    >
+                        <X className="h-3 w-3" />
+                    </Button>
                 </div>
                 <Separator />
                 <ScrollArea className="flex-1 p-3">
@@ -160,8 +175,19 @@ function TaskInfoPanel() {
 
     return (
         <div className="flex h-full flex-col">
-            <div className="flex items-center px-3 py-2.5">
+            <div className="flex items-center gap-2 px-3 py-2.5">
                 <span className="text-muted-foreground text-xs font-medium">Task Info</span>
+                <div className="flex-1" />
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={toggleTaskInfo}
+                    aria-label="Hide task info"
+                    tooltip="Hide task info"
+                    tooltipSide="bottom"
+                >
+                    <X className="h-3 w-3" />
+                </Button>
             </div>
             <Separator />
 
