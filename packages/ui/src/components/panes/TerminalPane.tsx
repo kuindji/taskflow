@@ -65,6 +65,14 @@ interface TerminalViewportSnapshot {
 const terminalCache = new Map<string, CachedTerminal>();
 const RESIZE_DEBOUNCE_MS = 250;
 
+// Single module-level subscription: re-theme all cached terminals when the resolved theme changes.
+useThemeStore.subscribe((state, prevState) => {
+    if (state.resolved === prevState.resolved) return;
+    for (const [, cached] of terminalCache) {
+        cached.term.options.theme = { ...state.resolved.xterm };
+    }
+});
+
 // ─── Link handling ───────────────────────────────────────────────────────────
 
 function getWorkspaceKey(taskId?: string, projectId?: string): string | null {
@@ -507,14 +515,6 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     useEffect(() => {
         visibleRef.current = visible;
     }, [visible]);
-
-    // Re-theme all cached terminals when the resolved theme changes
-    const resolved = useThemeStore((s) => s.resolved);
-    useEffect(() => {
-        for (const [, cached] of terminalCache) {
-            cached.term.options.theme = { ...resolved.xterm };
-        }
-    }, [resolved]);
 
     // Stable callback for sendInput so we can use it in the data handler
     const sendInputRef = useRef(sendInput);

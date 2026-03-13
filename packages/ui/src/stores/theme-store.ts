@@ -88,9 +88,13 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
             activeThemeId: record.id,
             resolved: deriveTheme(record.source),
         });
-        await useSettingsStore.getState().updateSettings({
-            appearance: { theme: themeId },
-        });
+        try {
+            await useSettingsStore.getState().updateSettings({
+                appearance: { theme: themeId },
+            });
+        } catch {
+            // Theme is already applied visually; persistence will retry on next activation.
+        }
     },
 
     async importTheme(theme: ThemeSource) {
