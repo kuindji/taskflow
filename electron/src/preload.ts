@@ -15,11 +15,25 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("new-task", listener);
         };
     },
+    onNewTerminal: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("new-terminal", listener);
+        return () => {
+            ipcRenderer.removeListener("new-terminal", listener);
+        };
+    },
     onCloseTab: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("close-tab", listener);
         return () => {
             ipcRenderer.removeListener("close-tab", listener);
+        };
+    },
+    onOpenSettings: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("open-settings", listener);
+        return () => {
+            ipcRenderer.removeListener("open-settings", listener);
         };
     },
     onToggleArchive: (callback: () => void) => {

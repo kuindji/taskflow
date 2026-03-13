@@ -15,11 +15,23 @@ interface DiffTarget {
 
 interface DiffStore {
     statsByProject: Record<string, DiffStats | null>;
+    diffDisabledByProject: Record<string, boolean>;
     commitDisabledByProject: Record<string, boolean>;
     fetchDiff(projectId: string, path: string): Promise<void>;
     fetchAllDiffs(projects: DiffTarget[]): void;
     clearStaleProjects(projectIds: string[]): void;
     startPolling(projects: DiffTarget[]): () => void;
+}
+
+export function getWorkspaceButtonState(status: GitStatusResult): {
+    diffDisabled: boolean;
+    commitDisabled: boolean;
+} {
+    const hasFileChanges = status.stagedFiles.length > 0 || status.unstagedFiles.length > 0;
+    return {
+        diffDisabled: !hasFileChanges,
+        commitDisabled: !hasFileChanges && status.ahead === 0,
+    };
 }
 
 function isWithinProjectPath(filePath: string, projectPath: string): boolean {
@@ -37,6 +49,7 @@ function nextVersion(projectId: string): number {
 
 export const useDiffStore = create<DiffStore>((set, get) => ({
     statsByProject: {},
+    diffDisabledByProject: {},
     commitDisabledByProject: {},
 
     async fetchDiff(projectId, path) {
@@ -61,16 +74,23 @@ export const useDiffStore = create<DiffStore>((set, get) => ({
             stats = totals.additions === 0 && totals.deletions === 0 ? null : totals;
         }
 
+        let diffDisabled = true;
         let commitDisabled = true;
         if (statusRes.status === "fulfilled") {
-            const { status } = statusRes.value;
-            commitDisabled = status.stagedFiles.length === 0 && status.unstagedFiles.length === 0 && status.ahead === 0;
+            const buttonState = getWorkspaceButtonState(statusRes.value.status);
+            diffDisabled = buttonState.diffDisabled;
+            commitDisabled = buttonState.commitDisabled;
         } else {
+            diffDisabled = false;
             commitDisabled = false;
         }
 
         set((state) => ({
             statsByProject: { ...state.statsByProject, [projectId]: stats },
+            diffDisabledByProject: {
+                ...state.diffDisabledByProject,
+                [projectId]: diffDisabled,
+            },
             commitDisabledByProject: {
                 ...state.commitDisabledByProject,
                 [projectId]: commitDisabled,
@@ -90,10 +110,17 @@ export const useDiffStore = create<DiffStore>((set, get) => ({
             const stats = Object.fromEntries(
                 Object.entries(state.statsByProject).filter(([id]) => idSet.has(id)),
             );
+            const diffDisabled = Object.fromEntries(
+                Object.entries(state.diffDisabledByProject).filter(([id]) => idSet.has(id)),
+            );
             const commit = Object.fromEntries(
                 Object.entries(state.commitDisabledByProject).filter(([id]) => idSet.has(id)),
             );
-            return { statsByProject: stats, commitDisabledByProject: commit };
+            return {
+                statsByProject: stats,
+                diffDisabledByProject: diffDisabled,
+                commitDisabledByProject: commit,
+            };
         });
     },
 

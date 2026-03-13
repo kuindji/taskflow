@@ -23,6 +23,7 @@ interface UIStore {
     panelGap: number;
     toggleFileExplorer(): void;
     toggleTaskInfo(): void;
+    openSettings(): void;
     toggleSettings(): void;
     setAppearanceOpen(open: boolean): void;
     toggleAppearance(): void;
@@ -53,6 +54,9 @@ export const useUIStore = create<UIStore>((set) => ({
     },
     toggleTaskInfo() {
         set((s) => ({ taskInfoOpen: !s.taskInfoOpen }));
+    },
+    openSettings() {
+        set({ settingsOpen: true });
     },
     toggleSettings() {
         set((s) => ({ settingsOpen: !s.settingsOpen }));

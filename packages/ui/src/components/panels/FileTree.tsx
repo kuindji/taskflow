@@ -3,7 +3,7 @@ import { cva } from "class-variance-authority";
 import type { FileNode } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TruncatedText } from "@/components/ui/truncated-text";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FileContextMenu } from "./FileContextMenu";
 
@@ -71,6 +71,15 @@ function FileTree({
         () => cn(fileNodeVariants({ gitStatus }), "py-1 px-3 hover:bg-muted/50"),
         [gitStatus],
     );
+    const directoryClasses = useMemo(
+        () =>
+            cn(
+                "flex w-full min-w-0 cursor-pointer items-center px-3 py-1 text-sm font-medium select-none",
+                "text-foreground/90 hover:bg-accent/10 hover:text-foreground",
+                open && "text-foreground",
+            ),
+        [open],
+    );
 
     const handleDragStart = useCallback(
         (e: React.DragEvent) => {
@@ -105,13 +114,18 @@ function FileTree({
                 <CollapsibleTrigger
                     draggable
                     onDragStart={handleDragStart}
-                    className="text-muted-foreground hover:bg-muted/50 flex w-full min-w-0 cursor-pointer items-center px-3 py-1 text-sm select-none"
+                    className={directoryClasses}
                     style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
                 >
                     {open ? (
                         <ChevronDown className="mr-1.5 h-4 w-4 shrink-0" />
                     ) : (
                         <ChevronRight className="mr-1.5 h-4 w-4 shrink-0" />
+                    )}
+                    {open ? (
+                        <FolderOpen className="mr-1.5 h-4 w-4 shrink-0 text-accent" />
+                    ) : (
+                        <Folder className="mr-1.5 h-4 w-4 shrink-0 text-accent/85" />
                     )}
                     <TruncatedText tooltipContent={node.path}>
                         {node.name}

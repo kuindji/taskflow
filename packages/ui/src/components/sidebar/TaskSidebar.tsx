@@ -31,7 +31,7 @@ export function TaskSidebar() {
     const compactSidebar = useSettingsStore(
         (s) => s.settings?.layout?.panels?.compactSidebar ?? false,
     );
-    const toggleSettings = useUIStore((s) => s.toggleSettings);
+    const openSettings = useUIStore((s) => s.openSettings);
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const fetchThemes = useThemeStore((s) => s.fetchThemes);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -246,7 +246,7 @@ export function TaskSidebar() {
                 <Button
                     variant="ghost"
                     size="icon-xs"
-                    onClick={toggleSettings}
+                    onClick={openSettings}
                     aria-label="Settings"
                     tooltip="Settings"
                     tooltipSide="bottom"

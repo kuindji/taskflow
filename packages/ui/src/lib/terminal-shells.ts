@@ -8,8 +8,12 @@ export function getShellDisplayName(shell: Pick<ShellInfo, "name">): string {
     return titleCaseShellName(shell.name);
 }
 
+export function getShellSessionLabel(path: string): string {
+    return path.split("/").pop() ?? "shell";
+}
+
 export function getShellNameFromPath(path: string): string {
-    const shellName = path.split("/").pop() ?? path;
+    const shellName = getShellSessionLabel(path);
     return titleCaseShellName(shellName);
 }
 

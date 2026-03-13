@@ -1,9 +1,12 @@
 import { useEffect, useMemo } from "react";
 import type { FileNode } from "@taskflow/shared";
 import ignore from "ignore";
+import { X } from "lucide-react";
 import { useFileStore } from "@/stores/file-store";
 import { useSessionStore } from "@/stores/session-store";
+import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import useIsElectron from "@/hooks/useIsElectron";
@@ -24,6 +27,7 @@ function FileExplorer() {
     } = useFileStore();
     const workspace = useActiveWorkspace();
     const { addTab, getTabs, setActiveTab } = useSessionStore();
+    const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
     const workingDir = workspace.workingDir;
     const isElectron = useIsElectron();
 
@@ -135,11 +139,23 @@ function FileExplorer() {
     return (
         <div className="flex h-full flex-col">
             <div
-                className={`flex items-center px-1.5 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
+                className={`flex items-center gap-2 px-1.5 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
             >
                 <span className="text-muted-foreground flex h-6 items-center text-xs font-medium ml-2">
                     Files
                 </span>
+                <div className="flex-1" />
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={toggleFileExplorer}
+                    aria-label="Hide file explorer"
+                    tooltip="Hide file explorer"
+                    tooltipSide="bottom"
+                    className="[-webkit-app-region:no-drag]"
+                >
+                    <X className="h-3 w-3" />
+                </Button>
             </div>
             <Separator />
             <ScrollArea className="flex-1 py-1 [&_[data-slot=scroll-area-viewport]>div]:!block">
