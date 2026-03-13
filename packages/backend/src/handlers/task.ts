@@ -11,6 +11,8 @@ import type {
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
 import type { GitService } from "../services/git-service";
+import type { FlowStore } from "../services/flow-store";
+import type { FlowRunner } from "../services/flow-runner";
 import type { Task } from "@taskflow/shared";
 
 interface TaskHandlerDeps {
@@ -19,10 +21,22 @@ interface TaskHandlerDeps {
     gitService: GitService;
     closeSession?: (sessionId: string) => void;
     generateTitle?: (taskId: string, description: string) => void;
+    flowStore?: FlowStore;
+    flowRunner?: FlowRunner;
 }
 
 export function registerTaskHandlers(deps: TaskHandlerDeps): void {
-    const { router, store, gitService, closeSession, generateTitle } = deps;
+    const { router, store, gitService, closeSession, generateTitle, flowStore, flowRunner } = deps;
+
+    async function failActiveFlows(taskId: string): Promise<void> {
+        if (!flowStore || !flowRunner) return;
+        const runs = await flowStore.getFlowRunsForTask(taskId);
+        for (const run of runs) {
+            if (run.status === "running" || run.status === "paused") {
+                await flowRunner.failFlowByIds(taskId, run.flowId);
+            }
+        }
+    }
 
     async function stopTaskSessions(task: Task, clearPersistedSessions: boolean): Promise<void> {
         if (task.sessions.length === 0) {
@@ -67,6 +81,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         const { id } = payload as TaskArchivePayload;
         const task = await store.getTask(id);
         if (!task) throw new Error(`Task not found: ${id}`);
+        await failActiveFlows(id);
         await stopTaskSessions(task, true);
         return store.archiveTask(id);
     });
@@ -87,6 +102,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         if (!task) throw new Error(`Task not found: ${id}`);
 
         if (task.status === "active") {
+            await failActiveFlows(id);
             await stopTaskSessions(task, false);
             await store.deleteTask(id);
         } else {

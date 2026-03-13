@@ -4,6 +4,7 @@ import { registerTaskHandlers } from "../../src/handlers/task";
 import { registerProjectHandlers } from "../../src/handlers/project";
 import { Router } from "../../src/ws/router";
 import { TaskStore } from "../../src/services/task-store";
+import { createSessionLifecycle } from "../../src/services/session-lifecycle";
 import { mkdtemp, mkdir, rm, realpath } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -88,14 +89,19 @@ describe("session handlers", () => {
                 ptyManager.close(sessionId);
             },
         });
-        registerSessionHandlers({
-            router,
+        const sessionLifecycle = createSessionLifecycle({
             ptyManager: ptyManager as never,
             taskStore: store,
             broadcast: (event) => {
                 events.push(event);
             },
             getPort: () => 0,
+        });
+        registerSessionHandlers({
+            router,
+            ptyManager: ptyManager as never,
+            taskStore: store,
+            sessionLifecycle,
         });
 
         const projectDir = join(tempDir, "project");

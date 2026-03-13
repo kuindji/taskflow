@@ -22,6 +22,10 @@ import { ApiRouter } from "./api/router";
 import { registerApiRoutes } from "./api/routes";
 import { createTitleGenerator } from "./services/title-generator";
 import { ensureCliScript } from "./services/internal-agent-skill";
+import { FlowStore } from "./services/flow-store";
+import { FlowRunner } from "./services/flow-runner";
+import { createSessionLifecycle } from "./services/session-lifecycle";
+import { registerFlowHandlers } from "./handlers/flow";
 import { writeFile } from "fs/promises";
 
 async function main() {
@@ -41,20 +45,84 @@ async function main() {
         await store.clearAllSessions();
         await store.cleanExpiredArchives();
 
+        const flowStore = new FlowStore(config.flowsDir, config.flowRunsDir);
+        await flowStore.init();
+
         const ptyManager = new PtyManager();
         const gitService = new GitService();
         const fileWatcher = new FileWatcher();
+        const settingsStore = new SettingsStore(config.settingsFile);
+
+        const shells = await detectShells();
+        const systemShellPath = resolveSystemShellPath(shells);
 
         const router = new Router();
         const apiRouter = new ApiRouter();
         const server = createServer(router, config.port, apiRouter);
         let serverPort = config.port;
 
+        const sessionLifecycle = createSessionLifecycle({
+            ptyManager,
+            taskStore: store,
+            broadcast: server.broadcast,
+            getPort: () => serverPort,
+        });
+
         const titleGenerator = createTitleGenerator({
             taskStore: store,
             gitService,
             broadcast: server.broadcast,
         });
+
+        // FlowRunner is referenced inside its own spawnSession callback (for
+        // handleSessionExit), so we declare it with a deferred assignment.
+        let flowRunner: FlowRunner;
+        flowRunner = new FlowRunner({
+            flowStore,
+            spawnSession: async (opts) => {
+                return sessionLifecycle.createSession({
+                    owner: { taskId: opts.taskId },
+                    type: opts.sessionType,
+                    label: opts.label,
+                    prompt: opts.prompt,
+                    shell: opts.sessionType === "shell" ? (systemShellPath ?? undefined) : undefined,
+                    agentOptions: opts.agentOptions,
+                    flow: {
+                        flowId: opts.flowId,
+                        stepEntryId: opts.stepEntryId,
+                    },
+                    onSessionExited: (sessionId, exitCode) => {
+                        void flowRunner.handleSessionExit(sessionId, exitCode);
+                    },
+                });
+            },
+            closeSession: (sessionId) => {
+                ptyManager.close(sessionId);
+            },
+            broadcast: server.broadcast,
+            getTaskDescription: async (taskId) => {
+                const task = await store.getTask(taskId);
+                return task?.description ?? "";
+            },
+        });
+
+        // Recover flow runs stuck in "running" from a previous process crash
+        const allTasks = await store.listTasks();
+        for (const task of allTasks) {
+            const runs = await flowStore.getFlowRunsForTask(task.id);
+            for (const run of runs) {
+                if (run.status === "running") {
+                    run.status = "paused";
+                    const currentStep = run.steps[run.currentStepIndex];
+                    if (currentStep?.status === "running") {
+                        currentStep.status = "failed";
+                        currentStep.completedAt = new Date().toISOString();
+                        currentStep.sessionId = undefined;
+                    }
+                    await flowStore.saveFlowRun(run);
+                }
+            }
+        }
 
         registerProjectHandlers(router, store, gitService, (sessionId) => {
             ptyManager.close(sessionId);
@@ -69,13 +137,14 @@ async function main() {
             generateTitle: (taskId, description) => {
                 void titleGenerator.generate(taskId, description);
             },
+            flowStore,
+            flowRunner,
         });
         registerSessionHandlers({
             router,
             ptyManager,
             taskStore: store,
-            broadcast: server.broadcast,
-            getPort: () => serverPort,
+            sessionLifecycle,
         });
         registerFileHandlers({
             router,
@@ -85,15 +154,17 @@ async function main() {
         });
         registerGitHandlers({ router, git: gitService, taskStore: store });
 
-        const settingsStore = new SettingsStore(config.settingsFile);
         registerSettingsHandlers(router, settingsStore);
         registerScriptsHandlers(router);
+        registerFlowHandlers({ router, flowStore, flowRunner });
         registerApiRoutes({
             apiRouter,
             taskStore: store,
             ptyManager,
             broadcast: server.broadcast,
             settingsStore,
+            flowStore,
+            flowRunner,
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {
@@ -103,12 +174,11 @@ async function main() {
         });
 
         const editors = await detectEditors();
-        const shells = await detectShells();
         const runtimes = await detectRuntimes();
         router.register(MSG.SYSTEM_INFO, async () => ({ editors }));
         router.register(MSG.SHELLS_LIST, async () => ({
             shells,
-            systemShellPath: resolveSystemShellPath(shells),
+            systemShellPath,
         }));
         router.register(MSG.RUNTIMES_LIST, async () => ({ runtimes }));
         console.log(`Detected shells: ${shells.map((s) => s.name).join(", ") || "none"}`);

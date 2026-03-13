@@ -293,6 +293,12 @@ class FlowRunner {
         return artifacts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
 
+    async failFlowByIds(taskId: string, flowId: string): Promise<void> {
+        const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
+        if (!run) return;
+        await this.failFlow(run);
+    }
+
     // --- Private helpers ---
 
     private async failFlow(run: FlowRun): Promise<void> {
