@@ -3,6 +3,7 @@ import * as monaco from "monaco-editor";
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_EDITOR_FONT_SIZE } from "@taskflow/shared";
 import { useFileStore } from "@/stores/file-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { MONACO_THEME_NAME } from "@/lib/monaco-theme";
 import { Button } from "@/components/ui/button";
 
 interface EditorPaneProps {
@@ -89,7 +90,7 @@ function EditorPane({ filePath }: EditorPaneProps) {
 
         const editor = monaco.editor.create(containerRef.current, {
             model,
-            theme: "vs-dark",
+            theme: MONACO_THEME_NAME,
             minimap: { enabled: false },
             fontSize: editorFontSizeRef.current,
             fontFamily: editorFontFamilyRef.current,

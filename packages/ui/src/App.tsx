@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { WebSocketProvider } from "@/providers/WebSocketProvider";
 import { useWsStatus } from "@/providers/ws-context";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useTheme } from "@/hooks/useTheme";
+import "@/lib/monaco-theme"; // Ensure module-level defineTheme runs
 import { AppShell } from "@/components/AppShell";
 import { DialogHost } from "@/components/DialogHost";
 import { SettingsModal } from "@/components/settings/SettingsModal";
@@ -29,6 +31,7 @@ function ConnectionOverlay() {
 }
 
 export function App() {
+    useTheme();
     const general = useSettingsStore((s) => s.settings?.general);
     const rootStyle = useMemo(
         () =>

@@ -19,6 +19,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useFileStore } from "@/stores/file-store";
 import { useUIStore } from "@/stores/ui-store";
+import { useThemeStore } from "@/stores/theme-store";
 import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
@@ -373,34 +374,8 @@ function loadBestEffortRendererAddons(term: Terminal): () => void {
     };
 }
 
-function getCssVar(name: string): string {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
 function getTerminalTheme(): Record<string, string> {
-    return {
-        background: getCssVar("--card"),
-        foreground: getCssVar("--foreground"),
-        cursor: "#f5e0dc",
-        cursorAccent: getCssVar("--card"),
-        selectionBackground: getCssVar("--muted"),
-        black: getCssVar("--muted"),
-        red: getCssVar("--destructive"),
-        green: getCssVar("--success"),
-        yellow: getCssVar("--warning"),
-        blue: getCssVar("--accent"),
-        magenta: "#cba6f7",
-        cyan: "#94e2d5",
-        white: "#bac2de",
-        brightBlack: getCssVar("--muted-foreground"),
-        brightRed: getCssVar("--destructive"),
-        brightGreen: getCssVar("--success"),
-        brightYellow: getCssVar("--warning"),
-        brightBlue: getCssVar("--accent"),
-        brightMagenta: "#cba6f7",
-        brightCyan: "#94e2d5",
-        brightWhite: "#a6adc8",
-    };
+    return { ...useThemeStore.getState().resolved.xterm };
 }
 
 function getOrCreateTerminal(
@@ -532,6 +507,14 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     useEffect(() => {
         visibleRef.current = visible;
     }, [visible]);
+
+    // Re-theme all cached terminals when the resolved theme changes
+    const resolved = useThemeStore((s) => s.resolved);
+    useEffect(() => {
+        for (const [, cached] of terminalCache) {
+            cached.term.options.theme = { ...resolved.xterm };
+        }
+    }, [resolved]);
 
     // Stable callback for sendInput so we can use it in the data handler
     const sendInputRef = useRef(sendInput);

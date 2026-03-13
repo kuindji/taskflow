@@ -6,6 +6,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useDiffStore } from "@/stores/diff-store";
+import { useThemeStore } from "@/stores/theme-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
 import { NewProjectDialog } from "./NewProjectDialog";
@@ -31,6 +32,7 @@ export function TaskSidebar() {
         (s) => s.settings?.layout?.panels?.compactSidebar ?? false,
     );
     const toggleSettings = useUIStore((s) => s.toggleSettings);
+    const fetchThemes = useThemeStore((s) => s.fetchThemes);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
     const diffStatsByProject = useDiffStore((s) => s.statsByProject);
@@ -40,8 +42,21 @@ export function TaskSidebar() {
         if (!connected) return;
         void fetchProjects();
         void fetchTasks();
-        void fetchSettings();
-    }, [connected, fetchProjects, fetchTasks, fetchSettings]);
+
+        void (async () => {
+            try {
+                await fetchSettings();
+            } catch {
+                // Keep existing defaults if settings are temporarily unavailable.
+            }
+
+            try {
+                await fetchThemes();
+            } catch {
+                // Theme store already has a bundled fallback; keep the app usable.
+            }
+        })();
+    }, [connected, fetchProjects, fetchTasks, fetchSettings, fetchThemes]);
 
     useEffect(() => {
         syncWithTasks(tasks);
