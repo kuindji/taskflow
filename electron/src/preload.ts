@@ -55,4 +55,24 @@ contextBridge.exposeInMainWorld("taskflow", {
     sendCompactSidebarState: (compact: boolean) => {
         ipcRenderer.send("compact-sidebar-changed", compact);
     },
+    onToggleFileExplorer: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("toggle-file-explorer", listener);
+        return () => {
+            ipcRenderer.removeListener("toggle-file-explorer", listener);
+        };
+    },
+    sendFileExplorerState: (open: boolean) => {
+        ipcRenderer.send("file-explorer-state-changed", open);
+    },
+    onToggleTaskInfo: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("toggle-task-info", listener);
+        return () => {
+            ipcRenderer.removeListener("toggle-task-info", listener);
+        };
+    },
+    sendTaskInfoState: (open: boolean) => {
+        ipcRenderer.send("task-info-state-changed", open);
+    },
 });

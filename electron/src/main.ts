@@ -226,6 +226,8 @@ let manualCheckInProgress = false;
 let downloadedVersion: string | null = null;
 let showArchiveChecked = false;
 let compactSidebarChecked = false;
+let fileExplorerChecked = false;
+let taskInfoChecked = false;
 
 function setUpdateMenuItem(label: string, enabled = true) {
     const menu = Menu.getApplicationMenu();
@@ -299,6 +301,24 @@ function buildAppMenu() {
                     accelerator: "CmdOrCtrl+Shift+C",
                     click: () => {
                         mainWindow?.webContents.send("toggle-compact-sidebar");
+                    },
+                },
+                {
+                    id: "show-file-explorer",
+                    label: "Show File Explorer",
+                    type: "checkbox",
+                    checked: fileExplorerChecked,
+                    click: () => {
+                        mainWindow?.webContents.send("toggle-file-explorer");
+                    },
+                },
+                {
+                    id: "show-task-info",
+                    label: "Show Task Info",
+                    type: "checkbox",
+                    checked: taskInfoChecked,
+                    click: () => {
+                        mainWindow?.webContents.send("toggle-task-info");
                     },
                 },
                 { type: "separator" },
@@ -460,6 +480,24 @@ ipcMain.on("compact-sidebar-changed", (_event, compact: boolean) => {
     const item = menu?.getMenuItemById("compact-sidebar");
     if (item) {
         item.checked = compact;
+    }
+});
+
+ipcMain.on("file-explorer-state-changed", (_event, open: boolean) => {
+    fileExplorerChecked = open;
+    const menu = Menu.getApplicationMenu();
+    const item = menu?.getMenuItemById("show-file-explorer");
+    if (item) {
+        item.checked = open;
+    }
+});
+
+ipcMain.on("task-info-state-changed", (_event, open: boolean) => {
+    taskInfoChecked = open;
+    const menu = Menu.getApplicationMenu();
+    const item = menu?.getMenuItemById("show-task-info");
+    if (item) {
+        item.checked = open;
     }
 });
 

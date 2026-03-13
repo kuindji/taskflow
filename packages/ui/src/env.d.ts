@@ -17,6 +17,10 @@ interface TaskflowBridge {
     sendArchiveState(showArchive: boolean): void;
     onToggleCompactSidebar(callback: () => void): () => void;
     sendCompactSidebarState(compact: boolean): void;
+    onToggleFileExplorer(callback: () => void): () => void;
+    sendFileExplorerState(open: boolean): void;
+    onToggleTaskInfo(callback: () => void): () => void;
+    sendTaskInfoState(open: boolean): void;
 }
 
 declare global {

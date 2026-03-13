@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { WebSocketProvider } from "@/providers/WebSocketProvider";
 import { useWsStatus } from "@/providers/ws-context";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useUIStore } from "@/stores/ui-store";
 import { AppShell } from "@/components/AppShell";
 import { DialogHost } from "@/components/DialogHost";
 import { SettingsModal } from "@/components/settings/SettingsModal";
@@ -30,6 +31,8 @@ function ConnectionOverlay() {
 
 export function App() {
     const general = useSettingsStore((s) => s.settings?.general);
+    const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
+    const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
     const rootStyle = useMemo(
         () =>
             general
@@ -40,6 +43,28 @@ export function App() {
                 : undefined,
         [general],
     );
+
+    useEffect(() => {
+        const cleanup = window.taskflow?.onToggleFileExplorer(() => {
+            useUIStore.getState().toggleFileExplorer();
+        });
+        return cleanup;
+    }, []);
+
+    useEffect(() => {
+        window.taskflow?.sendFileExplorerState(fileExplorerOpen);
+    }, [fileExplorerOpen]);
+
+    useEffect(() => {
+        const cleanup = window.taskflow?.onToggleTaskInfo(() => {
+            useUIStore.getState().toggleTaskInfo();
+        });
+        return cleanup;
+    }, []);
+
+    useEffect(() => {
+        window.taskflow?.sendTaskInfoState(taskInfoOpen);
+    }, [taskInfoOpen]);
 
     return (
         <WebSocketProvider>
