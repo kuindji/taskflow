@@ -79,7 +79,22 @@ function BrowseOnlineTab() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        void fetchOnlineThemes();
+        let cancelled = false;
+
+        void (async () => {
+            setError(null);
+            try {
+                await fetchOnlineThemes();
+            } catch {
+                if (!cancelled) {
+                    setError("Failed to load online themes. Please try again.");
+                }
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
     }, [fetchOnlineThemes]);
 
     async function handleDownload(theme: OnlineThemeRecord) {
@@ -87,10 +102,16 @@ function BrowseOnlineTab() {
         setError(null);
         try {
             await downloadOnlineTheme(theme);
-            // Refresh the online list so "Installed" badge updates
-            await fetchOnlineThemes();
         } catch {
             setError(`Failed to install "${theme.name}". Please try again.`);
+            setDownloading(null);
+            return;
+        }
+
+        try {
+            await fetchOnlineThemes();
+        } catch {
+            setError(`Installed "${theme.name}", but failed to refresh the online list.`);
         } finally {
             setDownloading(null);
         }
@@ -112,7 +133,7 @@ function BrowseOnlineTab() {
                 </p>
             )}
 
-            {!browsingOnline && onlineThemes.length === 0 && (
+            {!browsingOnline && !error && onlineThemes.length === 0 && (
                 <p className="text-muted-foreground text-xs">
                     No online themes available.
                 </p>

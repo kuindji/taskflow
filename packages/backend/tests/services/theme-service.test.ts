@@ -147,6 +147,17 @@ describe("ThemeService", () => {
             const ids = themes.map((t) => t.id);
             expect(ids).not.toContain("incomplete");
         });
+
+        it("skips non-online files whose filename collides with an online catalog id", async () => {
+            const source = makeValidSource({ name: "Shadow One Dark", origin: "custom" });
+            await writeFile(
+                join(tempDir, "terminalcolors-one-dark.json"),
+                JSON.stringify(source),
+            );
+
+            const themes = await service.listAll();
+            expect(themes.find((t) => t.id === "terminalcolors-one-dark")).toBeUndefined();
+        });
     });
 
     describe("save", () => {

@@ -3,6 +3,7 @@ import { isAbsolute, join, relative, resolve, extname, basename } from "path";
 import { bundledThemes } from "@taskflow/shared";
 import type { ThemeRecord, ThemeSource, AnsiColors } from "@taskflow/shared";
 import { slugify } from "../utils/slugify";
+import { ONLINE_CATALOG_IDS } from "./online-theme-catalog";
 import {
     detectAlacritty,
     parseAlacritty,
@@ -123,10 +124,12 @@ function isValidThemeSource(data: unknown): data is ThemeSource {
 export class ThemeService {
     private readonly themesDir: string;
     private readonly bundledIds: Set<string>;
+    private readonly onlineCatalogIds: Set<string>;
 
     constructor(themesDir: string) {
         this.themesDir = themesDir;
         this.bundledIds = new Set(bundledThemes.map((t) => t.id));
+        this.onlineCatalogIds = new Set(ONLINE_CATALOG_IDS);
     }
 
     async listAll(): Promise<ThemeRecord[]> {
@@ -149,7 +152,7 @@ export class ThemeService {
                 : assertValidThemeId(preferredId);
         const overwrite = options?.overwriteExisting ?? false;
 
-        const id = await this.resolveId(baseId, overwrite);
+        const id = await this.resolveId(baseId, overwrite, theme);
 
         const filePath = this.safePath(id);
         await writeFile(filePath, JSON.stringify(theme, null, 2));
@@ -270,17 +273,34 @@ export class ThemeService {
     private async resolveId(
         baseId: string,
         overwriteExisting: boolean,
+        theme: ThemeSource,
     ): Promise<string> {
+        const isReservedOnlineId = this.onlineCatalogIds.has(baseId);
+        const existingFile = await this.readUserThemeFile(baseId);
+
         // If overwrite is requested and it's a user theme, reuse it
         if (overwriteExisting && !this.bundledIds.has(baseId)) {
-            const exists = await this.userThemeExists(baseId);
-            if (exists) return baseId;
+            if (
+                !isReservedOnlineId &&
+                existingFile.exists
+            ) {
+                return baseId;
+            }
+
+            if (
+                isReservedOnlineId &&
+                theme.origin === "online" &&
+                existingFile.source?.origin === "online"
+            ) {
+                return baseId;
+            }
         }
 
         // If no collision at all, use baseId
         if (!this.bundledIds.has(baseId)) {
-            const exists = await this.userThemeExists(baseId);
-            if (!exists) return baseId;
+            if (!existingFile.exists && (!isReservedOnlineId || theme.origin === "online")) {
+                return baseId;
+            }
         }
 
         // Find a suffix
@@ -297,11 +317,32 @@ export class ThemeService {
     }
 
     private async userThemeExists(id: string): Promise<boolean> {
+        return (await this.readUserThemeFile(id)).exists;
+    }
+
+    private async readUserThemeFile(
+        id: string,
+    ): Promise<{ exists: boolean; source?: ThemeSource }> {
+        const filePath = this.safePath(id);
+
         try {
-            await access(this.safePath(id));
-            return true;
-        } catch {
-            return false;
+            const raw = await readFile(filePath, "utf-8");
+            const parsed: unknown = JSON.parse(raw);
+
+            return isValidThemeSource(parsed)
+                ? { exists: true, source: parsed }
+                : { exists: true };
+        } catch (error) {
+            if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+                return { exists: false };
+            }
+
+            try {
+                await access(filePath);
+                return { exists: true };
+            } catch {
+                return { exists: false };
+            }
         }
     }
 
@@ -326,6 +367,9 @@ export class ThemeService {
                 const parsed: unknown = JSON.parse(raw);
 
                 if (isValidThemeSource(parsed)) {
+                    if (this.onlineCatalogIds.has(id) && parsed.origin !== "online") {
+                        continue;
+                    }
                     results.push({ id, source: parsed });
                 }
             } catch {

@@ -145,8 +145,9 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
         try {
             const { themes } = await sendRequest<ThemeBrowseListResponse>(MSG.THEME_BROWSE_LIST);
             set({ onlineThemes: themes, browsingOnline: false });
-        } catch {
+        } catch (error) {
             set({ browsingOnline: false });
+            throw error;
         }
     },
 
@@ -157,6 +158,17 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
             name: theme.name,
         });
         applyImportResponse(set, response);
+        set({
+            onlineThemes: get().onlineThemes.map((onlineTheme) =>
+                onlineTheme.id === theme.id
+                    ? {
+                          ...onlineTheme,
+                          installed: true,
+                          installedThemeId: response.importedThemeId,
+                      }
+                    : onlineTheme,
+            ),
+        });
     },
 
     async deleteTheme(themeId: string) {
