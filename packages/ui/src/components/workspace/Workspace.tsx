@@ -138,10 +138,6 @@ export function Workspace() {
 
     const hasScripts = useMemo(() => Object.keys(scripts).length > 0, [scripts]);
 
-    const isWorktreeTask =
-        workspace.scope === "task" &&
-        workspace.task?.worktree.enabled &&
-        !!workspace.task.worktree.path;
     const canShowGitControls =
         !!workspace.project &&
         (workspace.scope !== "task" ||
