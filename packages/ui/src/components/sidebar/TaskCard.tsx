@@ -112,7 +112,14 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                     compact && "py-1.5",
                 )}
             >
-                <div className={cn("text-sm font-medium", isActive && "text-foreground")}>
+                <div
+                    className={cn(
+                        "text-sm font-medium",
+                        isActive && "text-foreground",
+                        compact && "truncate",
+                    )}
+                    title={compact ? rawTitle : undefined}
+                >
                     {title}
                 </div>
                 {!compact && description && (

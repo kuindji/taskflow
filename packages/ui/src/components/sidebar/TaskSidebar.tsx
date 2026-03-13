@@ -60,10 +60,13 @@ export function TaskSidebar() {
         const cleanup = window.taskflow?.onToggleArchive(() => {
             const next = !useTaskStore.getState().showArchive;
             setShowArchive(next);
-            window.taskflow?.sendArchiveState(next);
         });
         return cleanup;
     }, [setShowArchive]);
+
+    useEffect(() => {
+        window.taskflow?.sendArchiveState(showArchive);
+    }, [showArchive]);
 
     useEffect(() => {
         const cleanup = window.taskflow?.onToggleCompactSidebar(() => {

@@ -194,7 +194,7 @@ function SettingsModal() {
         shells,
         settings.terminal.defaultShell,
     );
-    const defaultsSelectLabelClassName = "text-xxs/none text-muted-foreground";
+    const defaultsSelectLabelClassName = "block text-xxs text-muted-foreground";
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -252,8 +252,8 @@ function SettingsModal() {
                     <div className="flex-1 space-y-6 pl-6">
                         {section === "fonts" && (
                             <>
-                                <section className="space-y-3">
-                                    <h3 className="text-sm font-medium">Application Font</h3>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">Application Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
                                             <Label className={defaultsSelectLabelClassName}>
@@ -279,8 +279,8 @@ function SettingsModal() {
                                         </div>
                                     </div>
                                 </section>
-                                <section className="space-y-3">
-                                    <h3 className="text-sm font-medium">Terminal Font</h3>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">Terminal Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
                                             <Label className={defaultsSelectLabelClassName}>
@@ -306,8 +306,8 @@ function SettingsModal() {
                                         </div>
                                     </div>
                                 </section>
-                                <section className="space-y-3">
-                                    <h3 className="text-sm font-medium">Editor Font</h3>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">Editor Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
                                             <Label className={defaultsSelectLabelClassName}>
@@ -337,8 +337,8 @@ function SettingsModal() {
                         )}
                         {section === "claude" && (
                             <>
-                                <section className="space-y-3">
-                                    <h3 className="text-sm font-medium">Default Model</h3>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">Default Model</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Pre-selected model when running Claude sessions
@@ -359,8 +359,8 @@ function SettingsModal() {
                                         </Select>
                                     </div>
                                 </section>
-                                <section className="space-y-3">
-                                    <h3 className="text-sm font-medium">Full Access</h3>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">Full Access</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Skip permission prompts by default
@@ -373,7 +373,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="claude-full-access"
-                                                className="cursor-pointer text-sm"
+                                                className="cursor-pointer text-sm normal-case font-normal"
                                             >
                                                 {settings.claude.fullAccess
                                                     ? "Enabled"
@@ -386,8 +386,8 @@ function SettingsModal() {
                         )}
                         {section === "codex" && (
                             <>
-                                <section className="space-y-3">
-                                    <h3 className="text-sm font-medium">Full Access</h3>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">Full Access</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Run in full-auto mode by default
@@ -400,7 +400,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="codex-full-access"
-                                                className="cursor-pointer text-sm"
+                                                className="cursor-pointer text-sm normal-case font-normal"
                                             >
                                                 {settings.codex.fullAccess ? "Enabled" : "Disabled"}
                                             </Label>
@@ -411,8 +411,8 @@ function SettingsModal() {
                         )}
                         {section === "defaults" && (
                             <>
-                                <section className="space-y-3">
-                                    <h3 className="text-sm font-medium">External Editor</h3>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">External Editor</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Used when opening files with Cmd+Click in the terminal
@@ -434,8 +434,8 @@ function SettingsModal() {
                                         </Select>
                                     </div>
                                 </section>
-                                <section className="space-y-3">
-                                    <h3 className="text-sm font-medium">Default Agent</h3>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">Default Agent</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Pre-selected agent for new tasks, title generation, and
@@ -455,8 +455,8 @@ function SettingsModal() {
                                         </Select>
                                     </div>
                                 </section>
-                                <section className="space-y-3">
-                                    <h3 className="text-sm font-medium">Default Shell</h3>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">Default Shell</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Default shell for new terminal tabs
@@ -498,8 +498,8 @@ function SettingsModal() {
                                         </Select>
                                     </div>
                                 </section>
-                                <section className="space-y-3">
-                                    <h3 className="text-sm font-medium">Default Runtime</h3>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">Default Runtime</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Runtime for executing scripts and commands

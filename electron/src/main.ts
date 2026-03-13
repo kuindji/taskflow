@@ -291,6 +291,8 @@ function buildAppMenu() {
                 {
                     id: "toggle-archive",
                     label: "Show Archived Tasks",
+                    type: "checkbox",
+                    checked: false,
                     click: () => {
                         mainWindow?.webContents.send("toggle-archive");
                     },
@@ -428,7 +430,7 @@ ipcMain.on("archive-state-changed", (_event, showArchive: boolean) => {
     const menu = Menu.getApplicationMenu();
     const item = menu?.getMenuItemById("toggle-archive");
     if (item) {
-        item.label = showArchive ? "Show Current Tasks" : "Show Archived Tasks";
+        item.checked = showArchive;
     }
 });
 

@@ -43,8 +43,7 @@
     --radius-lg: var(--radius);
     --radius-xl: calc(var(--radius) + 4px);
     --color-island-base: var(--island-base);
-    --font-size-xxs: 0.625rem;
-    --font-size-xxs--line-height: 0.625rem;
+    --text-xxs: 0.625rem;
 }
 
 :root {
