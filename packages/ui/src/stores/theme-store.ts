@@ -60,9 +60,12 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
         try {
             const { themes } = await sendRequest<ThemeListResponse>(MSG.THEMES_LIST);
 
-            // Resolve the active theme using the persisted canonical id.
+            // Prefer persisted settings when available, but preserve the live
+            // selection across reconnects if settings are temporarily unavailable.
             const activeThemeId =
-                useSettingsStore.getState().settings?.appearance?.theme ?? DEFAULT_THEME_ID;
+                useSettingsStore.getState().settings?.appearance?.theme ??
+                get().activeThemeId ??
+                DEFAULT_THEME_ID;
             const record =
                 themes.find((t) => t.id === activeThemeId) ??
                 themes.find((t) => t.id === DEFAULT_THEME_ID) ??
