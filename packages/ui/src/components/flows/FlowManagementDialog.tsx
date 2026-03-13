@@ -197,10 +197,10 @@ function FlowManagementDialog() {
                             deleteDisabledReason={
                                 selectedStep &&
                                 (referencingFlowsByStepId.get(selectedStep.id)?.length ?? 0) > 0
-                                    ? `Used by ${referencingFlowsByStepId
-                                          .get(selectedStep.id)!
-                                          .map((f) => f.name)
-                                          .join(", ")}`
+                                    ? `Used by ${(referencingFlowsByStepId
+                                          .get(selectedStep.id)
+                                          ?.map((f) => f.name)
+                                          .join(", ")) ?? ""}`
                                     : undefined
                             }
                         />

@@ -85,10 +85,10 @@ describe("step definitions", () => {
         await store.saveStep(step);
         await store.saveFlow(flow);
 
-        await expect(store.deleteStep("step-1")).rejects.toThrow(
+        expect(store.deleteStep("step-1")).rejects.toThrow(
             'Cannot delete step "step-1" because it is used by: Feature Dev',
         );
-        await expect(store.getSteps()).resolves.toHaveLength(1);
+        expect(store.getSteps()).resolves.toHaveLength(1);
     });
 
     test("getFlowsReferencingStep returns flows that use a step", async () => {
@@ -118,7 +118,7 @@ describe("step definitions", () => {
     test("getSteps rethrows malformed JSON", async () => {
         await writeFile(join(tempDir, "flows", "steps.json"), "{bad json");
 
-        await expect(store.getSteps()).rejects.toThrow();
+        expect(store.getSteps()).rejects.toThrow();
     });
 });
 
@@ -200,10 +200,10 @@ describe("flow definitions", () => {
             startedAt: new Date().toISOString(),
         });
 
-        await expect(store.deleteFlow("flow-1")).rejects.toThrow(
+        expect(store.deleteFlow("flow-1")).rejects.toThrow(
             'Cannot delete flow "flow-1" while it has active runs',
         );
-        await expect(store.getFlows()).resolves.toHaveLength(1);
+        expect(store.getFlows()).resolves.toHaveLength(1);
     });
 
     test("saveFlow rejects entries without exactly one step source", async () => {
@@ -227,13 +227,13 @@ describe("flow definitions", () => {
             updatedAt: createdAt,
         };
 
-        await expect(store.saveFlow(invalidFlow as never)).rejects.toThrow(
+        expect(store.saveFlow(invalidFlow as never)).rejects.toThrow(
             'Flow step "entry-1" must define exactly one of stepId or inline',
         );
     });
 
     test("saveFlow rejects flows without steps", async () => {
-        await expect(
+        expect(
             store.saveFlow({
                 id: "flow-1",
                 name: "Feature Dev",
@@ -248,7 +248,7 @@ describe("flow definitions", () => {
     test("getFlows rethrows malformed JSON", async () => {
         await writeFile(join(tempDir, "flows", "definitions.json"), "{bad json");
 
-        await expect(store.getFlows()).rejects.toThrow();
+        expect(store.getFlows()).rejects.toThrow();
     });
 });
 
@@ -266,7 +266,7 @@ describe("flow runs", () => {
         await store.saveFlowRun(run);
         const result = await store.getFlowRun("task-1", "flow-1");
         expect(result).not.toBeNull();
-        expect(result!.status).toBe("running");
+        expect(result?.status).toBe("running");
     });
 
     test("getFlowRunsForTask returns all runs for a task", async () => {
@@ -297,7 +297,7 @@ describe("flow runs", () => {
     test("getFlowRunsForTask rethrows malformed JSON", async () => {
         await writeFile(join(tempDir, "flow-runs", "task-1--flow-1.json"), "{bad json");
 
-        await expect(store.getFlowRunsForTask("task-1")).rejects.toThrow();
+        expect(store.getFlowRunsForTask("task-1")).rejects.toThrow();
     });
 
     test("deleteFlowRun removes run", async () => {
@@ -319,6 +319,6 @@ describe("flow runs", () => {
     test("getFlowRun rethrows malformed JSON", async () => {
         await writeFile(join(tempDir, "flow-runs", "task-1--flow-1.json"), "{bad json");
 
-        await expect(store.getFlowRun("task-1", "flow-1")).rejects.toThrow();
+        expect(store.getFlowRun("task-1", "flow-1")).rejects.toThrow();
     });
 });

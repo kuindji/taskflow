@@ -80,8 +80,8 @@ describe("flow lifecycle integration", () => {
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
-        expect(run!.status).toBe("completed");
-        expect(run!.steps.every((s) => s.status === "completed")).toBe(true);
+        expect(run?.status).toBe("completed");
+        expect(run?.steps.every((s) => s.status === "completed")).toBe(true);
     });
 
     test("artifacts persist across steps", async () => {
@@ -99,7 +99,8 @@ describe("flow lifecycle integration", () => {
         // Verify artifact persists after advancing
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
-        const artifacts = runner.getArtifacts(run!, "plan");
+        if (!run) throw new Error("expected run");
+        const artifacts = runner.getArtifacts(run, "plan");
         expect(artifacts).toHaveLength(1);
         expect(artifacts[0].path).toBe("docs/plan.md");
     });
@@ -111,15 +112,15 @@ describe("flow lifecycle integration", () => {
         // Pause
         await runner.pauseFlow("task-1", "flow-1");
         let run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.status).toBe("paused");
-        expect(run!.steps[0].sessionId).toBeUndefined();
+        expect(run?.status).toBe("paused");
+        expect(run?.steps[0].sessionId).toBeUndefined();
         expect(closedSessions).toEqual(["session-1"]);
 
         // Resume
         await runner.resumeFlow("task-1", "flow-1");
         run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.status).toBe("running");
-        expect(run!.steps[0].sessionId).toBe("session-2");
+        expect(run?.status).toBe("running");
+        expect(run?.steps[0].sessionId).toBe("session-2");
         expect(spawnedSessions).toHaveLength(2);
     });
 
@@ -132,8 +133,8 @@ describe("flow lifecycle integration", () => {
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
-        expect(run!.steps[0].status).toBe("skipped");
-        expect(run!.currentStepIndex).toBe(1);
+        expect(run?.steps[0].status).toBe("skipped");
+        expect(run?.currentStepIndex).toBe(1);
         // Should have spawned a session for step 2
         expect(spawnedSessions).toHaveLength(2);
     });
@@ -145,23 +146,23 @@ describe("flow lifecycle integration", () => {
         await runner.handleStepComplete("task-1", "flow-1", "session-1");
 
         let run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.status).toBe("running");
-        expect(run!.currentStepIndex).toBe(1);
-        expect(run!.steps[1].status).toBe("running");
-        expect(run!.steps[1].sessionId).toBe("session-2");
+        expect(run?.status).toBe("running");
+        expect(run?.currentStepIndex).toBe(1);
+        expect(run?.steps[1].status).toBe("running");
+        expect(run?.steps[1].sessionId).toBe("session-2");
 
         // Jump back to step 0
         await runner.jumpToStep("task-1", "flow-1", 0);
 
         run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.status).toBe("running");
-        expect(run!.currentStepIndex).toBe(0);
-        expect(run!.steps[0].status).toBe("running");
-        expect(run!.steps[0].sessionId).toBe("session-3");
+        expect(run?.status).toBe("running");
+        expect(run?.currentStepIndex).toBe(0);
+        expect(run?.steps[0].status).toBe("running");
+        expect(run?.steps[0].sessionId).toBe("session-3");
         // Later steps should be reset to pending
-        expect(run!.steps[1].status).toBe("pending");
-        expect(run!.steps[1].sessionId).toBeUndefined();
-        expect(run!.steps.filter((step) => step.status === "running")).toHaveLength(1);
+        expect(run?.steps[1].status).toBe("pending");
+        expect(run?.steps[1].sessionId).toBeUndefined();
+        expect(run?.steps.filter((step) => step.status === "running")).toHaveLength(1);
         expect(closedSessions).toEqual(["session-2"]);
     });
 
@@ -171,7 +172,7 @@ describe("flow lifecycle integration", () => {
         await runner.stopFlow("task-1", "flow-1");
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.status).toBe("failed");
+        expect(run?.status).toBe("failed");
     });
 
     test("flow run persists to disk and survives reload", async () => {
@@ -184,10 +185,10 @@ describe("flow lifecycle integration", () => {
 
         const run = await freshStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
-        expect(run!.status).toBe("running");
-        expect(run!.steps[0].status).toBe("completed");
-        expect(run!.steps[1].status).toBe("running");
-        expect(run!.currentStepIndex).toBe(1);
+        expect(run?.status).toBe("running");
+        expect(run?.steps[0].status).toBe("completed");
+        expect(run?.steps[1].status).toBe("running");
+        expect(run?.currentStepIndex).toBe(1);
     });
 
     test("shell steps auto-complete on clean exit and advance the flow", async () => {
@@ -210,10 +211,10 @@ describe("flow lifecycle integration", () => {
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
-        expect(run!.status).toBe("running");
-        expect(run!.steps[0].status).toBe("completed");
-        expect(run!.steps[1].status).toBe("running");
-        expect(run!.steps[1].sessionId).toBe("session-2");
+        expect(run?.status).toBe("running");
+        expect(run?.steps[0].status).toBe("completed");
+        expect(run?.steps[1].status).toBe("running");
+        expect(run?.steps[1].sessionId).toBe("session-2");
         expect(spawnedSessions).toHaveLength(2);
     });
 });

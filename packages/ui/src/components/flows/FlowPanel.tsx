@@ -24,6 +24,30 @@ function FlowPanel({ taskId }: FlowPanelProps) {
     const steps = useFlowStore((s) => s.steps);
     const [jumpConfirm, setJumpConfirm] = useState<{ index: number; name: string } | null>(null);
 
+    const handlePause = useCallback(() => {
+        if (!run) return;
+        void useFlowStore.getState().pauseFlow(taskId, run.flowId);
+    }, [taskId, run]);
+
+    const handleResume = useCallback(() => {
+        if (!run) return;
+        void useFlowStore.getState().resumeFlow(taskId, run.flowId);
+    }, [taskId, run]);
+
+    const handleStop = useCallback(() => {
+        if (!run) return;
+        void useFlowStore.getState().stopFlow(taskId, run.flowId);
+    }, [taskId, run]);
+
+    const handleSkip = useCallback(
+        (e: React.MouseEvent) => {
+            if (!run) return;
+            e.stopPropagation();
+            void useFlowStore.getState().skipStep(taskId, run.flowId);
+        },
+        [taskId, run],
+    );
+
     if (!run) return null;
 
     const flowDef = flows.find((f) => f.id === run.flowId);
@@ -59,26 +83,6 @@ function FlowPanel({ taskId }: FlowPanelProps) {
         void useFlowStore.getState().jumpToStep(taskId, run.flowId, jumpConfirm.index);
         setJumpConfirm(null);
     };
-
-    const handlePause = useCallback(() => {
-        void useFlowStore.getState().pauseFlow(taskId, run.flowId);
-    }, [taskId, run.flowId]);
-
-    const handleResume = useCallback(() => {
-        void useFlowStore.getState().resumeFlow(taskId, run.flowId);
-    }, [taskId, run.flowId]);
-
-    const handleStop = useCallback(() => {
-        void useFlowStore.getState().stopFlow(taskId, run.flowId);
-    }, [taskId, run.flowId]);
-
-    const handleSkip = useCallback(
-        (e: React.MouseEvent) => {
-            e.stopPropagation();
-            void useFlowStore.getState().skipStep(taskId, run.flowId);
-        },
-        [taskId, run.flowId],
-    );
 
     const statusIcon = (status: FlowStepState["status"]) => {
         switch (status) {

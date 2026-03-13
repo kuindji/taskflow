@@ -75,9 +75,9 @@ async function main() {
         });
 
         // FlowRunner is referenced inside its own spawnSession callback (for
-        // handleSessionExit), so we declare it with a deferred assignment.
-        let flowRunner: FlowRunner;
-        flowRunner = new FlowRunner({
+        // handleSessionExit) — the closure captures the variable, not the value,
+        // so `const` is safe here since the callback is only invoked later.
+        const flowRunner = new FlowRunner({
             flowStore,
             spawnSession: async (opts) => {
                 return sessionLifecycle.createSession({

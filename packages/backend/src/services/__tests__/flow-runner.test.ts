@@ -111,11 +111,11 @@ describe("startFlow", () => {
 
     test("rejects if a flow is already running on the task", async () => {
         await runner.startFlow("task-1", testFlow);
-        await expect(runner.startFlow("task-1", testFlow)).rejects.toThrow();
+        expect(runner.startFlow("task-1", testFlow)).rejects.toThrow();
     });
 
     test("rejects empty flows", async () => {
-        await expect(
+        expect(
             runner.startFlow("task-1", {
                 ...testFlow,
                 id: "empty-flow",
@@ -127,13 +127,13 @@ describe("startFlow", () => {
     test("pauses and marks the step failed if session launch fails", async () => {
         spawnError = new Error("spawn failed");
 
-        await expect(runner.startFlow("task-1", testFlow)).rejects.toThrow("spawn failed");
+        expect(runner.startFlow("task-1", testFlow)).rejects.toThrow("spawn failed");
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
-        expect(run!.status).toBe("paused");
-        expect(run!.steps[0].status).toBe("failed");
-        expect(run!.steps[0].sessionId).toBeUndefined();
+        expect(run?.status).toBe("paused");
+        expect(run?.steps[0].status).toBe("failed");
+        expect(run?.steps[0].sessionId).toBeUndefined();
     });
 });
 
@@ -152,7 +152,7 @@ describe("handleStepComplete", () => {
         // Complete step 2 (last)
         await runner.handleStepComplete("task-1", "flow-1", spawnedSessions[1].sessionId);
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.status).toBe("completed");
+        expect(run?.status).toBe("completed");
     });
 });
 
@@ -161,8 +161,8 @@ describe("skipStep", () => {
         await runner.startFlow("task-1", testFlow);
         await runner.skipStep("task-1", "flow-1");
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.steps[0].status).toBe("skipped");
-        expect(run!.currentStepIndex).toBe(1);
+        expect(run?.steps[0].status).toBe("skipped");
+        expect(run?.currentStepIndex).toBe(1);
         expect(spawnedSessions).toHaveLength(2);
         expect(closedSessions).toEqual(["session-1"]);
     });
@@ -176,12 +176,12 @@ describe("jumpToStep", () => {
         await runner.jumpToStep("task-1", "flow-1", 0);
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.currentStepIndex).toBe(0);
-        expect(run!.steps.filter((step) => step.status === "running")).toHaveLength(1);
-        expect(run!.steps[0].status).toBe("running");
-        expect(run!.steps[0].sessionId).toBe("session-3");
-        expect(run!.steps[1].status).toBe("pending");
-        expect(run!.steps[1].sessionId).toBeUndefined();
+        expect(run?.currentStepIndex).toBe(0);
+        expect(run?.steps.filter((step) => step.status === "running")).toHaveLength(1);
+        expect(run?.steps[0].status).toBe("running");
+        expect(run?.steps[0].sessionId).toBe("session-3");
+        expect(run?.steps[1].status).toBe("pending");
+        expect(run?.steps[1].sessionId).toBeUndefined();
         expect(closedSessions).toEqual(["session-2"]);
     });
 });
@@ -191,8 +191,8 @@ describe("pauseFlow", () => {
         await runner.startFlow("task-1", testFlow);
         await runner.pauseFlow("task-1", "flow-1");
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.status).toBe("paused");
-        expect(run!.steps[0].sessionId).toBeUndefined();
+        expect(run?.status).toBe("paused");
+        expect(run?.steps[0].sessionId).toBeUndefined();
         expect(closedSessions).toEqual(["session-1"]);
     });
 });
@@ -205,8 +205,8 @@ describe("resumeFlow", () => {
         await runner.resumeFlow("task-1", "flow-1");
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.status).toBe("running");
-        expect(run!.steps[0].sessionId).toBe("session-2");
+        expect(run?.status).toBe("running");
+        expect(run?.steps[0].sessionId).toBe("session-2");
         expect(spawnedSessions).toHaveLength(2);
         expect(closedSessions).toEqual(["session-1"]);
     });
@@ -217,7 +217,7 @@ describe("stopFlow", () => {
         await runner.startFlow("task-1", testFlow);
         await runner.stopFlow("task-1", "flow-1");
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.status).toBe("failed");
+        expect(run?.status).toBe("failed");
         expect(closedSessions).toEqual(["session-1"]);
     });
 });
@@ -228,8 +228,8 @@ describe("handleSessionExit", () => {
         const sessionId = spawnedSessions[0].sessionId;
         await runner.handleSessionExit(sessionId, 1);
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.steps[0].status).toBe("failed");
-        expect(run!.status).toBe("paused");
+        expect(run?.steps[0].status).toBe("failed");
+        expect(run?.status).toBe("paused");
     });
 
     test("shell step auto-completes on exit code 0", async () => {
@@ -251,7 +251,7 @@ describe("handleSessionExit", () => {
         const sessionId = spawnedSessions[0].sessionId;
         await runner.handleSessionExit(sessionId, 0);
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.steps[0].status).toBe("completed");
+        expect(run?.steps[0].status).toBe("completed");
         expect(spawnedSessions).toHaveLength(2); // Advanced to next
     });
 
@@ -280,9 +280,9 @@ describe("handleSessionExit", () => {
         await runner.handleSessionExit(spawnedSessions[0].sessionId, 0);
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.steps[0].status).toBe("completed");
-        expect(run!.currentStepIndex).toBe(1);
-        expect(run!.steps[1].status).toBe("running");
+        expect(run?.steps[0].status).toBe("completed");
+        expect(run?.currentStepIndex).toBe(1);
+        expect(run?.steps[1].status).toBe("running");
         expect(spawnedSessions).toHaveLength(2);
     });
 });
@@ -300,19 +300,18 @@ describe("saveArtifact", () => {
         );
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run!.artifacts).toEqual([
-            expect.objectContaining({
-                type: "summary",
-                text: 'line "one"\nline two',
-                stepEntryId: "entry-1",
-            }),
-        ]);
+        expect(run?.artifacts).toHaveLength(1);
+        expect(run?.artifacts[0]).toMatchObject({
+            type: "summary",
+            text: 'line "one"\nline two',
+            stepEntryId: "entry-1",
+        });
     });
 
     test("rejects artifacts for a different step entry", async () => {
         await runner.startFlow("task-1", testFlow);
 
-        await expect(
+        expect(
             runner.saveArtifact(
                 "task-1",
                 "flow-1",
@@ -326,7 +325,7 @@ describe("saveArtifact", () => {
     test("rejects artifacts from a different session", async () => {
         await runner.startFlow("task-1", testFlow);
 
-        await expect(
+        expect(
             runner.saveArtifact("task-1", "flow-1", "entry-1", "session-x", {
                 type: "summary",
                 text: "bad",

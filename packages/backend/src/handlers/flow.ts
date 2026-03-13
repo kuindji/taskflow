@@ -21,6 +21,7 @@ interface FlowHandlerDeps {
 
 // Narrow payload types without `as any` — the router handler signature is
 // (payload: unknown) => Promise<unknown>, so this cast is safe at the boundary.
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- T narrows payload inside each handler callback
 function typed<T>(
     handler: (payload: T) => Promise<unknown>,
 ): (payload: unknown) => Promise<unknown> {
