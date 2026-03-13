@@ -75,6 +75,10 @@ export class TaskStore {
 
     // --- Projects ---
 
+    private stripEphemeralFields(projects: Project[]): Omit<Project, "locationValid">[] {
+        return projects.map(({ locationValid: _, ...rest }) => rest);
+    }
+
     async listProjects(): Promise<Project[]> {
         let data: string;
         try {
@@ -86,9 +90,10 @@ export class TaskStore {
             throw error;
         }
 
+        let projects: Project[];
         try {
             const parsed = JSON.parse(data) as Array<Project & { sessions?: Project["sessions"] }>;
-            return parsed.map((project) => ({
+            projects = parsed.map((project) => ({
                 ...project,
                 sessions: project.sessions ?? [],
             }));
@@ -98,6 +103,19 @@ export class TaskStore {
             }
             throw error;
         }
+
+        await Promise.all(
+            projects.map(async (project) => {
+                try {
+                    const info = await stat(project.path);
+                    project.locationValid = info.isDirectory();
+                } catch {
+                    project.locationValid = false;
+                }
+            }),
+        );
+
+        return projects;
     }
 
     private async unlinkIfPresent(filePath: string): Promise<void> {
@@ -179,7 +197,7 @@ export class TaskStore {
             createdAt: new Date().toISOString(),
         };
         projects.push(project);
-        await writeFile(this.config.projectsFile, JSON.stringify(projects, null, 2));
+        await writeFile(this.config.projectsFile, JSON.stringify(this.stripEphemeralFields(projects), null, 2));
         return project;
     }
 
@@ -191,8 +209,8 @@ export class TaskStore {
     async updateProject(
         id: string,
         updates:
-            | Partial<Pick<Project, "name" | "sessions">>
-            | ((project: Project) => Partial<Pick<Project, "name" | "sessions">>),
+            | Partial<Pick<Project, "name" | "path" | "sessions">>
+            | ((project: Project) => Partial<Pick<Project, "name" | "path" | "sessions">>),
     ): Promise<Project> {
         const projects = await this.listProjects();
         const index = projects.findIndex((p) => p.id === id);
@@ -200,13 +218,37 @@ export class TaskStore {
             throw new Error(`Project not found: ${id}`);
         }
         const resolvedUpdates = typeof updates === "function" ? updates(projects[index]) : updates;
+
+        let resolvedPath = projects[index].path;
+        if (resolvedUpdates.path) {
+            resolvedPath = await realpath(resolvedUpdates.path).catch(() => resolvedUpdates.path!);
+            const info = await stat(resolvedPath);
+            if (!info.isDirectory()) {
+                throw new Error(`Project path is not a directory: ${resolvedPath}`);
+            }
+            const duplicate = projects.find((p) => p.id !== id && p.path === resolvedPath);
+            if (duplicate) {
+                throw new Error(`A project already exists at this path: ${duplicate.name}`);
+            }
+        }
+
         projects[index] = {
             ...projects[index],
             ...resolvedUpdates,
             name: resolvedUpdates.name ? resolvedUpdates.name.trim() : projects[index].name,
+            path: resolvedPath,
             sessions: resolvedUpdates.sessions ?? projects[index].sessions,
         };
-        await writeFile(this.config.projectsFile, JSON.stringify(projects, null, 2));
+        await writeFile(this.config.projectsFile, JSON.stringify(this.stripEphemeralFields(projects), null, 2));
+
+        // Re-validate location after path change
+        try {
+            const info = await stat(projects[index].path);
+            projects[index].locationValid = info.isDirectory();
+        } catch {
+            projects[index].locationValid = false;
+        }
+
         return projects[index];
     }
 
@@ -232,7 +274,7 @@ export class TaskStore {
 
         const projects = await this.listProjects();
         const filtered = projects.filter((p) => p.id !== id);
-        await writeFile(this.config.projectsFile, JSON.stringify(filtered, null, 2));
+        await writeFile(this.config.projectsFile, JSON.stringify(this.stripEphemeralFields(filtered), null, 2));
     }
 
     // --- Tasks ---
