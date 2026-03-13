@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseIterm2Xml } from "../../../src/services/theme-parsers/iterm2";
+import { parseIterm2ThemesXml, parseIterm2Xml } from "../../../src/services/theme-parsers/iterm2";
 
 function makeColorDict(r: number, g: number, b: number): string {
     return `<dict>
@@ -338,5 +338,34 @@ describe("parseIterm2Xml", () => {
 </dict>
 </plist>`;
         expect(parseIterm2Xml(xml, "NoAnsi")).toBeNull();
+    });
+
+    it("parses themes nested under bookmark arrays", () => {
+        const xml = `<?xml version="1.0"?>
+<plist version="1.0">
+<dict>
+    <key>New Bookmarks</key>
+    <array>
+        <dict>
+            <key>Name</key><string>Array Dracula</string>
+            <key>Foreground Color</key>${makeColorDict(0.97254901960784312, 0.97254901960784312, 0.94901960784313721)}
+            <key>Background Color</key>${makeColorDict(0.15686274509803921, 0.16470588235294117, 0.21176470588235294)}
+            ${Array.from({ length: 16 }, (_, i) => `<key>Ansi ${i} Color</key>${makeColorDict(i / 15, 0, 0)}`).join("\n")}
+        </dict>
+        <dict>
+            <key>Name</key><string>Array Light</string>
+            <key>Foreground Color</key>${makeColorDict(0, 0, 0)}
+            <key>Background Color</key>${makeColorDict(1, 1, 1)}
+            ${Array.from({ length: 16 }, (_, i) => `<key>Ansi ${i} Color</key>${makeColorDict(0, i / 15, 0)}`).join("\n")}
+        </dict>
+    </array>
+</dict>
+</plist>`;
+
+        const themes = parseIterm2ThemesXml(xml, "Fallback");
+        expect(themes).toHaveLength(2);
+        expect(themes[0].name).toBe("Array Dracula");
+        expect(themes[1].name).toBe("Array Light");
+        expect(parseIterm2Xml(xml, "Fallback")?.name).toBe("Array Dracula");
     });
 });

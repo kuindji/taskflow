@@ -221,6 +221,55 @@ describe("ThemeService", () => {
         });
     });
 
+    describe("importFromFile", () => {
+        it("preserves valid JSON theme metadata like overrides", async () => {
+            const source = makeValidSource({
+                name: "Imported JSON Theme",
+                origin: "custom",
+                author: "Taskflow",
+                overrides: {
+                    "--background": "#123456",
+                },
+            });
+            const sourcePath = join(tempDir, "imported.json");
+            await writeFile(sourcePath, JSON.stringify(source, null, 2));
+
+            const record = await service.importFromFile(sourcePath);
+
+            expect(record.source.name).toBe("Imported JSON Theme");
+            expect(record.source.origin).toBe("imported");
+            expect(record.source.author).toBe("Taskflow");
+            expect(record.source.overrides).toEqual({ "--background": "#123456" });
+
+            const saved = JSON.parse(
+                await readFile(join(tempDir, `${record.id}.json`), "utf-8"),
+            ) as ThemeSource;
+            expect(saved.overrides).toEqual({ "--background": "#123456" });
+        });
+
+        it("routes .terminal files through the Terminal.app parser", async () => {
+            const terminalPath = join(tempDir, "classic-dark.terminal");
+            await writeFile(
+                terminalPath,
+                `<?xml version="1.0"?>
+<plist version="1.0">
+<dict>
+    <key>name</key><string>Classic Dark</string>
+    <key>TextColor</key><dict><key>Red Component</key><real>1</real><key>Green Component</key><real>1</real><key>Blue Component</key><real>1</real></dict>
+    <key>BackgroundColor</key><dict><key>Red Component</key><real>0</real><key>Green Component</key><real>0</real><key>Blue Component</key><real>0</real></dict>
+    <key>ANSIBlueColor</key><dict><key>Red Component</key><real>0</real><key>Green Component</key><real>0</real><key>Blue Component</key><real>1</real></dict>
+</dict>
+</plist>`,
+            );
+
+            const record = await service.importFromFile(terminalPath);
+
+            expect(record.source.name).toBe("Classic Dark");
+            expect(record.source.colors.background).toBe("#000000");
+            expect(record.source.colors.ansi.blue).toBe("#0000ff");
+        });
+    });
+
     describe("delete", () => {
         it("deletes a user theme", async () => {
             const source = makeValidSource({ name: "To Delete" });

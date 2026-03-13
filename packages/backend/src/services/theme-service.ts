@@ -1,5 +1,5 @@
 import { readdir, readFile, writeFile, unlink, access } from "fs/promises";
-import { isAbsolute, join, relative, resolve, extname } from "path";
+import { isAbsolute, join, relative, resolve, extname, basename } from "path";
 import { bundledThemes } from "@taskflow/shared";
 import type { ThemeRecord, ThemeSource, AnsiColors } from "@taskflow/shared";
 import { slugify } from "../utils/slugify";
@@ -21,6 +21,7 @@ import {
     parseIterm2Xml,
     detectTerminalApp,
     parseTerminalApp,
+    parseTerminalAppXml,
 } from "./theme-parsers";
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -203,7 +204,7 @@ export class ThemeService {
 
         const content = await readFile(filePath, "utf-8");
         const ext = extname(filePath).toLowerCase();
-        const baseName = filePath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "Imported Theme";
+        const baseName = basename(filePath, ext) || "Imported Theme";
 
         let theme: ThemeSource | null = null;
 
@@ -214,21 +215,20 @@ export class ThemeService {
         } else if (ext === ".json") {
             try {
                 const parsed: unknown = JSON.parse(content);
-                if (typeof parsed === "object" && parsed !== null && "colors" in parsed) {
-                    const obj = parsed as Record<string, unknown>;
-                    // Construct candidate and let save()'s isValidThemeSource check validate it
+                if (isValidThemeSource(parsed)) {
                     theme = {
-                        version: 1,
-                        name: typeof obj.name === "string" ? obj.name : baseName,
-                        origin: "imported" as const,
-                        colors: obj.colors as ThemeSource["colors"],
+                        ...parsed,
+                        name: parsed.name || baseName,
+                        origin: "imported",
                     };
                 }
             } catch {
                 // Invalid JSON
             }
-        } else if (ext === ".plist" || ext === ".terminal") {
+        } else if (ext === ".plist") {
             theme = parseIterm2Xml(content, baseName);
+        } else if (ext === ".terminal") {
+            theme = parseTerminalAppXml(content, baseName);
         } else if (ext === ".conf" || ext === "") {
             // Try Kitty format first, then Ghostty
             theme = parseKittyConfig(content, baseName) ?? parseGhosttyConfig(content, baseName);
