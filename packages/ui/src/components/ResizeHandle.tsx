@@ -79,9 +79,7 @@ function ResizeHandle({
             aria-orientation={orientation}
             style={orientation === "vertical" ? { width: panelGap } : { height: panelGap }}
             className={`group relative flex shrink-0 items-center justify-center ${
-                orientation === "vertical"
-                    ? "h-full cursor-col-resize"
-                    : "w-full cursor-row-resize"
+                orientation === "vertical" ? "h-full cursor-col-resize" : "w-full cursor-row-resize"
             }`}
         >
             <div

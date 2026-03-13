@@ -35,7 +35,10 @@ export function resolveSystemShellPath(
     return shells[0]?.path ?? null;
 }
 
-function prioritizeSystemShell(shells: ShellInfo[], envShell = process.env.SHELL ?? null): ShellInfo[] {
+function prioritizeSystemShell(
+    shells: ShellInfo[],
+    envShell = process.env.SHELL ?? null,
+): ShellInfo[] {
     const systemShellPath = resolveSystemShellPath(shells, envShell);
     if (!systemShellPath) return shells;
 

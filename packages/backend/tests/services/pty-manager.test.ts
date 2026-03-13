@@ -67,7 +67,7 @@ describe("PtyManager", () => {
         let output = "";
         const sessionId = manager.spawn({
             command: "/bin/sh",
-            args: ["-lc", "printf %s \"$COLORTERM\""],
+            args: ["-lc", 'printf %s "$COLORTERM"'],
             cwd: "/tmp",
             onData: (data) => {
                 output += data;

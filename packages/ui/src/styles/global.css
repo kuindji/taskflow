@@ -43,10 +43,12 @@
     --radius-lg: var(--radius);
     --radius-xl: calc(var(--radius) + 4px);
     --color-island-base: var(--island-base);
+    --font-size-xxs: 0.625rem;
+    --font-size-xxs--line-height: 0.625rem;
 }
 
 :root {
-    --background: #1e1e2e;
+    --background: #1e2e29;
     --foreground: #cdd6f4;
     --card: #181825;
     --card-foreground: #cdd6f4;
@@ -83,5 +85,5 @@
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    @apply bg-transparent text-foreground overflow-hidden;
+    @apply text-foreground overflow-hidden bg-transparent;
 }

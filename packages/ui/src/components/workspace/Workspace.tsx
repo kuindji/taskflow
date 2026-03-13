@@ -34,7 +34,9 @@ export function Workspace() {
     const isElectron = useIsElectron();
     const workspace = useActiveWorkspace();
     const tabs = useSessionStore((s) =>
-        workspace.workspaceKey ? (s.tabsByWorkspace[workspace.workspaceKey] ?? emptyTabs) : emptyTabs,
+        workspace.workspaceKey
+            ? (s.tabsByWorkspace[workspace.workspaceKey] ?? emptyTabs)
+            : emptyTabs,
     );
     const activeTabId = useSessionStore((s) =>
         workspace.workspaceKey ? (s.activeTabByWorkspace[workspace.workspaceKey] ?? "") : "",
@@ -82,7 +84,12 @@ export function Workspace() {
         return () => {
             cancelled = true;
         };
-    }, [workspace.scope, workspace.task?.id, workspace.task?.worktree.enabled, workspace.task?.worktree.path]);
+    }, [
+        workspace.scope,
+        workspace.task?.id,
+        workspace.task?.worktree.enabled,
+        workspace.task?.worktree.path,
+    ]);
 
     useEffect(() => {
         if (!workspace.workingDir) {
@@ -105,7 +112,10 @@ export function Workspace() {
 
     useEffect(() => {
         sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {}).then(
-            (res) => setDefaultShellPath(resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell)),
+            (res) =>
+                setDefaultShellPath(
+                    resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell),
+                ),
             () => setDefaultShellPath(null),
         );
     }, [configuredShell]);
@@ -142,7 +152,14 @@ export function Workspace() {
         } else if (workspace.scope === "project") {
             setActiveProject(null);
         }
-    }, [activeTab, workspace.workspaceKey, workspace.scope, closeTab, setActiveTask, setActiveProject]);
+    }, [
+        activeTab,
+        workspace.workspaceKey,
+        workspace.scope,
+        closeTab,
+        setActiveTask,
+        setActiveProject,
+    ]);
 
     const handleOpenNewTask = useCallback(() => {
         requestNewTask();
@@ -305,7 +322,9 @@ export function Workspace() {
                     <TabBar
                         tabs={visibleTabs}
                         activeTabId={activeTab?.id ?? ""}
-                        onTabClick={(id) => workspace.workspaceKey && setActiveTab(workspace.workspaceKey, id)}
+                        onTabClick={(id) =>
+                            workspace.workspaceKey && setActiveTab(workspace.workspaceKey, id)
+                        }
                         onTabClose={(id) => {
                             if (!workspace.workspaceKey) return;
                             const tab = visibleTabs.find((t) => t.id === id);
@@ -324,7 +343,10 @@ export function Workspace() {
                     <TabContent tabs={visibleTabs} activeTabId={activeTab?.id ?? ""} />
                 </>
             )}
-            <AlertDialog open={worktreeMissingDialogOpen} onOpenChange={setWorktreeMissingDialogOpen}>
+            <AlertDialog
+                open={worktreeMissingDialogOpen}
+                onOpenChange={setWorktreeMissingDialogOpen}
+            >
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Worktree not found</AlertDialogTitle>

@@ -113,9 +113,7 @@ function TaskInfoPanel() {
         return (
             <div className="flex h-full flex-col">
                 <div className="flex items-center px-3 py-2.5">
-                    <span className="text-muted-foreground text-xs font-medium">
-                        Project Info
-                    </span>
+                    <span className="text-muted-foreground text-xs font-medium">Project Info</span>
                 </div>
                 <Separator />
                 <ScrollArea className="flex-1 p-3">
@@ -163,9 +161,7 @@ function TaskInfoPanel() {
     return (
         <div className="flex h-full flex-col">
             <div className="flex items-center px-3 py-2.5">
-                <span className="text-muted-foreground text-xs font-medium">
-                    Task Info
-                </span>
+                <span className="text-muted-foreground text-xs font-medium">Task Info</span>
             </div>
             <Separator />
 
@@ -216,9 +212,7 @@ function TaskInfoPanel() {
 
                     {/* Created */}
                     <div>
-                        <label className="text-muted-foreground text-xs font-medium">
-                            Created
-                        </label>
+                        <label className="text-muted-foreground text-xs font-medium">Created</label>
                         <div className="text-secondary-foreground mt-1 text-sm">
                             {new Date(task.createdAt).toLocaleString()}
                         </div>
@@ -228,9 +222,7 @@ function TaskInfoPanel() {
 
                     {/* Notes */}
                     <div>
-                        <label className="text-muted-foreground text-xs font-medium">
-                            Notes
-                        </label>
+                        <label className="text-muted-foreground text-xs font-medium">Notes</label>
                         <Textarea
                             value={notesDraft}
                             onChange={(e) => setNotesDraft(e.target.value)}
@@ -252,7 +244,7 @@ function TaskInfoPanel() {
                                     {taskLogs.map((entry) => (
                                         <div
                                             key={entry.id}
-                                            className="rounded-md border border-border/50 bg-muted/30 px-2.5 py-2"
+                                            className="border-border/50 bg-muted/30 rounded-md border px-2.5 py-2"
                                         >
                                             <div className="flex items-center gap-2">
                                                 <span
@@ -268,7 +260,7 @@ function TaskInfoPanel() {
                                                 {entry.message}
                                             </p>
                                             {entry.type === "commit" && entry.meta?.hash && (
-                                                <code className="mt-1 inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-accent">
+                                                <code className="bg-muted text-accent mt-1 inline-block rounded px-1.5 py-0.5 font-mono text-[10px]">
                                                     {entry.meta.hash}
                                                 </code>
                                             )}

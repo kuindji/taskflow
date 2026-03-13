@@ -11,7 +11,10 @@ import type { Router } from "../ws/router";
 import type { PtyManager } from "../services/pty-manager";
 import type { TaskStore } from "../services/task-store";
 import { config } from "../config";
-import { buildAgentLaunchSpec, ensureInternalAgentSkillFile } from "../services/internal-agent-skill";
+import {
+    buildAgentLaunchSpec,
+    ensureInternalAgentSkillFile,
+} from "../services/internal-agent-skill";
 
 interface SessionHandlerDeps {
     router: Router;
@@ -60,8 +63,8 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             return;
         }
 
-        const activeProjectOwner = (owner?.projectId ? [] : await taskStore.listProjects()).find((project) =>
-            project.sessions.some((session) => session.id === sessionId),
+        const activeProjectOwner = (owner?.projectId ? [] : await taskStore.listProjects()).find(
+            (project) => project.sessions.some((session) => session.id === sessionId),
         );
         if (activeProjectOwner) {
             await taskStore.updateProject(activeProjectOwner.id, (project) => ({
@@ -81,7 +84,8 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     }
 
     router.register(MSG.SESSION_CREATE, async (payload) => {
-        const { taskId, projectId, type, label, prompt, shell, cols, rows, agentOptions } = payload as SessionCreatePayload;
+        const { taskId, projectId, type, label, prompt, shell, cols, rows, agentOptions } =
+            payload as SessionCreatePayload;
         if ((taskId ? 1 : 0) + (projectId ? 1 : 0) !== 1) {
             throw new Error("Exactly one of taskId or projectId is required");
         }
@@ -95,7 +99,8 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
               ? await taskStore.getProject(projectId)
               : null;
         if (!project) throw new Error(`Project not found: ${task?.projectId ?? projectId}`);
-        const cwd = task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path;
+        const cwd =
+            task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path;
 
         let command: string;
         const args: string[] = [];
@@ -126,7 +131,12 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             cols,
             rows,
             onData: (data, sequence) => {
-                void taskStore.appendSessionOutput(task?.id ?? project.id, sessionId, sequence, data);
+                void taskStore.appendSessionOutput(
+                    task?.id ?? project.id,
+                    sessionId,
+                    sequence,
+                    data,
+                );
                 broadcast({
                     type: MSG.TERMINAL_OUTPUT,
                     payload: { sessionId, data, sequence },

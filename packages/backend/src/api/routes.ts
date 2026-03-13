@@ -2,7 +2,13 @@ import type { ApiRouter } from "./router";
 import type { TaskStore } from "../services/task-store";
 import type { PtyManager } from "../services/pty-manager";
 import type { SettingsStore } from "../services/settings-store";
-import type { SessionStatus, Task, TaskLogEntryType, WsEvent, SettingsUpdatePayload } from "@taskflow/shared";
+import type {
+    SessionStatus,
+    Task,
+    TaskLogEntryType,
+    WsEvent,
+    SettingsUpdatePayload,
+} from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 
 interface ApiRouteDeps {
@@ -99,7 +105,10 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse('Field "message" is required and must be a non-empty string', 400);
         }
 
-        const sessionId = typeof body.sessionId === "string" ? body.sessionId : req.headers.get("x-taskflow-session-id") ?? "unknown";
+        const sessionId =
+            typeof body.sessionId === "string"
+                ? body.sessionId
+                : (req.headers.get("x-taskflow-session-id") ?? "unknown");
 
         let meta: Record<string, string> | undefined;
         if (body.meta && typeof body.meta === "object" && !Array.isArray(body.meta)) {

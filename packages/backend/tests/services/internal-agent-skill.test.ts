@@ -48,6 +48,11 @@ describe("internal agent skill", () => {
         const spec = buildAgentLaunchSpec("claude", undefined, "/tmp/ignored/SKILL.md");
 
         expect(spec.command).toBe("claude");
-        expect(spec.args).toEqual(["--allowedTools", "Bash(taskflow-cli*)", "--append-system-prompt", INTERNAL_AGENT_SYSTEM_PROMPT]);
+        expect(spec.args).toEqual([
+            "--allowedTools",
+            "Bash(taskflow-cli*)",
+            "--append-system-prompt",
+            INTERNAL_AGENT_SYSTEM_PROMPT,
+        ]);
     });
 });

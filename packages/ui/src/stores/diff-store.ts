@@ -71,7 +71,10 @@ export const useDiffStore = create<DiffStore>((set, get) => ({
 
         set((state) => ({
             statsByProject: { ...state.statsByProject, [projectId]: stats },
-            commitDisabledByProject: { ...state.commitDisabledByProject, [projectId]: commitDisabled },
+            commitDisabledByProject: {
+                ...state.commitDisabledByProject,
+                [projectId]: commitDisabled,
+            },
         }));
     },
 

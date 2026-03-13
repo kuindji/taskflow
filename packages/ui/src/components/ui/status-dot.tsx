@@ -12,7 +12,7 @@ export function StatusDot({ status, className }: StatusDotProps) {
     return (
         <span
             className={cn(
-                "inline-block h-2 w-2 rounded-full shrink-0",
+                "inline-block h-2 w-2 shrink-0 rounded-full",
                 status === "working" && "bg-success",
                 status === "attention" && "bg-warning animate-pulse",
                 className,

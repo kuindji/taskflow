@@ -9,11 +9,7 @@ interface NewTaskControlProps {
     size?: "xs" | "sm";
 }
 
-export function NewTaskControl({
-    className,
-    iconClassName,
-    size = "xs",
-}: NewTaskControlProps) {
+export function NewTaskControl({ className, iconClassName, size = "xs" }: NewTaskControlProps) {
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
 
     return (

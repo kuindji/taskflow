@@ -270,7 +270,9 @@ function buildAppMenu() {
                 { type: "separator" },
                 {
                     label: "Check for Updates…",
-                    click: () => { void checkForUpdatesManually(); },
+                    click: () => {
+                        void checkForUpdatesManually();
+                    },
                 },
                 { type: "separator" },
                 { role: "services" },

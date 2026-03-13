@@ -24,14 +24,17 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
             setApiAvailable(false);
             return;
         }
-        window.queryLocalFonts().then((fontData) => {
-            const families = [...new Set(fontData.map((f) => f.family))].sort(
-                (a, b) => a.localeCompare(b),
-            );
-            setFonts(families);
-        }).catch(() => {
-            setApiAvailable(false);
-        });
+        window
+            .queryLocalFonts()
+            .then((fontData) => {
+                const families = [...new Set(fontData.map((f) => f.family))].sort((a, b) =>
+                    a.localeCompare(b),
+                );
+                setFonts(families);
+            })
+            .catch(() => {
+                setApiAvailable(false);
+            });
     }, [open, fonts]);
 
     useEffect(() => {
@@ -116,7 +119,7 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
                                 <button
                                     key={family}
                                     type="button"
-                                    className={`flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-left text-sm outline-hidden hover:bg-accent hover:text-accent-foreground ${
+                                    className={`hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-left text-sm outline-hidden ${
                                         family === value ? "bg-accent text-accent-foreground" : ""
                                     }`}
                                     onClick={() => handleSelect(family)}

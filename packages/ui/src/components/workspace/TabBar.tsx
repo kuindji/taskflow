@@ -61,7 +61,9 @@ function TabItem({ tab, isActive, onTabClick, onTabClose }: TabItemProps) {
         () => cn(tabVariants({ type: tab.type, active: isActive })),
         [tab.type, isActive],
     );
-    const status = useSessionStore((s) => (tab.sessionId ? s.sessionStatus[tab.sessionId] : undefined));
+    const status = useSessionStore((s) =>
+        tab.sessionId ? s.sessionStatus[tab.sessionId] : undefined,
+    );
 
     return (
         <div onClick={() => onTabClick(tab.id)} className={classes}>
@@ -151,12 +153,7 @@ export function TabBar({
             {showRunButton && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label="Run"
-                            tooltip="Run"
-                        >
+                        <Button variant="ghost" size="icon-xs" aria-label="Run" tooltip="Run">
                             <Play className="h-3.5 w-3.5" />
                         </Button>
                     </DropdownMenuTrigger>
@@ -322,7 +319,9 @@ export function TabBar({
                                     Default Terminal
                                     <span className="text-muted-foreground ml-auto text-xs">
                                         {configuredShell === DEFAULT_TERMINAL_SHELL
-                                            ? getShellNameFromPath(defaultShellPath ?? systemShellPath ?? "")
+                                            ? getShellNameFromPath(
+                                                  defaultShellPath ?? systemShellPath ?? "",
+                                              )
                                             : defaultShellSummary}
                                     </span>
                                 </DropdownMenuItem>

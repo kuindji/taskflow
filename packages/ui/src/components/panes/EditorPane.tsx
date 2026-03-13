@@ -62,7 +62,9 @@ function EditorPane({ filePath }: EditorPaneProps) {
     const editorFontFamily = useSettingsStore(
         (s) => s.settings?.editor?.fontFamily ?? DEFAULT_EDITOR_FONT_FAMILY,
     );
-    const editorFontSize = useSettingsStore((s) => s.settings?.editor?.fontSize ?? DEFAULT_EDITOR_FONT_SIZE);
+    const editorFontSize = useSettingsStore(
+        (s) => s.settings?.editor?.fontSize ?? DEFAULT_EDITOR_FONT_SIZE,
+    );
     const editorFontFamilyRef = useRef(editorFontFamily);
     const editorFontSizeRef = useRef(editorFontSize);
     const { readFile, writeFile } = useFileStore();

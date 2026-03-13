@@ -74,7 +74,9 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                         pane = workspace.workingDir ? (
                             <ChangesPane repoPath={workspace.workingDir} />
                         ) : (
-                            <div className="text-muted-foreground p-3">Repository not available</div>
+                            <div className="text-muted-foreground p-3">
+                                Repository not available
+                            </div>
                         );
                         break;
 
@@ -93,10 +95,14 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                 if (isAlwaysMounted(tab.type)) {
                     return (
                         <ErrorBoundary key={tab.id} fallbackLabel={label}>
-                            <div className={cn(
-                                "absolute inset-0 flex",
-                                isActive ? "visible z-10" : "invisible z-0 pointer-events-none",
-                            )}>{pane}</div>
+                            <div
+                                className={cn(
+                                    "absolute inset-0 flex",
+                                    isActive ? "visible z-10" : "pointer-events-none invisible z-0",
+                                )}
+                            >
+                                {pane}
+                            </div>
                         </ErrorBoundary>
                     );
                 }

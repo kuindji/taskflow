@@ -88,7 +88,18 @@ export function NewTaskDialog({
         });
         resetForm();
         onOpenChange(false);
-    }, [canSubmit, projectId, title, description, worktree, startWith, agentOptions, onSubmit, resetForm, onOpenChange]);
+    }, [
+        canSubmit,
+        projectId,
+        title,
+        description,
+        worktree,
+        startWith,
+        agentOptions,
+        onSubmit,
+        resetForm,
+        onOpenChange,
+    ]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -190,10 +201,7 @@ export function NewTaskDialog({
 
                     {(startWith === "claude" || startWith === "codex") && (
                         <div className="border-border rounded-md border p-1">
-                            <AgentOptionsPanel
-                                agentType={startWith}
-                                onChange={setAgentOptions}
-                            />
+                            <AgentOptionsPanel agentType={startWith} onChange={setAgentOptions} />
                         </div>
                     )}
                 </div>

@@ -28,11 +28,7 @@ interface MissingLocationDialogProps {
     onOpenChange: (open: boolean) => void;
 }
 
-export function MissingLocationDialog({
-    project,
-    open,
-    onOpenChange,
-}: MissingLocationDialogProps) {
+export function MissingLocationDialog({ project, open, onOpenChange }: MissingLocationDialogProps) {
     const updateProject = useProjectStore((s) => s.updateProject);
     const removeProject = useProjectStore((s) => s.removeProject);
     const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
@@ -78,10 +74,7 @@ export function MissingLocationDialog({
                     {error && <p className="text-destructive text-xs">{error}</p>}
 
                     <DialogFooter>
-                        <Button
-                            variant="destructive"
-                            onClick={() => setConfirmRemoveOpen(true)}
-                        >
+                        <Button variant="destructive" onClick={() => setConfirmRemoveOpen(true)}>
                             Remove Project
                         </Button>
                         <Button

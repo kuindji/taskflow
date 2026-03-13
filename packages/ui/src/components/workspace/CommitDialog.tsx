@@ -81,15 +81,14 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
                 await sendRequest(MSG.GIT_PUSH, { path: project.path });
                 if (createPr) {
                     // Use current branch name or a generic title
-                    const status = await sendRequest<{ status: GitStatusResult }>(
-                        MSG.GIT_STATUS,
-                        { path: project.path },
-                    );
+                    const status = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, {
+                        path: project.path,
+                    });
                     const branchName = status.status.branch ?? "update";
-                    await sendRequest<{ url: string }>(
-                        MSG.GIT_CREATE_PR,
-                        { path: project.path, title: branchName },
-                    );
+                    await sendRequest<{ url: string }>(MSG.GIT_CREATE_PR, {
+                        path: project.path,
+                        title: branchName,
+                    });
                 }
                 handleOpenChange(false);
                 return;
@@ -110,19 +109,9 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
                 const prompt = parts.join(" ");
 
                 try {
-                    await createSession(
-                        { projectId: project.id },
-                        "claude",
-                        "Commit",
-                        prompt,
-                    );
+                    await createSession({ projectId: project.id }, "claude", "Commit", prompt);
                 } catch {
-                    await createSession(
-                        { projectId: project.id },
-                        "codex",
-                        "Commit",
-                        prompt,
-                    );
+                    await createSession({ projectId: project.id }, "codex", "Commit", prompt);
                 }
                 handleOpenChange(false);
                 return;
@@ -132,10 +121,9 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
             let commitMessage = message.trim();
 
             if (!commitMessage) {
-                const result = await sendRequest<{ message: string }>(
-                    MSG.GIT_GENERATE_COMMIT_MSG,
-                    { path: project.path },
-                );
+                const result = await sendRequest<{ message: string }>(MSG.GIT_GENERATE_COMMIT_MSG, {
+                    path: project.path,
+                });
                 commitMessage = result.message;
             }
 
@@ -145,10 +133,10 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
             );
 
             if (createPr) {
-                await sendRequest<{ url: string }>(
-                    MSG.GIT_CREATE_PR,
-                    { path: project.path, title: commitResult.message },
-                );
+                await sendRequest<{ url: string }>(MSG.GIT_CREATE_PR, {
+                    path: project.path,
+                    title: commitResult.message,
+                });
             }
 
             handleOpenChange(false);
@@ -245,9 +233,7 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
                         </Label>
                     </div>
 
-                    {error && (
-                        <p className="text-destructive text-sm">{error}</p>
-                    )}
+                    {error && <p className="text-destructive text-sm">{error}</p>}
                 </div>
 
                 <DialogFooter>

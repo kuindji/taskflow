@@ -27,7 +27,9 @@ export function TaskSidebar() {
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
     const syncWithProjects = useSessionStore((s) => s.syncWithProjects);
     const fetchSettings = useSettingsStore((s) => s.fetchSettings);
-    const compactSidebar = useSettingsStore((s) => s.settings?.layout?.panels?.compactSidebar ?? false);
+    const compactSidebar = useSettingsStore(
+        (s) => s.settings?.layout?.panels?.compactSidebar ?? false,
+    );
     const toggleSettings = useUIStore((s) => s.toggleSettings);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
@@ -65,9 +67,12 @@ export function TaskSidebar() {
 
     useEffect(() => {
         const cleanup = window.taskflow?.onToggleCompactSidebar(() => {
-            const current = useSettingsStore.getState().settings?.layout?.panels?.compactSidebar ?? false;
+            const current =
+                useSettingsStore.getState().settings?.layout?.panels?.compactSidebar ?? false;
             const next = !current;
-            void useSettingsStore.getState().updateSettings({ layout: { panels: { compactSidebar: next } } });
+            void useSettingsStore
+                .getState()
+                .updateSettings({ layout: { panels: { compactSidebar: next } } });
             window.taskflow?.sendCompactSidebarState(next);
         });
         return cleanup;
@@ -173,9 +178,7 @@ export function TaskSidebar() {
                     </div>
                 )}
                 {showArchive && displayTasks.length === 0 && (
-                    <div className="text-muted-foreground p-3 text-sm">
-                        No archived tasks.
-                    </div>
+                    <div className="text-muted-foreground p-3 text-sm">No archived tasks.</div>
                 )}
                 {visibleProjects.map((project, index) => {
                     const projectTasks = tasksByProject.get(project.id) ?? [];

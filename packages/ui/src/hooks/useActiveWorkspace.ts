@@ -18,11 +18,13 @@ export function useActiveWorkspace() {
     const activeProjectId = useUIStore((s) => s.activeProjectId);
 
     return useMemo(() => {
-        const task = activeTaskId ? tasks.find((entry) => entry.id === activeTaskId) ?? null : null;
+        const task = activeTaskId
+            ? (tasks.find((entry) => entry.id === activeTaskId) ?? null)
+            : null;
         const project = task
-            ? projects.find((entry) => entry.id === task.projectId) ?? null
+            ? (projects.find((entry) => entry.id === task.projectId) ?? null)
             : activeProjectId
-              ? projects.find((entry) => entry.id === activeProjectId) ?? null
+              ? (projects.find((entry) => entry.id === activeProjectId) ?? null)
               : null;
 
         if (task && project) {

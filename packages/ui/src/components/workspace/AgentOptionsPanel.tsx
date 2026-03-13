@@ -23,9 +23,10 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
 
-    const defaultFullAccess = agentType === "claude"
-        ? (claudeSettings?.fullAccess ?? false)
-        : (codexSettings?.fullAccess ?? false);
+    const defaultFullAccess =
+        agentType === "claude"
+            ? (claudeSettings?.fullAccess ?? false)
+            : (codexSettings?.fullAccess ?? false);
     const defaultModel = claudeSettings?.defaultModel ?? "default";
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);

@@ -9,7 +9,12 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { onEvent, sendRequest } from "@/hooks/useWebSocket";
 import { DEFAULT_TERMINAL_FONT_FAMILY, MSG } from "@taskflow/shared";
-import type { TerminalOutputEvent, SessionExitedEvent, SessionHistoryResponse, FileStatResponse } from "@taskflow/shared";
+import type {
+    TerminalOutputEvent,
+    SessionExitedEvent,
+    SessionHistoryResponse,
+    FileStatResponse,
+} from "@taskflow/shared";
 import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useFileStore } from "@/stores/file-store";
@@ -17,7 +22,6 @@ import { useUIStore } from "@/stores/ui-store";
 import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
-
 
 const SHELL_UNSAFE = /[^a-zA-Z0-9_./:@=+-]/;
 
@@ -96,7 +100,9 @@ function openUrlInApp(url: string, workspaceKey: string | null) {
     try {
         const parsed = new URL(url);
         label = parsed.hostname + (parsed.pathname !== "/" ? parsed.pathname : "");
-    } catch { /* keep raw url as label */ }
+    } catch {
+        /* keep raw url as label */
+    }
     store.addTab(workspaceKey, {
         id: crypto.randomUUID(),
         type: "browser",
@@ -157,7 +163,8 @@ const ABS_PATH_RE = /(?:^|\s|["`'(=])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\
 // Relative: dir/file or ./dir/file with optional :line:col
 // Must contain at least one "/". False positives (e.g., "yes/no") are acceptable
 // because the file:stat check at click time gracefully handles non-existent paths.
-const REL_PATH_RE = /(?:^|\s|["`'(=])((?:\.\.?\/)?[\w.@+-]+\/[\w.@+\-/]*[\w.@+-](?::(\d+)(?::(\d+))?)?)/g;
+const REL_PATH_RE =
+    /(?:^|\s|["`'(=])((?:\.\.?\/)?[\w.@+-]+\/[\w.@+\-/]*[\w.@+-](?::(\d+)(?::(\d+))?)?)/g;
 
 /** Collapse `.` and `..` segments in an absolute path without filesystem I/O. */
 function normalizePath(absolute: string): string {
@@ -191,7 +198,11 @@ function resolvePath(raw: string, workingDir: string | null): string | null {
     return normalized;
 }
 
-function createFilePathLinkProvider(term: Terminal, taskId?: string, projectId?: string): ILinkProvider {
+function createFilePathLinkProvider(
+    term: Terminal,
+    taskId?: string,
+    projectId?: string,
+): ILinkProvider {
     const workspaceKey = getWorkspaceKey(taskId, projectId);
 
     return {
@@ -316,7 +327,10 @@ function restoreViewport(term: Terminal, snapshot: TerminalViewportSnapshot): vo
     term.scrollToLine(targetLine);
 }
 
-function createTerminalWriter(term: Terminal): { write: (data: string) => void; dispose: () => void } {
+function createTerminalWriter(term: Terminal): {
+    write: (data: string) => void;
+    dispose: () => void;
+} {
     return {
         write(data) {
             if (!data) return;
@@ -753,7 +767,10 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     return (
         <div
             ref={containerRef}
-            className={cn("flex-1 overflow-hidden", dragOver && "ring-2 ring-primary/50 ring-inset")}
+            className={cn(
+                "flex-1 overflow-hidden",
+                dragOver && "ring-primary/50 ring-2 ring-inset",
+            )}
             onDragOver={handleDragOver}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}

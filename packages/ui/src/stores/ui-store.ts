@@ -28,7 +28,11 @@ interface UIStore {
     setFileExplorerWidth(width: number): void;
     setTaskInfoWidth(width: number): void;
     setPanelGap(gap: number): void;
-    hydrateLayout(panels: { sidebarWidth?: number; fileExplorerWidth?: number; taskInfoWidth?: number }): void;
+    hydrateLayout(panels: {
+        sidebarWidth?: number;
+        fileExplorerWidth?: number;
+        taskInfoWidth?: number;
+    }): void;
 }
 
 export const useUIStore = create<UIStore>((set) => ({
@@ -67,7 +71,11 @@ export const useUIStore = create<UIStore>((set) => ({
     hydrateLayout(panels) {
         set({
             sidebarWidth: clamp(panels.sidebarWidth ?? 220, SIDEBAR_MIN, SIDEBAR_MAX),
-            fileExplorerWidth: clamp(panels.fileExplorerWidth ?? 220, FILE_EXPLORER_MIN, FILE_EXPLORER_MAX),
+            fileExplorerWidth: clamp(
+                panels.fileExplorerWidth ?? 220,
+                FILE_EXPLORER_MIN,
+                FILE_EXPLORER_MAX,
+            ),
             taskInfoWidth: clamp(panels.taskInfoWidth ?? 220, TASK_INFO_MIN, TASK_INFO_MAX),
         });
     },

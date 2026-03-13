@@ -30,7 +30,10 @@ async function resolveWorkspacePath(path: string): Promise<string> {
     });
 }
 
-export async function assertMutableWorkspacePath(taskStore: TaskStore, path: string): Promise<string> {
+export async function assertMutableWorkspacePath(
+    taskStore: TaskStore,
+    path: string,
+): Promise<string> {
     const [roots, resolvedPath] = await Promise.all([
         listWorkspaceRoots(taskStore),
         resolveWorkspacePath(path),

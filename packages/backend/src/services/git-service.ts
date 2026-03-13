@@ -214,7 +214,11 @@ export class GitService {
         await git(["push"], repoPath);
     }
 
-    async commit(repoPath: string, message: string, push: boolean): Promise<{ hash: string; message: string }> {
+    async commit(
+        repoPath: string,
+        message: string,
+        push: boolean,
+    ): Promise<{ hash: string; message: string }> {
         await git(["add", "-A"], repoPath);
         await git(["commit", "-m", message], repoPath);
         const hashOutput = await git(["rev-parse", "--short", "HEAD"], repoPath);
@@ -238,7 +242,9 @@ export class GitService {
             proc.exited,
         ]);
         if (exitCode !== 0) {
-            throw new Error(stderr.trim() || stdout.trim() || `gh pr create failed with exit code ${exitCode}`);
+            throw new Error(
+                stderr.trim() || stdout.trim() || `gh pr create failed with exit code ${exitCode}`,
+            );
         }
         return { url: stdout.trim() };
     }
@@ -262,10 +268,12 @@ export class GitService {
         delete env.CLAUDECODE;
         delete env.CLAUDE_CODE_ENTRYPOINT;
 
-        const proc = Bun.spawn(
-            ["claude", "-p", prompt],
-            { cwd: repoPath, stdout: "pipe", stderr: "pipe", env },
-        );
+        const proc = Bun.spawn(["claude", "-p", prompt], {
+            cwd: repoPath,
+            stdout: "pipe",
+            stderr: "pipe",
+            env,
+        });
         const [stdout, , exitCode] = await Promise.all([
             new Response(proc.stdout).text(),
             new Response(proc.stderr).text(),

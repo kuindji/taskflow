@@ -79,7 +79,9 @@ describe("TaskStore", () => {
 
             expect(await store.listProjects()).toEqual([]);
             expect(await store.listTasks(project.id)).toEqual([]);
-            expect((await store.listArchived()).filter((task) => task.projectId === project.id)).toEqual([]);
+            expect(
+                (await store.listArchived()).filter((task) => task.projectId === project.id),
+            ).toEqual([]);
             expect(await store.getSessionHistory(activeTask.id, "session-1")).toEqual({
                 data: "",
                 lastSequence: 0,
@@ -109,7 +111,7 @@ describe("TaskStore", () => {
                 tasksDir: join(tempDir, "tasks"),
                 archiveDir: join(tempDir, "archive"),
                 sessionLogsDir: join(tempDir, "session-logs"),
-            taskLogsDir: join(tempDir, "task-logs"),
+                taskLogsDir: join(tempDir, "task-logs"),
             });
 
             expect(unreadableStore.listProjects()).rejects.toThrow();

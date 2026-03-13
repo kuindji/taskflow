@@ -197,7 +197,10 @@ export class TaskStore {
             createdAt: new Date().toISOString(),
         };
         projects.push(project);
-        await writeFile(this.config.projectsFile, JSON.stringify(this.stripEphemeralFields(projects), null, 2));
+        await writeFile(
+            this.config.projectsFile,
+            JSON.stringify(this.stripEphemeralFields(projects), null, 2),
+        );
         return project;
     }
 
@@ -240,7 +243,10 @@ export class TaskStore {
             path: resolvedPath,
             sessions: resolvedUpdates.sessions ?? projects[index].sessions,
         };
-        await writeFile(this.config.projectsFile, JSON.stringify(this.stripEphemeralFields(projects), null, 2));
+        await writeFile(
+            this.config.projectsFile,
+            JSON.stringify(this.stripEphemeralFields(projects), null, 2),
+        );
 
         // Re-validate location after path change
         try {
@@ -262,7 +268,9 @@ export class TaskStore {
         const archivedForProject = archived.filter((task) => task.projectId === id);
 
         await Promise.all(tasks.map((task) => this.deleteTask(task.id)));
-        await Promise.all((project?.sessions ?? []).map((session) => this.deleteSessionHistory(id, session.id)));
+        await Promise.all(
+            (project?.sessions ?? []).map((session) => this.deleteSessionHistory(id, session.id)),
+        );
         await Promise.all(
             archivedForProject.map(async (task) => {
                 await this.withTaskMutation(task.id, async () => {
@@ -275,7 +283,10 @@ export class TaskStore {
 
         const projects = await this.listProjects();
         const filtered = projects.filter((p) => p.id !== id);
-        await writeFile(this.config.projectsFile, JSON.stringify(this.stripEphemeralFields(filtered), null, 2));
+        await writeFile(
+            this.config.projectsFile,
+            JSON.stringify(this.stripEphemeralFields(filtered), null, 2),
+        );
     }
 
     // --- Tasks ---
@@ -389,9 +400,12 @@ export class TaskStore {
             files
                 .filter((file) => file.startsWith(`${taskId}--`) && file.endsWith(".jsonl"))
                 .map((file) =>
-                    this.withSessionLogMutation(join(this.config.sessionLogsDir, file), async () => {
-                        await this.unlinkIfPresent(join(this.config.sessionLogsDir, file));
-                    }),
+                    this.withSessionLogMutation(
+                        join(this.config.sessionLogsDir, file),
+                        async () => {
+                            await this.unlinkIfPresent(join(this.config.sessionLogsDir, file));
+                        },
+                    ),
                 ),
         );
     }

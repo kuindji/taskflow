@@ -12,7 +12,12 @@ import { SettingsStore } from "../../src/services/settings-store";
 
 const DEFAULT_LAYOUT = {
     window: { width: 1400, height: 900, isMaximized: false },
-    panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220, compactSidebar: false },
+    panels: {
+        sidebarWidth: 220,
+        fileExplorerWidth: 220,
+        taskInfoWidth: 220,
+        compactSidebar: false,
+    },
 };
 
 const DEFAULT_CLAUDE = { defaultModel: "default" as const, fullAccess: false };
@@ -140,7 +145,12 @@ describe("SettingsStore", () => {
         const settings = await store.get();
         expect(settings.layout).toEqual({
             window: { width: 1400, height: 900, isMaximized: false },
-            panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220, compactSidebar: false },
+            panels: {
+                sidebarWidth: 220,
+                fileExplorerWidth: 220,
+                taskInfoWidth: 220,
+                compactSidebar: false,
+            },
         });
     });
 

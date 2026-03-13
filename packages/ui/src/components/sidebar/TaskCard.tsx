@@ -104,17 +104,29 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
 
     return (
         <>
-            <div onClick={onClick} className={cn(cardClasses, "relative group [-webkit-app-region:no-drag]", compact && "py-1.5")}>
-                <div className={cn("text-sm font-medium", isActive && "text-foreground")}>{title}</div>
+            <div
+                onClick={onClick}
+                className={cn(
+                    cardClasses,
+                    "group relative [-webkit-app-region:no-drag]",
+                    compact && "py-1.5",
+                )}
+            >
+                <div className={cn("text-sm font-medium", isActive && "text-foreground")}>
+                    {title}
+                </div>
                 {!compact && description && (
-                    <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
+                    <div className="text-muted-foreground mt-0.5 line-clamp-1 text-xs">
                         {description}
                     </div>
                 )}
                 {(task.sessions.length > 0 || task.worktree.enabled) && (
                     <div className="mt-1.5 flex gap-1.5">
                         {task.worktree.enabled && (
-                            <Badge variant="outline" className="px-1 py-0 text-xs text-muted-foreground">
+                            <Badge
+                                variant="outline"
+                                className="text-muted-foreground px-1 py-0 text-xs"
+                            >
                                 <GitBranch className="mr-0.5 h-3 w-3" />
                                 {task.worktree.branch ?? "pending"}
                             </Badge>
@@ -124,13 +136,13 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                         ))}
                     </div>
                 )}
-                <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute right-1 bottom-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                     {archived ? (
                         <Button
                             variant="ghost"
                             size="xs"
                             onClick={handleUnarchive}
-                            className="h-6 w-6 border border-border/60 bg-background p-0 text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground"
+                            className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Unarchive task"
                             tooltip="Unarchive task"
                         >
@@ -141,7 +153,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                             variant="ghost"
                             size="xs"
                             onClick={handleArchive}
-                            className="h-6 w-6 border border-border/60 bg-background p-0 text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground"
+                            className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Archive task"
                             tooltip="Archive task"
                         >
@@ -152,7 +164,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                         variant="ghost"
                         size="xs"
                         onClick={handleDeleteClick}
-                        className="h-6 w-6 border border-border/60 bg-background p-0 text-muted-foreground shadow-xs hover:bg-accent hover:text-destructive"
+                        className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-destructive h-6 w-6 border p-0 shadow-xs"
                         aria-label="Delete task"
                         tooltip="Delete task"
                     >
@@ -165,11 +177,12 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete task</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will permanently delete this task, its sessions, and all logs. This action cannot be undone.
+                            This will permanently delete this task, its sessions, and all logs. This
+                            action cannot be undone.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     {hasWorktree && (
-                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <label className="flex cursor-pointer items-center gap-2 text-sm">
                             <input
                                 type="checkbox"
                                 checked={deleteWorktree}
@@ -183,7 +196,10 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                     )}
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                        <AlertDialogAction
+                            onClick={handleDeleteConfirm}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
                             Delete
                         </AlertDialogAction>
                     </AlertDialogFooter>

@@ -40,7 +40,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
     const [commitOpen, setCommitOpen] = useState(false);
-    const diffStats = useDiffStore((s) => (project ? s.statsByProject[project.id] ?? null : null));
+    const diffStats = useDiffStore((s) =>
+        project ? (s.statsByProject[project.id] ?? null) : null,
+    );
     const commitDisabled = useDiffStore((s) =>
         project ? (s.commitDisabledByProject[project.id] ?? true) : true,
     );
@@ -114,7 +116,10 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         <span className="text-muted-foreground text-sm">{project.name}</span>
                     )}
                     {task?.worktree?.branch && (
-                        <Badge variant="outline" className="px-2 py-0.5 text-xs [-webkit-app-region:no-drag]">
+                        <Badge
+                            variant="outline"
+                            className="px-2 py-0.5 text-xs [-webkit-app-region:no-drag]"
+                        >
                             {task.worktree.branch}
                         </Badge>
                     )}
@@ -150,15 +155,12 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         >
                             <Diff className="h-3 w-3" />
                             <span className="text-xs">Diff</span>
-                            {diffStats &&
-                                (diffStats.additions > 0 || diffStats.deletions > 0) && (
-                                    <span className="text-xs">
-                                        <span className="text-success">+{diffStats.additions}</span>{" "}
-                                        <span className="text-destructive">
-                                            -{diffStats.deletions}
-                                        </span>
-                                    </span>
-                                )}
+                            {diffStats && (diffStats.additions > 0 || diffStats.deletions > 0) && (
+                                <span className="text-xs">
+                                    <span className="text-success">+{diffStats.additions}</span>{" "}
+                                    <span className="text-destructive">-{diffStats.deletions}</span>
+                                </span>
+                            )}
                         </Button>
                     )}
                     {task && (
@@ -220,11 +222,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                 />
             )}
             {project && (
-                <CommitDialog
-                    open={commitOpen}
-                    onOpenChange={setCommitOpen}
-                    project={project}
-                />
+                <CommitDialog open={commitOpen} onOpenChange={setCommitOpen} project={project} />
             )}
         </div>
     );

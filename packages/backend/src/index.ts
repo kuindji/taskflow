@@ -112,7 +112,9 @@ async function main() {
         }));
         router.register(MSG.RUNTIMES_LIST, async () => ({ runtimes }));
         console.log(`Detected shells: ${shells.map((s) => s.name).join(", ") || "none"}`);
-        console.log(`Detected runtimes: ${runtimes.map((r) => r.name + " " + r.version).join(", ") || "none"}`);
+        console.log(
+            `Detected runtimes: ${runtimes.map((r) => r.name + " " + r.version).join(", ") || "none"}`,
+        );
 
         const startedServer = await server.start();
         serverPort = startedServer.port;

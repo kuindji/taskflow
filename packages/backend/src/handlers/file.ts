@@ -82,7 +82,11 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
             await fsStat(resolvedNew);
             throw new Error("A file or folder with that name already exists");
         } catch (e) {
-            if (e instanceof Error && e.message === "A file or folder with that name already exists") throw e;
+            if (
+                e instanceof Error &&
+                e.message === "A file or folder with that name already exists"
+            )
+                throw e;
             // ENOENT is expected — target doesn't exist, proceed
         }
         await rename(resolvedOld, resolvedNew);

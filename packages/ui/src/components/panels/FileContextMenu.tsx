@@ -29,7 +29,9 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
     }, [filePath]);
 
     const handleCopyRelativePath = useCallback(() => {
-        const relative = filePath.startsWith(rootPath + "/") ? filePath.slice(rootPath.length + 1) : filePath;
+        const relative = filePath.startsWith(rootPath + "/")
+            ? filePath.slice(rootPath.length + 1)
+            : filePath;
         void navigator.clipboard.writeText(relative);
     }, [filePath, rootPath]);
 
@@ -76,8 +78,18 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
                     </ContextMenuItem>
                 </ContextMenuContent>
             </ContextMenu>
-            <RenameFileDialog open={renameOpen} onOpenChange={setRenameOpen} filePath={filePath} isDirectory={isDirectory} />
-            <DeleteFileDialog open={deleteOpen} onOpenChange={setDeleteOpen} filePath={filePath} isDirectory={isDirectory} />
+            <RenameFileDialog
+                open={renameOpen}
+                onOpenChange={setRenameOpen}
+                filePath={filePath}
+                isDirectory={isDirectory}
+            />
+            <DeleteFileDialog
+                open={deleteOpen}
+                onOpenChange={setDeleteOpen}
+                filePath={filePath}
+                isDirectory={isDirectory}
+            />
         </>
     );
 }

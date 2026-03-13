@@ -49,7 +49,8 @@ function RenameFileDialog({ open, onOpenChange, filePath, isDirectory }: RenameF
     const validate = useCallback((value: string): string | null => {
         const trimmed = value.trim();
         if (!trimmed) return "Name cannot be empty";
-        if (trimmed.includes("/") || trimmed.includes("\0")) return "Name contains invalid characters";
+        if (trimmed.includes("/") || trimmed.includes("\0"))
+            return "Name contains invalid characters";
         return null;
     }, []);
 
@@ -106,7 +107,11 @@ function RenameFileDialog({ open, onOpenChange, filePath, isDirectory }: RenameF
                     {error && <p className="text-destructive text-sm">{error}</p>}
                 </div>
                 <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+                    <Button
+                        variant="outline"
+                        onClick={() => onOpenChange(false)}
+                        disabled={submitting}
+                    >
                         Cancel
                     </Button>
                     <Button onClick={() => void handleSubmit()} disabled={submitting}>

@@ -26,7 +26,12 @@ const DEFAULTS: AppSettings = {
     },
     layout: {
         window: { width: 1400, height: 900, isMaximized: false },
-        panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220, compactSidebar: false },
+        panels: {
+            sidebarWidth: 220,
+            fileExplorerWidth: 220,
+            taskInfoWidth: 220,
+            compactSidebar: false,
+        },
     },
     claude: {
         defaultModel: "default",

@@ -126,7 +126,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             rows: lastTerminalSize?.rows,
             agentOptions,
         });
-        const tab: Tab = { id: sessionId, type, label: normalizeSessionLabel(type, label), sessionId };
+        const tab: Tab = {
+            id: sessionId,
+            type,
+            label: normalizeSessionLabel(type, label),
+            sessionId,
+        };
         const workspaceKey = owner.taskId
             ? getTaskWorkspaceKey(owner.taskId)
             : getProjectWorkspaceKey(ownerId);
@@ -183,12 +188,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     },
     setActiveTab(workspaceKey, tabId) {
         set((s) => {
-            const next = { activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: tabId } };
+            const next = {
+                activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: tabId },
+            };
             const newTab = (s.tabsByWorkspace[workspaceKey] ?? []).find((tab) => tab.id === tabId);
-            const sessionIdToClear = newTab?.sessionId &&
-                s.sessionStatus[newTab.sessionId] === "attention"
-                ? newTab.sessionId
-                : undefined;
+            const sessionIdToClear =
+                newTab?.sessionId && s.sessionStatus[newTab.sessionId] === "attention"
+                    ? newTab.sessionId
+                    : undefined;
 
             if (sessionIdToClear) {
                 const { [sessionIdToClear]: _, ...nextStatus } = s.sessionStatus;
@@ -236,7 +243,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 Object.entries(state.tabsByWorkspace).filter(([key]) => !key.startsWith("task:")),
             );
             const nextActiveTabByWorkspace: Record<string, string> = Object.fromEntries(
-                Object.entries(state.activeTabByWorkspace).filter(([key]) => !key.startsWith("task:")),
+                Object.entries(state.activeTabByWorkspace).filter(
+                    ([key]) => !key.startsWith("task:"),
+                ),
             );
 
             for (const task of tasks) {
@@ -269,7 +278,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
                 nextTabsByWorkspace[workspaceKey] = tabs;
                 const currentActiveId = state.activeTabByWorkspace[workspaceKey];
-                nextActiveTabByWorkspace[workspaceKey] = tabs.some((tab) => tab.id === currentActiveId)
+                nextActiveTabByWorkspace[workspaceKey] = tabs.some(
+                    (tab) => tab.id === currentActiveId,
+                )
                     ? currentActiveId
                     : tabs[0].id;
             }
@@ -283,16 +294,22 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     syncWithProjects(projects) {
         set((state) => {
             const nextTabsByWorkspace: Record<string, Tab[]> = Object.fromEntries(
-                Object.entries(state.tabsByWorkspace).filter(([key]) => !key.startsWith("project:")),
+                Object.entries(state.tabsByWorkspace).filter(
+                    ([key]) => !key.startsWith("project:"),
+                ),
             );
             const nextActiveTabByWorkspace: Record<string, string> = Object.fromEntries(
-                Object.entries(state.activeTabByWorkspace).filter(([key]) => !key.startsWith("project:")),
+                Object.entries(state.activeTabByWorkspace).filter(
+                    ([key]) => !key.startsWith("project:"),
+                ),
             );
 
             for (const project of projects) {
                 const workspaceKey = getProjectWorkspaceKey(project.id);
                 const existingTabs = state.tabsByWorkspace[workspaceKey] ?? [];
-                const sessionsById = new Map(project.sessions.map((session) => [session.id, session]));
+                const sessionsById = new Map(
+                    project.sessions.map((session) => [session.id, session]),
+                );
                 const tabs = existingTabs
                     .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
                     .map((tab) => {
@@ -319,7 +336,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
                 nextTabsByWorkspace[workspaceKey] = tabs;
                 const currentActiveId = state.activeTabByWorkspace[workspaceKey];
-                nextActiveTabByWorkspace[workspaceKey] = tabs.some((tab) => tab.id === currentActiveId)
+                nextActiveTabByWorkspace[workspaceKey] = tabs.some(
+                    (tab) => tab.id === currentActiveId,
+                )
                     ? currentActiveId
                     : tabs[0].id;
             }
@@ -426,8 +445,7 @@ const _unsubSessionExited = onEvent(MSG.SESSION_EXITED, (payload) => {
 
 // Listen for browser:open events from backend (e.g., agent API calls).
 const _unsubBrowserOpen = onEvent(MSG.BROWSER_OPEN, (payload) => {
-    if (!payload || typeof payload !== "object" || !("url" in payload))
-        return;
+    if (!payload || typeof payload !== "object" || !("url" in payload)) return;
     const { taskId, projectId, url, label } = payload as BrowserOpenPayload;
     const workspaceKey = taskId
         ? getTaskWorkspaceKey(taskId)
@@ -455,10 +473,7 @@ const _unsubActiveTask = useTaskStore.subscribe((state, prevState) => {
         (tab) => tab.id === activeTabId,
     );
 
-    if (
-        activeTab?.sessionId &&
-        sessionStore.sessionStatus[activeTab.sessionId] === "attention"
-    ) {
+    if (activeTab?.sessionId && sessionStore.sessionStatus[activeTab.sessionId] === "attention") {
         sessionStore.setSessionStatus(activeTab.sessionId, undefined);
     }
 });
@@ -475,10 +490,7 @@ const _unsubActiveProject = useUIStore.subscribe((state, prevState) => {
         (tab) => tab.id === activeTabId,
     );
 
-    if (
-        activeTab?.sessionId &&
-        sessionStore.sessionStatus[activeTab.sessionId] === "attention"
-    ) {
+    if (activeTab?.sessionId && sessionStore.sessionStatus[activeTab.sessionId] === "attention") {
         sessionStore.setSessionStatus(activeTab.sessionId, undefined);
     }
 });

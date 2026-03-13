@@ -19,7 +19,11 @@ import {
 import { useUIStore } from "@/stores/ui-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { sendRequest } from "@/hooks/useWebSocket";
-import { getShellDisplayName, getTerminalShellSummary, isConfiguredShellAvailable } from "@/lib/terminal-shells";
+import {
+    getShellDisplayName,
+    getTerminalShellSummary,
+    isConfiguredShellAvailable,
+} from "@/lib/terminal-shells";
 import {
     DEFAULT_TERMINAL_SHELL,
     MSG,
@@ -163,7 +167,9 @@ function SettingsModal() {
 
     const handleClaudeModel = useCallback(
         (defaultModel: string) => {
-            void updateSettings({ claude: { defaultModel: defaultModel as ClaudeSettings["defaultModel"] } });
+            void updateSettings({
+                claude: { defaultModel: defaultModel as ClaudeSettings["defaultModel"] },
+            });
         },
         [updateSettings],
     );
@@ -184,23 +190,24 @@ function SettingsModal() {
 
     if (!settings) return null;
 
-    const configuredShellAvailable = isConfiguredShellAvailable(shells, settings.terminal.defaultShell);
-    const defaultsSelectLabelClassName = "text-[11px] leading-none text-muted-foreground";
+    const configuredShellAvailable = isConfiguredShellAvailable(
+        shells,
+        settings.terminal.defaultShell,
+    );
+    const defaultsSelectLabelClassName = "text-xxs leading-none text-muted-foreground";
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-[36rem]">
+            <DialogContent className="w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-xl">
                 <DialogHeader>
                     <DialogTitle>Settings</DialogTitle>
-                    <DialogDescription>
-                        Changes apply immediately.
-                    </DialogDescription>
+                    <DialogDescription>Changes apply immediately.</DialogDescription>
                 </DialogHeader>
                 <div className="flex min-h-[360px]">
                     {/* Sidebar */}
-                    <nav className="w-40 shrink-0 border-r border-border pr-2 space-y-1">
+                    <nav className="border-border w-40 shrink-0 space-y-1 border-r pr-2">
                         <button
-                            className={`w-full text-left px-3 py-1.5 rounded-md text-sm ${
+                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
                                 section === "fonts"
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
@@ -210,7 +217,7 @@ function SettingsModal() {
                             Fonts
                         </button>
                         <button
-                            className={`w-full text-left px-3 py-1.5 rounded-md text-sm ${
+                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
                                 section === "defaults"
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
@@ -220,7 +227,7 @@ function SettingsModal() {
                             Defaults
                         </button>
                         <button
-                            className={`w-full text-left px-3 py-1.5 rounded-md text-sm ${
+                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
                                 section === "claude"
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
@@ -230,7 +237,7 @@ function SettingsModal() {
                             Claude
                         </button>
                         <button
-                            className={`w-full text-left px-3 py-1.5 rounded-md text-sm ${
+                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
                                 section === "codex"
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
@@ -242,21 +249,25 @@ function SettingsModal() {
                     </nav>
 
                     {/* Content */}
-                    <div className="flex-1 pl-6 space-y-6">
+                    <div className="flex-1 space-y-6 pl-6">
                         {section === "fonts" && (
                             <>
                                 <section className="space-y-3">
                                     <h3 className="text-sm font-medium">Application Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
-                                            <Label className="text-xs text-muted-foreground">Family</Label>
+                                            <Label className={defaultsSelectLabelClassName}>
+                                                Family
+                                            </Label>
                                             <FontFamilySelect
                                                 value={settings.general.fontFamily}
                                                 onChange={handleGeneralFontFamily}
                                             />
                                         </div>
                                         <div className="space-y-1">
-                                            <Label className="text-xs text-muted-foreground">Size</Label>
+                                            <Label className={defaultsSelectLabelClassName}>
+                                                Size
+                                            </Label>
                                             <Input
                                                 type="number"
                                                 min={8}
@@ -272,14 +283,18 @@ function SettingsModal() {
                                     <h3 className="text-sm font-medium">Terminal Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
-                                            <Label className="text-xs text-muted-foreground">Family</Label>
+                                            <Label className={defaultsSelectLabelClassName}>
+                                                Family
+                                            </Label>
                                             <FontFamilySelect
                                                 value={settings.terminal.fontFamily}
                                                 onChange={handleTerminalFontFamily}
                                             />
                                         </div>
                                         <div className="space-y-1">
-                                            <Label className="text-xs text-muted-foreground">Size</Label>
+                                            <Label className={defaultsSelectLabelClassName}>
+                                                Size
+                                            </Label>
                                             <Input
                                                 type="number"
                                                 min={8}
@@ -295,14 +310,18 @@ function SettingsModal() {
                                     <h3 className="text-sm font-medium">Editor Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
-                                            <Label className="text-xs text-muted-foreground">Family</Label>
+                                            <Label className={defaultsSelectLabelClassName}>
+                                                Family
+                                            </Label>
                                             <FontFamilySelect
                                                 value={settings.editor.fontFamily}
                                                 onChange={handleEditorFontFamily}
                                             />
                                         </div>
                                         <div className="space-y-1">
-                                            <Label className="text-xs text-muted-foreground">Size</Label>
+                                            <Label className={defaultsSelectLabelClassName}>
+                                                Size
+                                            </Label>
                                             <Input
                                                 type="number"
                                                 min={8}
@@ -321,14 +340,14 @@ function SettingsModal() {
                                 <section className="space-y-3">
                                     <h3 className="text-sm font-medium">Default Model</h3>
                                     <div className="space-y-1">
-                                        <Label className="text-xs text-muted-foreground">
+                                        <Label className={defaultsSelectLabelClassName}>
                                             Pre-selected model when running Claude sessions
                                         </Label>
                                         <Select
                                             value={settings.claude.defaultModel}
                                             onValueChange={handleClaudeModel}
                                         >
-                                            <SelectTrigger className="w-64 h-8 text-sm">
+                                            <SelectTrigger className="h-8 w-64 text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -343,7 +362,7 @@ function SettingsModal() {
                                 <section className="space-y-3">
                                     <h3 className="text-sm font-medium">Full Access</h3>
                                     <div className="space-y-1">
-                                        <Label className="text-xs text-muted-foreground">
+                                        <Label className={defaultsSelectLabelClassName}>
                                             Skip permission prompts by default
                                         </Label>
                                         <div className="flex items-center gap-2 pt-1">
@@ -352,8 +371,13 @@ function SettingsModal() {
                                                 checked={settings.claude.fullAccess}
                                                 onCheckedChange={handleClaudeFullAccess}
                                             />
-                                            <Label htmlFor="claude-full-access" className="cursor-pointer text-sm">
-                                                {settings.claude.fullAccess ? "Enabled" : "Disabled"}
+                                            <Label
+                                                htmlFor="claude-full-access"
+                                                className="cursor-pointer text-sm"
+                                            >
+                                                {settings.claude.fullAccess
+                                                    ? "Enabled"
+                                                    : "Disabled"}
                                             </Label>
                                         </div>
                                     </div>
@@ -365,7 +389,7 @@ function SettingsModal() {
                                 <section className="space-y-3">
                                     <h3 className="text-sm font-medium">Full Access</h3>
                                     <div className="space-y-1">
-                                        <Label className="text-xs text-muted-foreground">
+                                        <Label className={defaultsSelectLabelClassName}>
                                             Run in full-auto mode by default
                                         </Label>
                                         <div className="flex items-center gap-2 pt-1">
@@ -374,7 +398,10 @@ function SettingsModal() {
                                                 checked={settings.codex.fullAccess}
                                                 onCheckedChange={handleCodexFullAccess}
                                             />
-                                            <Label htmlFor="codex-full-access" className="cursor-pointer text-sm">
+                                            <Label
+                                                htmlFor="codex-full-access"
+                                                className="cursor-pointer text-sm"
+                                            >
                                                 {settings.codex.fullAccess ? "Enabled" : "Disabled"}
                                             </Label>
                                         </div>
@@ -411,7 +438,8 @@ function SettingsModal() {
                                     <h3 className="text-sm font-medium">Default Agent</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
-                                            Pre-selected agent for new tasks, title generation, and commit messages
+                                            Pre-selected agent for new tasks, title generation, and
+                                            commit messages
                                         </Label>
                                         <Select
                                             value={settings.general.defaultAgent}
@@ -478,7 +506,10 @@ function SettingsModal() {
                                         </Label>
                                         <Select
                                             value={
-                                                runtimes.some((r) => r.name === settings.general.defaultRuntime)
+                                                runtimes.some(
+                                                    (r) =>
+                                                        r.name === settings.general.defaultRuntime,
+                                                )
                                                     ? settings.general.defaultRuntime
                                                     : "__missing__"
                                             }
@@ -499,11 +530,16 @@ function SettingsModal() {
                                                     </SelectItem>
                                                 ))}
                                                 {runtimes.length > 0 &&
-                                                    !runtimes.some((r) => r.name === settings.general.defaultRuntime) && (
-                                                    <SelectItem value="__missing__" disabled>
-                                                        {settings.general.defaultRuntime} (not found)
-                                                    </SelectItem>
-                                                )}
+                                                    !runtimes.some(
+                                                        (r) =>
+                                                            r.name ===
+                                                            settings.general.defaultRuntime,
+                                                    ) && (
+                                                        <SelectItem value="__missing__" disabled>
+                                                            {settings.general.defaultRuntime} (not
+                                                            found)
+                                                        </SelectItem>
+                                                    )}
                                             </SelectContent>
                                         </Select>
                                     </div>

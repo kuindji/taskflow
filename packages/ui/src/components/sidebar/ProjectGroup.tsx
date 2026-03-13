@@ -51,7 +51,7 @@ export function ProjectGroup({
             <Collapsible open={open} onOpenChange={setOpen} className="min-w-0">
                 <div
                     className={cn(
-                        "group mx-1.5 flex min-w-0 max-w-[calc(100%-0.75rem)] cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
+                        "group mx-1.5 flex max-w-[calc(100%-0.75rem)] min-w-0 cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
                         isActive && !locationInvalid ? "bg-accent/15" : "hover:bg-muted/50",
                     )}
                 >
@@ -72,7 +72,10 @@ export function ProjectGroup({
                                 )}
                             </button>
                         </TooltipTrigger>
-                        <TooltipContent side={isFirstVisibleProject ? "bottom" : undefined} sideOffset={4}>
+                        <TooltipContent
+                            side={isFirstVisibleProject ? "bottom" : undefined}
+                            sideOffset={4}
+                        >
                             {open ? "Collapse project" : "Expand project"}
                         </TooltipContent>
                     </Tooltip>
@@ -86,15 +89,22 @@ export function ProjectGroup({
                                 <TooltipTrigger asChild>
                                     <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
                                 </TooltipTrigger>
-                                <TooltipContent side={isFirstVisibleProject ? "bottom" : undefined} sideOffset={4}>
+                                <TooltipContent
+                                    side={isFirstVisibleProject ? "bottom" : undefined}
+                                    sideOffset={4}
+                                >
                                     Project location not found
                                 </TooltipContent>
                             </Tooltip>
                         )}
-                        <span className={cn(
-                            "block w-full min-w-0 truncate text-xs font-medium tracking-wide",
-                            locationInvalid ? "text-muted-foreground/60" : "text-muted-foreground",
-                        )}>
+                        <span
+                            className={cn(
+                                "block w-full min-w-0 truncate text-xs font-medium tracking-wide",
+                                locationInvalid
+                                    ? "text-muted-foreground/60"
+                                    : "text-muted-foreground",
+                            )}
+                        >
                             {project.name}
                         </span>
                     </button>
@@ -102,7 +112,7 @@ export function ProjectGroup({
                         {!locationInvalid && diffStats && (
                             <Badge
                                 variant="outline"
-                                className="gap-1.5 border-border/60 bg-muted/50 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0"
+                                className="border-border/60 bg-muted/50 gap-1.5 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0"
                             >
                                 <span className="text-success">+{diffStats.additions}</span>
                                 <span className="text-destructive">-{diffStats.deletions}</span>

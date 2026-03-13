@@ -36,7 +36,8 @@ function getCreatedAtTimestamp(value: string): number {
 
 function sortTasksByCreatedAtDesc(tasks: Task[]): Task[] {
     return [...tasks].sort((a, b) => {
-        const createdAtDiff = getCreatedAtTimestamp(b.createdAt) - getCreatedAtTimestamp(a.createdAt);
+        const createdAtDiff =
+            getCreatedAtTimestamp(b.createdAt) - getCreatedAtTimestamp(a.createdAt);
         if (createdAtDiff !== 0) {
             return createdAtDiff;
         }
@@ -119,7 +120,9 @@ export const useTaskStore = create<TaskStore>((set) => ({
         set({ activeTaskId: id });
     },
     async fetchTaskLog(taskId) {
-        const { entries } = await sendRequest<{ entries: TaskLogEntry[] }>(MSG.TASK_LOG_LIST, { taskId });
+        const { entries } = await sendRequest<{ entries: TaskLogEntry[] }>(MSG.TASK_LOG_LIST, {
+            taskId,
+        });
         set((s) => ({
             taskLogs: { ...s.taskLogs, [taskId]: entries },
         }));

@@ -4,7 +4,10 @@ interface TaskflowBridge {
     getBackendPort(): Promise<number>;
     selectProjectDirectory(): Promise<string | null>;
     openExternalUrl(url: string): Promise<void>;
-    openExternalFile(filePath: string, opts?: { line?: number; col?: number; editor?: string }): Promise<string>;
+    openExternalFile(
+        filePath: string,
+        opts?: { line?: number; col?: number; editor?: string },
+    ): Promise<string>;
     showItemInFolder(filePath: string): void;
     onNewTask(callback: () => void): () => void;
     onCloseTab(callback: () => void): () => void;

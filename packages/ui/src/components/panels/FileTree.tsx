@@ -38,7 +38,14 @@ interface FileTreeProps {
     rootPath?: string;
 }
 
-function FileTree({ node, depth = 0, gitFiles, onFileClick, expandedPaths, rootPath }: FileTreeProps) {
+function FileTree({
+    node,
+    depth = 0,
+    gitFiles,
+    onFileClick,
+    expandedPaths,
+    rootPath,
+}: FileTreeProps) {
     const [open, setOpen] = useState(depth < 1);
 
     // Latch: when expandedPaths includes this node, permanently open it
