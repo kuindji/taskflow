@@ -120,11 +120,6 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         >
                             {task?.title ?? project?.name}
                         </TruncatedText>
-                        {task && project && (
-                            <TruncatedText className="text-muted-foreground shrink-[2] text-sm">
-                                {project.name}
-                            </TruncatedText>
-                        )}
                         {task?.worktree?.branch && (
                             <TruncatedText
                                 as="div"

@@ -3,6 +3,7 @@ import type { Project, Task } from "@taskflow/shared";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
 import { MissingLocationDialog } from "./MissingLocationDialog";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
@@ -100,6 +101,13 @@ export function ProjectGroup({
                             {project.name}
                         </span>
                     </button>
+                    {!locationInvalid && project.sessions.length > 0 && (
+                        <div className="flex shrink-0 items-center gap-1">
+                            {project.sessions.map((session) => (
+                                <SessionBadge key={session.id} session={session} />
+                            ))}
+                        </div>
+                    )}
                     <div className="relative mr-1.5 flex shrink-0 items-center">
                         {!locationInvalid && diffStats && (
                             <Badge
