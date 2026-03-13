@@ -26,7 +26,14 @@ const DEFAULTS: AppSettings = {
     },
     layout: {
         window: { width: 1400, height: 900, isMaximized: false },
-        panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220 },
+        panels: { sidebarWidth: 220, fileExplorerWidth: 220, taskInfoWidth: 220, compactSidebar: false },
+    },
+    claude: {
+        defaultModel: "default",
+        fullAccess: false,
+    },
+    codex: {
+        fullAccess: false,
     },
 };
 
@@ -39,6 +46,8 @@ function createDefaultSettings(): AppSettings {
             window: { ...DEFAULTS.layout.window },
             panels: { ...DEFAULTS.layout.panels },
         },
+        claude: { ...DEFAULTS.claude },
+        codex: { ...DEFAULTS.codex },
     };
 }
 
@@ -58,6 +67,8 @@ export class SettingsStore {
                     window: { ...defaults.layout.window, ...parsed.layout?.window },
                     panels: { ...defaults.layout.panels, ...parsed.layout?.panels },
                 },
+                claude: { ...defaults.claude, ...parsed.claude },
+                codex: { ...defaults.codex, ...parsed.codex },
             };
         } catch {
             return createDefaultSettings();
@@ -80,6 +91,12 @@ export class SettingsStore {
         }
         if (partial.layout?.panels) {
             Object.assign(current.layout.panels, partial.layout.panels);
+        }
+        if (partial.claude) {
+            Object.assign(current.claude, partial.claude);
+        }
+        if (partial.codex) {
+            Object.assign(current.codex, partial.codex);
         }
         await writeFile(this.filePath, JSON.stringify(current, null, 2));
         return current;

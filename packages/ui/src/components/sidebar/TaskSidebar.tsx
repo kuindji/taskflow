@@ -14,8 +14,6 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 
 export function TaskSidebar() {
     const { connected } = useWsStatus();
@@ -29,6 +27,7 @@ export function TaskSidebar() {
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
     const syncWithProjects = useSessionStore((s) => s.syncWithProjects);
     const fetchSettings = useSettingsStore((s) => s.fetchSettings);
+    const compactSidebar = useSettingsStore((s) => s.settings?.layout?.panels?.compactSidebar ?? false);
     const toggleSettings = useUIStore((s) => s.toggleSettings);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
@@ -54,6 +53,25 @@ export function TaskSidebar() {
         if (!connected || projects.length === 0) return;
         return startPolling(projects);
     }, [connected, startPolling, projects]);
+
+    useEffect(() => {
+        const cleanup = window.taskflow?.onToggleArchive(() => {
+            const next = !useTaskStore.getState().showArchive;
+            setShowArchive(next);
+            window.taskflow?.sendArchiveState(next);
+        });
+        return cleanup;
+    }, [setShowArchive]);
+
+    useEffect(() => {
+        const cleanup = window.taskflow?.onToggleCompactSidebar(() => {
+            const current = useSettingsStore.getState().settings?.layout?.panels?.compactSidebar ?? false;
+            const next = !current;
+            void useSettingsStore.getState().updateSettings({ layout: { panels: { compactSidebar: next } } });
+            window.taskflow?.sendCompactSidebarState(next);
+        });
+        return cleanup;
+    }, []);
 
     const displayTasks = showArchive ? archivedTasks : tasks;
 
@@ -173,26 +191,13 @@ export function TaskSidebar() {
                             onTaskClick={handleTaskClick}
                             archived={showArchive}
                             isFirstVisibleProject={index === 0}
+                            compact={compactSidebar}
                         />
                     );
                 })}
             </ScrollArea>
             <Separator />
-            <div className="flex items-center justify-between px-1.5 py-1.5">
-                <div className="flex items-center gap-1.5 [-webkit-app-region:no-drag]">
-                    <Switch
-                        id="archive-toggle"
-                        checked={showArchive}
-                        onCheckedChange={setShowArchive}
-                        className="scale-75"
-                    />
-                    <Label
-                        htmlFor="archive-toggle"
-                        className="text-muted-foreground cursor-pointer whitespace-nowrap text-sm tracking-normal normal-case"
-                    >
-                        Show archive
-                    </Label>
-                </div>
+            <div className="flex items-center justify-end px-1.5 py-1.5">
                 <Button
                     variant="ghost"
                     size="xs"

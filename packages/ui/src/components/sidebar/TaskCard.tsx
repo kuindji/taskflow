@@ -38,6 +38,7 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     onClick: () => void;
     className?: string;
     archived?: boolean;
+    compact?: boolean;
 }
 
 function SessionBadge({ session }: { session: SessionRef }) {
@@ -55,7 +56,7 @@ function SessionBadge({ session }: { session: SessionRef }) {
     );
 }
 
-export function TaskCard({ task, isActive, onClick, className, archived }: TaskCardProps) {
+export function TaskCard({ task, isActive, onClick, className, archived, compact }: TaskCardProps) {
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleteWorktree, setDeleteWorktree] = useState(false);
     const archiveTask = useTaskStore((s) => s.archiveTask);
@@ -103,9 +104,9 @@ export function TaskCard({ task, isActive, onClick, className, archived }: TaskC
 
     return (
         <>
-            <div onClick={onClick} className={cn(cardClasses, "relative group [-webkit-app-region:no-drag]")}>
+            <div onClick={onClick} className={cn(cardClasses, "relative group [-webkit-app-region:no-drag]", compact && "py-1.5")}>
                 <div className={cn("text-sm font-medium", isActive && "text-foreground")}>{title}</div>
-                {description && (
+                {!compact && description && (
                     <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
                         {description}
                     </div>

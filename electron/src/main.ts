@@ -275,7 +275,38 @@ function buildAppMenu() {
             ],
         },
         { role: "editMenu" },
-        { role: "viewMenu" },
+        {
+            label: "View",
+            submenu: [
+                {
+                    id: "toggle-archive",
+                    label: "Show Archived Tasks",
+                    click: () => {
+                        mainWindow?.webContents.send("toggle-archive");
+                    },
+                },
+                {
+                    id: "compact-sidebar",
+                    label: "Compact Sidebar",
+                    type: "checkbox",
+                    checked: false,
+                    accelerator: "CmdOrCtrl+Shift+C",
+                    click: () => {
+                        mainWindow?.webContents.send("toggle-compact-sidebar");
+                    },
+                },
+                { type: "separator" },
+                { role: "reload" },
+                { role: "forceReload" },
+                { role: "toggleDevTools" },
+                { type: "separator" },
+                { role: "resetZoom" },
+                { role: "zoomIn" },
+                { role: "zoomOut" },
+                { type: "separator" },
+                { role: "togglefullscreen" },
+            ],
+        },
         {
             label: "Window",
             submenu: [
@@ -379,6 +410,22 @@ app.on("before-quit", (e) => {
         backendProcess = null;
     }
     void cleanupBackendArtifacts();
+});
+
+ipcMain.on("archive-state-changed", (_event, showArchive: boolean) => {
+    const menu = Menu.getApplicationMenu();
+    const item = menu?.getMenuItemById("toggle-archive");
+    if (item) {
+        item.label = showArchive ? "Show Current Tasks" : "Show Archived Tasks";
+    }
+});
+
+ipcMain.on("compact-sidebar-changed", (_event, compact: boolean) => {
+    const menu = Menu.getApplicationMenu();
+    const item = menu?.getMenuItemById("compact-sidebar");
+    if (item) {
+        item.checked = compact;
+    }
 });
 
 ipcMain.handle("get-backend-port", () => backendPort);

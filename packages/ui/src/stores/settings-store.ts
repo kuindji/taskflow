@@ -18,6 +18,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
         if (settings.layout?.panels) {
             useUIStore.getState().hydrateLayout(settings.layout.panels);
         }
+        window.taskflow?.sendCompactSidebarState(settings.layout?.panels?.compactSidebar ?? false);
     },
     async updateSettings(partial) {
         const settings = await sendRequest<AppSettings>(MSG.SETTINGS_UPDATE, partial);

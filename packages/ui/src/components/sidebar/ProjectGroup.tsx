@@ -17,6 +17,7 @@ interface ProjectGroupProps {
     onTaskClick: (taskId: string) => void;
     archived?: boolean;
     isFirstVisibleProject?: boolean;
+    compact?: boolean;
 }
 
 export function ProjectGroup({
@@ -29,6 +30,7 @@ export function ProjectGroup({
     onTaskClick,
     archived,
     isFirstVisibleProject = false,
+    compact,
 }: ProjectGroupProps) {
     const [open, setOpen] = useState(true);
 
@@ -91,6 +93,7 @@ export function ProjectGroup({
                         isActive={task.id === activeTaskId}
                         onClick={() => onTaskClick(task.id)}
                         archived={archived}
+                        compact={compact}
                     />
                 ))}
             </CollapsibleContent>

@@ -21,4 +21,24 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("close-tab", listener);
         };
     },
+    onToggleArchive: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("toggle-archive", listener);
+        return () => {
+            ipcRenderer.removeListener("toggle-archive", listener);
+        };
+    },
+    sendArchiveState: (showArchive: boolean) => {
+        ipcRenderer.send("archive-state-changed", showArchive);
+    },
+    onToggleCompactSidebar: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("toggle-compact-sidebar", listener);
+        return () => {
+            ipcRenderer.removeListener("toggle-compact-sidebar", listener);
+        };
+    },
+    sendCompactSidebarState: (compact: boolean) => {
+        ipcRenderer.send("compact-sidebar-changed", compact);
+    },
 });
