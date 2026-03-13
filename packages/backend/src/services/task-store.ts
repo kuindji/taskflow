@@ -221,7 +221,8 @@ export class TaskStore {
 
         let resolvedPath = projects[index].path;
         if (resolvedUpdates.path) {
-            resolvedPath = await realpath(resolvedUpdates.path).catch(() => resolvedUpdates.path!);
+            const rawPath = resolvedUpdates.path;
+            resolvedPath = await realpath(rawPath).catch(() => rawPath);
             const info = await stat(resolvedPath);
             if (!info.isDirectory()) {
                 throw new Error(`Project path is not a directory: ${resolvedPath}`);
