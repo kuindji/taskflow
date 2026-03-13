@@ -8,6 +8,9 @@ import type {
     GitCommitPayload,
     GitPushPayload,
     GitCreatePrPayload,
+    GitStagePayload,
+    GitUnstagePayload,
+    GitGenerateCommitMsgPayload,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { GitService } from "../services/git-service";
@@ -43,7 +46,7 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
         const { repoPath: rawRepoPath, filePath } = payload as GitDiffFilePayload;
         const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
         assertRepoFilePath(repoPath, filePath);
-        return { diff: await git.diffFile(repoPath, filePath) };
+        return await git.diffFile(repoPath, filePath);
     });
 
     router.register(MSG.GIT_REVERT_FILE, async (payload) => {
@@ -59,6 +62,22 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
             assertRepoFilePath(repoPath, previousPath);
         }
         await git.revertFile(repoPath, { path: filePath, status, previousPath });
+        return { success: true };
+    });
+
+    router.register(MSG.GIT_STAGE, async (payload) => {
+        const { repoPath: rawRepoPath, filePath } = payload as GitStagePayload;
+        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        if (filePath) assertRepoFilePath(repoPath, filePath);
+        await git.stage(repoPath, filePath);
+        return { success: true };
+    });
+
+    router.register(MSG.GIT_UNSTAGE, async (payload) => {
+        const { repoPath: rawRepoPath, filePath } = payload as GitUnstagePayload;
+        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        if (filePath) assertRepoFilePath(repoPath, filePath);
+        await git.unstage(repoPath, filePath);
         return { success: true };
     });
 
@@ -78,15 +97,15 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
     });
 
     router.register(MSG.GIT_COMMIT, async (payload) => {
-        const { path, message, push } = payload as GitCommitPayload;
+        const { path, message, push, includeUnstaged } = payload as GitCommitPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, path);
-        return await git.commit(repoPath, message, push);
+        return await git.commit(repoPath, message, push, includeUnstaged ?? true);
     });
 
     router.register(MSG.GIT_GENERATE_COMMIT_MSG, async (payload) => {
-        const { path } = payload as GitStatusPayload;
+        const { path, includeUnstaged } = payload as GitGenerateCommitMsgPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, path);
-        const message = await git.generateCommitMessage(repoPath);
+        const message = await git.generateCommitMessage(repoPath, includeUnstaged ?? true);
         return { message };
     });
 

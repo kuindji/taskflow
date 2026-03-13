@@ -40,16 +40,18 @@ export class GitService {
         // rename targets contain spaces or other escaped characters.
         const statusOutput = await git(["status", "--porcelain=v1", "-z"], repoPath);
 
-        const files: GitFileStatus[] = [];
+        const stagedFiles: GitFileStatus[] = [];
+        const unstagedFiles: GitFileStatus[] = [];
         const entries = statusOutput.split("\0").filter((entry) => entry.length > 0);
 
         for (let index = 0; index < entries.length; index += 1) {
             const entry = entries[index];
-            const xy = entry.substring(0, 2);
+            const x = entry[0]; // index status
+            const y = entry[1]; // worktree status
             const path = entry.substring(3);
             let previousPath: string | undefined;
 
-            if (xy.includes("R")) {
+            if (x === "R" || y === "R") {
                 previousPath = entries[index + 1];
                 if (!previousPath) {
                     throw new Error(
@@ -59,12 +61,31 @@ export class GitService {
                 index += 1;
             }
 
-            files.push({
-                path,
-                absolutePath: join(repoPath, path),
-                previousPath,
-                status: this.parseStatus(xy),
-            });
+            const base = { path, absolutePath: join(repoPath, path), previousPath };
+
+            // Untracked files go to unstaged only
+            if (x === "?" && y === "?") {
+                unstagedFiles.push({ ...base, status: "untracked", staged: false });
+                continue;
+            }
+
+            // Staged changes (index column)
+            if (x !== " " && x !== "?") {
+                stagedFiles.push({
+                    ...base,
+                    status: this.parseStatusChar(x),
+                    staged: true,
+                });
+            }
+
+            // Unstaged changes (worktree column)
+            if (y !== " " && y !== "?") {
+                unstagedFiles.push({
+                    ...base,
+                    status: this.parseStatusChar(y),
+                    staged: false,
+                });
+            }
         }
 
         let ahead = 0;
@@ -75,15 +96,22 @@ export class GitService {
             // No upstream configured — treat as 0
         }
 
-        return { branch: branchOutput.trim() || null, files, ahead };
+        return { branch: branchOutput.trim() || null, stagedFiles, unstagedFiles, ahead };
     }
 
-    private parseStatus(xy: string): GitFileStatus["status"] {
-        if (xy === "??") return "untracked";
-        if (xy.includes("A")) return "new";
-        if (xy.includes("D")) return "deleted";
-        if (xy.includes("R")) return "renamed";
-        return "modified";
+    private parseStatusChar(char: string): GitFileStatus["status"] {
+        switch (char) {
+            case "A":
+                return "new";
+            case "D":
+                return "deleted";
+            case "R":
+                return "renamed";
+            case "M":
+            case "T":
+            default:
+                return "modified";
+        }
     }
 
     private countPatchLines(diff: string): Pick<GitDiffFile, "additions" | "deletions"> {
@@ -107,14 +135,20 @@ export class GitService {
     private async resolveFileStatus(
         repoPath: string,
         filePath: string,
-    ): Promise<Pick<GitFileStatus, "path" | "status" | "previousPath"> | null> {
+    ): Promise<{
+        staged: Pick<GitFileStatus, "path" | "status" | "previousPath"> | null;
+        unstaged: Pick<GitFileStatus, "path" | "status" | "previousPath"> | null;
+    }> {
         const status = await this.status(repoPath);
-        return status.files.find((file) => file.path === filePath) ?? null;
+        const staged = status.stagedFiles.find((file) => file.path === filePath) ?? null;
+        const unstaged = status.unstagedFiles.find((file) => file.path === filePath) ?? null;
+        return { staged, unstaged };
     }
 
     private async diffSegments(
         repoPath: string,
         file: Pick<GitFileStatus, "path" | "status" | "previousPath">,
+        staged: boolean,
     ): Promise<string[]> {
         if (file.status === "untracked") {
             const diff = await git(
@@ -130,33 +164,47 @@ export class GitService {
                 ? [file.previousPath, file.path]
                 : [file.path];
 
-        const [cachedDiff, worktreeDiff] = await Promise.all([
-            git(["diff", "--cached", "--", ...paths], repoPath),
-            git(["diff", "--", ...paths], repoPath),
-        ]);
+        if (staged) {
+            const cachedDiff = await git(["diff", "--cached", "--", ...paths], repoPath);
+            return cachedDiff.length > 0 ? [cachedDiff] : [];
+        }
 
-        return [cachedDiff, worktreeDiff].filter((diff) => diff.length > 0);
+        const worktreeDiff = await git(["diff", "--", ...paths], repoPath);
+        return worktreeDiff.length > 0 ? [worktreeDiff] : [];
     }
 
     async diff(repoPath: string): Promise<GitDiffResult> {
         const status = await this.status(repoPath);
-        const files = await Promise.all(
-            status.files.map(async (file) => {
-                const diff = await this.diffFile(
-                    repoPath,
-                    file.path,
-                    file.status,
-                    file.previousPath,
-                );
-                return {
-                    path: file.path,
-                    ...this.countPatchLines(diff),
-                    diff,
-                };
-            }),
-        );
+        const results: GitDiffFile[] = [];
 
-        return { files };
+        const processList = async (files: GitFileStatus[], staged: boolean) => {
+            const diffs = await Promise.all(
+                files.map(async (file) => {
+                    const diffResult = await this.diffFile(
+                        repoPath,
+                        file.path,
+                        file.status,
+                        file.previousPath,
+                        staged,
+                    );
+                    const diffText = staged ? diffResult.staged : diffResult.unstaged;
+                    return {
+                        path: file.path,
+                        ...this.countPatchLines(diffText ?? ""),
+                        diff: diffText ?? "",
+                        staged,
+                    };
+                }),
+            );
+            results.push(...diffs);
+        };
+
+        await Promise.all([
+            processList(status.stagedFiles, true),
+            processList(status.unstagedFiles, false),
+        ]);
+
+        return { files: results };
     }
 
     async diffFile(
@@ -164,16 +212,39 @@ export class GitService {
         filePath: string,
         status?: GitFileStatus["status"],
         previousPath?: string,
-    ): Promise<string> {
-        const file = status
-            ? { path: filePath, status, previousPath }
-            : await this.resolveFileStatus(repoPath, filePath);
-
-        if (!file) {
-            return git(["diff", "--", filePath], repoPath);
+        isStaged?: boolean,
+    ): Promise<{ staged?: string; unstaged?: string }> {
+        // If explicit status/staged is provided (from diff()), use that directly
+        if (status !== undefined && isStaged !== undefined) {
+            const file = { path: filePath, status, previousPath };
+            const segments = await this.diffSegments(repoPath, file, isStaged);
+            const diffText = segments.join("\n") || undefined;
+            return isStaged ? { staged: diffText } : { unstaged: diffText };
         }
 
-        return (await this.diffSegments(repoPath, file)).join("\n");
+        // Otherwise, resolve from status and return both staged and unstaged
+        const resolved = await this.resolveFileStatus(repoPath, filePath);
+        const result: { staged?: string; unstaged?: string } = {};
+
+        if (resolved.staged) {
+            const segments = await this.diffSegments(repoPath, resolved.staged, true);
+            const diffText = segments.join("\n");
+            if (diffText) result.staged = diffText;
+        }
+
+        if (resolved.unstaged) {
+            const segments = await this.diffSegments(repoPath, resolved.unstaged, false);
+            const diffText = segments.join("\n");
+            if (diffText) result.unstaged = diffText;
+        }
+
+        // Fallback if nothing found
+        if (!result.staged && !result.unstaged) {
+            const fallback = await git(["diff", "--", filePath], repoPath);
+            if (fallback) result.unstaged = fallback;
+        }
+
+        return result;
     }
 
     async revertFile(
@@ -197,6 +268,22 @@ export class GitService {
         await git(["restore", "--source=HEAD", "--staged", "--worktree", "--", ...paths], repoPath);
     }
 
+    async stage(repoPath: string, filePath?: string): Promise<void> {
+        if (filePath) {
+            await git(["add", "--", filePath], repoPath);
+        } else {
+            await git(["add", "-A"], repoPath);
+        }
+    }
+
+    async unstage(repoPath: string, filePath?: string): Promise<void> {
+        if (filePath) {
+            await git(["restore", "--staged", "--", filePath], repoPath);
+        } else {
+            await git(["restore", "--staged", "."], repoPath);
+        }
+    }
+
     async createWorktree(repoPath: string, branch: string, worktreePath: string): Promise<void> {
         await mkdir(dirname(worktreePath), { recursive: true });
         await git(["worktree", "add", "-b", branch, worktreePath], repoPath);
@@ -218,8 +305,11 @@ export class GitService {
         repoPath: string,
         message: string,
         push: boolean,
+        includeUnstaged = true,
     ): Promise<{ hash: string; message: string }> {
-        await git(["add", "-A"], repoPath);
+        if (includeUnstaged) {
+            await git(["add", "-A"], repoPath);
+        }
         await git(["commit", "-m", message], repoPath);
         const hashOutput = await git(["rev-parse", "--short", "HEAD"], repoPath);
         if (push) {
@@ -249,9 +339,12 @@ export class GitService {
         return { url: stdout.trim() };
     }
 
-    async generateCommitMessage(repoPath: string): Promise<string> {
+    async generateCommitMessage(repoPath: string, includeUnstaged = true): Promise<string> {
         const diffResult = await this.diff(repoPath);
-        const diffText = diffResult.files.map((f) => f.diff).join("\n");
+        const files = includeUnstaged
+            ? diffResult.files
+            : diffResult.files.filter((f) => f.staged);
+        const diffText = files.map((f) => f.diff).join("\n");
         if (!diffText.trim()) {
             throw new Error("No changes to commit");
         }
