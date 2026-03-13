@@ -37,9 +37,10 @@ interface TaskHeaderProps {
     task?: Task;
     project?: Project;
     onDiff?: () => void;
+    flowRunsReady?: boolean;
 }
 
-export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
+export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: TaskHeaderProps) {
     const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
     const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
@@ -165,7 +166,13 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                     <span className="text-muted-foreground text-sm ml-2">No task selected</span>
                 </div>
             )}
-            {task && !activeFlowRun && flowDefinitions.length > 0 && (
+            {task && !flowRunsReady && (
+                <div className="flex items-center gap-1.5 px-1 text-xs [-webkit-app-region:no-drag]">
+                    <Loader2 className="text-muted-foreground h-3 w-3 animate-spin" />
+                    <span className="text-muted-foreground">Checking flows</span>
+                </div>
+            )}
+            {task && flowRunsReady && !activeFlowRun && flowDefinitions.length > 0 && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button

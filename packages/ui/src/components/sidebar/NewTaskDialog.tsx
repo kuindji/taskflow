@@ -80,7 +80,8 @@ export function NewTaskDialog({
         [onOpenChange, resetForm, defaultProjectId],
     );
 
-    const canSubmit = projectId !== "" && description.trim() !== "";
+    const hasFlowSelection = startWith !== "flow" || startWithFlowId !== "";
+    const canSubmit = projectId !== "" && description.trim() !== "" && hasFlowSelection;
 
     const handleSubmit = useCallback(() => {
         if (!canSubmit) return;
@@ -225,6 +226,9 @@ export function NewTaskDialog({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <p className="text-muted-foreground text-xs">
+                                Select a flow to start immediately after task creation.
+                            </p>
                         </div>
                     )}
 

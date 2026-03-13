@@ -53,6 +53,7 @@ export function Workspace() {
     const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
+    const [flowRunsHydratedTaskId, setFlowRunsHydratedTaskId] = useState<string | null>(null);
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
@@ -60,11 +61,32 @@ export function Workspace() {
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
     const activeFlowRun = useFlowStore((s) => (taskId ? s.activeRuns[taskId] : undefined));
 
-    // Fetch flow runs when task becomes active
     useEffect(() => {
-        if (!taskId) return;
-        void useFlowStore.getState().fetchFlowRuns(taskId);
+        if (!taskId) {
+            setFlowRunsHydratedTaskId(null);
+            return;
+        }
+
+        let cancelled = false;
+        setFlowRunsHydratedTaskId(null);
+        void useFlowStore
+            .getState()
+            .fetchFlowRuns(taskId)
+            .then(() => {
+                if (!cancelled) {
+                    setFlowRunsHydratedTaskId(taskId);
+                }
+            })
+            .catch(() => {
+                // Keep the start control hidden until we can confirm the current task state.
+            });
+
+        return () => {
+            cancelled = true;
+        };
     }, [taskId]);
+
+    const flowRunsReady = taskId === undefined || flowRunsHydratedTaskId === taskId;
 
     const worktreePending =
         workspace.scope === "task" &&
@@ -330,6 +352,7 @@ export function Workspace() {
                 task={workspace.task ?? undefined}
                 project={workspace.project}
                 onDiff={workspace.scope === "project" || isWorktreeTask ? handleDiffTab : undefined}
+                flowRunsReady={flowRunsReady}
             />
             {activeFlowRun && taskId && <FlowPanel taskId={taskId} />}
             {worktreePending ? (
