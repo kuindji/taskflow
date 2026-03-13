@@ -34,6 +34,8 @@ describe("api routes", () => {
                 events.push(event);
             },
             settingsStore: new SettingsStore(join(tempDir, "settings.json")),
+            flowStore: {} as never,
+            flowRunner: {} as never,
         });
     });
 
@@ -106,6 +108,8 @@ describe("settings routes", () => {
             ptyManager: new FakePtyManager() as never,
             broadcast: () => {},
             settingsStore,
+            flowStore: {} as never,
+            flowRunner: {} as never,
         });
     });
 

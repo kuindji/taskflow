@@ -2,6 +2,8 @@ import type { ApiRouter } from "./router";
 import type { TaskStore } from "../services/task-store";
 import type { PtyManager } from "../services/pty-manager";
 import type { SettingsStore } from "../services/settings-store";
+import type { FlowStore } from "../services/flow-store";
+import type { FlowRunner } from "../services/flow-runner";
 import type {
     SessionStatus,
     Task,
@@ -17,6 +19,8 @@ interface ApiRouteDeps {
     ptyManager: PtyManager;
     broadcast: (event: WsEvent) => void;
     settingsStore: SettingsStore;
+    flowStore: FlowStore;
+    flowRunner: FlowRunner;
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -31,7 +35,8 @@ function errorResponse(message: string, status: number): Response {
 }
 
 export function registerApiRoutes(deps: ApiRouteDeps): void {
-    const { apiRouter, taskStore, ptyManager, broadcast, settingsStore } = deps;
+    const { apiRouter, taskStore, ptyManager, broadcast, settingsStore, flowStore, flowRunner } =
+        deps;
     const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention"]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
@@ -240,5 +245,76 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
         return jsonResponse(await settingsStore.update(body));
+    });
+
+    // --- Flow step completion ---
+
+    apiRouter.register("POST", "/api/flow/step-complete", async (req) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const { taskId, flowId, sessionId } = body;
+        if (typeof taskId !== "string" || typeof flowId !== "string" || typeof sessionId !== "string") {
+            return errorResponse("Fields taskId, flowId, and sessionId are required strings", 400);
+        }
+
+        try {
+            await flowRunner.handleStepComplete(taskId, flowId, sessionId);
+            return jsonResponse({ success: true });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, 500);
+        }
+    });
+
+    // --- Flow artifacts ---
+
+    apiRouter.register("POST", "/api/flow/artifact", async (req) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const { taskId, flowId, stepEntryId, type, path, text } = body;
+        if (
+            typeof taskId !== "string" ||
+            typeof flowId !== "string" ||
+            typeof stepEntryId !== "string" ||
+            typeof type !== "string"
+        ) {
+            return errorResponse("Fields taskId, flowId, stepEntryId, and type are required strings", 400);
+        }
+
+        try {
+            await flowRunner.saveArtifact(taskId, flowId, stepEntryId, {
+                type,
+                path: typeof path === "string" ? path : undefined,
+                text: typeof text === "string" ? text : undefined,
+            });
+            return jsonResponse({ success: true });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, 500);
+        }
+    });
+
+    apiRouter.register("GET", "/api/flow/artifact/:taskId/:flowId", async (_req, params) => {
+        const run = await flowStore.getFlowRun(params.taskId, params.flowId);
+        if (!run) return errorResponse("Flow run not found", 404);
+        return jsonResponse({ artifacts: flowRunner.getArtifacts(run) });
+    });
+
+    apiRouter.register("GET", "/api/flow/artifact/:taskId/:flowId/:type", async (_req, params) => {
+        const run = await flowStore.getFlowRun(params.taskId, params.flowId);
+        if (!run) return errorResponse("Flow run not found", 404);
+        const artifacts = flowRunner.getArtifacts(run, params.type);
+        if (artifacts.length === 0) return errorResponse("Artifact not found", 404);
+        return jsonResponse(artifacts[0]);
     });
 }
