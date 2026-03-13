@@ -6,4 +6,5 @@ export interface Project {
     path: string;
     sessions: SessionRef[];
     createdAt: string;
+    locationValid?: boolean;
 }
