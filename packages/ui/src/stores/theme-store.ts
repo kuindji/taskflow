@@ -3,6 +3,7 @@ import { MSG, DEFAULT_THEME_ID, bundledThemes, deriveTheme } from "@taskflow/sha
 import type {
     OnlineThemeRecord,
     ResolvedTheme,
+    ThemeBrowseListResponse,
     ThemeDownloadResponse,
     ThemeImportResponse,
     ThemeImportScanResponse,
@@ -29,11 +30,14 @@ interface ThemeStore {
     resolved: ResolvedTheme;
     scannedApps: TerminalAppScanResult[];
     scanning: boolean;
+    onlineThemes: OnlineThemeRecord[];
+    browsingOnline: boolean;
     fetchThemes(options?: { preferredThemeId?: string }): Promise<void>;
     activateTheme(themeId: string): Promise<void>;
     importTheme(theme: ThemeSource): Promise<void>;
     importThemeFile(path: string): Promise<void>;
     scanTerminalApps(): Promise<void>;
+    fetchOnlineThemes(): Promise<void>;
     downloadOnlineTheme(theme: OnlineThemeRecord): Promise<void>;
     deleteTheme(themeId: string): Promise<void>;
 }
@@ -66,6 +70,8 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     resolved: defaultResolved,
     scannedApps: [],
     scanning: false,
+    onlineThemes: [],
+    browsingOnline: false,
 
     async fetchThemes(options) {
         try {
@@ -131,6 +137,16 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
             set({ scannedApps: apps, scanning: false });
         } catch {
             set({ scanning: false });
+        }
+    },
+
+    async fetchOnlineThemes() {
+        set({ browsingOnline: true });
+        try {
+            const { themes } = await sendRequest<ThemeBrowseListResponse>(MSG.THEME_BROWSE_LIST);
+            set({ onlineThemes: themes, browsingOnline: false });
+        } catch {
+            set({ browsingOnline: false });
         }
     },
 
