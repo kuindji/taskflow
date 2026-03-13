@@ -18,7 +18,14 @@ Use taskflow-cli proactively:
 - Log types: info (findings/progress), commit (commits), warning (concerns), error (failures).
 - Open a browser tab: \`taskflow-cli browser "https://..." --label "Optional"\`
 - Open a project-scoped browser tab: \`taskflow-cli browser "https://..." --label "Optional" --project\`
-Session status is app-controlled, so do not post manual session status updates.`;
+Session status is app-controlled, so do not post manual session status updates.
+
+When running as a flow step (TASKFLOW_FLOW_ID is set):
+- Signal step completion: \`taskflow-cli step complete\`
+- Save a file artifact: \`taskflow-cli artifact save <type> --path <path>\`
+- Save a text artifact: \`taskflow-cli artifact save <type> --text <text>\`
+- List all artifacts: \`taskflow-cli artifact list\`
+- Get artifact by type: \`taskflow-cli artifact get <type>\``;
 
 const INTERNAL_AGENT_SKILL_MARKDOWN = `---
 name: taskflow-internal-api
@@ -63,6 +70,28 @@ taskflow-cli browser "https://example.com" --project
 \`\`\`
 
 Use \`--project\` for project-scoped tabs, otherwise tabs are task-scoped.
+
+## Flow commands (available when TASKFLOW_FLOW_ID is set)
+
+Signal that this step is done (the next step starts automatically):
+
+\`\`\`
+taskflow-cli step complete
+\`\`\`
+
+Save artifacts for use by subsequent steps:
+
+\`\`\`
+taskflow-cli artifact save plan --path docs/plan.md
+taskflow-cli artifact save summary --text "Brief summary here"
+\`\`\`
+
+Read artifacts from prior steps:
+
+\`\`\`
+taskflow-cli artifact list
+taskflow-cli artifact get plan
+\`\`\`
 `;
 
 const CLI_SCRIPT = `#!/bin/sh
@@ -163,6 +192,81 @@ case "$cmd" in
     fi
     ;;
 
+  step)
+    if [ "\${1:-}" = "complete" ]; then
+      if [ -z "$TASKFLOW_FLOW_ID" ]; then
+        echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow step)" >&2
+        exit 1
+      fi
+      curl -sf -X POST "$TASKFLOW_API_URL/api/flow/step-complete" \\
+        -H "Content-Type: application/json" \\
+        -d "{\\"taskId\\":\\"$TASKFLOW_TASK_ID\\",\\"flowId\\":\\"$TASKFLOW_FLOW_ID\\",\\"sessionId\\":\\"$TASKFLOW_SESSION_ID\\"}"
+    else
+      echo "Usage: taskflow-cli step complete" >&2
+      exit 1
+    fi
+    ;;
+
+  artifact)
+    if [ -z "$TASKFLOW_FLOW_ID" ]; then
+      echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow step)" >&2
+      exit 1
+    fi
+    subcmd="\${1:-}"
+    shift 2>/dev/null || true
+    case "$subcmd" in
+      save)
+        artifact_type="\${1:-}"
+        if [ -z "$artifact_type" ]; then
+          echo "Usage: taskflow-cli artifact save <type> --path <path> | --text <text>" >&2
+          exit 1
+        fi
+        shift
+        artifact_path=""
+        artifact_text=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --path) artifact_path="\${2:-}"; shift 2 ;;
+            --text) artifact_text="\${2:-}"; shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        if [ -n "$artifact_path" ] && [ -n "$artifact_text" ]; then
+          echo "Use either --path or --text, not both" >&2
+          exit 1
+        fi
+        if [ -z "$artifact_path" ] && [ -z "$artifact_text" ]; then
+          echo "Either --path or --text is required" >&2
+          exit 1
+        fi
+        if [ -n "$artifact_path" ]; then
+          curl -sf -X POST "$TASKFLOW_API_URL/api/flow/artifact" \\
+            -H "Content-Type: application/json" \\
+            -d "{\\"taskId\\":\\"$TASKFLOW_TASK_ID\\",\\"flowId\\":\\"$TASKFLOW_FLOW_ID\\",\\"stepEntryId\\":\\"$TASKFLOW_STEP_ENTRY_ID\\",\\"type\\":\\"$artifact_type\\",\\"path\\":\\"$artifact_path\\"}"
+        else
+          curl -sf -X POST "$TASKFLOW_API_URL/api/flow/artifact" \\
+            -H "Content-Type: application/json" \\
+            -d "{\\"taskId\\":\\"$TASKFLOW_TASK_ID\\",\\"flowId\\":\\"$TASKFLOW_FLOW_ID\\",\\"stepEntryId\\":\\"$TASKFLOW_STEP_ENTRY_ID\\",\\"type\\":\\"$artifact_type\\",\\"text\\":\\"$artifact_text\\"}"
+        fi
+        ;;
+      list)
+        curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$TASKFLOW_TASK_ID/$TASKFLOW_FLOW_ID"
+        ;;
+      get)
+        artifact_type="\${1:-}"
+        if [ -z "$artifact_type" ]; then
+          echo "Usage: taskflow-cli artifact get <type>" >&2
+          exit 1
+        fi
+        curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$TASKFLOW_TASK_ID/$TASKFLOW_FLOW_ID/$artifact_type"
+        ;;
+      *)
+        echo "Usage: taskflow-cli artifact <save|list|get>" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+
   *)
     echo "Usage: taskflow-cli <command>" >&2
     echo "" >&2
@@ -170,6 +274,8 @@ case "$cmd" in
     echo "  task                              Get task context and log" >&2
     echo "  log <type> <message> [--hash h]   Log to task (info|commit|warning|error)" >&2
     echo "  browser <url> [--label l] [--project]  Open a browser tab" >&2
+    echo "  step complete                     Signal flow step completion" >&2
+    echo "  artifact <save|list|get>          Manage flow artifacts" >&2
     exit 1
     ;;
 esac
