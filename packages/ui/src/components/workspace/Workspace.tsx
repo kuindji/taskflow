@@ -11,8 +11,10 @@ import { sendRequest } from "@/hooks/useWebSocket";
 import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
+import { FlowPanel } from "@/components/flows/FlowPanel";
 import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { resolveTerminalShellPath } from "@/lib/terminal-shells";
+import { useFlowStore } from "@/stores/flow-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import useIsElectron from "@/hooks/useIsElectron";
 import {
@@ -55,6 +57,14 @@ export function Workspace() {
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
     const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
+    const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
+    const activeFlowRun = useFlowStore((s) => (taskId ? s.activeRuns[taskId] : undefined));
+
+    // Fetch flow runs when task becomes active
+    useEffect(() => {
+        if (!taskId) return;
+        void useFlowStore.getState().fetchFlowRuns(taskId);
+    }, [taskId]);
 
     const worktreePending =
         workspace.scope === "task" &&
@@ -321,6 +331,7 @@ export function Workspace() {
                 project={workspace.project}
                 onDiff={workspace.scope === "project" || isWorktreeTask ? handleDiffTab : undefined}
             />
+            {activeFlowRun && taskId && <FlowPanel taskId={taskId} />}
             {worktreePending ? (
                 <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-sm">
                     <Loader2 className="h-5 w-5 animate-spin" />

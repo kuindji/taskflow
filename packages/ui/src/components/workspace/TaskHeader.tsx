@@ -4,9 +4,17 @@ import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
+import { useFlowStore } from "@/stores/flow-store";
 import { useDiffStore } from "@/stores/diff-store";
 import { confirm } from "@/stores/dialog-store";
 import { TruncatedText } from "@/components/ui/truncated-text";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
 import {
@@ -15,6 +23,9 @@ import {
     GitCommitHorizontal,
     Pencil,
     Trash2,
+    Workflow,
+    ChevronDown,
+    Loader2,
     PanelLeftClose,
     PanelLeftOpen,
     PanelRightClose,
@@ -37,6 +48,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const updateProject = useProjectStore((s) => s.updateProject);
     const removeProject = useProjectStore((s) => s.removeProject);
+    const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
+    const flowDefinitions = useFlowStore((s) => s.flows);
+    const activeFlowRun = useFlowStore((s) => (task ? s.activeRuns[task.id] : undefined));
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
     const [commitOpen, setCommitOpen] = useState(false);
@@ -69,6 +83,14 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
             onConfirm: () => archiveTask(task.id),
         });
     }, [archiveTask, task]);
+
+    const handleStartFlow = useCallback(
+        (flowId: string) => {
+            if (!task) return;
+            void useFlowStore.getState().startFlow(task.id, flowId);
+        },
+        [task],
+    );
 
     const handleDelete = useCallback(() => {
         if (task) {
@@ -141,6 +163,44 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
             ) : (
                 <div className="flex min-h-6 items-center gap-1.5">
                     <span className="text-muted-foreground text-sm ml-2">No task selected</span>
+                </div>
+            )}
+            {task && !activeFlowRun && flowDefinitions.length > 0 && (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            className="[-webkit-app-region:no-drag]"
+                        >
+                            <Workflow className="h-3 w-3" />
+                            <span className="text-xs">Flow</span>
+                            <ChevronDown className="h-3 w-3" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                        {flowDefinitions.map((f) => (
+                            <DropdownMenuItem
+                                key={f.id}
+                                onClick={() => handleStartFlow(f.id)}
+                            >
+                                {f.name}
+                            </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={toggleFlowManagement}>
+                            Manage Flows...
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            )}
+            {task && activeFlowRun && (
+                <div className="flex items-center gap-1.5 px-1 text-xs [-webkit-app-region:no-drag]">
+                    <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
+                    <span className="text-muted-foreground">
+                        {flowDefinitions.find((f) => f.id === activeFlowRun.flowId)?.name ??
+                            "Flow"}
+                    </span>
                 </div>
             )}
             <div className="flex-1" />

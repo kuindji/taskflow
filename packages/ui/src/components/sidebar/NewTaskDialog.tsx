@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import type { AgentLaunchOptions } from "@taskflow/shared";
+import type { AgentLaunchOptions, FlowDefinition } from "@taskflow/shared";
 import type { Project } from "@taskflow/shared";
 import {
     Dialog,
@@ -26,6 +26,7 @@ interface NewTaskDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     projects: Project[];
+    flows: FlowDefinition[];
     defaultProjectId?: string;
     onSubmit: (data: {
         projectId: string;
@@ -34,6 +35,7 @@ interface NewTaskDialogProps {
         worktree: boolean;
         startWith?: "claude" | "codex";
         agentOptions?: AgentLaunchOptions;
+        startWithFlowId?: string;
     }) => void;
 }
 
@@ -41,6 +43,7 @@ export function NewTaskDialog({
     open,
     onOpenChange,
     projects,
+    flows,
     defaultProjectId,
     onSubmit,
 }: NewTaskDialogProps) {
@@ -50,6 +53,7 @@ export function NewTaskDialog({
     const [worktree, setWorktree] = useState(false);
     const [startWith, setStartWith] = useState("none");
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
+    const [startWithFlowId, setStartWithFlowId] = useState("");
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
     const resetForm = useCallback(() => {
@@ -58,11 +62,13 @@ export function NewTaskDialog({
         setWorktree(false);
         setStartWith("none");
         setAgentOptions(undefined);
+        setStartWithFlowId("");
     }, []);
 
     const handleStartWithChange = useCallback((value: string) => {
         setStartWith(value);
-        if (value === "none") setAgentOptions(undefined);
+        if (value !== "claude" && value !== "codex") setAgentOptions(undefined);
+        if (value !== "flow") setStartWithFlowId("");
     }, []);
 
     const handleOpenChange = useCallback(
@@ -85,6 +91,7 @@ export function NewTaskDialog({
             worktree,
             startWith: startWith === "claude" || startWith === "codex" ? startWith : undefined,
             agentOptions,
+            startWithFlowId: startWith === "flow" && startWithFlowId ? startWithFlowId : undefined,
         });
         resetForm();
         onOpenChange(false);
@@ -96,6 +103,7 @@ export function NewTaskDialog({
         worktree,
         startWith,
         agentOptions,
+        startWithFlowId,
         onSubmit,
         resetForm,
         onOpenChange,
@@ -195,9 +203,30 @@ export function NewTaskDialog({
                                 <SelectItem value="none">Don't start</SelectItem>
                                 <SelectItem value="claude">Claude Code</SelectItem>
                                 <SelectItem value="codex">Codex</SelectItem>
+                                {flows.length > 0 && (
+                                    <SelectItem value="flow">Flow</SelectItem>
+                                )}
                             </SelectContent>
                         </Select>
                     </div>
+
+                    {startWith === "flow" && flows.length > 0 && (
+                        <div className="flex flex-col gap-1.5">
+                            <Label htmlFor="new-task-flow">Flow</Label>
+                            <Select value={startWithFlowId} onValueChange={setStartWithFlowId}>
+                                <SelectTrigger id="new-task-flow" className="w-full">
+                                    <SelectValue placeholder="Select a flow" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {flows.map((f) => (
+                                        <SelectItem key={f.id} value={f.id}>
+                                            {f.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
 
                     {(startWith === "claude" || startWith === "codex") && (
                         <div className="border-border rounded-md border p-1">

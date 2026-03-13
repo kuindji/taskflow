@@ -5,6 +5,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useUIStore } from "@/stores/ui-store";
+import { useFlowStore } from "@/stores/flow-store";
 import { useDiffStore } from "@/stores/diff-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
@@ -42,6 +43,8 @@ export function TaskSidebar() {
         void fetchProjects();
         void fetchTasks();
         void fetchSettings();
+        void useFlowStore.getState().fetchFlows();
+        void useFlowStore.getState().fetchSteps();
     }, [connected, fetchProjects, fetchTasks, fetchSettings]);
 
     useEffect(() => {
