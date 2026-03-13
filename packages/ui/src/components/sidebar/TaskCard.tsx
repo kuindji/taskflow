@@ -108,7 +108,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                 onClick={onClick}
                 className={cn(
                     cardClasses,
-                    "group relative [-webkit-app-region:no-drag]",
+                    "group relative min-w-0 overflow-hidden [-webkit-app-region:no-drag]",
                     compact && "py-1.5",
                 )}
             >
@@ -128,14 +128,16 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                     </div>
                 )}
                 {(task.sessions.length > 0 || task.worktree.enabled) && (
-                    <div className="mt-1.5 flex gap-1.5">
+                    <div className="mt-1.5 flex min-w-0 gap-1.5">
                         {task.worktree.enabled && (
                             <Badge
                                 variant="outline"
-                                className="text-muted-foreground px-1 py-0 text-xs"
+                                className="text-muted-foreground max-w-full truncate px-1 py-0 text-xs"
                             >
-                                <GitBranch className="mr-0.5 h-3 w-3" />
-                                {task.worktree.branch ?? "pending"}
+                                <GitBranch className="mr-0.5 h-3 w-3 shrink-0" />
+                                <span className="truncate">
+                                    {task.worktree.branch ?? "pending"}
+                                </span>
                             </Badge>
                         )}
                         {task.sessions.map((session) => (
