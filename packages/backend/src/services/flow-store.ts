@@ -9,6 +9,10 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 function assertValidFlowDefinition(flow: FlowDefinition): void {
+    if (flow.steps.length === 0) {
+        throw new Error(`Flow "${flow.id}" must define at least one step`);
+    }
+
     for (const entry of flow.steps) {
         const hasStepId = entry.stepId !== undefined;
         const hasInline = entry.inline !== undefined;

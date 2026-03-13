@@ -27,16 +27,27 @@ interface FlowRunnerDeps {
     getTaskDescription: (taskId: string) => Promise<string>;
 }
 
+interface SessionFlowMapping {
+    taskId: string;
+    flowId: string;
+    stepEntryId: string;
+    sessionType: SessionType;
+}
+
 class FlowRunner {
     private deps: FlowRunnerDeps;
-    // Maps sessionId → { taskId, flowId } for exit handling
-    private sessionFlowMap = new Map<string, { taskId: string; flowId: string }>();
+    // Maps sessionId → flow metadata for exit handling
+    private sessionFlowMap = new Map<string, SessionFlowMapping>();
 
     constructor(deps: FlowRunnerDeps) {
         this.deps = deps;
     }
 
     async startFlow(taskId: string, flow: FlowDefinition): Promise<FlowRun> {
+        if (flow.steps.length === 0) {
+            throw new Error(`Flow "${flow.id}" must define at least one step`);
+        }
+
         const existingRuns = await this.deps.flowStore.getFlowRunsForTask(taskId);
         const activeRun = existingRuns.find(
             (r) => r.status === "running" || r.status === "paused",
@@ -72,7 +83,7 @@ class FlowRunner {
         await this.deps.flowStore.saveFlowRun(run);
         this.broadcastUpdate(run);
 
-        await this.launchStep(taskId, flow, run, 0);
+        await this.launchStepWithRecovery(taskId, flow, run, 0);
         return run;
     }
 
@@ -103,6 +114,7 @@ class FlowRunner {
             if (currentStep.sessionId) {
                 this.deps.closeSession(currentStep.sessionId);
                 this.sessionFlowMap.delete(currentStep.sessionId);
+                currentStep.sessionId = undefined;
             }
             currentStep.status = "skipped";
             currentStep.completedAt = new Date().toISOString();
@@ -123,21 +135,28 @@ class FlowRunner {
             throw new Error(`Invalid step index: ${targetIndex}`);
         }
 
-        const currentStep = run.steps[run.currentStepIndex];
+        const currentStepIndex = run.currentStepIndex;
+        const currentStep = run.steps[currentStepIndex];
         if (currentStep?.sessionId) {
             this.deps.closeSession(currentStep.sessionId);
             this.sessionFlowMap.delete(currentStep.sessionId);
+            currentStep.sessionId = undefined;
         }
 
-        // Forward jump — skip intermediate steps
-        if (targetIndex > run.currentStepIndex) {
-            for (let i = run.currentStepIndex; i < targetIndex; i++) {
+        for (let i = targetIndex; i < run.steps.length; i++) {
+            this.resetStepState(run.steps[i]);
+        }
+
+        if (targetIndex > currentStepIndex) {
+            const skippedAt = new Date().toISOString();
+            for (let i = currentStepIndex; i < targetIndex; i++) {
                 if (
                     run.steps[i].status === "running" ||
                     run.steps[i].status === "pending"
                 ) {
                     run.steps[i].status = "skipped";
-                    run.steps[i].completedAt = new Date().toISOString();
+                    run.steps[i].completedAt = skippedAt;
+                    run.steps[i].sessionId = undefined;
                 }
             }
         }
@@ -145,25 +164,31 @@ class FlowRunner {
         run.currentStepIndex = targetIndex;
         run.steps[targetIndex].status = "running";
         run.steps[targetIndex].startedAt = new Date().toISOString();
-        run.steps[targetIndex].completedAt = undefined;
-        run.steps[targetIndex].sessionId = undefined;
+
+        const resetStepEntryIds = new Set(
+            run.steps.slice(targetIndex).map((step) => step.stepEntryId),
+        );
         run.artifacts = run.artifacts.filter(
-            (artifact) => artifact.stepEntryId !== run.steps[targetIndex].stepEntryId,
+            (artifact) => !resetStepEntryIds.has(artifact.stepEntryId),
         );
         run.status = "running";
 
         await this.deps.flowStore.saveFlowRun(run);
         this.broadcastUpdate(run);
 
-        const flow = await this.resolveFlowDefinition(flowId);
-        if (flow) {
-            await this.launchStep(taskId, flow, run, targetIndex);
-        }
+        await this.launchPersistedStepWithRecovery(taskId, flowId, run, targetIndex);
     }
 
     async pauseFlow(taskId: string, flowId: string): Promise<void> {
         const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
         if (!run || run.status !== "running") return;
+
+        const currentStep = run.steps[run.currentStepIndex];
+        if (currentStep?.sessionId) {
+            this.deps.closeSession(currentStep.sessionId);
+            this.sessionFlowMap.delete(currentStep.sessionId);
+            currentStep.sessionId = undefined;
+        }
 
         run.status = "paused";
         await this.deps.flowStore.saveFlowRun(run);
@@ -186,10 +211,12 @@ class FlowRunner {
         await this.deps.flowStore.saveFlowRun(run);
         this.broadcastUpdate(run);
 
-        const flow = await this.resolveFlowDefinition(flowId);
-        if (flow) {
-            await this.launchStep(run.taskId, flow, run, run.currentStepIndex);
-        }
+        await this.launchPersistedStepWithRecovery(
+            run.taskId,
+            flowId,
+            run,
+            run.currentStepIndex,
+        );
     }
 
     async stopFlow(taskId: string, flowId: string): Promise<void> {
@@ -202,7 +229,7 @@ class FlowRunner {
         const mapping = this.sessionFlowMap.get(sessionId);
         if (!mapping) return;
 
-        const { taskId, flowId } = mapping;
+        const { taskId, flowId, sessionType } = mapping;
         const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
         if (!run) return;
 
@@ -214,11 +241,6 @@ class FlowRunner {
             this.sessionFlowMap.delete(sessionId);
             return;
         }
-
-        // Resolve step to check session type
-        const flow = await this.resolveFlowDefinition(flowId);
-        const stepEntry = flow?.steps[run.currentStepIndex];
-        const sessionType = this.getSessionType(stepEntry);
 
         if (sessionType === "shell" && exitCode === 0) {
             // Shell steps auto-complete on clean exit
@@ -278,6 +300,7 @@ class FlowRunner {
         if (currentStep?.sessionId) {
             this.deps.closeSession(currentStep.sessionId);
             this.sessionFlowMap.delete(currentStep.sessionId);
+            currentStep.sessionId = undefined;
         }
         if (currentStep?.status === "running") {
             currentStep.status = "failed";
@@ -306,10 +329,7 @@ class FlowRunner {
         await this.deps.flowStore.saveFlowRun(run);
         this.broadcastUpdate(run);
 
-        const flow = await this.resolveFlowDefinition(run.flowId);
-        if (flow) {
-            await this.launchStep(run.taskId, flow, run, nextIndex);
-        }
+        await this.launchPersistedStepWithRecovery(run.taskId, run.flowId, run, nextIndex);
     }
 
     private async launchStep(
@@ -339,9 +359,43 @@ class FlowRunner {
             stepEntryId: stepEntry.id,
         });
 
-        this.sessionFlowMap.set(sessionId, { taskId, flowId: flow.id });
+        this.sessionFlowMap.set(sessionId, {
+            taskId,
+            flowId: flow.id,
+            stepEntryId: stepEntry.id,
+            sessionType: resolved.sessionType,
+        });
         run.steps[stepIndex].sessionId = sessionId;
         await this.deps.flowStore.saveFlowRun(run);
+    }
+
+    private async launchStepWithRecovery(
+        taskId: string,
+        flow: FlowDefinition,
+        run: FlowRun,
+        stepIndex: number,
+    ): Promise<void> {
+        try {
+            await this.launchStep(taskId, flow, run, stepIndex);
+        } catch (error) {
+            await this.markStepLaunchFailed(run, stepIndex);
+            throw error;
+        }
+    }
+
+    private async launchPersistedStepWithRecovery(
+        taskId: string,
+        flowId: string,
+        run: FlowRun,
+        stepIndex: number,
+    ): Promise<void> {
+        try {
+            const flow = await this.requireFlowDefinition(flowId);
+            await this.launchStep(taskId, flow, run, stepIndex);
+        } catch (error) {
+            await this.markStepLaunchFailed(run, stepIndex);
+            throw error;
+        }
     }
 
     private async resolveStep(entry: FlowStepEntry): Promise<{
@@ -362,20 +416,41 @@ class FlowRunner {
         throw new Error(`FlowStepEntry has neither stepId nor inline: ${entry.id}`);
     }
 
-    private getSessionType(stepEntry?: FlowStepEntry): SessionType | undefined {
-        if (!stepEntry) return undefined;
-        if (stepEntry.inline) return stepEntry.inline.sessionType;
-        // For referenced steps we'd need an async lookup, but the caller
-        // already resolved the flow so we can check inline directly.
-        // Referenced steps are resolved during launchStep.
-        return undefined;
-    }
-
     private async resolveFlowDefinition(
         flowId: string,
     ): Promise<FlowDefinition | null> {
         const flows = await this.deps.flowStore.getFlows();
         return flows.find((f) => f.id === flowId) ?? null;
+    }
+
+    private async requireFlowDefinition(flowId: string): Promise<FlowDefinition> {
+        const flow = await this.resolveFlowDefinition(flowId);
+        if (!flow) {
+            throw new Error(`Flow definition not found: ${flowId}`);
+        }
+        return flow;
+    }
+
+    private async markStepLaunchFailed(
+        run: FlowRun,
+        stepIndex: number,
+    ): Promise<void> {
+        const step = run.steps[stepIndex];
+        if (step) {
+            step.status = "failed";
+            step.completedAt = new Date().toISOString();
+            step.sessionId = undefined;
+        }
+        run.status = "paused";
+        await this.deps.flowStore.saveFlowRun(run);
+        this.broadcastUpdate(run);
+    }
+
+    private resetStepState(step: FlowRun["steps"][number]): void {
+        step.status = "pending";
+        step.sessionId = undefined;
+        step.startedAt = undefined;
+        step.completedAt = undefined;
     }
 
     private buildStepPrompt(

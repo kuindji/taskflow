@@ -152,7 +152,16 @@ describe("flow definitions", () => {
             id: "flow-1",
             name: "Feature Dev",
             description: "test",
-            steps: [],
+            steps: [
+                {
+                    id: "entry-1",
+                    inline: {
+                        name: "Plan",
+                        prompt: "Plan it",
+                        sessionType: "claude" as const,
+                    },
+                },
+            ],
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
@@ -186,6 +195,19 @@ describe("flow definitions", () => {
         await expect(store.saveFlow(invalidFlow as never)).rejects.toThrow(
             'Flow step "entry-1" must define exactly one of stepId or inline',
         );
+    });
+
+    test("saveFlow rejects flows without steps", async () => {
+        await expect(
+            store.saveFlow({
+                id: "flow-1",
+                name: "Feature Dev",
+                description: "test",
+                steps: [],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            }),
+        ).rejects.toThrow('Flow "flow-1" must define at least one step');
     });
 
     test("getFlows rethrows malformed JSON", async () => {

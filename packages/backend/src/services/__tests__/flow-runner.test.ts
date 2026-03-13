@@ -10,11 +10,12 @@ function createMockFlowStore(): FlowStore {
     return {
         getFlows: mock(async () => flows),
         getSteps: mock(async () => steps),
-        getFlowRun: mock(async (taskId: string, flowId: string) =>
-            runs.get(`${taskId}--${flowId}`) ?? null,
-        ),
+        getFlowRun: mock(async (taskId: string, flowId: string) => {
+            const run = runs.get(`${taskId}--${flowId}`);
+            return run ? structuredClone(run) : null;
+        }),
         saveFlowRun: mock(async (run: FlowRun) => {
-            runs.set(`${run.taskId}--${run.flowId}`, run);
+            runs.set(`${run.taskId}--${run.flowId}`, structuredClone(run));
         }),
         deleteFlowRun: mock(async (taskId: string, flowId: string) => {
             runs.delete(`${taskId}--${flowId}`);
@@ -22,7 +23,7 @@ function createMockFlowStore(): FlowStore {
         getFlowRunsForTask: mock(async (taskId: string) => {
             const result: FlowRun[] = [];
             for (const [key, run] of runs) {
-                if (key.startsWith(`${taskId}--`)) result.push(run);
+                if (key.startsWith(`${taskId}--`)) result.push(structuredClone(run));
             }
             return result;
         }),
@@ -48,6 +49,7 @@ let flowStore: FlowStore;
 let spawnedSessions: Array<{ sessionId: string; taskId: string; prompt: string }>;
 let broadcasts: Array<{ type: string; payload: unknown }>;
 let closedSessions: string[];
+let spawnError: Error | null;
 let runner: FlowRunner;
 
 const testFlow: FlowDefinition = {
@@ -73,6 +75,7 @@ beforeEach(async () => {
     spawnedSessions = [];
     broadcasts = [];
     closedSessions = [];
+    spawnError = null;
 
     // Seed the flow definition so resolveFlowDefinition can find it
     await flowStore.saveFlow(testFlow);
@@ -80,6 +83,9 @@ beforeEach(async () => {
     runner = new FlowRunner({
         flowStore,
         spawnSession: async (opts) => {
+            if (spawnError) {
+                throw spawnError;
+            }
             const sessionId = `session-${spawnedSessions.length + 1}`;
             spawnedSessions.push({ sessionId, taskId: opts.taskId, prompt: opts.prompt });
             return sessionId;
@@ -106,6 +112,28 @@ describe("startFlow", () => {
     test("rejects if a flow is already running on the task", async () => {
         await runner.startFlow("task-1", testFlow);
         await expect(runner.startFlow("task-1", testFlow)).rejects.toThrow();
+    });
+
+    test("rejects empty flows", async () => {
+        await expect(
+            runner.startFlow("task-1", {
+                ...testFlow,
+                id: "empty-flow",
+                steps: [],
+            }),
+        ).rejects.toThrow('Flow "empty-flow" must define at least one step');
+    });
+
+    test("pauses and marks the step failed if session launch fails", async () => {
+        spawnError = new Error("spawn failed");
+
+        await expect(runner.startFlow("task-1", testFlow)).rejects.toThrow("spawn failed");
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run).not.toBeNull();
+        expect(run!.status).toBe("paused");
+        expect(run!.steps[0].status).toBe("failed");
+        expect(run!.steps[0].sessionId).toBeUndefined();
     });
 });
 
@@ -140,12 +168,47 @@ describe("skipStep", () => {
     });
 });
 
+describe("jumpToStep", () => {
+    test("restarts the target step and clears later step state when jumping backward", async () => {
+        await runner.startFlow("task-1", testFlow);
+        await runner.handleStepComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
+
+        await runner.jumpToStep("task-1", "flow-1", 0);
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run!.currentStepIndex).toBe(0);
+        expect(run!.steps.filter((step) => step.status === "running")).toHaveLength(1);
+        expect(run!.steps[0].status).toBe("running");
+        expect(run!.steps[0].sessionId).toBe("session-3");
+        expect(run!.steps[1].status).toBe("pending");
+        expect(run!.steps[1].sessionId).toBeUndefined();
+        expect(closedSessions).toEqual(["session-2"]);
+    });
+});
+
 describe("pauseFlow", () => {
-    test("sets flow status to paused", async () => {
+    test("closes the active session and pauses the flow", async () => {
         await runner.startFlow("task-1", testFlow);
         await runner.pauseFlow("task-1", "flow-1");
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run!.status).toBe("paused");
+        expect(run!.steps[0].sessionId).toBeUndefined();
+        expect(closedSessions).toEqual(["session-1"]);
+    });
+});
+
+describe("resumeFlow", () => {
+    test("restarts the paused step with a new session", async () => {
+        await runner.startFlow("task-1", testFlow);
+        await runner.pauseFlow("task-1", "flow-1");
+
+        await runner.resumeFlow("task-1", "flow-1");
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run!.status).toBe("running");
+        expect(run!.steps[0].sessionId).toBe("session-2");
+        expect(spawnedSessions).toHaveLength(2);
+        expect(closedSessions).toEqual(["session-1"]);
     });
 });
 
@@ -190,5 +253,36 @@ describe("handleSessionExit", () => {
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run!.steps[0].status).toBe("completed");
         expect(spawnedSessions).toHaveLength(2); // Advanced to next
+    });
+
+    test("referenced shell step auto-completes on exit code 0", async () => {
+        await flowStore.saveStep({
+            id: "step-shell",
+            name: "Lint",
+            prompt: "bun run lint",
+            sessionType: "shell",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        });
+        const shellFlow: FlowDefinition = {
+            ...testFlow,
+            steps: [
+                { id: "entry-1", stepId: "step-shell" },
+                {
+                    id: "entry-2",
+                    inline: { name: "Review", prompt: "Review", sessionType: "claude" },
+                },
+            ],
+        };
+        await flowStore.saveFlow(shellFlow);
+        await runner.startFlow("task-1", shellFlow);
+
+        await runner.handleSessionExit(spawnedSessions[0].sessionId, 0);
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run!.steps[0].status).toBe("completed");
+        expect(run!.currentStepIndex).toBe(1);
+        expect(run!.steps[1].status).toBe("running");
+        expect(spawnedSessions).toHaveLength(2);
     });
 });
