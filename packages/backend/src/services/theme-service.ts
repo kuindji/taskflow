@@ -1,8 +1,27 @@
 import { readdir, readFile, writeFile, unlink, access } from "fs/promises";
-import { isAbsolute, join, relative, resolve } from "path";
+import { isAbsolute, join, relative, resolve, extname } from "path";
 import { bundledThemes } from "@taskflow/shared";
 import type { ThemeRecord, ThemeSource, AnsiColors } from "@taskflow/shared";
 import { slugify } from "../utils/slugify";
+import {
+    detectAlacritty,
+    parseAlacritty,
+    parseAlacrittyToml,
+    detectGhostty,
+    parseGhostty,
+    parseGhosttyConfig,
+    detectKitty,
+    parseKitty,
+    parseKittyConfig,
+    detectWarp,
+    parseWarp,
+    parseWarpYaml,
+    detectIterm2,
+    parseIterm2,
+    parseIterm2Xml,
+    detectTerminalApp,
+    parseTerminalApp,
+} from "./theme-parsers";
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const THEME_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -146,6 +165,86 @@ export class ThemeService {
         } catch {
             // File doesn't exist — no-op
         }
+    }
+
+    async detectTerminalApps(): Promise<Array<{ app: string; themes: ThemeSource[] }>> {
+        const detectors: Array<{ app: string; detect: () => Promise<boolean>; parse: () => Promise<ThemeSource[]> }> = [
+            { app: "Alacritty", detect: detectAlacritty, parse: parseAlacritty },
+            { app: "Ghostty", detect: detectGhostty, parse: parseGhostty },
+            { app: "Kitty", detect: detectKitty, parse: parseKitty },
+            { app: "Warp", detect: detectWarp, parse: parseWarp },
+            { app: "iTerm2", detect: detectIterm2, parse: parseIterm2 },
+            { app: "Terminal.app", detect: detectTerminalApp, parse: parseTerminalApp },
+        ];
+
+        const results: Array<{ app: string; themes: ThemeSource[] }> = [];
+
+        for (const { app, detect, parse } of detectors) {
+            try {
+                const detected = await detect();
+                if (detected) {
+                    const themes = await parse();
+                    if (themes.length > 0) {
+                        results.push({ app, themes });
+                    }
+                }
+            } catch {
+                // Skip failed detectors
+            }
+        }
+
+        return results;
+    }
+
+    async importFromFile(filePath: string): Promise<ThemeRecord> {
+        const content = await readFile(filePath, "utf-8");
+        const ext = extname(filePath).toLowerCase();
+        const baseName = filePath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "Imported Theme";
+
+        let theme: ThemeSource | null = null;
+
+        if (ext === ".toml") {
+            theme = parseAlacrittyToml(content, baseName);
+        } else if (ext === ".yaml" || ext === ".yml") {
+            theme = parseWarpYaml(content, baseName);
+        } else if (ext === ".json") {
+            try {
+                const parsed: unknown = JSON.parse(content);
+                if (typeof parsed === "object" && parsed !== null && "colors" in parsed) {
+                    // Looks like a ThemeSource
+                    const obj = parsed as Record<string, unknown>;
+                    theme = {
+                        version: 1,
+                        name: typeof obj.name === "string" ? obj.name : baseName,
+                        origin: "imported",
+                        colors: obj.colors,
+                    } as ThemeSource;
+                }
+            } catch {
+                // Invalid JSON
+            }
+        } else if (ext === ".plist" || ext === ".terminal") {
+            theme = parseIterm2Xml(content, baseName);
+        } else if (ext === ".conf" || ext === "") {
+            // Try Kitty format first, then Ghostty
+            theme = parseKittyConfig(content, baseName) ?? parseGhosttyConfig(content, baseName);
+        }
+
+        if (!theme) {
+            // Try all parsers as fallback
+            theme =
+                parseAlacrittyToml(content, baseName) ??
+                parseWarpYaml(content, baseName) ??
+                parseKittyConfig(content, baseName) ??
+                parseGhosttyConfig(content, baseName) ??
+                parseIterm2Xml(content, baseName);
+        }
+
+        if (!theme) {
+            throw new Error("Could not parse theme file. Unsupported format.");
+        }
+
+        return this.save(theme);
     }
 
     idFor(name: string): string {

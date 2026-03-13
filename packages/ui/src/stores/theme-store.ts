@@ -5,6 +5,7 @@ import type {
     ResolvedTheme,
     ThemeDownloadResponse,
     ThemeImportResponse,
+    ThemeImportScanResponse,
     ThemeListResponse,
     ThemeRecord,
     ThemeSource,
@@ -17,14 +18,22 @@ import { useSettingsStore } from "./settings-store";
 const defaultRecord = bundledThemes.find((t) => t.id === DEFAULT_THEME_ID) ?? bundledThemes[0];
 const defaultResolved = deriveTheme(defaultRecord.source);
 
+interface TerminalAppScanResult {
+    app: string;
+    themes: ThemeSource[];
+}
+
 interface ThemeStore {
     themes: ThemeRecord[];
     activeThemeId: string;
     resolved: ResolvedTheme;
+    scannedApps: TerminalAppScanResult[];
+    scanning: boolean;
     fetchThemes(options?: { preferredThemeId?: string }): Promise<void>;
     activateTheme(themeId: string): Promise<void>;
     importTheme(theme: ThemeSource): Promise<void>;
     importThemeFile(path: string): Promise<void>;
+    scanTerminalApps(): Promise<void>;
     downloadOnlineTheme(theme: OnlineThemeRecord): Promise<void>;
     deleteTheme(themeId: string): Promise<void>;
 }
@@ -55,6 +64,8 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     themes: bundledThemes,
     activeThemeId: defaultRecord.id,
     resolved: defaultResolved,
+    scannedApps: [],
+    scanning: false,
 
     async fetchThemes(options) {
         try {
@@ -111,6 +122,16 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     async importThemeFile(path: string) {
         const response = await sendRequest<ThemeImportResponse>(MSG.THEME_IMPORT_FILE, { path });
         applyImportResponse(set, response);
+    },
+
+    async scanTerminalApps() {
+        set({ scanning: true });
+        try {
+            const { apps } = await sendRequest<ThemeImportScanResponse>(MSG.THEME_IMPORT_SCAN);
+            set({ scannedApps: apps, scanning: false });
+        } catch {
+            set({ scanning: false });
+        }
     },
 
     async downloadOnlineTheme(theme) {

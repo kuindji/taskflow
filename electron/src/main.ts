@@ -500,3 +500,14 @@ ipcMain.handle("select-project-directory", async () => {
     if (result.canceled) return null;
     return result.filePaths[0] ?? null;
 });
+ipcMain.handle("select-theme-file", async () => {
+    const result = await dialog.showOpenDialog({
+        properties: ["openFile"],
+        filters: [
+            { name: "Theme Files", extensions: ["json", "toml", "yaml", "yml", "conf", "plist", "terminal"] },
+            { name: "All Files", extensions: ["*"] },
+        ],
+    });
+    if (result.canceled) return null;
+    return result.filePaths[0] ?? null;
+});

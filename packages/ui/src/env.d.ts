@@ -3,6 +3,7 @@
 interface TaskflowBridge {
     getBackendPort(): Promise<number>;
     selectProjectDirectory(): Promise<string | null>;
+    selectThemeFile(): Promise<string | null>;
     openExternalUrl(url: string): Promise<void>;
     openExternalFile(
         filePath: string,

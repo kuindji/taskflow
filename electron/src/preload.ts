@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("taskflow", {
     getBackendPort: () => ipcRenderer.invoke("get-backend-port"),
     selectProjectDirectory: () => ipcRenderer.invoke("select-project-directory"),
+    selectThemeFile: () => ipcRenderer.invoke("select-theme-file"),
     openExternalUrl: (url: string) => ipcRenderer.invoke("open-external-url", url),
     openExternalFile: (filePath: string, opts?: { line?: number; col?: number; editor?: string }) =>
         ipcRenderer.invoke("open-external-file", filePath, opts),

@@ -4,6 +4,8 @@ import type {
     ThemeSource,
     ThemeImportResponse,
     ThemeImportPayload,
+    ThemeImportFilePayload,
+    ThemeImportScanResponse,
     ThemeListResponse,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
@@ -22,6 +24,21 @@ export function registerThemeHandlers(router: Router, themeService: ThemeService
         return { themes, importedThemeId: record.id } satisfies ThemeImportResponse;
     });
 
+    router.register(MSG.THEME_IMPORT_SCAN, async () => {
+        const apps = await themeService.detectTerminalApps();
+        return { apps } satisfies ThemeImportScanResponse;
+    });
+
+    router.register(MSG.THEME_IMPORT_FILE, async (payload) => {
+        const path = (payload as ThemeImportFilePayload | null | undefined)?.path;
+        if (typeof path !== "string") {
+            throw new Error("Invalid file path");
+        }
+        const record = await themeService.importFromFile(path);
+        const themes = await themeService.listAll();
+        return { themes, importedThemeId: record.id } satisfies ThemeImportResponse;
+    });
+
     router.register(MSG.THEME_DELETE, async (payload) => {
         const id = (payload as ThemeDeletePayload | null | undefined)?.id;
         if (typeof id !== "string") {
@@ -32,6 +49,5 @@ export function registerThemeHandlers(router: Router, themeService: ThemeService
         return { themes } satisfies ThemeListResponse;
     });
 
-    // NOTE: THEME_BROWSE_LIST and THEME_DOWNLOAD handlers are registered in Chunk 6
-    // after the Alacritty parser is available from Chunk 5.
+    // NOTE: THEME_BROWSE_LIST and THEME_DOWNLOAD handlers are registered in Chunk 6.
 }
