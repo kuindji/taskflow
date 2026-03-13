@@ -1,6 +1,7 @@
 import { MSG } from "@taskflow/shared";
 import type {
     ThemeDeletePayload,
+    ThemeSource,
     ThemeImportResponse,
     ThemeImportPayload,
     ThemeListResponse,
@@ -15,14 +16,17 @@ export function registerThemeHandlers(router: Router, themeService: ThemeService
     });
 
     router.register(MSG.THEME_IMPORT, async (payload) => {
-        const { theme } = payload as ThemeImportPayload;
-        const record = await themeService.save(theme);
+        const theme = (payload as ThemeImportPayload | null | undefined)?.theme;
+        const record = await themeService.save(theme as ThemeSource);
         const themes = await themeService.listAll();
         return { themes, importedThemeId: record.id } satisfies ThemeImportResponse;
     });
 
     router.register(MSG.THEME_DELETE, async (payload) => {
-        const { id } = payload as ThemeDeletePayload;
+        const id = (payload as ThemeDeletePayload | null | undefined)?.id;
+        if (typeof id !== "string") {
+            throw new Error("Invalid theme id");
+        }
         await themeService.delete(id);
         const themes = await themeService.listAll();
         return { themes } satisfies ThemeListResponse;

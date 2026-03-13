@@ -1,10 +1,12 @@
 import { readdir, readFile, writeFile, unlink, access } from "fs/promises";
-import { join, resolve } from "path";
+import { isAbsolute, join, relative, resolve } from "path";
 import { bundledThemes } from "@taskflow/shared";
 import type { ThemeRecord, ThemeSource, AnsiColors } from "@taskflow/shared";
 import { slugify } from "../utils/slugify";
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+const THEME_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+type PathApi = Pick<typeof import("path"), "resolve" | "relative" | "isAbsolute">;
 
 const ANSI_KEYS: readonly (keyof AnsiColors)[] = [
     "black",
@@ -38,6 +40,29 @@ const COLOR_FIELDS = [
 
 function isValidHex(value: unknown): value is string {
     return typeof value === "string" && HEX_COLOR_RE.test(value);
+}
+
+function assertValidThemeId(id: unknown): string {
+    if (typeof id !== "string" || !THEME_ID_RE.test(id)) {
+        throw new Error("Invalid theme id");
+    }
+
+    return id;
+}
+
+export function isPathInsideDirectory(
+    rootDir: string,
+    filePath: string,
+    pathApi: PathApi = { resolve, relative, isAbsolute },
+): boolean {
+    const relativePath = pathApi.relative(
+        pathApi.resolve(rootDir),
+        pathApi.resolve(filePath),
+    );
+    return (
+        relativePath === "" ||
+        (!relativePath.startsWith("..") && !pathApi.isAbsolute(relativePath))
+    );
 }
 
 function isValidThemeSource(data: unknown): data is ThemeSource {
@@ -94,7 +119,14 @@ export class ThemeService {
         preferredId?: string,
         options?: { overwriteExisting?: boolean },
     ): Promise<ThemeRecord> {
-        const baseId = preferredId ?? slugify(theme.name);
+        if (!isValidThemeSource(theme)) {
+            throw new Error("Invalid theme source");
+        }
+
+        const baseId =
+            preferredId === undefined
+                ? this.idFor(theme.name)
+                : assertValidThemeId(preferredId);
         const overwrite = options?.overwriteExisting ?? false;
 
         const id = await this.resolveId(baseId, overwrite);
@@ -117,14 +149,18 @@ export class ThemeService {
     }
 
     idFor(name: string): string {
-        return slugify(name);
+        return slugify(name) || "theme";
     }
 
     private safePath(id: string): string {
-        const filePath = resolve(this.themesDir, `${id}.json`);
-        if (!filePath.startsWith(resolve(this.themesDir) + "/")) {
+        const normalizedId = assertValidThemeId(id);
+        const themesRoot = resolve(this.themesDir);
+        const filePath = resolve(themesRoot, `${normalizedId}.json`);
+
+        if (!isPathInsideDirectory(themesRoot, filePath)) {
             throw new Error("Invalid theme id");
         }
+
         return filePath;
     }
 
@@ -154,12 +190,12 @@ export class ThemeService {
                 return candidate;
             }
         }
-        throw new Error(`Could not resolve a unique id for "${baseId}"`)
+        throw new Error(`Could not resolve a unique id for "${baseId}"`);
     }
 
     private async userThemeExists(id: string): Promise<boolean> {
         try {
-            await access(join(this.themesDir, `${id}.json`));
+            await access(this.safePath(id));
             return true;
         } catch {
             return false;

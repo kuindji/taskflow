@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm, writeFile, readFile } from "fs/promises";
 import { join } from "path";
+import { win32 } from "path";
 import { tmpdir } from "os";
 import type { ThemeSource } from "@taskflow/shared";
 import { bundledThemes } from "@taskflow/shared";
-import { ThemeService } from "../../src/services/theme-service";
+import { isPathInsideDirectory, ThemeService } from "../../src/services/theme-service";
 
 function makeValidSource(overrides: Partial<ThemeSource> = {}): ThemeSource {
     return {
@@ -203,6 +204,21 @@ describe("ThemeService", () => {
             const record2 = await service.save(source2, "shared-id");
             expect(record2.id).toBe("shared-id-2");
         });
+
+        it("rejects invalid theme payloads before writing", async () => {
+            await expect(service.save({ name: "Bad Payload" } as ThemeSource)).rejects.toThrow(
+                "Invalid theme source",
+            );
+        });
+
+        it("falls back to a usable ID when the slug would be empty", async () => {
+            const source = makeValidSource({ name: "東京" });
+            const record = await service.save(source);
+
+            expect(record.id).toBe("theme");
+            const themes = await service.listAll();
+            expect(themes.find((t) => t.id === "theme")?.source.name).toBe("東京");
+        });
     });
 
     describe("delete", () => {
@@ -239,6 +255,32 @@ describe("ThemeService", () => {
         it("converts name to slug ID", () => {
             expect(service.idFor("My Cool Theme")).toBe("my-cool-theme");
             expect(service.idFor("  Spaces  ")).toBe("spaces");
+        });
+
+        it("falls back when the slug would be empty", () => {
+            expect(service.idFor("東京")).toBe("theme");
+        });
+    });
+
+    describe("isPathInsideDirectory", () => {
+        it("accepts valid Windows child paths", () => {
+            expect(
+                isPathInsideDirectory(
+                    win32.resolve("C:/Users/me/AppData/Roaming/taskflow/themes"),
+                    win32.resolve("C:/Users/me/AppData/Roaming/taskflow/themes/dracula.json"),
+                    win32,
+                ),
+            ).toBe(true);
+        });
+
+        it("rejects Windows traversal paths", () => {
+            expect(
+                isPathInsideDirectory(
+                    win32.resolve("C:/Users/me/AppData/Roaming/taskflow/themes"),
+                    win32.resolve("C:/Users/me/AppData/Roaming/taskflow/etc/passwd.json"),
+                    win32,
+                ),
+            ).toBe(false);
         });
     });
 });
