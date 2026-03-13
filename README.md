@@ -2,6 +2,8 @@
 
 A desktop application for orchestrating AI coding agents. Taskflow gives you a single workspace to launch, manage, and switch between Claude Code and Codex CLI sessions -- with just enough context around them (files, diffs, notes) to stay oriented without leaving the app.
 
+**Not a harness.** Taskflow does not inject extensive context, prompts, or orchestration logic into the agents it runs. It provides basic task information and flow control, but the agents operate with their own capabilities -- Taskflow is a workspace around them, not a layer on top.
+
 ## What it does
 
 Taskflow organizes your work into **projects** and **tasks**. Each task can have multiple agent sessions (Claude Code, Codex, or plain shell) running in terminal tabs. Around those sessions, it provides lightweight supporting tools -- a file browser, a diff viewer, basic editing, and git status -- so you can see what your agents are doing without constantly switching to a separate terminal or editor.
