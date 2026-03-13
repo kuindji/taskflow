@@ -1,5 +1,5 @@
 import type { FileNode, FileChangeEvent } from "@taskflow/shared";
-import { readdir, stat } from "fs/promises";
+import { readdir, readFile, stat } from "fs/promises";
 import { join, basename } from "path";
 
 const IGNORED = new Set(["node_modules", ".git", ".worktrees", "dist", ".next", ".superpowers"]);
@@ -16,14 +16,22 @@ interface PollingWatcher {
     scanning: boolean;
 }
 
+interface BuildTreeResult {
+    tree: FileNode;
+    gitignorePatterns: string[];
+}
+
 export class FileWatcher {
     private watchers = new Map<string, PollingWatcher>();
 
-    async buildTree(dirPath: string, depth = 0): Promise<FileNode> {
+    async buildTree(dirPath: string, depth = 0): Promise<BuildTreeResult> {
         const name = basename(dirPath);
         const children: FileNode[] = [];
         const node: FileNode = { name, path: dirPath, type: "directory", children };
-        if (depth > 10) return node;
+
+        let gitignorePatterns: string[] = [];
+
+        if (depth > 10) return { tree: node, gitignorePatterns };
 
         try {
             const entries = await readdir(dirPath, { withFileTypes: true });
@@ -32,7 +40,8 @@ export class FileWatcher {
 
                 const fullPath = join(dirPath, entry.name);
                 if (entry.isDirectory()) {
-                    children.push(await this.buildTree(fullPath, depth + 1));
+                    const { tree: childTree } = await this.buildTree(fullPath, depth + 1);
+                    children.push(childTree);
                 } else {
                     children.push({ name: entry.name, path: fullPath, type: "file" });
                 }
@@ -45,7 +54,16 @@ export class FileWatcher {
             /* permission denied */
         }
 
-        return node;
+        if (depth === 0) {
+            try {
+                const content = await readFile(join(dirPath, ".gitignore"), "utf-8");
+                gitignorePatterns = content.split("\n");
+            } catch {
+                // No .gitignore — return empty patterns
+            }
+        }
+
+        return { tree: node, gitignorePatterns };
     }
 
     private async snapshotPath(
