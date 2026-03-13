@@ -1,15 +1,19 @@
 import { useEffect, useMemo } from "react";
+import type { FileNode } from "@taskflow/shared";
+import ignore from "ignore";
 import { useFileStore } from "@/stores/file-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import useIsElectron from "@/hooks/useIsElectron";
 import { FileTree } from "./FileTree";
 
 function FileExplorer() {
     const {
         tree,
         treePath,
+        gitignorePatterns,
         gitStatus,
         gitStatusPath,
         fetchTree,
@@ -21,6 +25,7 @@ function FileExplorer() {
     const workspace = useActiveWorkspace();
     const { addTab, getTabs, setActiveTab } = useSessionStore();
     const workingDir = workspace.workingDir;
+    const isElectron = useIsElectron();
 
     const expandToPath = useFileStore((s) => s.expandToPath);
     const setExpandToPath = useFileStore((s) => s.setExpandToPath);
@@ -72,6 +77,36 @@ function FileExplorer() {
         return map;
     }, [gitStatus, gitStatusPath, workingDir]);
 
+    const ignoredFiles = useMemo(() => {
+        if (!workingDir || !tree || treePath !== workingDir || gitignorePatterns.length === 0) {
+            return new Set<string>();
+        }
+
+        const ig = ignore().add(gitignorePatterns);
+        const result = new Set<string>();
+        const prefix = workingDir + "/";
+
+        function walk(node: FileNode) {
+            if (node.path !== workingDir) {
+                const relative = node.path.startsWith(prefix)
+                    ? node.path.slice(prefix.length)
+                    : null;
+                if (relative && ig.ignores(relative)) {
+                    result.add(node.path);
+                    return; // children of ignored dirs are implicitly ignored
+                }
+            }
+            if (node.children) {
+                for (const child of node.children) {
+                    walk(child);
+                }
+            }
+        }
+
+        walk(tree);
+        return result;
+    }, [workingDir, tree, treePath, gitignorePatterns]);
+
     const handleFileClick = (path: string) => {
         if (!workspace.workspaceKey) return;
 
@@ -93,17 +128,20 @@ function FileExplorer() {
 
     return (
         <div className="flex h-full flex-col">
-            <div className="flex items-center px-1.5 py-1.5">
-                <span className="text-muted-foreground flex h-6 items-center text-xs font-medium">
+            <div
+                className={`flex items-center px-1.5 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
+            >
+                <span className="text-muted-foreground flex h-6 items-center text-xs font-medium ml-2">
                     Files
                 </span>
             </div>
             <Separator />
-            <ScrollArea className="flex-1 py-1">
+            <ScrollArea className="flex-1 py-1 [&_[data-slot=scroll-area-viewport]>div]:!block">
                 {tree && treePath === workingDir ? (
                     <FileTree
                         node={tree}
                         gitFiles={gitFiles}
+                        ignoredFiles={ignoredFiles}
                         onFileClick={handleFileClick}
                         expandedPaths={expandedPaths}
                         rootPath={workingDir ?? ""}
