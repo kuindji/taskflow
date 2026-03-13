@@ -41,7 +41,8 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
                         onDelete();
                     }}
                     onKeyDown={(e) => {
-                        if (e.key === "Enter") {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
                             e.stopPropagation();
                             onDelete();
                         }
@@ -54,6 +55,7 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
             <div
                 className="mb-2 flex h-16 items-end gap-0.5 rounded-md p-2"
                 style={{ backgroundColor: colors.background }}
+                aria-hidden="true"
             >
                 <span
                     className="truncate font-mono text-xs"

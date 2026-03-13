@@ -20,25 +20,32 @@ function ThemeGrid() {
         <div className="flex flex-col gap-3">
             <Input
                 placeholder="Search themes..."
+                aria-label="Search themes"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-8"
             />
-            <div className="grid grid-cols-3 gap-3">
-                {filtered.map((theme) => (
-                    <ThemeCard
-                        key={theme.id}
-                        theme={theme}
-                        isActive={theme.id === activeThemeId}
-                        onClick={() => void activateTheme(theme.id)}
-                        onDelete={
-                            theme.source.origin !== "bundled"
-                                ? () => void deleteTheme(theme.id)
-                                : undefined
-                        }
-                    />
-                ))}
-            </div>
+            {filtered.length === 0 ? (
+                <p className="text-muted-foreground py-6 text-center text-sm">
+                    No themes match your search.
+                </p>
+            ) : (
+                <div className="grid grid-cols-3 gap-3">
+                    {filtered.map((theme) => (
+                        <ThemeCard
+                            key={theme.id}
+                            theme={theme}
+                            isActive={theme.id === activeThemeId}
+                            onClick={() => void activateTheme(theme.id)}
+                            onDelete={
+                                theme.source.origin !== "bundled"
+                                    ? () => void deleteTheme(theme.id)
+                                    : undefined
+                            }
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
