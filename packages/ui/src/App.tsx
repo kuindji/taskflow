@@ -7,6 +7,7 @@ import "@/lib/monaco-theme"; // Ensure module-level defineTheme runs
 import { AppShell } from "@/components/AppShell";
 import { DialogHost } from "@/components/DialogHost";
 import { SettingsModal } from "@/components/settings/SettingsModal";
+import { AppearanceDialog } from "@/components/appearance/AppearanceDialog";
 import { TaskCreationDialogHost } from "@/components/sidebar/TaskCreationDialogHost";
 import { TaskSidebar } from "@/components/sidebar/TaskSidebar";
 import { FileExplorer } from "@/components/panels/FileExplorer";
@@ -50,6 +51,7 @@ export function App() {
                 <ConnectionOverlay />
                 <DialogHost />
                 <SettingsModal />
+                <AppearanceDialog />
                 <TaskCreationDialogHost />
                 <TooltipProvider>
                     <AppShell

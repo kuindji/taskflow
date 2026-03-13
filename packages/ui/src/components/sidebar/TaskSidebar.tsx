@@ -11,7 +11,7 @@ import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
-import { Plus, Settings2 } from "lucide-react";
+import { Palette, Plus, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -32,6 +32,7 @@ export function TaskSidebar() {
         (s) => s.settings?.layout?.panels?.compactSidebar ?? false,
     );
     const toggleSettings = useUIStore((s) => s.toggleSettings);
+    const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const fetchThemes = useThemeStore((s) => s.fetchThemes);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
@@ -231,6 +232,17 @@ export function TaskSidebar() {
             </ScrollArea>
             <Separator />
             <div className="flex items-center justify-end px-1.5 py-1.5">
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={toggleAppearance}
+                    aria-label="Appearance"
+                    tooltip="Appearance"
+                    tooltipSide="bottom"
+                    className="text-muted-foreground [-webkit-app-region:no-drag]"
+                >
+                    <Palette className="h-3.5 w-3.5" />
+                </Button>
                 <Button
                     variant="ghost"
                     size="icon-xs"
