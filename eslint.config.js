@@ -14,6 +14,7 @@ export default tseslint.config(
             "**/*.js",
             "!eslint.config.js",
             "**/vite.config.ts",
+            "**/.worktrees/",
         ],
     },
 

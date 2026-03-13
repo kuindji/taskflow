@@ -51,10 +51,23 @@ export function TaskSidebar() {
         syncWithProjects(projects);
     }, [projects, syncWithProjects]);
 
+    const diffTargets = useMemo(() => {
+        const targets: Array<{ id: string; path: string }> = projects.map((p) => ({
+            id: p.id,
+            path: p.path,
+        }));
+        for (const task of tasks) {
+            if (task.worktree.enabled && task.worktree.path) {
+                targets.push({ id: task.id, path: task.worktree.path });
+            }
+        }
+        return targets;
+    }, [projects, tasks]);
+
     useEffect(() => {
-        if (!connected || projects.length === 0) return;
-        return startPolling(projects);
-    }, [connected, startPolling, projects]);
+        if (!connected || diffTargets.length === 0) return;
+        return startPolling(diffTargets);
+    }, [connected, startPolling, diffTargets]);
 
     useEffect(() => {
         const cleanup = window.taskflow?.onToggleArchive(() => {
@@ -166,7 +179,7 @@ export function TaskSidebar() {
                     )}
                 </div>
             </div>
-            <ScrollArea className="flex-1 py-1 [&_[data-slot=scroll-area-viewport]]:!overflow-x-hidden [&_[data-slot=scroll-area-viewport]]:!overflow-y-auto">
+            <ScrollArea className="flex-1 py-1 [&_[data-slot=scroll-area-viewport]]:!overflow-x-hidden [&_[data-slot=scroll-area-viewport]]:!overflow-y-auto [&_[data-slot=scroll-area-viewport]>div]:!block">
                 {!showArchive && projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>

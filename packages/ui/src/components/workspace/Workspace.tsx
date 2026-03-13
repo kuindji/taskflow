@@ -137,9 +137,17 @@ export function Workspace() {
 
     const hasScripts = useMemo(() => Object.keys(scripts).length > 0, [scripts]);
 
+    const isWorktreeTask =
+        workspace.scope === "task" &&
+        workspace.task?.worktree.enabled &&
+        !!workspace.task.worktree.path;
+
     const visibleTabs = useMemo(
-        () => (workspace.scope === "task" ? tabs.filter((tab) => tab.type !== "changes") : tabs),
-        [tabs, workspace.scope],
+        () =>
+            workspace.scope === "task" && !isWorktreeTask
+                ? tabs.filter((tab) => tab.type !== "changes")
+                : tabs,
+        [tabs, workspace.scope, isWorktreeTask],
     );
 
     const activeTab = visibleTabs.find((t) => t.id === activeTabId) ?? visibleTabs[0];
@@ -311,7 +319,7 @@ export function Workspace() {
             <TaskHeader
                 task={workspace.task ?? undefined}
                 project={workspace.project}
-                onDiff={workspace.scope === "project" ? handleDiffTab : undefined}
+                onDiff={workspace.scope === "project" || isWorktreeTask ? handleDiffTab : undefined}
             />
             {worktreePending ? (
                 <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-sm">

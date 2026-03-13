@@ -1,12 +1,12 @@
 import { useState, useCallback } from "react";
 import type { Task, Project } from "@taskflow/shared";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useDiffStore } from "@/stores/diff-store";
 import { confirm } from "@/stores/dialog-store";
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
 import {
@@ -40,15 +40,17 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
     const [commitOpen, setCommitOpen] = useState(false);
+    const isWorktreeTask = !!task?.worktree.enabled && !!task.worktree.path;
+    const diffKey = isWorktreeTask ? task.id : project?.id;
     const diffStats = useDiffStore((s) =>
-        project ? (s.statsByProject[project.id] ?? null) : null,
+        diffKey ? (s.statsByProject[diffKey] ?? null) : null,
     );
     const commitDisabled = useDiffStore((s) =>
-        project ? (s.commitDisabledByProject[project.id] ?? true) : true,
+        diffKey ? (s.commitDisabledByProject[diffKey] ?? true) : true,
     );
 
-    const showDiffButton = !task && !!project && !!onDiff;
-    const showCommitButton = !task && !!project;
+    const showDiffButton = !!onDiff && ((!task && !!project) || isWorktreeTask);
+    const showCommitButton = (!task && !!project) || isWorktreeTask;
 
     const handleRename = useCallback(
         (name: string) => {
@@ -109,20 +111,26 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             <PanelLeftOpen className="h-4 w-4" />
                         )}
                     </Button>
-                    <span className="text-foreground text-sm font-semibold">
-                        {task?.title ?? project?.name}
-                    </span>
-                    {task && project && (
-                        <span className="text-muted-foreground text-sm">{project.name}</span>
-                    )}
-                    {task?.worktree?.branch && (
-                        <Badge
-                            variant="outline"
-                            className="px-2 py-0.5 text-xs [-webkit-app-region:no-drag]"
-                        >
-                            {task.worktree.branch}
-                        </Badge>
-                    )}
+                    <div className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden">
+                        <TruncatedText tooltip className="text-foreground shrink text-sm font-semibold">
+                            {task?.title ?? project?.name}
+                        </TruncatedText>
+                        {task && project && (
+                            <TruncatedText className="text-muted-foreground shrink-[2] text-sm">
+                                {project.name}
+                            </TruncatedText>
+                        )}
+                        {task?.worktree?.branch && (
+                            <TruncatedText
+                                as="div"
+                                tooltip
+                                className="border-border shrink-[3] rounded-md border px-2 py-0.5 text-xs [-webkit-app-region:no-drag]"
+                                tooltipContent={task.worktree.branch}
+                            >
+                                {task.worktree.branch}
+                            </TruncatedText>
+                        )}
+                    </div>
                 </>
             ) : (
                 <div className="flex min-h-6 items-center gap-1.5">
@@ -221,8 +229,13 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                     onSubmit={handleRename}
                 />
             )}
-            {project && (
-                <CommitDialog open={commitOpen} onOpenChange={setCommitOpen} project={project} />
+            {showCommitButton && (
+                <CommitDialog
+                    open={commitOpen}
+                    onOpenChange={setCommitOpen}
+                    repoPath={isWorktreeTask ? (task.worktree.path ?? "") : (project?.path ?? "")}
+                    sessionOwner={isWorktreeTask ? { taskId: task.id } : { projectId: project?.id ?? "" }}
+                />
             )}
         </div>
     );

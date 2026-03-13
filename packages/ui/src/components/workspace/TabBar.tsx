@@ -345,48 +345,6 @@ export function TabBar({
                     >
                         <Terminal className="h-3.5 w-3.5" />
                     </Button>
-                    {shells.length > 1 && (
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    aria-label="Choose terminal shell"
-                                    tooltip="Choose terminal shell"
-                                >
-                                    <ChevronDown className="h-3.5 w-3.5" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start">
-                                <DropdownMenuItem
-                                    disabled={!defaultShellPath}
-                                    onClick={() => {
-                                        if (defaultShellPath) onNewTab("shell", defaultShellPath);
-                                    }}
-                                >
-                                    <Terminal className="mr-2 h-4 w-4" />
-                                    Default Terminal
-                                    <span className="text-muted-foreground ml-auto text-xs">
-                                        {configuredShell === DEFAULT_TERMINAL_SHELL
-                                            ? getShellNameFromPath(
-                                                  defaultShellPath ?? systemShellPath ?? "",
-                                              )
-                                            : defaultShellSummary}
-                                    </span>
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                {shells.map((shell) => (
-                                    <DropdownMenuItem
-                                        key={shell.path}
-                                        onClick={() => onNewTab("shell", shell.path)}
-                                    >
-                                        <Terminal className="mr-2 h-4 w-4" />
-                                        {getShellDisplayName(shell)}
-                                    </DropdownMenuItem>
-                                ))}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    )}
                 </>
             )}
             <Button
@@ -398,6 +356,48 @@ export function TabBar({
             >
                 <Globe className="h-3.5 w-3.5" />
             </Button>
+            {shells.length > 1 && (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Choose terminal shell"
+                            tooltip="Choose terminal shell"
+                        >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                        <DropdownMenuItem
+                            disabled={!defaultShellPath}
+                            onClick={() => {
+                                if (defaultShellPath) onNewTab("shell", defaultShellPath);
+                            }}
+                        >
+                            <Terminal className="mr-2 h-4 w-4" />
+                            Default Terminal
+                            <span className="text-muted-foreground ml-auto text-xs">
+                                {configuredShell === DEFAULT_TERMINAL_SHELL
+                                    ? getShellNameFromPath(
+                                          defaultShellPath ?? systemShellPath ?? "",
+                                      )
+                                    : defaultShellSummary}
+                            </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        {shells.map((shell) => (
+                            <DropdownMenuItem
+                                key={shell.path}
+                                onClick={() => onNewTab("shell", shell.path)}
+                            >
+                                <Terminal className="mr-2 h-4 w-4" />
+                                {getShellDisplayName(shell)}
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            )}
             {tabs.map((tab) => (
                 <TabItem
                     key={tab.id}

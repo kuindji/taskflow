@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import type { Project, GitStatusResult } from "@taskflow/shared";
+import type { GitStatusResult } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { useSessionStore } from "@/stores/session-store";
@@ -15,13 +15,16 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
+type SessionOwner = { projectId: string } | { taskId: string };
+
 interface CommitDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    project: Project;
+    repoPath: string;
+    sessionOwner: SessionOwner;
 }
 
-export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps) {
+export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: CommitDialogProps) {
     const [message, setMessage] = useState("");
     const [useAgent, setUseAgent] = useState(false);
     const [push, setPush] = useState(false);
@@ -53,7 +56,7 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
     // Fetch git status when dialog opens to determine mode
     useEffect(() => {
         if (!open) return;
-        sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: project.path }).then(
+        sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: repoPath }).then(
             (res) => {
                 const changed = res.status.files.length > 0;
                 setHasChanges(changed);
@@ -62,7 +65,7 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
             },
             () => setHasChanges(true), // Assume changes on error
         );
-    }, [open, project.path]);
+    }, [open, repoPath]);
 
     const handlePushChange = useCallback((checked: boolean) => {
         setPush(checked);
@@ -78,15 +81,15 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
         try {
             if (pushOnly) {
                 // Push-only mode
-                await sendRequest(MSG.GIT_PUSH, { path: project.path });
+                await sendRequest(MSG.GIT_PUSH, { path: repoPath });
                 if (createPr) {
                     // Use current branch name or a generic title
                     const status = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, {
-                        path: project.path,
+                        path: repoPath,
                     });
                     const branchName = status.status.branch ?? "update";
                     await sendRequest<{ url: string }>(MSG.GIT_CREATE_PR, {
-                        path: project.path,
+                        path: repoPath,
                         title: branchName,
                     });
                 }
@@ -109,9 +112,9 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
                 const prompt = parts.join(" ");
 
                 try {
-                    await createSession({ projectId: project.id }, "claude", "Commit", prompt);
+                    await createSession(sessionOwner, "claude", "Commit", prompt);
                 } catch {
-                    await createSession({ projectId: project.id }, "codex", "Commit", prompt);
+                    await createSession(sessionOwner, "codex", "Commit", prompt);
                 }
                 handleOpenChange(false);
                 return;
@@ -122,19 +125,19 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
 
             if (!commitMessage) {
                 const result = await sendRequest<{ message: string }>(MSG.GIT_GENERATE_COMMIT_MSG, {
-                    path: project.path,
+                    path: repoPath,
                 });
                 commitMessage = result.message;
             }
 
             const commitResult = await sendRequest<{ hash: string; message: string }>(
                 MSG.GIT_COMMIT,
-                { path: project.path, message: commitMessage, push },
+                { path: repoPath, message: commitMessage, push },
             );
 
             if (createPr) {
                 await sendRequest<{ url: string }>(MSG.GIT_CREATE_PR, {
-                    path: project.path,
+                    path: repoPath,
                     title: commitResult.message,
                 });
             }
@@ -145,7 +148,7 @@ export function CommitDialog({ open, onOpenChange, project }: CommitDialogProps)
         } finally {
             setLoading(false);
         }
-    }, [message, useAgent, push, pushOnly, createPr, project, createSession, handleOpenChange]);
+    }, [message, useAgent, push, pushOnly, createPr, repoPath, sessionOwner, createSession, handleOpenChange]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {

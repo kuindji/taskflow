@@ -8,7 +8,7 @@ interface DiffStats {
     deletions: number;
 }
 
-interface ProjectRef {
+interface DiffTarget {
     id: string;
     path: string;
 }
@@ -17,9 +17,9 @@ interface DiffStore {
     statsByProject: Record<string, DiffStats | null>;
     commitDisabledByProject: Record<string, boolean>;
     fetchDiff(projectId: string, path: string): Promise<void>;
-    fetchAllDiffs(projects: ProjectRef[]): void;
+    fetchAllDiffs(projects: DiffTarget[]): void;
     clearStaleProjects(projectIds: string[]): void;
-    startPolling(projects: ProjectRef[]): () => void;
+    startPolling(projects: DiffTarget[]): () => void;
 }
 
 function isWithinProjectPath(filePath: string, projectPath: string): boolean {

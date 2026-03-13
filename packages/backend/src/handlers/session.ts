@@ -6,6 +6,7 @@ import type {
     SessionInputPayload,
     SessionHistoryPayload,
     TerminalResizePayload,
+    SessionRef,
     WsEvent,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
@@ -194,7 +195,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     router.register(MSG.SESSION_RENAME, async (payload) => {
         const { sessionId, label } = payload as SessionRenamePayload;
 
-        const updateLabel = (sessions: { id: string; label: string }[]) =>
+        const updateLabel = (sessions: SessionRef[]) =>
             sessions.map((s) => (s.id === sessionId ? { ...s, label } : s));
 
         const tasks = await taskStore.listTasks();

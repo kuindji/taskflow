@@ -7,6 +7,8 @@ import { useTaskStore } from "@/stores/task-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { TruncatedText } from "@/components/ui/truncated-text";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -75,12 +77,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
         usingDescriptionAsTitle && rawTitle.length > 50
             ? rawTitle.slice(0, 50) + "\u2026"
             : rawTitle;
-    const description =
-        !usingDescriptionAsTitle && task.description
-            ? task.description.length > 60
-                ? task.description.slice(0, 60) + "\u2026"
-                : task.description
-            : null;
+    const description = !usingDescriptionAsTitle ? task.description ?? null : null;
 
     const handleArchive = (e: MouseEvent) => {
         e.stopPropagation();
@@ -112,33 +109,34 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                     compact && "py-1.5",
                 )}
             >
-                <div
+                <TruncatedText
+                    truncate={!!compact}
+                    tooltip={!!compact}
                     className={cn(
                         "text-sm font-medium",
                         isActive && "text-foreground",
-                        compact && "truncate",
                     )}
-                    title={compact ? rawTitle : undefined}
                 >
                     {title}
-                </div>
+                </TruncatedText>
                 {!compact && description && (
-                    <div className="text-muted-foreground mt-0.5 line-clamp-1 text-xs">
+                    <TruncatedText className="text-muted-foreground mt-0.5 text-xs">
                         {description}
-                    </div>
+                    </TruncatedText>
                 )}
                 {(task.sessions.length > 0 || task.worktree.enabled) && (
                     <div className="mt-1.5 flex min-w-0 gap-1.5">
                         {task.worktree.enabled && (
-                            <Badge
-                                variant="outline"
-                                className="text-muted-foreground min-w-0 max-w-full truncate px-1 py-0 text-xs"
-                            >
-                                <GitBranch className="mr-0.5 h-3 w-3 shrink-0" />
-                                <span className="truncate">
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="text-muted-foreground flex items-center">
+                                        <GitBranch className="h-3.5 w-3.5" />
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">
                                     {task.worktree.branch ?? "pending"}
-                                </span>
-                            </Badge>
+                                </TooltipContent>
+                            </Tooltip>
                         )}
                         {task.sessions.map((session) => (
                             <SessionBadge key={session.id} session={session} />
