@@ -16,40 +16,51 @@ Replace the expensive `git ls-files` subprocess + large path array with lightwei
 
 **File:** `packages/backend/src/services/file-watcher.ts`
 
-Read `.gitignore` from the root of the requested directory during tree build. Parse into raw pattern lines (strip comments and blank lines). Return alongside the tree.
+Read `.gitignore` from the root of the requested directory at depth 0 only (not on recursive calls). Pass the raw file content as-is — the `ignore` package handles comments and blank lines natively, so no pre-processing is needed. Return alongside the tree.
 
 If `.gitignore` does not exist, return an empty array.
 
 **Updated return shape:** `{ tree: FileNode, gitignorePatterns: string[] }`
 
-### 2. Shared types
+### 2. Backend: `handlers/file.ts`
 
-**Files:** `packages/shared/src/types/git.ts`, `packages/shared/src/types/file.ts` (or wherever `FileTreeResponse` is defined)
+**File:** `packages/backend/src/handlers/file.ts`
 
-- Add `gitignorePatterns: string[]` to the file tree response type.
+Update the `FILE_TREE` handler to destructure the new return value from `buildTree()` and pass `gitignorePatterns` through in the response.
+
+### 3. Shared types
+
+**File:** `packages/shared/src/types/ws.ts`
+
+- Add `gitignorePatterns: string[]` to `FileTreeResponse` (defined in `ws.ts`, not `file.ts`).
+
+**File:** `packages/shared/src/types/git.ts`
+
 - Remove `ignoredPaths: string[]` from `GitStatusResult`.
 
-### 3. Backend: `git-service.ts`
+### 4. Backend: `git-service.ts`
 
 **File:** `packages/backend/src/services/git-service.ts`
 
 Remove the `git ls-files --others --ignored --exclude-standard` call and the `ignoredPaths` field from `status()` return value.
 
-### 4. UI: `file-store.ts`
+### 5. UI: `file-store.ts`
 
 **File:** `packages/ui/src/stores/file-store.ts`
 
-Store `gitignorePatterns: string[]` received from the tree response. Remove any `ignoredPaths` handling tied to git status.
+- Add `gitignorePatterns: string[]` field to the store.
+- Update the `sendRequest` generic in `fetchTree()` from `{ tree: FileNode }` to include `gitignorePatterns`, and store the returned patterns.
+- Reset `gitignorePatterns` to `[]` in `clearExplorerState()`.
 
-### 5. UI: `FileExplorer.tsx`
+### 6. UI: `FileExplorer.tsx`
 
 **File:** `packages/ui/src/components/panels/FileExplorer.tsx`
 
-Create an `ignore` instance from stored `gitignorePatterns`. Build the `ignoredFiles` set by testing each file tree node's path (converted to relative path from working dir) against the matcher. Pass to `FileTree.tsx` as today.
+Create an `ignore` instance from stored `gitignorePatterns`. Test each file tree node's path (converted to a relative path from working dir via `path.slice(workingDir.length + 1)`) against the matcher. Populate the `ignoredFiles` set with the **absolute** `node.path` values so `FileTree.tsx` continues to match via `ignoredFiles.has(node.path)` unchanged.
 
-### 6. Dependencies
+### 7. Dependencies
 
-Add `ignore` npm package to `packages/ui`.
+Add `ignore` npm package to `packages/ui` (`bun add ignore`).
 
 ## What stays the same
 
@@ -57,6 +68,11 @@ Add `ignore` npm package to `packages/ui`.
 - Git status polling (just without the heavy `ignoredPaths` payload).
 - File watcher polling interval and debounce logic.
 - Hardcoded directory exclusions in `FileWatcher` (`node_modules`, `.git`, etc.).
+
+## Notes
+
+- Editing `.gitignore` triggers a `FILE_CHANGED` event which causes `fetchTree()` to re-run. Since `buildTree()` reads `.gitignore` as part of the same call, patterns refresh automatically — no separate watcher needed.
+- Other callers of `git.status()` (e.g. `resolveFileStatus()`) are unaffected by the removal of `ignoredPaths`.
 
 ## Scope limitations
 
