@@ -4,6 +4,7 @@ import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus } from "./git";
 import type { SystemInfo } from "./system";
 import type { AgentLaunchOptions } from "./agent";
+import type { ThemeRecord, ThemeSource, ThemeColors } from "./theme";
 
 // Base message types
 export interface WsRequest<T = unknown> {
@@ -332,6 +333,57 @@ export interface BrowserOpenPayload {
     projectId?: string;
     url: string;
     label?: string;
+}
+
+// Theme messages
+export interface ThemeListResponse {
+    themes: ThemeRecord[];
+}
+
+export interface ThemeImportPayload {
+    theme: ThemeSource;
+}
+
+export interface ThemeImportFilePayload {
+    path: string;
+}
+
+export interface ThemeImportResponse {
+    themes: ThemeRecord[];
+    importedThemeId: string;
+}
+
+export interface ThemeImportScanResponse {
+    apps: Array<{ app: string; themes: ThemeSource[] }>;
+}
+
+export interface ThemeDeletePayload {
+    id: string;
+}
+
+export interface OnlineThemeRecord {
+    id: string;
+    name: string;
+    author?: string;
+    downloadUrl: string;
+    preview: ThemeColors;
+    installed: boolean;
+    installedThemeId?: string;
+}
+
+export interface ThemeBrowseListResponse {
+    themes: OnlineThemeRecord[];
+}
+
+export interface ThemeDownloadPayload {
+    id: string;
+    url: string;
+    name: string;
+}
+
+export interface ThemeDownloadResponse {
+    themes: ThemeRecord[];
+    importedThemeId: string;
 }
 
 // System messages

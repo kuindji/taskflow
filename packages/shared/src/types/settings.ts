@@ -48,6 +48,10 @@ export interface LayoutSettings {
     panels: PanelSettings;
 }
 
+export interface AppearanceSettings {
+    theme: string;
+}
+
 export interface AppSettings {
     general: GeneralSettings;
     terminal: TerminalSettings;
@@ -55,6 +59,7 @@ export interface AppSettings {
     layout: LayoutSettings;
     claude: ClaudeSettings;
     codex: CodexSettings;
+    appearance: AppearanceSettings;
 }
 
 export interface SettingsUpdatePayload {
@@ -67,4 +72,5 @@ export interface SettingsUpdatePayload {
     };
     claude?: Partial<ClaudeSettings>;
     codex?: Partial<CodexSettings>;
+    appearance?: Partial<AppearanceSettings>;
 }

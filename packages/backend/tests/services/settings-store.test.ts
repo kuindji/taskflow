@@ -22,6 +22,7 @@ const DEFAULT_LAYOUT = {
 
 const DEFAULT_CLAUDE = { defaultModel: "default" as const, fullAccess: false };
 const DEFAULT_CODEX = { fullAccess: false };
+const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
 
 describe("SettingsStore", () => {
     let tempDir: string;
@@ -60,6 +61,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            appearance: DEFAULT_APPEARANCE,
         });
 
         first.editor.fontSize = 20;
@@ -84,6 +86,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            appearance: DEFAULT_APPEARANCE,
         });
     });
 
@@ -116,6 +119,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            appearance: DEFAULT_APPEARANCE,
         });
 
         expect(await store.update({ editor: { fontSize: 16 } })).toEqual({
@@ -138,6 +142,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            appearance: DEFAULT_APPEARANCE,
         });
     });
 
