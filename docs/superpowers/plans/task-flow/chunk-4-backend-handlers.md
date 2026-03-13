@@ -227,28 +227,23 @@ artifact)
           *) shift ;;
         esac
       done
-      JSON=$(TYPE="$TYPE" ARTIFACT_PATH="$ARTIFACT_PATH" python3 -c '
-import json, os, sys
-payload = {
-  "taskId": os.environ["TASKFLOW_TASK_ID"],
-  "flowId": os.environ["TASKFLOW_FLOW_ID"],
-  "stepEntryId": os.environ["TASKFLOW_STEP_ENTRY_ID"],
-  "type": os.environ["TYPE"],
-}
-path = os.environ.get("ARTIFACT_PATH")
-text = sys.stdin.read()
-if path:
-  payload["path"] = path
-if text:
-  payload["text"] = text
-print(json.dumps(payload))
-' <<EOF
-$ARTIFACT_TEXT
-EOF
-)
-      curl -s -X POST "$TASKFLOW_API_URL/api/flow/artifact" \
-        -H "Content-Type: application/json" \
-        -d "$JSON"
+      if [ -n "$ARTIFACT_PATH" ] && [ -n "$ARTIFACT_TEXT" ]; then
+        echo "Use either --path or --text, not both" >&2
+        exit 1
+      fi
+      if [ -z "$ARTIFACT_PATH" ] && [ -z "$ARTIFACT_TEXT" ]; then
+        echo "Either --path or --text is required" >&2
+        exit 1
+      fi
+      if [ -n "$ARTIFACT_PATH" ]; then
+        curl -s -X POST "$TASKFLOW_API_URL/api/flow/artifact" \
+          -H "Content-Type: application/json" \
+          -d "{\"taskId\":\"$TASKFLOW_TASK_ID\",\"flowId\":\"$TASKFLOW_FLOW_ID\",\"stepEntryId\":\"$TASKFLOW_STEP_ENTRY_ID\",\"type\":\"$TYPE\",\"path\":\"$ARTIFACT_PATH\"}"
+      else
+        curl -s -X POST "$TASKFLOW_API_URL/api/flow/artifact" \
+          -H "Content-Type: application/json" \
+          -d "{\"taskId\":\"$TASKFLOW_TASK_ID\",\"flowId\":\"$TASKFLOW_FLOW_ID\",\"stepEntryId\":\"$TASKFLOW_STEP_ENTRY_ID\",\"type\":\"$TYPE\",\"text\":\"$ARTIFACT_TEXT\"}"
+      fi
       ;;
     list)
       curl -s "$TASKFLOW_API_URL/api/flow/artifact/$TASKFLOW_TASK_ID/$TASKFLOW_FLOW_ID"
@@ -290,13 +285,17 @@ git add packages/backend/src/services/internal-agent-skill.ts
 git commit -m "feat: add step and artifact commands to taskflow-cli"
 ```
 
+Implementation note:
+
+- Keep `taskflow-cli` dependency-free. Do not introduce `python3`, `node`, or other runtime requirements just for JSON encoding in `artifact save`; this internal CLI currently relies only on POSIX shell and `curl`.
+
 ### Task 9: Wire Up Backend Initialization
 
 **Files:**
 - Modify: `packages/backend/src/index.ts`
 - Modify: `packages/backend/src/handlers/session.ts`
 - Modify: `packages/backend/src/handlers/task.ts`
-- [ ] **Step 1: Initialize FlowStore and FlowRunner in index.ts**
+- [ ] **Step 1: Extract shared backend session lifecycle helper and initialize FlowStore/FlowRunner**
 
 In `packages/backend/src/index.ts`, after existing store/service creation:
 
@@ -304,7 +303,6 @@ In `packages/backend/src/index.ts`, after existing store/service creation:
 import { FlowStore } from "./services/flow-store";
 import { FlowRunner } from "./services/flow-runner";
 import { registerFlowHandlers } from "./handlers/flow";
-import { removeSessionFromOwner } from "./handlers/session";
 ```
 
 Create instances after `ensureDirectories()`:
@@ -314,7 +312,19 @@ const flowStore = new FlowStore(config.flowsDir, config.flowRunsDir);
 await flowStore.init();
 ```
 
-First extract the existing nested `removeSessionFromOwner` helper in `packages/backend/src/handlers/session.ts` into a top-level exported function so both `registerSessionHandlers` and `index.ts` can reuse it.
+Before wiring `FlowRunner`, extract the backend session lifecycle into a reusable helper module instead of duplicating the `SESSION_CREATE` handler logic in `index.ts`.
+
+Requirements for the helper:
+
+- One function to create a task-owned or project-owned session, covering cwd resolution, PTY spawn, env injection, session persistence, status broadcast, and exit cleanup.
+- One function to remove a persisted session ref from its owner (this can still be split out if useful).
+- Shared callbacks for:
+  - `onSessionExited(sessionId, exitCode)` so `FlowRunner` can be notified for flow-owned sessions.
+  - `broadcastOwnerUpdated(owner)` so task-backed session changes emit `MSG.TASK_UPDATED` with the full updated task payload.
+- `registerSessionHandlers` must call this helper for normal `MSG.SESSION_CREATE`.
+- `FlowRunner` must call the same helper for flow-spawned sessions.
+
+This keeps flow sessions and manual sessions behaviorally identical and avoids drift between two spawn paths.
 
 Move `settingsStore` creation and shell detection earlier in `index.ts` so shell-step launches can reuse the same configured-shell resolution path as normal terminal tabs. `FlowRunner` should receive a small `getDefaultShellPath()` callback rather than reaching into global state.
 
@@ -324,74 +334,21 @@ Create `FlowRunner` after `ptyManager` and `taskStore` are created:
 const flowRunner = new FlowRunner({
   flowStore,
   spawnSession: async (opts) => {
-    const sessionId = crypto.randomUUID();
-    const task = await taskStore.getTask(opts.taskId);
-    if (!task) throw new Error(`Task not found: ${opts.taskId}`);
-
-    const project = await taskStore.getProject(task.projectId);
-    if (!project) throw new Error(`Project not found: ${task.projectId}`);
-
-    const cwd = task.worktree.enabled && task.worktree.path
-      ? task.worktree.path
-      : project.path;
-
-    let command: string;
-    const args: string[] = [];
-    if (opts.sessionType === "shell") {
-      // Shell steps should follow the same shell-resolution path as normal terminal tabs.
-      // Reuse the shell detector/settings logic instead of hardcoding process.env.SHELL.
-      const shellPath = await getDefaultShellPath();
-      command = shellPath;
-      args.push("-lc", opts.prompt);
-    } else {
-      const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
-      const spec = buildAgentLaunchSpec(opts.sessionType, opts.prompt, skillPath, opts.agentOptions);
-      command = spec.command;
-      args.push(...spec.args);
-    }
-
-    const taskflowEnv = {
-      TASKFLOW_API_URL: `http://localhost:${getPort()}`,
-      TASKFLOW_SESSION_ID: sessionId,
-      TASKFLOW_TASK_ID: task.id,
-      TASKFLOW_PROJECT_ID: project.id,
-      TASKFLOW_FLOW_ID: opts.flowId,
-      TASKFLOW_STEP_ENTRY_ID: opts.stepEntryId,
-    };
-
-    ptyManager.spawn({
-      id: sessionId,
-      command,
-      args,
-      cwd,
-      env: taskflowEnv,
-      onData: (data, sequence) => {
-        void taskStore.appendSessionOutput(task.id, sessionId, sequence, data);
-        broadcast({ type: MSG.TERMINAL_OUTPUT, payload: { sessionId, data, sequence } });
-      },
-      onExit: (exitCode) => {
-        broadcast({ type: MSG.SESSION_EXITED, payload: { sessionId, exitCode } });
-        void flowRunner.handleSessionExit(sessionId, exitCode);
-        void removeSessionFromOwner(taskStore, sessionId, { taskId: task.id, projectId: project.id });
-      },
-    });
-
-    // Register session with the task
-    const sessionRef = {
-      id: sessionId,
+    return createManagedSession({
+      owner: { taskId: opts.taskId },
       type: opts.sessionType,
       label: opts.label,
-      createdAt: new Date().toISOString(),
-    };
-    await taskStore.updateTask(task.id, (t) => ({
-      sessions: [...t.sessions, sessionRef],
-    }));
-
-    if (opts.sessionType !== "shell") {
-      broadcast({ type: MSG.SESSION_STATUS, payload: { sessionId, status: "working" } });
-    }
-
-    return sessionId;
+      prompt: opts.prompt,
+      agentOptions: opts.agentOptions,
+      flow: {
+        flowId: opts.flowId,
+        stepEntryId: opts.stepEntryId,
+      },
+      shellPath: opts.sessionType === "shell" ? await getDefaultShellPath() : undefined,
+      onSessionExited: (sessionId, exitCode) => {
+        void flowRunner.handleSessionExit(sessionId, exitCode);
+      },
+    });
   },
   closeSession: (sessionId) => {
     ptyManager.close(sessionId);
@@ -403,6 +360,12 @@ const flowRunner = new FlowRunner({
   },
 });
 ```
+
+Important UI sync requirement:
+
+- The shared session helper must broadcast `MSG.TASK_UPDATED` after adding a task-owned session ref and after removing it on exit/close.
+- That broadcast is what makes backend-spawned flow sessions appear as tabs through the existing UI `task-store` -> `TaskSidebar` -> `session-store.syncWithTasks` pipeline.
+- Do not rely on `flow:run-updated` alone for tab creation/removal; it only carries flow state, not task session membership.
 
 After creating `FlowRunner`, add startup recovery for flow runs stuck in "running" state from a previous process crash:
 

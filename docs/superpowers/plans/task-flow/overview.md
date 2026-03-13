@@ -4,7 +4,7 @@
 
 **Goal:** Add a Task Flow orchestration feature that lets users define reusable multi-step workflows (plan, review, code, lint, etc.) executed as sequences of agent sessions with automatic progression and manual control.
 
-**Architecture:** Backend-driven orchestrator — `FlowRunner` owns execution logic, but session launch/teardown still goes through shared session-lifecycle helpers so flow-spawned tabs behave exactly like manually created sessions. UI remains a pure view/control layer with a Zustand store and three new components (FlowPanel, FlowManagementDialog, TaskHeader dropdown).
+**Architecture:** Backend-driven orchestrator — `FlowRunner` owns execution logic, but session launch/teardown must go through one extracted shared backend session-lifecycle helper used by both `handlers/session.ts` and flow execution. That helper is also responsible for broadcasting owner updates so flow-spawned tabs behave exactly like manually created sessions. UI remains a pure view/control layer with a Zustand store and three new components (FlowPanel, FlowManagementDialog, TaskHeader dropdown).
 
 **Tech Stack:** TypeScript, Bun, React, Zustand, Tailwind CSS, shadcn/ui components
 
@@ -45,4 +45,4 @@
 - `TASKFLOW_PROJECT_ID` — existing
 
 ### Workspace key reminder:
-Flow-spawned sessions use the same workspace key as the task (`getTaskWorkspaceKey(taskId)`). Tabs are added via the existing `addTab` mechanism in session-store. The FlowRunner's `spawnSession` callback should trigger tab creation the same way manual session creation does.
+Flow-spawned sessions use the same workspace key as the task (`getTaskWorkspaceKey(taskId)`). The backend must not rely on UI-local `addTab` calls for flow sessions. Instead, the shared backend session helper should persist the task session ref and broadcast `MSG.TASK_UPDATED`; the existing task-store listener plus `syncWithTasks` path will then create/remove tabs the same way on every client.

@@ -157,6 +157,11 @@ const _unsubFlowRunUpdated = onEvent(MSG.FLOW_RUN_UPDATED, (payload) => {
 export { useFlowStore };
 ```
 
+Notes for implementation:
+
+- `flow:run-updated` is only for flow state. Session tabs for flow-spawned steps should arrive through the existing task synchronization path after the backend broadcasts `MSG.TASK_UPDATED`.
+- Do not add any special-case tab creation logic to `flow-store`; keeping session-tab state owned by `session-store` avoids split-brain UI state.
+
 - [ ] **Step 2: Commit**
 
 ```bash

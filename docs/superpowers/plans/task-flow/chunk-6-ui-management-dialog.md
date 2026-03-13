@@ -166,7 +166,6 @@ function FlowEditor({ flow, globalSteps, onSave, onCancel }: FlowEditorProps) {
     setSteps((prev) => [...prev, {
       id: crypto.randomUUID(),
       stepId: step.id,
-      label: step.name,
     }]);
   }, []);
 
@@ -206,6 +205,10 @@ function FlowEditor({ flow, globalSteps, onSave, onCancel }: FlowEditorProps) {
   }, [flow, name, description, steps, onSave]);
 
   const isValid = name.trim() !== "" && steps.length > 0;
+
+  // Leave `label` undefined by default for global-library steps so later
+  // step renames still flow through. Only persist `label` if the user is
+  // intentionally overriding the displayed name.
 
   // Resolve step name for display
   const getStepName = (entry: FlowStepEntry): string => {
@@ -342,6 +345,10 @@ function FlowEditor({ flow, globalSteps, onSave, onCancel }: FlowEditorProps) {
 export { FlowEditor };
 ```
 
+Implementation note:
+
+- When a flow references a global step, do not prefill `label` with the current step name. `label` is an override, not a cache. This preserves the reusable-library behavior from the spec.
+
 - [ ] **Step 3: Create FlowManagementDialog component**
 
 Create `packages/ui/src/components/flows/FlowManagementDialog.tsx`. This follows the two-panel layout from `SettingsModal.tsx` (`packages/ui/src/components/settings/SettingsModal.tsx`):
@@ -438,11 +445,12 @@ function FlowManagementDialog({ open, onOpenChange }: FlowManagementDialogProps)
         {/* Right panel: editor */}
         <div className="flex-1 overflow-y-auto">
           {tab === "flows" && (creating || selectedFlow) && (
-            <FlowEditor flow={creating ? null : selectedFlow} globalSteps={steps} onSave={handleSaveFlow}
+            <FlowEditor key={creating ? "new-flow" : selectedFlow?.id ?? "flow-editor"} flow={creating ? null : selectedFlow} globalSteps={steps} onSave={handleSaveFlow}
               onCancel={() => { setCreating(false); setSelectedId(null); }} />
           )}
           {tab === "steps" && (creating || selectedStep) && (
             <StepEditor
+              key={creating ? "new-step" : selectedStep?.id ?? "step-editor"}
               step={creating ? null : selectedStep}
               onSave={handleSaveStep}
               onCancel={() => { setCreating(false); setSelectedId(null); }}
@@ -470,6 +478,10 @@ function FlowManagementDialog({ open, onOpenChange }: FlowManagementDialogProps)
 
 export { FlowManagementDialog };
 ```
+
+Implementation note:
+
+- The editors keep local form state. Key them by selected entity id (or sync local state from props in an effect) so switching between items never leaks stale values into another flow/step.
 
 - [ ] **Step 4: Add "Flows" button to app chrome**
 
