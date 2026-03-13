@@ -6,4 +6,5 @@ export * from "./types/git";
 export * from "./types/system";
 export * from "./types/settings";
 export * from "./types/agent";
+export * from "./types/flow";
 export * from "./constants";
