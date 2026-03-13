@@ -161,19 +161,28 @@ export function TabBar({
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                        {scriptNames.length > 0 &&
-                            scriptNames.map((name) => (
-                                <DropdownMenuItem
-                                    key={name}
-                                    onClick={() => onRunScript(name)}
-                                >
+                        {scriptNames.length > 0 && (
+                            <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>
                                     <SquareTerminal className="mr-2 h-4 w-4" />
-                                    {name}
-                                    <span className="text-muted-foreground ml-auto text-xs">
-                                        {defaultRuntime}
-                                    </span>
-                                </DropdownMenuItem>
-                            ))}
+                                    package.json
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                    {scriptNames.map((name) => (
+                                        <DropdownMenuItem
+                                            key={name}
+                                            onClick={() => onRunScript(name)}
+                                        >
+                                            <SquareTerminal className="mr-2 h-4 w-4" />
+                                            {name}
+                                            <span className="text-muted-foreground ml-auto text-xs">
+                                                {defaultRuntime}
+                                            </span>
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                        )}
                         {showAgentOptions && (
                             <>
                                 {scriptNames.length > 0 && <DropdownMenuSeparator />}
