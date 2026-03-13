@@ -1,13 +1,15 @@
 import { useState } from "react";
-import type { Project, Task } from "@taskflow/shared";
+import type { Project, SessionStatus, Task } from "@taskflow/shared";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { StatusDot } from "@/components/ui/status-dot";
 import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
 import { MissingLocationDialog } from "./MissingLocationDialog";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSessionStore } from "@/stores/session-store";
 
 interface ProjectGroupProps {
     project: Project;
@@ -34,6 +36,34 @@ export function ProjectGroup({
 }: ProjectGroupProps) {
     const [open, setOpen] = useState(true);
     const [missingDialogOpen, setMissingDialogOpen] = useState(false);
+    const projectStatus = useSessionStore((state) => {
+        let hasWorking = false;
+        const sessionStatus = state.sessionStatus;
+
+        const getAggregateStatus = (sessionIds: string[]): SessionStatus | undefined => {
+            let hasLocalWorking = false;
+
+            for (const sessionId of sessionIds) {
+                const status = sessionStatus[sessionId];
+                if (status === "attention") return "attention";
+                if (status === "working") hasLocalWorking = true;
+            }
+
+            return hasLocalWorking ? "working" : undefined;
+        };
+
+        const projectLevelStatus = getAggregateStatus(project.sessions.map((session) => session.id));
+        if (projectLevelStatus === "attention") return "attention";
+        if (projectLevelStatus === "working") hasWorking = true;
+
+        for (const task of tasks) {
+            const taskStatus = getAggregateStatus(task.sessions.map((session) => session.id));
+            if (taskStatus === "attention") return "attention";
+            if (taskStatus === "working") hasWorking = true;
+        }
+
+        return hasWorking ? "working" : undefined;
+    });
 
     const locationInvalid = project.locationValid === false;
 
@@ -91,6 +121,7 @@ export function ProjectGroup({
                                     </TooltipContent>
                                 </Tooltip>
                             )}
+                            {!open && !locationInvalid && <StatusDot status={projectStatus} />}
                             <span
                                 className={cn(
                                     "block w-full min-w-0 truncate text-xs font-medium tracking-wide",
@@ -102,7 +133,7 @@ export function ProjectGroup({
                                 {project.name}
                             </span>
                         </div>
-                        {!locationInvalid && project.sessions.length > 0 && (
+                        {open && !locationInvalid && project.sessions.length > 0 && (
                             <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
                                 {project.sessions.map((session) => (
                                     <SessionBadge key={session.id} session={session} />

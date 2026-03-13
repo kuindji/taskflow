@@ -154,6 +154,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             variant="ghost"
                             size="xs"
                             onClick={onDiff}
+                            disabled={commitDisabled}
                             aria-label="Show diff"
                             className="[-webkit-app-region:no-drag]"
                         >

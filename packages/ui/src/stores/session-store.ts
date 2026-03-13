@@ -484,19 +484,36 @@ const _unsubBrowserOpen = onEvent(MSG.BROWSER_OPEN, (payload) => {
 });
 
 const _unsubActiveTask = useTaskStore.subscribe((state, prevState) => {
-    if (state.activeTaskId === prevState.activeTaskId || !state.activeTaskId) {
+    if (state.activeTaskId === prevState.activeTaskId) {
         return;
     }
 
     const sessionStore = useSessionStore.getState();
-    const workspaceKey = getTaskWorkspaceKey(state.activeTaskId);
-    const activeTabId = sessionStore.activeTabByWorkspace[workspaceKey];
-    const activeTab = (sessionStore.tabsByWorkspace[workspaceKey] ?? []).find(
-        (tab) => tab.id === activeTabId,
-    );
 
-    if (activeTab?.sessionId && sessionStore.sessionStatus[activeTab.sessionId] === "attention") {
-        sessionStore.setSessionStatus(activeTab.sessionId, undefined);
+    // Task activated → clear its attention
+    if (state.activeTaskId) {
+        const workspaceKey = getTaskWorkspaceKey(state.activeTaskId);
+        const activeTabId = sessionStore.activeTabByWorkspace[workspaceKey];
+        const activeTab = (sessionStore.tabsByWorkspace[workspaceKey] ?? []).find(
+            (tab) => tab.id === activeTabId,
+        );
+        if (activeTab?.sessionId && sessionStore.sessionStatus[activeTab.sessionId] === "attention") {
+            sessionStore.setSessionStatus(activeTab.sessionId, undefined);
+        }
+        return;
+    }
+
+    // Task deactivated (back to project view) → clear project workspace attention
+    const activeProjectId = useUIStore.getState().activeProjectId;
+    if (activeProjectId) {
+        const workspaceKey = getProjectWorkspaceKey(activeProjectId);
+        const activeTabId = sessionStore.activeTabByWorkspace[workspaceKey];
+        const activeTab = (sessionStore.tabsByWorkspace[workspaceKey] ?? []).find(
+            (tab) => tab.id === activeTabId,
+        );
+        if (activeTab?.sessionId && sessionStore.sessionStatus[activeTab.sessionId] === "attention") {
+            sessionStore.setSessionStatus(activeTab.sessionId, undefined);
+        }
     }
 });
 
