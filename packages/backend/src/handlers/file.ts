@@ -29,8 +29,8 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
     router.register(MSG.FILE_TREE, async (payload) => {
         const { path } = payload as FileTreePayload;
         const workspacePath = await assertWorkspacePath(taskStore, path);
-        const tree = await fileWatcher.buildTree(workspacePath);
-        return { tree };
+        const { tree, gitignorePatterns } = await fileWatcher.buildTree(workspacePath);
+        return { tree, gitignorePatterns };
     });
 
     router.register(MSG.FILE_READ, async (payload) => {
