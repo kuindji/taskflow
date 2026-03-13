@@ -7,12 +7,12 @@
 ### Task 30: Backend Browse + Download Endpoints
 
 The backend contract for online browsing has two parts:
-- `THEME_BROWSE_LIST` returns a curated or scraped list of online themes with stable ids and download URLs.
-- `THEME_DOWNLOAD` downloads the Alacritty TOML, parses it, saves it under the provided id, and returns the refreshed installed theme list.
+- `THEME_BROWSE_LIST` returns a curated or scraped list of online themes with backend-owned stable ids, preview colors, and download URLs.
+- `THEME_DOWNLOAD` downloads the Alacritty TOML, parses it, saves it under the provided id, and returns the refreshed installed theme list plus the actual installed canonical id.
 
 - [ ] **Step 1: Test the download handler manually**
 
-Start the backend, send a `THEME_BROWSE_LIST` request and verify it returns online theme metadata. Then send a `THEME_DOWNLOAD` request with `id: "dracula-default", url: "https://terminalcolors.com/downloads/alacritty/dracula-default.toml"`, verify it installs the parsed theme and returns the updated local theme list.
+Start the backend, send a `THEME_BROWSE_LIST` request and verify it returns online theme metadata including preview colors. Then send a `THEME_DOWNLOAD` request with `id: "terminalcolors-dracula-default", url: "https://terminalcolors.com/downloads/alacritty/dracula-default.toml"`, verify it installs the parsed theme and returns the updated local theme list plus `importedThemeId`.
 
 - [ ] **Step 2: Commit any fixes**
 
@@ -26,13 +26,13 @@ Start the backend, send a `THEME_BROWSE_LIST` request and verify it returns onli
 The component needs to:
 1. Fetch the theme list via `MSG.THEME_BROWSE_LIST`
 2. Display a grid of theme cards with preview swatches
-3. On click, send `MSG.THEME_DOWNLOAD` with the selected online theme id and download URL, then refresh the installed theme store from the returned list
+3. On click, call `useThemeStore((s) => s.downloadOnlineTheme)` so the backend response can update the installed list and activate the returned `importedThemeId`
 
-This requires understanding the terminalcolors.com page structure to extract theme names and download URLs. The approach:
+This requires understanding the terminalcolors.com page structure to extract theme names, download URLs, and preview colors. The approach:
 - Backend owns discovery: either scrape `https://terminalcolors.com/` or expose a curated fallback list when scraping is brittle
 - UI only consumes the backend response and never fetches terminalcolors.com directly
 
-Implementation details will depend on the actual page structure at build time. Maintain a curated fallback list of popular themes with stable ids so the UI contract does not change if scraping fails.
+Implementation details will depend on the actual page structure at build time. Maintain a curated fallback list of popular themes with stable backend-owned ids such as `terminalcolors-one-dark` so bundled theme ids remain reserved and the UI contract does not change if scraping fails.
 
 - [ ] **Step 2: Commit**
 

@@ -197,6 +197,56 @@ describe("ThemeService", () => {
         expect(themes.find((t) => t.id === "future")).toBeFalsy();
     });
 
+    it("skips user files whose filename collides with a bundled id", async () => {
+        await writeFile(
+            join(tempDir, "dracula.json"),
+            JSON.stringify({
+                version: 1,
+                name: "My Dracula Override",
+                origin: "custom",
+                colors: {
+                    foreground: "#ffffff",
+                    background: "#000000",
+                    cursor: "#ffffff",
+                    cursorText: "#000000",
+                    selection: "#333333",
+                    selectionText: "#ffffff",
+                    ansi: {
+                        black: "#000000", red: "#ff0000", green: "#00ff00",
+                        yellow: "#ffff00", blue: "#0000ff", magenta: "#ff00ff",
+                        cyan: "#00ffff", white: "#ffffff",
+                        brightBlack: "#808080", brightRed: "#ff0000",
+                        brightGreen: "#00ff00", brightYellow: "#ffff00",
+                        brightBlue: "#0000ff", brightMagenta: "#ff00ff",
+                        brightCyan: "#00ffff", brightWhite: "#ffffff",
+                    },
+                },
+            }),
+        );
+
+        const themes = await service.listAll();
+        expect(themes.filter((t) => t.id === "dracula")).toHaveLength(1);
+        expect(themes.find((t) => t.source.name === "My Dracula Override")).toBeFalsy();
+    });
+
+    it("skips files that do not satisfy the full theme schema", async () => {
+        await writeFile(
+            join(tempDir, "broken.json"),
+            JSON.stringify({
+                version: 1,
+                name: "Broken",
+                origin: "custom",
+                colors: {
+                    foreground: "#ffffff",
+                    background: "#000000",
+                },
+            }),
+        );
+
+        const themes = await service.listAll();
+        expect(themes.find((t) => t.id === "broken")).toBeFalsy();
+    });
+
     it("deletes a user theme", async () => {
         const theme = {
             version: 1 as const,
@@ -299,13 +349,36 @@ import { bundledThemes } from "@taskflow/shared";
 import type { ThemeRecord, ThemeSource } from "@taskflow/shared";
 import { slugify } from "../utils/slugify";
 
+function isHexColor(value: unknown): value is string {
+    return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
 function isValidThemeSource(value: unknown): value is ThemeSource {
     if (typeof value !== "object" || value === null) return false;
     const obj = value as Record<string, unknown>;
-    return obj.version === 1
-        && typeof obj.name === "string"
-        && typeof obj.colors === "object"
-        && obj.colors !== null;
+    if (obj.version !== 1 || typeof obj.name !== "string") return false;
+
+    const colors = obj.colors as Record<string, unknown> | undefined;
+    const ansi = colors?.ansi as Record<string, unknown> | undefined;
+    const requiredAnsiKeys = [
+        "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+        "brightBlack", "brightRed", "brightGreen", "brightYellow",
+        "brightBlue", "brightMagenta", "brightCyan", "brightWhite",
+    ] as const;
+
+    if (!colors || !ansi) return false;
+    if (!isHexColor(colors.foreground) || !isHexColor(colors.background)) return false;
+    if (!isHexColor(colors.cursor) || !isHexColor(colors.cursorText)) return false;
+    if (!isHexColor(colors.selection) || !isHexColor(colors.selectionText)) return false;
+    if (!requiredAnsiKeys.every((key) => isHexColor(ansi[key]))) return false;
+
+    if (obj.overrides !== undefined) {
+        if (typeof obj.overrides !== "object" || obj.overrides === null) return false;
+        const overrides = Object.values(obj.overrides as Record<string, unknown>);
+        if (!overrides.every((entry) => typeof entry === "string")) return false;
+    }
+
+    return true;
 }
 
 class ThemeService {
@@ -358,6 +431,7 @@ class ThemeService {
 
     private async loadUserThemes(): Promise<ThemeRecord[]> {
         const themes: ThemeRecord[] = [];
+        const reservedIds = new Set(bundledThemes.map((theme) => theme.id));
         let entries: string[];
         try {
             entries = await readdir(this.themesDir);
@@ -368,11 +442,15 @@ class ThemeService {
         for (const entry of entries) {
             if (!entry.endsWith(".json")) continue;
             try {
+                const id = entry.replace(/\.json$/, "");
+                if (reservedIds.has(id) || themes.some((theme) => theme.id === id)) {
+                    continue;
+                }
                 const raw = await readFile(join(this.themesDir, entry), "utf-8");
                 const parsed = JSON.parse(raw);
                 if (!isValidThemeSource(parsed)) continue;
                 themes.push({
-                    id: entry.replace(/\.json$/, ""),
+                    id,
                     source: parsed,
                 });
             } catch {
@@ -413,6 +491,7 @@ import type {
     ThemeBrowseListResponse,
     ThemeDeletePayload,
     ThemeDownloadPayload,
+    ThemeDownloadResponse,
     ThemeImportResponse,
     ThemeImportPayload,
     ThemeListResponse,
@@ -443,14 +522,22 @@ function registerThemeHandlers(router: Router, themeService: ThemeService): void
 
     router.register(MSG.THEME_BROWSE_LIST, async () => {
         // Curated fallback list of popular themes from terminalcolors.com.
-        // Each entry has a stable id and direct Alacritty TOML download URL.
+        // Each entry has a backend-owned stable id, preview colors for the UI,
+        // and a direct Alacritty TOML download URL.
         const catalog = [
-            { id: "one-dark", name: "One Dark", downloadUrl: "https://terminalcolors.com/downloads/alacritty/one-dark.toml" },
-            { id: "rose-pine", name: "Rosé Pine", downloadUrl: "https://terminalcolors.com/downloads/alacritty/rose-pine.toml" },
-            { id: "monokai-pro", name: "Monokai Pro", downloadUrl: "https://terminalcolors.com/downloads/alacritty/monokai-pro.toml" },
-            { id: "everforest-dark", name: "Everforest Dark", downloadUrl: "https://terminalcolors.com/downloads/alacritty/everforest-dark.toml" },
-            { id: "kanagawa", name: "Kanagawa", downloadUrl: "https://terminalcolors.com/downloads/alacritty/kanagawa.toml" },
-            { id: "ayu-dark", name: "Ayu Dark", downloadUrl: "https://terminalcolors.com/downloads/alacritty/ayu-dark.toml" },
+            {
+                id: "terminalcolors-one-dark",
+                name: "One Dark",
+                downloadUrl: "https://terminalcolors.com/downloads/alacritty/one-dark.toml",
+                preview: { /* ThemeColors snapshot checked into the catalog */ },
+            },
+            {
+                id: "terminalcolors-rose-pine",
+                name: "Rosé Pine",
+                downloadUrl: "https://terminalcolors.com/downloads/alacritty/rose-pine.toml",
+                preview: { /* ThemeColors snapshot checked into the catalog */ },
+            },
+            // ...other curated entries...
         ];
 
         // Mark which online themes are already installed locally
@@ -459,6 +546,7 @@ function registerThemeHandlers(router: Router, themeService: ThemeService): void
         const themes = catalog.map((t) => ({
             ...t,
             installed: installedIds.has(t.id),
+            installedThemeId: installedIds.has(t.id) ? t.id : undefined,
         }));
 
         return { themes } satisfies ThemeBrowseListResponse;
@@ -473,9 +561,9 @@ function registerThemeHandlers(router: Router, themeService: ThemeService): void
         const { parseAlacrittyToml } = await import("../services/theme-parsers/alacritty");
         const parsed = parseAlacrittyToml(toml, name);
         const theme: ThemeSource = { ...parsed, origin: "online" };
-        await themeService.save(theme, id, { overwriteExisting: true });
+        const record = await themeService.save(theme, id, { overwriteExisting: true });
         const themes = await themeService.listAll();
-        return { themes } satisfies ThemeListResponse;
+        return { themes, importedThemeId: record.id } satisfies ThemeDownloadResponse;
     });
 }
 ```

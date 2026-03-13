@@ -48,7 +48,9 @@ git commit -m "feat: add appearance dialog state to UI store"
 import { create } from "zustand";
 import { MSG, DEFAULT_THEME_ID, bundledThemes, deriveTheme } from "@taskflow/shared";
 import type {
+    OnlineThemeRecord,
     ResolvedTheme,
+    ThemeDownloadResponse,
     ThemeImportResponse,
     ThemeListResponse,
     ThemeRecord,
@@ -70,6 +72,7 @@ interface ThemeStore {
     activateTheme(themeId: string): Promise<void>;
     importTheme(theme: ThemeSource): Promise<void>;
     importThemeFile(path: string): Promise<void>;
+    downloadOnlineTheme(theme: OnlineThemeRecord): Promise<void>;
     deleteTheme(themeId: string): Promise<void>;
 }
 
@@ -140,6 +143,28 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
         const { themes, importedThemeId } = await sendRequest<ThemeImportResponse>(
             MSG.THEME_IMPORT_FILE,
             { path },
+        );
+        const record = themes.find((entry) => entry.id === importedThemeId);
+        set(
+            record
+                ? {
+                      themes,
+                      activeThemeId: record.id,
+                      resolved: deriveTheme(record.source),
+                  }
+                : { themes },
+        );
+        if (record) {
+            await useSettingsStore.getState().updateSettings({
+                appearance: { theme: record.id },
+            });
+        }
+    },
+
+    async downloadOnlineTheme(theme) {
+        const { themes, importedThemeId } = await sendRequest<ThemeDownloadResponse>(
+            MSG.THEME_DOWNLOAD,
+            { id: theme.id, url: theme.downloadUrl, name: theme.name },
         );
         const record = themes.find((entry) => entry.id === importedThemeId);
         set(

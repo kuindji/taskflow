@@ -224,7 +224,9 @@ export interface OnlineThemeRecord {
     name: string;
     author?: string;
     downloadUrl: string;
+    preview: ThemeColors;
     installed: boolean;
+    installedThemeId?: string;
 }
 
 export interface ThemeBrowseListResponse {
@@ -236,7 +238,14 @@ export interface ThemeDownloadPayload {
     url: string;
     name: string;
 }
+
+export interface ThemeDownloadResponse {
+    themes: ThemeRecord[];
+    importedThemeId: string;
+}
 ```
+
+`OnlineThemeRecord.preview` gives the Browse Online tab enough color data to render preview swatches without making the renderer scrape or fetch terminalcolors.com directly. `ThemeDownloadResponse.importedThemeId` is the actual installed canonical id returned by the backend after collision rules are applied.
 
 These are used by the backend handlers in Task 8 instead of anonymous inline casts.
 

@@ -4,7 +4,7 @@
 
 **Goal:** Add a theming system that uses terminal color themes as the source of truth for the entire app (UI, xterm.js, Monaco), with bundled themes, terminal app import, custom user themes, and online browsing.
 
-**Architecture:** Terminal themes (20 colors) are mapped through a derivation engine to produce CSS variables, xterm.js theme, and Monaco theme. Raw theme files stay in the `ThemeSource` format, while the backend exposes `ThemeRecord { id, source }` objects so the UI and settings can use a stable canonical theme id. `ThemeService` reserves bundled ids, generates collision-free ids for imported/custom themes, and only reuses an explicit id when intentionally updating an existing non-bundled theme. A `ThemeService` on the backend handles loading/parsing/scanning. The UI has a dedicated Appearance dialog with three tabs (Themes, Import, Browse Online). Theme state flows through a Zustand store with a `useTheme` hook applying colors at runtime.
+**Architecture:** Terminal themes (20 colors) are mapped through a derivation engine to produce CSS variables, xterm.js theme, and Monaco theme. Raw theme files stay in the `ThemeSource` format, while the backend exposes `ThemeRecord { id, source }` objects so the UI and settings can use a stable canonical theme id. `ThemeService` reserves bundled ids, generates collision-free ids for imported/custom themes, only reuses an explicit id when intentionally updating an existing non-bundled theme, and skips hand-dropped files whose filename collides with a reserved or already-loaded id. Theme files loaded from disk are schema-validated before they enter the app, not just checked for `version`/`name`. Online catalog entries use backend-owned ids and include preview colors in the browse response; downloads return the actual installed canonical id so the UI can activate the right local record even when a display name or catalog name would collide. A `ThemeService` on the backend handles loading/parsing/scanning. The UI has a dedicated Appearance dialog with three tabs (Themes, Import, Browse Online). Theme state flows through a Zustand store with a `useTheme` hook applying colors at runtime.
 
 **Tech Stack:** TypeScript, React, Zustand, Tailwind CSS v4, xterm.js, Monaco Editor, Bun test runner
 
@@ -77,7 +77,7 @@
 
 - `packages/shared/src/types/settings.ts` — add appearance section to `AppSettings` and `SettingsUpdatePayload` (no separate named interface needed — inline `{ theme: string }` matches the pattern of other settings sections)
 - `packages/shared/src/constants.ts` — add `THEMES_LIST`, `THEME_IMPORT_SCAN`, `THEME_IMPORT`, `THEME_IMPORT_FILE`, `THEME_BROWSE_LIST`, `THEME_DOWNLOAD`, `THEME_DELETE` to `MSG`; add `DEFAULT_THEME_ID`
-- `packages/shared/src/types/ws.ts` — add theme WebSocket payload/response types
+- `packages/shared/src/types/ws.ts` — add theme WebSocket payload/response types, including online preview metadata and download responses that return the installed canonical id
 - `packages/shared/src/index.ts` — add theme exports
 - `packages/backend/src/config.ts` — add `themesDir`, update `ensureDirectories()`
 - `packages/backend/src/services/settings-store.ts` — add `appearance` to defaults, `get()`, and `update()`
