@@ -41,7 +41,8 @@ export function Workspace() {
     const activeTabId = useSessionStore((s) =>
         workspace.workspaceKey ? (s.activeTabByWorkspace[workspace.workspaceKey] ?? "") : "",
     );
-    const { setActiveTab, closeTab, createSession, addTab, sendInput } = useSessionStore();
+    const { setActiveTab, closeTab, createSession, addTab, sendInput, renameTab } =
+        useSessionStore();
     const setActiveTask = useTaskStore((s) => s.setActiveTask);
     const updateTask = useTaskStore((s) => s.updateTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
@@ -330,6 +331,11 @@ export function Workspace() {
                             const tab = visibleTabs.find((t) => t.id === id);
                             if (tab?.sessionId) destroyTerminal(tab.sessionId);
                             void closeTab(workspace.workspaceKey, id);
+                        }}
+                        onTabRename={(id, newLabel) => {
+                            if (workspace.workspaceKey) {
+                                renameTab(workspace.workspaceKey, id, newLabel);
+                            }
                         }}
                         onNewTab={handleNewTab}
                         onRunTab={handleRunTab}

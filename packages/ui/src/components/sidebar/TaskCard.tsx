@@ -132,7 +132,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                         {task.worktree.enabled && (
                             <Badge
                                 variant="outline"
-                                className="text-muted-foreground max-w-full truncate px-1 py-0 text-xs"
+                                className="text-muted-foreground min-w-0 max-w-full truncate px-1 py-0 text-xs"
                             >
                                 <GitBranch className="mr-0.5 h-3 w-3 shrink-0" />
                                 <span className="truncate">

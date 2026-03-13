@@ -116,6 +116,11 @@ export interface SessionClosePayload {
     sessionId: string;
 }
 
+export interface SessionRenamePayload {
+    sessionId: string;
+    label: string;
+}
+
 export interface SessionInputPayload {
     sessionId: string;
     data: string;

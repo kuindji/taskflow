@@ -46,6 +46,7 @@ interface SessionStore {
     setActiveTab(workspaceKey: string, tabId: string): void;
     setSessionStatus(sessionId: string, status?: SessionStatus): void;
     getTaskStatus(taskId: string): SessionStatus | undefined;
+    renameTab(workspaceKey: string, tabId: string, newLabel: string): void;
     getTabs(workspaceKey: string): Tab[];
     getActiveTab(workspaceKey: string): Tab | undefined;
     syncWithTasks(tasks: Task[]): void;
@@ -229,6 +230,27 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             if (s === "attention") hasAttention = true;
         }
         return hasAttention ? "attention" : undefined;
+    },
+    renameTab(workspaceKey, tabId, newLabel) {
+        const tabs = get().tabsByWorkspace[workspaceKey] ?? [];
+        const tab = tabs.find((t) => t.id === tabId);
+        if (!tab || tab.label === newLabel) return;
+
+        set((s) => ({
+            tabsByWorkspace: {
+                ...s.tabsByWorkspace,
+                [workspaceKey]: (s.tabsByWorkspace[workspaceKey] ?? []).map((t) =>
+                    t.id === tabId ? { ...t, label: newLabel } : t,
+                ),
+            },
+        }));
+
+        if (tab.sessionId) {
+            sendFireAndForget(MSG.SESSION_RENAME, {
+                sessionId: tab.sessionId,
+                label: newLabel,
+            });
+        }
     },
     getTabs(workspaceKey) {
         return get().tabsByWorkspace[workspaceKey] ?? [];

@@ -21,6 +21,7 @@ export const MSG = {
     // Sessions
     SESSION_CREATE: "session:create",
     SESSION_CLOSE: "session:close",
+    SESSION_RENAME: "session:rename",
     SESSION_INPUT: "session:input",
     SESSION_STATUS: "session:status",
     SESSION_EXITED: "session:exited",

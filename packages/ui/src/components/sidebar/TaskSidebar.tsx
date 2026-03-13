@@ -10,7 +10,7 @@ import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
-import { Plus } from "lucide-react";
+import { Plus, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -166,7 +166,7 @@ export function TaskSidebar() {
                     )}
                 </div>
             </div>
-            <ScrollArea className="flex-1 py-1">
+            <ScrollArea className="flex-1 py-1 [&_[data-slot=scroll-area-viewport]]:!overflow-x-hidden [&_[data-slot=scroll-area-viewport]]:!overflow-y-auto">
                 {!showArchive && projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>
@@ -206,11 +206,13 @@ export function TaskSidebar() {
             <div className="flex items-center justify-end px-1.5 py-1.5">
                 <Button
                     variant="ghost"
-                    size="xs"
+                    size="icon-xs"
                     onClick={toggleSettings}
-                    className="text-muted-foreground text-sm [-webkit-app-region:no-drag]"
+                    aria-label="Settings"
+                    tooltip="Settings"
+                    className="text-muted-foreground [-webkit-app-region:no-drag]"
                 >
-                    Settings
+                    <Settings2 className="h-3.5 w-3.5" />
                 </Button>
             </div>
             <NewProjectDialog

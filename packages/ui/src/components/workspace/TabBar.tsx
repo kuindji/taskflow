@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useEffect, useState, useRef, useCallback } from "react";
 import { cva } from "class-variance-authority";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -54,9 +54,10 @@ interface TabItemProps {
     isActive: boolean;
     onTabClick: (tabId: string) => void;
     onTabClose: (tabId: string) => void;
+    onTabRename: (tabId: string, newLabel: string) => void;
 }
 
-function TabItem({ tab, isActive, onTabClick, onTabClose }: TabItemProps) {
+function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItemProps) {
     const classes = useMemo(
         () => cn(tabVariants({ type: tab.type, active: isActive })),
         [tab.type, isActive],
@@ -65,10 +66,56 @@ function TabItem({ tab, isActive, onTabClick, onTabClose }: TabItemProps) {
         tab.sessionId ? s.sessionStatus[tab.sessionId] : undefined,
     );
 
+    const [isEditing, setIsEditing] = useState(false);
+    const [editValue, setEditValue] = useState(tab.label);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    const commitRename = useCallback(() => {
+        const trimmed = editValue.trim();
+        setIsEditing(false);
+        if (trimmed && trimmed !== tab.label) {
+            onTabRename(tab.id, trimmed);
+        } else {
+            setEditValue(tab.label);
+        }
+    }, [editValue, tab.label, tab.id, onTabRename]);
+
     return (
         <div onClick={() => onTabClick(tab.id)} className={classes}>
             {tab.sessionId && <StatusDot status={status} className="mr-1" />}
-            <span>{tab.label}</span>
+            {isEditing ? (
+                <input
+                    ref={inputRef}
+                    className="bg-transparent text-inherit outline-none border-none p-0 m-0 w-20 text-sm"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={commitRename}
+                    onFocus={(e) => e.target.select()}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitRename();
+                        } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            setEditValue(tab.label);
+                            setIsEditing(false);
+                        }
+                        e.stopPropagation();
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                />
+            ) : (
+                <span
+                    onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setEditValue(tab.label);
+                        setIsEditing(true);
+                        requestAnimationFrame(() => inputRef.current?.focus());
+                    }}
+                >
+                    {tab.label}
+                </span>
+            )}
             <Button
                 variant="ghost"
                 size="icon-sm"
@@ -90,6 +137,7 @@ interface TabBarProps {
     activeTabId: string;
     onTabClick: (tabId: string) => void;
     onTabClose: (tabId: string) => void;
+    onTabRename: (tabId: string, newLabel: string) => void;
     onNewTab: (
         type: "claude" | "codex" | "browser" | "shell",
         shellPath?: string,
@@ -109,6 +157,7 @@ export function TabBar({
     activeTabId,
     onTabClick,
     onTabClose,
+    onTabRename,
     onNewTab,
     onRunTab,
     onRunScript,
@@ -356,6 +405,7 @@ export function TabBar({
                     isActive={tab.id === activeTabId}
                     onTabClick={onTabClick}
                     onTabClose={onTabClose}
+                    onTabRename={onTabRename}
                 />
             ))}
         </div>

@@ -2,6 +2,7 @@ import { MSG } from "@taskflow/shared";
 import type {
     SessionCreatePayload,
     SessionClosePayload,
+    SessionRenamePayload,
     SessionInputPayload,
     SessionHistoryPayload,
     TerminalResizePayload,
@@ -188,6 +189,33 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
         await removeSessionFromOwner(sessionId);
         ptyManager.close(sessionId);
         return { success: true };
+    });
+
+    router.register(MSG.SESSION_RENAME, async (payload) => {
+        const { sessionId, label } = payload as SessionRenamePayload;
+
+        const updateLabel = (sessions: { id: string; label: string }[]) =>
+            sessions.map((s) => (s.id === sessionId ? { ...s, label } : s));
+
+        const tasks = await taskStore.listTasks();
+        const ownerTask = tasks.find((t) => t.sessions.some((s) => s.id === sessionId));
+        if (ownerTask) {
+            await taskStore.updateTask(ownerTask.id, (task) => ({
+                sessions: updateLabel(task.sessions),
+            }));
+            return { success: true };
+        }
+
+        const projects = await taskStore.listProjects();
+        const ownerProject = projects.find((p) => p.sessions.some((s) => s.id === sessionId));
+        if (ownerProject) {
+            await taskStore.updateProject(ownerProject.id, (project) => ({
+                sessions: updateLabel(project.sessions),
+            }));
+            return { success: true };
+        }
+
+        throw new Error(`Session not found: ${sessionId}`);
     });
 
     router.register(MSG.TERMINAL_RESIZE, async (payload) => {
