@@ -7,6 +7,7 @@ interface FlowStore {
     flows: FlowDefinition[];
     steps: StepDefinition[];
     loadingDefinitions: boolean;
+    definitionLoadCount: number;
     activeRuns: Record<string, FlowRun>;
 
     fetchFlows(): Promise<void>;
@@ -31,17 +32,47 @@ const useFlowStore = create<FlowStore>((set) => ({
     flows: [],
     steps: [],
     loadingDefinitions: false,
+    definitionLoadCount: 0,
     activeRuns: {},
 
     async fetchFlows() {
-        set({ loadingDefinitions: true });
-        const { flows } = await sendRequest<{ flows: FlowDefinition[] }>(MSG.FLOW_DEFINITIONS_LIST);
-        set({ flows, loadingDefinitions: false });
+        set((state) => ({
+            definitionLoadCount: state.definitionLoadCount + 1,
+            loadingDefinitions: true,
+        }));
+        try {
+            const { flows } = await sendRequest<{ flows: FlowDefinition[] }>(
+                MSG.FLOW_DEFINITIONS_LIST,
+            );
+            set({ flows });
+        } finally {
+            set((state) => {
+                const definitionLoadCount = Math.max(0, state.definitionLoadCount - 1);
+                return {
+                    definitionLoadCount,
+                    loadingDefinitions: definitionLoadCount > 0,
+                };
+            });
+        }
     },
 
     async fetchSteps() {
-        const { steps } = await sendRequest<{ steps: StepDefinition[] }>(MSG.FLOW_STEPS_LIST);
-        set({ steps });
+        set((state) => ({
+            definitionLoadCount: state.definitionLoadCount + 1,
+            loadingDefinitions: true,
+        }));
+        try {
+            const { steps } = await sendRequest<{ steps: StepDefinition[] }>(MSG.FLOW_STEPS_LIST);
+            set({ steps });
+        } finally {
+            set((state) => {
+                const definitionLoadCount = Math.max(0, state.definitionLoadCount - 1);
+                return {
+                    definitionLoadCount,
+                    loadingDefinitions: definitionLoadCount > 0,
+                };
+            });
+        }
     },
 
     async saveFlow(flow) {
