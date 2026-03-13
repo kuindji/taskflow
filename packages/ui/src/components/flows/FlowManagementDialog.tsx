@@ -172,6 +172,11 @@ function FlowManagementDialog() {
                             globalSteps={steps}
                             onSave={handleSaveFlow}
                             onCancel={clearSelection}
+                            onDelete={
+                                selectedFlow
+                                    ? () => void handleDeleteFlow(selectedFlow.id)
+                                    : undefined
+                            }
                         />
                     )}
                     {tab === "steps" && (creating || selectedStep) && (

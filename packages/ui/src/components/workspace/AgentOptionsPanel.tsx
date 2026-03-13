@@ -15,19 +15,32 @@ import { useSettingsStore } from "@/stores/settings-store";
 
 interface AgentOptionsPanelProps {
     agentType: "claude" | "codex";
+    value?: AgentLaunchOptions;
+    emitOnMount?: boolean;
     onRun?: (options: AgentLaunchOptions) => void;
     onChange?: (options: AgentLaunchOptions) => void;
 }
 
-function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProps) {
+function AgentOptionsPanel({
+    agentType,
+    value,
+    emitOnMount = false,
+    onRun,
+    onChange,
+}: AgentOptionsPanelProps) {
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
 
+    const matchingValue = value?.type === agentType ? value : undefined;
     const defaultFullAccess =
-        agentType === "claude"
+        matchingValue?.fullAccess ??
+        (agentType === "claude"
             ? (claudeSettings?.fullAccess ?? false)
-            : (codexSettings?.fullAccess ?? false);
-    const defaultModel = claudeSettings?.defaultModel ?? "default";
+            : (codexSettings?.fullAccess ?? false));
+    const defaultModel =
+        agentType === "claude" && matchingValue?.type === "claude"
+            ? (matchingValue.model ?? "default")
+            : (claudeSettings?.defaultModel ?? "default");
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [model, setModel] = useState<string>(defaultModel);
@@ -35,9 +48,16 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
     const isFirstRender = useRef(true);
 
     useEffect(() => {
+        setFullAccess(defaultFullAccess);
+        if (agentType === "claude") {
+            setModel(defaultModel);
+        }
+    }, [agentType, defaultFullAccess, defaultModel]);
+
+    useEffect(() => {
         if (isFirstRender.current) {
             isFirstRender.current = false;
-            return;
+            if (!emitOnMount) return;
         }
         if (!onChange) return;
         if (agentType === "claude") {
@@ -52,7 +72,7 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
                 fullAccess: fullAccess || undefined,
             });
         }
-    }, [agentType, fullAccess, model, onChange]);
+    }, [agentType, emitOnMount, fullAccess, model, onChange]);
 
     const handleRun = () => {
         if (!onRun) return;

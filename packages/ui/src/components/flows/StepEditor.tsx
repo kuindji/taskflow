@@ -35,6 +35,15 @@ function StepEditor({
     const [sessionType, setSessionType] = useState<SessionType>(step?.sessionType ?? "claude");
     const [agentOptions, setAgentOptions] = useState(step?.agentOptions);
 
+    const handleSessionTypeChange = useCallback((value: string) => {
+        const nextSessionType = value as SessionType;
+        setSessionType(nextSessionType);
+        setAgentOptions((current) => {
+            if (nextSessionType === "shell") return undefined;
+            return current?.type === nextSessionType ? current : undefined;
+        });
+    }, []);
+
     const handleSave = useCallback(() => {
         const now = new Date().toISOString();
         onSave({
@@ -69,7 +78,7 @@ function StepEditor({
                 <Label htmlFor="step-session-type">Session Type</Label>
                 <Select
                     value={sessionType}
-                    onValueChange={(v) => setSessionType(v as SessionType)}
+                    onValueChange={handleSessionTypeChange}
                 >
                     <SelectTrigger>
                         <SelectValue />
@@ -94,7 +103,10 @@ function StepEditor({
             {(sessionType === "claude" || sessionType === "codex") && (
                 <div className="border-border rounded-md border p-1">
                     <AgentOptionsPanel
+                        key={`${step?.id ?? "new-step"}-${sessionType}`}
                         agentType={sessionType}
+                        value={agentOptions}
+                        emitOnMount
                         onChange={handleAgentOptionsChange}
                     />
                 </div>

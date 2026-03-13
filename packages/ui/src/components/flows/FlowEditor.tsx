@@ -1,5 +1,11 @@
 import { useState, useCallback } from "react";
-import type { FlowDefinition, FlowStepEntry, StepDefinition, SessionType } from "@taskflow/shared";
+import type {
+    AgentLaunchOptions,
+    FlowDefinition,
+    FlowStepEntry,
+    StepDefinition,
+    SessionType,
+} from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -17,6 +23,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 import { ChevronUp, ChevronDown, X, Plus } from "lucide-react";
 
 interface FlowEditorProps {
@@ -24,9 +31,10 @@ interface FlowEditorProps {
     globalSteps: StepDefinition[];
     onSave: (flow: FlowDefinition) => void;
     onCancel: () => void;
+    onDelete?: () => void;
 }
 
-function FlowEditor({ flow, globalSteps, onSave, onCancel }: FlowEditorProps) {
+function FlowEditor({ flow, globalSteps, onSave, onCancel, onDelete }: FlowEditorProps) {
     const [name, setName] = useState(flow?.name ?? "");
     const [description, setDescription] = useState(flow?.description ?? "");
     const [steps, setSteps] = useState<FlowStepEntry[]>(flow?.steps ?? []);
@@ -63,13 +71,21 @@ function FlowEditor({ flow, globalSteps, onSave, onCancel }: FlowEditorProps) {
             ...prev,
             {
                 id: crypto.randomUUID(),
-                inline: { name: "New Step", prompt: "", sessionType: "claude" },
+                inline: { name: "", prompt: "", sessionType: "claude" },
             } as FlowStepEntry,
         ]);
     }, []);
 
     const updateInlineStep = useCallback(
-        (entryId: string, updates: Partial<{ name: string; prompt: string; sessionType: SessionType }>) => {
+        (
+            entryId: string,
+            updates: Partial<{
+                name: string;
+                prompt: string;
+                sessionType: SessionType;
+                agentOptions: AgentLaunchOptions | undefined;
+            }>,
+        ) => {
             setSteps((prev) =>
                 prev.map((entry) =>
                     entry.id === entryId && "inline" in entry && entry.inline
@@ -81,19 +97,66 @@ function FlowEditor({ flow, globalSteps, onSave, onCancel }: FlowEditorProps) {
         [],
     );
 
+    const handleInlineSessionTypeChange = useCallback((entryId: string, value: string) => {
+        const nextSessionType = value as SessionType;
+        setSteps((prev) =>
+            prev.map((entry) => {
+                if (!("inline" in entry) || !entry.inline || entry.id !== entryId) return entry;
+                return {
+                    ...entry,
+                    inline: {
+                        ...entry.inline,
+                        sessionType: nextSessionType,
+                        agentOptions:
+                            nextSessionType === "shell" ||
+                            entry.inline.agentOptions?.type !== nextSessionType
+                                ? undefined
+                                : entry.inline.agentOptions,
+                    },
+                };
+            }),
+        );
+    }, []);
+
     const handleSave = useCallback(() => {
         const now = new Date().toISOString();
+        const normalizedSteps = steps.map((entry) => {
+            if (!("inline" in entry) || !entry.inline) return entry;
+            return {
+                ...entry,
+                inline: {
+                    ...entry.inline,
+                    name: entry.inline.name.trim(),
+                    prompt: entry.inline.prompt.trim(),
+                    agentOptions:
+                        entry.inline.sessionType === "shell"
+                            ? undefined
+                            : entry.inline.agentOptions,
+                },
+            } satisfies FlowStepEntry;
+        });
         onSave({
             id: flow?.id ?? crypto.randomUUID(),
             name: name.trim(),
             description: description.trim(),
-            steps,
+            steps: normalizedSteps,
             createdAt: flow?.createdAt ?? now,
             updatedAt: now,
         });
     }, [flow, name, description, steps, onSave]);
 
-    const isValid = name.trim() !== "" && steps.length > 0;
+    const isValid =
+        name.trim() !== "" &&
+        steps.length > 0 &&
+        steps.every((entry) => {
+            if (!("inline" in entry) || !entry.inline) return true;
+            return (
+                entry.inline.name.trim() !== "" &&
+                entry.inline.prompt.trim() !== "" &&
+                (entry.inline.sessionType === "shell" ||
+                    entry.inline.agentOptions?.type === entry.inline.sessionType)
+            );
+        });
 
     const getStepName = (entry: FlowStepEntry): string => {
         if (entry.label) return entry.label;
@@ -215,9 +278,7 @@ function FlowEditor({ flow, globalSteps, onSave, onCancel }: FlowEditorProps) {
                                     <Select
                                         value={entry.inline.sessionType}
                                         onValueChange={(value) =>
-                                            updateInlineStep(entry.id, {
-                                                sessionType: value as SessionType,
-                                            })
+                                            handleInlineSessionTypeChange(entry.id, value)
                                         }
                                     >
                                         <SelectTrigger>
@@ -239,6 +300,22 @@ function FlowEditor({ flow, globalSteps, onSave, onCancel }: FlowEditorProps) {
                                         placeholder="Inline step prompt"
                                         className="min-h-[120px] font-mono text-sm"
                                     />
+                                    {(entry.inline.sessionType === "claude" ||
+                                        entry.inline.sessionType === "codex") && (
+                                        <div className="border-border rounded-md border p-1">
+                                            <AgentOptionsPanel
+                                                key={`${entry.id}-${entry.inline.sessionType}`}
+                                                agentType={entry.inline.sessionType}
+                                                value={entry.inline.agentOptions}
+                                                emitOnMount
+                                                onChange={(options) =>
+                                                    updateInlineStep(entry.id, {
+                                                        agentOptions: options,
+                                                    })
+                                                }
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -269,6 +346,11 @@ function FlowEditor({ flow, globalSteps, onSave, onCancel }: FlowEditorProps) {
             </div>
 
             <div className="flex justify-end gap-2">
+                {flow && onDelete && (
+                    <Button variant="destructive" onClick={onDelete}>
+                        Delete Flow
+                    </Button>
+                )}
                 <Button variant="ghost" onClick={onCancel}>
                     Cancel
                 </Button>
