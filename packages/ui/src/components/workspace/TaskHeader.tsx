@@ -39,6 +39,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const [renameOpen, setRenameOpen] = useState(false);
     const [commitOpen, setCommitOpen] = useState(false);
     const isWorktreeTask = !!task?.worktree.enabled && !!task.worktree.path;
+    const gitRepoPath = isWorktreeTask ? (task?.worktree.path ?? "") : (project?.path ?? "");
     const diffKey = isWorktreeTask ? task.id : project?.id;
     const diffStats = useDiffStore((s) =>
         diffKey ? (s.statsByProject[diffKey] ?? null) : null,
@@ -50,8 +51,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
         diffKey ? (s.commitDisabledByProject[diffKey] ?? true) : true,
     );
 
-    const showDiffButton = !!onDiff && ((!task && !!project) || isWorktreeTask);
-    const showCommitButton = (!task && !!project) || isWorktreeTask;
+    const showGitButtons = !!project && (!task?.worktree.enabled || isWorktreeTask);
+    const showDiffButton = !!onDiff && showGitButtons;
+    const showCommitButton = showGitButtons;
 
     const handleRename = useCallback(
         (name: string) => {
@@ -234,8 +236,8 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                 <CommitDialog
                     open={commitOpen}
                     onOpenChange={setCommitOpen}
-                    repoPath={isWorktreeTask ? (task.worktree.path ?? "") : (project?.path ?? "")}
-                    sessionOwner={isWorktreeTask ? { taskId: task.id } : { projectId: project?.id ?? "" }}
+                    repoPath={gitRepoPath}
+                    sessionOwner={task ? { taskId: task.id } : { projectId: project?.id ?? "" }}
                 />
             )}
         </div>

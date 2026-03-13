@@ -142,14 +142,13 @@ export function Workspace() {
         workspace.scope === "task" &&
         workspace.task?.worktree.enabled &&
         !!workspace.task.worktree.path;
+    const canShowGitControls =
+        !!workspace.project &&
+        (workspace.scope !== "task" ||
+            !workspace.task?.worktree.enabled ||
+            !!workspace.task.worktree.path);
 
-    const visibleTabs = useMemo(
-        () =>
-            workspace.scope === "task" && !isWorktreeTask
-                ? tabs.filter((tab) => tab.type !== "changes")
-                : tabs,
-        [tabs, workspace.scope, isWorktreeTask],
-    );
+    const visibleTabs = useMemo(() => tabs, [tabs]);
 
     const activeTab = visibleTabs.find((t) => t.id === activeTabId) ?? visibleTabs[0];
 
@@ -366,7 +365,7 @@ export function Workspace() {
             <TaskHeader
                 task={workspace.task ?? undefined}
                 project={workspace.project}
-                onDiff={workspace.scope === "project" || isWorktreeTask ? handleDiffTab : undefined}
+                onDiff={canShowGitControls ? handleDiffTab : undefined}
             />
             {worktreePending ? (
                 <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-sm">

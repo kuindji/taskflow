@@ -102,7 +102,7 @@ export function ProjectGroup({
                                 )}
                             </button>
                         </TooltipTrigger>
-                        <TooltipContent side="right" sideOffset={4}>
+                        <TooltipContent key={projectToggleLabel} side="right" sideOffset={4}>
                             {projectToggleLabel}
                         </TooltipContent>
                     </Tooltip>
