@@ -12,13 +12,11 @@ import { CommitDialog } from "./CommitDialog";
 import {
     Archive,
     Diff,
+    FolderTree,
     GitCommitHorizontal,
+    NotebookText,
     Pencil,
     Trash2,
-    PanelLeftClose,
-    PanelLeftOpen,
-    PanelRightClose,
-    PanelRightOpen,
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
 
@@ -98,19 +96,16 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
             {task || project ? (
                 <>
                     <Button
-                        variant="ghost"
+                        variant={fileExplorerOpen ? "secondary" : "ghost"}
                         size="icon-xs"
                         onClick={toggleFileExplorer}
+                        aria-pressed={fileExplorerOpen}
                         aria-label={fileExplorerOpen ? "Hide file explorer" : "Show file explorer"}
                         tooltip={fileExplorerOpen ? "Hide file explorer" : "Show file explorer"}
                         tooltipSide="bottom"
                         className="[-webkit-app-region:no-drag]"
                     >
-                        {fileExplorerOpen ? (
-                            <PanelLeftClose className="h-4 w-4" />
-                        ) : (
-                            <PanelLeftOpen className="h-4 w-4" />
-                        )}
+                        <FolderTree className="h-4 w-4" />
                     </Button>
                     <div className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden">
                         <TruncatedText
@@ -210,19 +205,16 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         <Trash2 className="h-4 w-4" />
                     </Button>
                     <Button
-                        variant="ghost"
+                        variant={taskInfoOpen ? "secondary" : "ghost"}
                         size="icon-xs"
                         onClick={toggleTaskInfo}
+                        aria-pressed={taskInfoOpen}
                         aria-label={taskInfoOpen ? "Hide task info" : "Show task info"}
                         tooltip={taskInfoOpen ? "Hide task info" : "Show task info"}
                         tooltipSide="bottom"
                         className="[-webkit-app-region:no-drag]"
                     >
-                        {taskInfoOpen ? (
-                            <PanelRightClose className="h-4 w-4" />
-                        ) : (
-                            <PanelRightOpen className="h-4 w-4" />
-                        )}
+                        <NotebookText className="h-4 w-4" />
                     </Button>
                 </>
             )}
