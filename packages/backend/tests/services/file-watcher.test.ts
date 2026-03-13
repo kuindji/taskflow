@@ -30,12 +30,14 @@ describe("FileWatcher", () => {
         expect(srcDir?.children).toHaveLength(1);
     });
 
-    it("excludes node_modules and .git", async () => {
+    it("excludes node_modules, .git, and .worktrees", async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-fw-test-"));
         await mkdir(join(tempDir, "node_modules"));
         await writeFile(join(tempDir, "node_modules", "pkg.js"), "x");
         await mkdir(join(tempDir, ".git"));
         await writeFile(join(tempDir, ".git", "config"), "x");
+        await mkdir(join(tempDir, ".worktrees"));
+        await writeFile(join(tempDir, ".worktrees", "ignored.txt"), "x");
         await writeFile(join(tempDir, ".gitignore"), "dist\n");
         await writeFile(join(tempDir, "real.ts"), "x");
 
@@ -45,6 +47,7 @@ describe("FileWatcher", () => {
         const names = tree.children?.map((c) => c.name) ?? [];
         expect(names).not.toContain("node_modules");
         expect(names).not.toContain(".git");
+        expect(names).not.toContain(".worktrees");
         expect(names).toContain(".gitignore");
         expect(names).toContain("real.ts");
         expect(gitignorePatterns).toContain("dist");

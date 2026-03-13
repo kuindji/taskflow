@@ -18,15 +18,20 @@ class FakePtyManager {
     >();
     private sequenceBySession = new Map<string, number>();
     closed: string[] = [];
+    spawns: Array<{ id: string; cwd?: string; command?: string; args?: string[] }> = [];
 
     spawn(options: {
         id?: string;
+        cwd?: string;
+        command?: string;
+        args?: string[];
         onData: (data: string, sequence: number) => void;
         onExit: (exitCode: number) => void;
     }): string {
         const id = options.id ?? `session-${(this.nextId += 1)}`;
         this.sessions.set(id, options);
         this.sequenceBySession.set(id, 0);
+        this.spawns.push({ id, cwd: options.cwd, command: options.command, args: options.args });
         return id;
     }
 
@@ -147,6 +152,32 @@ describe("session handlers", () => {
         const project = await store.getProject(projectId);
         expect(project?.sessions).toHaveLength(1);
         expect(project?.sessions[0]?.id).toBe(created.sessionId);
+    });
+
+    it("uses the task worktree path as the session cwd when available", async () => {
+        const task = await store.createTask({
+            projectId,
+            title: "Task",
+            description: "test",
+            worktree: {
+                enabled: true,
+                path: join(tempDir, "project", ".worktrees", "task"),
+                branch: "task/task",
+            },
+        });
+
+        const created = (await router.handle(MSG.SESSION_CREATE, {
+            taskId: task.id,
+            type: "shell",
+            shell: "/bin/sh",
+        })) as { sessionId: string };
+
+        expect(ptyManager.spawns).toContainEqual({
+            id: created.sessionId,
+            cwd: join(tempDir, "project", ".worktrees", "task"),
+            command: "/bin/sh",
+            args: [],
+        });
     });
 
     it("defaults agent session labels to the agent name", async () => {

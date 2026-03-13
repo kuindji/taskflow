@@ -164,6 +164,42 @@ describe("TaskStore", () => {
             expect(updated.notes).toBe("some notes");
         });
 
+        it("persists explicit worktree metadata on create and update", async () => {
+            const projectDir = await createProjectDir("test");
+            const project = await store.addProject({ name: "test", path: projectDir });
+            const task = await store.createTask({
+                projectId: project.id,
+                title: "Worktree task",
+                description: "test",
+                worktree: {
+                    enabled: true,
+                    path: join(projectDir, ".worktrees", "worktree-task"),
+                    branch: "task/worktree-task",
+                },
+            });
+
+            expect(task.worktree).toEqual({
+                enabled: true,
+                path: join(projectDir, ".worktrees", "worktree-task"),
+                branch: "task/worktree-task",
+            });
+
+            const updated = await store.updateTask(task.id, {
+                worktree: {
+                    enabled: true,
+                    path: join(projectDir, ".worktrees", "renamed"),
+                    branch: "task/renamed",
+                },
+            });
+
+            expect(updated.worktree).toEqual({
+                enabled: true,
+                path: join(projectDir, ".worktrees", "renamed"),
+                branch: "task/renamed",
+            });
+            expect((await store.getTask(task.id))?.worktree).toEqual(updated.worktree);
+        });
+
         it("persists session history independently from the live PTY", async () => {
             const projectDir = await createProjectDir("test");
             const project = await store.addProject({ name: "test", path: projectDir });
