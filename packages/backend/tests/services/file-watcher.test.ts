@@ -20,7 +20,7 @@ describe("FileWatcher", () => {
         await writeFile(join(tempDir, "src", "file2.ts"), "content");
 
         watcher = new FileWatcher();
-        const tree = await watcher.buildTree(tempDir);
+        const { tree } = await watcher.buildTree(tempDir);
 
         expect(tree.type).toBe("directory");
         expect(tree.children?.length).toBeGreaterThanOrEqual(2);
@@ -40,13 +40,14 @@ describe("FileWatcher", () => {
         await writeFile(join(tempDir, "real.ts"), "x");
 
         watcher = new FileWatcher();
-        const tree = await watcher.buildTree(tempDir);
+        const { tree, gitignorePatterns } = await watcher.buildTree(tempDir);
 
         const names = tree.children?.map((c) => c.name) ?? [];
         expect(names).not.toContain("node_modules");
         expect(names).not.toContain(".git");
         expect(names).toContain(".gitignore");
         expect(names).toContain("real.ts");
+        expect(gitignorePatterns).toContain("dist");
     });
 
     it("watches for file changes", async () => {
