@@ -56,7 +56,7 @@ export function deriveTheme(source: ThemeSource): ResolvedTheme {
         background: colors.background,
         foreground: colors.foreground,
         cursor: colors.cursor,
-        cursorAccent: colors.background,
+        cursorAccent: colors.cursorText,
         selectionBackground: colors.selection,
         black: ansi.black,
         red: ansi.red,

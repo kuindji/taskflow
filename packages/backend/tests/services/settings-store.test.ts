@@ -168,6 +168,15 @@ describe("SettingsStore", () => {
         expect((await store.get()).terminal.defaultShell).toBe("/bin/bash");
     });
 
+    it("persists appearance.theme setting", async () => {
+        const result = await store.update({
+            appearance: { theme: "dracula" },
+        });
+
+        expect(result.appearance.theme).toBe("dracula");
+        expect((await store.get()).appearance.theme).toBe("dracula");
+    });
+
     it("merges partial layout.window with defaults", async () => {
         await writeFile(
             settingsFile,

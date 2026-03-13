@@ -100,6 +100,18 @@ describe("deriveTheme", () => {
         expect(resolved.xterm.brightCyan).toBe("#a4ffff");
     });
 
+    it("uses cursorText for xterm cursorAccent", () => {
+        const resolved = deriveTheme({
+            ...dracula,
+            colors: {
+                ...dracula.colors,
+                cursorText: "#101010",
+            },
+        });
+
+        expect(resolved.xterm.cursorAccent).toBe("#101010");
+    });
+
     it("applies overrides over derived values", () => {
         const withOverrides: ThemeSource = {
             ...dracula,
