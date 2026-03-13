@@ -76,6 +76,7 @@ function BrowseOnlineTab() {
     const fetchOnlineThemes = useThemeStore((s) => s.fetchOnlineThemes);
     const downloadOnlineTheme = useThemeStore((s) => s.downloadOnlineTheme);
     const [downloading, setDownloading] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         void fetchOnlineThemes();
@@ -83,10 +84,13 @@ function BrowseOnlineTab() {
 
     async function handleDownload(theme: OnlineThemeRecord) {
         setDownloading(theme.id);
+        setError(null);
         try {
             await downloadOnlineTheme(theme);
             // Refresh the online list so "Installed" badge updates
             await fetchOnlineThemes();
+        } catch {
+            setError(`Failed to install "${theme.name}". Please try again.`);
         } finally {
             setDownloading(null);
         }
@@ -97,6 +101,10 @@ function BrowseOnlineTab() {
             <p className="text-muted-foreground text-sm">
                 Browse and install themes from terminalcolors.com.
             </p>
+
+            {error && (
+                <p className="text-destructive text-xs">{error}</p>
+            )}
 
             {browsingOnline && (
                 <p className="text-muted-foreground text-xs animate-pulse">

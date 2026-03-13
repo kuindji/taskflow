@@ -197,6 +197,11 @@ export function registerThemeHandlers(router: Router, themeService: ThemeService
         if (typeof url !== "string" || typeof name !== "string" || typeof id !== "string") {
             throw new Error("Invalid download payload");
         }
+        // Validate URL against the curated catalog to prevent SSRF
+        const catalogEntry = ONLINE_CATALOG.find((e) => e.id === id);
+        if (!catalogEntry || catalogEntry.downloadUrl !== url) {
+            throw new Error("Unknown or mismatched download URL");
+        }
         const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`Failed to download theme: ${response.status}`);
