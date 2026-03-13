@@ -1,5 +1,5 @@
-import { readdir, readFile, writeFile, unlink } from "fs/promises";
-import { join } from "path";
+import { readdir, readFile, writeFile, unlink, access } from "fs/promises";
+import { join, resolve } from "path";
 import { bundledThemes } from "@taskflow/shared";
 import type { ThemeRecord, ThemeSource, AnsiColors } from "@taskflow/shared";
 import { slugify } from "../utils/slugify";
@@ -25,6 +25,8 @@ const ANSI_KEYS: readonly (keyof AnsiColors)[] = [
     "brightWhite",
 ] as const;
 
+const VALID_ORIGINS = new Set(["bundled", "imported", "custom", "online"]);
+
 const COLOR_FIELDS = [
     "foreground",
     "background",
@@ -45,6 +47,7 @@ function isValidThemeSource(data: unknown): data is ThemeSource {
 
     if (obj.version !== 1) return false;
     if (typeof obj.name !== "string") return false;
+    if (!VALID_ORIGINS.has(obj.origin as string)) return false;
 
     if (typeof obj.colors !== "object" || obj.colors === null) return false;
     const colors = obj.colors as Record<string, unknown>;
@@ -96,7 +99,7 @@ export class ThemeService {
 
         const id = await this.resolveId(baseId, overwrite);
 
-        const filePath = join(this.themesDir, `${id}.json`);
+        const filePath = this.safePath(id);
         await writeFile(filePath, JSON.stringify(theme, null, 2));
 
         return { id, source: theme };
@@ -105,7 +108,7 @@ export class ThemeService {
     async delete(id: string): Promise<void> {
         if (this.bundledIds.has(id)) return;
 
-        const filePath = join(this.themesDir, `${id}.json`);
+        const filePath = this.safePath(id);
         try {
             await unlink(filePath);
         } catch {
@@ -115,6 +118,14 @@ export class ThemeService {
 
     idFor(name: string): string {
         return slugify(name);
+    }
+
+    private safePath(id: string): string {
+        const filePath = resolve(this.themesDir, `${id}.json`);
+        if (!filePath.startsWith(resolve(this.themesDir) + "/")) {
+            throw new Error("Invalid theme id");
+        }
+        return filePath;
     }
 
     private async resolveId(
@@ -134,8 +145,7 @@ export class ThemeService {
         }
 
         // Find a suffix
-        let counter = 2;
-        while (true) {
+        for (let counter = 2; counter < 1000; counter++) {
             const candidate = `${baseId}-${counter}`;
             if (
                 !this.bundledIds.has(candidate) &&
@@ -143,13 +153,13 @@ export class ThemeService {
             ) {
                 return candidate;
             }
-            counter++;
         }
+        throw new Error(`Could not resolve a unique id for "${baseId}"`)
     }
 
     private async userThemeExists(id: string): Promise<boolean> {
         try {
-            await readFile(join(this.themesDir, `${id}.json`));
+            await access(join(this.themesDir, `${id}.json`));
             return true;
         } catch {
             return false;

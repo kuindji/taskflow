@@ -113,6 +113,19 @@ describe("ThemeService", () => {
             expect(draculas[0].source.name).not.toBe("Fake Dracula");
         });
 
+        it("skips files with invalid origin", async () => {
+            const source = makeValidSource();
+            const raw = { ...source, origin: "garbage" };
+            await writeFile(
+                join(tempDir, "bad-origin.json"),
+                JSON.stringify(raw),
+            );
+
+            const themes = await service.listAll();
+            const ids = themes.map((t) => t.id);
+            expect(ids).not.toContain("bad-origin");
+        });
+
         it("skips files that don't satisfy full schema (missing colors fields)", async () => {
             const incomplete = {
                 version: 1,
@@ -205,6 +218,12 @@ describe("ThemeService", () => {
 
             themes = await service.listAll();
             expect(themes.find((t) => t.id === "to-delete")).toBeUndefined();
+        });
+
+        it("rejects path traversal IDs", async () => {
+            await expect(service.delete("../../etc/passwd")).rejects.toThrow(
+                "Invalid theme id",
+            );
         });
 
         it("is a no-op for bundled theme IDs", async () => {
