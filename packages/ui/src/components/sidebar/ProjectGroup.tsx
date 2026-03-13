@@ -36,6 +36,7 @@ export function ProjectGroup({
 }: ProjectGroupProps) {
     const [open, setOpen] = useState(true);
     const [missingDialogOpen, setMissingDialogOpen] = useState(false);
+    const projectToggleLabel = open ? "Collapse project" : "Expand project";
     const projectStatus = useSessionStore((state) => {
         let hasWorking = false;
         const sessionStatus = state.sessionStatus;
@@ -84,14 +85,14 @@ export function ProjectGroup({
                         isActive && !locationInvalid ? "bg-accent/15" : "hover:bg-muted/50",
                     )}
                 >
-                    <Tooltip>
+                    <Tooltip key={projectToggleLabel}>
                         <TooltipTrigger asChild>
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     setOpen((value) => !value);
                                 }}
-                                aria-label={open ? "Collapse project" : "Expand project"}
+                                aria-label={projectToggleLabel}
                                 className="text-muted-foreground flex h-full shrink-0 items-center px-1.5 py-1.5"
                             >
                                 {open ? (
@@ -102,7 +103,7 @@ export function ProjectGroup({
                             </button>
                         </TooltipTrigger>
                         <TooltipContent side="right" sideOffset={4}>
-                            {open ? "Collapse project" : "Expand project"}
+                            {projectToggleLabel}
                         </TooltipContent>
                     </Tooltip>
                     <button
