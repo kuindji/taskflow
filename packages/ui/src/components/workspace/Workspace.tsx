@@ -12,7 +12,7 @@ import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
 import { destroyTerminal } from "@/components/panes/TerminalPane";
-import { resolveTerminalShellPath } from "@/lib/terminal-shells";
+import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import { useSettingsStore } from "@/stores/settings-store";
 import useIsElectron from "@/hooks/useIsElectron";
 import {
@@ -190,7 +190,7 @@ export function Workspace() {
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
                 : { projectId: workspace.project.id };
-        await createSession(owner, "shell", undefined, undefined, shell);
+        await createSession(owner, "shell", getShellSessionLabel(shell), undefined, shell);
     }, [
         configuredShell,
         createSession,
@@ -299,13 +299,12 @@ export function Workspace() {
                 url: "about:blank",
             });
         } else if (type === "shell" && shellPath) {
-            const shellName = shellPath.split("/").pop() ?? "shell";
             await createSession(
                 workspace.scope === "task"
                     ? { taskId: workspace.task.id }
                     : { projectId: workspace.project.id },
                 "shell",
-                shellName,
+                getShellSessionLabel(shellPath),
                 undefined,
                 shellPath,
             );
