@@ -365,30 +365,6 @@ export interface ThemeDeletePayload {
     id: string;
 }
 
-export interface OnlineThemeRecord {
-    id: string;
-    name: string;
-    author?: string;
-    downloadUrl: string;
-    preview: ThemeColors;
-    installed: boolean;
-    installedThemeId?: string;
-}
-
-export interface ThemeBrowseListResponse {
-    themes: OnlineThemeRecord[];
-}
-
-export interface ThemeDownloadPayload {
-    id: string;
-    url: string;
-    name: string;
-}
-
-export interface ThemeDownloadResponse {
-    themes: ThemeRecord[];
-    importedThemeId: string;
-}
 
 // System messages
 export type SystemInfoResponse = SystemInfo;

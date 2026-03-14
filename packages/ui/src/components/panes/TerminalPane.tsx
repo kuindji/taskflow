@@ -14,6 +14,7 @@ import type {
     SessionExitedEvent,
     SessionHistoryResponse,
     FileStatResponse,
+    XtermTheme,
 } from "@taskflow/shared";
 import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -65,11 +66,16 @@ interface TerminalViewportSnapshot {
 const terminalCache = new Map<string, CachedTerminal>();
 const RESIZE_DEBOUNCE_MS = 250;
 
+function applyThemeToCachedTerminal(cached: CachedTerminal, theme: XtermTheme): void {
+    cached.term.options.theme = { ...theme };
+    refreshTerminal(cached.term);
+}
+
 // Single module-level subscription: re-theme all cached terminals when the resolved theme changes.
 useThemeStore.subscribe((state, prevState) => {
     if (state.resolved === prevState.resolved) return;
     for (const [, cached] of terminalCache) {
-        cached.term.options.theme = { ...state.resolved.xterm };
+        applyThemeToCachedTerminal(cached, state.resolved.xterm);
     }
 });
 
@@ -409,7 +415,7 @@ function loadBestEffortRendererAddons(term: Terminal): () => void {
     };
 }
 
-function getTerminalTheme(): Record<string, string> {
+function getTerminalTheme(): XtermTheme {
     return { ...useThemeStore.getState().resolved.xterm };
 }
 

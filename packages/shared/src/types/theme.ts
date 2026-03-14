@@ -27,7 +27,7 @@ export interface ThemeColors {
     ansi: AnsiColors;
 }
 
-export type ThemeOrigin = "bundled" | "imported" | "custom" | "online";
+export type ThemeOrigin = "bundled" | "imported" | "custom";
 
 export interface ThemeSource {
     version: 1;

@@ -3,7 +3,6 @@ import { isAbsolute, join, relative, resolve, extname, basename } from "path";
 import { bundledThemes } from "@taskflow/shared";
 import type { ThemeRecord, ThemeSource, AnsiColors } from "@taskflow/shared";
 import { slugify } from "../utils/slugify";
-import { ONLINE_CATALOG_IDS } from "./online-theme-catalog";
 import {
     detectAlacritty,
     parseAlacritty,
@@ -48,7 +47,7 @@ const ANSI_KEYS: readonly (keyof AnsiColors)[] = [
     "brightWhite",
 ] as const;
 
-const VALID_ORIGINS = new Set(["bundled", "imported", "custom", "online"]);
+const VALID_ORIGINS = new Set(["bundled", "imported", "custom"]);
 
 const COLOR_FIELDS = [
     "foreground",
@@ -124,12 +123,10 @@ function isValidThemeSource(data: unknown): data is ThemeSource {
 export class ThemeService {
     private readonly themesDir: string;
     private readonly bundledIds: Set<string>;
-    private readonly onlineCatalogIds: Set<string>;
 
     constructor(themesDir: string) {
         this.themesDir = themesDir;
         this.bundledIds = new Set(bundledThemes.map((t) => t.id));
-        this.onlineCatalogIds = new Set(ONLINE_CATALOG_IDS);
     }
 
     async listAll(): Promise<ThemeRecord[]> {
@@ -152,7 +149,7 @@ export class ThemeService {
                 : assertValidThemeId(preferredId);
         const overwrite = options?.overwriteExisting ?? false;
 
-        const id = await this.resolveId(baseId, overwrite, theme);
+        const id = await this.resolveId(baseId, overwrite);
 
         const filePath = this.safePath(id);
         await writeFile(filePath, JSON.stringify(theme, null, 2));
@@ -273,34 +270,17 @@ export class ThemeService {
     private async resolveId(
         baseId: string,
         overwriteExisting: boolean,
-        theme: ThemeSource,
     ): Promise<string> {
-        const isReservedOnlineId = this.onlineCatalogIds.has(baseId);
         const existingFile = await this.readUserThemeFile(baseId);
 
         // If overwrite is requested and it's a user theme, reuse it
-        if (overwriteExisting && !this.bundledIds.has(baseId)) {
-            if (
-                !isReservedOnlineId &&
-                existingFile.exists
-            ) {
-                return baseId;
-            }
-
-            if (
-                isReservedOnlineId &&
-                theme.origin === "online" &&
-                existingFile.source?.origin === "online"
-            ) {
-                return baseId;
-            }
+        if (overwriteExisting && !this.bundledIds.has(baseId) && existingFile.exists) {
+            return baseId;
         }
 
         // If no collision at all, use baseId
-        if (!this.bundledIds.has(baseId)) {
-            if (!existingFile.exists && (!isReservedOnlineId || theme.origin === "online")) {
-                return baseId;
-            }
+        if (!this.bundledIds.has(baseId) && !existingFile.exists) {
+            return baseId;
         }
 
         // Find a suffix
@@ -367,9 +347,6 @@ export class ThemeService {
                 const parsed: unknown = JSON.parse(raw);
 
                 if (isValidThemeSource(parsed)) {
-                    if (this.onlineCatalogIds.has(id) && parsed.origin !== "online") {
-                        continue;
-                    }
                     results.push({ id, source: parsed });
                 }
             } catch {

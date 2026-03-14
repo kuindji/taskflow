@@ -6,7 +6,6 @@ import {
     DialogTitle,
     DialogDescription,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -44,7 +43,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { alert, confirm } from "@/stores/dialog-store";
-import { FontFamilySelect } from "./FontFamilySelect";
 
 const EDITOR_OPTIONS = [
     { value: "system", label: "System Default" },
@@ -69,7 +67,7 @@ function SettingsModal() {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
-    const [section, setSection] = useState<"general" | "fonts" | "defaults" | "claude" | "codex">(
+    const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex">(
         "general",
     );
     const [migrating, setMigrating] = useState(false);
@@ -106,60 +104,9 @@ function SettingsModal() {
         [toggleSettings],
     );
 
-    const handleGeneralFontFamily = useCallback(
-        (fontFamily: string) => {
-            void updateSettings({ general: { fontFamily } });
-        },
-        [updateSettings],
-    );
-
-    const handleGeneralFontSize = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
-            const fontSize = parseInt(e.target.value, 10);
-            if (!isNaN(fontSize) && fontSize > 0) {
-                void updateSettings({ general: { fontSize } });
-            }
-        },
-        [updateSettings],
-    );
-
-    const handleTerminalFontFamily = useCallback(
-        (fontFamily: string) => {
-            void updateSettings({ terminal: { fontFamily } });
-        },
-        [updateSettings],
-    );
-
-    const handleTerminalFontSize = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
-            const fontSize = parseInt(e.target.value, 10);
-            if (!isNaN(fontSize) && fontSize > 0) {
-                void updateSettings({ terminal: { fontSize } });
-            }
-        },
-        [updateSettings],
-    );
-
     const handleDefaultShell = useCallback(
         (defaultShell: string) => {
             void updateSettings({ terminal: { defaultShell } });
-        },
-        [updateSettings],
-    );
-
-    const handleEditorFontFamily = useCallback(
-        (fontFamily: string) => {
-            void updateSettings({ editor: { fontFamily } });
-        },
-        [updateSettings],
-    );
-
-    const handleEditorFontSize = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
-            const fontSize = parseInt(e.target.value, 10);
-            if (!isNaN(fontSize) && fontSize > 0) {
-                void updateSettings({ editor: { fontSize } });
-            }
         },
         [updateSettings],
     );
@@ -347,16 +294,6 @@ function SettingsModal() {
                         </button>
                         <button
                             className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
-                                section === "fonts"
-                                    ? "bg-accent text-accent-foreground font-medium"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                            onClick={() => setSection("fonts")}
-                        >
-                            Fonts
-                        </button>
-                        <button
-                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
                                 section === "defaults"
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
@@ -442,91 +379,6 @@ function SettingsModal() {
                                                 ~/.config/taskflow.
                                             </p>
                                         )}
-                                    </div>
-                                </section>
-                            </>
-                        )}
-                        {section === "fonts" && (
-                            <>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Application Font</h3>
-                                    <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
-                                        <div className="min-w-0 space-y-1">
-                                            <Label className={defaultsSelectLabelClassName}>
-                                                Family
-                                            </Label>
-                                            <FontFamilySelect
-                                                value={settings.general.fontFamily}
-                                                onChange={handleGeneralFontFamily}
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label className={defaultsSelectLabelClassName}>
-                                                Size
-                                            </Label>
-                                            <Input
-                                                type="number"
-                                                min={8}
-                                                max={32}
-                                                value={settings.general.fontSize}
-                                                onChange={handleGeneralFontSize}
-                                                className="h-8 text-sm"
-                                            />
-                                        </div>
-                                    </div>
-                                </section>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Terminal Font</h3>
-                                    <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
-                                        <div className="min-w-0 space-y-1">
-                                            <Label className={defaultsSelectLabelClassName}>
-                                                Family
-                                            </Label>
-                                            <FontFamilySelect
-                                                value={settings.terminal.fontFamily}
-                                                onChange={handleTerminalFontFamily}
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label className={defaultsSelectLabelClassName}>
-                                                Size
-                                            </Label>
-                                            <Input
-                                                type="number"
-                                                min={8}
-                                                max={32}
-                                                value={settings.terminal.fontSize}
-                                                onChange={handleTerminalFontSize}
-                                                className="h-8 text-sm"
-                                            />
-                                        </div>
-                                    </div>
-                                </section>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Editor Font</h3>
-                                    <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
-                                        <div className="min-w-0 space-y-1">
-                                            <Label className={defaultsSelectLabelClassName}>
-                                                Family
-                                            </Label>
-                                            <FontFamilySelect
-                                                value={settings.editor.fontFamily}
-                                                onChange={handleEditorFontFamily}
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label className={defaultsSelectLabelClassName}>
-                                                Size
-                                            </Label>
-                                            <Input
-                                                type="number"
-                                                min={8}
-                                                max={32}
-                                                value={settings.editor.fontSize}
-                                                onChange={handleEditorFontSize}
-                                                className="h-8 text-sm"
-                                            />
-                                        </div>
                                     </div>
                                 </section>
                             </>

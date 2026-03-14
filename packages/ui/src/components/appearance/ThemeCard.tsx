@@ -40,14 +40,14 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
                 type="button"
                 onClick={onClick}
                 className={cn(
-                    "flex w-full flex-col rounded-lg border p-3 text-left transition-colors",
+                    "flex w-full flex-col rounded-lg gap-2 border text-left transition-colors",
                     "hover:border-accent",
                     isActive ? "border-accent bg-accent/10" : "border-border",
                 )}
             >
                 {/* Color preview */}
                 <div
-                    className="mb-2 flex h-16 items-end gap-0.5 rounded-md p-2"
+                    className="flex h-16 items-end gap-0.5 overflow-hidden rounded-md p-2"
                     style={{ backgroundColor: colors.background }}
                     aria-hidden="true"
                 >
@@ -58,14 +58,14 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
                         ~/project $
                     </span>
                     <span
-                        className="font-mono text-xs"
+                        className="shrink-0 font-mono text-xs"
                         style={{ color: colors.ansi.green }}
                     >
                         {" "}git status
                     </span>
                 </div>
                 {/* Swatch row */}
-                <div className="mb-2 flex gap-1">
+                <div className="flex gap-1 p-3 w-full">
                     {swatches.map((color, i) => (
                         <div
                             key={i}
@@ -75,7 +75,7 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
                     ))}
                 </div>
                 {/* Name + badge */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 p-3">
                     <span className="truncate text-sm font-medium">{source.name}</span>
                     {source.origin !== "bundled" && (
                         <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 text-[10px]">

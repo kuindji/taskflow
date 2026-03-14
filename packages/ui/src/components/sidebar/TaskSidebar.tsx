@@ -323,28 +323,30 @@ export function TaskSidebar() {
                         </Button>
                     )}
                 </div>
-                <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={toggleAppearance}
-                    aria-label="Appearance"
-                    tooltip="Appearance"
-                    tooltipSide="bottom"
-                    className="text-muted-foreground [-webkit-app-region:no-drag]"
-                >
-                    <Palette className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={openSettings}
-                    aria-label="Settings"
-                    tooltip="Settings"
-                    tooltipSide="bottom"
-                    className="text-muted-foreground [-webkit-app-region:no-drag]"
-                >
-                    <Settings2 className="h-3.5 w-3.5" />
-                </Button>
+                <div className="flex items-center">
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={toggleAppearance}
+                        aria-label="Appearance"
+                        tooltip="Appearance"
+                        tooltipSide="bottom"
+                        className="text-muted-foreground [-webkit-app-region:no-drag]"
+                    >
+                        <Palette className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={openSettings}
+                        aria-label="Settings"
+                        tooltip="Settings"
+                        tooltipSide="bottom"
+                        className="text-muted-foreground [-webkit-app-region:no-drag]"
+                    >
+                        <Settings2 className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
             </div>
             <NewProjectDialog
                 open={newProjectOpen}

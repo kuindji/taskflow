@@ -53,7 +53,7 @@ export function deriveTheme(source: ThemeSource): ResolvedTheme {
         : derived;
 
     const xterm: XtermTheme = {
-        background: colors.background,
+        background: ansi.black,
         foreground: colors.foreground,
         cursor: colors.cursor,
         cursorAccent: colors.cursorText,

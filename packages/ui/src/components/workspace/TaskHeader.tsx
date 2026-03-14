@@ -128,7 +128,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             {task?.title ?? project?.name}
                         </TruncatedText>
                         {task?.worktree?.branch && (
-                            <div className="border-border flex min-w-0 shrink-[3] items-center gap-0.5 rounded-md border px-2 py-0.5 [-webkit-app-region:no-drag]">
+                            <div className="border-border flex min-w-0 shrink-3 items-center gap-1 rounded-md border pl-2 pr-1 py-0.5 [-webkit-app-region:no-drag]">
                                 <TruncatedText
                                     as="div"
                                     tooltip
@@ -143,7 +143,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                     tooltip="Copy branch name"
                                     variant="transparent"
                                     size="icon-2xs"
-                                    className="text-muted-foreground hover:text-foreground shrink-0 [-webkit-app-region:no-drag]"
+                                    className="text-muted-foreground hover:text-foreground shrink-0 [-webkit-app-region:no-drag] px-0"
                                 />
                             </div>
                         )}

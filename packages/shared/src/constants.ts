@@ -76,15 +76,15 @@ export const MSG = {
     THEME_IMPORT_SCAN: "theme:import-scan",
     THEME_IMPORT: "theme:import",
     THEME_IMPORT_FILE: "theme:import-file",
-    THEME_BROWSE_LIST: "theme:browse-list",
-    THEME_DOWNLOAD: "theme:download",
+
+
     THEME_DELETE: "theme:delete",
 
     // System
     SYSTEM_INFO: "system:info",
 } as const;
 
-export const DEFAULT_THEME_ID = "taskflow";
+export const DEFAULT_THEME_ID = "catppuccin-mocha";
 
 // Archive expiry (safe to import in browser)
 export const ARCHIVE_EXPIRY_DAYS = 30;
