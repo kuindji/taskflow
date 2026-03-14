@@ -4,8 +4,8 @@
     "author": "Rosé Pine",
     "origin": "bundled",
     "colors": {
-        "foreground": "#e0def4",
-        "background": "#161420",
+        "foreground": "#cac8dc",
+        "background": "#14121d",
         "cursor": "#524f67",
         "cursorText": "#e0def4",
         "selection": "#2a283e",
