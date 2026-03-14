@@ -6,6 +6,7 @@ import { useUIStore } from "./ui-store";
 
 interface DataDirInfo {
     dataDir: string;
+    baseDir: string;
     isDefault: boolean;
     conflict?: boolean;
 }

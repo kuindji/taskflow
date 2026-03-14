@@ -39,6 +39,7 @@ async function main() {
         });
         await store.init();
         await store.clearAllSessions();
+        await store.cleanupAllSessionLogs();
         await store.cleanExpiredArchives();
 
         const ptyManager = new PtyManager();

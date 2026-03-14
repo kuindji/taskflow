@@ -43,9 +43,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const isWorktreeTask = !!task?.worktree.enabled && !!task.worktree.path;
     const gitRepoPath = isWorktreeTask ? (task?.worktree.path ?? "") : (project?.path ?? "");
     const diffKey = isWorktreeTask ? task.id : project?.id;
-    const diffStats = useDiffStore((s) =>
-        diffKey ? (s.statsByProject[diffKey] ?? null) : null,
-    );
+    const diffStats = useDiffStore((s) => (diffKey ? (s.statsByProject[diffKey] ?? null) : null));
     const diffDisabled = useDiffStore((s) =>
         diffKey ? (s.diffDisabledByProject[diffKey] ?? true) : true,
     );
@@ -60,7 +58,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const commitLabel = showPush ? "Push" : "Commit";
     const CommitIcon = showPush ? ArrowUpFromLine : GitCommitHorizontal;
 
-    const showGitButtons = !!project && (!task?.worktree.enabled || isWorktreeTask);
+    const showGitButtons = !!project && (!task || isWorktreeTask);
     const showDiffButton = !!onDiff && showGitButtons;
     const showCommitButton = showGitButtons;
 
@@ -153,7 +151,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                 </>
             ) : (
                 <div className="flex min-h-6 items-center gap-1.5">
-                    <span className="text-muted-foreground text-sm ml-2">No task selected</span>
+                    <span className="text-muted-foreground ml-2 text-sm">No task selected</span>
                 </div>
             )}
             <div className="flex-1" />

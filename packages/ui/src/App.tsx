@@ -66,6 +66,37 @@ export function App() {
         window.taskflow?.sendTaskInfoState(taskInfoOpen);
     }, [taskInfoOpen]);
 
+    const wordWrap = useSettingsStore((s) => s.settings?.editor?.wordWrap);
+    const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+    useEffect(() => {
+        const cleanup = window.taskflow?.onToggleWordWrap(() => {
+            const current = useSettingsStore.getState().settings?.editor?.wordWrap ?? true;
+            void updateSettings({ editor: { wordWrap: !current } });
+        });
+        return cleanup;
+    }, [updateSettings]);
+
+    useEffect(() => {
+        if (wordWrap != null) {
+            window.taskflow?.sendWordWrapState(wordWrap);
+        }
+    }, [wordWrap]);
+
+    // Prevent Electron/browser default file-drop navigation globally.
+    // Individual components (e.g. TerminalPane) opt-in to handle drops.
+    useEffect(() => {
+        function prevent(e: DragEvent) {
+            e.preventDefault();
+        }
+        document.addEventListener("dragover", prevent);
+        document.addEventListener("drop", prevent);
+        return () => {
+            document.removeEventListener("dragover", prevent);
+            document.removeEventListener("drop", prevent);
+        };
+    }, []);
+
     return (
         <WebSocketProvider>
             <div style={rootStyle} className="contents">

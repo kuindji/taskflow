@@ -7,10 +7,8 @@ const DATA_ITEMS = [
     "projects.json",
     "tasks",
     "archive",
-    "session-logs",
     "task-logs",
     "agent-skills",
-    "bin",
 ];
 
 export async function readDataLocation(baseDir: string): Promise<string | null> {

@@ -21,6 +21,7 @@ interface SettingsHandlerDeps {
 
 interface DataDirResponse {
     dataDir: string;
+    baseDir: string;
     isDefault: boolean;
     conflict?: boolean;
 }
@@ -40,6 +41,7 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     router.register(MSG.SETTINGS_GET_DATA_DIR, async () => {
         return {
             dataDir: config.dataDir,
+            baseDir: config.baseDir,
             isDefault: isDefaultDataDir(),
         };
     });
@@ -58,6 +60,7 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
         if (newPath === config.dataDir) {
             return {
                 dataDir: config.dataDir,
+                baseDir: config.baseDir,
                 isDefault: isDefaultDataDir(),
             } satisfies DataDirResponse;
         }
@@ -73,6 +76,7 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
         if (targetHasData && !mode) {
             return {
                 dataDir: config.dataDir,
+                baseDir: config.baseDir,
                 isDefault: isDefaultDataDir(),
                 conflict: true,
             } satisfies DataDirResponse;
@@ -112,6 +116,7 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
 
         return {
             dataDir: config.dataDir,
+            baseDir: config.baseDir,
             isDefault: isDefaultDataDir(),
         } satisfies DataDirResponse;
     });

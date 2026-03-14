@@ -12,14 +12,7 @@ import {
     type RefObject,
     type HTMLAttributes,
 } from "react";
-import {
-    useFloating,
-    offset,
-    flip,
-    shift,
-    arrow,
-    type Placement,
-} from "@floating-ui/react";
+import { useFloating, offset, flip, shift, arrow, type Placement } from "@floating-ui/react";
 import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/utils";
@@ -146,9 +139,7 @@ function Tooltip({
     }, []);
 
     return (
-        <TooltipContext.Provider
-            value={{ open, setOpen, triggerEl, setTriggerEl, contentRef }}
-        >
+        <TooltipContext.Provider value={{ open, setOpen, triggerEl, setTriggerEl, contentRef }}>
             {children}
         </TooltipContext.Provider>
     );
@@ -286,29 +277,33 @@ function TooltipContent({
                 ...floatingStyles,
                 visibility: isPositioned ? "visible" : "hidden",
             }}
-            className={cn(
-                "pointer-events-none bg-foreground text-background z-50 w-fit max-w-[300px] rounded-md px-3 py-1.5 text-xs text-balance",
-                isPositioned && "animate-in fade-in-0 zoom-in-95",
-                actualSide === "bottom" && "slide-in-from-top-2",
-                actualSide === "left" && "slide-in-from-right-2",
-                actualSide === "right" && "slide-in-from-left-2",
-                actualSide === "top" && "slide-in-from-bottom-2",
-                className,
-            )}
-            {...props}
+            className="pointer-events-none z-50 w-fit"
         >
-            {children}
             <div
-                ref={setArrowEl}
-                className="bg-foreground fill-foreground z-50 size-2.5 rotate-45 rounded-[2px] absolute"
-                style={{
-                    left: arrowX != null ? `${arrowX}px` : "",
-                    top: arrowY != null ? `${arrowY}px` : "",
-                    right: "",
-                    bottom: "",
-                    [staticSide]: "-4px",
-                }}
-            />
+                className={cn(
+                    "bg-foreground text-background max-w-[300px] rounded-md px-3 py-1.5 text-xs text-balance",
+                    isPositioned && "animate-in fade-in-0 zoom-in-95",
+                    actualSide === "bottom" && "slide-in-from-top-2",
+                    actualSide === "left" && "slide-in-from-right-2",
+                    actualSide === "right" && "slide-in-from-left-2",
+                    actualSide === "top" && "slide-in-from-bottom-2",
+                    className,
+                )}
+                {...props}
+            >
+                {children}
+                <div
+                    ref={setArrowEl}
+                    className="bg-foreground fill-foreground absolute z-50 size-2.5 rotate-45 rounded-[2px]"
+                    style={{
+                        left: arrowX != null ? `${arrowX}px` : "",
+                        top: arrowY != null ? `${arrowY}px` : "",
+                        right: "",
+                        bottom: "",
+                        [staticSide]: "-4px",
+                    }}
+                />
+            </div>
         </div>,
         document.body,
     );

@@ -58,7 +58,9 @@ export function ProjectGroup({
             return hasLocalWorking ? "working" : undefined;
         };
 
-        const projectLevelStatus = getAggregateStatus(project.sessions.map((session) => session.id));
+        const projectLevelStatus = getAggregateStatus(
+            project.sessions.map((session) => session.id),
+        );
         if (projectLevelStatus === "attention") return "attention";
         if (projectLevelStatus === "working") hasWorking = true;
 

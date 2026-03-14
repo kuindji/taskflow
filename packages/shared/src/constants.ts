@@ -84,7 +84,7 @@ export const DEFAULT_TERMINAL_SHELL = "system";
 
 export const DEFAULT_EDITOR_FONT_FAMILY = '"JetBrains Mono", Menlo, Monaco, monospace';
 export const DEFAULT_EDITOR_FONT_SIZE = 13;
-export const DEFAULT_EDITOR_WORD_WRAP = false;
+export const DEFAULT_EDITOR_WORD_WRAP = true;
 
 // NOTE: Config paths (CONFIG_DIR, PROJECTS_FILE, etc.) live in
 // packages/backend/src/config.ts — not here, because process.env.HOME

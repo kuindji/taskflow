@@ -21,9 +21,9 @@ interface TaskflowBridge {
     sendFileExplorerState(open: boolean): void;
     onToggleTaskInfo(callback: () => void): () => void;
     sendTaskInfoState(open: boolean): void;
-    onUpdateStatus(
-        callback: (payload: { status: string; version?: string }) => void,
-    ): () => void;
+    onToggleWordWrap(callback: () => void): () => void;
+    sendWordWrapState(enabled: boolean): void;
+    onUpdateStatus(callback: (payload: { status: string; version?: string }) => void): () => void;
     quitAndInstallUpdate(): void;
 }
 

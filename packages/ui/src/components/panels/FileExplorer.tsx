@@ -7,7 +7,6 @@ import { useSessionStore } from "@/stores/session-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import useIsElectron from "@/hooks/useIsElectron";
 import { FileTree } from "./FileTree";
@@ -141,7 +140,7 @@ function FileExplorer() {
             <div
                 className={`flex items-center gap-2 px-1.5 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
             >
-                <span className="text-muted-foreground flex h-6 items-center text-xs font-medium ml-2">
+                <span className="text-muted-foreground ml-2 flex h-6 items-center text-xs font-medium">
                     Files
                 </span>
                 <div className="flex-1" />
@@ -158,7 +157,7 @@ function FileExplorer() {
                 </Button>
             </div>
             <Separator />
-            <ScrollArea className="flex-1 py-1 [&_[data-slot=scroll-area-viewport]>div]:!block">
+            <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
                 {tree && treePath === workingDir ? (
                     <FileTree
                         node={tree}
@@ -173,7 +172,7 @@ function FileExplorer() {
                         {workingDir ? "Loading..." : "Select a task or project"}
                     </div>
                 )}
-            </ScrollArea>
+            </div>
         </div>
     );
 }

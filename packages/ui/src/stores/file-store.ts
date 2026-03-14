@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import type { FileNode, GitStatusResult, FileChangeEvent, FileTreeResponse } from "@taskflow/shared";
+import type {
+    FileNode,
+    GitStatusResult,
+    FileChangeEvent,
+    FileTreeResponse,
+} from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { onEvent, sendRequest } from "../hooks/useWebSocket";
 
@@ -53,7 +58,9 @@ export const useFileStore = create<FileStore>((set, get) => ({
             treePath: state.treePath === path ? state.treePath : null,
             gitignorePatterns: state.treePath === path ? state.gitignorePatterns : [],
         }));
-        const { tree, gitignorePatterns } = await sendRequest<FileTreeResponse>(MSG.FILE_TREE, { path });
+        const { tree, gitignorePatterns } = await sendRequest<FileTreeResponse>(MSG.FILE_TREE, {
+            path,
+        });
         if (requestId !== treeRequestId) return;
         set({ tree, treePath: path, gitignorePatterns, loading: false });
     },

@@ -72,10 +72,7 @@ function TruncatedText({
     }
 
     return (
-        <Tooltip
-            open={tooltipOpen}
-            onOpenChange={(open) => setTooltipOpen(open && isTruncated)}
-        >
+        <Tooltip open={tooltipOpen} onOpenChange={(open) => setTooltipOpen(open && isTruncated)}>
             <TooltipTrigger asChild>
                 <Component
                     ref={ref}

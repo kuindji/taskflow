@@ -45,7 +45,15 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     diffStats?: { additions: number; deletions: number } | null;
 }
 
-export function TaskCard({ task, isActive, onClick, className, archived, compact, diffStats }: TaskCardProps) {
+export function TaskCard({
+    task,
+    isActive,
+    onClick,
+    className,
+    archived,
+    compact,
+    diffStats,
+}: TaskCardProps) {
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleteWorktree, setDeleteWorktree] = useState(false);
     const archiveTask = useTaskStore((s) => s.archiveTask);
@@ -64,7 +72,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
         usingDescriptionAsTitle && rawTitle.length > 50
             ? rawTitle.slice(0, 50) + "\u2026"
             : rawTitle;
-    const description = !usingDescriptionAsTitle ? task.description ?? null : null;
+    const description = !usingDescriptionAsTitle ? (task.description ?? null) : null;
 
     const handleArchive = (e: MouseEvent) => {
         e.stopPropagation();
@@ -100,10 +108,7 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                     truncate={!!compact}
                     tooltip={!!compact}
                     tooltipSide="right"
-                    className={cn(
-                        "text-sm font-medium",
-                        isActive && "text-foreground",
-                    )}
+                    className={cn("text-sm font-medium", isActive && "text-foreground")}
                 >
                     {title}
                 </TruncatedText>
@@ -124,8 +129,12 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                                         <GitBranch className="text-muted-foreground h-3 w-3" />
                                         {diffStats && (
                                             <>
-                                                <span className="text-success">+{diffStats.additions}</span>
-                                                <span className="text-destructive">-{diffStats.deletions}</span>
+                                                <span className="text-success">
+                                                    +{diffStats.additions}
+                                                </span>
+                                                <span className="text-destructive">
+                                                    -{diffStats.deletions}
+                                                </span>
                                             </>
                                         )}
                                     </Badge>

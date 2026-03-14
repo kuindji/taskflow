@@ -7,27 +7,31 @@ import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FileContextMenu } from "./FileContextMenu";
 
-type GitStatusVariant = "new" | "untracked" | "modified" | "deleted" | "renamed" | "ignored" | "clean";
+type GitStatusVariant =
+    | "new"
+    | "untracked"
+    | "modified"
+    | "deleted"
+    | "renamed"
+    | "ignored"
+    | "clean";
 
-const fileNodeVariants = cva(
-    "text-sm cursor-pointer",
-    {
-        variants: {
-            gitStatus: {
-                new: "text-success",
-                untracked: "text-success",
-                modified: "text-warning",
-                deleted: "text-destructive",
-                renamed: "text-accent",
-                ignored: "text-muted-foreground/50",
-                clean: "text-secondary-foreground",
-            } satisfies Record<GitStatusVariant, string>,
-        },
-        defaultVariants: {
-            gitStatus: "clean",
-        },
+const fileNodeVariants = cva("text-sm cursor-pointer", {
+    variants: {
+        gitStatus: {
+            new: "text-success",
+            untracked: "text-success",
+            modified: "text-warning",
+            deleted: "text-destructive",
+            renamed: "text-accent",
+            ignored: "text-muted-foreground/50",
+            clean: "text-secondary-foreground",
+        } satisfies Record<GitStatusVariant, string>,
     },
-);
+    defaultVariants: {
+        gitStatus: "clean",
+    },
+});
 
 const VALID_GIT_STATUSES = new Set<string>(["new", "untracked", "modified", "deleted", "renamed"]);
 
@@ -123,13 +127,11 @@ function FileTree({
                         <ChevronRight className="mr-1.5 h-4 w-4 shrink-0" />
                     )}
                     {open ? (
-                        <FolderOpen className="mr-1.5 h-4 w-4 shrink-0 text-accent" />
+                        <FolderOpen className="text-accent mr-1.5 h-4 w-4 shrink-0" />
                     ) : (
-                        <Folder className="mr-1.5 h-4 w-4 shrink-0 text-accent/85" />
+                        <Folder className="text-accent/85 mr-1.5 h-4 w-4 shrink-0" />
                     )}
-                    <TruncatedText tooltipContent={node.path}>
-                        {node.name}
-                    </TruncatedText>
+                    <TruncatedText tooltipContent={node.path}>{node.name}</TruncatedText>
                 </CollapsibleTrigger>
             </FileContextMenu>
             <CollapsibleContent>

@@ -25,10 +25,8 @@ function buildDataPaths(dataDir: string) {
         projectsFile: join(dataDir, "projects.json"),
         tasksDir: join(dataDir, "tasks"),
         archiveDir: join(dataDir, "archive"),
-        sessionLogsDir: join(dataDir, "session-logs"),
         taskLogsDir: join(dataDir, "task-logs"),
         agentSkillsDir: join(dataDir, "agent-skills"),
-        binDir: join(dataDir, "bin"),
     };
 }
 
@@ -38,10 +36,12 @@ const initialDataDir = readDataDir();
 
 export const config = {
     baseDir: BASE_DIR,
+    binDir: join(BASE_DIR, "bin"),
     dataLocationFile: DATA_LOCATION_FILE,
     settingsFile: join(BASE_DIR, "settings.json"),
     portFile: process.env.TASKFLOW_PORT_FILE ?? join(tmpdir(), `.taskflow-port-${process.pid}`),
     port: Number.isInteger(devPort) && devPort > 0 ? devPort : 0,
+    sessionLogsDir: join(tmpdir(), "taskflow-session-logs"),
     ...buildDataPaths(initialDataDir),
 };
 
@@ -58,7 +58,6 @@ export async function ensureDirectories(): Promise<void> {
     await mkdir(config.baseDir, { recursive: true });
     await mkdir(config.tasksDir, { recursive: true });
     await mkdir(config.archiveDir, { recursive: true });
-    await mkdir(config.sessionLogsDir, { recursive: true });
     await mkdir(config.taskLogsDir, { recursive: true });
     await mkdir(config.agentSkillsDir, { recursive: true });
     await mkdir(config.binDir, { recursive: true });

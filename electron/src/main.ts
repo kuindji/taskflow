@@ -214,6 +214,16 @@ async function createWindow() {
         }).catch(() => undefined);
     });
 
+    // Prevent Electron from navigating to file:// URLs when files are
+    // dragged from Finder onto the window.  Without this the default
+    // behaviour replaces the renderer with the dropped file contents and
+    // the DOM `drop` event never fires.
+    mainWindow.webContents.on("will-navigate", (event, url) => {
+        if (url.startsWith("file://")) {
+            event.preventDefault();
+        }
+    });
+
     if (UI_DEV_SERVER_URL) {
         void mainWindow.loadURL(UI_DEV_SERVER_URL);
     } else {
@@ -231,6 +241,7 @@ let showArchiveChecked = false;
 let compactSidebarChecked = false;
 let fileExplorerChecked = false;
 let taskInfoChecked = false;
+let wordWrapChecked = true;
 
 function setUpdateMenuItem(label: string, enabled = true) {
     const menu = Menu.getApplicationMenu();
@@ -283,7 +294,31 @@ function buildAppMenu() {
                 { role: "quit" },
             ],
         },
-        { role: "editMenu" },
+        {
+            role: "editMenu",
+            submenu: [
+                { role: "undo" },
+                { role: "redo" },
+                { type: "separator" },
+                { role: "cut" },
+                { role: "copy" },
+                { role: "paste" },
+                { role: "pasteAndMatchStyle" },
+                { role: "delete" },
+                { role: "selectAll" },
+                { type: "separator" },
+                {
+                    id: "toggle-word-wrap",
+                    label: "Word Wrap",
+                    type: "checkbox",
+                    checked: wordWrapChecked,
+                    accelerator: "Alt+Z",
+                    click: () => {
+                        mainWindow?.webContents.send("toggle-word-wrap");
+                    },
+                },
+            ],
+        },
         {
             label: "View",
             submenu: [
@@ -525,6 +560,15 @@ ipcMain.on("task-info-state-changed", (_event, open: boolean) => {
     }
 });
 
+ipcMain.on("word-wrap-state-changed", (_event, enabled: boolean) => {
+    wordWrapChecked = enabled;
+    const menu = Menu.getApplicationMenu();
+    const item = menu?.getMenuItemById("toggle-word-wrap");
+    if (item) {
+        item.checked = enabled;
+    }
+});
+
 ipcMain.handle("get-backend-port", () => backendPort);
 ipcMain.handle("open-external-url", (_event, url: string) => shell.openExternal(url));
 ipcMain.on("show-item-in-folder", (_event, filePath: string) => {
@@ -581,7 +625,7 @@ ipcMain.on("quit-and-install-update", () => {
 });
 ipcMain.handle("select-project-directory", async () => {
     const result = await dialog.showOpenDialog({
-        properties: ["openDirectory"],
+        properties: ["openDirectory", "createDirectory"],
     });
     if (result.canceled) return null;
     return result.filePaths[0] ?? null;

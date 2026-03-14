@@ -210,9 +210,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         }
 
         const title =
-            typeof body.title === "string" && body.title.trim()
-                ? body.title.trim()
-                : undefined;
+            typeof body.title === "string" && body.title.trim() ? body.title.trim() : undefined;
 
         try {
             const task = await taskStore.createTask({

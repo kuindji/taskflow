@@ -42,6 +42,8 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { TruncatedText } from "@/components/ui/truncated-text";
+import { alert, confirm } from "@/stores/dialog-store";
 import { FontFamilySelect } from "./FontFamilySelect";
 
 const EDITOR_OPTIONS = [
@@ -67,9 +69,9 @@ function SettingsModal() {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
-    const [section, setSection] = useState<
-        "general" | "fonts" | "defaults" | "claude" | "codex"
-    >("general");
+    const [section, setSection] = useState<"general" | "fonts" | "defaults" | "claude" | "codex">(
+        "general",
+    );
     const [migrating, setMigrating] = useState(false);
     const [migrationError, setMigrationError] = useState<string | null>(null);
     const [conflictPath, setConflictPath] = useState<string | null>(null);
@@ -162,13 +164,6 @@ function SettingsModal() {
         [updateSettings],
     );
 
-    const handleEditorWordWrap = useCallback(
-        (wordWrap: boolean) => {
-            void updateSettings({ editor: { wordWrap } });
-        },
-        [updateSettings],
-    );
-
     const handleExternalEditor = useCallback(
         (externalEditor: string) => {
             void updateSettings({ general: { externalEditor } });
@@ -221,15 +216,50 @@ function SettingsModal() {
         migrationErrorTimer.current = setTimeout(() => setMigrationError(null), 5000);
     }, []);
 
+    const showDataDirChangedAlert = useCallback((previousPath: string, nextPath: string) => {
+        if (previousPath === nextPath) return;
+
+        void alert({
+            title: "Data Folder Changed",
+            description: `Taskflow is now using "${nextPath}" instead of "${previousPath}" for projects, tasks, and session data.`,
+        });
+    }, []);
+
+    const confirmDataDirChange = useCallback(
+        async (nextPath: string, action: "change" | "reset") => {
+            const currentPath = dataDirInfo?.dataDir;
+            if (!currentPath) return false;
+
+            const confirmed = await confirm({
+                title: action === "reset" ? "Reset Data Folder?" : "Change Data Folder?",
+                description:
+                    action === "reset"
+                        ? `Taskflow will move your projects, tasks, and session data from "${currentPath}" back to the default folder at "${nextPath}". Config files will remain in ~/.config/taskflow. If the destination already contains Taskflow data, you'll be asked how to proceed.`
+                        : `Taskflow will move your projects, tasks, and session data from "${currentPath}" to "${nextPath}". Config files will remain in ~/.config/taskflow. If the destination already contains Taskflow data, you'll be asked how to proceed.`,
+                confirmLabel: action === "reset" ? "Reset Folder" : "Move Data",
+                cancelLabel: "Cancel",
+            });
+
+            return confirmed;
+        },
+        [dataDirInfo?.dataDir],
+    );
+
     const handleChangeDataDir = useCallback(async () => {
         const selected = await window.taskflow?.selectProjectDirectory();
         if (!selected) return;
+        if (selected === dataDirInfo?.dataDir) return;
+        const confirmed = await confirmDataDirChange(selected, "change");
+        if (!confirmed) return;
+        const previousPath = dataDirInfo?.dataDir;
         setMigrating(true);
         setMigrationError(null);
         try {
             const result = await updateDataDir(selected);
             if (result.conflict) {
                 setConflictPath(selected);
+            } else if (previousPath) {
+                showDataDirChangedAlert(previousPath, result.dataDir);
             }
         } catch (err) {
             const message = err instanceof Error ? err.message : "Failed to change data folder";
@@ -237,25 +267,54 @@ function SettingsModal() {
         } finally {
             setMigrating(false);
         }
-    }, [updateDataDir, showMigrationError]);
+    }, [
+        confirmDataDirChange,
+        dataDirInfo?.dataDir,
+        updateDataDir,
+        showMigrationError,
+        showDataDirChangedAlert,
+    ]);
+
+    const handleResetDataDir = useCallback(async () => {
+        if (!dataDirInfo?.baseDir) return;
+        const confirmed = await confirmDataDirChange(dataDirInfo.baseDir, "reset");
+        if (!confirmed) return;
+        const previousPath = dataDirInfo.dataDir;
+        setMigrating(true);
+        setMigrationError(null);
+        try {
+            const result = await updateDataDir(dataDirInfo.baseDir);
+            if (result.conflict) {
+                setConflictPath(dataDirInfo.baseDir);
+            } else {
+                showDataDirChangedAlert(previousPath, result.dataDir);
+            }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to reset data folder";
+            showMigrationError(message);
+        } finally {
+            setMigrating(false);
+        }
+    }, [confirmDataDirChange, dataDirInfo, updateDataDir, showMigrationError, showDataDirChangedAlert]);
 
     const handleConflictChoice = useCallback(
         async (mode: "overwrite" | "adopt") => {
-            if (!conflictPath) return;
+            if (!conflictPath || !dataDirInfo?.dataDir) return;
+            const previousPath = dataDirInfo.dataDir;
             setConflictPath(null);
             setMigrating(true);
             setMigrationError(null);
             try {
-                await updateDataDir(conflictPath, mode);
+                const result = await updateDataDir(conflictPath, mode);
+                showDataDirChangedAlert(previousPath, result.dataDir);
             } catch (err) {
-                const message =
-                    err instanceof Error ? err.message : "Failed to change data folder";
+                const message = err instanceof Error ? err.message : "Failed to change data folder";
                 showMigrationError(message);
             } finally {
                 setMigrating(false);
             }
         },
-        [conflictPath, updateDataDir, showMigrationError],
+        [conflictPath, dataDirInfo?.dataDir, updateDataDir, showMigrationError, showDataDirChangedAlert],
     );
 
     if (!settings) return null;
@@ -329,28 +388,48 @@ function SettingsModal() {
                     </nav>
 
                     {/* Content */}
-                    <div className="flex-1 space-y-6 pl-6">
+                    <div className="min-w-0 flex-1 space-y-6 pl-6">
                         {section === "general" && (
                             <>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Data Folder</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Data Folder</h3>
                                     <div className="space-y-2">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Location where projects, tasks, and session data are
                                             stored
                                         </Label>
-                                        <div className="flex items-center gap-2">
-                                            <code className="bg-muted text-foreground flex-1 truncate rounded px-2 text-xs h-8 flex items-center">
-                                                {dataDirInfo?.dataDir ?? "Loading..."}
-                                            </code>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                disabled={migrating}
-                                                onClick={() => void handleChangeDataDir()}
+                                        <div className="space-y-2">
+                                            <TruncatedText
+                                                as="code"
+                                                tooltip
+                                                tooltipSide="bottom"
+                                                className="bg-muted text-foreground flex h-8 min-w-0 max-w-85 overflow-x-auto w-full items-center rounded px-2 text-xs"
+                                                tooltipContent={
+                                                    dataDirInfo?.dataDir ?? "Loading..."
+                                                }
                                             >
-                                                {migrating ? "Moving..." : "Change..."}
-                                            </Button>
+                                                {dataDirInfo?.dataDir ?? "Loading..."}
+                                            </TruncatedText>
+                                            <div className="flex flex-wrap gap-2">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={migrating}
+                                                    onClick={() => void handleChangeDataDir()}
+                                                >
+                                                    {migrating ? "Moving..." : "Change..."}
+                                                </Button>
+                                                {dataDirInfo && !dataDirInfo.isDefault && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={migrating}
+                                                        onClick={() => void handleResetDataDir()}
+                                                    >
+                                                        Reset
+                                                    </Button>
+                                                )}
+                                            </div>
                                         </div>
                                         {migrationError && (
                                             <p className="text-destructive text-xs">
@@ -370,7 +449,7 @@ function SettingsModal() {
                         {section === "fonts" && (
                             <>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Application Font</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Application Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
                                             <Label className={defaultsSelectLabelClassName}>
@@ -397,7 +476,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Terminal Font</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Terminal Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
                                             <Label className={defaultsSelectLabelClassName}>
@@ -424,7 +503,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Editor Font</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Editor Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
                                             <Label className={defaultsSelectLabelClassName}>
@@ -450,30 +529,12 @@ function SettingsModal() {
                                         </div>
                                     </div>
                                 </section>
-                                <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Editor Options</h3>
-                                    <div className="space-y-1">
-                                        <div className="flex items-center gap-2 pt-1">
-                                            <Switch
-                                                id="editor-word-wrap"
-                                                checked={settings.editor.wordWrap}
-                                                onCheckedChange={handleEditorWordWrap}
-                                            />
-                                            <Label
-                                                htmlFor="editor-word-wrap"
-                                                className="cursor-pointer text-sm normal-case font-normal"
-                                            >
-                                                Word Wrap
-                                            </Label>
-                                        </div>
-                                    </div>
-                                </section>
                             </>
                         )}
                         {section === "claude" && (
                             <>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Default Model</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Default Model</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Pre-selected model when running Claude sessions
@@ -495,7 +556,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Full Access</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Skip permission prompts by default
@@ -508,7 +569,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="claude-full-access"
-                                                className="cursor-pointer text-sm normal-case font-normal"
+                                                className="cursor-pointer text-sm font-normal normal-case"
                                             >
                                                 {settings.claude.fullAccess
                                                     ? "Enabled"
@@ -522,7 +583,7 @@ function SettingsModal() {
                         {section === "codex" && (
                             <>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Full Access</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Run in full-auto mode by default
@@ -535,7 +596,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="codex-full-access"
-                                                className="cursor-pointer text-sm normal-case font-normal"
+                                                className="cursor-pointer text-sm font-normal normal-case"
                                             >
                                                 {settings.codex.fullAccess ? "Enabled" : "Disabled"}
                                             </Label>
@@ -547,7 +608,7 @@ function SettingsModal() {
                         {section === "defaults" && (
                             <>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">External Editor</h3>
+                                    <h3 className="mb-0 text-sm font-medium">External Editor</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Used when opening files with Cmd+Click in the terminal
@@ -570,7 +631,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Default Agent</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Default Agent</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Pre-selected agent for new tasks, title generation, and
@@ -591,7 +652,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Default Shell</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Default Shell</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Default shell for new terminal tabs
@@ -634,7 +695,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Default Runtime</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Default Runtime</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Runtime for executing scripts and commands
@@ -694,8 +755,8 @@ function SettingsModal() {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Existing Data Found</AlertDialogTitle>
                         <AlertDialogDescription>
-                            The selected folder already contains Taskflow data. How would you
-                            like to proceed?
+                            The selected folder already contains Taskflow data. How would you like
+                            to proceed?
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

@@ -75,9 +75,17 @@ contextBridge.exposeInMainWorld("taskflow", {
     sendTaskInfoState: (open: boolean) => {
         ipcRenderer.send("task-info-state-changed", open);
     },
-    onUpdateStatus: (
-        callback: (payload: { status: string; version?: string }) => void,
-    ) => {
+    onToggleWordWrap: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("toggle-word-wrap", listener);
+        return () => {
+            ipcRenderer.removeListener("toggle-word-wrap", listener);
+        };
+    },
+    sendWordWrapState: (enabled: boolean) => {
+        ipcRenderer.send("word-wrap-state-changed", enabled);
+    },
+    onUpdateStatus: (callback: (payload: { status: string; version?: string }) => void) => {
         const listener = (
             _event: Electron.IpcRendererEvent,
             payload: { status: string; version?: string },

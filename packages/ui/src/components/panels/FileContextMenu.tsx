@@ -6,7 +6,16 @@ import {
     ContextMenuItem,
     ContextMenuSeparator,
 } from "@/components/ui/context-menu";
-import { Pencil, Trash2, Copy, FileText, FolderOpen, ExternalLink, FilePlus, FolderPlus } from "lucide-react";
+import {
+    Pencil,
+    Trash2,
+    Copy,
+    FileText,
+    FolderOpen,
+    ExternalLink,
+    FilePlus,
+    FolderPlus,
+} from "lucide-react";
 import { useFileStore } from "@/stores/file-store";
 import { RenameFileDialog } from "./RenameFileDialog";
 import { DeleteFileDialog } from "./DeleteFileDialog";

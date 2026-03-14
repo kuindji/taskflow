@@ -12,7 +12,6 @@ import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
 import { ArrowDownToLine, Loader2, Plus, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
     AlertDialog,
@@ -217,7 +216,7 @@ export function TaskSidebar() {
                                 variant="ghost"
                                 size="xs"
                                 onClick={() => handleOpenProjectDialog()}
-                                className="text-muted-foreground [-webkit-app-region:no-drag]"
+                                className="[-webkit-app-region:no-drag]"
                             >
                                 <Plus className="h-4 w-4" />
                                 Project
@@ -226,7 +225,7 @@ export function TaskSidebar() {
                     )}
                 </div>
             </div>
-            <ScrollArea className="flex-1 py-1 [&_[data-slot=scroll-area-viewport]]:!overflow-x-hidden [&_[data-slot=scroll-area-viewport]]:!overflow-y-auto [&_[data-slot=scroll-area-viewport]>div]:!block">
+            <div className="flex-1 overflow-x-hidden overflow-y-auto py-1 [-webkit-app-region:no-drag]">
                 {!showArchive && projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>
@@ -264,7 +263,7 @@ export function TaskSidebar() {
                         />
                     );
                 })}
-            </ScrollArea>
+            </div>
             <Separator />
             <div className="flex items-center justify-between px-1.5 py-1.5">
                 <div className="flex items-center">

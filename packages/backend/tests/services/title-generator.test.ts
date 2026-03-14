@@ -68,7 +68,8 @@ describe("title generator", () => {
     });
 
     it("updates the title and provisions a pending worktree task", async () => {
-        Bun.spawn = (() => makeSpawnResult("Fix flaky worktree detection\n")) as unknown as typeof Bun.spawn;
+        Bun.spawn = (() =>
+            makeSpawnResult("Fix flaky worktree detection\n")) as unknown as typeof Bun.spawn;
 
         const project = await store.addProject({ name: "project", path: projectPath });
         const task = await store.createTask({
