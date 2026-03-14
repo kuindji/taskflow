@@ -9,6 +9,7 @@ const DATA_ITEMS = [
     "archive",
     "task-logs",
     "agent-skills",
+    "themes",
 ];
 
 export async function readDataLocation(baseDir: string): Promise<string | null> {

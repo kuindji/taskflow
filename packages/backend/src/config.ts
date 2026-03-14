@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import { mkdir } from "fs/promises";
+import { mkdir, writeFile, access } from "fs/promises";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
 
@@ -27,6 +27,7 @@ function buildDataPaths(dataDir: string) {
         archiveDir: join(dataDir, "archive"),
         taskLogsDir: join(dataDir, "task-logs"),
         agentSkillsDir: join(dataDir, "agent-skills"),
+        themesDir: join(dataDir, "themes"),
     };
 }
 
@@ -37,7 +38,6 @@ const initialDataDir = readDataDir();
 export const config = {
     baseDir: BASE_DIR,
     binDir: join(BASE_DIR, "bin"),
-    themesDir: join(BASE_DIR, "themes"),
     dataLocationFile: DATA_LOCATION_FILE,
     settingsFile: join(BASE_DIR, "settings.json"),
     portFile: process.env.TASKFLOW_PORT_FILE ?? join(tmpdir(), `.taskflow-port-${process.pid}`),
@@ -63,4 +63,58 @@ export async function ensureDirectories(): Promise<void> {
     await mkdir(config.agentSkillsDir, { recursive: true });
     await mkdir(config.binDir, { recursive: true });
     await mkdir(config.themesDir, { recursive: true });
+    await seedThemeExample(config.themesDir);
 }
+
+async function seedThemeExample(themesDir: string): Promise<void> {
+    const examplePath = join(themesDir, "example.jsonc");
+    try {
+        await access(examplePath);
+    } catch {
+        await writeFile(examplePath, THEME_EXAMPLE);
+    }
+}
+
+const THEME_EXAMPLE = `// Example Taskflow theme
+// Rename this file to <your-theme-name>.json to make it appear in the theme selector.
+// The filename (without .json) becomes the theme ID.
+// To override a bundled theme, use the same ID as the bundled theme (e.g. "dracula.json").
+{
+    "version": 1,
+    "name": "My Custom Theme",
+    "origin": "custom",
+    "colors": {
+        "foreground": "#d4d4d4",
+        "background": "#1e1e1e",
+        "cursor": "#aeafad",
+        "cursorText": "#1e1e1e",
+        "selection": "#264f78",
+        "selectionText": "#d4d4d4",
+        "ansi": {
+            "black": "#1e1e1e",
+            "red": "#f44747",
+            "green": "#6a9955",
+            "yellow": "#d7ba7d",
+            "blue": "#569cd6",
+            "magenta": "#c586c0",
+            "cyan": "#4ec9b0",
+            "white": "#d4d4d4",
+            "brightBlack": "#808080",
+            "brightRed": "#f44747",
+            "brightGreen": "#6a9955",
+            "brightYellow": "#d7ba7d",
+            "brightBlue": "#569cd6",
+            "brightMagenta": "#c586c0",
+            "brightCyan": "#4ec9b0",
+            "brightWhite": "#d4d4d4"
+        }
+    },
+    // Optional: override CSS custom properties used by the UI.
+    // Common overrides:
+    "overrides": {
+        "--border": "#333333",
+        "--sidebar-border": "#333333",
+        "--input": "#333333"
+    }
+}
+`;
