@@ -75,4 +75,19 @@ contextBridge.exposeInMainWorld("taskflow", {
     sendTaskInfoState: (open: boolean) => {
         ipcRenderer.send("task-info-state-changed", open);
     },
+    onUpdateStatus: (
+        callback: (payload: { status: string; version?: string }) => void,
+    ) => {
+        const listener = (
+            _event: Electron.IpcRendererEvent,
+            payload: { status: string; version?: string },
+        ) => callback(payload);
+        ipcRenderer.on("update-status", listener);
+        return () => {
+            ipcRenderer.removeListener("update-status", listener);
+        };
+    },
+    quitAndInstallUpdate: () => {
+        ipcRenderer.send("quit-and-install-update");
+    },
 });

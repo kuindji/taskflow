@@ -21,6 +21,10 @@ interface TaskflowBridge {
     sendFileExplorerState(open: boolean): void;
     onToggleTaskInfo(callback: () => void): () => void;
     sendTaskInfoState(open: boolean): void;
+    onUpdateStatus(
+        callback: (payload: { status: string; version?: string }) => void,
+    ): () => void;
+    quitAndInstallUpdate(): void;
 }
 
 declare global {
