@@ -333,7 +333,7 @@ function SettingsModal() {
                                             stored
                                         </Label>
                                         <div className="flex items-center gap-2">
-                                            <code className="bg-muted text-foreground flex-1 truncate rounded px-2 py-1 text-xs">
+                                            <code className="bg-muted text-foreground flex-1 truncate rounded px-2 text-xs h-8 flex items-center">
                                                 {dataDirInfo?.dataDir ?? "Loading..."}
                                             </code>
                                             <Button

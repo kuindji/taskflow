@@ -17,6 +17,7 @@ interface DiffStore {
     statsByProject: Record<string, DiffStats | null>;
     diffDisabledByProject: Record<string, boolean>;
     commitDisabledByProject: Record<string, boolean>;
+    hasChangesByProject: Record<string, boolean>;
     fetchDiff(projectId: string, path: string): Promise<void>;
     fetchAllDiffs(projects: DiffTarget[]): void;
     clearStaleProjects(projectIds: string[]): void;
@@ -51,6 +52,7 @@ export const useDiffStore = create<DiffStore>((set, get) => ({
     statsByProject: {},
     diffDisabledByProject: {},
     commitDisabledByProject: {},
+    hasChangesByProject: {},
 
     async fetchDiff(projectId, path) {
         const version = nextVersion(projectId);
@@ -76,10 +78,14 @@ export const useDiffStore = create<DiffStore>((set, get) => ({
 
         let diffDisabled = true;
         let commitDisabled = true;
+        let hasChanges = false;
         if (statusRes.status === "fulfilled") {
             const buttonState = getWorkspaceButtonState(statusRes.value.status);
             diffDisabled = buttonState.diffDisabled;
             commitDisabled = buttonState.commitDisabled;
+            hasChanges =
+                statusRes.value.status.stagedFiles.length > 0 ||
+                statusRes.value.status.unstagedFiles.length > 0;
         }
 
         set((state) => ({
@@ -91,6 +97,10 @@ export const useDiffStore = create<DiffStore>((set, get) => ({
             commitDisabledByProject: {
                 ...state.commitDisabledByProject,
                 [projectId]: commitDisabled,
+            },
+            hasChangesByProject: {
+                ...state.hasChangesByProject,
+                [projectId]: hasChanges,
             },
         }));
     },
@@ -113,10 +123,14 @@ export const useDiffStore = create<DiffStore>((set, get) => ({
             const commit = Object.fromEntries(
                 Object.entries(state.commitDisabledByProject).filter(([id]) => idSet.has(id)),
             );
+            const hasChanges = Object.fromEntries(
+                Object.entries(state.hasChangesByProject).filter(([id]) => idSet.has(id)),
+            );
             return {
                 statsByProject: stats,
                 diffDisabledByProject: diffDisabled,
                 commitDisabledByProject: commit,
+                hasChangesByProject: hasChanges,
             };
         });
     },

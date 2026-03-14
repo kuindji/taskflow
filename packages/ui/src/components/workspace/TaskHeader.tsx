@@ -12,6 +12,7 @@ import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
 import {
     Archive,
+    ArrowUpFromLine,
     Diff,
     FolderTree,
     GitCommitHorizontal,
@@ -51,6 +52,12 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const commitDisabled = useDiffStore((s) =>
         diffKey ? (s.commitDisabledByProject[diffKey] ?? true) : true,
     );
+    const hasChanges = useDiffStore((s) =>
+        diffKey ? (s.hasChangesByProject[diffKey] ?? false) : false,
+    );
+
+    const commitLabel = hasChanges ? "Commit" : "Push";
+    const CommitIcon = hasChanges ? GitCommitHorizontal : ArrowUpFromLine;
 
     const showGitButtons = !!project && (!task?.worktree.enabled || isWorktreeTask);
     const showDiffButton = !!onDiff && showGitButtons;
@@ -157,11 +164,11 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             size="xs"
                             onClick={() => setCommitOpen(true)}
                             disabled={commitDisabled}
-                            aria-label="Commit / Push"
+                            aria-label={commitLabel}
                             className="[-webkit-app-region:no-drag]"
                         >
-                            <GitCommitHorizontal className="h-3 w-3" />
-                            <span className="text-xs">Commit / Push</span>
+                            <CommitIcon className="h-3 w-3" />
+                            <span className="text-xs">{commitLabel}</span>
                         </Button>
                     )}
                     {showDiffButton && (
