@@ -113,7 +113,14 @@ function TooltipTrigger({
 
     if (asChild) {
         return (
-            <span ref={setTriggerEl} style={{ display: "contents" }} {...eventHandlers}>
+            <span
+                ref={(el) => {
+                    const child = el?.firstElementChild as HTMLElement | null;
+                    setTriggerEl(child ?? el);
+                }}
+                style={{ display: "contents" }}
+                {...eventHandlers}
+            >
                 {children}
             </span>
         );
