@@ -43,6 +43,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { alert, confirm } from "@/stores/dialog-store";
+import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
 
 const EDITOR_OPTIONS = [
     { value: "system", label: "System Default" },
@@ -70,6 +71,9 @@ function SettingsModal() {
     const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex">(
         "general",
     );
+    const agents = useAgentAvailability();
+    const claudeAvailable = isAgentAvailable(agents, "claude");
+    const codexAvailable = isAgentAvailable(agents, "codex");
     const [migrating, setMigrating] = useState(false);
     const [migrationError, setMigrationError] = useState<string | null>(null);
     const [conflictPath, setConflictPath] = useState<string | null>(null);
@@ -497,8 +501,12 @@ function SettingsModal() {
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="claude">Claude</SelectItem>
-                                                <SelectItem value="codex">Codex</SelectItem>
+                                                <SelectItem value="claude" disabled={!claudeAvailable}>
+                                                    Claude{!claudeAvailable ? " (not installed)" : ""}
+                                                </SelectItem>
+                                                <SelectItem value="codex" disabled={!codexAvailable}>
+                                                    Codex{!codexAvailable ? " (not installed)" : ""}
+                                                </SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
