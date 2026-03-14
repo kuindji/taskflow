@@ -122,12 +122,12 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             {task?.title ?? project?.name}
                         </TruncatedText>
                         {task?.worktree?.branch && (
-                            <>
+                            <div className="border-border flex min-w-0 shrink-[3] items-center gap-0.5 rounded-md border px-2 py-0.5 [-webkit-app-region:no-drag]">
                                 <TruncatedText
                                     as="div"
                                     tooltip
                                     tooltipSide="bottom"
-                                    className="border-border shrink-[3] rounded-md border px-2 py-0.5 text-xs [-webkit-app-region:no-drag]"
+                                    className="flex-1 text-xs"
                                     tooltipContent={task.worktree.branch}
                                 >
                                     {task.worktree.branch}
@@ -135,9 +135,11 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                 <CopyButton
                                     value={task.worktree.branch}
                                     tooltip="Copy branch name"
-                                    className="[-webkit-app-region:no-drag]"
+                                    variant="transparent"
+                                    size="icon-2xs"
+                                    className="text-muted-foreground hover:text-foreground shrink-0 [-webkit-app-region:no-drag]"
                                 />
-                            </>
+                            </div>
                         )}
                     </div>
                 </>

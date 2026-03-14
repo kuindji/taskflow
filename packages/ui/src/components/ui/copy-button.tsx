@@ -7,12 +7,21 @@ interface CopyButtonProps {
     value: string;
     tooltip?: string;
     tooltipSide?: ComponentProps<typeof Button>["tooltipSide"];
+    variant?: ComponentProps<typeof Button>["variant"];
+    size?: ComponentProps<typeof Button>["size"];
     className?: string;
 }
 
-function CopyButton({ value, tooltip = "Copy", tooltipSide = "bottom", className }: CopyButtonProps) {
+function CopyButton({
+    value,
+    tooltip = "Copy",
+    tooltipSide = "bottom",
+    variant = "ghost",
+    size = "icon-xs",
+    className,
+}: CopyButtonProps) {
     const [copied, setCopied] = useState(false);
-    const timerRef = useRef<ReturnType<typeof setTimeout>>();
+    const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     const handleCopy = useCallback(() => {
         void navigator.clipboard.writeText(value);
@@ -23,8 +32,8 @@ function CopyButton({ value, tooltip = "Copy", tooltipSide = "bottom", className
 
     return (
         <Button
-            variant="ghost"
-            size="icon-xs"
+            variant={variant}
+            size={size}
             onClick={handleCopy}
             aria-label={copied ? "Copied" : tooltip}
             tooltip={copied ? "Copied!" : tooltip}
