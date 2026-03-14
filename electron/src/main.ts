@@ -479,6 +479,18 @@ function setupAutoUpdater() {
     });
 }
 
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+    app.quit();
+} else {
+    app.on("second-instance", () => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+        }
+    });
+}
+
 void app.whenReady().then(async () => {
     try {
         backendPort = await startBackend();
