@@ -94,6 +94,9 @@ async function main() {
             ptyManager,
             broadcast: server.broadcast,
             settingsStore,
+            generateTitle: (taskId, description) => {
+                void titleGenerator.generate(taskId, description);
+            },
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {

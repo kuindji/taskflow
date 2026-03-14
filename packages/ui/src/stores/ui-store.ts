@@ -11,6 +11,19 @@ function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
 }
 
+export function updateCollapsedProjectIds(
+    current: string[],
+    projectId: string,
+    collapsed: boolean,
+): string[] {
+    if (collapsed) {
+        if (current.includes(projectId)) return current;
+        return [...current, projectId];
+    }
+
+    return current.filter((id) => id !== projectId);
+}
+
 interface UIStore {
     activeProjectId: string | null;
     fileExplorerOpen: boolean;
@@ -20,6 +33,7 @@ interface UIStore {
     fileExplorerWidth: number;
     taskInfoWidth: number;
     panelGap: number;
+    collapsedProjectIds: string[];
     toggleFileExplorer(): void;
     toggleTaskInfo(): void;
     openSettings(): void;
@@ -29,10 +43,12 @@ interface UIStore {
     setFileExplorerWidth(width: number): void;
     setTaskInfoWidth(width: number): void;
     setPanelGap(gap: number): void;
+    setProjectCollapsed(projectId: string, collapsed: boolean): void;
     hydrateLayout(panels: {
         sidebarWidth?: number;
         fileExplorerWidth?: number;
         taskInfoWidth?: number;
+        collapsedProjectIds?: string[];
     }): void;
 }
 
@@ -45,6 +61,7 @@ export const useUIStore = create<UIStore>((set) => ({
     fileExplorerWidth: 220,
     taskInfoWidth: 220,
     panelGap: 4,
+    collapsedProjectIds: [],
     toggleFileExplorer() {
         set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen }));
     },
@@ -72,6 +89,15 @@ export const useUIStore = create<UIStore>((set) => ({
     setPanelGap(gap) {
         set({ panelGap: gap });
     },
+    setProjectCollapsed(projectId, collapsed) {
+        set((s) => ({
+            collapsedProjectIds: updateCollapsedProjectIds(
+                s.collapsedProjectIds,
+                projectId,
+                collapsed,
+            ),
+        }));
+    },
     hydrateLayout(panels) {
         set({
             sidebarWidth: clamp(panels.sidebarWidth ?? 220, SIDEBAR_MIN, SIDEBAR_MAX),
@@ -81,6 +107,7 @@ export const useUIStore = create<UIStore>((set) => ({
                 FILE_EXPLORER_MAX,
             ),
             taskInfoWidth: clamp(panels.taskInfoWidth ?? 220, TASK_INFO_MIN, TASK_INFO_MAX),
+            collapsedProjectIds: panels.collapsedProjectIds ?? [],
         });
     },
 }));

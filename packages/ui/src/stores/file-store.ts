@@ -21,6 +21,8 @@ interface FileStore {
     writeFile(path: string, content: string): Promise<void>;
     renameFile(oldPath: string, newPath: string): Promise<void>;
     deleteFile(path: string): Promise<void>;
+    createFile(path: string): Promise<void>;
+    createDirectory(path: string): Promise<void>;
     openExternal(path: string): Promise<void>;
     revealInFinder(path: string): Promise<void>;
     setExpandToPath(path: string | null): void;
@@ -119,6 +121,12 @@ export const useFileStore = create<FileStore>((set, get) => ({
     },
     async deleteFile(path) {
         await sendRequest(MSG.FILE_DELETE_FILE, { path });
+    },
+    async createFile(path) {
+        await sendRequest(MSG.FILE_WRITE, { path, content: "" });
+    },
+    async createDirectory(path) {
+        await sendRequest(MSG.FILE_MKDIR, { path });
     },
     async openExternal(path) {
         await sendRequest(MSG.FILE_OPEN_EXTERNAL, { path });

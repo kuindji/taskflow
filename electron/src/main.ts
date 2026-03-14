@@ -12,6 +12,7 @@ let backendPort: number | null = null;
 let backendPortFile: string | null = null;
 let windowSavePromise: Promise<Response | undefined> | null = null;
 let quitting = false;
+let backendStderrBuffer = "";
 
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
 
@@ -95,7 +96,9 @@ async function startBackend(): Promise<number> {
     });
 
     backendProcess.stderr?.on("data", (data: Buffer) => {
-        console.error("[backend error]", data.toString().trim());
+        const text = data.toString().trim();
+        console.error("[backend error]", text);
+        backendStderrBuffer += text + "\n";
     });
 
     return Promise.race([
@@ -449,7 +452,12 @@ void app.whenReady().then(async () => {
         buildAppMenu();
         setupAutoUpdater();
     } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const detail = backendStderrBuffer.trim()
+            ? `${message}\n\nBackend output:\n${backendStderrBuffer.trim()}`
+            : message;
         console.error("Failed to start backend:", err);
+        dialog.showErrorBox("Taskflow failed to start", detail);
         app.quit();
     }
 });

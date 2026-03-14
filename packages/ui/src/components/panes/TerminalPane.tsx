@@ -19,7 +19,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useFileStore } from "@/stores/file-store";
 import { useUIStore } from "@/stores/ui-store";
-import type { ILink, ILinkProvider } from "@xterm/xterm";
+import type { IBufferLine, ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
@@ -198,6 +198,27 @@ function resolvePath(raw: string, workingDir: string | null): string | null {
     return normalized;
 }
 
+/**
+ * Build a mapping from string character index (as returned by translateToString)
+ * to buffer cell column. Needed because wide chars, combining marks, and surrogate
+ * pairs cause string indices to diverge from cell positions.
+ */
+function buildCellMapping(line: IBufferLine): number[] {
+    const mapping: number[] = [];
+    for (let col = 0; col < line.length; col++) {
+        const cell = line.getCell(col);
+        if (!cell) break;
+        const width = cell.getWidth();
+        if (width === 0) continue; // continuation cell of a wide char
+        const chars = cell.getChars();
+        const len = chars.length || 1;
+        for (let i = 0; i < len; i++) {
+            mapping.push(col);
+        }
+    }
+    return mapping;
+}
+
 function createFilePathLinkProvider(
     term: Terminal,
     taskId?: string,
@@ -215,6 +236,7 @@ function createFilePathLinkProvider(
 
             const workingDir = getWorkingDir(taskId, projectId);
             const lineText = line.translateToString(true);
+            const cellMap = buildCellMapping(line);
             const links: ILink[] = [];
             const seen = new Set<string>();
 
@@ -233,10 +255,15 @@ function createFilePathLinkProvider(
                     const resolved = resolvePath(fullMatch, workingDir);
                     if (!resolved) continue;
 
+                    // Map string indices to buffer cell positions (1-based, end exclusive)
+                    const startCol = (cellMap[matchIndex] ?? matchIndex) + 1;
+                    const lastCharIdx = matchIndex + fullMatch.length - 1;
+                    const endCol = (cellMap[lastCharIdx] ?? lastCharIdx) + 2;
+
                     links.push({
                         range: {
-                            start: { x: matchIndex + 1, y: bufferLineNumber },
-                            end: { x: matchIndex + fullMatch.length + 1, y: bufferLineNumber },
+                            start: { x: startCol, y: bufferLineNumber },
+                            end: { x: endCol, y: bufferLineNumber },
                         },
                         text: fullMatch,
                         activate(event: MouseEvent, text: string) {

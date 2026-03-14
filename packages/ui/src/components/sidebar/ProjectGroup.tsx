@@ -17,10 +17,13 @@ interface ProjectGroupProps {
     activeTaskId: string | null;
     isActive: boolean;
     diffStats?: { additions: number; deletions: number } | null;
+    diffStatsByTask?: Record<string, { additions: number; deletions: number } | null>;
     onProjectClick: (projectId: string) => void;
     onTaskClick: (taskId: string) => void;
     archived?: boolean;
     compact?: boolean;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
 }
 
 export function ProjectGroup({
@@ -29,12 +32,14 @@ export function ProjectGroup({
     activeTaskId,
     isActive,
     diffStats,
+    diffStatsByTask,
     onProjectClick,
     onTaskClick,
     archived,
     compact,
+    open,
+    onOpenChange,
 }: ProjectGroupProps) {
-    const [open, setOpen] = useState(true);
     const [missingDialogOpen, setMissingDialogOpen] = useState(false);
     const projectToggleLabel = open ? "Collapse project" : "Expand project";
     const projectStatus = useSessionStore((state) => {
@@ -78,7 +83,7 @@ export function ProjectGroup({
 
     return (
         <>
-            <Collapsible open={open} onOpenChange={setOpen} className="min-w-0">
+            <Collapsible open={open} onOpenChange={onOpenChange} className="min-w-0">
                 <div
                     className={cn(
                         "group mx-1.5 flex max-w-[calc(100%-0.75rem)] min-w-0 cursor-pointer items-stretch overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
@@ -90,7 +95,7 @@ export function ProjectGroup({
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    setOpen((value) => !value);
+                                    onOpenChange(!open);
                                 }}
                                 aria-label={projectToggleLabel}
                                 className="text-muted-foreground flex h-full shrink-0 items-center px-1.5 py-1.5"
@@ -146,7 +151,7 @@ export function ProjectGroup({
                         {!locationInvalid && diffStats && (
                             <Badge
                                 variant="outline"
-                                className="border-border/60 bg-muted/50 gap-1.5 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0"
+                                className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0"
                             >
                                 <span className="text-success">+{diffStats.additions}</span>
                                 <span className="text-destructive">-{diffStats.deletions}</span>
@@ -167,6 +172,7 @@ export function ProjectGroup({
                                 onClick={() => onTaskClick(task.id)}
                                 archived={archived}
                                 compact={compact}
+                                diffStats={diffStatsByTask?.[task.id]}
                             />
                         ))}
                     </CollapsibleContent>

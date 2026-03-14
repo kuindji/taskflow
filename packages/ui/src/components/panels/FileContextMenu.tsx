@@ -6,10 +6,11 @@ import {
     ContextMenuItem,
     ContextMenuSeparator,
 } from "@/components/ui/context-menu";
-import { Pencil, Trash2, Copy, FileText, FolderOpen, ExternalLink } from "lucide-react";
+import { Pencil, Trash2, Copy, FileText, FolderOpen, ExternalLink, FilePlus, FolderPlus } from "lucide-react";
 import { useFileStore } from "@/stores/file-store";
 import { RenameFileDialog } from "./RenameFileDialog";
 import { DeleteFileDialog } from "./DeleteFileDialog";
+import { CreateFileDialog } from "./CreateFileDialog";
 
 interface FileContextMenuProps {
     children: ReactNode;
@@ -21,6 +22,8 @@ interface FileContextMenuProps {
 function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileContextMenuProps) {
     const [renameOpen, setRenameOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [createFileOpen, setCreateFileOpen] = useState(false);
+    const [createFolderOpen, setCreateFolderOpen] = useState(false);
     const openExternal = useFileStore((s) => s.openExternal);
     const revealInFinder = useFileStore((s) => s.revealInFinder);
 
@@ -48,6 +51,19 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
             <ContextMenu>
                 <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
                 <ContextMenuContent>
+                    {isDirectory && (
+                        <>
+                            <ContextMenuItem onSelect={() => setCreateFileOpen(true)}>
+                                <FilePlus />
+                                New File
+                            </ContextMenuItem>
+                            <ContextMenuItem onSelect={() => setCreateFolderOpen(true)}>
+                                <FolderPlus />
+                                New Folder
+                            </ContextMenuItem>
+                            <ContextMenuSeparator />
+                        </>
+                    )}
                     <ContextMenuItem onSelect={() => setRenameOpen(true)}>
                         <Pencil />
                         Rename
@@ -89,6 +105,18 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
                 onOpenChange={setDeleteOpen}
                 filePath={filePath}
                 isDirectory={isDirectory}
+            />
+            <CreateFileDialog
+                open={createFileOpen}
+                onOpenChange={setCreateFileOpen}
+                directoryPath={filePath}
+                mode="file"
+            />
+            <CreateFileDialog
+                open={createFolderOpen}
+                onOpenChange={setCreateFolderOpen}
+                directoryPath={filePath}
+                mode="directory"
             />
         </>
     );

@@ -2,6 +2,7 @@ import { readFile, writeFile } from "fs/promises";
 import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
+    DEFAULT_EDITOR_WORD_WRAP,
     DEFAULT_TERMINAL_FONT_FAMILY,
     DEFAULT_TERMINAL_SHELL,
 } from "@taskflow/shared";
@@ -23,6 +24,7 @@ const DEFAULTS: AppSettings = {
     editor: {
         fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
         fontSize: DEFAULT_EDITOR_FONT_SIZE,
+        wordWrap: DEFAULT_EDITOR_WORD_WRAP,
     },
     layout: {
         window: { width: 1400, height: 900, isMaximized: false },
@@ -31,6 +33,7 @@ const DEFAULTS: AppSettings = {
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
             compactSidebar: false,
+            collapsedProjectIds: [],
         },
     },
     claude: {

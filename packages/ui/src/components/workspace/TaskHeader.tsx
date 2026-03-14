@@ -56,8 +56,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
         diffKey ? (s.hasChangesByProject[diffKey] ?? false) : false,
     );
 
-    const commitLabel = hasChanges ? "Commit" : "Push";
-    const CommitIcon = hasChanges ? GitCommitHorizontal : ArrowUpFromLine;
+    const showPush = !hasChanges && !commitDisabled;
+    const commitLabel = showPush ? "Push" : "Commit";
+    const CommitIcon = showPush ? ArrowUpFromLine : GitCommitHorizontal;
 
     const showGitButtons = !!project && (!task?.worktree.enabled || isWorktreeTask);
     const showDiffButton = !!onDiff && showGitButtons;
@@ -183,8 +184,8 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             <Diff className="h-3 w-3" />
                             <span className="text-xs">Diff</span>
                             {diffStats && (diffStats.additions > 0 || diffStats.deletions > 0) && (
-                                <span className="text-xs">
-                                    <span className="text-success">+{diffStats.additions}</span>{" "}
+                                <span className="flex gap-0.5 text-xs">
+                                    <span className="text-success">+{diffStats.additions}</span>
                                     <span className="text-destructive">-{diffStats.deletions}</span>
                                 </span>
                             )}

@@ -4,7 +4,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useUIStore } from "@/stores/ui-store";
+import { updateCollapsedProjectIds, useUIStore } from "@/stores/ui-store";
 import { useDiffStore } from "@/stores/diff-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
@@ -34,9 +34,12 @@ export function TaskSidebar() {
     const setShowArchive = useTaskStore((s) => s.setShowArchive);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
+    const collapsedProjectIds = useUIStore((s) => s.collapsedProjectIds);
+    const setProjectCollapsed = useUIStore((s) => s.setProjectCollapsed);
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
     const syncWithProjects = useSessionStore((s) => s.syncWithProjects);
     const fetchSettings = useSettingsStore((s) => s.fetchSettings);
+    const updateSettings = useSettingsStore((s) => s.updateSettings);
     const compactSidebar = useSettingsStore(
         (s) => s.settings?.layout?.panels?.compactSidebar ?? false,
     );
@@ -180,6 +183,25 @@ export function TaskSidebar() {
         [setActiveProject, setActiveTask, tasks],
     );
 
+    const handleProjectOpenChange = useCallback(
+        (projectId: string, open: boolean) => {
+            const nextCollapsedProjectIds = updateCollapsedProjectIds(
+                useUIStore.getState().collapsedProjectIds,
+                projectId,
+                !open,
+            );
+            setProjectCollapsed(projectId, !open);
+            void updateSettings({
+                layout: {
+                    panels: {
+                        collapsedProjectIds: nextCollapsedProjectIds,
+                    },
+                },
+            });
+        },
+        [setProjectCollapsed, updateSettings],
+    );
+
     return (
         <>
             <div className="border-border flex min-h-9 items-center justify-between gap-2 border-b px-1.5 py-1.5">
@@ -223,6 +245,7 @@ export function TaskSidebar() {
                 )}
                 {visibleProjects.map((project) => {
                     const projectTasks = tasksByProject.get(project.id) ?? [];
+                    const projectOpen = !collapsedProjectIds.includes(project.id);
                     return (
                         <ProjectGroup
                             key={project.id}
@@ -231,10 +254,13 @@ export function TaskSidebar() {
                             activeTaskId={activeTaskId}
                             isActive={!activeTaskId && activeProjectId === project.id}
                             diffStats={diffStatsByProject[project.id]}
+                            diffStatsByTask={diffStatsByProject}
                             onProjectClick={handleProjectClick}
                             onTaskClick={handleTaskClick}
                             archived={showArchive}
                             compact={compactSidebar}
+                            open={projectOpen}
+                            onOpenChange={(open) => handleProjectOpenChange(project.id, open)}
                         />
                     );
                 })}

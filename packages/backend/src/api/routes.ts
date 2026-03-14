@@ -17,6 +17,7 @@ interface ApiRouteDeps {
     ptyManager: PtyManager;
     broadcast: (event: WsEvent) => void;
     settingsStore: SettingsStore;
+    generateTitle?: (taskId: string, description: string) => void;
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -31,7 +32,7 @@ function errorResponse(message: string, status: number): Response {
 }
 
 export function registerApiRoutes(deps: ApiRouteDeps): void {
-    const { apiRouter, taskStore, ptyManager, broadcast, settingsStore } = deps;
+    const { apiRouter, taskStore, ptyManager, broadcast, settingsStore, generateTitle } = deps;
     const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention"]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
@@ -190,6 +191,46 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         });
 
         return jsonResponse({ success: true });
+    });
+
+    apiRouter.register("POST", "/api/projects/:projectId/tasks", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const description = body.description;
+        if (typeof description !== "string" || !description.trim()) {
+            return errorResponse(
+                'Field "description" is required and must be a non-empty string',
+                400,
+            );
+        }
+
+        const title =
+            typeof body.title === "string" && body.title.trim()
+                ? body.title.trim()
+                : undefined;
+
+        try {
+            const task = await taskStore.createTask({
+                projectId: params.projectId,
+                title: title ?? "",
+                description: description.trim(),
+            });
+
+            if (!title && generateTitle) {
+                generateTitle(task.id, description.trim());
+            }
+
+            broadcast({ type: MSG.TASK_CREATED, payload: task });
+            return jsonResponse(task, 201);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, 500);
+        }
     });
 
     apiRouter.register("POST", "/api/sessions/:sessionId/status", async (req, params) => {

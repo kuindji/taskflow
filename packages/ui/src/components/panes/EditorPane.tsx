@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import * as monaco from "monaco-editor";
-import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_EDITOR_FONT_SIZE } from "@taskflow/shared";
+import {
+    DEFAULT_EDITOR_FONT_FAMILY,
+    DEFAULT_EDITOR_FONT_SIZE,
+    DEFAULT_EDITOR_WORD_WRAP,
+} from "@taskflow/shared";
 import { useFileStore } from "@/stores/file-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { Button } from "@/components/ui/button";
@@ -65,8 +69,12 @@ function EditorPane({ filePath }: EditorPaneProps) {
     const editorFontSize = useSettingsStore(
         (s) => s.settings?.editor?.fontSize ?? DEFAULT_EDITOR_FONT_SIZE,
     );
+    const editorWordWrap = useSettingsStore(
+        (s) => s.settings?.editor?.wordWrap ?? DEFAULT_EDITOR_WORD_WRAP,
+    );
     const editorFontFamilyRef = useRef(editorFontFamily);
     const editorFontSizeRef = useRef(editorFontSize);
+    const editorWordWrapRef = useRef(editorWordWrap);
     const { readFile, writeFile } = useFileStore();
     const [loading, setLoading] = useState(true);
     const [dirty, setDirty] = useState(false);
@@ -74,7 +82,8 @@ function EditorPane({ filePath }: EditorPaneProps) {
     useEffect(() => {
         editorFontFamilyRef.current = editorFontFamily;
         editorFontSizeRef.current = editorFontSize;
-    }, [editorFontFamily, editorFontSize]);
+        editorWordWrapRef.current = editorWordWrap;
+    }, [editorFontFamily, editorFontSize, editorWordWrap]);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -93,6 +102,7 @@ function EditorPane({ filePath }: EditorPaneProps) {
             minimap: { enabled: false },
             fontSize: editorFontSizeRef.current,
             fontFamily: editorFontFamilyRef.current,
+            wordWrap: editorWordWrapRef.current ? "on" : "off",
             scrollBeyondLastLine: false,
             automaticLayout: true,
             readOnly: false,
@@ -151,10 +161,11 @@ function EditorPane({ filePath }: EditorPaneProps) {
         editor.updateOptions({
             fontFamily: editorFontFamily,
             fontSize: editorFontSize,
+            wordWrap: editorWordWrap ? "on" : "off",
         });
         monaco.editor.remeasureFonts();
         editor.layout();
-    }, [editorFontFamily, editorFontSize]);
+    }, [editorFontFamily, editorFontSize, editorWordWrap]);
 
     return (
         <div className="relative flex-1">

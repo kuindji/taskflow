@@ -9,6 +9,7 @@ import {
     isValidElement,
     type ReactNode,
     type RefCallback,
+    type RefObject,
     type HTMLAttributes,
 } from "react";
 import {
@@ -78,9 +79,9 @@ function unmountManager() {
 interface TooltipContextValue {
     open: boolean;
     setOpen: (open: boolean) => void;
-    triggerRef: React.MutableRefObject<HTMLElement | null>;
+    triggerEl: HTMLElement | null;
     setTriggerEl: RefCallback<HTMLElement>;
-    contentRef: React.MutableRefObject<HTMLElement | null>;
+    contentRef: RefObject<HTMLElement | null>;
 }
 
 const TooltipContext = createContext<TooltipContextValue | null>(null);
@@ -110,7 +111,7 @@ function Tooltip({
     const isControlled = controlledOpen !== undefined;
     const open = isControlled ? controlledOpen : uncontrolledOpen;
 
-    const triggerRef = useRef<HTMLElement | null>(null);
+    const [triggerEl, setTriggerElState] = useState<HTMLElement | null>(null);
     const contentRef = useRef<HTMLElement | null>(null);
 
     const setOpen = useCallback(
@@ -122,12 +123,12 @@ function Tooltip({
     );
 
     const setTriggerEl: RefCallback<HTMLElement> = useCallback((el) => {
-        triggerRef.current = el;
+        setTriggerElState(el);
     }, []);
 
     return (
         <TooltipContext.Provider
-            value={{ open, setOpen, triggerRef, setTriggerEl, contentRef }}
+            value={{ open, setOpen, triggerEl, setTriggerEl, contentRef }}
         >
             {children}
         </TooltipContext.Provider>
@@ -166,6 +167,7 @@ function TooltipTrigger({
     if (asChild && isValidElement(children)) {
         return cloneElement(
             children as React.ReactElement<Record<string, unknown>>,
+            // eslint-disable-next-line react-hooks/refs -- setTriggerEl is a state setter callback, not a ref object
             {
                 ref: setTriggerEl,
                 ...eventHandlers,
@@ -199,8 +201,8 @@ function TooltipContent({
     side?: "top" | "right" | "bottom" | "left";
     sideOffset?: number;
 } & React.HTMLAttributes<HTMLDivElement>) {
-    const { open, setOpen, triggerRef, contentRef } = useTooltipContext();
-    const arrowRef = useRef<HTMLDivElement | null>(null);
+    const { open, setOpen, triggerEl, contentRef } = useTooltipContext();
+    const [arrowEl, setArrowEl] = useState<HTMLDivElement | null>(null);
 
     const {
         refs,
@@ -214,10 +216,10 @@ function TooltipContent({
             offset(sideOffset),
             flip(),
             shift({ padding: 8 }),
-            arrow({ element: arrowRef }),
+            arrow({ element: arrowEl }),
         ],
         elements: {
-            reference: triggerRef.current,
+            reference: triggerEl,
         },
     });
 
@@ -230,9 +232,9 @@ function TooltipContent({
     }, []);
 
     useEffect(() => {
-        if (open && triggerRef.current) {
+        if (open && triggerEl) {
             const reg: TooltipRegistration = {
-                triggerEl: triggerRef.current,
+                triggerEl,
                 contentEl: contentRef.current,
                 close: () => setOpen(false),
             };
@@ -244,7 +246,7 @@ function TooltipContent({
             unregisterTooltip(registrationRef.current);
             registrationRef.current = null;
         }
-    }, [open, triggerRef, contentRef, setOpen]);
+    }, [open, triggerEl, contentRef, setOpen]);
 
     if (!open) return null;
 
@@ -273,7 +275,7 @@ function TooltipContent({
         >
             {children}
             <div
-                ref={arrowRef}
+                ref={setArrowEl}
                 className="bg-foreground fill-foreground z-50 size-2.5 rotate-45 rounded-[2px] absolute"
                 style={{
                     left: arrowX != null ? `${arrowX}px` : "",

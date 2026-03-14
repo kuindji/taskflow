@@ -10,6 +10,7 @@ export const MSG = {
     TASK_LIST: "task:list",
     TASK_CREATE: "task:create",
     TASK_UPDATE: "task:update",
+    TASK_CREATED: "task:created",
     TASK_UPDATED: "task:updated",
     TASK_ARCHIVE: "task:archive",
     TASK_UNARCHIVE: "task:unarchive",
@@ -44,6 +45,7 @@ export const MSG = {
     FILE_STAT: "file:stat",
     FILE_RENAME: "file:rename",
     FILE_DELETE_FILE: "file:delete",
+    FILE_MKDIR: "file:mkdir",
     FILE_OPEN_EXTERNAL: "file:open-external",
     FILE_REVEAL: "file:reveal",
 
@@ -82,6 +84,7 @@ export const DEFAULT_TERMINAL_SHELL = "system";
 
 export const DEFAULT_EDITOR_FONT_FAMILY = '"JetBrains Mono", Menlo, Monaco, monospace';
 export const DEFAULT_EDITOR_FONT_SIZE = 13;
+export const DEFAULT_EDITOR_WORD_WRAP = false;
 
 // NOTE: Config paths (CONFIG_DIR, PROJECTS_FILE, etc.) live in
 // packages/backend/src/config.ts — not here, because process.env.HOME

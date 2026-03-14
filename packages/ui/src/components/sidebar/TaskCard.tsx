@@ -3,6 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { Archive, ArchiveRestore, GitBranch, Trash2 } from "lucide-react";
 import type { Task } from "@taskflow/shared";
 import { useTaskStore } from "@/stores/task-store";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -41,9 +42,10 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     className?: string;
     archived?: boolean;
     compact?: boolean;
+    diffStats?: { additions: number; deletions: number } | null;
 }
 
-export function TaskCard({ task, isActive, onClick, className, archived, compact }: TaskCardProps) {
+export function TaskCard({ task, isActive, onClick, className, archived, compact, diffStats }: TaskCardProps) {
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleteWorktree, setDeleteWorktree] = useState(false);
     const archiveTask = useTaskStore((s) => s.archiveTask);
@@ -115,9 +117,18 @@ export function TaskCard({ task, isActive, onClick, className, archived, compact
                         {task.worktree.enabled && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <div className="text-muted-foreground flex items-center">
-                                        <GitBranch className="h-3.5 w-3.5" />
-                                    </div>
+                                    <Badge
+                                        variant="outline"
+                                        className="border-border/60 bg-muted/50 gap-0.5 px-1 py-0 text-[10px] font-medium"
+                                    >
+                                        <GitBranch className="text-muted-foreground h-3 w-3" />
+                                        {diffStats && (
+                                            <>
+                                                <span className="text-success">+{diffStats.additions}</span>
+                                                <span className="text-destructive">-{diffStats.deletions}</span>
+                                            </>
+                                        )}
+                                    </Badge>
                                 </TooltipTrigger>
                                 <TooltipContent side="right">
                                     {task.worktree.branch ?? "pending"}

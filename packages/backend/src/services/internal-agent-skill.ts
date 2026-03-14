@@ -13,6 +13,7 @@ Environment variables TASKFLOW_API_URL, TASKFLOW_TASK_ID, TASKFLOW_PROJECT_ID, a
 
 Use taskflow-cli proactively:
 - At session start, read task context: \`taskflow-cli task\` (returns task info and log from prior sessions).
+- Create a new task: \`taskflow-cli task create "description" [--title "title"]\`
 - Log significant findings: \`taskflow-cli log info "your message"\`
 - After committing, log the commit: \`taskflow-cli log commit "commit message" --hash <hash>\`
 - Log types: info (findings/progress), commit (commits), warning (concerns), error (failures).
@@ -40,6 +41,15 @@ Read task info and log from prior sessions:
 
 \`\`\`
 taskflow-cli task
+\`\`\`
+
+## Create a task
+
+Create a new task in the current project:
+
+\`\`\`
+taskflow-cli task create "Fix login timeout bug"
+taskflow-cli task create "Investigate memory leak" --title "Memory leak in auth service"
 \`\`\`
 
 ## Task log
@@ -81,11 +91,44 @@ shift 2>/dev/null || true
 
 case "$cmd" in
   task)
-    if [ -z "$TASKFLOW_TASK_ID" ]; then
-      echo "Error: TASKFLOW_TASK_ID is not set" >&2
-      exit 1
+    subcmd="\${1:-}"
+    if [ "$subcmd" = "create" ]; then
+      shift
+      if [ -z "$TASKFLOW_PROJECT_ID" ]; then
+        echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
+        exit 1
+      fi
+      description="\${1:-}"
+      if [ -z "$description" ]; then
+        echo "Usage: taskflow-cli task create <description> [--title <title>]" >&2
+        exit 1
+      fi
+      shift
+
+      title=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --title) title="\${2:-}"; shift 2 ;;
+          *) shift ;;
+        esac
+      done
+
+      if [ -n "$title" ]; then
+        curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \\
+          -H "Content-Type: application/json" \\
+          -d "{\\"description\\":\\"$description\\",\\"title\\":\\"$title\\"}"
+      else
+        curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \\
+          -H "Content-Type: application/json" \\
+          -d "{\\"description\\":\\"$description\\"}"
+      fi
+    else
+      if [ -z "$TASKFLOW_TASK_ID" ]; then
+        echo "Error: TASKFLOW_TASK_ID is not set" >&2
+        exit 1
+      fi
+      curl -sf "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID"
     fi
-    curl -sf "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID"
     ;;
 
   log)
@@ -167,9 +210,10 @@ case "$cmd" in
     echo "Usage: taskflow-cli <command>" >&2
     echo "" >&2
     echo "Commands:" >&2
-    echo "  task                              Get task context and log" >&2
-    echo "  log <type> <message> [--hash h]   Log to task (info|commit|warning|error)" >&2
-    echo "  browser <url> [--label l] [--project]  Open a browser tab" >&2
+    echo "  task                                          Get task context and log" >&2
+    echo "  task create <desc> [--title t]                Create a new task in the project" >&2
+    echo "  log <type> <message> [--hash h]               Log to task (info|commit|warning|error)" >&2
+    echo "  browser <url> [--label l] [--project]         Open a browser tab" >&2
     exit 1
     ;;
 esac

@@ -162,6 +162,13 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleEditorWordWrap = useCallback(
+        (wordWrap: boolean) => {
+            void updateSettings({ editor: { wordWrap } });
+        },
+        [updateSettings],
+    );
+
     const handleExternalEditor = useCallback(
         (externalEditor: string) => {
             void updateSettings({ general: { externalEditor } });
@@ -440,6 +447,24 @@ function SettingsModal() {
                                                 onChange={handleEditorFontSize}
                                                 className="h-8 text-sm"
                                             />
+                                        </div>
+                                    </div>
+                                </section>
+                                <section className="space-y-2">
+                                    <h3 className="text-sm font-medium mb-0">Editor Options</h3>
+                                    <div className="space-y-1">
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <Switch
+                                                id="editor-word-wrap"
+                                                checked={settings.editor.wordWrap}
+                                                onCheckedChange={handleEditorWordWrap}
+                                            />
+                                            <Label
+                                                htmlFor="editor-word-wrap"
+                                                className="cursor-pointer text-sm normal-case font-normal"
+                                            >
+                                                Word Wrap
+                                            </Label>
                                         </div>
                                     </div>
                                 </section>

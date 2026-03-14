@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
+    DEFAULT_EDITOR_WORD_WRAP,
     DEFAULT_TERMINAL_FONT_FAMILY,
     DEFAULT_TERMINAL_SHELL,
 } from "@taskflow/shared";
@@ -17,6 +18,7 @@ const DEFAULT_LAYOUT = {
         fileExplorerWidth: 220,
         taskInfoWidth: 220,
         compactSidebar: false,
+        collapsedProjectIds: [],
     },
 };
 
@@ -56,6 +58,7 @@ describe("SettingsStore", () => {
             editor: {
                 fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
+                wordWrap: DEFAULT_EDITOR_WORD_WRAP,
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
@@ -80,6 +83,7 @@ describe("SettingsStore", () => {
             editor: {
                 fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
+                wordWrap: DEFAULT_EDITOR_WORD_WRAP,
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
@@ -112,6 +116,7 @@ describe("SettingsStore", () => {
             editor: {
                 fontFamily: "Fira Code",
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
+                wordWrap: DEFAULT_EDITOR_WORD_WRAP,
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
@@ -134,6 +139,7 @@ describe("SettingsStore", () => {
             editor: {
                 fontFamily: "Fira Code",
                 fontSize: 16,
+                wordWrap: DEFAULT_EDITOR_WORD_WRAP,
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
@@ -150,6 +156,7 @@ describe("SettingsStore", () => {
                 fileExplorerWidth: 220,
                 taskInfoWidth: 220,
                 compactSidebar: false,
+                collapsedProjectIds: [],
             },
         });
     });
@@ -182,6 +189,7 @@ describe("SettingsStore", () => {
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
             compactSidebar: false,
+            collapsedProjectIds: [],
         });
     });
 
@@ -206,6 +214,26 @@ describe("SettingsStore", () => {
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
             compactSidebar: false,
+            collapsedProjectIds: [],
+        });
+    });
+
+    it("merges persisted collapsed project ids with panel defaults", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({
+                layout: { panels: { collapsedProjectIds: ["project-a", "project-b"] } },
+            }),
+        );
+
+        const settings = await store.get();
+
+        expect(settings.layout.panels).toEqual({
+            sidebarWidth: 220,
+            fileExplorerWidth: 220,
+            taskInfoWidth: 220,
+            compactSidebar: false,
+            collapsedProjectIds: ["project-a", "project-b"],
         });
     });
 
