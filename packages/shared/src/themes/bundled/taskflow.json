@@ -1,0 +1,35 @@
+{
+    "version": 1,
+    "name": "Taskflow",
+    "author": "Taskflow",
+    "origin": "bundled",
+    "colors": {
+        "foreground": "#cdd6f4",
+        "background": "#1e1e2e",
+        "cursor": "#f5e0dc",
+        "cursorText": "#1e1e2e",
+        "selection": "#313244",
+        "selectionText": "#cdd6f4",
+        "ansi": {
+            "black": "#181825",
+            "red": "#f38ba8",
+            "green": "#a6e3a1",
+            "yellow": "#f9e2af",
+            "blue": "#89b4fa",
+            "magenta": "#cba6f7",
+            "cyan": "#94e2d5",
+            "white": "#bac2de",
+            "brightBlack": "#585b70",
+            "brightRed": "#f38ba8",
+            "brightGreen": "#a6e3a1",
+            "brightYellow": "#f9e2af",
+            "brightBlue": "#89b4fa",
+            "brightMagenta": "#cba6f7",
+            "brightCyan": "#94e2d5",
+            "brightWhite": "#a6adc8"
+        }
+    },
+    "overrides": {
+        "--warning": "#ffb703"
+    }
+}

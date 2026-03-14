@@ -1,5 +1,6 @@
 import type { ThemeRecord, ThemeSource } from "../types/theme";
 
+import taskflow from "./bundled/taskflow.json";
 import catppuccinMocha from "./bundled/catppuccin-mocha.json";
 import dracula from "./bundled/dracula.json";
 import nord from "./bundled/nord.json";
@@ -14,6 +15,7 @@ function asSource(json: { version: number; name: string; origin: string; colors:
 }
 
 export const bundledThemes: ThemeRecord[] = [
+    { id: "taskflow", source: asSource(taskflow) },
     { id: "catppuccin-mocha", source: asSource(catppuccinMocha) },
     { id: "dracula", source: asSource(dracula) },
     { id: "nord", source: asSource(nord) },

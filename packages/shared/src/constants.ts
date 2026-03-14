@@ -80,7 +80,7 @@ export const MSG = {
     SYSTEM_INFO: "system:info",
 } as const;
 
-export const DEFAULT_THEME_ID = "catppuccin-mocha";
+export const DEFAULT_THEME_ID = "taskflow";
 
 // Archive expiry (safe to import in browser)
 export const ARCHIVE_EXPIRY_DAYS = 30;
