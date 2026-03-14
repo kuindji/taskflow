@@ -52,6 +52,11 @@ export class TaskStore {
         this.config = config;
     }
 
+    async updateConfig(config: TaskStoreConfig): Promise<void> {
+        this.config = config;
+        await this.init();
+    }
+
     async init(): Promise<void> {
         await mkdir(this.config.tasksDir, { recursive: true });
         await mkdir(this.config.archiveDir, { recursive: true });

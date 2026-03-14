@@ -86,7 +86,7 @@ async function main() {
         registerGitHandlers({ router, git: gitService, taskStore: store });
 
         const settingsStore = new SettingsStore(config.settingsFile);
-        registerSettingsHandlers(router, settingsStore);
+        registerSettingsHandlers({ router, settingsStore, taskStore: store });
         registerScriptsHandlers(router);
         registerApiRoutes({
             apiRouter,
