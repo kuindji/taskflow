@@ -62,7 +62,8 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         if (!open) return;
         sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: repoPath }).then(
             (res) => {
-                const changed = res.status.stagedFiles.length > 0 || res.status.unstagedFiles.length > 0;
+                const changed =
+                    res.status.stagedFiles.length > 0 || res.status.unstagedFiles.length > 0;
                 setHasChanges(changed);
                 setHasStagedChanges(res.status.stagedFiles.length > 0);
                 // In push-only mode, push is always on
@@ -159,7 +160,18 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         } finally {
             setLoading(false);
         }
-    }, [message, useAgent, push, pushOnly, createPr, includeUnstaged, repoPath, sessionOwner, createSession, handleOpenChange]);
+    }, [
+        message,
+        useAgent,
+        push,
+        pushOnly,
+        createPr,
+        includeUnstaged,
+        repoPath,
+        sessionOwner,
+        createSession,
+        handleOpenChange,
+    ]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {

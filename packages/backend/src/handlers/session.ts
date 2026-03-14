@@ -38,13 +38,13 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     async function removeSessionFromOwner(
         sessionId: string,
         owner?: { taskId?: string; projectId?: string },
-    ): Promise<void> {
+    ): Promise<string | null> {
         const targetTask = owner?.taskId ? await taskStore.getTask(owner.taskId) : null;
         if (targetTask?.sessions.some((session) => session.id === sessionId)) {
             await taskStore.updateTask(targetTask.id, (task) => ({
                 sessions: task.sessions.filter((session) => session.id !== sessionId),
             }));
-            return;
+            return targetTask.id;
         }
 
         const targetProject = owner?.projectId ? await taskStore.getProject(owner.projectId) : null;
@@ -52,7 +52,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             await taskStore.updateProject(targetProject.id, (project) => ({
                 sessions: project.sessions.filter((session) => session.id !== sessionId),
             }));
-            return;
+            return targetProject.id;
         }
 
         const activeOwner = (owner?.taskId ? [] : await taskStore.listTasks()).find((task) =>
@@ -62,7 +62,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             await taskStore.updateTask(activeOwner.id, (task) => ({
                 sessions: task.sessions.filter((session) => session.id !== sessionId),
             }));
-            return;
+            return activeOwner.id;
         }
 
         const activeProjectOwner = (owner?.projectId ? [] : await taskStore.listProjects()).find(
@@ -72,17 +72,18 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             await taskStore.updateProject(activeProjectOwner.id, (project) => ({
                 sessions: project.sessions.filter((session) => session.id !== sessionId),
             }));
-            return;
+            return activeProjectOwner.id;
         }
 
         const archivedOwner = (await taskStore.listArchived()).find((task) =>
             task.sessions.some((session) => session.id === sessionId),
         );
-        if (!archivedOwner) return;
+        if (!archivedOwner) return null;
 
         await taskStore.updateArchived(archivedOwner.id, (task) => ({
             sessions: task.sessions.filter((session) => session.id !== sessionId),
         }));
+        return archivedOwner.id;
     }
 
     router.register(MSG.SESSION_CREATE, async (payload) => {
@@ -145,11 +146,13 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
                 });
             },
             onExit: (exitCode) => {
+                const ownerId = task?.id ?? project.id;
                 broadcast({
                     type: MSG.SESSION_EXITED,
                     payload: { sessionId, exitCode },
                 });
                 void removeSessionFromOwner(sessionId, { taskId: task?.id, projectId: project.id });
+                void taskStore.deleteSessionHistory(ownerId, sessionId);
             },
         });
 
@@ -187,8 +190,11 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
 
     router.register(MSG.SESSION_CLOSE, async (payload) => {
         const { sessionId } = payload as SessionClosePayload;
-        await removeSessionFromOwner(sessionId);
+        const ownerId = await removeSessionFromOwner(sessionId);
         ptyManager.close(sessionId);
+        if (ownerId) {
+            void taskStore.deleteSessionHistory(ownerId, sessionId);
+        }
         return { success: true };
     });
 

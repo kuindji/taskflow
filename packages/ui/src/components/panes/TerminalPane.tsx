@@ -20,7 +20,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useFileStore } from "@/stores/file-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useThemeStore } from "@/stores/theme-store";
-import type { ILink, ILinkProvider } from "@xterm/xterm";
+import type { IBufferLine, ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
@@ -167,13 +167,13 @@ function createWebLinkHandler(taskId?: string, projectId?: string) {
 // ─── File path link provider ─────────────────────────────────────────────────
 
 // Absolute: /path/to/file with optional :line:col
-const ABS_PATH_RE = /(?:^|\s|["`'(=])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\d+))?)?)/g;
+const ABS_PATH_RE = /(?<![/\w.@+-])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\d+))?)?)/g;
 
 // Relative: dir/file or ./dir/file with optional :line:col
 // Must contain at least one "/". False positives (e.g., "yes/no") are acceptable
 // because the file:stat check at click time gracefully handles non-existent paths.
 const REL_PATH_RE =
-    /(?:^|\s|["`'(=])((?:\.\.?\/)?[\w.@+-]+\/[\w.@+\-/]*[\w.@+-](?::(\d+)(?::(\d+))?)?)/g;
+    /(?<![/\w.@+-])((?:\.\.?\/)?[\w.@+-]+\/[\w.@+\-/]*[\w.@+-](?::(\d+)(?::(\d+))?)?)/g;
 
 /** Collapse `.` and `..` segments in an absolute path without filesystem I/O. */
 function normalizePath(absolute: string): string {
@@ -207,6 +207,27 @@ function resolvePath(raw: string, workingDir: string | null): string | null {
     return normalized;
 }
 
+/**
+ * Build a mapping from string character index (as returned by translateToString)
+ * to buffer cell column. Needed because wide chars, combining marks, and surrogate
+ * pairs cause string indices to diverge from cell positions.
+ */
+function buildCellMapping(line: IBufferLine): number[] {
+    const mapping: number[] = [];
+    for (let col = 0; col < line.length; col++) {
+        const cell = line.getCell(col);
+        if (!cell) break;
+        const width = cell.getWidth();
+        if (width === 0) continue; // continuation cell of a wide char
+        const chars = cell.getChars();
+        const len = chars.length || 1;
+        for (let i = 0; i < len; i++) {
+            mapping.push(col);
+        }
+    }
+    return mapping;
+}
+
 function createFilePathLinkProvider(
     term: Terminal,
     taskId?: string,
@@ -224,6 +245,7 @@ function createFilePathLinkProvider(
 
             const workingDir = getWorkingDir(taskId, projectId);
             const lineText = line.translateToString(true);
+            const cellMap = buildCellMapping(line);
             const links: ILink[] = [];
             const seen = new Set<string>();
 
@@ -242,10 +264,15 @@ function createFilePathLinkProvider(
                     const resolved = resolvePath(fullMatch, workingDir);
                     if (!resolved) continue;
 
+                    // Map string indices to buffer cell positions (1-based, end exclusive)
+                    const startCol = (cellMap[matchIndex] ?? matchIndex) + 1;
+                    const lastCharIdx = matchIndex + fullMatch.length - 1;
+                    const endCol = (cellMap[lastCharIdx] ?? lastCharIdx) + 2;
+
                     links.push({
                         range: {
-                            start: { x: matchIndex + 1, y: bufferLineNumber },
-                            end: { x: matchIndex + fullMatch.length + 1, y: bufferLineNumber },
+                            start: { x: startCol, y: bufferLineNumber },
+                            end: { x: endCol, y: bufferLineNumber },
                         },
                         text: fullMatch,
                         activate(event: MouseEvent, text: string) {
@@ -710,42 +737,124 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         };
     }, [scheduleFit]);
 
-    const handleDragOver = useCallback((e: React.DragEvent) => {
-        if (!e.dataTransfer.types.includes("application/x-taskflow-path")) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-    }, []);
-
-    const handleDragEnter = useCallback((e: React.DragEvent) => {
-        if (!e.dataTransfer.types.includes("application/x-taskflow-path")) return;
-        e.preventDefault();
-        dragCounterRef.current++;
-        setDragOver(true);
-    }, []);
-
-    const handleDragLeave = useCallback(() => {
-        dragCounterRef.current--;
-        if (dragCounterRef.current <= 0) {
-            dragCounterRef.current = 0;
-            setDragOver(false);
-        }
-    }, []);
-
     const handleContainerClick = useCallback(() => {
         termRef.current?.focus();
     }, []);
 
-    const handleDrop = useCallback(
-        (e: React.DragEvent) => {
+    // Native drag-and-drop listeners attached in capture phase so they fire
+    // before xterm.js's internal DOM elements can intercept the events.
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        function isAcceptableDrag(e: DragEvent) {
+            if (!e.dataTransfer) return false;
+            const types = Array.from(e.dataTransfer.types);
+            return (
+                types.includes("application/x-taskflow-path") ||
+                types.includes("Files") ||
+                types.includes("text/uri-list") ||
+                types.includes("text/plain")
+            );
+        }
+
+        function onDragOver(e: DragEvent) {
+            if (!isAcceptableDrag(e)) {
+                console.debug("[drop] dragover rejected, types:", e.dataTransfer?.types);
+                return;
+            }
             e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+        }
+
+        function onDragEnter(e: DragEvent) {
+            if (!isAcceptableDrag(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dragCounterRef.current++;
+            setDragOver(true);
+        }
+
+        function onDragLeave(e: DragEvent) {
+            e.stopPropagation();
+            dragCounterRef.current--;
+            if (dragCounterRef.current <= 0) {
+                dragCounterRef.current = 0;
+                setDragOver(false);
+            }
+        }
+
+        function onDrop(e: DragEvent) {
+            e.preventDefault();
+            e.stopPropagation();
             dragCounterRef.current = 0;
             setDragOver(false);
-            const path = e.dataTransfer.getData("text/plain");
-            if (!path) return;
-            sendInputRef.current(sessionId, shellQuote(path));
-        },
-        [sessionId],
-    );
+
+            if (!e.dataTransfer) return;
+
+            const types = Array.from(e.dataTransfer.types);
+            console.debug("[drop] drop event, types:", types);
+
+            // Internal file tree drop
+            const taskflowPath = e.dataTransfer.getData("application/x-taskflow-path");
+            if (taskflowPath) {
+                console.debug("[drop] taskflow path:", taskflowPath);
+                sendInputRef.current(sessionId, shellQuote(taskflowPath));
+                return;
+            }
+
+            // Native file drop (Finder / OS file manager)
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const paths: string[] = [];
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i] as File & { path?: string };
+                    console.debug("[drop] file:", file.name, "path:", file.path);
+                    if (file.path) paths.push(shellQuote(file.path));
+                }
+                if (paths.length > 0) {
+                    console.debug("[drop] sending paths:", paths);
+                    sendInputRef.current(sessionId, paths.join(" "));
+                }
+                return;
+            }
+
+            // Fallback: URI list (macOS Finder sometimes uses this)
+            const uriList = e.dataTransfer.getData("text/uri-list");
+            if (uriList) {
+                const filePaths = uriList
+                    .split("\n")
+                    .filter((line) => line.startsWith("file://"))
+                    .map((uri) => decodeURIComponent(new URL(uri).pathname));
+                if (filePaths.length > 0) {
+                    console.debug("[drop] uri-list paths:", filePaths);
+                    sendInputRef.current(sessionId, filePaths.map(shellQuote).join(" "));
+                    return;
+                }
+            }
+
+            // Fallback: plain text
+            const plainText = e.dataTransfer.getData("text/plain");
+            if (plainText) {
+                console.debug("[drop] plain text:", plainText);
+                sendInputRef.current(sessionId, shellQuote(plainText));
+            }
+        }
+
+        const opts = { capture: true };
+        container.addEventListener("dragover", onDragOver, opts);
+        container.addEventListener("dragenter", onDragEnter, opts);
+        container.addEventListener("dragleave", onDragLeave, opts);
+        container.addEventListener("drop", onDrop, opts);
+
+        return () => {
+            container.removeEventListener("dragover", onDragOver, opts);
+            container.removeEventListener("dragenter", onDragEnter, opts);
+            container.removeEventListener("dragleave", onDragLeave, opts);
+            container.removeEventListener("drop", onDrop, opts);
+        };
+    }, [sessionId]);
 
     return (
         <div
@@ -754,10 +863,6 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 "flex-1 overflow-hidden",
                 dragOver && "ring-primary/50 ring-2 ring-inset",
             )}
-            onDragOver={handleDragOver}
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
             onClick={handleContainerClick}
         />
     );

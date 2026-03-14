@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Dialog,
     DialogContent,
@@ -33,6 +33,17 @@ import {
     type RuntimeListResponse,
     type ClaudeSettings,
 } from "@taskflow/shared";
+import {
+    AlertDialog,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { TruncatedText } from "@/components/ui/truncated-text";
+import { alert, confirm } from "@/stores/dialog-store";
 import { FontFamilySelect } from "./FontFamilySelect";
 
 const EDITOR_OPTIONS = [
@@ -52,13 +63,24 @@ function SettingsModal() {
     const toggleSettings = useUIStore((s) => s.toggleSettings);
     const settings = useSettingsStore((s) => s.settings);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
+    const dataDirInfo = useSettingsStore((s) => s.dataDirInfo);
+    const fetchDataDir = useSettingsStore((s) => s.fetchDataDir);
+    const updateDataDir = useSettingsStore((s) => s.updateDataDir);
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
-    const [section, setSection] = useState<"fonts" | "defaults" | "claude" | "codex">("fonts");
+    const [section, setSection] = useState<"general" | "fonts" | "defaults" | "claude" | "codex">(
+        "general",
+    );
+    const [migrating, setMigrating] = useState(false);
+    const [migrationError, setMigrationError] = useState<string | null>(null);
+    const [conflictPath, setConflictPath] = useState<string | null>(null);
+    const migrationErrorTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
     useEffect(() => {
         if (!open) return;
+
+        void fetchDataDir();
 
         sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {}).then(
             (response) => {
@@ -75,7 +97,7 @@ function SettingsModal() {
             (response) => setRuntimes(response.runtimes),
             () => setRuntimes([]),
         );
-    }, [open]);
+    }, [open, fetchDataDir]);
 
     const handleOpenChange = useCallback(
         (value: boolean) => {
@@ -188,6 +210,113 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const showMigrationError = useCallback((message: string) => {
+        setMigrationError(message);
+        clearTimeout(migrationErrorTimer.current);
+        migrationErrorTimer.current = setTimeout(() => setMigrationError(null), 5000);
+    }, []);
+
+    const showDataDirChangedAlert = useCallback((previousPath: string, nextPath: string) => {
+        if (previousPath === nextPath) return;
+
+        void alert({
+            title: "Data Folder Changed",
+            description: `Taskflow is now using "${nextPath}" instead of "${previousPath}" for projects, tasks, and session data.`,
+        });
+    }, []);
+
+    const confirmDataDirChange = useCallback(
+        async (nextPath: string, action: "change" | "reset") => {
+            const currentPath = dataDirInfo?.dataDir;
+            if (!currentPath) return false;
+
+            const confirmed = await confirm({
+                title: action === "reset" ? "Reset Data Folder?" : "Change Data Folder?",
+                description:
+                    action === "reset"
+                        ? `Taskflow will move your projects, tasks, and session data from "${currentPath}" back to the default folder at "${nextPath}". Config files will remain in ~/.config/taskflow. If the destination already contains Taskflow data, you'll be asked how to proceed.`
+                        : `Taskflow will move your projects, tasks, and session data from "${currentPath}" to "${nextPath}". Config files will remain in ~/.config/taskflow. If the destination already contains Taskflow data, you'll be asked how to proceed.`,
+                confirmLabel: action === "reset" ? "Reset Folder" : "Move Data",
+                cancelLabel: "Cancel",
+            });
+
+            return confirmed;
+        },
+        [dataDirInfo?.dataDir],
+    );
+
+    const handleChangeDataDir = useCallback(async () => {
+        const selected = await window.taskflow?.selectProjectDirectory();
+        if (!selected) return;
+        if (selected === dataDirInfo?.dataDir) return;
+        const confirmed = await confirmDataDirChange(selected, "change");
+        if (!confirmed) return;
+        const previousPath = dataDirInfo?.dataDir;
+        setMigrating(true);
+        setMigrationError(null);
+        try {
+            const result = await updateDataDir(selected);
+            if (result.conflict) {
+                setConflictPath(selected);
+            } else if (previousPath) {
+                showDataDirChangedAlert(previousPath, result.dataDir);
+            }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to change data folder";
+            showMigrationError(message);
+        } finally {
+            setMigrating(false);
+        }
+    }, [
+        confirmDataDirChange,
+        dataDirInfo?.dataDir,
+        updateDataDir,
+        showMigrationError,
+        showDataDirChangedAlert,
+    ]);
+
+    const handleResetDataDir = useCallback(async () => {
+        if (!dataDirInfo?.baseDir) return;
+        const confirmed = await confirmDataDirChange(dataDirInfo.baseDir, "reset");
+        if (!confirmed) return;
+        const previousPath = dataDirInfo.dataDir;
+        setMigrating(true);
+        setMigrationError(null);
+        try {
+            const result = await updateDataDir(dataDirInfo.baseDir);
+            if (result.conflict) {
+                setConflictPath(dataDirInfo.baseDir);
+            } else {
+                showDataDirChangedAlert(previousPath, result.dataDir);
+            }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to reset data folder";
+            showMigrationError(message);
+        } finally {
+            setMigrating(false);
+        }
+    }, [confirmDataDirChange, dataDirInfo, updateDataDir, showMigrationError, showDataDirChangedAlert]);
+
+    const handleConflictChoice = useCallback(
+        async (mode: "overwrite" | "adopt") => {
+            if (!conflictPath || !dataDirInfo?.dataDir) return;
+            const previousPath = dataDirInfo.dataDir;
+            setConflictPath(null);
+            setMigrating(true);
+            setMigrationError(null);
+            try {
+                const result = await updateDataDir(conflictPath, mode);
+                showDataDirChangedAlert(previousPath, result.dataDir);
+            } catch (err) {
+                const message = err instanceof Error ? err.message : "Failed to change data folder";
+                showMigrationError(message);
+            } finally {
+                setMigrating(false);
+            }
+        },
+        [conflictPath, dataDirInfo?.dataDir, updateDataDir, showMigrationError, showDataDirChangedAlert],
+    );
+
     if (!settings) return null;
 
     const configuredShellAvailable = isConfiguredShellAvailable(
@@ -206,6 +335,16 @@ function SettingsModal() {
                 <div className="flex min-h-[360px]">
                     {/* Sidebar */}
                     <nav className="border-border w-40 shrink-0 space-y-1 border-r pr-2">
+                        <button
+                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
+                                section === "general"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                            }`}
+                            onClick={() => setSection("general")}
+                        >
+                            General
+                        </button>
                         <button
                             className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
                                 section === "fonts"
@@ -249,11 +388,68 @@ function SettingsModal() {
                     </nav>
 
                     {/* Content */}
-                    <div className="flex-1 space-y-6 pl-6">
+                    <div className="min-w-0 flex-1 space-y-6 pl-6">
+                        {section === "general" && (
+                            <>
+                                <section className="space-y-2">
+                                    <h3 className="mb-0 text-sm font-medium">Data Folder</h3>
+                                    <div className="space-y-2">
+                                        <Label className={defaultsSelectLabelClassName}>
+                                            Location where projects, tasks, and session data are
+                                            stored
+                                        </Label>
+                                        <div className="space-y-2">
+                                            <TruncatedText
+                                                as="code"
+                                                tooltip
+                                                tooltipSide="bottom"
+                                                className="bg-muted text-foreground flex h-8 min-w-0 max-w-85 overflow-x-auto w-full items-center rounded px-2 text-xs"
+                                                tooltipContent={
+                                                    dataDirInfo?.dataDir ?? "Loading..."
+                                                }
+                                            >
+                                                {dataDirInfo?.dataDir ?? "Loading..."}
+                                            </TruncatedText>
+                                            <div className="flex flex-wrap gap-2">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={migrating}
+                                                    onClick={() => void handleChangeDataDir()}
+                                                >
+                                                    {migrating ? "Moving..." : "Change..."}
+                                                </Button>
+                                                {dataDirInfo && !dataDirInfo.isDefault && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={migrating}
+                                                        onClick={() => void handleResetDataDir()}
+                                                    >
+                                                        Reset
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {migrationError && (
+                                            <p className="text-destructive text-xs">
+                                                {migrationError}
+                                            </p>
+                                        )}
+                                        {dataDirInfo && !dataDirInfo.isDefault && (
+                                            <p className="text-muted-foreground text-xxs">
+                                                Using custom location. Config files remain in
+                                                ~/.config/taskflow.
+                                            </p>
+                                        )}
+                                    </div>
+                                </section>
+                            </>
+                        )}
                         {section === "fonts" && (
                             <>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Application Font</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Application Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
                                             <Label className={defaultsSelectLabelClassName}>
@@ -280,7 +476,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Terminal Font</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Terminal Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
                                             <Label className={defaultsSelectLabelClassName}>
@@ -307,7 +503,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Editor Font</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Editor Font</h3>
                                     <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
                                         <div className="min-w-0 space-y-1">
                                             <Label className={defaultsSelectLabelClassName}>
@@ -338,7 +534,7 @@ function SettingsModal() {
                         {section === "claude" && (
                             <>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Default Model</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Default Model</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Pre-selected model when running Claude sessions
@@ -360,7 +556,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Full Access</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Skip permission prompts by default
@@ -373,7 +569,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="claude-full-access"
-                                                className="cursor-pointer text-sm normal-case font-normal"
+                                                className="cursor-pointer text-sm font-normal normal-case"
                                             >
                                                 {settings.claude.fullAccess
                                                     ? "Enabled"
@@ -387,7 +583,7 @@ function SettingsModal() {
                         {section === "codex" && (
                             <>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Full Access</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Run in full-auto mode by default
@@ -400,7 +596,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="codex-full-access"
-                                                className="cursor-pointer text-sm normal-case font-normal"
+                                                className="cursor-pointer text-sm font-normal normal-case"
                                             >
                                                 {settings.codex.fullAccess ? "Enabled" : "Disabled"}
                                             </Label>
@@ -412,7 +608,7 @@ function SettingsModal() {
                         {section === "defaults" && (
                             <>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">External Editor</h3>
+                                    <h3 className="mb-0 text-sm font-medium">External Editor</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Used when opening files with Cmd+Click in the terminal
@@ -435,7 +631,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Default Agent</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Default Agent</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Pre-selected agent for new tasks, title generation, and
@@ -456,7 +652,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Default Shell</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Default Shell</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Default shell for new terminal tabs
@@ -499,7 +695,7 @@ function SettingsModal() {
                                     </div>
                                 </section>
                                 <section className="space-y-2">
-                                    <h3 className="text-sm font-medium mb-0">Default Runtime</h3>
+                                    <h3 className="mb-0 text-sm font-medium">Default Runtime</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
                                             Runtime for executing scripts and commands
@@ -549,6 +745,36 @@ function SettingsModal() {
                     </div>
                 </div>
             </DialogContent>
+            <AlertDialog
+                open={conflictPath !== null}
+                onOpenChange={(open) => {
+                    if (!open) setConflictPath(null);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Existing Data Found</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            The selected folder already contains Taskflow data. How would you like
+                            to proceed?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <Button variant="outline" onClick={() => setConflictPath(null)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => void handleConflictChoice("overwrite")}
+                        >
+                            Overwrite
+                        </Button>
+                        <Button onClick={() => void handleConflictChoice("adopt")}>
+                            Use Existing
+                        </Button>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Dialog>
     );
 }

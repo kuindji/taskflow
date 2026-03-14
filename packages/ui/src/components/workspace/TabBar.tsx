@@ -86,7 +86,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
             {isEditing ? (
                 <input
                     ref={inputRef}
-                    className="bg-transparent text-inherit outline-none border-none p-0 m-0 w-20 text-sm"
+                    className="m-0 w-20 border-none bg-transparent p-0 text-sm text-inherit outline-none"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
                     onBlur={commitRename}
@@ -126,7 +126,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
                     onTabClose(tab.id);
                 }}
             >
-                <X className="size-2.5" />
+                <X className="size-3" />
             </Button>
         </div>
     );

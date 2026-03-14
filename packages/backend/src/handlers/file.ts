@@ -8,12 +8,13 @@ import type {
     FileStatPayload,
     FileRenamePayload,
     FilePathPayload,
+    FileMkdirPayload,
     WsEvent,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { FileWatcher } from "../services/file-watcher";
 import type { TaskStore } from "../services/task-store";
-import { readFile, writeFile, stat as fsStat, rename, rm } from "fs/promises";
+import { readFile, writeFile, stat as fsStat, rename, rm, mkdir } from "fs/promises";
 import { assertWorkspacePath, assertMutableWorkspacePath } from "../utils/path-validation";
 
 interface FileHandlerDeps {
@@ -120,6 +121,23 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         Bun.spawn(["open", "-R", resolvedPath], {
             stdio: ["ignore", "ignore", "ignore"],
         });
+        return { success: true };
+    });
+
+    router.register(MSG.FILE_MKDIR, async (payload) => {
+        const { path } = payload as FileMkdirPayload;
+        const resolvedPath = await assertWorkspacePath(taskStore, path);
+        try {
+            await fsStat(resolvedPath);
+            throw new Error("A file or folder with that name already exists");
+        } catch (e) {
+            if (
+                e instanceof Error &&
+                e.message === "A file or folder with that name already exists"
+            )
+                throw e;
+        }
+        await mkdir(resolvedPath, { recursive: true });
         return { success: true };
     });
 }

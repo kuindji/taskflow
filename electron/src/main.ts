@@ -12,6 +12,7 @@ let backendPort: number | null = null;
 let backendPortFile: string | null = null;
 let windowSavePromise: Promise<Response | undefined> | null = null;
 let quitting = false;
+let backendStderrBuffer = "";
 
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
 
@@ -95,7 +96,9 @@ async function startBackend(): Promise<number> {
     });
 
     backendProcess.stderr?.on("data", (data: Buffer) => {
-        console.error("[backend error]", data.toString().trim());
+        const text = data.toString().trim();
+        console.error("[backend error]", text);
+        backendStderrBuffer += text + "\n";
     });
 
     return Promise.race([
@@ -211,6 +214,16 @@ async function createWindow() {
         }).catch(() => undefined);
     });
 
+    // Prevent Electron from navigating to file:// URLs when files are
+    // dragged from Finder onto the window.  Without this the default
+    // behaviour replaces the renderer with the dropped file contents and
+    // the DOM `drop` event never fires.
+    mainWindow.webContents.on("will-navigate", (event, url) => {
+        if (url.startsWith("file://")) {
+            event.preventDefault();
+        }
+    });
+
     if (UI_DEV_SERVER_URL) {
         void mainWindow.loadURL(UI_DEV_SERVER_URL);
     } else {
@@ -226,6 +239,9 @@ let manualCheckInProgress = false;
 let downloadedVersion: string | null = null;
 let showArchiveChecked = false;
 let compactSidebarChecked = false;
+let fileExplorerChecked = false;
+let taskInfoChecked = false;
+let wordWrapChecked = true;
 
 function setUpdateMenuItem(label: string, enabled = true) {
     const menu = Menu.getApplicationMenu();
@@ -278,7 +294,31 @@ function buildAppMenu() {
                 { role: "quit" },
             ],
         },
-        { role: "editMenu" },
+        {
+            role: "editMenu",
+            submenu: [
+                { role: "undo" },
+                { role: "redo" },
+                { type: "separator" },
+                { role: "cut" },
+                { role: "copy" },
+                { role: "paste" },
+                { role: "pasteAndMatchStyle" },
+                { role: "delete" },
+                { role: "selectAll" },
+                { type: "separator" },
+                {
+                    id: "toggle-word-wrap",
+                    label: "Word Wrap",
+                    type: "checkbox",
+                    checked: wordWrapChecked,
+                    accelerator: "Alt+Z",
+                    click: () => {
+                        mainWindow?.webContents.send("toggle-word-wrap");
+                    },
+                },
+            ],
+        },
         {
             label: "View",
             submenu: [
@@ -299,6 +339,26 @@ function buildAppMenu() {
                     accelerator: "CmdOrCtrl+Shift+C",
                     click: () => {
                         mainWindow?.webContents.send("toggle-compact-sidebar");
+                    },
+                },
+                {
+                    id: "show-file-explorer",
+                    label: "Show File Explorer",
+                    type: "checkbox",
+                    checked: fileExplorerChecked,
+                    accelerator: "CmdOrCtrl+E",
+                    click: () => {
+                        mainWindow?.webContents.send("toggle-file-explorer");
+                    },
+                },
+                {
+                    id: "show-task-info",
+                    label: "Show Task Info",
+                    type: "checkbox",
+                    checked: taskInfoChecked,
+                    accelerator: "CmdOrCtrl+I",
+                    click: () => {
+                        mainWindow?.webContents.send("toggle-task-info");
                     },
                 },
                 { type: "separator" },
@@ -356,15 +416,24 @@ function setupAutoUpdater() {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
 
+    autoUpdater.on("checking-for-update", () => {
+        mainWindow?.webContents.send("update-status", { status: "checking" });
+    });
+
     autoUpdater.on("update-available", (info) => {
         console.log(`[updater] Update available: v${info.version}`);
         setUpdateMenuItem(`Downloading v${info.version}…`, false);
+        mainWindow?.webContents.send("update-status", {
+            status: "downloading",
+            version: info.version,
+        });
         autoUpdater.downloadUpdate().catch((err: unknown) => {
             console.error("[updater] Download failed:", err);
         });
     });
 
     autoUpdater.on("update-not-available", () => {
+        mainWindow?.webContents.send("update-status", { status: "idle" });
         if (manualCheckInProgress) {
             manualCheckInProgress = false;
             void dialog.showMessageBox({
@@ -381,12 +450,17 @@ function setupAutoUpdater() {
         console.log(`[updater] Update downloaded: v${info.version}`);
         manualCheckInProgress = false;
         downloadedVersion = info.version;
+        mainWindow?.webContents.send("update-status", {
+            status: "ready",
+            version: info.version,
+        });
         // Rebuild menu so the click handler switches to quitAndInstall
         buildAppMenu();
     });
 
     autoUpdater.on("error", (err) => {
         console.error("[updater] Error:", err.message);
+        mainWindow?.webContents.send("update-status", { status: "idle" });
         if (manualCheckInProgress) {
             manualCheckInProgress = false;
             void dialog.showMessageBox({
@@ -413,7 +487,12 @@ void app.whenReady().then(async () => {
         buildAppMenu();
         setupAutoUpdater();
     } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const detail = backendStderrBuffer.trim()
+            ? `${message}\n\nBackend output:\n${backendStderrBuffer.trim()}`
+            : message;
         console.error("Failed to start backend:", err);
+        dialog.showErrorBox("Taskflow failed to start", detail);
         app.quit();
     }
 });
@@ -460,6 +539,33 @@ ipcMain.on("compact-sidebar-changed", (_event, compact: boolean) => {
     const item = menu?.getMenuItemById("compact-sidebar");
     if (item) {
         item.checked = compact;
+    }
+});
+
+ipcMain.on("file-explorer-state-changed", (_event, open: boolean) => {
+    fileExplorerChecked = open;
+    const menu = Menu.getApplicationMenu();
+    const item = menu?.getMenuItemById("show-file-explorer");
+    if (item) {
+        item.checked = open;
+    }
+});
+
+ipcMain.on("task-info-state-changed", (_event, open: boolean) => {
+    taskInfoChecked = open;
+    const menu = Menu.getApplicationMenu();
+    const item = menu?.getMenuItemById("show-task-info");
+    if (item) {
+        item.checked = open;
+    }
+});
+
+ipcMain.on("word-wrap-state-changed", (_event, enabled: boolean) => {
+    wordWrapChecked = enabled;
+    const menu = Menu.getApplicationMenu();
+    const item = menu?.getMenuItemById("toggle-word-wrap");
+    if (item) {
+        item.checked = enabled;
     }
 });
 
@@ -514,9 +620,12 @@ ipcMain.handle(
         });
     },
 );
+ipcMain.on("quit-and-install-update", () => {
+    autoUpdater.quitAndInstall();
+});
 ipcMain.handle("select-project-directory", async () => {
     const result = await dialog.showOpenDialog({
-        properties: ["openDirectory"],
+        properties: ["openDirectory", "createDirectory"],
     });
     if (result.canceled) return null;
     return result.filePaths[0] ?? null;

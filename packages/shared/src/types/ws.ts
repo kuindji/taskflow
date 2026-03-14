@@ -232,6 +232,10 @@ export interface FilePathPayload {
     path: string;
 }
 
+export interface FileMkdirPayload {
+    path: string;
+}
+
 export type FileChangedEvent = FileChangeEvent;
 
 // Git messages

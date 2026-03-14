@@ -46,7 +46,7 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
             // Must strip CLAUDECODE and CLAUDE_CODE_ENTRYPOINT from env
             const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = process.env;
 
-            const proc = Bun.spawn(["claude", "-p"], {
+            const proc = Bun.spawn(["claude", "-p", "--model", "haiku"], {
                 stdin: "pipe",
                 stdout: "pipe",
                 stderr: "pipe",

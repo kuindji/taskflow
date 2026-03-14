@@ -7,3 +7,5 @@
 > **Important:** Keep types reusable and where makes sense separate from implementation. Before adding new types make sure existing types don't already cover the ones you're creating.
 
 > **Important:** Don't export until neccessary. If something is exported by never used anywhere, it should not be exported.
+
+> **Important:** Avoid disabling eslint rules when working on linting issues. Try to find proper solution.

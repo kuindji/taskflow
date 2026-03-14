@@ -7,10 +7,12 @@ import { useTaskStore } from "@/stores/task-store";
 import { useDiffStore } from "@/stores/diff-store";
 import { confirm } from "@/stores/dialog-store";
 import { TruncatedText } from "@/components/ui/truncated-text";
+import { CopyButton } from "@/components/ui/copy-button";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
 import {
     Archive,
+    ArrowUpFromLine,
     Diff,
     FolderTree,
     GitCommitHorizontal,
@@ -41,17 +43,22 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const isWorktreeTask = !!task?.worktree.enabled && !!task.worktree.path;
     const gitRepoPath = isWorktreeTask ? (task?.worktree.path ?? "") : (project?.path ?? "");
     const diffKey = isWorktreeTask ? task.id : project?.id;
-    const diffStats = useDiffStore((s) =>
-        diffKey ? (s.statsByProject[diffKey] ?? null) : null,
-    );
+    const diffStats = useDiffStore((s) => (diffKey ? (s.statsByProject[diffKey] ?? null) : null));
     const diffDisabled = useDiffStore((s) =>
         diffKey ? (s.diffDisabledByProject[diffKey] ?? true) : true,
     );
     const commitDisabled = useDiffStore((s) =>
         diffKey ? (s.commitDisabledByProject[diffKey] ?? true) : true,
     );
+    const hasChanges = useDiffStore((s) =>
+        diffKey ? (s.hasChangesByProject[diffKey] ?? false) : false,
+    );
 
-    const showGitButtons = !!project && (!task?.worktree.enabled || isWorktreeTask);
+    const showPush = !hasChanges && !commitDisabled;
+    const commitLabel = showPush ? "Push" : "Commit";
+    const CommitIcon = showPush ? ArrowUpFromLine : GitCommitHorizontal;
+
+    const showGitButtons = !!project && (!task || isWorktreeTask);
     const showDiffButton = !!onDiff && showGitButtons;
     const showCommitButton = showGitButtons;
 
@@ -121,21 +128,30 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             {task?.title ?? project?.name}
                         </TruncatedText>
                         {task?.worktree?.branch && (
-                            <TruncatedText
-                                as="div"
-                                tooltip
-                                tooltipSide="bottom"
-                                className="border-border shrink-[3] rounded-md border px-2 py-0.5 text-xs [-webkit-app-region:no-drag]"
-                                tooltipContent={task.worktree.branch}
-                            >
-                                {task.worktree.branch}
-                            </TruncatedText>
+                            <div className="border-border flex min-w-0 shrink-[3] items-center gap-0.5 rounded-md border px-2 py-0.5 [-webkit-app-region:no-drag]">
+                                <TruncatedText
+                                    as="div"
+                                    tooltip
+                                    tooltipSide="bottom"
+                                    className="flex-1 text-xs"
+                                    tooltipContent={task.worktree.branch}
+                                >
+                                    {task.worktree.branch}
+                                </TruncatedText>
+                                <CopyButton
+                                    value={task.worktree.branch}
+                                    tooltip="Copy branch name"
+                                    variant="transparent"
+                                    size="icon-2xs"
+                                    className="text-muted-foreground hover:text-foreground shrink-0 [-webkit-app-region:no-drag]"
+                                />
+                            </div>
                         )}
                     </div>
                 </>
             ) : (
                 <div className="flex min-h-6 items-center gap-1.5">
-                    <span className="text-muted-foreground text-sm ml-2">No task selected</span>
+                    <span className="text-muted-foreground ml-2 text-sm">No task selected</span>
                 </div>
             )}
             <div className="flex-1" />
@@ -147,11 +163,11 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             size="xs"
                             onClick={() => setCommitOpen(true)}
                             disabled={commitDisabled}
-                            aria-label="Commit / Push"
+                            aria-label={commitLabel}
                             className="[-webkit-app-region:no-drag]"
                         >
-                            <GitCommitHorizontal className="h-3 w-3" />
-                            <span className="text-xs">Commit / Push</span>
+                            <CommitIcon className="h-3 w-3" />
+                            <span className="text-xs">{commitLabel}</span>
                         </Button>
                     )}
                     {showDiffButton && (
@@ -166,8 +182,8 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             <Diff className="h-3 w-3" />
                             <span className="text-xs">Diff</span>
                             {diffStats && (diffStats.additions > 0 || diffStats.deletions > 0) && (
-                                <span className="text-xs">
-                                    <span className="text-success">+{diffStats.additions}</span>{" "}
+                                <span className="flex gap-0.5 text-xs">
+                                    <span className="text-success">+{diffStats.additions}</span>
                                     <span className="text-destructive">-{diffStats.deletions}</span>
                                 </span>
                             )}

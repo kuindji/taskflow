@@ -26,6 +26,7 @@ export interface TerminalSettings {
 export interface EditorSettings {
     fontFamily: string;
     fontSize: number;
+    wordWrap: boolean;
 }
 
 export interface WindowSettings {
@@ -41,6 +42,7 @@ export interface PanelSettings {
     fileExplorerWidth: number;
     taskInfoWidth: number;
     compactSidebar: boolean;
+    collapsedProjectIds: string[];
 }
 
 export interface LayoutSettings {

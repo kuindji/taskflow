@@ -49,6 +49,8 @@ export function Workspace() {
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
     const openSettings = useUIStore((s) => s.openSettings);
+    const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
+    const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
@@ -219,6 +221,8 @@ export function Workspace() {
         const needsCloseTabFallback = !onCloseTab;
         const needsNewTaskFallback = !onNewTask;
         const needsNewTerminalFallback = !onNewTerminal;
+        const needsFileExplorerFallback = !window.taskflow?.onToggleFileExplorer;
+        const needsTaskInfoFallback = !window.taskflow?.onToggleTaskInfo;
 
         const onKeyDown = (e: KeyboardEvent) => {
             if (!(e.metaKey || e.ctrlKey)) return;
@@ -238,16 +242,40 @@ export function Workspace() {
             if (needsNewTerminalFallback && e.key.toLowerCase() === "t") {
                 e.preventDefault();
                 void handleOpenDefaultTerminal();
+                return;
+            }
+
+            if (needsFileExplorerFallback && e.key.toLowerCase() === "e") {
+                e.preventDefault();
+                toggleFileExplorer();
+                return;
+            }
+
+            if (needsTaskInfoFallback && e.key.toLowerCase() === "i") {
+                e.preventDefault();
+                toggleTaskInfo();
             }
         };
 
-        if (needsCloseTabFallback || needsNewTaskFallback || needsNewTerminalFallback) {
+        if (
+            needsCloseTabFallback ||
+            needsNewTaskFallback ||
+            needsNewTerminalFallback ||
+            needsFileExplorerFallback ||
+            needsTaskInfoFallback
+        ) {
             window.addEventListener("keydown", onKeyDown);
         }
 
         return () => {
             cleanupFns.forEach((cleanup) => cleanup());
-            if (needsCloseTabFallback || needsNewTaskFallback || needsNewTerminalFallback) {
+            if (
+                needsCloseTabFallback ||
+                needsNewTaskFallback ||
+                needsNewTerminalFallback ||
+                needsFileExplorerFallback ||
+                needsTaskInfoFallback
+            ) {
                 window.removeEventListener("keydown", onKeyDown);
             }
         };
@@ -257,6 +285,8 @@ export function Workspace() {
         handleOpenDefaultTerminal,
         handleOpenNewTask,
         openSettings,
+        toggleFileExplorer,
+        toggleTaskInfo,
     ]);
 
     useEffect(() => {

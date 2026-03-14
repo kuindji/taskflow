@@ -41,6 +41,7 @@ async function main() {
         });
         await store.init();
         await store.clearAllSessions();
+        await store.cleanupAllSessionLogs();
         await store.cleanExpiredArchives();
 
         const ptyManager = new PtyManager();
@@ -89,7 +90,7 @@ async function main() {
 
         const settingsStore = new SettingsStore(config.settingsFile);
         const themeService = new ThemeService(config.themesDir);
-        registerSettingsHandlers(router, settingsStore);
+        registerSettingsHandlers({ router, settingsStore, taskStore: store });
         registerThemeHandlers(router, themeService);
         registerScriptsHandlers(router);
         registerApiRoutes({
@@ -98,6 +99,9 @@ async function main() {
             ptyManager,
             broadcast: server.broadcast,
             settingsStore,
+            generateTitle: (taskId, description) => {
+                void titleGenerator.generate(taskId, description);
+            },
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {

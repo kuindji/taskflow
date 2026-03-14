@@ -341,9 +341,7 @@ export class GitService {
 
     async generateCommitMessage(repoPath: string, includeUnstaged = true): Promise<string> {
         const diffResult = await this.diff(repoPath);
-        const files = includeUnstaged
-            ? diffResult.files
-            : diffResult.files.filter((f) => f.staged);
+        const files = includeUnstaged ? diffResult.files : diffResult.files.filter((f) => f.staged);
         const diffText = files.map((f) => f.diff).join("\n");
         if (!diffText.trim()) {
             throw new Error("No changes to commit");

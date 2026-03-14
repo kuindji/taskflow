@@ -145,6 +145,19 @@ const _unsubTaskUpdated = onEvent(MSG.TASK_UPDATED, (payload) => {
     }
 });
 
+const _unsubTaskCreated = onEvent(MSG.TASK_CREATED, (payload) => {
+    if (payload && typeof payload === "object" && "id" in payload) {
+        const task = payload as Task;
+        const state = useTaskStore.getState();
+        // Avoid duplicates (e.g., if the current client created the task via WS)
+        if (!state.tasks.some((t) => t.id === task.id)) {
+            useTaskStore.setState({
+                tasks: sortTasksByCreatedAtDesc([...state.tasks, task]),
+            });
+        }
+    }
+});
+
 const _unsubTaskLogAdded = onEvent(MSG.TASK_LOG_ADDED, (payload) => {
     const event = payload as TaskLogAddedEvent;
     if (event?.taskId && event?.entry) {
