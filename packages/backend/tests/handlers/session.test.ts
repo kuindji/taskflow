@@ -96,6 +96,7 @@ describe("session handlers", () => {
                 events.push(event);
             },
             getPort: () => 0,
+            agents: [],
         });
 
         const projectDir = join(tempDir, "project");

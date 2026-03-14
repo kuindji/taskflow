@@ -9,7 +9,7 @@ import { GitService } from "./services/git-service";
 import { FileWatcher } from "./services/file-watcher";
 import { detectEditors } from "./services/editor-detector";
 import { detectShells, resolveSystemShellPath } from "./services/shell-detector";
-import { detectRuntimes } from "./services/runtime-detector";
+import { detectRuntimes, detectAgents } from "./services/runtime-detector";
 import { registerProjectHandlers } from "./handlers/project";
 import { registerTaskHandlers } from "./handlers/task";
 import { registerSessionHandlers } from "./handlers/session";
@@ -73,12 +73,14 @@ async function main() {
                 void titleGenerator.generate(taskId, description);
             },
         });
+        const agents = await detectAgents();
         registerSessionHandlers({
             router,
             ptyManager,
             taskStore: store,
             broadcast: server.broadcast,
             getPort: () => serverPort,
+            agents,
         });
         registerFileHandlers({
             router,
@@ -119,9 +121,13 @@ async function main() {
             systemShellPath: resolveSystemShellPath(shells),
         }));
         router.register(MSG.RUNTIMES_LIST, async () => ({ runtimes }));
+        router.register(MSG.AGENTS_LIST, async () => ({ agents }));
         console.log(`Detected shells: ${shells.map((s) => s.name).join(", ") || "none"}`);
         console.log(
             `Detected runtimes: ${runtimes.map((r) => r.name + " " + r.version).join(", ") || "none"}`,
+        );
+        console.log(
+            `Detected agents: ${agents.filter((a) => a.available).map((a) => a.type + " " + a.version).join(", ") || "none"}`,
         );
 
         const startedServer = await server.start();

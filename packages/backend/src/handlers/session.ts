@@ -8,6 +8,7 @@ import type {
     TerminalResizePayload,
     SessionRef,
     WsEvent,
+    AgentAvailability,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { PtyManager } from "../services/pty-manager";
@@ -24,6 +25,7 @@ interface SessionHandlerDeps {
     taskStore: TaskStore;
     broadcast: (event: WsEvent) => void;
     getPort: () => number;
+    agents: AgentAvailability[];
 }
 
 function getDefaultSessionLabel(type: SessionCreatePayload["type"]): string {
@@ -33,7 +35,7 @@ function getDefaultSessionLabel(type: SessionCreatePayload["type"]): string {
 }
 
 export function registerSessionHandlers(deps: SessionHandlerDeps): void {
-    const { router, ptyManager, taskStore, broadcast, getPort } = deps;
+    const { router, ptyManager, taskStore, broadcast, getPort, agents } = deps;
 
     async function removeSessionFromOwner(
         sessionId: string,
@@ -111,6 +113,10 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             if (!shell) throw new Error("shell path is required for shell sessions");
             command = shell;
         } else {
+            const agentInfo = agents.find((a) => a.type === type);
+            if (agentInfo && !agentInfo.available) {
+                throw new Error(`${type} is not installed`);
+            }
             const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
             const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions);
             command = spec.command;
