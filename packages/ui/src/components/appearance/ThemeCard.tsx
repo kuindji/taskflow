@@ -65,7 +65,7 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
                     </span>
                 </div>
                 {/* Swatch row */}
-                <div className="flex gap-1 p-3 w-full">
+                <div className="flex gap-1 p-3 w-full mt-auto">
                     {swatches.map((color, i) => (
                         <div
                             key={i}

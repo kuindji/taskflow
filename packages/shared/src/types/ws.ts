@@ -4,7 +4,7 @@ import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus } from "./git";
 import type { SystemInfo } from "./system";
 import type { AgentLaunchOptions } from "./agent";
-import type { ThemeRecord, ThemeSource, ThemeColors } from "./theme";
+import type { ThemeRecord, ThemeSource } from "./theme";
 
 // Base message types
 export interface WsRequest<T = unknown> {

@@ -14,7 +14,7 @@ import {
     mountManager,
     unmountManager,
     type TooltipRegistration,
-} from "@/components/ui/tooltip";
+} from "@/components/ui/tooltip-manager";
 
 const buttonVariants = cva(
     "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-35 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -190,10 +190,10 @@ function Button({
         tooltipSide?: TooltipSide;
     }) {
     const [tooltipOpen, setTooltipOpen] = useState(false);
-    // Captured from mouse/focus events — avoids setting an explicit ref on the
-    // element, which would conflict with refs injected by Radix Slot (e.g.
-    // DropdownMenuTrigger asChild, PopoverTrigger asChild).
-    const tooltipTargetRef = useRef<HTMLElement | null>(null);
+    // Stored as state (not a ref) so it can be read during render without
+    // triggering the react-hooks/refs lint rule, and so that setting a new
+    // target element triggers a re-render for correct tooltip positioning.
+    const [tooltipTarget, setTooltipTarget] = useState<HTMLElement | null>(null);
 
     const closeTooltip = useCallback(() => setTooltipOpen(false), []);
 
@@ -210,7 +210,7 @@ function Button({
 
     const handleMouseEnter = tooltip
         ? (e: React.MouseEvent<HTMLButtonElement>) => {
-              tooltipTargetRef.current = e.currentTarget;
+              setTooltipTarget(e.currentTarget);
               propsOnMouseEnter?.(e);
               if (!isScrollSuppressed()) setTooltipOpen(true);
           }
@@ -225,7 +225,7 @@ function Button({
 
     const handleFocus = tooltip
         ? (e: React.FocusEvent<HTMLButtonElement>) => {
-              tooltipTargetRef.current = e.currentTarget;
+              setTooltipTarget(e.currentTarget);
               propsOnFocus?.(e);
               setTooltipOpen(true);
           }
@@ -250,7 +250,7 @@ function Button({
             <InlineTooltip
                 open={tooltipOpen}
                 onClose={closeTooltip}
-                referenceEl={tooltipTargetRef.current}
+                referenceEl={tooltipTarget}
                 side={tooltipSide}
             >
                 {tooltip}
@@ -284,7 +284,7 @@ function Button({
             <span
                 className="inline-flex"
                 onMouseEnter={(e) => {
-                    tooltipTargetRef.current = e.currentTarget;
+                    setTooltipTarget(e.currentTarget);
                     if (!isScrollSuppressed()) setTooltipOpen(true);
                 }}
                 onMouseLeave={() => setTooltipOpen(false)}
