@@ -308,6 +308,7 @@ function buildAppMenu() {
                     label: "Show File Explorer",
                     type: "checkbox",
                     checked: fileExplorerChecked,
+                    accelerator: "CmdOrCtrl+E",
                     click: () => {
                         mainWindow?.webContents.send("toggle-file-explorer");
                     },
@@ -317,6 +318,7 @@ function buildAppMenu() {
                     label: "Show Task Info",
                     type: "checkbox",
                     checked: taskInfoChecked,
+                    accelerator: "CmdOrCtrl+I",
                     click: () => {
                         mainWindow?.webContents.send("toggle-task-info");
                     },
@@ -376,15 +378,24 @@ function setupAutoUpdater() {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
 
+    autoUpdater.on("checking-for-update", () => {
+        mainWindow?.webContents.send("update-status", { status: "checking" });
+    });
+
     autoUpdater.on("update-available", (info) => {
         console.log(`[updater] Update available: v${info.version}`);
         setUpdateMenuItem(`Downloading v${info.version}…`, false);
+        mainWindow?.webContents.send("update-status", {
+            status: "downloading",
+            version: info.version,
+        });
         autoUpdater.downloadUpdate().catch((err: unknown) => {
             console.error("[updater] Download failed:", err);
         });
     });
 
     autoUpdater.on("update-not-available", () => {
+        mainWindow?.webContents.send("update-status", { status: "idle" });
         if (manualCheckInProgress) {
             manualCheckInProgress = false;
             void dialog.showMessageBox({
@@ -401,12 +412,17 @@ function setupAutoUpdater() {
         console.log(`[updater] Update downloaded: v${info.version}`);
         manualCheckInProgress = false;
         downloadedVersion = info.version;
+        mainWindow?.webContents.send("update-status", {
+            status: "ready",
+            version: info.version,
+        });
         // Rebuild menu so the click handler switches to quitAndInstall
         buildAppMenu();
     });
 
     autoUpdater.on("error", (err) => {
         console.error("[updater] Error:", err.message);
+        mainWindow?.webContents.send("update-status", { status: "idle" });
         if (manualCheckInProgress) {
             manualCheckInProgress = false;
             void dialog.showMessageBox({
@@ -552,6 +568,9 @@ ipcMain.handle(
         });
     },
 );
+ipcMain.on("quit-and-install-update", () => {
+    autoUpdater.quitAndInstall();
+});
 ipcMain.handle("select-project-directory", async () => {
     const result = await dialog.showOpenDialog({
         properties: ["openDirectory"],
