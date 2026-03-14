@@ -1,4 +1,4 @@
-import type { RuntimeInfo } from "@taskflow/shared";
+import type { RuntimeInfo, AgentAvailability, AgentType } from "@taskflow/shared";
 
 const KNOWN_RUNTIMES = ["bun", "node"] as const;
 
@@ -28,4 +28,25 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
     }
 
     return runtimes;
+}
+
+const KNOWN_AGENTS: AgentType[] = ["claude", "codex"];
+
+export async function detectAgents(): Promise<AgentAvailability[]> {
+    const agents: AgentAvailability[] = [];
+    for (const type of KNOWN_AGENTS) {
+        const path = Bun.which(type);
+        if (!path) {
+            agents.push({ type, available: false, path: "", version: "" });
+            continue;
+        }
+        const version = await getRuntimeVersion(path);
+        agents.push({
+            type,
+            available: true,
+            path,
+            version: version === "unknown" ? "" : version,
+        });
+    }
+    return agents;
 }
