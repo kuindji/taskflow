@@ -29,6 +29,7 @@ export const MSG = {
     SHELLS_LIST: "shells:list",
     SCRIPTS_LIST: "scripts:list",
     RUNTIMES_LIST: "runtimes:list",
+    AGENTS_LIST: "agents:list",
 
     // Terminal
     TERMINAL_OUTPUT: "terminal:output",

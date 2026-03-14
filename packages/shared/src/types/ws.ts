@@ -3,7 +3,7 @@ import type { SessionStatus, Task, TaskLogEntry, TaskWorktree } from "./task";
 import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus } from "./git";
 import type { SystemInfo } from "./system";
-import type { AgentLaunchOptions } from "./agent";
+import type { AgentLaunchOptions, AgentAvailability } from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
 
 // Base message types
@@ -181,6 +181,10 @@ export interface RuntimeInfo {
 
 export interface RuntimeListResponse {
     runtimes: RuntimeInfo[];
+}
+
+export interface AgentListResponse {
+    agents: AgentAvailability[];
 }
 
 // File messages
