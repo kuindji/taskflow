@@ -310,3 +310,8 @@ function TooltipContent({
 }
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+
+// Exported for inline tooltip usage (e.g. Button component)
+// that cannot use wrapper components due to Radix Slot composition
+export { isScrollSuppressed, registerTooltip, unregisterTooltip, mountManager, unmountManager };
+export type { TooltipRegistration };
