@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
+import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
 
 interface NewTaskDialogProps {
     open: boolean;
@@ -52,6 +53,10 @@ export function NewTaskDialog({
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
+    const agents = useAgentAvailability();
+    const claudeAvailable = isAgentAvailable(agents, "claude");
+    const codexAvailable = isAgentAvailable(agents, "codex");
+
     const resetForm = useCallback(() => {
         setDescription("");
         setTitle("");
@@ -61,9 +66,11 @@ export function NewTaskDialog({
     }, []);
 
     const handleStartWithChange = useCallback((value: string) => {
+        if (value === "claude" && !claudeAvailable) return;
+        if (value === "codex" && !codexAvailable) return;
         setStartWith(value);
         if (value === "none") setAgentOptions(undefined);
-    }, []);
+    }, [claudeAvailable, codexAvailable]);
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
@@ -193,8 +200,12 @@ export function NewTaskDialog({
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="none">Don't start</SelectItem>
-                                <SelectItem value="claude">Claude Code</SelectItem>
-                                <SelectItem value="codex">Codex</SelectItem>
+                                <SelectItem value="claude" disabled={!claudeAvailable}>
+                                    Claude Code{!claudeAvailable ? " (not installed)" : ""}
+                                </SelectItem>
+                                <SelectItem value="codex" disabled={!codexAvailable}>
+                                    Codex{!codexAvailable ? " (not installed)" : ""}
+                                </SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
