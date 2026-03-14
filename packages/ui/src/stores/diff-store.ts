@@ -80,9 +80,6 @@ export const useDiffStore = create<DiffStore>((set, get) => ({
             const buttonState = getWorkspaceButtonState(statusRes.value.status);
             diffDisabled = buttonState.diffDisabled;
             commitDisabled = buttonState.commitDisabled;
-        } else {
-            diffDisabled = false;
-            commitDisabled = false;
         }
 
         set((state) => ({
