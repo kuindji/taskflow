@@ -37,6 +37,21 @@ interface TooltipRegistration {
 
 let currentTooltip: TooltipRegistration | null = null;
 let mountCount = 0;
+let scrollSuppressUntil = 0;
+
+const SCROLL_SUPPRESS_MS = 150;
+
+function isScrollSuppressed() {
+    return Date.now() < scrollSuppressUntil;
+}
+
+function handleGlobalScroll() {
+    scrollSuppressUntil = Date.now() + SCROLL_SUPPRESS_MS;
+    if (currentTooltip) {
+        currentTooltip.close();
+        currentTooltip = null;
+    }
+}
 
 function handleGlobalMouseOver(e: MouseEvent) {
     if (!currentTooltip) return;
@@ -63,6 +78,8 @@ function unregisterTooltip(reg: TooltipRegistration) {
 function mountManager() {
     if (mountCount === 0) {
         document.addEventListener("mouseover", handleGlobalMouseOver, true);
+        document.addEventListener("wheel", handleGlobalScroll, true);
+        document.addEventListener("scroll", handleGlobalScroll, true);
     }
     mountCount++;
 }
@@ -71,6 +88,8 @@ function unmountManager() {
     mountCount--;
     if (mountCount === 0) {
         document.removeEventListener("mouseover", handleGlobalMouseOver, true);
+        document.removeEventListener("wheel", handleGlobalScroll, true);
+        document.removeEventListener("scroll", handleGlobalScroll, true);
     }
 }
 
@@ -148,7 +167,7 @@ function TooltipTrigger({
     const eventHandlers = {
         onMouseEnter: (e: React.MouseEvent) => {
             props.onMouseEnter?.(e as React.MouseEvent<HTMLElement>);
-            setOpen(true);
+            if (!isScrollSuppressed()) setOpen(true);
         },
         onMouseLeave: (e: React.MouseEvent) => {
             props.onMouseLeave?.(e as React.MouseEvent<HTMLElement>);
@@ -209,6 +228,7 @@ function TooltipContent({
         floatingStyles,
         middlewareData,
         placement: computedPlacement,
+        isPositioned,
     } = useFloating({
         open,
         placement: side as Placement,
@@ -262,9 +282,13 @@ function TooltipContent({
                 refs.setFloating(el);
                 contentRef.current = el;
             }}
-            style={floatingStyles}
+            style={{
+                ...floatingStyles,
+                visibility: isPositioned ? "visible" : "hidden",
+            }}
             className={cn(
-                "pointer-events-none animate-in bg-foreground text-background fade-in-0 zoom-in-95 z-50 w-fit max-w-[300px] rounded-md px-3 py-1.5 text-xs text-balance",
+                "pointer-events-none bg-foreground text-background z-50 w-fit max-w-[300px] rounded-md px-3 py-1.5 text-xs text-balance",
+                isPositioned && "animate-in fade-in-0 zoom-in-95",
                 actualSide === "bottom" && "slide-in-from-top-2",
                 actualSide === "left" && "slide-in-from-right-2",
                 actualSide === "right" && "slide-in-from-left-2",
