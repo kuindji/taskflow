@@ -5,8 +5,6 @@ import {
     useCallback,
     useRef,
     useEffect,
-    cloneElement,
-    isValidElement,
     type ReactNode,
     type RefCallback,
     type RefObject,
@@ -113,14 +111,11 @@ function TooltipTrigger({
         },
     };
 
-    if (asChild && isValidElement(children)) {
-        return cloneElement(
-            children as React.ReactElement<Record<string, unknown>>,
-            // eslint-disable-next-line react-hooks/refs -- setTriggerEl is a state setter callback, not a ref object
-            {
-                ref: setTriggerEl,
-                ...eventHandlers,
-            },
+    if (asChild) {
+        return (
+            <span ref={setTriggerEl} style={{ display: "contents" }} {...eventHandlers}>
+                {children}
+            </span>
         );
     }
 
