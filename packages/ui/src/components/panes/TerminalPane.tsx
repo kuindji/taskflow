@@ -866,7 +866,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         <div
             ref={containerRef}
             className={cn(
-                "flex-1 overflow-hidden",
+                "m-1.5 flex-1 overflow-hidden",
                 dragOver && "ring-primary/50 ring-2 ring-inset",
             )}
             onClick={handleContainerClick}

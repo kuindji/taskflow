@@ -23,7 +23,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
 
     if (tabs.length === 0) {
         return (
-            <div className="m-1.5 flex flex-1 overflow-hidden rounded-md">
+            <div className="flex flex-1 overflow-hidden rounded-md">
                 <div className="text-muted-foreground flex flex-1 items-center justify-center">
                     No active tab. Create a session with +
                 </div>
@@ -32,7 +32,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
     }
 
     return (
-        <div className="relative m-1.5 flex flex-1 overflow-hidden rounded-md">
+        <div className="relative flex flex-1 overflow-hidden rounded-md">
             {tabs.map((tab) => {
                 const isActive = tab.id === activeTabId;
 
