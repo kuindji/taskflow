@@ -24,7 +24,7 @@ const DEFAULT_LAYOUT = {
 
 const DEFAULT_CLAUDE = { defaultModel: "default" as const, fullAccess: false };
 const DEFAULT_CODEX = { fullAccess: false };
-const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
+const DEFAULT_APPEARANCE = { theme: "taskflow" };
 
 describe("SettingsStore", () => {
     let tempDir: string;
