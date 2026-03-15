@@ -68,7 +68,9 @@ const useFlowStore = create<FlowStore>((set) => ({
             loadingDefinitions: true,
         }));
         try {
-            const { actions } = await sendRequest<{ actions: ActionDefinition[] }>(MSG.FLOW_ACTIONS_LIST);
+            const { actions } = await sendRequest<{ actions: ActionDefinition[] }>(
+                MSG.FLOW_ACTIONS_LIST,
+            );
             set({ actions });
         } finally {
             set((state) => {
@@ -86,9 +88,7 @@ const useFlowStore = create<FlowStore>((set) => ({
         set((s) => {
             const index = s.flows.findIndex((f) => f.id === flow.id);
             const flows =
-                index >= 0
-                    ? s.flows.map((f) => (f.id === flow.id ? flow : f))
-                    : [...s.flows, flow];
+                index >= 0 ? s.flows.map((f) => (f.id === flow.id ? flow : f)) : [...s.flows, flow];
             return { flows };
         });
     },

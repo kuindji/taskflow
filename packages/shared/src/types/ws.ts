@@ -68,6 +68,7 @@ export interface TaskListResponse {
 
 export interface TaskCreatePayload {
     projectId: string;
+    parentId?: string;
     title?: string;
     description: string;
     worktree?: boolean;
@@ -381,7 +382,6 @@ export interface ThemeImportScanResponse {
 export interface ThemeDeletePayload {
     id: string;
 }
-
 
 // System messages
 export type SystemInfoResponse = SystemInfo;

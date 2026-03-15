@@ -29,11 +29,13 @@ interface NewTaskDialogProps {
     projects: Project[];
     flows: FlowDefinition[];
     defaultProjectId?: string;
+    parentId?: string | null;
     onSubmit: (data: {
         projectId: string;
         title?: string;
         description: string;
         worktree: boolean;
+        parentId?: string;
         startWith?: "claude" | "codex";
         agentOptions?: AgentLaunchOptions;
         startWithFlowId?: string;
@@ -46,6 +48,7 @@ export function NewTaskDialog({
     projects,
     flows,
     defaultProjectId,
+    parentId,
     onSubmit,
 }: NewTaskDialogProps) {
     const [projectId, setProjectId] = useState(defaultProjectId ?? "");
@@ -56,6 +59,7 @@ export function NewTaskDialog({
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
     const [startWithFlowId, setStartWithFlowId] = useState("");
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
+    const isSubtask = !!parentId;
 
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
@@ -70,13 +74,16 @@ export function NewTaskDialog({
         setStartWithFlowId("");
     }, []);
 
-    const handleStartWithChange = useCallback((value: string) => {
-        if (value === "claude" && !claudeAvailable) return;
-        if (value === "codex" && !codexAvailable) return;
-        setStartWith(value);
-        if (value !== "claude" && value !== "codex") setAgentOptions(undefined);
-        if (value !== "flow") setStartWithFlowId("");
-    }, [claudeAvailable, codexAvailable]);
+    const handleStartWithChange = useCallback(
+        (value: string) => {
+            if (value === "claude" && !claudeAvailable) return;
+            if (value === "codex" && !codexAvailable) return;
+            setStartWith(value);
+            if (value !== "claude" && value !== "codex") setAgentOptions(undefined);
+            if (value !== "flow") setStartWithFlowId("");
+        },
+        [claudeAvailable, codexAvailable],
+    );
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
@@ -88,7 +95,8 @@ export function NewTaskDialog({
     );
 
     const hasFlowSelection = startWith !== "flow" || startWithFlowId !== "";
-    const canSubmit = projectId !== "" && description.trim() !== "" && hasFlowSelection;
+    const canSubmit =
+        (isSubtask || projectId !== "") && description.trim() !== "" && hasFlowSelection;
 
     const handleSubmit = useCallback(() => {
         if (!canSubmit) return;
@@ -96,7 +104,8 @@ export function NewTaskDialog({
             projectId,
             title: title.trim() || undefined,
             description: description.trim(),
-            worktree,
+            worktree: isSubtask ? false : worktree,
+            parentId: parentId ?? undefined,
             startWith: startWith === "claude" || startWith === "codex" ? startWith : undefined,
             agentOptions,
             startWithFlowId: startWith === "flow" && startWithFlowId ? startWithFlowId : undefined,
@@ -109,6 +118,8 @@ export function NewTaskDialog({
         title,
         description,
         worktree,
+        isSubtask,
+        parentId,
         startWith,
         agentOptions,
         startWithFlowId,
@@ -140,25 +151,27 @@ export function NewTaskDialog({
                 onOpenAutoFocus={handleOpenAutoFocus}
             >
                 <DialogHeader>
-                    <DialogTitle>New Task</DialogTitle>
+                    <DialogTitle>{isSubtask ? "New Subtask" : "New Task"}</DialogTitle>
                 </DialogHeader>
 
                 <div className="flex flex-col gap-3">
-                    <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="new-task-project">Project</Label>
-                        <Select value={projectId} onValueChange={setProjectId}>
-                            <SelectTrigger id="new-task-project" className="w-full">
-                                <SelectValue placeholder="Select a project" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {projects.map((p) => (
-                                    <SelectItem key={p.id} value={p.id}>
-                                        {p.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
+                    {!isSubtask && (
+                        <div className="flex flex-col gap-1.5">
+                            <Label htmlFor="new-task-project">Project</Label>
+                            <Select value={projectId} onValueChange={setProjectId}>
+                                <SelectTrigger id="new-task-project" className="w-full">
+                                    <SelectValue placeholder="Select a project" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {projects.map((p) => (
+                                        <SelectItem key={p.id} value={p.id}>
+                                            {p.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
 
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="new-task-description">Description</Label>
@@ -187,19 +200,21 @@ export function NewTaskDialog({
                         />
                     </div>
 
-                    <div className="flex items-center gap-2">
-                        <Switch
-                            id="new-task-worktree"
-                            checked={worktree}
-                            onCheckedChange={setWorktree}
-                        />
-                        <Label
-                            htmlFor="new-task-worktree"
-                            className="cursor-pointer tracking-normal normal-case"
-                        >
-                            Use git worktree
-                        </Label>
-                    </div>
+                    {!isSubtask && (
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="new-task-worktree"
+                                checked={worktree}
+                                onCheckedChange={setWorktree}
+                            />
+                            <Label
+                                htmlFor="new-task-worktree"
+                                className="cursor-pointer tracking-normal normal-case"
+                            >
+                                Use git worktree
+                            </Label>
+                        </div>
+                    )}
 
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="new-task-start-with">Start immediately with</Label>
@@ -215,9 +230,7 @@ export function NewTaskDialog({
                                 <SelectItem value="codex" disabled={!codexAvailable}>
                                     Codex{!codexAvailable ? " (not installed)" : ""}
                                 </SelectItem>
-                                {flows.length > 0 && (
-                                    <SelectItem value="flow">Flow</SelectItem>
-                                )}
+                                {flows.length > 0 && <SelectItem value="flow">Flow</SelectItem>}
                             </SelectContent>
                         </Select>
                     </div>
@@ -259,7 +272,7 @@ export function NewTaskDialog({
                         disabled={!canSubmit}
                         className="bg-accent text-accent-foreground hover:bg-accent/90"
                     >
-                        Create Task
+                        {isSubtask ? "Create Subtask" : "Create Task"}
                     </Button>
                 </DialogFooter>
             </DialogContent>

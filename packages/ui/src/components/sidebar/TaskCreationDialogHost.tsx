@@ -32,6 +32,7 @@ export function TaskCreationDialogHost() {
         newTaskOpen,
         newProjectOpen,
         projectError,
+        parentTaskId,
         setNewTaskOpen,
         setNewProjectOpen,
         setProjectError,
@@ -72,7 +73,9 @@ export function TaskCreationDialogHost() {
                 pendingFlowRef.current = null;
             } else if (!task.worktree.enabled || task.worktree.path) {
                 pendingFlowRef.current = null;
-                void useFlowStore.getState().startFlow({ taskId: pendingFlow.taskId, flowId: pendingFlow.flowId });
+                void useFlowStore
+                    .getState()
+                    .startFlow({ taskId: pendingFlow.taskId, flowId: pendingFlow.flowId });
             }
         }
     }, [tasks, createSession]);
@@ -96,6 +99,7 @@ export function TaskCreationDialogHost() {
             title?: string;
             description: string;
             worktree: boolean;
+            parentId?: string;
             startWith?: "claude" | "codex";
             agentOptions?: AgentLaunchOptions;
             startWithFlowId?: string;
@@ -105,16 +109,19 @@ export function TaskCreationDialogHost() {
                 setActiveProject(task.projectId);
                 setActiveTask(task.id);
                 if (data.startWithFlowId) {
-                    if (data.worktree) {
+                    if (data.worktree && !data.parentId) {
                         pendingFlowRef.current = {
                             taskId: task.id,
                             flowId: data.startWithFlowId,
                         };
                     } else {
-                        void useFlowStore.getState().startFlow({ taskId: task.id, flowId: data.startWithFlowId });
+                        void useFlowStore
+                            .getState()
+                            .startFlow({ taskId: task.id, flowId: data.startWithFlowId });
                     }
                 } else if (data.startWith) {
-                    if (data.worktree) {
+                    if (data.worktree && !data.parentId) {
+                        // Defer session start until worktree is ready
                         pendingSessionRef.current = {
                             taskId: task.id,
                             type: data.startWith,
@@ -153,6 +160,7 @@ export function TaskCreationDialogHost() {
                 projects={projects}
                 flows={flowDefinitions}
                 defaultProjectId={defaultProjectId}
+                parentId={parentTaskId}
                 onSubmit={(data) => void handleCreateTask(data)}
             />
         </>

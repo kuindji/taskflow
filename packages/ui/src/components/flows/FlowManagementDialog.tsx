@@ -27,7 +27,8 @@ function FlowManagementDialog() {
     }, [open]);
 
     const selectedFlow = tab === "flows" ? (flows.find((f) => f.id === selectedId) ?? null) : null;
-    const selectedAction = tab === "actions" ? (actions.find((s) => s.id === selectedId) ?? null) : null;
+    const selectedAction =
+        tab === "actions" ? (actions.find((s) => s.id === selectedId) ?? null) : null;
 
     const referencingFlowsByActionId = useMemo(
         () =>
@@ -35,7 +36,9 @@ function FlowManagementDialog() {
                 actions.map((action) => [
                     action.id,
                     flows.filter((flow) =>
-                        flow.actions.some((entry) => "actionId" in entry && entry.actionId === action.id),
+                        flow.actions.some(
+                            (entry) => "actionId" in entry && entry.actionId === action.id,
+                        ),
                     ),
                 ]),
             ),
@@ -103,7 +106,7 @@ function FlowManagementDialog() {
 
                 <div className="flex h-[60vh] flex-1">
                     {/* Left column: navigation tabs */}
-                    <nav className="border-border w-40 shrink-0 space-y-1 border-r pr-2 py-2">
+                    <nav className="border-border w-40 shrink-0 space-y-1 border-r py-2 pr-2">
                         <button
                             onClick={() => switchTab("flows")}
                             className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors ${
@@ -142,7 +145,8 @@ function FlowManagementDialog() {
                                     >
                                         <div className="font-medium">{f.name}</div>
                                         <div className="text-muted-foreground mt-0.5 text-xs">
-                                            {f.actions.length} action{f.actions.length !== 1 ? "s" : ""}
+                                            {f.actions.length} action
+                                            {f.actions.length !== 1 ? "s" : ""}
                                         </div>
                                     </button>
                                 ))}
@@ -216,22 +220,27 @@ function FlowManagementDialog() {
                                 }
                                 deleteDisabled={
                                     !!selectedAction &&
-                                    (referencingFlowsByActionId.get(selectedAction.id)?.length ?? 0) > 0
+                                    (referencingFlowsByActionId.get(selectedAction.id)?.length ??
+                                        0) > 0
                                 }
                                 deleteDisabledReason={
                                     selectedAction &&
-                                    (referencingFlowsByActionId.get(selectedAction.id)?.length ?? 0) > 0
-                                        ? `Used by ${(referencingFlowsByActionId
-                                              .get(selectedAction.id)
-                                              ?.map((f) => f.name)
-                                              .join(", ")) ?? ""}`
+                                    (referencingFlowsByActionId.get(selectedAction.id)?.length ??
+                                        0) > 0
+                                        ? `Used by ${
+                                              referencingFlowsByActionId
+                                                  .get(selectedAction.id)
+                                                  ?.map((f) => f.name)
+                                                  .join(", ") ?? ""
+                                          }`
                                         : undefined
                                 }
                             />
                         )}
                         {!creating && !selectedFlow && !selectedAction && (
                             <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-                                Select an item or click <Plus className="mx-1 inline h-4 w-4" /> to create
+                                Select an item or click <Plus className="mx-1 inline h-4 w-4" /> to
+                                create
                             </div>
                         )}
                     </div>

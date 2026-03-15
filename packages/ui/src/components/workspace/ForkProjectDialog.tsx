@@ -137,9 +137,7 @@ export function ForkProjectDialog({ open, onOpenChange, project }: ForkProjectDi
                         )}
                     </div>
 
-                    {error && (
-                        <p className="text-destructive text-sm">{error}</p>
-                    )}
+                    {error && <p className="text-destructive text-sm">{error}</p>}
                 </div>
 
                 <DialogFooter>

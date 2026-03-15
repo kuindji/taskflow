@@ -68,9 +68,7 @@ function SettingsModal() {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
-    const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex">(
-        "general",
-    );
+    const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex">("general");
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
@@ -246,7 +244,13 @@ function SettingsModal() {
         } finally {
             setMigrating(false);
         }
-    }, [confirmDataDirChange, dataDirInfo, updateDataDir, showMigrationError, showDataDirChangedAlert]);
+    }, [
+        confirmDataDirChange,
+        dataDirInfo,
+        updateDataDir,
+        showMigrationError,
+        showDataDirChangedAlert,
+    ]);
 
     const handleConflictChoice = useCallback(
         async (mode: "overwrite" | "adopt") => {
@@ -265,7 +269,13 @@ function SettingsModal() {
                 setMigrating(false);
             }
         },
-        [conflictPath, dataDirInfo?.dataDir, updateDataDir, showMigrationError, showDataDirChangedAlert],
+        [
+            conflictPath,
+            dataDirInfo?.dataDir,
+            updateDataDir,
+            showMigrationError,
+            showDataDirChangedAlert,
+        ],
     );
 
     if (!settings) return null;
@@ -344,7 +354,7 @@ function SettingsModal() {
                                                 as="code"
                                                 tooltip
                                                 tooltipSide="bottom"
-                                                className="bg-muted text-foreground flex h-8 min-w-0 max-w-85 overflow-x-auto w-full items-center rounded px-2 text-xs"
+                                                className="bg-muted text-foreground flex h-8 w-full max-w-85 min-w-0 items-center overflow-x-auto rounded px-2 text-xs"
                                                 tooltipContent={
                                                     dataDirInfo?.dataDir ?? "Loading..."
                                                 }
@@ -501,10 +511,17 @@ function SettingsModal() {
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="claude" disabled={!claudeAvailable}>
-                                                    Claude{!claudeAvailable ? " (not installed)" : ""}
+                                                <SelectItem
+                                                    value="claude"
+                                                    disabled={!claudeAvailable}
+                                                >
+                                                    Claude
+                                                    {!claudeAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
-                                                <SelectItem value="codex" disabled={!codexAvailable}>
+                                                <SelectItem
+                                                    value="codex"
+                                                    disabled={!codexAvailable}
+                                                >
                                                     Codex{!codexAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
                                             </SelectContent>

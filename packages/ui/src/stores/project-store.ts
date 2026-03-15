@@ -12,7 +12,11 @@ interface ProjectStore {
     addProject(path: string): Promise<Project>;
     updateProject(id: string, updates: { name?: string; path?: string }): Promise<Project>;
     removeProject(id: string): Promise<void>;
-    forkProject(projectId: string, branch: string, folderName?: string): Promise<ProjectForkResponse>;
+    forkProject(
+        projectId: string,
+        branch: string,
+        folderName?: string,
+    ): Promise<ProjectForkResponse>;
 }
 
 export const useProjectStore = create<ProjectStore>((set) => ({

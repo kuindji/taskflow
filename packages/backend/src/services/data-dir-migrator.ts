@@ -3,14 +3,7 @@ import { constants } from "fs";
 import { join } from "path";
 
 /** Items that live in the data directory (moved when location changes) */
-const DATA_ITEMS = [
-    "projects.json",
-    "tasks",
-    "archive",
-    "task-logs",
-    "agent-skills",
-    "themes",
-];
+const DATA_ITEMS = ["projects.json", "tasks", "archive", "task-logs", "agent-skills", "themes"];
 
 export async function readDataLocation(baseDir: string): Promise<string | null> {
     try {

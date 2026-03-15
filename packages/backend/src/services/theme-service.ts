@@ -75,13 +75,9 @@ export function isPathInsideDirectory(
     filePath: string,
     pathApi: PathApi = { resolve, relative, isAbsolute },
 ): boolean {
-    const relativePath = pathApi.relative(
-        pathApi.resolve(rootDir),
-        pathApi.resolve(filePath),
-    );
+    const relativePath = pathApi.relative(pathApi.resolve(rootDir), pathApi.resolve(filePath));
     return (
-        relativePath === "" ||
-        (!relativePath.startsWith("..") && !pathApi.isAbsolute(relativePath))
+        relativePath === "" || (!relativePath.startsWith("..") && !pathApi.isAbsolute(relativePath))
     );
 }
 
@@ -109,8 +105,7 @@ function isValidThemeSource(data: unknown): data is ThemeSource {
     }
 
     if (obj.overrides !== undefined) {
-        if (typeof obj.overrides !== "object" || obj.overrides === null)
-            return false;
+        if (typeof obj.overrides !== "object" || obj.overrides === null) return false;
         const overrides = obj.overrides as Record<string, unknown>;
         for (const val of Object.values(overrides)) {
             if (typeof val !== "string") return false;
@@ -144,9 +139,7 @@ export class ThemeService {
         }
 
         const baseId =
-            preferredId === undefined
-                ? this.idFor(theme.name)
-                : assertValidThemeId(preferredId);
+            preferredId === undefined ? this.idFor(theme.name) : assertValidThemeId(preferredId);
         const overwrite = options?.overwriteExisting ?? false;
 
         const id = await this.resolveId(baseId, overwrite);
@@ -169,7 +162,11 @@ export class ThemeService {
     }
 
     async detectTerminalApps(): Promise<Array<{ app: string; themes: ThemeSource[] }>> {
-        const detectors: Array<{ app: string; detect: () => Promise<boolean>; parse: () => Promise<ThemeSource[]> }> = [
+        const detectors: Array<{
+            app: string;
+            detect: () => Promise<boolean>;
+            parse: () => Promise<ThemeSource[]>;
+        }> = [
             { app: "Alacritty", detect: detectAlacritty, parse: parseAlacritty },
             { app: "Ghostty", detect: detectGhostty, parse: parseGhostty },
             { app: "Kitty", detect: detectKitty, parse: parseKitty },
@@ -267,10 +264,7 @@ export class ThemeService {
         return filePath;
     }
 
-    private async resolveId(
-        baseId: string,
-        overwriteExisting: boolean,
-    ): Promise<string> {
+    private async resolveId(baseId: string, overwriteExisting: boolean): Promise<string> {
         const existingFile = await this.readUserThemeFile(baseId);
 
         // If overwrite is requested and it's a user theme, reuse it
@@ -286,10 +280,7 @@ export class ThemeService {
         // Find a suffix
         for (let counter = 2; counter < 1000; counter++) {
             const candidate = `${baseId}-${counter}`;
-            if (
-                !this.bundledIds.has(candidate) &&
-                !(await this.userThemeExists(candidate))
-            ) {
+            if (!this.bundledIds.has(candidate) && !(await this.userThemeExists(candidate))) {
                 return candidate;
             }
         }
@@ -309,9 +300,7 @@ export class ThemeService {
             const raw = await readFile(filePath, "utf-8");
             const parsed: unknown = JSON.parse(raw);
 
-            return isValidThemeSource(parsed)
-                ? { exists: true, source: parsed }
-                : { exists: true };
+            return isValidThemeSource(parsed) ? { exists: true, source: parsed } : { exists: true };
         } catch (error) {
             if (error instanceof Error && "code" in error && error.code === "ENOENT") {
                 return { exists: false };

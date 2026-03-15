@@ -102,25 +102,23 @@ printf '{}'
         );
         await chmod(join(fakeBinDir, "curl"), 0o755);
 
-        const result = spawnSync(join(cliDir, "taskflow-cli"), [
-            "artifact",
-            "save",
-            "summary",
-            "--text",
-            'line "one"\nline two',
-        ], {
-            env: {
-                ...process.env,
-                PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
-                CAPTURE_FILE: captureFile,
-                TASKFLOW_API_URL: "http://localhost:1234",
-                TASKFLOW_TASK_ID: "task-1",
-                TASKFLOW_FLOW_ID: "flow-1",
-                TASKFLOW_ACTION_ENTRY_ID: "entry-1",
-                TASKFLOW_SESSION_ID: "session-1",
+        const result = spawnSync(
+            join(cliDir, "taskflow-cli"),
+            ["artifact", "save", "summary", "--text", 'line "one"\nline two'],
+            {
+                env: {
+                    ...process.env,
+                    PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+                    CAPTURE_FILE: captureFile,
+                    TASKFLOW_API_URL: "http://localhost:1234",
+                    TASKFLOW_TASK_ID: "task-1",
+                    TASKFLOW_FLOW_ID: "flow-1",
+                    TASKFLOW_ACTION_ENTRY_ID: "entry-1",
+                    TASKFLOW_SESSION_ID: "session-1",
+                },
+                encoding: "utf8",
             },
-            encoding: "utf8",
-        });
+        );
 
         expect(result.status).toBe(0);
         expect(JSON.parse(await readFile(captureFile, "utf8"))).toEqual({

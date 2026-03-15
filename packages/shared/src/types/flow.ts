@@ -67,9 +67,7 @@ interface FlowArtifact {
 }
 
 // Exactly one of taskId or projectId must be set
-type FlowOwner =
-    | { taskId: string; projectId?: never }
-    | { projectId: string; taskId?: never };
+type FlowOwner = { taskId: string; projectId?: never } | { projectId: string; taskId?: never };
 
 interface FlowRun {
     taskId?: string;

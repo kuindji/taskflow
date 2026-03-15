@@ -58,7 +58,8 @@ function parseKittyConfig(content: string, name: string): ThemeSource | null {
 
     const cursor = normalizeHex(values["cursor"] ?? "") ?? fg;
     const cursorText = normalizeHex(values["cursor_text_color"] ?? "") ?? bg;
-    const selection = normalizeHex(values["selection_background"] ?? "") ?? (ansi as AnsiColors).blue;
+    const selection =
+        normalizeHex(values["selection_background"] ?? "") ?? (ansi as AnsiColors).blue;
     const selectionText = normalizeHex(values["selection_foreground"] ?? "") ?? fg;
 
     const colors: ThemeColors = {

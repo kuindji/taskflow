@@ -28,7 +28,7 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
                 <button
                     type="button"
                     aria-label={`Delete ${source.name} theme`}
-                    className="text-muted-foreground hover:bg-destructive/20 hover:text-destructive focus-visible:ring-ring absolute top-1.5 right-1.5 z-10 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:ring-2"
+                    className="text-muted-foreground hover:bg-destructive/20 hover:text-destructive focus-visible:ring-ring absolute top-1.5 right-1.5 z-10 rounded p-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2"
                     onClick={() => {
                         onDelete();
                     }}
@@ -40,7 +40,7 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
                 type="button"
                 onClick={onClick}
                 className={cn(
-                    "flex w-full flex-col rounded-lg gap-2 border text-left transition-colors",
+                    "flex w-full flex-col gap-2 rounded-lg border text-left transition-colors",
                     "hover:border-accent",
                     isActive ? "border-accent bg-accent/10" : "border-border",
                 )}
@@ -61,11 +61,12 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
                         className="shrink-0 font-mono text-xs"
                         style={{ color: colors.ansi.green }}
                     >
-                        {" "}git status
+                        {" "}
+                        git status
                     </span>
                 </div>
                 {/* Swatch row */}
-                <div className="flex gap-1 p-3 w-full mt-auto">
+                <div className="mt-auto flex w-full gap-1 p-3">
                     {swatches.map((color, i) => (
                         <div
                             key={i}

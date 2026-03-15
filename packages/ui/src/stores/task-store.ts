@@ -18,6 +18,7 @@ interface TaskStore {
         title?: string;
         description: string;
         worktree?: boolean;
+        parentId?: string;
     }): Promise<Task>;
     applyTaskUpdate(task: Task): void;
     updateTask(id: string, updates: Partial<Task>): Promise<void>;
@@ -83,7 +84,9 @@ export const useTaskStore = create<TaskStore>((set) => ({
     },
     async createTask(payload) {
         const task = await sendRequest<Task>(MSG.TASK_CREATE, payload);
-        set((s) => ({ tasks: sortTasksByCreatedAtDesc([...s.tasks, task]) }));
+        set((s) => ({
+            tasks: sortTasksByCreatedAtDesc([...s.tasks, task]),
+        }));
         return task;
     },
     applyTaskUpdate(task) {
@@ -100,8 +103,12 @@ export const useTaskStore = create<TaskStore>((set) => ({
     async archiveTask(id) {
         await sendRequest(MSG.TASK_ARCHIVE, { id });
         set((s) => ({
-            tasks: s.tasks.filter((t) => t.id !== id),
-            activeTaskId: s.activeTaskId === id ? null : s.activeTaskId,
+            tasks: s.tasks.filter((t) => t.id !== id && t.parentId !== id),
+            activeTaskId:
+                s.activeTaskId === id ||
+                s.tasks.some((t) => t.parentId === id && t.id === s.activeTaskId)
+                    ? null
+                    : s.activeTaskId,
         }));
         if (useTaskStore.getState().showArchive) {
             void useTaskStore.getState().fetchArchivedTasks();
@@ -110,16 +117,20 @@ export const useTaskStore = create<TaskStore>((set) => ({
     async unarchiveTask(id) {
         await sendRequest(MSG.TASK_UNARCHIVE, { id });
         set((s) => ({
-            archivedTasks: s.archivedTasks.filter((t) => t.id !== id),
+            archivedTasks: s.archivedTasks.filter((t) => t.id !== id && t.parentId !== id),
         }));
         void useTaskStore.getState().fetchTasks();
     },
     async deleteTask(id, options) {
         await sendRequest(MSG.TASK_DELETE, { id, deleteWorktree: options?.deleteWorktree });
         set((s) => ({
-            tasks: s.tasks.filter((t) => t.id !== id),
-            archivedTasks: s.archivedTasks.filter((t) => t.id !== id),
-            activeTaskId: s.activeTaskId === id ? null : s.activeTaskId,
+            tasks: s.tasks.filter((t) => t.id !== id && t.parentId !== id),
+            archivedTasks: s.archivedTasks.filter((t) => t.id !== id && t.parentId !== id),
+            activeTaskId:
+                s.activeTaskId === id ||
+                s.tasks.some((t) => t.parentId === id && t.id === s.activeTaskId)
+                    ? null
+                    : s.activeTaskId,
         }));
     },
     setActiveTask(id) {

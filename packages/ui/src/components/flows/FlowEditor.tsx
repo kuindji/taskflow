@@ -340,7 +340,7 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
                         </div>
                     </div>
 
-                    <div className="rounded-md border border-blue-900/50 bg-blue-950/30 p-3 text-xs text-muted-foreground">
+                    <div className="text-muted-foreground rounded-md border border-blue-900/50 bg-blue-950/30 p-3 text-xs">
                         <p className="mb-1 font-medium text-blue-400">Action Prompt Tips</p>
                         <p>Each action's agent receives the task description automatically.</p>
                         <p>
@@ -352,15 +352,22 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
                         </p>
                         <p>
                             Use{" "}
-                            <code className="bg-muted rounded px-1">taskflow-cli action complete</code>{" "}
+                            <code className="bg-muted rounded px-1">
+                                taskflow-cli action complete
+                            </code>{" "}
                             when done.
                         </p>
                     </div>
                 </div>
 
-                <div className="flex flex-row items-center shrink-0 gap-2 pt-3">
+                <div className="flex shrink-0 flex-row items-center gap-2 pt-3">
                     {flow && onDelete && (
-                        <Button variant="destructive" size="sm" onClick={onDelete} className="mr-auto">
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={onDelete}
+                            className="mr-auto"
+                        >
                             Delete Flow
                         </Button>
                     )}
@@ -372,8 +379,6 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
                     </Button>
                 </div>
             </div>
-
-            
         </div>
     );
 }

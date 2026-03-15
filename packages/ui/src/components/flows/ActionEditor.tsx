@@ -86,10 +86,7 @@ function ActionEditor({
                     </div>
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="action-session-type">Session Type</Label>
-                        <Select
-                            value={sessionType}
-                            onValueChange={handleSessionTypeChange}
-                        >
+                        <Select value={sessionType} onValueChange={handleSessionTypeChange}>
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
@@ -137,7 +134,7 @@ function ActionEditor({
                 </div>
 
                 {/* Sticky footer */}
-                <div className="flex flex-row items-center shrink-0 gap-2 pt-3">
+                <div className="flex shrink-0 flex-row items-center gap-2 pt-3">
                     {action && onDelete && (
                         <Button
                             variant="destructive"
@@ -150,7 +147,9 @@ function ActionEditor({
                         </Button>
                     )}
                     {action && deleteDisabledReason && (
-                        <span className="text-muted-foreground text-xs">{deleteDisabledReason}</span>
+                        <span className="text-muted-foreground text-xs">
+                            {deleteDisabledReason}
+                        </span>
                     )}
                     <div className="flex-1" />
                     <Button variant="secondary" size="sm" onClick={onCancel}>
@@ -161,8 +160,6 @@ function ActionEditor({
                     </Button>
                 </div>
             </div>
-
-            
         </div>
     );
 }

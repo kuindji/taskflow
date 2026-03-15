@@ -138,10 +138,7 @@ function FileExplorer() {
 
     return (
         <div className="flex h-full flex-col">
-            <Toolbar
-                noBorder
-                className={`gap-2 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
-            >
+            <Toolbar noBorder className={`gap-2 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
                 <span className="text-muted-foreground ml-2 flex h-6 items-center text-xs font-medium">
                     Files
                 </span>

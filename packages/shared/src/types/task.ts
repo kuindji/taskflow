@@ -16,6 +16,7 @@ export interface TaskWorktree {
 export interface Task {
     id: string;
     projectId: string;
+    parentId?: string;
     title: string;
     description: string;
     notes: string;

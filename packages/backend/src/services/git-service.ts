@@ -291,9 +291,7 @@ export class GitService {
 
     async isBranchMerged(repoPath: string, branch: string): Promise<boolean> {
         const output = await git(["branch", "--merged"], repoPath);
-        return output
-            .split("\n")
-            .some((line) => line.replace(/^[*+]?\s+/, "") === branch);
+        return output.split("\n").some((line) => line.replace(/^[*+]?\s+/, "") === branch);
     }
 
     async removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
@@ -393,10 +391,7 @@ export class GitService {
     }
 
     async clone(source: string, target: string, branch: string): Promise<void> {
-        await git(
-            ["clone", "--local", "--branch", branch, source, target],
-            dirname(target),
-        );
+        await git(["clone", "--local", "--branch", branch, source, target], dirname(target));
     }
 
     async setRemoteUrl(repoPath: string, url: string): Promise<void> {

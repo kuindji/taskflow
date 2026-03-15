@@ -138,7 +138,9 @@ function TaskInfoPanel() {
         return (
             <div className="flex h-full flex-col">
                 <Toolbar className="gap-2">
-                    <span className="text-muted-foreground ml-2 text-xs font-medium">Project Info</span>
+                    <span className="text-muted-foreground ml-2 text-xs font-medium">
+                        Project Info
+                    </span>
                     <div className="flex-1" />
                     <Button
                         variant="ghost"

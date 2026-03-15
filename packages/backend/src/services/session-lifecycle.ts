@@ -2,10 +2,7 @@ import { MSG } from "@taskflow/shared";
 import type { SessionRef, WsEvent } from "@taskflow/shared";
 import type { PtyManager } from "./pty-manager";
 import type { TaskStore } from "./task-store";
-import {
-    buildAgentLaunchSpec,
-    ensureInternalAgentSkillFile,
-} from "./internal-agent-skill";
+import { buildAgentLaunchSpec, ensureInternalAgentSkillFile } from "./internal-agent-skill";
 import { config } from "../config";
 
 interface SessionOwner {
@@ -46,10 +43,7 @@ function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
 function createSessionLifecycle(deps: SessionLifecycleDeps) {
     const { ptyManager, taskStore, broadcast, getPort } = deps;
 
-    async function removeSessionFromOwner(
-        sessionId: string,
-        owner?: SessionOwner,
-    ): Promise<void> {
+    async function removeSessionFromOwner(sessionId: string, owner?: SessionOwner): Promise<void> {
         const targetTask = owner?.taskId ? await taskStore.getTask(owner.taskId) : null;
         if (targetTask?.sessions.some((session) => session.id === sessionId)) {
             await taskStore.updateTask(targetTask.id, (task) => ({
@@ -59,9 +53,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             return;
         }
 
-        const targetProject = owner?.projectId
-            ? await taskStore.getProject(owner.projectId)
-            : null;
+        const targetProject = owner?.projectId ? await taskStore.getProject(owner.projectId) : null;
         if (targetProject?.sessions.some((session) => session.id === sessionId)) {
             await taskStore.updateProject(targetProject.id, (project) => ({
                 sessions: project.sessions.filter((session) => session.id !== sessionId),
@@ -81,9 +73,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             return;
         }
 
-        const activeProjectOwner = (
-            owner?.projectId ? [] : await taskStore.listProjects()
-        ).find((project) => project.sessions.some((session) => session.id === sessionId));
+        const activeProjectOwner = (owner?.projectId ? [] : await taskStore.listProjects()).find(
+            (project) => project.sessions.some((session) => session.id === sessionId),
+        );
         if (activeProjectOwner) {
             await taskStore.updateProject(activeProjectOwner.id, (project) => ({
                 sessions: project.sessions.filter((session) => session.id !== sessionId),
@@ -104,8 +96,18 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
     }
 
     async function createSession(opts: CreateSessionOpts): Promise<string> {
-        const { owner, type, prompt, systemPrompt, shell, agentOptions, flow, cols, rows, onSessionExited } =
-            opts;
+        const {
+            owner,
+            type,
+            prompt,
+            systemPrompt,
+            shell,
+            agentOptions,
+            flow,
+            cols,
+            rows,
+            onSessionExited,
+        } = opts;
         const { taskId, projectId } = owner;
 
         if ((taskId ? 1 : 0) + (projectId ? 1 : 0) !== 1) {

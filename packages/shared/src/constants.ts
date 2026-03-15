@@ -99,7 +99,6 @@ export const MSG = {
     THEME_IMPORT: "theme:import",
     THEME_IMPORT_FILE: "theme:import-file",
 
-
     THEME_DELETE: "theme:delete",
 
     // System

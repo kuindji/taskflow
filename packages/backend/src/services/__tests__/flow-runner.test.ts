@@ -316,13 +316,10 @@ describe("saveArtifact", () => {
     test("saves artifacts for the active action session", async () => {
         await runner.startFlow(taskOwner, testFlow);
 
-        await runner.saveArtifact(
-            "task-1",
-            "flow-1",
-            "entry-1",
-            spawnedSessions[0].sessionId,
-            { type: "summary", text: 'line "one"\nline two' },
-        );
+        await runner.saveArtifact("task-1", "flow-1", "entry-1", spawnedSessions[0].sessionId, {
+            type: "summary",
+            text: 'line "one"\nline two',
+        });
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.artifacts).toHaveLength(1);
@@ -337,13 +334,10 @@ describe("saveArtifact", () => {
         await runner.startFlow(taskOwner, testFlow);
 
         expect(
-            runner.saveArtifact(
-                "task-1",
-                "flow-1",
-                "entry-2",
-                spawnedSessions[0].sessionId,
-                { type: "summary", text: "bad" },
-            ),
+            runner.saveArtifact("task-1", "flow-1", "entry-2", spawnedSessions[0].sessionId, {
+                type: "summary",
+                text: "bad",
+            }),
         ).rejects.toThrow("Artifacts can only be saved for the current action");
     });
 

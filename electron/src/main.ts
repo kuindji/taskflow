@@ -653,7 +653,10 @@ ipcMain.handle("select-theme-file", async () => {
     const result = await dialog.showOpenDialog({
         properties: ["openFile"],
         filters: [
-            { name: "Theme Files", extensions: ["json", "toml", "yaml", "yml", "conf", "plist", "terminal"] },
+            {
+                name: "Theme Files",
+                extensions: ["json", "toml", "yaml", "yml", "conf", "plist", "terminal"],
+            },
             { name: "All Files", extensions: ["*"] },
         ],
     });
