@@ -322,7 +322,7 @@ export function Workspace() {
     };
 
     const handleNewTab = async (
-        type: "claude" | "codex" | "browser" | "shell",
+        type: "claude" | "codex" | "opencode" | "browser" | "shell",
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => {
@@ -358,7 +358,7 @@ export function Workspace() {
         }
     };
 
-    const handleRunTab = async (type: "claude" | "codex", agentOptions?: AgentLaunchOptions) => {
+    const handleRunTab = async (type: "claude" | "codex" | "opencode", agentOptions?: AgentLaunchOptions) => {
         if (workspace.scope !== "task" || !workspace.task) return;
         await createSession(
             { taskId: workspace.task.id },
