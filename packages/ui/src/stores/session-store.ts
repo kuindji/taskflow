@@ -77,8 +77,12 @@ function createSessionTab(session: SessionRef): Tab {
     };
 }
 
-/** Check whether a session's tab is currently visible (active task + active tab). */
+/** Whether the Electron/browser window is currently focused. */
+let windowFocused = true;
+
+/** Check whether a session's tab is currently visible (active task + active tab + window focused). */
 function isSessionFocused(sessionId: string): boolean {
+    if (!windowFocused) return false;
     const activeTaskId = useTaskStore.getState().activeTaskId;
     const activeProjectId = useUIStore.getState().activeProjectId;
     const workspaceKey = activeTaskId
@@ -532,3 +536,27 @@ const _unsubActiveProject = useUIStore.subscribe((state, prevState) => {
         sessionStore.setActiveTab(workspaceKey, attentionTab.id);
     }
 });
+
+// --- Window focus tracking ---
+
+function onWindowFocusChanged(focused: boolean): void {
+    windowFocused = focused;
+    if (focused) {
+        // Re-settle all sessions: clears attention on the currently visible tab
+        const store = useSessionStore.getState();
+        for (const sessionId of Object.keys(store.sessionStatus)) {
+            if (store.sessionStatus[sessionId] === "attention") {
+                settleInactiveSession(sessionId);
+            }
+        }
+    }
+}
+
+if (window.taskflow?.onWindowFocusChanged) {
+    window.taskflow.onWindowFocusChanged(onWindowFocusChanged);
+} else {
+    // Fallback for non-Electron (browser dev mode)
+    document.addEventListener("visibilitychange", () => {
+        onWindowFocusChanged(document.visibilityState === "visible");
+    });
+}

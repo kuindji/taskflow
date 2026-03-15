@@ -181,6 +181,13 @@ async function createWindow() {
     }
 
     let lastNonMaximizedBounds = mainWindow.getBounds();
+    mainWindow.on("focus", () => {
+        mainWindow?.webContents.send("window-focus-changed", { focused: true });
+    });
+    mainWindow.on("blur", () => {
+        mainWindow?.webContents.send("window-focus-changed", { focused: false });
+    });
+
     mainWindow.on("moved", () => {
         if (mainWindow && !mainWindow.isMaximized()) {
             lastNonMaximizedBounds = mainWindow.getBounds();
