@@ -1,4 +1,5 @@
 import type { EditorInfo } from "@taskflow/shared";
+import { buildShellPath } from "./shell-path";
 
 const KNOWN_EDITORS: EditorInfo[] = [
     { id: "vscode", name: "VS Code", command: "code" },
@@ -10,17 +11,10 @@ const KNOWN_EDITORS: EditorInfo[] = [
 
 export async function detectEditors(): Promise<EditorInfo[]> {
     const available: EditorInfo[] = [];
+    const PATH = buildShellPath();
     for (const editor of KNOWN_EDITORS) {
-        try {
-            const proc = Bun.spawn(["which", editor.command], {
-                stdout: "pipe",
-                stderr: "pipe",
-            });
-            const exitCode = await proc.exited;
-            if (exitCode === 0) available.push(editor);
-        } catch {
-            /* not found */
-        }
+        const path = Bun.which(editor.command, { PATH });
+        if (path) available.push(editor);
     }
     return available;
 }

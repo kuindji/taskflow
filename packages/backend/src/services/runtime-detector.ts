@@ -1,4 +1,5 @@
 import type { RuntimeInfo, AgentAvailability, AgentType } from "@taskflow/shared";
+import { buildShellPath } from "./shell-path";
 
 const KNOWN_RUNTIMES = ["bun", "node"] as const;
 
@@ -20,8 +21,9 @@ async function getRuntimeVersion(path: string): Promise<string> {
 export async function detectRuntimes(): Promise<RuntimeInfo[]> {
     const runtimes: RuntimeInfo[] = [];
 
+    const PATH = buildShellPath();
     for (const name of KNOWN_RUNTIMES) {
-        const path = Bun.which(name);
+        const path = Bun.which(name, { PATH });
         if (!path) continue;
         const version = await getRuntimeVersion(path);
         runtimes.push({ name, path, version });
@@ -34,8 +36,9 @@ const KNOWN_AGENTS: AgentType[] = ["claude", "codex"];
 
 export async function detectAgents(): Promise<AgentAvailability[]> {
     const agents: AgentAvailability[] = [];
+    const PATH = buildShellPath();
     for (const type of KNOWN_AGENTS) {
-        const path = Bun.which(type);
+        const path = Bun.which(type, { PATH });
         if (!path) {
             agents.push({ type, available: false, path: "", version: "" });
             continue;
