@@ -164,7 +164,7 @@ export function TaskCard({
                             variant="ghost"
                             size="xs"
                             onClick={handlePinToggle}
-                            className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
+                            className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label={task.pinned ? "Unpin task" : "Pin task"}
                             tooltip={task.pinned ? "Unpin task" : "Pin task"}
                             tooltipSide="top"
@@ -177,7 +177,7 @@ export function TaskCard({
                             variant="ghost"
                             size="xs"
                             onClick={handleUnarchive}
-                            className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
+                            className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Unarchive task"
                             tooltip="Unarchive task"
                             tooltipSide="top"
@@ -189,7 +189,7 @@ export function TaskCard({
                             variant="ghost"
                             size="xs"
                             onClick={handleArchive}
-                            className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
+                            className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Archive task"
                             tooltip="Archive task"
                             tooltipSide="top"
@@ -201,7 +201,7 @@ export function TaskCard({
                         variant="ghost"
                         size="xs"
                         onClick={handleDeleteClick}
-                        className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-destructive h-6 w-6 border p-0 shadow-xs"
+                        className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-destructive h-6 w-6 border p-0 shadow-xs"
                         aria-label="Delete task"
                         tooltip="Delete task"
                         tooltipSide="top"
