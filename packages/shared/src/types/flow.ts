@@ -4,6 +4,7 @@ type SessionType = "claude" | "codex" | "shell";
 
 interface ActionDefinition {
     id: string;
+    projectId?: string;
     name: string;
     prompt: string;
     sessionType: SessionType;
@@ -39,6 +40,7 @@ type FlowActionEntry = FlowActionReferenceEntry | FlowActionInlineEntry;
 
 interface FlowDefinition {
     id: string;
+    projectId?: string;
     name: string;
     description: string;
     actions: FlowActionEntry[];

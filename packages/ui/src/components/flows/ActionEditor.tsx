@@ -13,9 +13,11 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
+import { useProjectStore } from "@/stores/project-store";
 
 interface ActionEditorProps {
     action: ActionDefinition | null;
+    defaultProjectId?: string;
     onSave: (action: ActionDefinition) => void;
     onCancel: () => void;
     onDelete?: () => void;
@@ -25,14 +27,19 @@ interface ActionEditorProps {
 
 function ActionEditor({
     action,
+    defaultProjectId,
     onSave,
     onCancel,
     onDelete,
     deleteDisabled = false,
     deleteDisabledReason,
 }: ActionEditorProps) {
+    const projects = useProjectStore((s) => s.projects);
     const [name, setName] = useState(action?.name ?? "");
     const [prompt, setPrompt] = useState(action?.prompt ?? "");
+    const [projectId, setProjectId] = useState<string | undefined>(
+        action?.projectId ?? defaultProjectId,
+    );
     const [sessionType, setSessionType] = useState<SessionType>(action?.sessionType ?? "claude");
     const [agentOptions, setAgentOptions] = useState(action?.agentOptions);
     const [standalone, setStandalone] = useState(action?.standalone ?? false);
@@ -50,6 +57,7 @@ function ActionEditor({
         const now = new Date().toISOString();
         onSave({
             id: action?.id ?? crypto.randomUUID(),
+            projectId,
             name: name.trim(),
             prompt,
             sessionType,
@@ -83,6 +91,27 @@ function ActionEditor({
                             onChange={(e) => setName(e.target.value)}
                             placeholder="e.g., Plan Review"
                         />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="action-project">Project</Label>
+                        <Select
+                            value={projectId ?? "__global__"}
+                            onValueChange={(v) =>
+                                setProjectId(v === "__global__" ? undefined : v)
+                            }
+                        >
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="__global__">Global</SelectItem>
+                                {projects.map((p) => (
+                                    <SelectItem key={p.id} value={p.id}>
+                                        {p.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="action-session-type">Session Type</Label>

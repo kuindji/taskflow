@@ -2,9 +2,17 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import type { FlowDefinition, ActionDefinition } from "@taskflow/shared";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Plus } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
 import { useFlowStore } from "@/stores/flow-store";
+import { useProjectStore } from "@/stores/project-store";
 import { FlowEditor } from "./FlowEditor";
 import { ActionEditor } from "./ActionEditor";
 
@@ -14,10 +22,16 @@ function FlowManagementDialog() {
 
     const flows = useFlowStore((s) => s.flows);
     const actions = useFlowStore((s) => s.actions);
+    const projects = useProjectStore((s) => s.projects);
+    const activeProjectId = useUIStore((s) => s.activeProjectId);
 
     const [tab, setTab] = useState<"flows" | "actions">("flows");
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
+    // "all" = show everything, "global" = only global, otherwise a projectId
+    const [projectFilter, setProjectFilter] = useState<string>(
+        activeProjectId ?? "all",
+    );
 
     useEffect(() => {
         if (!open) return;
@@ -26,9 +40,29 @@ function FlowManagementDialog() {
         void fetchActions();
     }, [open]);
 
-    const selectedFlow = tab === "flows" ? (flows.find((f) => f.id === selectedId) ?? null) : null;
+    const projectMap = useMemo(
+        () => new Map(projects.map((p) => [p.id, p.name])),
+        [projects],
+    );
+
+    const filteredFlows = useMemo(() => {
+        if (projectFilter === "all") return flows;
+        if (projectFilter === "global") return flows.filter((f) => !f.projectId);
+        return flows.filter((f) => f.projectId === projectFilter);
+    }, [flows, projectFilter]);
+
+    const filteredActions = useMemo(() => {
+        if (projectFilter === "all") return actions;
+        if (projectFilter === "global") return actions.filter((a) => !a.projectId);
+        return actions.filter((a) => a.projectId === projectFilter);
+    }, [actions, projectFilter]);
+
+    const defaultProjectId =
+        projectFilter !== "all" && projectFilter !== "global" ? projectFilter : undefined;
+
+    const selectedFlow = tab === "flows" ? (filteredFlows.find((f) => f.id === selectedId) ?? null) : null;
     const selectedAction =
-        tab === "actions" ? (actions.find((s) => s.id === selectedId) ?? null) : null;
+        tab === "actions" ? (filteredActions.find((s) => s.id === selectedId) ?? null) : null;
 
     const referencingFlowsByActionId = useMemo(
         () =>
@@ -131,9 +165,29 @@ function FlowManagementDialog() {
 
                     {/* Middle column: item list */}
                     <div className="border-border flex w-56 shrink-0 flex-col border-r">
+                        <div className="border-border border-b p-2">
+                            <Select value={projectFilter} onValueChange={(v) => {
+                                setProjectFilter(v);
+                                setSelectedId(null);
+                                setCreating(false);
+                            }}>
+                                <SelectTrigger className="h-7 text-xs">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    <SelectItem value="global">Global</SelectItem>
+                                    {projects.map((p) => (
+                                        <SelectItem key={p.id} value={p.id}>
+                                            {p.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
                         <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
                             {tab === "flows" &&
-                                flows.map((f) => (
+                                filteredFlows.map((f) => (
                                     <button
                                         key={f.id}
                                         onClick={() => selectItem(f.id)}
@@ -144,19 +198,26 @@ function FlowManagementDialog() {
                                         }`}
                                     >
                                         <div className="font-medium">{f.name}</div>
-                                        <div className="text-muted-foreground mt-0.5 text-xs">
-                                            {f.actions.length} action
-                                            {f.actions.length !== 1 ? "s" : ""}
+                                        <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
+                                            <span>
+                                                {f.actions.length} action
+                                                {f.actions.length !== 1 ? "s" : ""}
+                                            </span>
+                                            {projectFilter === "all" && f.projectId && (
+                                                <span className="bg-accent truncate rounded px-1">
+                                                    {projectMap.get(f.projectId) ?? "Unknown"}
+                                                </span>
+                                            )}
                                         </div>
                                     </button>
                                 ))}
-                            {tab === "flows" && flows.length === 0 && (
+                            {tab === "flows" && filteredFlows.length === 0 && (
                                 <div className="text-muted-foreground px-3 py-6 text-center text-xs">
                                     No flows yet
                                 </div>
                             )}
                             {tab === "actions" &&
-                                actions.map((s) => (
+                                filteredActions.map((s) => (
                                     <button
                                         key={s.id}
                                         onClick={() => selectItem(s.id)}
@@ -167,12 +228,17 @@ function FlowManagementDialog() {
                                         }`}
                                     >
                                         <div className="font-medium">{s.name}</div>
-                                        <div className="text-muted-foreground mt-0.5 text-xs">
-                                            {s.sessionType}
+                                        <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
+                                            <span>{s.sessionType}</span>
+                                            {projectFilter === "all" && s.projectId && (
+                                                <span className="bg-accent truncate rounded px-1">
+                                                    {projectMap.get(s.projectId) ?? "Unknown"}
+                                                </span>
+                                            )}
                                         </div>
                                     </button>
                                 ))}
-                            {tab === "actions" && actions.length === 0 && (
+                            {tab === "actions" && filteredActions.length === 0 && (
                                 <div className="text-muted-foreground px-3 py-6 text-center text-xs">
                                     No actions yet
                                 </div>
@@ -195,9 +261,10 @@ function FlowManagementDialog() {
                     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                         {tab === "flows" && (creating || selectedFlow) && (
                             <FlowEditor
-                                key={creating ? "new-flow" : selectedFlow?.id}
+                                key={creating ? `new-flow-${defaultProjectId ?? "global"}` : selectedFlow?.id}
                                 flow={creating ? null : selectedFlow}
                                 globalActions={actions}
+                                defaultProjectId={defaultProjectId}
                                 onSave={handleSaveFlow}
                                 onCancel={clearSelection}
                                 onDelete={
@@ -209,8 +276,9 @@ function FlowManagementDialog() {
                         )}
                         {tab === "actions" && (creating || selectedAction) && (
                             <ActionEditor
-                                key={creating ? "new-action" : selectedAction?.id}
+                                key={creating ? `new-action-${defaultProjectId ?? "global"}` : selectedAction?.id}
                                 action={creating ? null : selectedAction}
+                                defaultProjectId={defaultProjectId}
                                 onSave={handleSaveAction}
                                 onCancel={clearSelection}
                                 onDelete={

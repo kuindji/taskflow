@@ -3,6 +3,18 @@ import type { FlowDefinition, FlowRun, ActionDefinition } from "@taskflow/shared
 import { MSG, getFlowRunOwnerId } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 
+/**
+ * Returns global items (no projectId) when projectId is nullish,
+ * or global + matching-project items when projectId is provided.
+ */
+function filterByProject<T extends { projectId?: string }>(
+    items: T[],
+    projectId: string | null | undefined,
+): T[] {
+    if (!projectId) return items.filter((item) => !item.projectId);
+    return items.filter((item) => !item.projectId || item.projectId === projectId);
+}
+
 interface FlowStartParams {
     taskId?: string;
     projectId?: string;
@@ -175,4 +187,4 @@ const _unsubFlowRunUpdated = onEvent(MSG.FLOW_RUN_UPDATED, (payload) => {
     }
 });
 
-export { useFlowStore };
+export { useFlowStore, filterByProject };

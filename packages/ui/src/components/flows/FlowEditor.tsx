@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import type {
     AgentLaunchOptions,
     FlowDefinition,
@@ -24,20 +24,32 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
+import { useProjectStore } from "@/stores/project-store";
 import { ChevronUp, ChevronDown, X, Plus } from "lucide-react";
 
 interface FlowEditorProps {
     flow: FlowDefinition | null;
     globalActions: ActionDefinition[];
+    defaultProjectId?: string;
     onSave: (flow: FlowDefinition) => void;
     onCancel: () => void;
     onDelete?: () => void;
 }
 
-function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEditorProps) {
+function FlowEditor({ flow, globalActions, defaultProjectId, onSave, onCancel, onDelete }: FlowEditorProps) {
+    const projects = useProjectStore((s) => s.projects);
     const [name, setName] = useState(flow?.name ?? "");
     const [description, setDescription] = useState(flow?.description ?? "");
+    const [projectId, setProjectId] = useState<string | undefined>(
+        flow?.projectId ?? defaultProjectId,
+    );
     const [actions, setActions] = useState<FlowActionEntry[]>(flow?.actions ?? []);
+
+    const libraryActions = useMemo(
+        () =>
+            globalActions.filter((a) => !a.projectId || a.projectId === projectId),
+        [globalActions, projectId],
+    );
 
     const moveAction = useCallback(
         (index: number, direction: -1 | 1) => {
@@ -137,6 +149,7 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
         });
         onSave({
             id: flow?.id ?? crypto.randomUUID(),
+            projectId,
             name: name.trim(),
             description: description.trim(),
             actions: normalizedActions,
@@ -205,11 +218,33 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
                         />
                     </div>
 
+                    <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="flow-project">Project</Label>
+                        <Select
+                            value={projectId ?? "__global__"}
+                            onValueChange={(v) =>
+                                setProjectId(v === "__global__" ? undefined : v)
+                            }
+                        >
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="__global__">Global</SelectItem>
+                                {projects.map((p) => (
+                                    <SelectItem key={p.id} value={p.id}>
+                                        {p.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
                             <Label>Actions</Label>
                             <div className="flex gap-1">
-                                {globalActions.length > 0 && (
+                                {libraryActions.length > 0 && (
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
                                             <Button variant="outline" size="sm">
@@ -217,7 +252,7 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
                                             </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
-                                            {globalActions.map((action) => (
+                                            {libraryActions.map((action) => (
                                                 <DropdownMenuItem
                                                     key={action.id}
                                                     onClick={() => addGlobalAction(action)}

@@ -19,7 +19,7 @@ import { TabContent } from "./TabContent";
 
 import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
-import { useFlowStore } from "@/stores/flow-store";
+import { useFlowStore, filterByProject } from "@/stores/flow-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import useIsElectron from "@/hooks/useIsElectron";
 import {
@@ -70,9 +70,17 @@ export function Workspace() {
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
     const ownerId = taskId ?? workspace.project?.id;
     const activeFlowRun = useFlowStore((s) => (ownerId ? s.activeRuns[ownerId] : undefined));
-    const flowDefinitions = useFlowStore((s) => s.flows);
+    const allFlows = useFlowStore((s) => s.flows);
     const allActions = useFlowStore((s) => s.actions);
-    const standaloneActions = useMemo(() => allActions.filter((a) => a.standalone), [allActions]);
+    const currentProjectId = workspace.project?.id ?? null;
+    const flowDefinitions = useMemo(
+        () => filterByProject(allFlows, currentProjectId),
+        [allFlows, currentProjectId],
+    );
+    const standaloneActions = useMemo(
+        () => filterByProject(allActions, currentProjectId).filter((a) => a.standalone),
+        [allActions, currentProjectId],
+    );
 
     useEffect(() => {
         // Fetch flow/action definitions so the Run menu can show them
