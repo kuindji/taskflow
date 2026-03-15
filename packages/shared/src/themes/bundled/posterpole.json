@@ -1,0 +1,31 @@
+{
+    "version": 1,
+    "name": "Posterpole",
+    "origin": "bundled",
+    "colors": {
+        "foreground": "#c6c0b9",
+        "background": "#25222a",
+        "cursor": "#c6c0b9",
+        "cursorText": "#25222a",
+        "selection": "#4d4d4d",
+        "selectionText": "#25222a",
+        "ansi": {
+            "black": "#2c2c30",
+            "red": "#a97070",
+            "green": "#778c73",
+            "yellow": "#cc9166",
+            "blue": "#6c7f93",
+            "magenta": "#b894af",
+            "cyan": "#8ea4a2",
+            "white": "#afa79d",
+            "brightBlack": "#a5a59c",
+            "brightRed": "#bc8f8f",
+            "brightGreen": "#92a38f",
+            "brightYellow": "#d9ac8c",
+            "brightBlue": "#8a99a8",
+            "brightMagenta": "#ccb3c6",
+            "brightCyan": "#aabbba",
+            "brightWhite": "#c6c0b9"
+        }
+    }
+}

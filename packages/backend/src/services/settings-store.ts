@@ -2,8 +2,10 @@ import { readFile, writeFile } from "fs/promises";
 import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
+    DEFAULT_EDITOR_WORD_WRAP,
     DEFAULT_TERMINAL_FONT_FAMILY,
     DEFAULT_TERMINAL_SHELL,
+    DEFAULT_THEME_ID,
 } from "@taskflow/shared";
 import type { AppSettings, SettingsUpdatePayload } from "@taskflow/shared";
 
@@ -23,6 +25,7 @@ const DEFAULTS: AppSettings = {
     editor: {
         fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
         fontSize: DEFAULT_EDITOR_FONT_SIZE,
+        wordWrap: DEFAULT_EDITOR_WORD_WRAP,
     },
     layout: {
         window: { width: 1400, height: 900, isMaximized: false },
@@ -31,6 +34,7 @@ const DEFAULTS: AppSettings = {
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
             compactSidebar: false,
+            collapsedProjectIds: [],
         },
     },
     claude: {
@@ -39,6 +43,9 @@ const DEFAULTS: AppSettings = {
     },
     codex: {
         fullAccess: false,
+    },
+    appearance: {
+        theme: DEFAULT_THEME_ID,
     },
 };
 
@@ -53,6 +60,7 @@ function createDefaultSettings(): AppSettings {
         },
         claude: { ...DEFAULTS.claude },
         codex: { ...DEFAULTS.codex },
+        appearance: { ...DEFAULTS.appearance },
     };
 }
 
@@ -74,6 +82,7 @@ export class SettingsStore {
                 },
                 claude: { ...defaults.claude, ...parsed.claude },
                 codex: { ...defaults.codex, ...parsed.codex },
+                appearance: { ...defaults.appearance, ...parsed.appearance },
             };
         } catch {
             return createDefaultSettings();
@@ -102,6 +111,9 @@ export class SettingsStore {
         }
         if (partial.codex) {
             Object.assign(current.codex, partial.codex);
+        }
+        if (partial.appearance) {
+            Object.assign(current.appearance, partial.appearance);
         }
         await writeFile(this.filePath, JSON.stringify(current, null, 2));
         return current;

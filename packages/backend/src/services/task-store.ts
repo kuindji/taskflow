@@ -8,6 +8,7 @@ import {
     unlink,
     mkdir,
     realpath,
+    rm,
     stat,
 } from "fs/promises";
 import { basename, join } from "path";
@@ -17,8 +18,8 @@ interface TaskStoreConfig {
     projectsFile: string;
     tasksDir: string;
     archiveDir: string;
-    sessionLogsDir: string;
     taskLogsDir: string;
+    sessionLogsDir: string;
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
@@ -52,6 +53,11 @@ export class TaskStore {
         this.config = config;
     }
 
+    async updateConfig(config: TaskStoreConfig): Promise<void> {
+        this.config = config;
+        await this.init();
+    }
+
     async init(): Promise<void> {
         await mkdir(this.config.tasksDir, { recursive: true });
         await mkdir(this.config.archiveDir, { recursive: true });
@@ -71,6 +77,11 @@ export class TaskStore {
                 await this.updateProject(project.id, { sessions: [] });
             }
         }
+    }
+
+    async cleanupAllSessionLogs(): Promise<void> {
+        await rm(this.config.sessionLogsDir, { recursive: true, force: true });
+        await mkdir(this.config.sessionLogsDir, { recursive: true });
     }
 
     // --- Projects ---

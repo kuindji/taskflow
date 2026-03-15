@@ -4,7 +4,6 @@ import type { GitStatusResult, GitFileStatus } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { confirm } from "@/stores/dialog-store";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Undo2, Plus, Minus, ChevronDown, ChevronRight } from "lucide-react";
@@ -62,7 +61,14 @@ interface FileStatusRowProps {
     staged: boolean;
 }
 
-function FileStatusRow({ file, isSelected, onSelect, onRevert, onStageToggle, staged }: FileStatusRowProps) {
+function FileStatusRow({
+    file,
+    isSelected,
+    onSelect,
+    onRevert,
+    onStageToggle,
+    staged,
+}: FileStatusRowProps) {
     const rowClasses = useMemo(
         () =>
             cn(
@@ -83,7 +89,7 @@ function FileStatusRow({ file, isSelected, onSelect, onRevert, onStageToggle, st
 
     return (
         <div onClick={() => onSelect(file.path)} className={rowClasses}>
-            <span className="flex items-center gap-1.5 min-w-0">
+            <span className="flex min-w-0 items-center gap-1.5">
                 <Badge
                     variant="outline"
                     colorScheme={gitStatusToColorScheme(file.status)}
@@ -93,7 +99,7 @@ function FileStatusRow({ file, isSelected, onSelect, onRevert, onStageToggle, st
                 </Badge>
                 <span className="text-secondary-foreground truncate">{displayPath(file)}</span>
             </span>
-            <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                 {!staged && onRevert && (
                     <Button
                         variant="ghost"
@@ -139,19 +145,23 @@ interface SectionHeaderProps {
 
 function SectionHeader({ label, count, collapsed, onToggle, action }: SectionHeaderProps) {
     return (
-        <div className="flex items-center justify-between py-1 px-1">
+        <div className="flex items-center justify-between px-1 py-1">
             <button
                 onClick={onToggle}
-                className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-xs font-medium transition-colors"
             >
-                {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                {collapsed ? (
+                    <ChevronRight className="h-3 w-3" />
+                ) : (
+                    <ChevronDown className="h-3 w-3" />
+                )}
                 {label} ({count})
             </button>
             {action && count > 0 && (
                 <Button
                     variant="ghost"
                     size="sm"
-                    className="h-5 text-xs px-1.5"
+                    className="h-5 px-1.5 text-xs"
                     onClick={action.onClick}
                 >
                     {action.label}
@@ -213,10 +223,13 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
         setDiff(null);
         setDiffLoading(true);
         try {
-            const result = await sendRequest<{ staged?: string; unstaged?: string }>(MSG.GIT_DIFF_FILE, {
-                repoPath,
-                filePath,
-            });
+            const result = await sendRequest<{ staged?: string; unstaged?: string }>(
+                MSG.GIT_DIFF_FILE,
+                {
+                    repoPath,
+                    filePath,
+                },
+            );
             if (repoVersion !== repoVersionRef.current) return;
             if (requestId !== diffRequestIdRef.current) return;
             setDiff(result);
@@ -297,12 +310,13 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
         });
     }
 
-    const hasNoChanges = status && status.stagedFiles.length === 0 && status.unstagedFiles.length === 0;
+    const hasNoChanges =
+        status && status.stagedFiles.length === 0 && status.unstagedFiles.length === 0;
 
     return (
         <div className={containerClasses}>
             {/* File list */}
-            <ScrollArea className="border-border max-h-[40%] border-b p-3">
+            <div className="border-border max-h-[40%] overflow-y-auto border-b p-3">
                 {status?.branch && (
                     <div className="mb-1.5">
                         <Badge variant="outline" className="text-xs">
@@ -310,9 +324,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                         </Badge>
                     </div>
                 )}
-                {hasNoChanges && (
-                    <div className="text-muted-foreground text-sm">No changes</div>
-                )}
+                {hasNoChanges && <div className="text-muted-foreground text-sm">No changes</div>}
 
                 {status && status.stagedFiles.length > 0 && (
                     <>
@@ -360,23 +372,25 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                             ))}
                     </>
                 )}
-            </ScrollArea>
+            </div>
 
             {/* Diff view */}
-            <ScrollArea className="flex-1 p-3">
+            <div className="flex-1 overflow-y-auto p-3">
                 {diffLoading ? (
                     <div className="text-muted-foreground text-sm">Loading diff...</div>
                 ) : diff && (diff.staged || diff.unstaged) ? (
                     <pre className="m-0">
                         {diff.staged && (
                             <>
-                                <div className="text-xs font-semibold text-accent mb-1 px-1 py-0.5 bg-accent/10 rounded">
+                                <div className="text-accent bg-accent/10 mb-1 rounded px-1 py-0.5 text-xs font-semibold">
                                     Staged Changes
                                 </div>
                                 {diff.staged.split("\n").map((line, i) => (
                                     <div
                                         key={`staged-${i}`}
-                                        className={diffLineVariants({ type: getDiffLineType(line) })}
+                                        className={diffLineVariants({
+                                            type: getDiffLineType(line),
+                                        })}
                                     >
                                         {line}
                                     </div>
@@ -384,17 +398,19 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                             </>
                         )}
                         {diff.staged && diff.unstaged && (
-                            <div className="border-t border-border my-2" />
+                            <div className="border-border my-2 border-t" />
                         )}
                         {diff.unstaged && (
                             <>
-                                <div className="text-xs font-semibold text-muted-foreground mb-1 px-1 py-0.5 bg-muted rounded">
+                                <div className="text-muted-foreground bg-muted mb-1 rounded px-1 py-0.5 text-xs font-semibold">
                                     Unstaged Changes
                                 </div>
                                 {diff.unstaged.split("\n").map((line, i) => (
                                     <div
                                         key={`unstaged-${i}`}
-                                        className={diffLineVariants({ type: getDiffLineType(line) })}
+                                        className={diffLineVariants({
+                                            type: getDiffLineType(line),
+                                        })}
                                     >
                                         {line}
                                     </div>
@@ -411,7 +427,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                         Click a file to see its diff
                     </div>
                 )}
-            </ScrollArea>
+            </div>
         </div>
     );
 }

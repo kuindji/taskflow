@@ -10,6 +10,7 @@ export const MSG = {
     TASK_LIST: "task:list",
     TASK_CREATE: "task:create",
     TASK_UPDATE: "task:update",
+    TASK_CREATED: "task:created",
     TASK_UPDATED: "task:updated",
     TASK_ARCHIVE: "task:archive",
     TASK_UNARCHIVE: "task:unarchive",
@@ -28,6 +29,7 @@ export const MSG = {
     SHELLS_LIST: "shells:list",
     SCRIPTS_LIST: "scripts:list",
     RUNTIMES_LIST: "runtimes:list",
+    AGENTS_LIST: "agents:list",
 
     // Terminal
     TERMINAL_OUTPUT: "terminal:output",
@@ -44,6 +46,7 @@ export const MSG = {
     FILE_STAT: "file:stat",
     FILE_RENAME: "file:rename",
     FILE_DELETE_FILE: "file:delete",
+    FILE_MKDIR: "file:mkdir",
     FILE_OPEN_EXTERNAL: "file:open-external",
     FILE_REVEAL: "file:reveal",
 
@@ -85,10 +88,23 @@ export const MSG = {
     // Settings
     SETTINGS_GET: "settings:get",
     SETTINGS_UPDATE: "settings:update",
+    SETTINGS_GET_DATA_DIR: "settings:get-data-dir",
+    SETTINGS_UPDATE_DATA_DIR: "settings:update-data-dir",
+
+    // Themes
+    THEMES_LIST: "theme:list",
+    THEME_IMPORT_SCAN: "theme:import-scan",
+    THEME_IMPORT: "theme:import",
+    THEME_IMPORT_FILE: "theme:import-file",
+
+
+    THEME_DELETE: "theme:delete",
 
     // System
     SYSTEM_INFO: "system:info",
 } as const;
+
+export const DEFAULT_THEME_ID = "catppuccin-mocha";
 
 // Archive expiry (safe to import in browser)
 export const ARCHIVE_EXPIRY_DAYS = 30;
@@ -99,6 +115,7 @@ export const DEFAULT_TERMINAL_SHELL = "system";
 
 export const DEFAULT_EDITOR_FONT_FAMILY = '"JetBrains Mono", Menlo, Monaco, monospace';
 export const DEFAULT_EDITOR_FONT_SIZE = 13;
+export const DEFAULT_EDITOR_WORD_WRAP = true;
 
 // NOTE: Config paths (CONFIG_DIR, PROJECTS_FILE, etc.) live in
 // packages/backend/src/config.ts — not here, because process.env.HOME

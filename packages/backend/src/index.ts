@@ -9,7 +9,7 @@ import { GitService } from "./services/git-service";
 import { FileWatcher } from "./services/file-watcher";
 import { detectEditors } from "./services/editor-detector";
 import { detectShells, resolveSystemShellPath } from "./services/shell-detector";
-import { detectRuntimes } from "./services/runtime-detector";
+import { detectRuntimes, detectAgents } from "./services/runtime-detector";
 import { registerProjectHandlers } from "./handlers/project";
 import { registerTaskHandlers } from "./handlers/task";
 import { registerSessionHandlers } from "./handlers/session";
@@ -17,7 +17,9 @@ import { registerFileHandlers } from "./handlers/file";
 import { registerGitHandlers } from "./handlers/git";
 import { registerSettingsHandlers } from "./handlers/settings";
 import { registerScriptsHandlers } from "./handlers/scripts";
+import { registerThemeHandlers } from "./handlers/theme";
 import { SettingsStore } from "./services/settings-store";
+import { ThemeService } from "./services/theme-service";
 import { ApiRouter } from "./api/router";
 import { registerApiRoutes } from "./api/routes";
 import { createTitleGenerator } from "./services/title-generator";
@@ -43,6 +45,7 @@ async function main() {
         });
         await store.init();
         await store.clearAllSessions();
+        await store.cleanupAllSessionLogs();
         await store.cleanExpiredArchives();
 
         const flowStore = new FlowStore(config.flowsDir, config.flowRunsDir);
@@ -140,6 +143,7 @@ async function main() {
             flowStore,
             flowRunner,
         });
+        const agents = await detectAgents();
         registerSessionHandlers({
             router,
             ptyManager,
@@ -154,7 +158,9 @@ async function main() {
         });
         registerGitHandlers({ router, git: gitService, taskStore: store });
 
-        registerSettingsHandlers(router, settingsStore);
+        const themeService = new ThemeService(config.themesDir);
+        registerSettingsHandlers({ router, settingsStore, taskStore: store });
+        registerThemeHandlers(router, themeService);
         registerScriptsHandlers(router);
         registerFlowHandlers({ router, flowStore, flowRunner });
         registerApiRoutes({
@@ -165,6 +171,9 @@ async function main() {
             settingsStore,
             flowStore,
             flowRunner,
+            generateTitle: (taskId, description) => {
+                void titleGenerator.generate(taskId, description);
+            },
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {
@@ -181,9 +190,13 @@ async function main() {
             systemShellPath,
         }));
         router.register(MSG.RUNTIMES_LIST, async () => ({ runtimes }));
+        router.register(MSG.AGENTS_LIST, async () => ({ agents }));
         console.log(`Detected shells: ${shells.map((s) => s.name).join(", ") || "none"}`);
         console.log(
             `Detected runtimes: ${runtimes.map((r) => r.name + " " + r.version).join(", ") || "none"}`,
+        );
+        console.log(
+            `Detected agents: ${agents.filter((a) => a.available).map((a) => a.type + " " + a.version).join(", ") || "none"}`,
         );
 
         const startedServer = await server.start();

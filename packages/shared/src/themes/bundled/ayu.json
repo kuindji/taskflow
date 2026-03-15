@@ -1,0 +1,32 @@
+{
+    "version": 1,
+    "name": "Ayu Dark",
+    "author": "ayu-theme",
+    "origin": "bundled",
+    "colors": {
+        "foreground": "#bfbdb6",
+        "background": "#0b0e14",
+        "cursor": "#bfbdb6",
+        "cursorText": "#0b0e14",
+        "selection": "#1b3a5b",
+        "selectionText": "#bfbdb6",
+        "ansi": {
+            "black": "#1e232b",
+            "red": "#ea6c73",
+            "green": "#7fd962",
+            "yellow": "#f9af4f",
+            "blue": "#53bdfa",
+            "magenta": "#cda1fa",
+            "cyan": "#90e1c6",
+            "white": "#c7c7c7",
+            "brightBlack": "#686868",
+            "brightRed": "#f07178",
+            "brightGreen": "#aad94c",
+            "brightYellow": "#ffb454",
+            "brightBlue": "#59c2ff",
+            "brightMagenta": "#d2a6ff",
+            "brightCyan": "#95e6cb",
+            "brightWhite": "#ffffff"
+        }
+    }
+}

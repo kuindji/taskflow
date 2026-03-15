@@ -96,6 +96,7 @@ describe("session handlers", () => {
                 events.push(event);
             },
             getPort: () => 0,
+            agents: [],
         });
         registerSessionHandlers({
             router,
@@ -217,7 +218,7 @@ describe("session handlers", () => {
         expect(archived?.sessions).toHaveLength(0);
     });
 
-    it("returns persisted session history after a session is no longer active", async () => {
+    it("returns session history while session is active and cleans up after exit", async () => {
         const task = (await router.handle(MSG.TASK_CREATE, {
             projectId,
             title: "Task",
@@ -229,7 +230,6 @@ describe("session handlers", () => {
 
         ptyManager.emit(created.sessionId, "step 1\n");
         ptyManager.emit(created.sessionId, "step 2\n");
-        ptyManager.close(created.sessionId);
 
         expect(
             await router.handle(MSG.SESSION_HISTORY, {
@@ -240,16 +240,27 @@ describe("session handlers", () => {
             data: "step 1\nstep 2\n",
             lastSequence: 2,
         });
+
+        ptyManager.close(created.sessionId);
+
+        expect(
+            await router.handle(MSG.SESSION_HISTORY, {
+                taskId: task.id,
+                sessionId: created.sessionId,
+            }),
+        ).toEqual({
+            data: "",
+            lastSequence: 0,
+        });
     });
 
-    it("returns persisted session history for project-level sessions", async () => {
+    it("returns session history for project-level sessions and cleans up after exit", async () => {
         const created = (await router.handle(MSG.SESSION_CREATE, {
             projectId,
             type: "codex",
         })) as { sessionId: string };
 
         ptyManager.emit(created.sessionId, "project step\n");
-        ptyManager.close(created.sessionId);
 
         expect(
             await router.handle(MSG.SESSION_HISTORY, {
@@ -259,6 +270,18 @@ describe("session handlers", () => {
         ).toEqual({
             data: "project step\n",
             lastSequence: 1,
+        });
+
+        ptyManager.close(created.sessionId);
+
+        expect(
+            await router.handle(MSG.SESSION_HISTORY, {
+                projectId,
+                sessionId: created.sessionId,
+            }),
+        ).toEqual({
+            data: "",
+            lastSequence: 0,
         });
     });
 });

@@ -13,4 +13,11 @@ interface CodexLaunchOptions {
 
 type AgentLaunchOptions = ClaudeLaunchOptions | CodexLaunchOptions;
 
-export type { AgentType, ClaudeLaunchOptions, CodexLaunchOptions, AgentLaunchOptions };
+interface AgentAvailability {
+    type: AgentType;
+    available: boolean;
+    path: string;
+    version: string;
+}
+
+export type { AgentType, ClaudeLaunchOptions, CodexLaunchOptions, AgentLaunchOptions, AgentAvailability };

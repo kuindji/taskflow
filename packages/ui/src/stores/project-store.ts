@@ -44,6 +44,7 @@ export const useProjectStore = create<ProjectStore>((set) => ({
         if (useUIStore.getState().activeProjectId === id) {
             useUIStore.getState().setActiveProject(null);
         }
+        useUIStore.getState().setProjectCollapsed(id, false);
         await useTaskStore.getState().fetchTasks();
     },
 }));

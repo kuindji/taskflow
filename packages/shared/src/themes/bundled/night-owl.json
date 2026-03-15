@@ -1,0 +1,32 @@
+{
+    "version": 1,
+    "name": "Night Owl",
+    "author": "Sarah Drasner",
+    "origin": "bundled",
+    "colors": {
+        "foreground": "#cccccc",
+        "background": "#011627",
+        "cursor": "#cccccc",
+        "cursorText": "#011627",
+        "selection": "#093b5e",
+        "selectionText": "#cccccc",
+        "ansi": {
+            "black": "#011627",
+            "red": "#ef5350",
+            "green": "#22da6e",
+            "yellow": "#c5e478",
+            "blue": "#82aaff",
+            "magenta": "#c792ea",
+            "cyan": "#21c7a8",
+            "white": "#ffffff",
+            "brightBlack": "#575656",
+            "brightRed": "#ef5350",
+            "brightGreen": "#22da6e",
+            "brightYellow": "#ffeb95",
+            "brightBlue": "#82aaff",
+            "brightMagenta": "#c792ea",
+            "brightCyan": "#7fdbca",
+            "brightWhite": "#ffffff"
+        }
+    }
+}

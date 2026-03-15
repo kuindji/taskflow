@@ -6,6 +6,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import type { AgentLaunchOptions, ShellInfo } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG, type ShellListResponse } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
+import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -86,7 +87,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
             {isEditing ? (
                 <input
                     ref={inputRef}
-                    className="bg-transparent text-inherit outline-none border-none p-0 m-0 w-20 text-sm"
+                    className="m-0 w-20 border-none bg-transparent p-0 text-sm text-inherit outline-none"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
                     onBlur={commitRename}
@@ -126,7 +127,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
                     onTabClose(tab.id);
                 }}
             >
-                <X className="size-2.5" />
+                <X className="size-3" />
             </Button>
         </div>
     );
@@ -171,6 +172,9 @@ export function TabBar({
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [claudePopoverOpen, setClaudePopoverOpen] = useState(false);
     const [codexPopoverOpen, setCodexPopoverOpen] = useState(false);
+    const agents = useAgentAvailability();
+    const claudeAvailable = isAgentAvailable(agents, "claude");
+    const codexAvailable = isAgentAvailable(agents, "codex");
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
@@ -238,37 +242,47 @@ export function TabBar({
                         {showAgentOptions && (
                             <>
                                 {scriptNames.length > 0 && <DropdownMenuSeparator />}
-                                <DropdownMenuItem onClick={() => onRunTab("claude")}>
+                                <DropdownMenuItem
+                                    disabled={!claudeAvailable}
+                                    onClick={() => claudeAvailable && onRunTab("claude")}
+                                >
                                     <ClaudeIcon className="mr-2 h-4 w-4" />
-                                    Claude Code
+                                    Claude Code{!claudeAvailable ? " (not installed)" : ""}
                                 </DropdownMenuItem>
                                 <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger>
+                                    <DropdownMenuSubTrigger disabled={!claudeAvailable}>
                                         <ClaudeIcon className="mr-2 h-4 w-4" />
                                         Claude Code with options
                                     </DropdownMenuSubTrigger>
-                                    <DropdownMenuSubContent className="p-0">
-                                        <AgentOptionsPanel
-                                            agentType="claude"
-                                            onRun={(options) => onRunTab("claude", options)}
-                                        />
-                                    </DropdownMenuSubContent>
+                                    {claudeAvailable && (
+                                        <DropdownMenuSubContent className="p-0">
+                                            <AgentOptionsPanel
+                                                agentType="claude"
+                                                onRun={(options) => onRunTab("claude", options)}
+                                            />
+                                        </DropdownMenuSubContent>
+                                    )}
                                 </DropdownMenuSub>
-                                <DropdownMenuItem onClick={() => onRunTab("codex")}>
+                                <DropdownMenuItem
+                                    disabled={!codexAvailable}
+                                    onClick={() => codexAvailable && onRunTab("codex")}
+                                >
                                     <CodexIcon className="mr-2 h-4 w-4" />
-                                    Codex
+                                    Codex{!codexAvailable ? " (not installed)" : ""}
                                 </DropdownMenuItem>
                                 <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger>
+                                    <DropdownMenuSubTrigger disabled={!codexAvailable}>
                                         <CodexIcon className="mr-2 h-4 w-4" />
                                         Codex with options
                                     </DropdownMenuSubTrigger>
-                                    <DropdownMenuSubContent className="p-0">
-                                        <AgentOptionsPanel
-                                            agentType="codex"
-                                            onRun={(options) => onRunTab("codex", options)}
-                                        />
-                                    </DropdownMenuSubContent>
+                                    {codexAvailable && (
+                                        <DropdownMenuSubContent className="p-0">
+                                            <AgentOptionsPanel
+                                                agentType="codex"
+                                                onRun={(options) => onRunTab("codex", options)}
+                                            />
+                                        </DropdownMenuSubContent>
+                                    )}
                                 </DropdownMenuSub>
                             </>
                         )}
@@ -283,7 +297,9 @@ export function TabBar({
                                 variant="ghost"
                                 size="icon-xs"
                                 className="text-warning"
+                                disabled={!claudeAvailable}
                                 onClick={(e) => {
+                                    if (!claudeAvailable) return;
                                     if (e.shiftKey) {
                                         setClaudePopoverOpen(true);
                                     } else {
@@ -291,7 +307,7 @@ export function TabBar({
                                     }
                                 }}
                                 aria-label="New Claude session"
-                                tooltip="New Claude session (Shift+click for options)"
+                                tooltip={claudeAvailable ? "New Claude session (Shift+click for options)" : "Claude CLI not installed"}
                                 tooltipSide="bottom"
                             >
                                 <ClaudeIcon className="h-3.5 w-3.5" />
@@ -313,7 +329,9 @@ export function TabBar({
                                 variant="ghost"
                                 size="icon-xs"
                                 className="text-success"
+                                disabled={!codexAvailable}
                                 onClick={(e) => {
+                                    if (!codexAvailable) return;
                                     if (e.shiftKey) {
                                         setCodexPopoverOpen(true);
                                     } else {
@@ -321,7 +339,7 @@ export function TabBar({
                                     }
                                 }}
                                 aria-label="New Codex session"
-                                tooltip="New Codex session (Shift+click for options)"
+                                tooltip={codexAvailable ? "New Codex session (Shift+click for options)" : "Codex CLI not installed"}
                                 tooltipSide="bottom"
                             >
                                 <CodexIcon className="h-3.5 w-3.5" />

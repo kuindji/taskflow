@@ -180,7 +180,10 @@ describe("task handlers", () => {
         await router.handle(MSG.TASK_DELETE, { id: task.id, deleteWorktree: true });
 
         expect(gitService.removedWorktrees).toEqual([
-            { repoPath: projectPath, worktreePath: join(projectPath, ".worktrees", "worktree-task") },
+            {
+                repoPath: projectPath,
+                worktreePath: join(projectPath, ".worktrees", "worktree-task"),
+            },
         ]);
         expect(gitService.deletedBranches).toEqual([
             { repoPath: projectPath, branch: "task/worktree-task" },

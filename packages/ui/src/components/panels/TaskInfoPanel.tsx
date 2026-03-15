@@ -4,11 +4,12 @@ import { X } from "lucide-react";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 const logTypeStyles: Record<TaskLogEntryType, string> = {
     info: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -33,22 +34,27 @@ function TaskInfoPanel() {
     const { updateTask, fetchTaskLog } = useTaskStore();
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const taskLogs = useTaskStore((s) => (task ? s.taskLogs[task.id] : undefined));
+    const [titleDraft, setTitleDraft] = useState("");
     const [descriptionDraft, setDescriptionDraft] = useState("");
     const [notesDraft, setNotesDraft] = useState("");
-    const lastSavedRef = useRef({ description: "", notes: "" });
-    const draftRef = useRef({ description: "", notes: "" });
+    const lastSavedRef = useRef({ title: "", description: "", notes: "" });
+    const draftRef = useRef({ title: "", description: "", notes: "" });
     const taskId = task?.id ?? null;
 
     useEffect(() => {
         draftRef.current = {
+            title: titleDraft,
             description: descriptionDraft,
             notes: notesDraft,
         };
     });
 
     const persistDrafts = useCallback(
-        (targetTaskId: string, description: string, notes: string) => {
-            const updates: { description?: string; notes?: string } = {};
+        (targetTaskId: string, title: string, description: string, notes: string) => {
+            const updates: { title?: string; description?: string; notes?: string } = {};
+            if (title !== lastSavedRef.current.title) {
+                updates.title = title;
+            }
             if (description !== lastSavedRef.current.description) {
                 updates.description = description;
             }
@@ -57,7 +63,7 @@ function TaskInfoPanel() {
             }
             if (Object.keys(updates).length === 0) return;
 
-            lastSavedRef.current = { description, notes };
+            lastSavedRef.current = { title, description, notes };
 
             void updateTask(targetTaskId, updates).catch((err: unknown) => {
                 console.error("Failed to update task:", err);
@@ -68,15 +74,18 @@ function TaskInfoPanel() {
 
     useEffect(() => {
         if (!task) {
+            setTitleDraft("");
             setDescriptionDraft("");
             setNotesDraft("");
-            lastSavedRef.current = { description: "", notes: "" };
+            lastSavedRef.current = { title: "", description: "", notes: "" };
             return;
         }
 
+        setTitleDraft(task.title);
         setDescriptionDraft(task.description);
         setNotesDraft(task.notes);
         lastSavedRef.current = {
+            title: task.title,
             description: task.description,
             notes: task.notes,
         };
@@ -87,6 +96,7 @@ function TaskInfoPanel() {
     useEffect(() => {
         if (!taskId) return;
         if (
+            titleDraft === lastSavedRef.current.title &&
             descriptionDraft === lastSavedRef.current.description &&
             notesDraft === lastSavedRef.current.notes
         ) {
@@ -94,16 +104,26 @@ function TaskInfoPanel() {
         }
 
         const timeoutId = window.setTimeout(() => {
-            persistDrafts(taskId, draftRef.current.description, draftRef.current.notes);
+            persistDrafts(
+                taskId,
+                draftRef.current.title,
+                draftRef.current.description,
+                draftRef.current.notes,
+            );
         }, 400);
         return () => window.clearTimeout(timeoutId);
-    }, [descriptionDraft, notesDraft, persistDrafts, taskId]);
+    }, [descriptionDraft, notesDraft, persistDrafts, taskId, titleDraft]);
 
     // Flush unsaved changes before switching tasks and on unmount.
     useEffect(() => {
         return () => {
             if (!taskId) return;
-            persistDrafts(taskId, draftRef.current.description, draftRef.current.notes);
+            persistDrafts(
+                taskId,
+                draftRef.current.title,
+                draftRef.current.description,
+                draftRef.current.notes,
+            );
         };
     }, [persistDrafts, taskId]);
 
@@ -131,7 +151,7 @@ function TaskInfoPanel() {
                     </Button>
                 </div>
                 <Separator />
-                <ScrollArea className="flex-1 p-3">
+                <div className="flex-1 overflow-y-auto p-3">
                     <div className="space-y-4">
                         <div>
                             <label className="text-muted-foreground text-xs font-medium">
@@ -164,7 +184,7 @@ function TaskInfoPanel() {
                             </div>
                         </div>
                     </div>
-                </ScrollArea>
+                </div>
             </div>
         );
     }
@@ -191,8 +211,20 @@ function TaskInfoPanel() {
             </div>
             <Separator />
 
-            <ScrollArea className="flex-1 p-3">
+            <div className="flex-1 overflow-y-auto p-3">
                 <div className="space-y-4">
+                    <div>
+                        <label className="text-muted-foreground text-xs font-medium">Title</label>
+                        <Input
+                            value={titleDraft}
+                            onChange={(e) => setTitleDraft(e.target.value)}
+                            placeholder="Short task name..."
+                            className="mt-1 text-sm"
+                        />
+                    </div>
+
+                    <Separator className="my-4" />
+
                     {/* Description */}
                     <div>
                         <label className="text-muted-foreground text-xs font-medium">
@@ -214,10 +246,14 @@ function TaskInfoPanel() {
                             <label className="text-muted-foreground text-xs font-medium">
                                 Branch
                             </label>
-                            <div className="mt-1">
+                            <div className="mt-1 flex items-center gap-1">
                                 <Badge variant="outline" colorScheme="active">
                                     {task.worktree.branch}
                                 </Badge>
+                                <CopyButton
+                                    value={task.worktree.branch}
+                                    tooltip="Copy branch name"
+                                />
                             </div>
                         </div>
                     )}
@@ -228,8 +264,13 @@ function TaskInfoPanel() {
                             <label className="text-muted-foreground text-xs font-medium">
                                 Worktree
                             </label>
-                            <div className="text-secondary-foreground mt-1 text-sm">
-                                {task.worktree.path}
+                            <div className="text-secondary-foreground mt-1 flex items-center gap-1 text-sm">
+                                <span className="break-all">{task.worktree.path}</span>
+                                <CopyButton
+                                    value={task.worktree.path}
+                                    tooltip="Copy worktree path"
+                                    className="shrink-0"
+                                />
                             </div>
                         </div>
                     )}
@@ -297,7 +338,7 @@ function TaskInfoPanel() {
                         </>
                     )}
                 </div>
-            </ScrollArea>
+            </div>
         </div>
     );
 }

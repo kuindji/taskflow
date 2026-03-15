@@ -8,3 +8,4 @@ release/
 *.taskflow-port
 .worktrees/
 .claude/settings.local.json
+.playwright-mcp/

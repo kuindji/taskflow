@@ -26,6 +26,7 @@ export interface TerminalSettings {
 export interface EditorSettings {
     fontFamily: string;
     fontSize: number;
+    wordWrap: boolean;
 }
 
 export interface WindowSettings {
@@ -41,11 +42,16 @@ export interface PanelSettings {
     fileExplorerWidth: number;
     taskInfoWidth: number;
     compactSidebar: boolean;
+    collapsedProjectIds: string[];
 }
 
 export interface LayoutSettings {
     window: WindowSettings;
     panels: PanelSettings;
+}
+
+export interface AppearanceSettings {
+    theme: string;
 }
 
 export interface AppSettings {
@@ -55,6 +61,7 @@ export interface AppSettings {
     layout: LayoutSettings;
     claude: ClaudeSettings;
     codex: CodexSettings;
+    appearance: AppearanceSettings;
 }
 
 export interface SettingsUpdatePayload {
@@ -67,4 +74,5 @@ export interface SettingsUpdatePayload {
     };
     claude?: Partial<ClaudeSettings>;
     codex?: Partial<CodexSettings>;
+    appearance?: Partial<AppearanceSettings>;
 }

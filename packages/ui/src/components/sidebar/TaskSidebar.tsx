@@ -4,17 +4,27 @@ import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useUIStore } from "@/stores/ui-store";
+import { updateCollapsedProjectIds, useUIStore } from "@/stores/ui-store";
 import { useFlowStore } from "@/stores/flow-store";
 import { useDiffStore } from "@/stores/diff-store";
+import { useThemeStore } from "@/stores/theme-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
-import { Plus, Settings2, Workflow } from "lucide-react";
+import { ArrowDownToLine, Loader2, Palette, Plus, Settings2, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export function TaskSidebar() {
     const { connected } = useWsStatus();
@@ -25,16 +35,26 @@ export function TaskSidebar() {
     const setShowArchive = useTaskStore((s) => s.setShowArchive);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
+    const collapsedProjectIds = useUIStore((s) => s.collapsedProjectIds);
+    const setProjectCollapsed = useUIStore((s) => s.setProjectCollapsed);
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
     const syncWithProjects = useSessionStore((s) => s.syncWithProjects);
     const fetchSettings = useSettingsStore((s) => s.fetchSettings);
+    const updateSettings = useSettingsStore((s) => s.updateSettings);
     const compactSidebar = useSettingsStore(
         (s) => s.settings?.layout?.panels?.compactSidebar ?? false,
     );
     const openSettings = useUIStore((s) => s.openSettings);
     const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
+    const toggleAppearance = useUIStore((s) => s.toggleAppearance);
+    const fetchThemes = useThemeStore((s) => s.fetchThemes);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
+    const [updateStatus, setUpdateStatus] = useState<{
+        status: "idle" | "checking" | "downloading" | "ready";
+        version?: string;
+    }>({ status: "idle" });
+    const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
     const diffStatsByProject = useDiffStore((s) => s.statsByProject);
     const startPolling = useDiffStore((s) => s.startPolling);
 
@@ -42,10 +62,23 @@ export function TaskSidebar() {
         if (!connected) return;
         void fetchProjects();
         void fetchTasks();
-        void fetchSettings();
         void useFlowStore.getState().fetchFlows();
         void useFlowStore.getState().fetchSteps();
-    }, [connected, fetchProjects, fetchTasks, fetchSettings]);
+
+        void (async () => {
+            try {
+                await fetchSettings();
+            } catch {
+                // Keep existing defaults if settings are temporarily unavailable.
+            }
+
+            try {
+                await fetchThemes();
+            } catch {
+                // Theme store already has a bundled fallback; keep the app usable.
+            }
+        })();
+    }, [connected, fetchProjects, fetchTasks, fetchSettings, fetchThemes]);
 
     useEffect(() => {
         syncWithTasks(tasks);
@@ -94,6 +127,16 @@ export function TaskSidebar() {
                 .getState()
                 .updateSettings({ layout: { panels: { compactSidebar: next } } });
             window.taskflow?.sendCompactSidebarState(next);
+        });
+        return cleanup;
+    }, []);
+
+    useEffect(() => {
+        const cleanup = window.taskflow?.onUpdateStatus((payload) => {
+            setUpdateStatus({
+                status: payload.status as "idle" | "checking" | "downloading" | "ready",
+                version: payload.version,
+            });
         });
         return cleanup;
     }, []);
@@ -159,6 +202,25 @@ export function TaskSidebar() {
         [setActiveProject, setActiveTask, tasks],
     );
 
+    const handleProjectOpenChange = useCallback(
+        (projectId: string, open: boolean) => {
+            const nextCollapsedProjectIds = updateCollapsedProjectIds(
+                useUIStore.getState().collapsedProjectIds,
+                projectId,
+                !open,
+            );
+            setProjectCollapsed(projectId, !open);
+            void updateSettings({
+                layout: {
+                    panels: {
+                        collapsedProjectIds: nextCollapsedProjectIds,
+                    },
+                },
+            });
+        },
+        [setProjectCollapsed, updateSettings],
+    );
+
     return (
         <>
             <div className="border-border flex min-h-9 items-center justify-between gap-2 border-b px-1.5 py-1.5">
@@ -174,7 +236,7 @@ export function TaskSidebar() {
                                 variant="ghost"
                                 size="xs"
                                 onClick={() => handleOpenProjectDialog()}
-                                className="text-muted-foreground [-webkit-app-region:no-drag]"
+                                className="[-webkit-app-region:no-drag]"
                             >
                                 <Plus className="h-4 w-4" />
                                 Project
@@ -183,7 +245,7 @@ export function TaskSidebar() {
                     )}
                 </div>
             </div>
-            <ScrollArea className="flex-1 py-1 [&_[data-slot=scroll-area-viewport]]:!overflow-x-hidden [&_[data-slot=scroll-area-viewport]]:!overflow-y-auto [&_[data-slot=scroll-area-viewport]>div]:!block">
+            <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
                 {!showArchive && projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>
@@ -202,6 +264,7 @@ export function TaskSidebar() {
                 )}
                 {visibleProjects.map((project) => {
                     const projectTasks = tasksByProject.get(project.id) ?? [];
+                    const projectOpen = !collapsedProjectIds.includes(project.id);
                     return (
                         <ProjectGroup
                             key={project.id}
@@ -210,38 +273,95 @@ export function TaskSidebar() {
                             activeTaskId={activeTaskId}
                             isActive={!activeTaskId && activeProjectId === project.id}
                             diffStats={diffStatsByProject[project.id]}
+                            diffStatsByTask={diffStatsByProject}
                             onProjectClick={handleProjectClick}
                             onTaskClick={handleTaskClick}
                             archived={showArchive}
                             compact={compactSidebar}
+                            open={projectOpen}
+                            onOpenChange={(open) => handleProjectOpenChange(project.id, open)}
                         />
                     );
                 })}
-            </ScrollArea>
+            </div>
             <Separator />
-            <div className="flex items-center justify-end gap-1 px-1.5 py-1.5">
-                <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={toggleFlowManagement}
-                    aria-label="Flows"
-                    tooltip="Flows"
-                    tooltipSide="bottom"
-                    className="text-muted-foreground [-webkit-app-region:no-drag]"
-                >
-                    <Workflow className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={openSettings}
-                    aria-label="Settings"
-                    tooltip="Settings"
-                    tooltipSide="bottom"
-                    className="text-muted-foreground [-webkit-app-region:no-drag]"
-                >
-                    <Settings2 className="h-3.5 w-3.5" />
-                </Button>
+            <div className="flex items-center justify-between px-1.5 py-1.5">
+                <div className="flex items-center">
+                    {updateStatus.status === "checking" && (
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            disabled
+                            aria-label="Checking for updates"
+                            tooltip="Checking for updates…"
+                            tooltipSide="right"
+                            className="text-muted-foreground [-webkit-app-region:no-drag]"
+                        >
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        </Button>
+                    )}
+                    {updateStatus.status === "downloading" && (
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            disabled
+                            aria-label="Downloading update"
+                            tooltip={`Downloading v${updateStatus.version ?? ""}…`}
+                            tooltipSide="right"
+                            className="text-muted-foreground [-webkit-app-region:no-drag]"
+                        >
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        </Button>
+                    )}
+                    {updateStatus.status === "ready" && (
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => setUpdateDialogOpen(true)}
+                            aria-label="Update available"
+                            tooltip={`v${updateStatus.version ?? ""} available — click to update`}
+                            tooltipSide="right"
+                            className="text-accent [-webkit-app-region:no-drag]"
+                        >
+                            <ArrowDownToLine className="h-3.5 w-3.5" />
+                        </Button>
+                    )}
+                </div>
+                <div className="flex items-center">
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={toggleFlowManagement}
+                        aria-label="Flows"
+                        tooltip="Flows"
+                        tooltipSide="bottom"
+                        className="text-muted-foreground [-webkit-app-region:no-drag]"
+                    >
+                        <Workflow className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={toggleAppearance}
+                        aria-label="Appearance"
+                        tooltip="Appearance"
+                        tooltipSide="bottom"
+                        className="text-muted-foreground [-webkit-app-region:no-drag]"
+                    >
+                        <Palette className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={openSettings}
+                        aria-label="Settings"
+                        tooltip="Settings"
+                        tooltipSide="bottom"
+                        className="text-muted-foreground [-webkit-app-region:no-drag]"
+                    >
+                        <Settings2 className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
             </div>
             <NewProjectDialog
                 open={newProjectOpen}
@@ -249,6 +369,26 @@ export function TaskSidebar() {
                 onSubmit={(path) => void handleProjectSubmit(path)}
                 error={projectError}
             />
+            <AlertDialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
+                <AlertDialogContent size="sm">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Update Available</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Taskflow v{updateStatus.version} is ready to install. The app will
+                            restart to apply the update.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel size="sm">Later</AlertDialogCancel>
+                        <AlertDialogAction
+                            size="sm"
+                            onClick={() => window.taskflow?.quitAndInstallUpdate()}
+                        >
+                            Restart Now
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }

@@ -73,6 +73,7 @@ export default tseslint.config(
             "packages/backend/src/**/*.ts",
             "packages/backend/tests/**/*.ts",
             "packages/shared/src/**/*.ts",
+            "packages/shared/tests/**/*.ts",
         ],
         languageOptions: {
             globals: {
@@ -111,6 +112,14 @@ export default tseslint.config(
     {
         files: ["eslint.config.js"],
         ...tseslint.configs.disableTypeChecked,
+    },
+
+    // Test files: relax non-null assertions (common in test assertions)
+    {
+        files: ["**/tests/**/*.ts"],
+        rules: {
+            "@typescript-eslint/no-non-null-assertion": "off",
+        },
     },
 
     // Disable formatting rules that conflict with Prettier (must be last)

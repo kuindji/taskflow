@@ -56,9 +56,17 @@ describe("GitService", () => {
 
         const status = await git.status(repoDir);
         expect(status.stagedFiles).toHaveLength(1);
-        expect(status.stagedFiles[0]).toMatchObject({ path: "staged.txt", status: "new", staged: true });
+        expect(status.stagedFiles[0]).toMatchObject({
+            path: "staged.txt",
+            status: "new",
+            staged: true,
+        });
         expect(status.unstagedFiles).toHaveLength(1);
-        expect(status.unstagedFiles[0]).toMatchObject({ path: "initial.txt", status: "modified", staged: false });
+        expect(status.unstagedFiles[0]).toMatchObject({
+            path: "initial.txt",
+            status: "modified",
+            staged: false,
+        });
     });
 
     it("shows partially staged file in both arrays", async () => {
@@ -68,9 +76,17 @@ describe("GitService", () => {
 
         const status = await git.status(repoDir);
         expect(status.stagedFiles).toHaveLength(1);
-        expect(status.stagedFiles[0]).toMatchObject({ path: "initial.txt", status: "modified", staged: true });
+        expect(status.stagedFiles[0]).toMatchObject({
+            path: "initial.txt",
+            status: "modified",
+            staged: true,
+        });
         expect(status.unstagedFiles).toHaveLength(1);
-        expect(status.unstagedFiles[0]).toMatchObject({ path: "initial.txt", status: "modified", staged: false });
+        expect(status.unstagedFiles[0]).toMatchObject({
+            path: "initial.txt",
+            status: "modified",
+            staged: false,
+        });
     });
 
     it("shows untracked files only in unstaged", async () => {
@@ -78,7 +94,11 @@ describe("GitService", () => {
         const status = await git.status(repoDir);
         expect(status.stagedFiles).toHaveLength(0);
         expect(status.unstagedFiles).toHaveLength(1);
-        expect(status.unstagedFiles[0]).toMatchObject({ path: "untracked.txt", status: "untracked", staged: false });
+        expect(status.unstagedFiles[0]).toMatchObject({
+            path: "untracked.txt",
+            status: "untracked",
+            staged: false,
+        });
     });
 
     it("gets diff", async () => {
@@ -93,7 +113,12 @@ describe("GitService", () => {
         await writeFile(join(repoDir, "new.txt"), "new file");
         const diff = await git.diff(repoDir);
         expect(diff.files).toHaveLength(1);
-        expect(diff.files[0]).toMatchObject({ path: "new.txt", additions: 1, deletions: 0, staged: false });
+        expect(diff.files[0]).toMatchObject({
+            path: "new.txt",
+            additions: 1,
+            deletions: 0,
+            staged: false,
+        });
         expect(diff.files[0].diff).toContain("new file");
     });
 
@@ -102,7 +127,12 @@ describe("GitService", () => {
         await run(["git", "add", "staged.txt"], repoDir);
         const diff = await git.diff(repoDir);
         expect(diff.files).toHaveLength(1);
-        expect(diff.files[0]).toMatchObject({ path: "staged.txt", additions: 1, deletions: 0, staged: true });
+        expect(diff.files[0]).toMatchObject({
+            path: "staged.txt",
+            additions: 1,
+            deletions: 0,
+            staged: true,
+        });
         expect(diff.files[0].diff).toContain("staged file");
     });
 

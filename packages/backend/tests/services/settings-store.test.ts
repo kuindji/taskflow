@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
+    DEFAULT_EDITOR_WORD_WRAP,
     DEFAULT_TERMINAL_FONT_FAMILY,
     DEFAULT_TERMINAL_SHELL,
 } from "@taskflow/shared";
@@ -17,11 +18,13 @@ const DEFAULT_LAYOUT = {
         fileExplorerWidth: 220,
         taskInfoWidth: 220,
         compactSidebar: false,
+        collapsedProjectIds: [],
     },
 };
 
 const DEFAULT_CLAUDE = { defaultModel: "default" as const, fullAccess: false };
 const DEFAULT_CODEX = { fullAccess: false };
+const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
 
 describe("SettingsStore", () => {
     let tempDir: string;
@@ -56,10 +59,12 @@ describe("SettingsStore", () => {
             editor: {
                 fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
+                wordWrap: DEFAULT_EDITOR_WORD_WRAP,
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            appearance: DEFAULT_APPEARANCE,
         });
 
         first.editor.fontSize = 20;
@@ -80,10 +85,12 @@ describe("SettingsStore", () => {
             editor: {
                 fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
+                wordWrap: DEFAULT_EDITOR_WORD_WRAP,
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            appearance: DEFAULT_APPEARANCE,
         });
     });
 
@@ -112,10 +119,12 @@ describe("SettingsStore", () => {
             editor: {
                 fontFamily: "Fira Code",
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
+                wordWrap: DEFAULT_EDITOR_WORD_WRAP,
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            appearance: DEFAULT_APPEARANCE,
         });
 
         expect(await store.update({ editor: { fontSize: 16 } })).toEqual({
@@ -134,10 +143,12 @@ describe("SettingsStore", () => {
             editor: {
                 fontFamily: "Fira Code",
                 fontSize: 16,
+                wordWrap: DEFAULT_EDITOR_WORD_WRAP,
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            appearance: DEFAULT_APPEARANCE,
         });
     });
 
@@ -150,6 +161,7 @@ describe("SettingsStore", () => {
                 fileExplorerWidth: 220,
                 taskInfoWidth: 220,
                 compactSidebar: false,
+                collapsedProjectIds: [],
             },
         });
     });
@@ -161,6 +173,15 @@ describe("SettingsStore", () => {
 
         expect(result.terminal.defaultShell).toBe("/bin/bash");
         expect((await store.get()).terminal.defaultShell).toBe("/bin/bash");
+    });
+
+    it("persists appearance.theme setting", async () => {
+        const result = await store.update({
+            appearance: { theme: "dracula" },
+        });
+
+        expect(result.appearance.theme).toBe("dracula");
+        expect((await store.get()).appearance.theme).toBe("dracula");
     });
 
     it("merges partial layout.window with defaults", async () => {
@@ -182,6 +203,7 @@ describe("SettingsStore", () => {
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
             compactSidebar: false,
+            collapsedProjectIds: [],
         });
     });
 
@@ -206,6 +228,26 @@ describe("SettingsStore", () => {
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
             compactSidebar: false,
+            collapsedProjectIds: [],
+        });
+    });
+
+    it("merges persisted collapsed project ids with panel defaults", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({
+                layout: { panels: { collapsedProjectIds: ["project-a", "project-b"] } },
+            }),
+        );
+
+        const settings = await store.get();
+
+        expect(settings.layout.panels).toEqual({
+            sidebarWidth: 220,
+            fileExplorerWidth: 220,
+            taskInfoWidth: 220,
+            compactSidebar: false,
+            collapsedProjectIds: ["project-a", "project-b"],
         });
     });
 

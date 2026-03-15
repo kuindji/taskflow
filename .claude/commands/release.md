@@ -17,4 +17,5 @@ Once all pre-checks pass:
 2. Create a git tag `v{version}` and push it to origin.
 3. Run the release build: `GH_TOKEN={token} bun run release`
 4. After the build completes, verify the release was published by running `gh release view v{version}`.
-5. Report the release URL to the user.
+5. Release draft.
+6. Report the release URL to the user.

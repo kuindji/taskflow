@@ -3,6 +3,7 @@
 interface TaskflowBridge {
     getBackendPort(): Promise<number>;
     selectProjectDirectory(): Promise<string | null>;
+    selectThemeFile(): Promise<string | null>;
     openExternalUrl(url: string): Promise<void>;
     openExternalFile(
         filePath: string,
@@ -17,6 +18,14 @@ interface TaskflowBridge {
     sendArchiveState(showArchive: boolean): void;
     onToggleCompactSidebar(callback: () => void): () => void;
     sendCompactSidebarState(compact: boolean): void;
+    onToggleFileExplorer(callback: () => void): () => void;
+    sendFileExplorerState(open: boolean): void;
+    onToggleTaskInfo(callback: () => void): () => void;
+    sendTaskInfoState(open: boolean): void;
+    onToggleWordWrap(callback: () => void): () => void;
+    sendWordWrapState(enabled: boolean): void;
+    onUpdateStatus(callback: (payload: { status: string; version?: string }) => void): () => void;
+    quitAndInstallUpdate(): void;
 }
 
 declare global {

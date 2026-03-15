@@ -11,30 +11,49 @@ function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
 }
 
+export function updateCollapsedProjectIds(
+    current: string[],
+    projectId: string,
+    collapsed: boolean,
+): string[] {
+    if (collapsed) {
+        if (current.includes(projectId)) return current;
+        return [...current, projectId];
+    }
+
+    return current.filter((id) => id !== projectId);
+}
+
 interface UIStore {
     activeProjectId: string | null;
     fileExplorerOpen: boolean;
     taskInfoOpen: boolean;
     settingsOpen: boolean;
     flowManagementOpen: boolean;
+    appearanceOpen: boolean;
     sidebarWidth: number;
     fileExplorerWidth: number;
     taskInfoWidth: number;
     panelGap: number;
+    collapsedProjectIds: string[];
     toggleFileExplorer(): void;
     toggleTaskInfo(): void;
     openSettings(): void;
     toggleSettings(): void;
     toggleFlowManagement(): void;
+    setAppearanceOpen(open: boolean): void;
+    toggleAppearance(): void;
     setActiveProject(id: string | null): void;
     setSidebarWidth(width: number): void;
     setFileExplorerWidth(width: number): void;
     setTaskInfoWidth(width: number): void;
     setPanelGap(gap: number): void;
+    setProjectCollapsed(projectId: string, collapsed: boolean): void;
     hydrateLayout(panels: {
         sidebarWidth?: number;
         fileExplorerWidth?: number;
         taskInfoWidth?: number;
+        collapsedProjectIds?: string[];
     }): void;
 }
 
@@ -44,10 +63,12 @@ export const useUIStore = create<UIStore>((set) => ({
     taskInfoOpen: false,
     settingsOpen: false,
     flowManagementOpen: false,
+    appearanceOpen: false,
     sidebarWidth: 220,
     fileExplorerWidth: 220,
     taskInfoWidth: 220,
     panelGap: 4,
+    collapsedProjectIds: [],
     toggleFileExplorer() {
         set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen }));
     },
@@ -62,6 +83,12 @@ export const useUIStore = create<UIStore>((set) => ({
     },
     toggleFlowManagement() {
         set((s) => ({ flowManagementOpen: !s.flowManagementOpen }));
+    },
+    setAppearanceOpen(open) {
+        set({ appearanceOpen: open });
+    },
+    toggleAppearance() {
+        set((s) => ({ appearanceOpen: !s.appearanceOpen }));
     },
     setActiveProject(id) {
         set({ activeProjectId: id });
@@ -78,6 +105,15 @@ export const useUIStore = create<UIStore>((set) => ({
     setPanelGap(gap) {
         set({ panelGap: gap });
     },
+    setProjectCollapsed(projectId, collapsed) {
+        set((s) => ({
+            collapsedProjectIds: updateCollapsedProjectIds(
+                s.collapsedProjectIds,
+                projectId,
+                collapsed,
+            ),
+        }));
+    },
     hydrateLayout(panels) {
         set({
             sidebarWidth: clamp(panels.sidebarWidth ?? 220, SIDEBAR_MIN, SIDEBAR_MAX),
@@ -87,6 +123,7 @@ export const useUIStore = create<UIStore>((set) => ({
                 FILE_EXPLORER_MAX,
             ),
             taskInfoWidth: clamp(panels.taskInfoWidth ?? 220, TASK_INFO_MIN, TASK_INFO_MAX),
+            collapsedProjectIds: panels.collapsedProjectIds ?? [],
         });
     },
 }));
