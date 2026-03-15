@@ -57,7 +57,7 @@ The integration follows the exact same patterns used by Claude and Codex agents.
 
 **`handlers/session.ts`**
 - Add `"opencode"` to `getDefaultSessionLabel()` → returns `"OpenCode"`.
-- The spawn path is already agent-agnostic via `buildAgentLaunchSpec`.
+- Merge `spec.env` into PTY spawn environment: `env: { ...taskflowEnv, ...spec.env }` at the `ptyManager.spawn()` call.
 
 **`services/settings-store.ts`**
 - Add `opencode` defaults: `{ defaultModel: "", fullAccess: false }`
@@ -95,15 +95,22 @@ This env var will be passed via the PTY spawn's environment, alongside existing 
 - Add OpenCode entry in the Run dropdown menu.
 - Extend `onNewTab` / `onRunTab` type unions.
 
+**`components/workspace/Workspace.tsx`**
+- Add `"opencode"` to `handleNewTab` parameter type (`"claude" | "codex" | "opencode" | "browser" | "shell"`).
+- Add `"opencode"` to `handleRunTab` parameter type (`"claude" | "codex" | "opencode"`).
+
 **`components/sidebar/NewTaskDialog.tsx`**
 - Add `"opencode"` option to "Start immediately with" select.
+- Extend `startWith` type to include `"opencode"`.
 - Disabled state from `isAgentAvailable`.
 
 **`components/sidebar/TaskCreationDialogHost.tsx`**
 - Extend `PendingSession.type` to include `"opencode"`.
+- Extend `handleCreateTask` `startWith` parameter type to include `"opencode"`.
 
 **`stores/session-store.ts`**
 - Add `"opencode"` to `Tab.type` union.
+- Add `"opencode"` to `createSession` parameter type.
 - Add `"opencode"` to `getDefaultSessionLabel()`.
 - Add `"opencode"` to `usesTerminalActivityStatus` check.
 
@@ -114,6 +121,7 @@ This env var will be passed via the PTY spawn's environment, alongside existing 
   - Default model: free-text input with placeholder.
   - Full access toggle.
 - Add "OpenCode" to the default agent select dropdown.
+- Widen `handleDefaultAgent` guard clause to accept `"opencode"` (currently only allows `"claude" | "codex"`).
 
 ## Key Differences from Claude/Codex
 
@@ -156,7 +164,8 @@ The session handler merges this `env` into the PTY spawn environment. Claude and
 ### UI
 9. `packages/ui/src/components/workspace/AgentOptionsPanel.tsx`
 10. `packages/ui/src/components/workspace/TabBar.tsx`
-11. `packages/ui/src/components/sidebar/NewTaskDialog.tsx`
-12. `packages/ui/src/components/sidebar/TaskCreationDialogHost.tsx`
-13. `packages/ui/src/stores/session-store.ts`
-14. `packages/ui/src/components/settings/SettingsModal.tsx`
+11. `packages/ui/src/components/workspace/Workspace.tsx`
+12. `packages/ui/src/components/sidebar/NewTaskDialog.tsx`
+13. `packages/ui/src/components/sidebar/TaskCreationDialogHost.tsx`
+14. `packages/ui/src/stores/session-store.ts`
+15. `packages/ui/src/components/settings/SettingsModal.tsx`
