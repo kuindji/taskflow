@@ -16,6 +16,7 @@ import type { FileWatcher } from "../services/file-watcher";
 import type { TaskStore } from "../services/task-store";
 import { readFile, writeFile, stat as fsStat, rename, rm, mkdir } from "fs/promises";
 import { assertWorkspacePath, assertMutableWorkspacePath } from "../utils/path-validation";
+import { buildShellPath } from "../services/shell-path";
 
 interface FileHandlerDeps {
     router: Router;
@@ -105,7 +106,7 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         const { path } = payload as FilePathPayload;
         const resolvedPath = await assertWorkspacePath(taskStore, path);
         const editor = process.env.EDITOR || "code";
-        const which = Bun.which(editor);
+        const which = Bun.which(editor, { PATH: buildShellPath() });
         if (!which) {
             throw new Error(`Editor "${editor}" not found on PATH`);
         }
