@@ -180,7 +180,7 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
     return (
         <div className="flex h-full flex-col">
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-6">
+            <div className="flex-1 overflow-y-auto pl-4">
                 <h3 className="mb-5 text-base font-semibold">
                     {flow ? flow.name || "Edit Flow" : "New Flow"}
                 </h3>

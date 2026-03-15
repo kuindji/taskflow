@@ -1,7 +1,9 @@
 import { useState, useCallback } from "react";
 import type { FlowActionState } from "@taskflow/shared";
 import { useFlowStore } from "@/stores/flow-store";
+import { useSessionStore } from "@/stores/session-store";
 import { Button } from "@/components/ui/button";
+import { Toolbar } from "@/components/ui/toolbar";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -12,7 +14,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Check, X, SkipForward, Pause, Play, Square, Loader2 } from "lucide-react";
+import { Check, X, SkipForward, Pause, Play, Square, Loader2, RotateCcw } from "lucide-react";
+import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 
 interface FlowPanelProps {
     ownerId: string;
@@ -23,7 +26,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
     const run = useFlowStore((s) => s.activeRuns[ownerId]);
     const flows = useFlowStore((s) => s.flows);
     const actions = useFlowStore((s) => s.actions);
-    const [jumpConfirm, setJumpConfirm] = useState<{ index: number; name: string } | null>(null);
+    const [rerunConfirm, setRerunConfirm] = useState<{ index: number; name: string } | null>(null);
 
     const handlePause = useCallback(() => {
         if (!run) return;
@@ -54,6 +57,12 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
     const flowDef = flows.find((f) => f.id === run.flowId);
     const flowName = flowDef?.name ?? "Flow";
 
+    const workspaceKey = run.taskId
+        ? getTaskWorkspaceKey(run.taskId)
+        : run.projectId
+          ? getProjectWorkspaceKey(run.projectId)
+          : null;
+
     const getActionName = (_state: FlowActionState, index: number): string => {
         const entry = flowDef?.actions[index];
         if (!entry) return `Action ${index + 1}`;
@@ -75,14 +84,25 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
         return "agent";
     };
 
-    const handleJump = (index: number) => {
-        setJumpConfirm({ index, name: getActionName(run.actions[index], index) });
+    const handleActionClick = (action: FlowActionState) => {
+        if (!action.sessionId || !workspaceKey) return;
+        const sessionStore = useSessionStore.getState();
+        const tabs = sessionStore.getTabs(workspaceKey);
+        const tab = tabs.find((t) => t.sessionId === action.sessionId);
+        if (tab) {
+            sessionStore.setActiveTab(workspaceKey, tab.id);
+        }
     };
 
-    const confirmJump = () => {
-        if (!jumpConfirm) return;
-        void useFlowStore.getState().jumpToAction(ownerId, run.flowId, jumpConfirm.index);
-        setJumpConfirm(null);
+    const handleRerun = (e: React.MouseEvent, index: number) => {
+        e.stopPropagation();
+        setRerunConfirm({ index, name: getActionName(run.actions[index], index) });
+    };
+
+    const confirmRerun = () => {
+        if (!rerunConfirm) return;
+        void useFlowStore.getState().jumpToAction(ownerId, run.flowId, rerunConfirm.index);
+        setRerunConfirm(null);
     };
 
     const statusIcon = (status: FlowActionState["status"]) => {
@@ -100,17 +120,18 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
         }
     };
 
+    const isFlowDone = run.status === "completed" || run.status === "failed";
+
     return (
         <div className="flex h-full flex-col">
             {/* Header */}
-            <div className="border-border flex min-h-9 items-center justify-between border-b px-1.5 py-1.5">
+            <Toolbar className="justify-between">
                 <span className="ml-2 truncate text-xs font-medium">{flowName}</span>
                 <div className="flex gap-1">
                     {run.status === "running" && (
                         <Button
                             variant="ghost"
-                            size="icon"
-                            className="h-5 w-5"
+                            size="icon-xs"
                             onClick={handlePause}
                             tooltip="Pause"
                             tooltipSide="bottom"
@@ -121,8 +142,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                     {run.status === "paused" && (
                         <Button
                             variant="ghost"
-                            size="icon"
-                            className="h-5 w-5"
+                            size="icon-xs"
                             onClick={handleResume}
                             tooltip="Resume"
                             tooltipSide="bottom"
@@ -133,8 +153,8 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                     {(run.status === "running" || run.status === "paused") && (
                         <Button
                             variant="ghost"
-                            size="icon"
-                            className="text-destructive h-5 w-5"
+                            size="icon-xs"
+                            className="text-destructive"
                             onClick={handleStop}
                             tooltip="Stop"
                             tooltipSide="bottom"
@@ -144,8 +164,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                     )}
                     <Button
                         variant="ghost"
-                        size="icon"
-                        className="h-5 w-5"
+                        size="icon-xs"
                         onClick={onClose}
                         disabled={run.status === "running" || run.status === "paused"}
                         tooltip="Close"
@@ -154,14 +173,16 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                         <X className="h-3 w-3" />
                     </Button>
                 </div>
-            </div>
+            </Toolbar>
 
             {/* Action list */}
             <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
                 {run.actions.map((action, i) => (
                     <div
                         key={action.actionEntryId}
-                        className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs ${
+                        className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${
+                            action.sessionId && workspaceKey ? "cursor-pointer" : ""
+                        } ${
                             action.status === "running"
                                 ? "border border-blue-800/50 bg-blue-950/40"
                                 : ""
@@ -172,11 +193,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                                 ? "opacity-50"
                                 : ""
                         }`}
-                        onClick={() =>
-                            action.status === "completed" || action.status === "failed"
-                                ? handleJump(i)
-                                : undefined
-                        }
+                        onClick={() => handleActionClick(action)}
                     >
                         <div className="flex h-5 w-5 shrink-0 items-center justify-center">
                             {action.status === "pending" ? (
@@ -197,8 +214,22 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                                 size="icon"
                                 className="h-4 w-4"
                                 onClick={handleSkip}
+                                tooltip="Skip"
+                                tooltipSide="left"
                             >
                                 <SkipForward className="h-3 w-3" />
+                            </Button>
+                        )}
+                        {isFlowDone && (action.status === "completed" || action.status === "failed") && (
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-4 w-4"
+                                onClick={(e) => handleRerun(e, i)}
+                                tooltip="Re-run"
+                                tooltipSide="left"
+                            >
+                                <RotateCcw className="h-3 w-3" />
                             </Button>
                         )}
                     </div>
@@ -223,22 +254,22 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                 </div>
             )}
 
-            {/* Jump confirmation dialog */}
+            {/* Re-run confirmation dialog */}
             <AlertDialog
-                open={!!jumpConfirm}
-                onOpenChange={(open) => !open && setJumpConfirm(null)}
+                open={!!rerunConfirm}
+                onOpenChange={(open) => !open && setRerunConfirm(null)}
             >
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Re-run action?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Re-run action &quot;{jumpConfirm?.name}&quot;? This will reset all
+                            Re-run action &quot;{rerunConfirm?.name}&quot;? This will reset all
                             subsequent actions.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={confirmJump}>Re-run</AlertDialogAction>
+                        <AlertDialogAction onClick={confirmRerun}>Re-run</AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

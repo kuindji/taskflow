@@ -85,12 +85,13 @@ async function main() {
             spawnSession: async (opts) => {
                 const owner = opts.owner.taskId
                     ? { taskId: opts.owner.taskId }
-                    : { projectId: opts.owner.projectId! };
+                    : { projectId: opts.owner.projectId };
                 return sessionLifecycle.createSession({
                     owner,
                     type: opts.sessionType,
                     label: opts.label,
                     prompt: opts.prompt,
+                    systemPrompt: opts.systemPrompt,
                     shell: opts.sessionType === "shell" ? (systemShellPath ?? undefined) : undefined,
                     agentOptions: opts.agentOptions,
                     flow: {

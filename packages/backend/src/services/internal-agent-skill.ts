@@ -475,7 +475,12 @@ export function buildAgentLaunchSpec(
     prompt: string | undefined,
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
+    additionalSystemPrompt?: string,
 ): { command: string; args: string[] } {
+    const systemPrompt = additionalSystemPrompt
+        ? `${INTERNAL_AGENT_SYSTEM_PROMPT}\n\n${additionalSystemPrompt}`
+        : INTERNAL_AGENT_SYSTEM_PROMPT;
+
     if (type === "claude") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "claude") {
@@ -489,7 +494,7 @@ export function buildAgentLaunchSpec(
                 "--allowedTools",
                 "Bash(taskflow-cli*)",
                 "--append-system-prompt",
-                INTERNAL_AGENT_SYSTEM_PROMPT,
+                systemPrompt,
                 ...(prompt ? [prompt] : []),
             ],
         };
@@ -504,7 +509,7 @@ export function buildAgentLaunchSpec(
         args: [
             ...optionArgs,
             "-c",
-            `developer_instructions="${escapeTomlBasicString(INTERNAL_AGENT_SYSTEM_PROMPT)}"`,
+            `developer_instructions="${escapeTomlBasicString(systemPrompt)}"`,
             "-c",
             `skills.config=[{path="${escapeTomlBasicString(skillPath)}", enabled=true}]`,
             ...(prompt ? [prompt] : []),

@@ -103,7 +103,7 @@ function FlowManagementDialog() {
 
                 <div className="flex h-[60vh] flex-1">
                     {/* Left column: navigation tabs */}
-                    <nav className="border-border w-40 shrink-0 space-y-1 border-r px-3 py-2">
+                    <nav className="border-border w-40 shrink-0 space-y-1 border-r pr-2 py-2">
                         <button
                             onClick={() => switchTab("flows")}
                             className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors ${

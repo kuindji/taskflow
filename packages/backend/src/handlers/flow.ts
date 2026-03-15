@@ -3,6 +3,7 @@ import type {
     FlowDefinition,
     FlowDefinitionDeletePayload,
     FlowActionDeletePayload,
+    FlowOwner,
     FlowStartPayload,
     FlowOwnerFlowPayload,
     FlowJumpToActionPayload,
@@ -87,9 +88,13 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
             const flows = await flowStore.getFlows();
             const flow = flows.find((f) => f.id === payload.flowId);
             if (!flow) throw new Error(`Flow not found: ${payload.flowId}`);
-            const owner = payload.taskId
-                ? { taskId: payload.taskId } as const
-                : { projectId: payload.projectId! } as const;
+            if (payload.taskId) {
+                return await flowRunner.startFlow({ taskId: payload.taskId }, flow);
+            }
+            if (!payload.projectId) {
+                throw new Error("Flow start requires either taskId or projectId");
+            }
+            const owner: FlowOwner = { projectId: payload.projectId };
             return await flowRunner.startFlow(owner, flow);
         }),
     );

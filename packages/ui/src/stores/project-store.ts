@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Project, ProjectForkResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { sendRequest } from "../hooks/useWebSocket";
+import { sendRequest, onEvent } from "../hooks/useWebSocket";
 import { useTaskStore } from "./task-store";
 import { useUIStore } from "./ui-store";
 
@@ -58,3 +58,14 @@ export const useProjectStore = create<ProjectStore>((set) => ({
         return response;
     },
 }));
+
+// Listen for project updates broadcast by the backend (e.g., new session added by a flow step).
+const _unsubProjectUpdated = onEvent(MSG.PROJECT_UPDATED, (payload) => {
+    if (payload && typeof payload === "object" && "id" in payload) {
+        const project = payload as Project;
+        const state = useProjectStore.getState();
+        useProjectStore.setState({
+            projects: state.projects.map((p) => (p.id === project.id ? project : p)),
+        });
+    }
+});

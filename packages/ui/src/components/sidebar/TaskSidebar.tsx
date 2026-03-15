@@ -15,6 +15,7 @@ import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
 import { ArrowDownToLine, Loader2, Palette, Plus, Settings2, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Toolbar } from "@/components/ui/toolbar";
 import { Separator } from "@/components/ui/separator";
 import {
     AlertDialog,
@@ -224,7 +225,7 @@ export function TaskSidebar() {
 
     return (
         <>
-            <div className="border-border flex min-h-9 items-center justify-between gap-2 border-b px-1.5 py-1.5">
+            <Toolbar className="justify-between gap-2">
                 <div className="flex flex-1 items-center justify-end gap-1">
                     {showArchive ? (
                         <span className="text-muted-foreground px-1 text-xs font-medium">
@@ -245,7 +246,7 @@ export function TaskSidebar() {
                         </>
                     )}
                 </div>
-            </div>
+            </Toolbar>
             <div className="flex-1 overflow-x-hidden overflow-y-auto py-1.5">
                 {!showArchive && projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
@@ -288,7 +289,7 @@ export function TaskSidebar() {
                 })}
             </div>
             <Separator />
-            <div className="flex items-center justify-between px-1.5 py-1.5">
+            <Toolbar noBorder className="justify-between">
                 <div className="flex items-center">
                     {updateStatus.status === "checking" && (
                         <Button
@@ -365,7 +366,7 @@ export function TaskSidebar() {
                         <Settings2 className="h-3.5 w-3.5" />
                     </Button>
                 </div>
-            </div>
+            </Toolbar>
             <NewProjectDialog
                 open={newProjectOpen}
                 onOpenChange={handleProjectDialogChange}

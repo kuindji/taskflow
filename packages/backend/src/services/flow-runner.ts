@@ -7,13 +7,14 @@ import type {
     FlowArtifact,
     SessionType,
 } from "@taskflow/shared";
-import { MSG, getFlowRunOwnerId } from "@taskflow/shared";
+import { MSG } from "@taskflow/shared";
 import type { FlowStore } from "./flow-store";
 
 interface SpawnSessionOpts {
     owner: FlowOwner;
     sessionType: SessionType;
     prompt: string;
+    systemPrompt?: string;
     label: string;
     agentOptions?: AgentLaunchOptions;
     flowId: string;
@@ -381,7 +382,7 @@ class FlowRunner {
 
         const resolved = await this.resolveAction(actionEntry);
         const ownerDescription = await this.deps.getOwnerDescription(owner);
-        const prompt = this.buildActionPrompt(
+        const { prompt, systemPrompt } = this.buildActionPrompt(
             resolved.prompt,
             ownerDescription,
             resolved.sessionType,
@@ -393,6 +394,7 @@ class FlowRunner {
             owner,
             sessionType: resolved.sessionType,
             prompt,
+            systemPrompt,
             label: actionEntry.label ?? resolved.name,
             agentOptions: resolved.agentOptions,
             flowId: flow.id,
@@ -499,20 +501,20 @@ class FlowRunner {
         ownerDescription: string,
         sessionType: SessionType,
         isProjectScope: boolean,
-    ): string {
+    ): { prompt: string; systemPrompt?: string } {
         if (sessionType === "shell") {
-            return actionPrompt;
+            return { prompt: actionPrompt };
         }
         const descriptionHeader = isProjectScope ? "Project Description" : "Task Description";
-        return [
+        const systemPrompt = [
             `## ${descriptionHeader}\n\n${ownerDescription}`,
-            `## Action Instructions\n\n${actionPrompt}`,
             `## Taskflow CLI`,
             `Use \`taskflow-cli task\` to read task info and logs.`,
             `Use \`taskflow-cli artifact list\` to see available artifacts from prior actions.`,
             `Use \`taskflow-cli artifact get <type>\` to retrieve a specific artifact.`,
             `When you have completed this action, run \`taskflow-cli action complete\`.`,
         ].join("\n\n");
+        return { prompt: actionPrompt, systemPrompt };
     }
 
     private broadcastUpdate(run: FlowRun): void {

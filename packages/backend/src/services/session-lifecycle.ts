@@ -18,6 +18,7 @@ interface CreateSessionOpts {
     type: "claude" | "codex" | "shell";
     label?: string;
     prompt?: string;
+    systemPrompt?: string;
     shell?: string;
     agentOptions?: import("@taskflow/shared").AgentLaunchOptions;
     flow?: {
@@ -103,7 +104,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
     }
 
     async function createSession(opts: CreateSessionOpts): Promise<string> {
-        const { owner, type, prompt, shell, agentOptions, flow, cols, rows, onSessionExited } =
+        const { owner, type, prompt, systemPrompt, shell, agentOptions, flow, cols, rows, onSessionExited } =
             opts;
         const { taskId, projectId } = owner;
 
@@ -131,7 +132,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             command = shell;
         } else {
             const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
-            const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions);
+            const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions, systemPrompt);
             command = spec.command;
             args.push(...spec.args);
         }
@@ -199,6 +200,10 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             await taskStore.updateProject(project.id, (currentProject) => ({
                 sessions: [...currentProject.sessions, sessionRef],
             }));
+            const updatedProject = await taskStore.getProject(project.id);
+            if (updatedProject) {
+                broadcast({ type: MSG.PROJECT_UPDATED, payload: updatedProject });
+            }
         }
 
         if (type !== "shell") {

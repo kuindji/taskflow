@@ -169,8 +169,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             // Prevent duplicate tabs for the same session (race between
             // MSG.TASK_UPDATED broadcast triggering syncWithTasks and the
             // SESSION_CREATE response calling addTab directly).
-            if (tab.sessionId && existing.some((t) => t.sessionId === tab.sessionId)) {
-                const existingTab = existing.find((t) => t.sessionId === tab.sessionId)!;
+            const existingTab = tab.sessionId
+                ? existing.find((t) => t.sessionId === tab.sessionId)
+                : undefined;
+            if (existingTab) {
                 return {
                     activeTabByWorkspace: {
                         ...s.activeTabByWorkspace,

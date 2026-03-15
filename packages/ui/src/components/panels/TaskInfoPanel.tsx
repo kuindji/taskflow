@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Toolbar } from "@/components/ui/toolbar";
 
 const logTypeStyles: Record<TaskLogEntryType, string> = {
     info: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -136,8 +137,8 @@ function TaskInfoPanel() {
     if (workspace.scope === "project" && workspace.project) {
         return (
             <div className="flex h-full flex-col">
-                <div className="flex items-center gap-2 px-3 py-2.5">
-                    <span className="text-muted-foreground text-xs font-medium">Project Info</span>
+                <Toolbar noBorder className="gap-2">
+                    <span className="text-muted-foreground ml-2 text-xs font-medium">Project Info</span>
                     <div className="flex-1" />
                     <Button
                         variant="ghost"
@@ -149,7 +150,7 @@ function TaskInfoPanel() {
                     >
                         <X className="h-3 w-3" />
                     </Button>
-                </div>
+                </Toolbar>
                 <Separator />
                 <div className="flex-1 overflow-y-auto p-3">
                     <div className="space-y-4">
@@ -195,8 +196,8 @@ function TaskInfoPanel() {
 
     return (
         <div className="flex h-full flex-col">
-            <div className="flex items-center gap-2 px-3 py-2.5">
-                <span className="text-muted-foreground text-xs font-medium">Task Info</span>
+            <Toolbar noBorder className="gap-2">
+                <span className="text-muted-foreground ml-2 text-xs font-medium">Task Info</span>
                 <div className="flex-1" />
                 <Button
                     variant="ghost"
@@ -208,7 +209,7 @@ function TaskInfoPanel() {
                 >
                     <X className="h-3 w-3" />
                 </Button>
-            </div>
+            </Toolbar>
             <Separator />
 
             <div className="flex-1 overflow-y-auto p-3">

@@ -26,6 +26,7 @@ import {
 
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
+import { Toolbar } from "@/components/ui/toolbar";
 
 interface TaskHeaderProps {
     task?: Task;
@@ -109,8 +110,8 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     }, [deleteTask, project, removeProject, task]);
 
     return (
-        <div
-            className={`border-border flex min-h-9 items-center gap-1.5 border-b px-1.5 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
+        <Toolbar
+            className={`gap-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
         >
             {task || project ? (
                 <>
@@ -283,6 +284,6 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                     project={project}
                 />
             )}
-        </div>
+        </Toolbar>
     );
 }

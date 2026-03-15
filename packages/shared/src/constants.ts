@@ -6,6 +6,7 @@ export const MSG = {
     PROJECT_REMOVE: "project:remove",
     PROJECT_UPDATE: "project:update",
     PROJECT_FORK: "project:fork",
+    PROJECT_UPDATED: "project:updated",
 
     // Tasks
     TASK_LIST: "task:list",
