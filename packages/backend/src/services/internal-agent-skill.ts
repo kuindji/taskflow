@@ -13,6 +13,7 @@ Environment variables TASKFLOW_API_URL, TASKFLOW_TASK_ID, TASKFLOW_PROJECT_ID, a
 
 Use taskflow-cli proactively:
 - At session start, read task context: \`taskflow-cli task\` (returns task info and log from prior sessions).
+- List all tasks in the project: \`taskflow-cli task list\`
 - Create a new task: \`taskflow-cli task create "description" [--title "title"]\`
 - Log significant findings: \`taskflow-cli log info "your message"\`
 - After committing, log the commit: \`taskflow-cli log commit "commit message" --hash <hash>\`
@@ -49,6 +50,14 @@ Read task info and log from prior sessions:
 
 \`\`\`
 taskflow-cli task
+\`\`\`
+
+## List tasks
+
+List all tasks in the current project (returns task IDs, titles, statuses):
+
+\`\`\`
+taskflow-cli task list
 \`\`\`
 
 ## Create a task
@@ -170,6 +179,12 @@ case "$cmd" in
         echo "Usage: taskflow-cli task worktree --disable" >&2
         exit 1
       fi
+    elif [ "$subcmd" = "list" ]; then
+      if [ -z "$TASKFLOW_PROJECT_ID" ]; then
+        echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
+        exit 1
+      fi
+      curl -sf "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks"
     elif [ "$subcmd" = "create" ]; then
       shift
       if [ -z "$TASKFLOW_PROJECT_ID" ]; then
@@ -395,6 +410,7 @@ case "$cmd" in
     echo "" >&2
     echo "Commands:" >&2
     echo "  task                                          Get task context and log" >&2
+    echo "  task list                                     List all tasks in the project" >&2
     echo "  task create <desc> [--title t]                Create a new task in the project" >&2
     echo "  task worktree --disable                       Disable worktree after branch merge" >&2
     echo "  log <type> <message> [--hash h]               Log to task (info|commit|warning|error)" >&2

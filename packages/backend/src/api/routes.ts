@@ -266,6 +266,16 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         return jsonResponse({ success: true });
     });
 
+    apiRouter.register("GET", "/api/projects/:projectId/tasks", async (_req, params) => {
+        try {
+            const tasks = await taskStore.listTasks(params.projectId);
+            return jsonResponse({ tasks });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, 500);
+        }
+    });
+
     apiRouter.register("POST", "/api/projects/:projectId/tasks", async (req, params) => {
         let body: Record<string, unknown>;
         try {
