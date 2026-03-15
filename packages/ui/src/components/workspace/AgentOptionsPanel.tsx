@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import type { AgentLaunchOptions } from "@taskflow/shared";
+import type { AgentLaunchOptions, AgentType } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -14,7 +14,7 @@ import { Play } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 
 interface AgentOptionsPanelProps {
-    agentType: "claude" | "codex";
+    agentType: AgentType;
     onRun?: (options: AgentLaunchOptions) => void;
     onChange?: (options: AgentLaunchOptions) => void;
 }
@@ -22,12 +22,20 @@ interface AgentOptionsPanelProps {
 function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProps) {
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
+    const geminiSettings = useSettingsStore((s) => s.settings?.gemini);
 
     const defaultFullAccess =
         agentType === "claude"
             ? (claudeSettings?.fullAccess ?? false)
-            : (codexSettings?.fullAccess ?? false);
-    const defaultModel = claudeSettings?.defaultModel ?? "default";
+            : agentType === "gemini"
+              ? (geminiSettings?.fullAccess ?? false)
+              : (codexSettings?.fullAccess ?? false);
+    const defaultModel =
+        agentType === "claude"
+            ? (claudeSettings?.defaultModel ?? "default")
+            : agentType === "gemini"
+              ? (geminiSettings?.defaultModel ?? "default")
+              : "default";
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [model, setModel] = useState<string>(defaultModel);
@@ -46,6 +54,12 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
             });
+        } else if (agentType === "gemini") {
+            onChange({
+                type: "gemini",
+                fullAccess: fullAccess || undefined,
+                model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
+            });
         } else {
             onChange({
                 type: "codex",
@@ -61,6 +75,12 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
                 type: "claude",
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
+            });
+        } else if (agentType === "gemini") {
+            onRun({
+                type: "gemini",
+                fullAccess: fullAccess || undefined,
+                model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
             });
         } else {
             onRun({
@@ -84,24 +104,42 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
             </div>
 
             {agentType === "claude" && (
-                <>
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor="agent-model" className="text-xs">
-                            Model
-                        </Label>
-                        <Select value={model} onValueChange={setModel}>
-                            <SelectTrigger id="agent-model" className="h-7 text-xs">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="default">Default</SelectItem>
-                                <SelectItem value="opus">Opus</SelectItem>
-                                <SelectItem value="sonnet">Sonnet</SelectItem>
-                                <SelectItem value="haiku">Haiku</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </>
+                <div className="flex flex-col gap-1">
+                    <Label htmlFor="agent-model" className="text-xs">
+                        Model
+                    </Label>
+                    <Select value={model} onValueChange={setModel}>
+                        <SelectTrigger id="agent-model" className="h-7 text-xs">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="default">Default</SelectItem>
+                            <SelectItem value="opus">Opus</SelectItem>
+                            <SelectItem value="sonnet">Sonnet</SelectItem>
+                            <SelectItem value="haiku">Haiku</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            )}
+
+            {agentType === "gemini" && (
+                <div className="flex flex-col gap-1">
+                    <Label htmlFor="agent-model" className="text-xs">
+                        Model
+                    </Label>
+                    <Select value={model} onValueChange={setModel}>
+                        <SelectTrigger id="agent-model" className="h-7 text-xs">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="default">Default</SelectItem>
+                            <SelectItem value="auto">Auto</SelectItem>
+                            <SelectItem value="pro">Pro</SelectItem>
+                            <SelectItem value="flash">Flash</SelectItem>
+                            <SelectItem value="flash-lite">Flash Lite</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
             )}
 
             {onRun && (

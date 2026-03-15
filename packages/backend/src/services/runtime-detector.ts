@@ -32,7 +32,7 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
     return runtimes;
 }
 
-const KNOWN_AGENTS: AgentType[] = ["claude", "codex"];
+const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "gemini"];
 
 export async function detectAgents(): Promise<AgentAvailability[]> {
     const agents: AgentAvailability[] = [];

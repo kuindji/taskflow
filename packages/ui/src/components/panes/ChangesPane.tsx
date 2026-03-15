@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Undo2, Plus, Minus, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type BadgeColorScheme = "claude" | "codex" | "active" | "archived";
+type BadgeColorScheme = "claude" | "codex" | "gemini" | "active" | "archived";
 
 const diffLineVariants = cva("font-mono text-sm leading-relaxed whitespace-pre-wrap", {
     variants: {

@@ -33,7 +33,7 @@ interface NewTaskDialogProps {
         title?: string;
         description: string;
         worktree: boolean;
-        startWith?: "claude" | "codex";
+        startWith?: "claude" | "codex" | "gemini";
         agentOptions?: AgentLaunchOptions;
     }) => void;
 }
@@ -56,6 +56,7 @@ export function NewTaskDialog({
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
+    const geminiAvailable = isAgentAvailable(agents, "gemini");
 
     const resetForm = useCallback(() => {
         setDescription("");
@@ -68,9 +69,10 @@ export function NewTaskDialog({
     const handleStartWithChange = useCallback((value: string) => {
         if (value === "claude" && !claudeAvailable) return;
         if (value === "codex" && !codexAvailable) return;
+        if (value === "gemini" && !geminiAvailable) return;
         setStartWith(value);
         if (value === "none") setAgentOptions(undefined);
-    }, [claudeAvailable, codexAvailable]);
+    }, [claudeAvailable, codexAvailable, geminiAvailable]);
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
@@ -90,7 +92,7 @@ export function NewTaskDialog({
             title: title.trim() || undefined,
             description: description.trim(),
             worktree,
-            startWith: startWith === "claude" || startWith === "codex" ? startWith : undefined,
+            startWith: startWith === "claude" || startWith === "codex" || startWith === "gemini" ? startWith : undefined,
             agentOptions,
         });
         resetForm();
@@ -206,11 +208,14 @@ export function NewTaskDialog({
                                 <SelectItem value="codex" disabled={!codexAvailable}>
                                     Codex{!codexAvailable ? " (not installed)" : ""}
                                 </SelectItem>
+                                <SelectItem value="gemini" disabled={!geminiAvailable}>
+                                    Gemini{!geminiAvailable ? " (not installed)" : ""}
+                                </SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
 
-                    {(startWith === "claude" || startWith === "codex") && (
+                    {(startWith === "claude" || startWith === "codex" || startWith === "gemini") && (
                         <div className="border-border rounded-md border p-1">
                             <AgentOptionsPanel agentType={startWith} onChange={setAgentOptions} />
                         </div>

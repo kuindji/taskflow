@@ -17,6 +17,11 @@ export interface CodexSettings {
     fullAccess: boolean;
 }
 
+export interface GeminiSettings {
+    defaultModel: "default" | "auto" | "pro" | "flash" | "flash-lite";
+    fullAccess: boolean;
+}
+
 export interface TerminalSettings {
     fontFamily: string;
     fontSize: number;
@@ -61,6 +66,7 @@ export interface AppSettings {
     layout: LayoutSettings;
     claude: ClaudeSettings;
     codex: CodexSettings;
+    gemini: GeminiSettings;
     appearance: AppearanceSettings;
 }
 
@@ -74,5 +80,6 @@ export interface SettingsUpdatePayload {
     };
     claude?: Partial<ClaudeSettings>;
     codex?: Partial<CodexSettings>;
+    gemini?: Partial<GeminiSettings>;
     appearance?: Partial<AppearanceSettings>;
 }

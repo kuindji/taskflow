@@ -44,6 +44,10 @@ const DEFAULTS: AppSettings = {
     codex: {
         fullAccess: false,
     },
+    gemini: {
+        defaultModel: "default",
+        fullAccess: false,
+    },
     appearance: {
         theme: DEFAULT_THEME_ID,
     },
@@ -60,6 +64,7 @@ function createDefaultSettings(): AppSettings {
         },
         claude: { ...DEFAULTS.claude },
         codex: { ...DEFAULTS.codex },
+        gemini: { ...DEFAULTS.gemini },
         appearance: { ...DEFAULTS.appearance },
     };
 }
@@ -82,6 +87,7 @@ export class SettingsStore {
                 },
                 claude: { ...defaults.claude, ...parsed.claude },
                 codex: { ...defaults.codex, ...parsed.codex },
+                gemini: { ...defaults.gemini, ...parsed.gemini },
                 appearance: { ...defaults.appearance, ...parsed.appearance },
             };
         } catch {
@@ -111,6 +117,9 @@ export class SettingsStore {
         }
         if (partial.codex) {
             Object.assign(current.codex, partial.codex);
+        }
+        if (partial.gemini) {
+            Object.assign(current.gemini, partial.gemini);
         }
         if (partial.appearance) {
             Object.assign(current.appearance, partial.appearance);

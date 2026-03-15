@@ -31,6 +31,7 @@ import {
     type RuntimeInfo,
     type RuntimeListResponse,
     type ClaudeSettings,
+    type GeminiSettings,
 } from "@taskflow/shared";
 import {
     AlertDialog,
@@ -68,12 +69,13 @@ function SettingsModal() {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
-    const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex">(
+    const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex" | "gemini">(
         "general",
     );
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
+    const geminiAvailable = isAgentAvailable(agents, "gemini");
     const [migrating, setMigrating] = useState(false);
     const [migrationError, setMigrationError] = useState<string | null>(null);
     const [conflictPath, setConflictPath] = useState<string | null>(null);
@@ -124,7 +126,7 @@ function SettingsModal() {
 
     const handleDefaultAgent = useCallback(
         (value: string) => {
-            if (value === "claude" || value === "codex") {
+            if (value === "claude" || value === "codex" || value === "gemini") {
                 void updateSettings({ general: { defaultAgent: value } });
             }
         },
@@ -157,6 +159,22 @@ function SettingsModal() {
     const handleCodexFullAccess = useCallback(
         (fullAccess: boolean) => {
             void updateSettings({ codex: { fullAccess } });
+        },
+        [updateSettings],
+    );
+
+    const handleGeminiModel = useCallback(
+        (defaultModel: string) => {
+            void updateSettings({
+                gemini: { defaultModel: defaultModel as GeminiSettings["defaultModel"] },
+            });
+        },
+        [updateSettings],
+    );
+
+    const handleGeminiFullAccess = useCallback(
+        (fullAccess: boolean) => {
+            void updateSettings({ gemini: { fullAccess } });
         },
         [updateSettings],
     );
@@ -326,6 +344,16 @@ function SettingsModal() {
                         >
                             Codex
                         </button>
+                        <button
+                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
+                                section === "gemini"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                            }`}
+                            onClick={() => setSection("gemini")}
+                        >
+                            Gemini
+                        </button>
                     </nav>
 
                     {/* Content */}
@@ -461,6 +489,54 @@ function SettingsModal() {
                                 </section>
                             </>
                         )}
+                        {section === "gemini" && (
+                            <>
+                                <section className="space-y-2">
+                                    <h3 className="mb-0 text-sm font-medium">Default Model</h3>
+                                    <div className="space-y-1">
+                                        <Label className={defaultsSelectLabelClassName}>
+                                            Pre-selected model when running Gemini sessions
+                                        </Label>
+                                        <Select
+                                            value={settings.gemini.defaultModel}
+                                            onValueChange={handleGeminiModel}
+                                        >
+                                            <SelectTrigger className="h-8 w-64 text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="default">Default</SelectItem>
+                                                <SelectItem value="auto">Auto</SelectItem>
+                                                <SelectItem value="pro">Pro</SelectItem>
+                                                <SelectItem value="flash">Flash</SelectItem>
+                                                <SelectItem value="flash-lite">Flash Lite</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </section>
+                                <section className="space-y-2">
+                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
+                                    <div className="space-y-1">
+                                        <Label className={defaultsSelectLabelClassName}>
+                                            Auto-approve all actions by default
+                                        </Label>
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <Switch
+                                                id="gemini-full-access"
+                                                checked={settings.gemini.fullAccess}
+                                                onCheckedChange={handleGeminiFullAccess}
+                                            />
+                                            <Label
+                                                htmlFor="gemini-full-access"
+                                                className="cursor-pointer text-sm font-normal normal-case"
+                                            >
+                                                {settings.gemini.fullAccess ? "Enabled" : "Disabled"}
+                                            </Label>
+                                        </div>
+                                    </div>
+                                </section>
+                            </>
+                        )}
                         {section === "defaults" && (
                             <>
                                 <section className="space-y-2">
@@ -506,6 +582,9 @@ function SettingsModal() {
                                                 </SelectItem>
                                                 <SelectItem value="codex" disabled={!codexAvailable}>
                                                     Codex{!codexAvailable ? " (not installed)" : ""}
+                                                </SelectItem>
+                                                <SelectItem value="gemini" disabled={!geminiAvailable}>
+                                                    Gemini{!geminiAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
                                             </SelectContent>
                                         </Select>

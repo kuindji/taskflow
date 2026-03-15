@@ -100,7 +100,7 @@ export interface TaskLogAddedEvent {
 export interface SessionCreatePayload {
     taskId?: string;
     projectId?: string;
-    type: "claude" | "codex" | "shell";
+    type: "claude" | "codex" | "gemini" | "shell";
     label?: string;
     prompt?: string;
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'

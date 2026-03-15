@@ -31,6 +31,7 @@ interface SessionHandlerDeps {
 function getDefaultSessionLabel(type: SessionCreatePayload["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
+    if (type === "gemini") return "Gemini";
     return `${type} session`;
 }
 

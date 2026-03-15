@@ -254,7 +254,7 @@ export async function ensureCliScript(binDir: string): Promise<void> {
 }
 
 export function buildAgentLaunchSpec(
-    type: "claude" | "codex",
+    type: "claude" | "codex" | "gemini",
     prompt: string | undefined,
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
@@ -274,6 +274,25 @@ export function buildAgentLaunchSpec(
                 "--append-system-prompt",
                 INTERNAL_AGENT_SYSTEM_PROMPT,
                 ...(prompt ? [prompt] : []),
+            ],
+        };
+    }
+
+    if (type === "gemini") {
+        const optionArgs: string[] = [];
+        if (agentOptions?.type === "gemini") {
+            if (agentOptions.fullAccess) optionArgs.push("--yolo");
+            if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
+        }
+        const interactivePrompt = prompt
+            ? `${INTERNAL_AGENT_SYSTEM_PROMPT}\n\n---\n\n${prompt}`
+            : INTERNAL_AGENT_SYSTEM_PROMPT;
+        return {
+            command: "gemini",
+            args: [
+                ...optionArgs,
+                "--prompt-interactive",
+                interactivePrompt,
             ],
         };
     }

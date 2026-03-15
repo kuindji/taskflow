@@ -14,7 +14,7 @@ interface TabContentProps {
 
 /** Tab types that stay mounted when inactive (never display:none) */
 function isAlwaysMounted(type: Tab["type"]): boolean {
-    return type === "claude" || type === "codex" || type === "shell" || type === "browser";
+    return type === "claude" || type === "codex" || type === "gemini" || type === "shell" || type === "browser";
 }
 
 

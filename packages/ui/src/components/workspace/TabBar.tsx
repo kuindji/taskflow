@@ -24,6 +24,7 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { X, Play, Terminal, Globe, ChevronDown, SquareTerminal } from "lucide-react";
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
 import { CodexIcon } from "@/components/icons/CodexIcon";
+import { GeminiIcon } from "@/components/icons/GeminiIcon";
 import { cn } from "@/lib/utils";
 import {
     getShellDisplayName,
@@ -39,6 +40,7 @@ const tabVariants = cva(
             type: {
                 claude: "text-warning",
                 codex: "text-success",
+                gemini: "text-primary",
                 shell: "text-info",
                 editor: "text-muted-foreground",
                 changes: "text-muted-foreground",
@@ -140,11 +142,11 @@ interface TabBarProps {
     onTabClose: (tabId: string) => void;
     onTabRename: (tabId: string, newLabel: string) => void;
     onNewTab: (
-        type: "claude" | "codex" | "browser" | "shell",
+        type: "claude" | "codex" | "gemini" | "browser" | "shell",
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => void;
-    onRunTab: (type: "claude" | "codex", agentOptions?: AgentLaunchOptions) => void;
+    onRunTab: (type: "claude" | "codex" | "gemini", agentOptions?: AgentLaunchOptions) => void;
     onRunScript: (scriptName: string) => void;
     scripts: Record<string, string>;
     defaultRuntime: string;
@@ -172,9 +174,11 @@ export function TabBar({
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [claudePopoverOpen, setClaudePopoverOpen] = useState(false);
     const [codexPopoverOpen, setCodexPopoverOpen] = useState(false);
+    const [geminiPopoverOpen, setGeminiPopoverOpen] = useState(false);
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
+    const geminiAvailable = isAgentAvailable(agents, "gemini");
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
@@ -284,6 +288,27 @@ export function TabBar({
                                         </DropdownMenuSubContent>
                                     )}
                                 </DropdownMenuSub>
+                                <DropdownMenuItem
+                                    disabled={!geminiAvailable}
+                                    onClick={() => geminiAvailable && onRunTab("gemini")}
+                                >
+                                    <GeminiIcon className="mr-2 h-4 w-4" />
+                                    Gemini{!geminiAvailable ? " (not installed)" : ""}
+                                </DropdownMenuItem>
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger disabled={!geminiAvailable}>
+                                        <GeminiIcon className="mr-2 h-4 w-4" />
+                                        Gemini with options
+                                    </DropdownMenuSubTrigger>
+                                    {geminiAvailable && (
+                                        <DropdownMenuSubContent className="p-0">
+                                            <AgentOptionsPanel
+                                                agentType="gemini"
+                                                onRun={(options) => onRunTab("gemini", options)}
+                                            />
+                                        </DropdownMenuSubContent>
+                                    )}
+                                </DropdownMenuSub>
                             </>
                         )}
                     </DropdownMenuContent>
@@ -351,6 +376,38 @@ export function TabBar({
                                 onRun={(options) => {
                                     setCodexPopoverOpen(false);
                                     onNewTab("codex", undefined, options);
+                                }}
+                            />
+                        </PopoverContent>
+                    </Popover>
+                    <Popover open={geminiPopoverOpen} onOpenChange={setGeminiPopoverOpen}>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="text-primary"
+                                disabled={!geminiAvailable}
+                                onClick={(e) => {
+                                    if (!geminiAvailable) return;
+                                    if (e.shiftKey) {
+                                        setGeminiPopoverOpen(true);
+                                    } else {
+                                        onNewTab("gemini");
+                                    }
+                                }}
+                                aria-label="New Gemini session"
+                                tooltip={geminiAvailable ? "New Gemini session (Shift+click for options)" : "Gemini CLI not installed"}
+                                tooltipSide="bottom"
+                            >
+                                <GeminiIcon className="h-3.5 w-3.5" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-0">
+                            <AgentOptionsPanel
+                                agentType="gemini"
+                                onRun={(options) => {
+                                    setGeminiPopoverOpen(false);
+                                    onNewTab("gemini", undefined, options);
                                 }}
                             />
                         </PopoverContent>

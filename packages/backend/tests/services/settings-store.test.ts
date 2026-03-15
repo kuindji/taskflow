@@ -24,6 +24,7 @@ const DEFAULT_LAYOUT = {
 
 const DEFAULT_CLAUDE = { defaultModel: "default" as const, fullAccess: false };
 const DEFAULT_CODEX = { fullAccess: false };
+const DEFAULT_GEMINI = { defaultModel: "default" as const, fullAccess: false };
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
 
 describe("SettingsStore", () => {
@@ -64,6 +65,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            gemini: DEFAULT_GEMINI,
             appearance: DEFAULT_APPEARANCE,
         });
 
@@ -90,6 +92,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            gemini: DEFAULT_GEMINI,
             appearance: DEFAULT_APPEARANCE,
         });
     });
@@ -124,6 +127,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            gemini: DEFAULT_GEMINI,
             appearance: DEFAULT_APPEARANCE,
         });
 
@@ -148,6 +152,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            gemini: DEFAULT_GEMINI,
             appearance: DEFAULT_APPEARANCE,
         });
     });
