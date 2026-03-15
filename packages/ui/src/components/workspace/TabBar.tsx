@@ -24,6 +24,7 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { X, Play, Terminal, Globe, ChevronDown, SquareTerminal } from "lucide-react";
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
 import { CodexIcon } from "@/components/icons/CodexIcon";
+import { OpenCodeIcon } from "@/components/icons/OpenCodeIcon";
 import { cn } from "@/lib/utils";
 import {
     getShellDisplayName,
@@ -39,6 +40,7 @@ const tabVariants = cva(
             type: {
                 claude: "text-warning",
                 codex: "text-success",
+                opencode: "text-opencode",
                 shell: "text-info",
                 editor: "text-muted-foreground",
                 changes: "text-muted-foreground",
@@ -140,11 +142,11 @@ interface TabBarProps {
     onTabClose: (tabId: string) => void;
     onTabRename: (tabId: string, newLabel: string) => void;
     onNewTab: (
-        type: "claude" | "codex" | "browser" | "shell",
+        type: "claude" | "codex" | "opencode" | "browser" | "shell",
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => void;
-    onRunTab: (type: "claude" | "codex", agentOptions?: AgentLaunchOptions) => void;
+    onRunTab: (type: "claude" | "codex" | "opencode", agentOptions?: AgentLaunchOptions) => void;
     onRunScript: (scriptName: string) => void;
     scripts: Record<string, string>;
     defaultRuntime: string;
@@ -172,9 +174,11 @@ export function TabBar({
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [claudePopoverOpen, setClaudePopoverOpen] = useState(false);
     const [codexPopoverOpen, setCodexPopoverOpen] = useState(false);
+    const [opencodePopoverOpen, setOpencodePopoverOpen] = useState(false);
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
+    const opencodeAvailable = isAgentAvailable(agents, "opencode");
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
@@ -284,6 +288,27 @@ export function TabBar({
                                         </DropdownMenuSubContent>
                                     )}
                                 </DropdownMenuSub>
+                                <DropdownMenuItem
+                                    disabled={!opencodeAvailable}
+                                    onClick={() => opencodeAvailable && onRunTab("opencode")}
+                                >
+                                    <OpenCodeIcon className="mr-2 h-4 w-4" />
+                                    OpenCode{!opencodeAvailable ? " (not installed)" : ""}
+                                </DropdownMenuItem>
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger disabled={!opencodeAvailable}>
+                                        <OpenCodeIcon className="mr-2 h-4 w-4" />
+                                        OpenCode with options
+                                    </DropdownMenuSubTrigger>
+                                    {opencodeAvailable && (
+                                        <DropdownMenuSubContent className="p-0">
+                                            <AgentOptionsPanel
+                                                agentType="opencode"
+                                                onRun={(options) => onRunTab("opencode", options)}
+                                            />
+                                        </DropdownMenuSubContent>
+                                    )}
+                                </DropdownMenuSub>
                             </>
                         )}
                     </DropdownMenuContent>
@@ -351,6 +376,38 @@ export function TabBar({
                                 onRun={(options) => {
                                     setCodexPopoverOpen(false);
                                     onNewTab("codex", undefined, options);
+                                }}
+                            />
+                        </PopoverContent>
+                    </Popover>
+                    <Popover open={opencodePopoverOpen} onOpenChange={setOpencodePopoverOpen}>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="text-opencode"
+                                disabled={!opencodeAvailable}
+                                onClick={(e) => {
+                                    if (!opencodeAvailable) return;
+                                    if (e.shiftKey) {
+                                        setOpencodePopoverOpen(true);
+                                    } else {
+                                        onNewTab("opencode");
+                                    }
+                                }}
+                                aria-label="New OpenCode session"
+                                tooltip={opencodeAvailable ? "New OpenCode session (Shift+click for options)" : "OpenCode CLI not installed"}
+                                tooltipSide="bottom"
+                            >
+                                <OpenCodeIcon className="h-3.5 w-3.5" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-0">
+                            <AgentOptionsPanel
+                                agentType="opencode"
+                                onRun={(options) => {
+                                    setOpencodePopoverOpen(false);
+                                    onNewTab("opencode", undefined, options);
                                 }}
                             />
                         </PopoverContent>

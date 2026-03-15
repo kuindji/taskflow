@@ -38,6 +38,8 @@
     --color-warning-foreground: var(--warning-foreground);
     --color-info: var(--info);
     --color-info-foreground: var(--info-foreground);
+    --color-opencode: var(--opencode);
+    --color-opencode-foreground: var(--opencode-foreground);
     --radius-sm: calc(var(--radius) - 4px);
     --radius-md: calc(var(--radius) - 2px);
     --radius-lg: var(--radius);
@@ -79,6 +81,8 @@
     --warning-foreground: #1e1e2e;
     --info: #89b4fa;
     --info-foreground: #1e1e2e;
+    --opencode: #cba6f7;
+    --opencode-foreground: #1e1e2e;
     --island-base: rgba(24, 24, 37, 0.5);
 }
 
