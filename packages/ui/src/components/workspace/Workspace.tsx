@@ -56,14 +56,15 @@ export function Workspace() {
     const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
-    const [flowRunsHydratedTaskId, setFlowRunsHydratedTaskId] = useState<string | null>(null);
+    const [flowRunsHydratedOwnerId, setFlowRunsHydratedOwnerId] = useState<string | null>(null);
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
     const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
     const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
-    const activeFlowRun = useFlowStore((s) => (taskId ? s.activeRuns[taskId] : undefined));
+    const ownerId = taskId ?? workspace.project?.id;
+    const activeFlowRun = useFlowStore((s) => (ownerId ? s.activeRuns[ownerId] : undefined));
     const flowDefinitions = useFlowStore((s) => s.flows);
     const allActions = useFlowStore((s) => s.actions);
     const standaloneActions = useMemo(
@@ -79,31 +80,31 @@ export function Workspace() {
     }, [workspace.project?.id]);
 
     useEffect(() => {
-        if (!taskId) {
-            setFlowRunsHydratedTaskId(null);
+        if (!ownerId) {
+            setFlowRunsHydratedOwnerId(null);
             return;
         }
 
         let cancelled = false;
-        setFlowRunsHydratedTaskId(null);
+        setFlowRunsHydratedOwnerId(null);
         void useFlowStore
             .getState()
-            .fetchFlowRuns(taskId)
+            .fetchFlowRuns(ownerId)
             .then(() => {
                 if (!cancelled) {
-                    setFlowRunsHydratedTaskId(taskId);
+                    setFlowRunsHydratedOwnerId(ownerId);
                 }
             })
             .catch(() => {
-                // Keep the start control hidden until we can confirm the current task state.
+                // Keep the start control hidden until we can confirm the current owner state.
             });
 
         return () => {
             cancelled = true;
         };
-    }, [taskId]);
+    }, [ownerId]);
 
-    const flowRunsReady = taskId === undefined || flowRunsHydratedTaskId === taskId;
+    const flowRunsReady = flowRunsHydratedOwnerId === ownerId;
 
     const worktreePending =
         workspace.scope === "task" &&
@@ -432,8 +433,13 @@ export function Workspace() {
     };
 
     const handleStartFlow = (flowId: string) => {
-        if (!taskId) return;
-        void useFlowStore.getState().startFlow(taskId, flowId);
+        const owner = taskId
+            ? { taskId, flowId }
+            : workspace.project
+              ? { projectId: workspace.project.id, flowId }
+              : null;
+        if (!owner) return;
+        void useFlowStore.getState().startFlow(owner);
     };
 
     const handleRunScript = async (scriptName: string) => {

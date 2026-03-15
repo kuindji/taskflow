@@ -1,6 +1,7 @@
 import { readFile, writeFile, readdir, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import type { ActionDefinition, FlowDefinition, FlowRun } from "@taskflow/shared";
+import { getFlowRunOwnerId } from "@taskflow/shared";
 
 const FLOW_RUN_SEPARATOR = "--";
 
@@ -140,29 +141,30 @@ class FlowStore {
 
     // --- Flow Runs ---
 
-    private flowRunPath(taskId: string, flowId: string): string {
-        return join(this.flowRunsDir, `${taskId}${FLOW_RUN_SEPARATOR}${flowId}.json`);
+    private flowRunPath(ownerId: string, flowId: string): string {
+        return join(this.flowRunsDir, `${ownerId}${FLOW_RUN_SEPARATOR}${flowId}.json`);
     }
 
-    async getFlowRun(taskId: string, flowId: string): Promise<FlowRun | null> {
-        return await this.readJsonFile<FlowRun>(this.flowRunPath(taskId, flowId));
+    async getFlowRun(ownerId: string, flowId: string): Promise<FlowRun | null> {
+        return await this.readJsonFile<FlowRun>(this.flowRunPath(ownerId, flowId));
     }
 
     async saveFlowRun(run: FlowRun): Promise<void> {
-        const key = `${run.taskId}${FLOW_RUN_SEPARATOR}${run.flowId}`;
+        const ownerId = getFlowRunOwnerId(run);
+        const key = `${ownerId}${FLOW_RUN_SEPARATOR}${run.flowId}`;
         await this.withMutation(key, async () => {
             await writeFile(
-                this.flowRunPath(run.taskId, run.flowId),
+                this.flowRunPath(ownerId, run.flowId),
                 JSON.stringify(run, null, 2),
             );
         });
     }
 
-    async deleteFlowRun(taskId: string, flowId: string): Promise<void> {
-        const key = `${taskId}${FLOW_RUN_SEPARATOR}${flowId}`;
+    async deleteFlowRun(ownerId: string, flowId: string): Promise<void> {
+        const key = `${ownerId}${FLOW_RUN_SEPARATOR}${flowId}`;
         await this.withMutation(key, async () => {
             try {
-                await unlink(this.flowRunPath(taskId, flowId));
+                await unlink(this.flowRunPath(ownerId, flowId));
             } catch (error) {
                 if (!isMissingFileError(error)) {
                     throw error;
@@ -171,7 +173,7 @@ class FlowStore {
         });
     }
 
-    async getFlowRunsForTask(taskId: string): Promise<FlowRun[]> {
+    async getFlowRunsForOwner(ownerId: string): Promise<FlowRun[]> {
         const runs: FlowRun[] = [];
         let files: string[];
         try {
@@ -183,13 +185,35 @@ class FlowStore {
             throw error;
         }
 
-        const prefix = `${taskId}${FLOW_RUN_SEPARATOR}`;
+        const prefix = `${ownerId}${FLOW_RUN_SEPARATOR}`;
         for (const file of files) {
             if (file.startsWith(prefix) && file.endsWith(".json")) {
                 const run = await this.readJsonFile<FlowRun>(join(this.flowRunsDir, file));
                 if (run) {
                     runs.push(run);
                 }
+            }
+        }
+        return runs;
+    }
+
+    async getAllActiveRuns(): Promise<FlowRun[]> {
+        const runs: FlowRun[] = [];
+        let files: string[];
+        try {
+            files = await readdir(this.flowRunsDir);
+        } catch (error) {
+            if (isMissingFileError(error)) {
+                return [];
+            }
+            throw error;
+        }
+
+        for (const file of files) {
+            if (!file.endsWith(".json")) continue;
+            const run = await this.readJsonFile<FlowRun>(join(this.flowRunsDir, file));
+            if (run && (run.status === "running" || run.status === "paused")) {
+                runs.push(run);
             }
         }
         return runs;

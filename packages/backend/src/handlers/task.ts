@@ -30,7 +30,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
 
     async function failActiveFlows(taskId: string): Promise<void> {
         if (!flowStore || !flowRunner) return;
-        const runs = await flowStore.getFlowRunsForTask(taskId);
+        const runs = await flowStore.getFlowRunsForOwner(taskId);
         for (const run of runs) {
             if (run.status === "running" || run.status === "paused") {
                 await flowRunner.failFlowByIds(taskId, run.flowId);

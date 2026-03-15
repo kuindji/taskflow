@@ -269,7 +269,7 @@ describe("flow runs", () => {
         expect(result?.status).toBe("running");
     });
 
-    test("getFlowRunsForTask returns all runs for a task", async () => {
+    test("getFlowRunsForOwner returns all runs for a task", async () => {
         const run1 = {
             taskId: "task-1",
             flowId: "flow-1",
@@ -290,14 +290,14 @@ describe("flow runs", () => {
         };
         await store.saveFlowRun(run1);
         await store.saveFlowRun(run2);
-        const runs = await store.getFlowRunsForTask("task-1");
+        const runs = await store.getFlowRunsForOwner("task-1");
         expect(runs).toHaveLength(2);
     });
 
-    test("getFlowRunsForTask rethrows malformed JSON", async () => {
+    test("getFlowRunsForOwner rethrows malformed JSON", async () => {
         await writeFile(join(tempDir, "flow-runs", "task-1--flow-1.json"), "{bad json");
 
-        expect(store.getFlowRunsForTask("task-1")).rejects.toThrow();
+        expect(store.getFlowRunsForOwner("task-1")).rejects.toThrow();
     });
 
     test("deleteFlowRun removes run", async () => {

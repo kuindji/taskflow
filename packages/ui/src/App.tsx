@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { WebSocketProvider } from "@/providers/WebSocketProvider";
 import { useWsStatus } from "@/providers/ws-context";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -75,9 +75,22 @@ export function App() {
     }, [taskInfoOpen]);
 
     const activeTaskId = useTaskStore((s) => s.activeTaskId);
+    const activeProjectId = useUIStore((s) => s.activeProjectId);
+    const activeOwnerId = activeTaskId ?? activeProjectId;
     const activeFlowRun = useFlowStore((s) =>
-        activeTaskId ? s.activeRuns[activeTaskId] : undefined,
+        activeOwnerId ? s.activeRuns[activeOwnerId] : undefined,
     );
+    const flowPanelOpen = useUIStore((s) => s.flowPanelOpen);
+
+    // Auto-open flow panel when a flow run appears
+    const prevFlowRunId = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        const runId = activeFlowRun?.flowId;
+        if (runId && runId !== prevFlowRunId.current) {
+            useUIStore.getState().setFlowPanelOpen(true);
+        }
+        prevFlowRunId.current = runId;
+    }, [activeFlowRun?.flowId]);
 
     const wordWrap = useSettingsStore((s) => s.settings?.editor?.wordWrap);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
@@ -124,8 +137,11 @@ export function App() {
                         sidebar={<TaskSidebar />}
                         fileExplorer={<FileExplorer />}
                         flowPanel={
-                            activeFlowRun && activeTaskId ? (
-                                <FlowPanel taskId={activeTaskId} />
+                            flowPanelOpen && activeFlowRun && activeOwnerId ? (
+                                <FlowPanel
+                                    ownerId={activeOwnerId}
+                                    onClose={() => useUIStore.getState().setFlowPanelOpen(false)}
+                                />
                             ) : undefined
                         }
                         workspace={<Workspace />}

@@ -97,7 +97,7 @@ function FlowManagementDialog() {
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent className="w-6xl max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]">
-                <DialogHeader className="shrink-0 px-6 py-4">
+                <DialogHeader>
                     <DialogTitle>Flows & Actions</DialogTitle>
                 </DialogHeader>
 

@@ -246,7 +246,7 @@ export function TaskSidebar() {
                     )}
                 </div>
             </div>
-            <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
+            <div className="flex-1 overflow-x-hidden overflow-y-auto py-1.5">
                 {!showArchive && projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>

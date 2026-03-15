@@ -4,9 +4,9 @@ import type {
     FlowDefinitionDeletePayload,
     FlowActionDeletePayload,
     FlowStartPayload,
-    FlowTaskFlowPayload,
+    FlowOwnerFlowPayload,
     FlowJumpToActionPayload,
-    FlowTaskPayload,
+    FlowOwnerPayload,
     ActionDefinition,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
@@ -87,38 +87,41 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
             const flows = await flowStore.getFlows();
             const flow = flows.find((f) => f.id === payload.flowId);
             if (!flow) throw new Error(`Flow not found: ${payload.flowId}`);
-            return await flowRunner.startFlow(payload.taskId, flow);
+            const owner = payload.taskId
+                ? { taskId: payload.taskId } as const
+                : { projectId: payload.projectId! } as const;
+            return await flowRunner.startFlow(owner, flow);
         }),
     );
 
     router.register(
         MSG.FLOW_STOP,
-        typed<FlowTaskFlowPayload>(async (payload) => {
-            await flowRunner.stopFlow(payload.taskId, payload.flowId);
+        typed<FlowOwnerFlowPayload>(async (payload) => {
+            await flowRunner.stopFlow(payload.ownerId, payload.flowId);
             return { success: true };
         }),
     );
 
     router.register(
         MSG.FLOW_PAUSE,
-        typed<FlowTaskFlowPayload>(async (payload) => {
-            await flowRunner.pauseFlow(payload.taskId, payload.flowId);
+        typed<FlowOwnerFlowPayload>(async (payload) => {
+            await flowRunner.pauseFlow(payload.ownerId, payload.flowId);
             return { success: true };
         }),
     );
 
     router.register(
         MSG.FLOW_RESUME,
-        typed<FlowTaskFlowPayload>(async (payload) => {
-            await flowRunner.resumeFlow(payload.taskId, payload.flowId);
+        typed<FlowOwnerFlowPayload>(async (payload) => {
+            await flowRunner.resumeFlow(payload.ownerId, payload.flowId);
             return { success: true };
         }),
     );
 
     router.register(
         MSG.FLOW_SKIP_ACTION,
-        typed<FlowTaskFlowPayload>(async (payload) => {
-            await flowRunner.skipAction(payload.taskId, payload.flowId);
+        typed<FlowOwnerFlowPayload>(async (payload) => {
+            await flowRunner.skipAction(payload.ownerId, payload.flowId);
             return { success: true };
         }),
     );
@@ -126,22 +129,22 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
     router.register(
         MSG.FLOW_JUMP_TO_ACTION,
         typed<FlowJumpToActionPayload>(async (payload) => {
-            await flowRunner.jumpToAction(payload.taskId, payload.flowId, payload.actionIndex);
+            await flowRunner.jumpToAction(payload.ownerId, payload.flowId, payload.actionIndex);
             return { success: true };
         }),
     );
 
     router.register(
         MSG.FLOW_RUN_GET,
-        typed<FlowTaskFlowPayload>(async (payload) => {
-            return await flowStore.getFlowRun(payload.taskId, payload.flowId);
+        typed<FlowOwnerFlowPayload>(async (payload) => {
+            return await flowStore.getFlowRun(payload.ownerId, payload.flowId);
         }),
     );
 
     router.register(
         MSG.FLOW_RUNS_LIST,
-        typed<FlowTaskPayload>(async (payload) => {
-            return { runs: await flowStore.getFlowRunsForTask(payload.taskId) };
+        typed<FlowOwnerPayload>(async (payload) => {
+            return { runs: await flowStore.getFlowRunsForOwner(payload.ownerId) };
         }),
     );
 }

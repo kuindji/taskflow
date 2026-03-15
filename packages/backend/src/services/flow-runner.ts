@@ -1,16 +1,17 @@
 import type {
     AgentLaunchOptions,
     FlowDefinition,
+    FlowOwner,
     FlowRun,
     FlowActionEntry,
     FlowArtifact,
     SessionType,
 } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import { MSG, getFlowRunOwnerId } from "@taskflow/shared";
 import type { FlowStore } from "./flow-store";
 
 interface SpawnSessionOpts {
-    taskId: string;
+    owner: FlowOwner;
     sessionType: SessionType;
     prompt: string;
     label: string;
@@ -24,11 +25,12 @@ interface FlowRunnerDeps {
     spawnSession: (opts: SpawnSessionOpts) => Promise<string>;
     closeSession: (sessionId: string) => void;
     broadcast: (msg: { type: string; payload: unknown }) => void;
-    getTaskDescription: (taskId: string) => Promise<string>;
+    getOwnerDescription: (owner: FlowOwner) => Promise<string>;
 }
 
 interface SessionFlowMapping {
-    taskId: string;
+    ownerId: string;
+    owner: FlowOwner;
     flowId: string;
     actionEntryId: string;
     sessionType: SessionType;
@@ -43,30 +45,32 @@ class FlowRunner {
         this.deps = deps;
     }
 
-    async startFlow(taskId: string, flow: FlowDefinition): Promise<FlowRun> {
+    async startFlow(owner: FlowOwner, flow: FlowDefinition): Promise<FlowRun> {
         if (flow.actions.length === 0) {
             throw new Error(`Flow "${flow.id}" must define at least one action`);
         }
 
-        const existingRuns = await this.deps.flowStore.getFlowRunsForTask(taskId);
+        const ownerId = owner.taskId ?? owner.projectId;
+
+        const existingRuns = await this.deps.flowStore.getFlowRunsForOwner(ownerId);
         const activeRun = existingRuns.find(
             (r) => r.status === "running" || r.status === "paused",
         );
         if (activeRun) {
-            throw new Error(`Task already has an active flow: ${activeRun.flowId}`);
+            throw new Error(`Owner already has an active flow: ${activeRun.flowId}`);
         }
 
         // Overwrite only terminal runs; active runs are blocked above
-        const existingRun = await this.deps.flowStore.getFlowRun(taskId, flow.id);
+        const existingRun = await this.deps.flowStore.getFlowRun(ownerId, flow.id);
         if (existingRun) {
             if (existingRun.status === "running" || existingRun.status === "paused") {
-                throw new Error(`Flow "${flow.id}" is still active on task "${taskId}"`);
+                throw new Error(`Flow "${flow.id}" is still active on owner "${ownerId}"`);
             }
-            await this.deps.flowStore.deleteFlowRun(taskId, flow.id);
+            await this.deps.flowStore.deleteFlowRun(ownerId, flow.id);
         }
 
         const run: FlowRun = {
-            taskId,
+            ...(owner.taskId ? { taskId: owner.taskId } : { projectId: owner.projectId }),
             flowId: flow.id,
             status: "running",
             currentActionIndex: 0,
@@ -83,16 +87,16 @@ class FlowRunner {
         await this.deps.flowStore.saveFlowRun(run);
         this.broadcastUpdate(run);
 
-        await this.launchActionWithRecovery(taskId, flow, run, 0);
+        await this.launchActionWithRecovery(owner, flow, run, 0);
         return run;
     }
 
     async handleActionComplete(
-        taskId: string,
+        ownerId: string,
         flowId: string,
         sessionId: string,
     ): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
+        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run || run.status !== "running") return;
 
         const currentAction = run.actions[run.currentActionIndex];
@@ -105,8 +109,8 @@ class FlowRunner {
         await this.advanceOrComplete(run);
     }
 
-    async skipAction(taskId: string, flowId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
+    async skipAction(ownerId: string, flowId: string): Promise<void> {
+        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run || run.status !== "running") return;
 
         const currentAction = run.actions[run.currentActionIndex];
@@ -124,11 +128,11 @@ class FlowRunner {
     }
 
     async jumpToAction(
-        taskId: string,
+        ownerId: string,
         flowId: string,
         targetIndex: number,
     ): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
+        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run) return;
 
         if (targetIndex < 0 || targetIndex >= run.actions.length) {
@@ -176,11 +180,12 @@ class FlowRunner {
         await this.deps.flowStore.saveFlowRun(run);
         this.broadcastUpdate(run);
 
-        await this.launchPersistedActionWithRecovery(taskId, flowId, run, targetIndex);
+        const owner = this.ownerFromRun(run);
+        await this.launchPersistedActionWithRecovery(owner, flowId, run, targetIndex);
     }
 
-    async pauseFlow(taskId: string, flowId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
+    async pauseFlow(ownerId: string, flowId: string): Promise<void> {
+        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run || run.status !== "running") return;
 
         const currentAction = run.actions[run.currentActionIndex];
@@ -195,8 +200,8 @@ class FlowRunner {
         this.broadcastUpdate(run);
     }
 
-    async resumeFlow(taskId: string, flowId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
+    async resumeFlow(ownerId: string, flowId: string): Promise<void> {
+        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run || run.status !== "paused") return;
 
         run.status = "running";
@@ -211,16 +216,17 @@ class FlowRunner {
         await this.deps.flowStore.saveFlowRun(run);
         this.broadcastUpdate(run);
 
+        const owner = this.ownerFromRun(run);
         await this.launchPersistedActionWithRecovery(
-            run.taskId,
+            owner,
             flowId,
             run,
             run.currentActionIndex,
         );
     }
 
-    async stopFlow(taskId: string, flowId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
+    async stopFlow(ownerId: string, flowId: string): Promise<void> {
+        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run) return;
         await this.failFlow(run);
     }
@@ -229,8 +235,8 @@ class FlowRunner {
         const mapping = this.sessionFlowMap.get(sessionId);
         if (!mapping) return;
 
-        const { taskId, flowId, sessionType } = mapping;
-        const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
+        const { ownerId, flowId, sessionType } = mapping;
+        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run) return;
 
         const currentAction = run.actions[run.currentActionIndex];
@@ -263,13 +269,13 @@ class FlowRunner {
     }
 
     async saveArtifact(
-        taskId: string,
+        ownerId: string,
         flowId: string,
         actionEntryId: string,
         sessionId: string,
         artifact: Omit<FlowArtifact, "actionEntryId" | "createdAt">,
     ): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
+        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run) throw new Error("No flow run found");
         if (run.status !== "running") throw new Error("Flow run is not active");
 
@@ -312,13 +318,19 @@ class FlowRunner {
         return artifacts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
 
-    async failFlowByIds(taskId: string, flowId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(taskId, flowId);
+    async failFlowByIds(ownerId: string, flowId: string): Promise<void> {
+        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run) return;
         await this.failFlow(run);
     }
 
     // --- Private helpers ---
+
+    private ownerFromRun(run: FlowRun): FlowOwner {
+        if (run.taskId) return { taskId: run.taskId };
+        if (run.projectId) return { projectId: run.projectId };
+        throw new Error("FlowRun must have either taskId or projectId");
+    }
 
     private async failFlow(run: FlowRun): Promise<void> {
         const currentAction = run.actions[run.currentActionIndex];
@@ -354,11 +366,12 @@ class FlowRunner {
         await this.deps.flowStore.saveFlowRun(run);
         this.broadcastUpdate(run);
 
-        await this.launchPersistedActionWithRecovery(run.taskId, run.flowId, run, nextIndex);
+        const owner = this.ownerFromRun(run);
+        await this.launchPersistedActionWithRecovery(owner, run.flowId, run, nextIndex);
     }
 
     private async launchAction(
-        taskId: string,
+        owner: FlowOwner,
         flow: FlowDefinition,
         run: FlowRun,
         actionIndex: number,
@@ -367,15 +380,17 @@ class FlowRunner {
         if (!actionEntry) return;
 
         const resolved = await this.resolveAction(actionEntry);
-        const taskDescription = await this.deps.getTaskDescription(taskId);
+        const ownerDescription = await this.deps.getOwnerDescription(owner);
         const prompt = this.buildActionPrompt(
             resolved.prompt,
-            taskDescription,
+            ownerDescription,
             resolved.sessionType,
+            !!owner.projectId,
         );
 
+        const ownerId = owner.taskId ?? owner.projectId;
         const sessionId = await this.deps.spawnSession({
-            taskId,
+            owner,
             sessionType: resolved.sessionType,
             prompt,
             label: actionEntry.label ?? resolved.name,
@@ -385,7 +400,8 @@ class FlowRunner {
         });
 
         this.sessionFlowMap.set(sessionId, {
-            taskId,
+            ownerId,
+            owner,
             flowId: flow.id,
             actionEntryId: actionEntry.id,
             sessionType: resolved.sessionType,
@@ -395,13 +411,13 @@ class FlowRunner {
     }
 
     private async launchActionWithRecovery(
-        taskId: string,
+        owner: FlowOwner,
         flow: FlowDefinition,
         run: FlowRun,
         actionIndex: number,
     ): Promise<void> {
         try {
-            await this.launchAction(taskId, flow, run, actionIndex);
+            await this.launchAction(owner, flow, run, actionIndex);
         } catch (error) {
             await this.markActionLaunchFailed(run, actionIndex);
             throw error;
@@ -409,14 +425,14 @@ class FlowRunner {
     }
 
     private async launchPersistedActionWithRecovery(
-        taskId: string,
+        owner: FlowOwner,
         flowId: string,
         run: FlowRun,
         actionIndex: number,
     ): Promise<void> {
         try {
             const flow = await this.requireFlowDefinition(flowId);
-            await this.launchAction(taskId, flow, run, actionIndex);
+            await this.launchAction(owner, flow, run, actionIndex);
         } catch (error) {
             await this.markActionLaunchFailed(run, actionIndex);
             throw error;
@@ -480,14 +496,16 @@ class FlowRunner {
 
     private buildActionPrompt(
         actionPrompt: string,
-        taskDescription: string,
+        ownerDescription: string,
         sessionType: SessionType,
+        isProjectScope: boolean,
     ): string {
         if (sessionType === "shell") {
             return actionPrompt;
         }
+        const descriptionHeader = isProjectScope ? "Project Description" : "Task Description";
         return [
-            `## Task Description\n\n${taskDescription}`,
+            `## ${descriptionHeader}\n\n${ownerDescription}`,
             `## Action Instructions\n\n${actionPrompt}`,
             `## Taskflow CLI`,
             `Use \`taskflow-cli task\` to read task info and logs.`,

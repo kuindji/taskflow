@@ -66,8 +66,14 @@ interface FlowArtifact {
     createdAt: string;
 }
 
+// Exactly one of taskId or projectId must be set
+type FlowOwner =
+    | { taskId: string; projectId?: never }
+    | { projectId: string; taskId?: never };
+
 interface FlowRun {
-    taskId: string;
+    taskId?: string;
+    projectId?: string;
     flowId: string;
     status: FlowRunStatus;
     currentActionIndex: number;
@@ -75,6 +81,12 @@ interface FlowRun {
     artifacts: FlowArtifact[];
     startedAt: string;
     completedAt?: string;
+}
+
+function getFlowRunOwnerId(run: FlowRun): string {
+    const id = run.taskId ?? run.projectId;
+    if (!id) throw new Error("FlowRun must have either taskId or projectId");
+    return id;
 }
 
 // --- Handler payload types ---
@@ -89,23 +101,24 @@ interface FlowActionDeletePayload {
 }
 
 interface FlowStartPayload {
-    taskId: string;
+    taskId?: string;
+    projectId?: string;
     flowId: string;
 }
 
-interface FlowTaskFlowPayload {
-    taskId: string;
+interface FlowOwnerFlowPayload {
+    ownerId: string;
     flowId: string;
 }
 
 interface FlowJumpToActionPayload {
-    taskId: string;
+    ownerId: string;
     flowId: string;
     actionIndex: number;
 }
 
-interface FlowTaskPayload {
-    taskId: string;
+interface FlowOwnerPayload {
+    ownerId: string;
 }
 
 export type {
@@ -118,11 +131,13 @@ export type {
     FlowActionStatus,
     FlowActionState,
     FlowArtifact,
+    FlowOwner,
     FlowRun,
     FlowDefinitionDeletePayload,
     FlowActionDeletePayload,
     FlowStartPayload,
-    FlowTaskFlowPayload,
+    FlowOwnerFlowPayload,
     FlowJumpToActionPayload,
-    FlowTaskPayload,
+    FlowOwnerPayload,
 };
+export { getFlowRunOwnerId };

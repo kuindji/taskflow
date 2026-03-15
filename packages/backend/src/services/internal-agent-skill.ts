@@ -318,8 +318,13 @@ case "$cmd" in
         echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
         exit 1
       fi
-      payload=$(printf '{"taskId":%s,"flowId":%s,"sessionId":%s}' \
-        "$(json_string "$TASKFLOW_TASK_ID")" \
+      if [ -n "$TASKFLOW_TASK_ID" ]; then
+        owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
+      else
+        owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
+      fi
+      payload=$(printf '{%s,"flowId":%s,"sessionId":%s}' \
+        "$owner_field" \
         "$(json_string "$TASKFLOW_FLOW_ID")" \
         "$(json_string "$TASKFLOW_SESSION_ID")")
       curl -sf -X POST "$TASKFLOW_API_URL/api/flow/action-complete" \\
@@ -335,6 +340,14 @@ case "$cmd" in
     if [ -z "$TASKFLOW_FLOW_ID" ]; then
       echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
       exit 1
+    fi
+    # Determine owner ID (task or project)
+    if [ -n "$TASKFLOW_TASK_ID" ]; then
+      flow_owner_id="$TASKFLOW_TASK_ID"
+      owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
+    else
+      flow_owner_id="$TASKFLOW_PROJECT_ID"
+      owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
     fi
     subcmd="\${1:-}"
     shift 2>/dev/null || true
@@ -364,8 +377,8 @@ case "$cmd" in
           exit 1
         fi
         if [ -n "$artifact_path" ]; then
-          payload=$(printf '{"taskId":%s,"flowId":%s,"actionEntryId":%s,"sessionId":%s,"type":%s,"path":%s}' \
-            "$(json_string "$TASKFLOW_TASK_ID")" \
+          payload=$(printf '{%s,"flowId":%s,"actionEntryId":%s,"sessionId":%s,"type":%s,"path":%s}' \
+            "$owner_field" \
             "$(json_string "$TASKFLOW_FLOW_ID")" \
             "$(json_string "$TASKFLOW_ACTION_ENTRY_ID")" \
             "$(json_string "$TASKFLOW_SESSION_ID")" \
@@ -375,8 +388,8 @@ case "$cmd" in
             -H "Content-Type: application/json" \\
             -d "$payload"
         else
-          payload=$(printf '{"taskId":%s,"flowId":%s,"actionEntryId":%s,"sessionId":%s,"type":%s,"text":%s}' \
-            "$(json_string "$TASKFLOW_TASK_ID")" \
+          payload=$(printf '{%s,"flowId":%s,"actionEntryId":%s,"sessionId":%s,"type":%s,"text":%s}' \
+            "$owner_field" \
             "$(json_string "$TASKFLOW_FLOW_ID")" \
             "$(json_string "$TASKFLOW_ACTION_ENTRY_ID")" \
             "$(json_string "$TASKFLOW_SESSION_ID")" \
@@ -388,7 +401,7 @@ case "$cmd" in
         fi
         ;;
       list)
-        curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$TASKFLOW_TASK_ID/$TASKFLOW_FLOW_ID"
+        curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$flow_owner_id/$TASKFLOW_FLOW_ID"
         ;;
       get)
         artifact_type="\${1:-}"
@@ -396,7 +409,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli artifact get <type>" >&2
           exit 1
         fi
-        curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$TASKFLOW_TASK_ID/$TASKFLOW_FLOW_ID/$artifact_type"
+        curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$flow_owner_id/$TASKFLOW_FLOW_ID/$artifact_type"
         ;;
       *)
         echo "Usage: taskflow-cli artifact <save|list|get>" >&2

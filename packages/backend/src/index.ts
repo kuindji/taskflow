@@ -83,8 +83,11 @@ async function main() {
         const flowRunner = new FlowRunner({
             flowStore,
             spawnSession: async (opts) => {
+                const owner = opts.owner.taskId
+                    ? { taskId: opts.owner.taskId }
+                    : { projectId: opts.owner.projectId! };
                 return sessionLifecycle.createSession({
-                    owner: { taskId: opts.taskId },
+                    owner,
                     type: opts.sessionType,
                     label: opts.label,
                     prompt: opts.prompt,
@@ -103,27 +106,31 @@ async function main() {
                 ptyManager.close(sessionId);
             },
             broadcast: server.broadcast,
-            getTaskDescription: async (taskId) => {
-                const task = await store.getTask(taskId);
-                return task?.description ?? "";
+            getOwnerDescription: async (owner) => {
+                if (owner.taskId) {
+                    const task = await store.getTask(owner.taskId);
+                    return task?.description ?? "";
+                }
+                // If not task-scoped, must be project-scoped (FlowOwner is a discriminated union)
+                const projectId = owner.projectId;
+                if (!projectId) return "";
+                const project = await store.getProject(projectId);
+                return project?.name ?? "";
             },
         });
 
         // Recover flow runs stuck in "running" from a previous process crash
-        const allTasks = await store.listTasks();
-        for (const task of allTasks) {
-            const runs = await flowStore.getFlowRunsForTask(task.id);
-            for (const run of runs) {
-                if (run.status === "running") {
-                    run.status = "paused";
-                    const currentAction = run.actions[run.currentActionIndex];
-                    if (currentAction?.status === "running") {
-                        currentAction.status = "failed";
-                        currentAction.completedAt = new Date().toISOString();
-                        currentAction.sessionId = undefined;
-                    }
-                    await flowStore.saveFlowRun(run);
+        const activeRuns = await flowStore.getAllActiveRuns();
+        for (const run of activeRuns) {
+            if (run.status === "running") {
+                run.status = "paused";
+                const currentAction = run.actions[run.currentActionIndex];
+                if (currentAction?.status === "running") {
+                    currentAction.status = "failed";
+                    currentAction.completedAt = new Date().toISOString();
+                    currentAction.sessionId = undefined;
                 }
+                await flowStore.saveFlowRun(run);
             }
         }
 

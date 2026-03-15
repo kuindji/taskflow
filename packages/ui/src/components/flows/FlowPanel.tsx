@@ -15,37 +15,38 @@ import {
 import { Check, X, SkipForward, Pause, Play, Square, Loader2 } from "lucide-react";
 
 interface FlowPanelProps {
-    taskId: string;
+    ownerId: string;
+    onClose: () => void;
 }
 
-function FlowPanel({ taskId }: FlowPanelProps) {
-    const run = useFlowStore((s) => s.activeRuns[taskId]);
+function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
+    const run = useFlowStore((s) => s.activeRuns[ownerId]);
     const flows = useFlowStore((s) => s.flows);
     const actions = useFlowStore((s) => s.actions);
     const [jumpConfirm, setJumpConfirm] = useState<{ index: number; name: string } | null>(null);
 
     const handlePause = useCallback(() => {
         if (!run) return;
-        void useFlowStore.getState().pauseFlow(taskId, run.flowId);
-    }, [taskId, run]);
+        void useFlowStore.getState().pauseFlow(ownerId, run.flowId);
+    }, [ownerId, run]);
 
     const handleResume = useCallback(() => {
         if (!run) return;
-        void useFlowStore.getState().resumeFlow(taskId, run.flowId);
-    }, [taskId, run]);
+        void useFlowStore.getState().resumeFlow(ownerId, run.flowId);
+    }, [ownerId, run]);
 
     const handleStop = useCallback(() => {
         if (!run) return;
-        void useFlowStore.getState().stopFlow(taskId, run.flowId);
-    }, [taskId, run]);
+        void useFlowStore.getState().stopFlow(ownerId, run.flowId);
+    }, [ownerId, run]);
 
     const handleSkip = useCallback(
         (e: React.MouseEvent) => {
             if (!run) return;
             e.stopPropagation();
-            void useFlowStore.getState().skipAction(taskId, run.flowId);
+            void useFlowStore.getState().skipAction(ownerId, run.flowId);
         },
-        [taskId, run],
+        [ownerId, run],
     );
 
     if (!run) return null;
@@ -80,7 +81,7 @@ function FlowPanel({ taskId }: FlowPanelProps) {
 
     const confirmJump = () => {
         if (!jumpConfirm) return;
-        void useFlowStore.getState().jumpToAction(taskId, run.flowId, jumpConfirm.index);
+        void useFlowStore.getState().jumpToAction(ownerId, run.flowId, jumpConfirm.index);
         setJumpConfirm(null);
     };
 
@@ -102,8 +103,8 @@ function FlowPanel({ taskId }: FlowPanelProps) {
     return (
         <div className="flex h-full flex-col">
             {/* Header */}
-            <div className="border-border flex items-center justify-between border-b px-3 py-1.5">
-                <span className="truncate text-xs font-medium">{flowName}</span>
+            <div className="border-border flex min-h-9 items-center justify-between border-b px-1.5 py-1.5">
+                <span className="ml-2 truncate text-xs font-medium">{flowName}</span>
                 <div className="flex gap-1">
                     {run.status === "running" && (
                         <Button
@@ -141,6 +142,17 @@ function FlowPanel({ taskId }: FlowPanelProps) {
                             <Square className="h-3 w-3" />
                         </Button>
                     )}
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5"
+                        onClick={onClose}
+                        disabled={run.status === "running" || run.status === "paused"}
+                        tooltip="Close"
+                        tooltipSide="bottom"
+                    >
+                        <X className="h-3 w-3" />
+                    </Button>
                 </div>
             </div>
 

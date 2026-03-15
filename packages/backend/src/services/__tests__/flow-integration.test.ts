@@ -4,15 +4,17 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { FlowStore } from "../flow-store";
 import { FlowRunner } from "../flow-runner";
-import type { FlowDefinition } from "@taskflow/shared";
+import type { FlowDefinition, FlowOwner } from "@taskflow/shared";
 
 describe("flow lifecycle integration", () => {
     let tempDir: string;
     let flowStore: FlowStore;
     let runner: FlowRunner;
-    let spawnedSessions: Array<{ sessionId: string; taskId: string; prompt: string }>;
+    let spawnedSessions: Array<{ sessionId: string; owner: FlowOwner; prompt: string }>;
     let closedSessions: string[];
     let broadcasts: Array<{ type: string; payload: unknown }>;
+
+    const taskOwner: FlowOwner = { taskId: "task-1" };
 
     const testFlow: FlowDefinition = {
         id: "flow-1",
@@ -48,7 +50,7 @@ describe("flow lifecycle integration", () => {
                 const sessionId = `session-${spawnedSessions.length + 1}`;
                 spawnedSessions.push({
                     sessionId,
-                    taskId: opts.taskId,
+                    owner: opts.owner,
                     prompt: opts.prompt,
                 });
                 return sessionId;
@@ -59,7 +61,7 @@ describe("flow lifecycle integration", () => {
             broadcast: (msg) => {
                 broadcasts.push(msg);
             },
-            getTaskDescription: async () => "Test task description",
+            getOwnerDescription: async () => "Test task description",
         });
     });
 
@@ -68,7 +70,7 @@ describe("flow lifecycle integration", () => {
     });
 
     test("full flow runs to completion", async () => {
-        await runner.startFlow("task-1", testFlow);
+        await runner.startFlow(taskOwner, testFlow);
         expect(spawnedSessions).toHaveLength(1);
 
         // Complete action 1
@@ -85,7 +87,7 @@ describe("flow lifecycle integration", () => {
     });
 
     test("artifacts persist across actions", async () => {
-        await runner.startFlow("task-1", testFlow);
+        await runner.startFlow(taskOwner, testFlow);
 
         // Save artifact in action 1
         await runner.saveArtifact("task-1", "flow-1", "e1", "session-1", {
@@ -106,7 +108,7 @@ describe("flow lifecycle integration", () => {
     });
 
     test("pause and resume preserves state", async () => {
-        await runner.startFlow("task-1", testFlow);
+        await runner.startFlow(taskOwner, testFlow);
         expect(spawnedSessions).toHaveLength(1);
 
         // Pause
@@ -125,7 +127,7 @@ describe("flow lifecycle integration", () => {
     });
 
     test("skip action advances to next", async () => {
-        await runner.startFlow("task-1", testFlow);
+        await runner.startFlow(taskOwner, testFlow);
         expect(spawnedSessions).toHaveLength(1);
 
         // Skip action 1
@@ -140,7 +142,7 @@ describe("flow lifecycle integration", () => {
     });
 
     test("jumping backward from an active later action resets later state", async () => {
-        await runner.startFlow("task-1", testFlow);
+        await runner.startFlow(taskOwner, testFlow);
 
         // Advance into action 2 so the later action is actively running.
         await runner.handleActionComplete("task-1", "flow-1", "session-1");
@@ -167,7 +169,7 @@ describe("flow lifecycle integration", () => {
     });
 
     test("stop flow marks it as failed", async () => {
-        await runner.startFlow("task-1", testFlow);
+        await runner.startFlow(taskOwner, testFlow);
 
         await runner.stopFlow("task-1", "flow-1");
 
@@ -176,7 +178,7 @@ describe("flow lifecycle integration", () => {
     });
 
     test("flow run persists to disk and survives reload", async () => {
-        await runner.startFlow("task-1", testFlow);
+        await runner.startFlow(taskOwner, testFlow);
         await runner.handleActionComplete("task-1", "flow-1", "session-1");
 
         // Create a new FlowStore pointing at same directory
@@ -204,7 +206,7 @@ describe("flow lifecycle integration", () => {
         };
         await flowStore.saveFlow(shellFlow);
 
-        await runner.startFlow("task-1", shellFlow);
+        await runner.startFlow(taskOwner, shellFlow);
         expect(spawnedSessions).toHaveLength(1);
 
         await runner.handleSessionExit("session-1", 0);

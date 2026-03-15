@@ -374,13 +374,14 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const { taskId, flowId, sessionId } = body;
-        if (typeof taskId !== "string" || typeof flowId !== "string" || typeof sessionId !== "string") {
-            return errorResponse("Fields taskId, flowId, and sessionId are required strings", 400);
+        const { taskId, projectId, flowId, sessionId } = body;
+        const ownerId = typeof taskId === "string" ? taskId : typeof projectId === "string" ? projectId : undefined;
+        if (!ownerId || typeof flowId !== "string" || typeof sessionId !== "string") {
+            return errorResponse("Fields flowId, sessionId, and one of taskId/projectId are required strings", 400);
         }
 
         try {
-            await flowRunner.handleActionComplete(taskId, flowId, sessionId);
+            await flowRunner.handleActionComplete(ownerId, flowId, sessionId);
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
@@ -398,16 +399,17 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const { taskId, flowId, actionEntryId, sessionId, type, path, text } = body;
+        const { taskId, projectId, flowId, actionEntryId, sessionId, type, path, text } = body;
+        const ownerId = typeof taskId === "string" ? taskId : typeof projectId === "string" ? projectId : undefined;
         if (
-            typeof taskId !== "string" ||
+            !ownerId ||
             typeof flowId !== "string" ||
             typeof actionEntryId !== "string" ||
             typeof sessionId !== "string" ||
             typeof type !== "string"
         ) {
             return errorResponse(
-                "Fields taskId, flowId, actionEntryId, sessionId, and type are required strings",
+                "Fields flowId, actionEntryId, sessionId, type, and one of taskId/projectId are required strings",
                 400,
             );
         }
@@ -419,7 +421,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         }
 
         try {
-            await flowRunner.saveArtifact(taskId, flowId, actionEntryId, sessionId, {
+            await flowRunner.saveArtifact(ownerId, flowId, actionEntryId, sessionId, {
                 type,
                 path: hasPath ? path : undefined,
                 text: hasText ? text : undefined,
@@ -443,14 +445,14 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         }
     });
 
-    apiRouter.register("GET", "/api/flow/artifact/:taskId/:flowId", async (_req, params) => {
-        const run = await flowStore.getFlowRun(params.taskId, params.flowId);
+    apiRouter.register("GET", "/api/flow/artifact/:ownerId/:flowId", async (_req, params) => {
+        const run = await flowStore.getFlowRun(params.ownerId, params.flowId);
         if (!run) return errorResponse("Flow run not found", 404);
         return jsonResponse({ artifacts: flowRunner.getArtifacts(run) });
     });
 
-    apiRouter.register("GET", "/api/flow/artifact/:taskId/:flowId/:type", async (_req, params) => {
-        const run = await flowStore.getFlowRun(params.taskId, params.flowId);
+    apiRouter.register("GET", "/api/flow/artifact/:ownerId/:flowId/:type", async (_req, params) => {
+        const run = await flowStore.getFlowRun(params.ownerId, params.flowId);
         if (!run) return errorResponse("Flow run not found", 404);
         const artifacts = flowRunner.getArtifacts(run, params.type);
         if (artifacts.length === 0) return errorResponse("Artifact not found", 404);

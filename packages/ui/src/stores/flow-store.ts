@@ -1,7 +1,13 @@
 import { create } from "zustand";
 import type { FlowDefinition, FlowRun, ActionDefinition } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import { MSG, getFlowRunOwnerId } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
+
+interface FlowStartParams {
+    taskId?: string;
+    projectId?: string;
+    flowId: string;
+}
 
 interface FlowStore {
     flows: FlowDefinition[];
@@ -17,13 +23,13 @@ interface FlowStore {
     deleteFlow(id: string): Promise<void>;
     deleteAction(id: string): Promise<void>;
 
-    startFlow(taskId: string, flowId: string): Promise<FlowRun>;
-    stopFlow(taskId: string, flowId: string): Promise<void>;
-    pauseFlow(taskId: string, flowId: string): Promise<void>;
-    resumeFlow(taskId: string, flowId: string): Promise<void>;
-    skipAction(taskId: string, flowId: string): Promise<void>;
-    jumpToAction(taskId: string, flowId: string, actionIndex: number): Promise<void>;
-    fetchFlowRuns(taskId: string): Promise<void>;
+    startFlow(params: FlowStartParams): Promise<FlowRun>;
+    stopFlow(ownerId: string, flowId: string): Promise<void>;
+    pauseFlow(ownerId: string, flowId: string): Promise<void>;
+    resumeFlow(ownerId: string, flowId: string): Promise<void>;
+    skipAction(ownerId: string, flowId: string): Promise<void>;
+    jumpToAction(ownerId: string, flowId: string, actionIndex: number): Promise<void>;
+    fetchFlowRuns(ownerId: string): Promise<void>;
 
     applyRunUpdate(run: FlowRun): void;
 }
@@ -109,51 +115,54 @@ const useFlowStore = create<FlowStore>((set) => ({
         set((s) => ({ actions: s.actions.filter((a) => a.id !== id) }));
     },
 
-    async startFlow(taskId, flowId) {
-        const run = await sendRequest<FlowRun>(MSG.FLOW_START, { taskId, flowId });
-        set((s) => ({ activeRuns: { ...s.activeRuns, [taskId]: run } }));
+    async startFlow(params) {
+        const run = await sendRequest<FlowRun>(MSG.FLOW_START, params);
+        const ownerId = getFlowRunOwnerId(run);
+        set((s) => ({ activeRuns: { ...s.activeRuns, [ownerId]: run } }));
         return run;
     },
 
-    async stopFlow(taskId, flowId) {
-        await sendRequest(MSG.FLOW_STOP, { taskId, flowId });
+    async stopFlow(ownerId, flowId) {
+        await sendRequest(MSG.FLOW_STOP, { ownerId, flowId });
     },
 
-    async pauseFlow(taskId, flowId) {
-        await sendRequest(MSG.FLOW_PAUSE, { taskId, flowId });
+    async pauseFlow(ownerId, flowId) {
+        await sendRequest(MSG.FLOW_PAUSE, { ownerId, flowId });
     },
 
-    async resumeFlow(taskId, flowId) {
-        await sendRequest(MSG.FLOW_RESUME, { taskId, flowId });
+    async resumeFlow(ownerId, flowId) {
+        await sendRequest(MSG.FLOW_RESUME, { ownerId, flowId });
     },
 
-    async skipAction(taskId, flowId) {
-        await sendRequest(MSG.FLOW_SKIP_ACTION, { taskId, flowId });
+    async skipAction(ownerId, flowId) {
+        await sendRequest(MSG.FLOW_SKIP_ACTION, { ownerId, flowId });
     },
 
-    async jumpToAction(taskId, flowId, actionIndex) {
-        await sendRequest(MSG.FLOW_JUMP_TO_ACTION, { taskId, flowId, actionIndex });
+    async jumpToAction(ownerId, flowId, actionIndex) {
+        await sendRequest(MSG.FLOW_JUMP_TO_ACTION, { ownerId, flowId, actionIndex });
     },
 
-    async fetchFlowRuns(taskId) {
-        const { runs } = await sendRequest<{ runs: FlowRun[] }>(MSG.FLOW_RUNS_LIST, { taskId });
+    async fetchFlowRuns(ownerId) {
+        const { runs } = await sendRequest<{ runs: FlowRun[] }>(MSG.FLOW_RUNS_LIST, { ownerId });
         const activeRun = runs.find((r) => r.status === "running" || r.status === "paused");
         set((s) => {
             if (activeRun) {
-                return { activeRuns: { ...s.activeRuns, [taskId]: activeRun } };
+                return { activeRuns: { ...s.activeRuns, [ownerId]: activeRun } };
             }
-            const { [taskId]: _removed, ...remaining } = s.activeRuns;
+            const { [ownerId]: _removed, ...remaining } = s.activeRuns;
             return { activeRuns: remaining };
         });
     },
 
     applyRunUpdate(run) {
         set((s) => {
-            if (run.status === "running" || run.status === "paused") {
-                return { activeRuns: { ...s.activeRuns, [run.taskId]: run } };
+            const ownerId = getFlowRunOwnerId(run);
+            // Only update if we're already tracking this owner's run
+            // (don't add completed runs we weren't watching)
+            if (run.status === "running" || run.status === "paused" || s.activeRuns[ownerId]) {
+                return { activeRuns: { ...s.activeRuns, [ownerId]: run } };
             }
-            const { [run.taskId]: _removed, ...remaining } = s.activeRuns;
-            return { activeRuns: remaining };
+            return s;
         });
     },
 }));
@@ -161,7 +170,7 @@ const useFlowStore = create<FlowStore>((set) => ({
 // Module-level event listener for flow run updates.
 // Singleton store — registered once on import.
 const _unsubFlowRunUpdated = onEvent(MSG.FLOW_RUN_UPDATED, (payload) => {
-    if (payload && typeof payload === "object" && "taskId" in payload) {
+    if (payload && typeof payload === "object" && "flowId" in payload) {
         useFlowStore.getState().applyRunUpdate(payload as FlowRun);
     }
 });

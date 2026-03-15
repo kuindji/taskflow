@@ -4,8 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
-import { useFlowStore } from "@/stores/flow-store";
-// Flow dropdown moved to TabBar Run menu; only active flow indicator remains here
+
 import { useDiffStore } from "@/stores/diff-store";
 import { confirm } from "@/stores/dialog-store";
 import { TruncatedText } from "@/components/ui/truncated-text";
@@ -24,7 +23,7 @@ import {
     NotebookText,
     Pencil,
     Trash2,
-    Loader2,
+
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
 
@@ -43,8 +42,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const updateProject = useProjectStore((s) => s.updateProject);
     const removeProject = useProjectStore((s) => s.removeProject);
-    const flowDefinitions = useFlowStore((s) => s.flows);
-    const activeFlowRun = useFlowStore((s) => (task ? s.activeRuns[task.id] : undefined));
+
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
     const [commitOpen, setCommitOpen] = useState(false);
@@ -163,15 +161,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                     <span className="text-muted-foreground ml-2 text-sm">No task selected</span>
                 </div>
             )}
-            {task && activeFlowRun && (
-                <div className="flex items-center gap-1.5 px-1 text-xs [-webkit-app-region:no-drag]">
-                    <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
-                    <span className="text-muted-foreground">
-                        {flowDefinitions.find((f) => f.id === activeFlowRun.flowId)?.name ??
-                            "Flow"}
-                    </span>
-                </div>
-            )}
+
             <div className="flex-1" />
             {(task || project) && (
                 <>
