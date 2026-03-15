@@ -31,6 +31,7 @@ interface SessionHandlerDeps {
 function getDefaultSessionLabel(type: SessionCreatePayload["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
+    if (type === "opencode") return "OpenCode";
     return `${type} session`;
 }
 
@@ -109,6 +110,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
 
         let command: string;
         const args: string[] = [];
+        let specEnv: Record<string, string> | undefined;
         if (type === "shell") {
             if (!shell) throw new Error("shell path is required for shell sessions");
             command = shell;
@@ -121,6 +123,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions);
             command = spec.command;
             args.push(...spec.args);
+            specEnv = spec.env;
         }
 
         const sessionId = crypto.randomUUID();
@@ -136,7 +139,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             command,
             args,
             cwd,
-            env: taskflowEnv,
+            env: specEnv ? { ...taskflowEnv, ...specEnv } : taskflowEnv,
             cols,
             rows,
             onData: (data, sequence) => {
