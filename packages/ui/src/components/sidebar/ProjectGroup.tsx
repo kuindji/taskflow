@@ -189,7 +189,7 @@ export function ProjectGroup({
                         {topLevelTasks.map((task) => {
                             const subtasks = subtaskMap.get(task.id);
                             const hasSubtasks = !!subtasks && subtasks.length > 0;
-                            const isExpanded = !!expandedTasks[task.id];
+                            const isExpanded = expandedTasks[task.id];
 
                             return (
                                 <div key={task.id}>
