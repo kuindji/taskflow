@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, type MouseEvent } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Archive, ArchiveRestore, ChevronRight, GitBranch, Pin, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, GitBranch, Pin, Plus, Trash2 } from "lucide-react";
 import type { Task } from "@taskflow/shared";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
@@ -41,10 +41,8 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     archived?: boolean;
     compact?: boolean;
     diffStats?: { additions: number; deletions: number } | null;
-    hasSubtasks?: boolean;
-    isExpanded?: boolean;
-    onToggleExpand?: () => void;
     isSubtask?: boolean;
+    isExpanded?: boolean;
 }
 
 export function TaskCard({
@@ -55,10 +53,8 @@ export function TaskCard({
     archived,
     compact,
     diffStats,
-    hasSubtasks,
-    isExpanded,
-    onToggleExpand,
     isSubtask,
+    isExpanded,
 }: TaskCardProps) {
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleteWorktree, setDeleteWorktree] = useState(false);
@@ -70,6 +66,16 @@ export function TaskCard({
     const requestNewSubtask = useTaskCreationStore((s) => s.requestNewSubtask);
     const subtaskCount = useTaskStore((s) =>
         isSubtask ? 0 : s.tasks.filter((t) => t.parentId === task.id).length,
+    );
+    const subtaskSessions = useTaskStore((s) => {
+        if (isSubtask || isExpanded) return [];
+        return s.tasks
+            .filter((t) => t.parentId === task.id)
+            .flatMap((t) => t.sessions);
+    });
+    const displaySessions = useMemo(
+        () => (isExpanded || isSubtask ? task.sessions : [...task.sessions, ...subtaskSessions]),
+        [task.sessions, subtaskSessions, isExpanded, isSubtask],
     );
     const hasWorktree = task.worktree.enabled && !!task.worktree.path;
 
@@ -158,48 +164,16 @@ export function TaskCard({
                     </div>
                 )}
 
-                {(task.sessions.length > 0 ||
-                    (!isSubtask && task.worktree.enabled) ||
-                    hasSubtasks ||
-                    task.pinned) && (
+                {(displaySessions.length > 0 || (!isSubtask && task.worktree.enabled)) && (
                     <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1">
-                        {hasSubtasks && (
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onToggleExpand?.();
-                                        }}
-                                        className="text-muted-foreground -ml-0.5 shrink-0 p-0"
-                                        aria-label={
-                                            isExpanded ? "Collapse subtasks" : "Expand subtasks"
-                                        }
-                                    >
-                                        <ChevronRight
-                                            className={cn(
-                                                "h-3.5 w-3.5 transition-transform",
-                                                isExpanded && "rotate-90",
-                                            )}
-                                        />
-                                    </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="right">
-                                    {isExpanded ? "Collapse subtasks" : "Expand subtasks"}
-                                </TooltipContent>
-                            </Tooltip>
-                        )}
-                        {task.pinned && (
-                            <Pin className="text-muted-foreground mr-1.5 inline h-3 w-3 shrink-0" />
-                        )}
                         {!isSubtask && task.worktree.enabled && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Badge
                                         variant="outline"
-                                        className="border-border/60 bg-muted/50 gap-0.5 px-1 py-0 text-xs font-medium"
+                                        className="border-border/60 bg-muted/50 min-h-4.5 gap-0.5 px-1 py-0 text-xs font-medium"
                                     >
-                                        <GitBranch className="text-muted-foreground h-3 w-3" />
+                                        <GitBranch className="text-muted-foreground" />
                                         {diffStats && (
                                             <>
                                                 <span className="text-success">
@@ -217,7 +191,7 @@ export function TaskCard({
                                 </TooltipContent>
                             </Tooltip>
                         )}
-                        {task.sessions.map((session) => (
+                        {displaySessions.map((session) => (
                             <SessionBadge key={session.id} session={session} />
                         ))}
                     </div>

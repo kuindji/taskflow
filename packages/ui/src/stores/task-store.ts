@@ -10,7 +10,6 @@ interface TaskStore {
     activeTaskId: string | null;
     loading: boolean;
     taskLogs: Record<string, TaskLogEntry[]>;
-    expandedTasks: Record<string, boolean>;
     fetchTasks(): Promise<void>;
     fetchArchivedTasks(): Promise<void>;
     setShowArchive(show: boolean): void;
@@ -27,7 +26,6 @@ interface TaskStore {
     unarchiveTask(id: string): Promise<void>;
     deleteTask(id: string, options?: { deleteWorktree?: boolean }): Promise<void>;
     setActiveTask(id: string | null): void;
-    toggleTaskExpanded(taskId: string): void;
     fetchTaskLog(taskId: string): Promise<void>;
     appendLogEntry(taskId: string, entry: TaskLogEntry): void;
 }
@@ -62,7 +60,6 @@ export const useTaskStore = create<TaskStore>((set) => ({
     activeTaskId: null,
     loading: false,
     taskLogs: {},
-    expandedTasks: {},
     async fetchTasks() {
         set({ loading: true });
         const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST);
@@ -89,9 +86,6 @@ export const useTaskStore = create<TaskStore>((set) => ({
         const task = await sendRequest<Task>(MSG.TASK_CREATE, payload);
         set((s) => ({
             tasks: sortTasksByCreatedAtDesc([...s.tasks, task]),
-            expandedTasks: payload.parentId
-                ? { ...s.expandedTasks, [payload.parentId]: true }
-                : s.expandedTasks,
         }));
         return task;
     },
@@ -141,14 +135,6 @@ export const useTaskStore = create<TaskStore>((set) => ({
     },
     setActiveTask(id) {
         set({ activeTaskId: id });
-    },
-    toggleTaskExpanded(taskId) {
-        set((s) => ({
-            expandedTasks: {
-                ...s.expandedTasks,
-                [taskId]: !s.expandedTasks[taskId],
-            },
-        }));
     },
     async fetchTaskLog(taskId) {
         const { entries } = await sendRequest<{ entries: TaskLogEntry[] }>(MSG.TASK_LOG_LIST, {

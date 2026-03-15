@@ -11,7 +11,6 @@ import { MissingLocationDialog } from "./MissingLocationDialog";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
-import { useTaskStore } from "@/stores/task-store";
 
 interface ProjectGroupProps {
     project: Project;
@@ -59,8 +58,16 @@ export function ProjectGroup({
         return { topLevelTasks: topLevel, subtaskMap: subtasks };
     }, [tasks]);
 
-    const expandedTasks = useTaskStore((s) => s.expandedTasks);
-    const toggleTaskExpanded = useTaskStore((s) => s.toggleTaskExpanded);
+    const activeSubtaskParentIds = useMemo(() => {
+        const ids = new Set<string>();
+        if (!activeTaskId) return ids;
+        for (const [parentId, subs] of subtaskMap) {
+            if (parentId === activeTaskId || subs.some((s) => s.id === activeTaskId)) {
+                ids.add(parentId);
+            }
+        }
+        return ids;
+    }, [activeTaskId, subtaskMap]);
 
     const projectToggleLabel = open ? "Collapse project" : "Expand project";
     const projectStatus = useSessionStore((state) => {
@@ -188,13 +195,18 @@ export function ProjectGroup({
                 </div>
                 {!locationInvalid && (
                     <CollapsibleContent>
-                        {topLevelTasks.map((task) => {
+                        {topLevelTasks.map((task, index) => {
                             const subtasks = subtaskMap.get(task.id);
                             const hasSubtasks = !!subtasks && subtasks.length > 0;
-                            const isExpanded = expandedTasks[task.id];
+                            const isExpanded = activeSubtaskParentIds.has(task.id);
+                            const prevTask = index > 0 ? topLevelTasks[index - 1] : null;
+                            const showPinnedSeparator = prevTask?.pinned === true && !task.pinned;
 
                             return (
                                 <div key={task.id}>
+                                    {showPinnedSeparator && (
+                                        <div className="border-border/40 mx-3 mt-1 mb-0.25 border-t" />
+                                    )}
                                     <NoDragSpacer />
                                     <TaskCard
                                         task={task}
@@ -203,10 +215,8 @@ export function ProjectGroup({
                                         archived={archived}
                                         compact={compact}
                                         diffStats={diffStatsByTask?.[task.id]}
-                                        hasSubtasks={hasSubtasks}
-                                        isExpanded={isExpanded}
-                                        onToggleExpand={() => toggleTaskExpanded(task.id)}
                                         isSubtask={false}
+                                        isExpanded={hasSubtasks && isExpanded}
                                     />
                                     {hasSubtasks && isExpanded && (
                                         <div className="pl-4">
