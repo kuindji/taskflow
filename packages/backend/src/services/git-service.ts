@@ -290,6 +290,11 @@ export class GitService {
     }
 
     async isBranchMerged(repoPath: string, branch: string): Promise<boolean> {
+        // If the branch no longer exists, treat as already merged/cleaned up
+        const branches = await git(["branch", "--list", branch], repoPath);
+        if (!branches.trim()) {
+            return true;
+        }
         const output = await git(["branch", "--merged"], repoPath);
         return output.split("\n").some((line) => line.replace(/^[*+]?\s+/, "") === branch);
     }
