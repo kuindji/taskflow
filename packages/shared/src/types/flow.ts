@@ -2,55 +2,56 @@ import type { AgentLaunchOptions } from "./agent";
 
 type SessionType = "claude" | "codex" | "shell";
 
-interface StepDefinition {
+interface ActionDefinition {
     id: string;
     name: string;
     prompt: string;
     sessionType: SessionType;
     agentOptions?: AgentLaunchOptions;
+    standalone?: boolean;
     createdAt: string;
     updatedAt: string;
 }
 
-interface StepInline {
+interface ActionInline {
     name: string;
     prompt: string;
     sessionType: SessionType;
     agentOptions?: AgentLaunchOptions;
 }
 
-interface FlowStepEntryBase {
+interface FlowActionEntryBase {
     id: string;
     label?: string;
 }
 
-interface FlowStepReferenceEntry extends FlowStepEntryBase {
-    stepId: string;
+interface FlowActionReferenceEntry extends FlowActionEntryBase {
+    actionId: string;
     inline?: never;
 }
 
-interface FlowStepInlineEntry extends FlowStepEntryBase {
-    inline: StepInline;
-    stepId?: never;
+interface FlowActionInlineEntry extends FlowActionEntryBase {
+    inline: ActionInline;
+    actionId?: never;
 }
 
-type FlowStepEntry = FlowStepReferenceEntry | FlowStepInlineEntry;
+type FlowActionEntry = FlowActionReferenceEntry | FlowActionInlineEntry;
 
 interface FlowDefinition {
     id: string;
     name: string;
     description: string;
-    steps: FlowStepEntry[];
+    actions: FlowActionEntry[];
     createdAt: string;
     updatedAt: string;
 }
 
 type FlowRunStatus = "running" | "paused" | "completed" | "failed";
-type FlowStepStatus = "pending" | "running" | "completed" | "skipped" | "failed";
+type FlowActionStatus = "pending" | "running" | "completed" | "skipped" | "failed";
 
-interface FlowStepState {
-    stepEntryId: string;
-    status: FlowStepStatus;
+interface FlowActionState {
+    actionEntryId: string;
+    status: FlowActionStatus;
     sessionId?: string;
     startedAt?: string;
     completedAt?: string;
@@ -61,7 +62,7 @@ interface FlowArtifact {
     type: string;
     path?: string;
     text?: string;
-    stepEntryId: string;
+    actionEntryId: string;
     createdAt: string;
 }
 
@@ -69,8 +70,8 @@ interface FlowRun {
     taskId: string;
     flowId: string;
     status: FlowRunStatus;
-    currentStepIndex: number;
-    steps: FlowStepState[];
+    currentActionIndex: number;
+    actions: FlowActionState[];
     artifacts: FlowArtifact[];
     startedAt: string;
     completedAt?: string;
@@ -83,7 +84,7 @@ interface FlowDefinitionDeletePayload {
     id: string;
 }
 
-interface FlowStepDeletePayload {
+interface FlowActionDeletePayload {
     id: string;
 }
 
@@ -97,10 +98,10 @@ interface FlowTaskFlowPayload {
     flowId: string;
 }
 
-interface FlowJumpToStepPayload {
+interface FlowJumpToActionPayload {
     taskId: string;
     flowId: string;
-    stepIndex: number;
+    actionIndex: number;
 }
 
 interface FlowTaskPayload {
@@ -109,19 +110,19 @@ interface FlowTaskPayload {
 
 export type {
     SessionType,
-    StepDefinition,
-    StepInline,
-    FlowStepEntry,
+    ActionDefinition,
+    ActionInline,
+    FlowActionEntry,
     FlowDefinition,
     FlowRunStatus,
-    FlowStepStatus,
-    FlowStepState,
+    FlowActionStatus,
+    FlowActionState,
     FlowArtifact,
     FlowRun,
     FlowDefinitionDeletePayload,
-    FlowStepDeletePayload,
+    FlowActionDeletePayload,
     FlowStartPayload,
     FlowTaskFlowPayload,
-    FlowJumpToStepPayload,
+    FlowJumpToActionPayload,
     FlowTaskPayload,
 };

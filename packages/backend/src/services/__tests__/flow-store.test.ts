@@ -17,56 +17,56 @@ afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
 });
 
-describe("step definitions", () => {
-    test("saveStep and getSteps round-trips", async () => {
-        const step = {
-            id: "step-1",
+describe("action definitions", () => {
+    test("saveAction and getActions round-trips", async () => {
+        const action = {
+            id: "action-1",
             name: "Planning",
             prompt: "Write a plan",
             sessionType: "claude" as const,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
-        await store.saveStep(step);
-        const steps = await store.getSteps();
-        expect(steps).toHaveLength(1);
-        expect(steps[0].name).toBe("Planning");
+        await store.saveAction(action);
+        const actions = await store.getActions();
+        expect(actions).toHaveLength(1);
+        expect(actions[0].name).toBe("Planning");
     });
 
-    test("saveStep updates existing step", async () => {
-        const step = {
-            id: "step-1",
+    test("saveAction updates existing action", async () => {
+        const action = {
+            id: "action-1",
             name: "Planning",
             prompt: "Write a plan",
             sessionType: "claude" as const,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
-        await store.saveStep(step);
-        await store.saveStep({ ...step, name: "Planning v2" });
-        const steps = await store.getSteps();
-        expect(steps).toHaveLength(1);
-        expect(steps[0].name).toBe("Planning v2");
+        await store.saveAction(action);
+        await store.saveAction({ ...action, name: "Planning v2" });
+        const actions = await store.getActions();
+        expect(actions).toHaveLength(1);
+        expect(actions[0].name).toBe("Planning v2");
     });
 
-    test("deleteStep removes an unreferenced step", async () => {
-        const step = {
-            id: "step-1",
+    test("deleteAction removes an unreferenced action", async () => {
+        const action = {
+            id: "action-1",
             name: "Planning",
             prompt: "Write a plan",
             sessionType: "claude" as const,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
-        await store.saveStep(step);
-        await store.deleteStep("step-1");
-        const steps = await store.getSteps();
-        expect(steps).toHaveLength(0);
+        await store.saveAction(action);
+        await store.deleteAction("action-1");
+        const actions = await store.getActions();
+        expect(actions).toHaveLength(0);
     });
 
-    test("deleteStep rejects a referenced step", async () => {
-        const step = {
-            id: "step-1",
+    test("deleteAction rejects a referenced action", async () => {
+        const action = {
+            id: "action-1",
             name: "Planning",
             prompt: "Write a plan",
             sessionType: "claude" as const,
@@ -77,23 +77,23 @@ describe("step definitions", () => {
             id: "flow-1",
             name: "Feature Dev",
             description: "test",
-            steps: [{ id: "entry-1", stepId: "step-1" }],
+            actions: [{ id: "entry-1", actionId: "action-1" }],
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
 
-        await store.saveStep(step);
+        await store.saveAction(action);
         await store.saveFlow(flow);
 
-        expect(store.deleteStep("step-1")).rejects.toThrow(
-            'Cannot delete step "step-1" because it is used by: Feature Dev',
+        expect(store.deleteAction("action-1")).rejects.toThrow(
+            'Cannot delete action "action-1" because it is used by: Feature Dev',
         );
-        expect(store.getSteps()).resolves.toHaveLength(1);
+        expect(store.getActions()).resolves.toHaveLength(1);
     });
 
-    test("getFlowsReferencingStep returns flows that use a step", async () => {
-        const step = {
-            id: "step-1",
+    test("getFlowsReferencingAction returns flows that use an action", async () => {
+        const action = {
+            id: "action-1",
             name: "Planning",
             prompt: "Write a plan",
             sessionType: "claude" as const,
@@ -104,21 +104,21 @@ describe("step definitions", () => {
             id: "flow-1",
             name: "Feature Dev",
             description: "test",
-            steps: [{ id: "entry-1", stepId: "step-1" }],
+            actions: [{ id: "entry-1", actionId: "action-1" }],
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
-        await store.saveStep(step);
+        await store.saveAction(action);
         await store.saveFlow(flow);
 
-        const referencing = await store.getFlowsReferencingStep("step-1");
+        const referencing = await store.getFlowsReferencingAction("action-1");
         expect(referencing.map((entry) => entry.id)).toEqual(["flow-1"]);
     });
 
-    test("getSteps rethrows malformed JSON", async () => {
-        await writeFile(join(tempDir, "flows", "steps.json"), "{bad json");
+    test("getActions rethrows malformed JSON", async () => {
+        await writeFile(join(tempDir, "flows", "actions.json"), "{bad json");
 
-        expect(store.getSteps()).rejects.toThrow();
+        expect(store.getActions()).rejects.toThrow();
     });
 });
 
@@ -128,7 +128,7 @@ describe("flow definitions", () => {
             id: "flow-1",
             name: "Feature Dev",
             description: "Full feature lifecycle",
-            steps: [
+            actions: [
                 {
                     id: "entry-1",
                     inline: {
@@ -152,7 +152,7 @@ describe("flow definitions", () => {
             id: "flow-1",
             name: "Feature Dev",
             description: "test",
-            steps: [
+            actions: [
                 {
                     id: "entry-1",
                     inline: {
@@ -176,7 +176,7 @@ describe("flow definitions", () => {
             id: "flow-1",
             name: "Feature Dev",
             description: "test",
-            steps: [
+            actions: [
                 {
                     id: "entry-1",
                     inline: {
@@ -194,8 +194,8 @@ describe("flow definitions", () => {
             taskId: "task-1",
             flowId: "flow-1",
             status: "running",
-            currentStepIndex: 0,
-            steps: [{ stepEntryId: "entry-1", status: "running" }],
+            currentActionIndex: 0,
+            actions: [{ actionEntryId: "entry-1", status: "running" }],
             artifacts: [],
             startedAt: new Date().toISOString(),
         });
@@ -206,16 +206,16 @@ describe("flow definitions", () => {
         expect(store.getFlows()).resolves.toHaveLength(1);
     });
 
-    test("saveFlow rejects entries without exactly one step source", async () => {
+    test("saveFlow rejects entries without exactly one action source", async () => {
         const createdAt = new Date().toISOString();
         const invalidFlow = {
             id: "flow-1",
             name: "Feature Dev",
             description: "test",
-            steps: [
+            actions: [
                 {
                     id: "entry-1",
-                    stepId: "step-1",
+                    actionId: "action-1",
                     inline: {
                         name: "Plan",
                         prompt: "Plan it",
@@ -228,21 +228,21 @@ describe("flow definitions", () => {
         };
 
         expect(store.saveFlow(invalidFlow as never)).rejects.toThrow(
-            'Flow step "entry-1" must define exactly one of stepId or inline',
+            'Flow action "entry-1" must define exactly one of actionId or inline',
         );
     });
 
-    test("saveFlow rejects flows without steps", async () => {
+    test("saveFlow rejects flows without actions", async () => {
         expect(
             store.saveFlow({
                 id: "flow-1",
                 name: "Feature Dev",
                 description: "test",
-                steps: [],
+                actions: [],
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
             }),
-        ).rejects.toThrow('Flow "flow-1" must define at least one step');
+        ).rejects.toThrow('Flow "flow-1" must define at least one action');
     });
 
     test("getFlows rethrows malformed JSON", async () => {
@@ -258,8 +258,8 @@ describe("flow runs", () => {
             taskId: "task-1",
             flowId: "flow-1",
             status: "running" as const,
-            currentStepIndex: 0,
-            steps: [{ stepEntryId: "entry-1", status: "running" as const }],
+            currentActionIndex: 0,
+            actions: [{ actionEntryId: "entry-1", status: "running" as const }],
             artifacts: [],
             startedAt: new Date().toISOString(),
         };
@@ -274,8 +274,8 @@ describe("flow runs", () => {
             taskId: "task-1",
             flowId: "flow-1",
             status: "completed" as const,
-            currentStepIndex: 0,
-            steps: [],
+            currentActionIndex: 0,
+            actions: [],
             artifacts: [],
             startedAt: new Date().toISOString(),
         };
@@ -283,8 +283,8 @@ describe("flow runs", () => {
             taskId: "task-1",
             flowId: "flow-2",
             status: "running" as const,
-            currentStepIndex: 0,
-            steps: [],
+            currentActionIndex: 0,
+            actions: [],
             artifacts: [],
             startedAt: new Date().toISOString(),
         };
@@ -305,8 +305,8 @@ describe("flow runs", () => {
             taskId: "task-1",
             flowId: "flow-1",
             status: "running" as const,
-            currentStepIndex: 0,
-            steps: [],
+            currentActionIndex: 0,
+            actions: [],
             artifacts: [],
             startedAt: new Date().toISOString(),
         };

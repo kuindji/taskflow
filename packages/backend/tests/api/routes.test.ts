@@ -188,7 +188,7 @@ describe("flow artifact routes", () => {
                 body: JSON.stringify({
                     taskId: "task-1",
                     flowId: "flow-1",
-                    stepEntryId: "entry-1",
+                    actionEntryId: "entry-1",
                     type: "summary",
                     text: "hello",
                 }),
@@ -207,7 +207,7 @@ describe("flow artifact routes", () => {
                 body: JSON.stringify({
                     taskId: "task-1",
                     flowId: "flow-1",
-                    stepEntryId: "entry-1",
+                    actionEntryId: "entry-1",
                     sessionId: "session-1",
                     type: "summary",
                     text: 'line "one"\nline two',

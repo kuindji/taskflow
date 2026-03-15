@@ -22,7 +22,7 @@ interface CreateSessionOpts {
     agentOptions?: import("@taskflow/shared").AgentLaunchOptions;
     flow?: {
         flowId: string;
-        stepEntryId: string;
+        actionEntryId: string;
     };
     cols?: number;
     rows?: number;
@@ -140,7 +140,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         if (project) taskflowEnv.TASKFLOW_PROJECT_ID = project.id;
         if (flow) {
             taskflowEnv.TASKFLOW_FLOW_ID = flow.flowId;
-            taskflowEnv.TASKFLOW_STEP_ENTRY_ID = flow.stepEntryId;
+            taskflowEnv.TASKFLOW_ACTION_ENTRY_ID = flow.actionEntryId;
         }
 
         ptyManager.spawn({

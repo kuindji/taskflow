@@ -1,15 +1,15 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { FlowRunner } from "../flow-runner";
 import type { FlowStore } from "../flow-store";
-import type { FlowDefinition, FlowRun, StepDefinition } from "@taskflow/shared";
+import type { FlowDefinition, FlowRun, ActionDefinition } from "@taskflow/shared";
 
 function createMockFlowStore(): FlowStore {
     const runs = new Map<string, FlowRun>();
     const flows: FlowDefinition[] = [];
-    const steps: StepDefinition[] = [];
+    const actions: ActionDefinition[] = [];
     return {
         getFlows: mock(async () => flows),
-        getSteps: mock(async () => steps),
+        getActions: mock(async () => actions),
         getFlowRun: mock(async (taskId: string, flowId: string) => {
             const run = runs.get(`${taskId}--${flowId}`);
             return run ? structuredClone(run) : null;
@@ -35,12 +35,12 @@ function createMockFlowStore(): FlowStore {
                 flows.push(flow);
             }
         }),
-        saveStep: mock(async (step: StepDefinition) => {
-            steps.push(step);
+        saveAction: mock(async (action: ActionDefinition) => {
+            actions.push(action);
         }),
         deleteFlow: mock(async () => {}),
-        deleteStep: mock(async () => {}),
-        getFlowsReferencingStep: mock(async () => []),
+        deleteAction: mock(async () => {}),
+        getFlowsReferencingAction: mock(async () => []),
         init: mock(async () => {}),
     } as unknown as FlowStore;
 }
@@ -56,7 +56,7 @@ const testFlow: FlowDefinition = {
     id: "flow-1",
     name: "Test Flow",
     description: "test",
-    steps: [
+    actions: [
         {
             id: "entry-1",
             inline: { name: "Plan", prompt: "Write a plan", sessionType: "claude" },
@@ -101,7 +101,7 @@ beforeEach(async () => {
 });
 
 describe("startFlow", () => {
-    test("creates flow run and spawns first step session", async () => {
+    test("creates flow run and spawns first action session", async () => {
         await runner.startFlow("task-1", testFlow);
         expect(flowStore.saveFlowRun).toHaveBeenCalled();
         expect(spawnedSessions).toHaveLength(1);
@@ -119,12 +119,12 @@ describe("startFlow", () => {
             runner.startFlow("task-1", {
                 ...testFlow,
                 id: "empty-flow",
-                steps: [],
+                actions: [],
             }),
-        ).rejects.toThrow('Flow "empty-flow" must define at least one step');
+        ).rejects.toThrow('Flow "empty-flow" must define at least one action');
     });
 
-    test("pauses and marks the step failed if session launch fails", async () => {
+    test("pauses and marks the action failed if session launch fails", async () => {
         spawnError = new Error("spawn failed");
 
         expect(runner.startFlow("task-1", testFlow)).rejects.toThrow("spawn failed");
@@ -132,56 +132,56 @@ describe("startFlow", () => {
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
         expect(run?.status).toBe("paused");
-        expect(run?.steps[0].status).toBe("failed");
-        expect(run?.steps[0].sessionId).toBeUndefined();
+        expect(run?.actions[0].status).toBe("failed");
+        expect(run?.actions[0].sessionId).toBeUndefined();
     });
 });
 
-describe("handleStepComplete", () => {
-    test("advances to next step", async () => {
+describe("handleActionComplete", () => {
+    test("advances to next action", async () => {
         await runner.startFlow("task-1", testFlow);
         const sessionId = spawnedSessions[0].sessionId;
-        await runner.handleStepComplete("task-1", "flow-1", sessionId);
+        await runner.handleActionComplete("task-1", "flow-1", sessionId);
         expect(spawnedSessions).toHaveLength(2);
     });
 
-    test("completes flow after last step", async () => {
+    test("completes flow after last action", async () => {
         await runner.startFlow("task-1", testFlow);
-        // Complete step 1
-        await runner.handleStepComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
-        // Complete step 2 (last)
-        await runner.handleStepComplete("task-1", "flow-1", spawnedSessions[1].sessionId);
+        // Complete action 1
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
+        // Complete action 2 (last)
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[1].sessionId);
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.status).toBe("completed");
     });
 });
 
-describe("skipStep", () => {
-    test("marks current step skipped and advances", async () => {
+describe("skipAction", () => {
+    test("marks current action skipped and advances", async () => {
         await runner.startFlow("task-1", testFlow);
-        await runner.skipStep("task-1", "flow-1");
+        await runner.skipAction("task-1", "flow-1");
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run?.steps[0].status).toBe("skipped");
-        expect(run?.currentStepIndex).toBe(1);
+        expect(run?.actions[0].status).toBe("skipped");
+        expect(run?.currentActionIndex).toBe(1);
         expect(spawnedSessions).toHaveLength(2);
         expect(closedSessions).toEqual(["session-1"]);
     });
 });
 
-describe("jumpToStep", () => {
-    test("restarts the target step and clears later step state when jumping backward", async () => {
+describe("jumpToAction", () => {
+    test("restarts the target action and clears later action state when jumping backward", async () => {
         await runner.startFlow("task-1", testFlow);
-        await runner.handleStepComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
 
-        await runner.jumpToStep("task-1", "flow-1", 0);
+        await runner.jumpToAction("task-1", "flow-1", 0);
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run?.currentStepIndex).toBe(0);
-        expect(run?.steps.filter((step) => step.status === "running")).toHaveLength(1);
-        expect(run?.steps[0].status).toBe("running");
-        expect(run?.steps[0].sessionId).toBe("session-3");
-        expect(run?.steps[1].status).toBe("pending");
-        expect(run?.steps[1].sessionId).toBeUndefined();
+        expect(run?.currentActionIndex).toBe(0);
+        expect(run?.actions.filter((action) => action.status === "running")).toHaveLength(1);
+        expect(run?.actions[0].status).toBe("running");
+        expect(run?.actions[0].sessionId).toBe("session-3");
+        expect(run?.actions[1].status).toBe("pending");
+        expect(run?.actions[1].sessionId).toBeUndefined();
         expect(closedSessions).toEqual(["session-2"]);
     });
 });
@@ -192,13 +192,13 @@ describe("pauseFlow", () => {
         await runner.pauseFlow("task-1", "flow-1");
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.status).toBe("paused");
-        expect(run?.steps[0].sessionId).toBeUndefined();
+        expect(run?.actions[0].sessionId).toBeUndefined();
         expect(closedSessions).toEqual(["session-1"]);
     });
 });
 
 describe("resumeFlow", () => {
-    test("restarts the paused step with a new session", async () => {
+    test("restarts the paused action with a new session", async () => {
         await runner.startFlow("task-1", testFlow);
         await runner.pauseFlow("task-1", "flow-1");
 
@@ -206,7 +206,7 @@ describe("resumeFlow", () => {
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.status).toBe("running");
-        expect(run?.steps[0].sessionId).toBe("session-2");
+        expect(run?.actions[0].sessionId).toBe("session-2");
         expect(spawnedSessions).toHaveLength(2);
         expect(closedSessions).toEqual(["session-1"]);
     });
@@ -223,19 +223,19 @@ describe("stopFlow", () => {
 });
 
 describe("handleSessionExit", () => {
-    test("marks step failed when session exits without step complete", async () => {
+    test("marks action failed when session exits without action complete", async () => {
         await runner.startFlow("task-1", testFlow);
         const sessionId = spawnedSessions[0].sessionId;
         await runner.handleSessionExit(sessionId, 1);
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run?.steps[0].status).toBe("failed");
+        expect(run?.actions[0].status).toBe("failed");
         expect(run?.status).toBe("paused");
     });
 
-    test("shell step auto-completes on exit code 0", async () => {
+    test("shell action auto-completes on exit code 0", async () => {
         const shellFlow: FlowDefinition = {
             ...testFlow,
-            steps: [
+            actions: [
                 {
                     id: "entry-1",
                     inline: { name: "Lint", prompt: "bun run lint", sessionType: "shell" },
@@ -251,13 +251,13 @@ describe("handleSessionExit", () => {
         const sessionId = spawnedSessions[0].sessionId;
         await runner.handleSessionExit(sessionId, 0);
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run?.steps[0].status).toBe("completed");
+        expect(run?.actions[0].status).toBe("completed");
         expect(spawnedSessions).toHaveLength(2); // Advanced to next
     });
 
-    test("referenced shell step auto-completes on exit code 0", async () => {
-        await flowStore.saveStep({
-            id: "step-shell",
+    test("referenced shell action auto-completes on exit code 0", async () => {
+        await flowStore.saveAction({
+            id: "action-shell",
             name: "Lint",
             prompt: "bun run lint",
             sessionType: "shell",
@@ -266,8 +266,8 @@ describe("handleSessionExit", () => {
         });
         const shellFlow: FlowDefinition = {
             ...testFlow,
-            steps: [
-                { id: "entry-1", stepId: "step-shell" },
+            actions: [
+                { id: "entry-1", actionId: "action-shell" },
                 {
                     id: "entry-2",
                     inline: { name: "Review", prompt: "Review", sessionType: "claude" },
@@ -280,15 +280,15 @@ describe("handleSessionExit", () => {
         await runner.handleSessionExit(spawnedSessions[0].sessionId, 0);
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
-        expect(run?.steps[0].status).toBe("completed");
-        expect(run?.currentStepIndex).toBe(1);
-        expect(run?.steps[1].status).toBe("running");
+        expect(run?.actions[0].status).toBe("completed");
+        expect(run?.currentActionIndex).toBe(1);
+        expect(run?.actions[1].status).toBe("running");
         expect(spawnedSessions).toHaveLength(2);
     });
 });
 
 describe("saveArtifact", () => {
-    test("saves artifacts for the active step session", async () => {
+    test("saves artifacts for the active action session", async () => {
         await runner.startFlow("task-1", testFlow);
 
         await runner.saveArtifact(
@@ -304,11 +304,11 @@ describe("saveArtifact", () => {
         expect(run?.artifacts[0]).toMatchObject({
             type: "summary",
             text: 'line "one"\nline two',
-            stepEntryId: "entry-1",
+            actionEntryId: "entry-1",
         });
     });
 
-    test("rejects artifacts for a different step entry", async () => {
+    test("rejects artifacts for a different action entry", async () => {
         await runner.startFlow("task-1", testFlow);
 
         expect(
@@ -319,7 +319,7 @@ describe("saveArtifact", () => {
                 spawnedSessions[0].sessionId,
                 { type: "summary", text: "bad" },
             ),
-        ).rejects.toThrow("Artifacts can only be saved for the current step");
+        ).rejects.toThrow("Artifacts can only be saved for the current action");
     });
 
     test("rejects artifacts from a different session", async () => {
@@ -330,6 +330,6 @@ describe("saveArtifact", () => {
                 type: "summary",
                 text: "bad",
             }),
-        ).rejects.toThrow("Artifacts can only be saved by the active step session");
+        ).rejects.toThrow("Artifacts can only be saved by the active action session");
     });
 });

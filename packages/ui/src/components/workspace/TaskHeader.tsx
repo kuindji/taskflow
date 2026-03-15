@@ -5,16 +5,11 @@ import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useFlowStore } from "@/stores/flow-store";
+// Flow dropdown moved to TabBar Run menu; only active flow indicator remains here
 import { useDiffStore } from "@/stores/diff-store";
 import { confirm } from "@/stores/dialog-store";
 import { TruncatedText } from "@/components/ui/truncated-text";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+
 import { CopyButton } from "@/components/ui/copy-button";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
@@ -29,8 +24,6 @@ import {
     NotebookText,
     Pencil,
     Trash2,
-    Workflow,
-    ChevronDown,
     Loader2,
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
@@ -39,10 +32,9 @@ interface TaskHeaderProps {
     task?: Task;
     project?: Project;
     onDiff?: () => void;
-    flowRunsReady?: boolean;
 }
 
-export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: TaskHeaderProps) {
+export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
     const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
@@ -51,7 +43,6 @@ export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: Task
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const updateProject = useProjectStore((s) => s.updateProject);
     const removeProject = useProjectStore((s) => s.removeProject);
-    const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
     const flowDefinitions = useFlowStore((s) => s.flows);
     const activeFlowRun = useFlowStore((s) => (task ? s.activeRuns[task.id] : undefined));
     const isElectron = useIsElectron();
@@ -97,14 +88,6 @@ export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: Task
             onConfirm: () => archiveTask(task.id),
         });
     }, [archiveTask, task]);
-
-    const handleStartFlow = useCallback(
-        (flowId: string) => {
-            if (!task) return;
-            void useFlowStore.getState().startFlow(task.id, flowId);
-        },
-        [task],
-    );
 
     const handleDelete = useCallback(() => {
         if (task) {
@@ -179,41 +162,6 @@ export function TaskHeader({ task, project, onDiff, flowRunsReady = true }: Task
                 <div className="flex min-h-6 items-center gap-1.5">
                     <span className="text-muted-foreground ml-2 text-sm">No task selected</span>
                 </div>
-            )}
-            {task && !flowRunsReady && (
-                <div className="flex items-center gap-1.5 px-1 text-xs [-webkit-app-region:no-drag]">
-                    <Loader2 className="text-muted-foreground h-3 w-3 animate-spin" />
-                    <span className="text-muted-foreground">Checking flows</span>
-                </div>
-            )}
-            {task && flowRunsReady && !activeFlowRun && flowDefinitions.length > 0 && (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="xs"
-                            className="[-webkit-app-region:no-drag]"
-                        >
-                            <Workflow className="h-3 w-3" />
-                            <span className="text-xs">Flow</span>
-                            <ChevronDown className="h-3 w-3" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                        {flowDefinitions.map((f) => (
-                            <DropdownMenuItem
-                                key={f.id}
-                                onClick={() => handleStartFlow(f.id)}
-                            >
-                                {f.name}
-                            </DropdownMenuItem>
-                        ))}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={toggleFlowManagement}>
-                            Manage Flows...
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
             )}
             {task && activeFlowRun && (
                 <div className="flex items-center gap-1.5 px-1 text-xs [-webkit-app-region:no-drag]">

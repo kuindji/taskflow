@@ -2,12 +2,12 @@ import { MSG } from "@taskflow/shared";
 import type {
     FlowDefinition,
     FlowDefinitionDeletePayload,
-    FlowStepDeletePayload,
+    FlowActionDeletePayload,
     FlowStartPayload,
     FlowTaskFlowPayload,
-    FlowJumpToStepPayload,
+    FlowJumpToActionPayload,
     FlowTaskPayload,
-    StepDefinition,
+    ActionDefinition,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { FlowStore } from "../services/flow-store";
@@ -37,8 +37,8 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
         return { flows: await flowStore.getFlows() };
     });
 
-    router.register(MSG.FLOW_STEPS_LIST, async () => {
-        return { steps: await flowStore.getSteps() };
+    router.register(MSG.FLOW_ACTIONS_LIST, async () => {
+        return { actions: await flowStore.getActions() };
     });
 
     router.register(
@@ -50,9 +50,9 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
     );
 
     router.register(
-        MSG.FLOW_STEP_SAVE,
-        typed<StepDefinition>(async (payload) => {
-            await flowStore.saveStep(payload);
+        MSG.FLOW_ACTION_SAVE,
+        typed<ActionDefinition>(async (payload) => {
+            await flowStore.saveAction(payload);
             return payload;
         }),
     );
@@ -66,15 +66,15 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
     );
 
     router.register(
-        MSG.FLOW_STEP_DELETE,
-        typed<FlowStepDeletePayload>(async (payload) => {
-            const referencingFlows = await flowStore.getFlowsReferencingStep(payload.id);
+        MSG.FLOW_ACTION_DELETE,
+        typed<FlowActionDeletePayload>(async (payload) => {
+            const referencingFlows = await flowStore.getFlowsReferencingAction(payload.id);
             if (referencingFlows.length > 0) {
                 throw new Error(
-                    `Cannot delete step "${payload.id}" because it is used by: ${referencingFlows.map((flow) => flow.name).join(", ")}`,
+                    `Cannot delete action "${payload.id}" because it is used by: ${referencingFlows.map((flow) => flow.name).join(", ")}`,
                 );
             }
-            await flowStore.deleteStep(payload.id);
+            await flowStore.deleteAction(payload.id);
             return { success: true };
         }),
     );
@@ -116,17 +116,17 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
     );
 
     router.register(
-        MSG.FLOW_SKIP_STEP,
+        MSG.FLOW_SKIP_ACTION,
         typed<FlowTaskFlowPayload>(async (payload) => {
-            await flowRunner.skipStep(payload.taskId, payload.flowId);
+            await flowRunner.skipAction(payload.taskId, payload.flowId);
             return { success: true };
         }),
     );
 
     router.register(
-        MSG.FLOW_JUMP_TO_STEP,
-        typed<FlowJumpToStepPayload>(async (payload) => {
-            await flowRunner.jumpToStep(payload.taskId, payload.flowId, payload.stepIndex);
+        MSG.FLOW_JUMP_TO_ACTION,
+        typed<FlowJumpToActionPayload>(async (payload) => {
+            await flowRunner.jumpToAction(payload.taskId, payload.flowId, payload.actionIndex);
             return { success: true };
         }),
     );

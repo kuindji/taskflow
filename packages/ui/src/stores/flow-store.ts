@@ -1,28 +1,28 @@
 import { create } from "zustand";
-import type { FlowDefinition, FlowRun, StepDefinition } from "@taskflow/shared";
+import type { FlowDefinition, FlowRun, ActionDefinition } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 
 interface FlowStore {
     flows: FlowDefinition[];
-    steps: StepDefinition[];
+    actions: ActionDefinition[];
     loadingDefinitions: boolean;
     definitionLoadCount: number;
     activeRuns: Record<string, FlowRun>;
 
     fetchFlows(): Promise<void>;
-    fetchSteps(): Promise<void>;
+    fetchActions(): Promise<void>;
     saveFlow(flow: FlowDefinition): Promise<void>;
-    saveStep(step: StepDefinition): Promise<void>;
+    saveAction(action: ActionDefinition): Promise<void>;
     deleteFlow(id: string): Promise<void>;
-    deleteStep(id: string): Promise<void>;
+    deleteAction(id: string): Promise<void>;
 
     startFlow(taskId: string, flowId: string): Promise<FlowRun>;
     stopFlow(taskId: string, flowId: string): Promise<void>;
     pauseFlow(taskId: string, flowId: string): Promise<void>;
     resumeFlow(taskId: string, flowId: string): Promise<void>;
-    skipStep(taskId: string, flowId: string): Promise<void>;
-    jumpToStep(taskId: string, flowId: string, stepIndex: number): Promise<void>;
+    skipAction(taskId: string, flowId: string): Promise<void>;
+    jumpToAction(taskId: string, flowId: string, actionIndex: number): Promise<void>;
     fetchFlowRuns(taskId: string): Promise<void>;
 
     applyRunUpdate(run: FlowRun): void;
@@ -30,7 +30,7 @@ interface FlowStore {
 
 const useFlowStore = create<FlowStore>((set) => ({
     flows: [],
-    steps: [],
+    actions: [],
     loadingDefinitions: false,
     definitionLoadCount: 0,
     activeRuns: {},
@@ -56,14 +56,14 @@ const useFlowStore = create<FlowStore>((set) => ({
         }
     },
 
-    async fetchSteps() {
+    async fetchActions() {
         set((state) => ({
             definitionLoadCount: state.definitionLoadCount + 1,
             loadingDefinitions: true,
         }));
         try {
-            const { steps } = await sendRequest<{ steps: StepDefinition[] }>(MSG.FLOW_STEPS_LIST);
-            set({ steps });
+            const { actions } = await sendRequest<{ actions: ActionDefinition[] }>(MSG.FLOW_ACTIONS_LIST);
+            set({ actions });
         } finally {
             set((state) => {
                 const definitionLoadCount = Math.max(0, state.definitionLoadCount - 1);
@@ -87,15 +87,15 @@ const useFlowStore = create<FlowStore>((set) => ({
         });
     },
 
-    async saveStep(step) {
-        await sendRequest(MSG.FLOW_STEP_SAVE, step);
+    async saveAction(action) {
+        await sendRequest(MSG.FLOW_ACTION_SAVE, action);
         set((s) => {
-            const index = s.steps.findIndex((st) => st.id === step.id);
-            const steps =
+            const index = s.actions.findIndex((a) => a.id === action.id);
+            const actions =
                 index >= 0
-                    ? s.steps.map((st) => (st.id === step.id ? step : st))
-                    : [...s.steps, step];
-            return { steps };
+                    ? s.actions.map((a) => (a.id === action.id ? action : a))
+                    : [...s.actions, action];
+            return { actions };
         });
     },
 
@@ -104,9 +104,9 @@ const useFlowStore = create<FlowStore>((set) => ({
         set((s) => ({ flows: s.flows.filter((f) => f.id !== id) }));
     },
 
-    async deleteStep(id) {
-        await sendRequest(MSG.FLOW_STEP_DELETE, { id });
-        set((s) => ({ steps: s.steps.filter((st) => st.id !== id) }));
+    async deleteAction(id) {
+        await sendRequest(MSG.FLOW_ACTION_DELETE, { id });
+        set((s) => ({ actions: s.actions.filter((a) => a.id !== id) }));
     },
 
     async startFlow(taskId, flowId) {
@@ -127,12 +127,12 @@ const useFlowStore = create<FlowStore>((set) => ({
         await sendRequest(MSG.FLOW_RESUME, { taskId, flowId });
     },
 
-    async skipStep(taskId, flowId) {
-        await sendRequest(MSG.FLOW_SKIP_STEP, { taskId, flowId });
+    async skipAction(taskId, flowId) {
+        await sendRequest(MSG.FLOW_SKIP_ACTION, { taskId, flowId });
     },
 
-    async jumpToStep(taskId, flowId, stepIndex) {
-        await sendRequest(MSG.FLOW_JUMP_TO_STEP, { taskId, flowId, stepIndex });
+    async jumpToAction(taskId, flowId, actionIndex) {
+        await sendRequest(MSG.FLOW_JUMP_TO_ACTION, { taskId, flowId, actionIndex });
     },
 
     async fetchFlowRuns(taskId) {

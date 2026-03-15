@@ -63,7 +63,7 @@ export function TaskSidebar() {
         void fetchProjects();
         void fetchTasks();
         void useFlowStore.getState().fetchFlows();
-        void useFlowStore.getState().fetchSteps();
+        void useFlowStore.getState().fetchActions();
 
         void (async () => {
             try {

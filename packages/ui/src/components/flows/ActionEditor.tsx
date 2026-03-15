@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import type { StepDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
+import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -11,29 +11,31 @@ import {
     SelectContent,
     SelectItem,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 
-interface StepEditorProps {
-    step: StepDefinition | null;
-    onSave: (step: StepDefinition) => void;
+interface ActionEditorProps {
+    action: ActionDefinition | null;
+    onSave: (action: ActionDefinition) => void;
     onCancel: () => void;
     onDelete?: () => void;
     deleteDisabled?: boolean;
     deleteDisabledReason?: string;
 }
 
-function StepEditor({
-    step,
+function ActionEditor({
+    action,
     onSave,
     onCancel,
     onDelete,
     deleteDisabled = false,
     deleteDisabledReason,
-}: StepEditorProps) {
-    const [name, setName] = useState(step?.name ?? "");
-    const [prompt, setPrompt] = useState(step?.prompt ?? "");
-    const [sessionType, setSessionType] = useState<SessionType>(step?.sessionType ?? "claude");
-    const [agentOptions, setAgentOptions] = useState(step?.agentOptions);
+}: ActionEditorProps) {
+    const [name, setName] = useState(action?.name ?? "");
+    const [prompt, setPrompt] = useState(action?.prompt ?? "");
+    const [sessionType, setSessionType] = useState<SessionType>(action?.sessionType ?? "claude");
+    const [agentOptions, setAgentOptions] = useState(action?.agentOptions);
+    const [standalone, setStandalone] = useState(action?.standalone ?? false);
 
     const handleSessionTypeChange = useCallback((value: string) => {
         const nextSessionType = value as SessionType;
@@ -47,15 +49,16 @@ function StepEditor({
     const handleSave = useCallback(() => {
         const now = new Date().toISOString();
         onSave({
-            id: step?.id ?? crypto.randomUUID(),
+            id: action?.id ?? crypto.randomUUID(),
             name: name.trim(),
             prompt,
             sessionType,
             agentOptions: sessionType === "shell" ? undefined : agentOptions,
-            createdAt: step?.createdAt ?? now,
+            standalone: standalone || undefined,
+            createdAt: action?.createdAt ?? now,
             updatedAt: now,
         });
-    }, [step, name, prompt, sessionType, agentOptions, onSave]);
+    }, [action, name, prompt, sessionType, agentOptions, standalone, onSave]);
 
     const handleAgentOptionsChange = useCallback((options: AgentLaunchOptions) => {
         setAgentOptions(options);
@@ -66,16 +69,16 @@ function StepEditor({
     return (
         <div className="flex flex-col gap-4 p-4">
             <div>
-                <Label htmlFor="step-name">Name</Label>
+                <Label htmlFor="action-name">Name</Label>
                 <Input
-                    id="step-name"
+                    id="action-name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g., Plan Review"
                 />
             </div>
             <div>
-                <Label htmlFor="step-session-type">Session Type</Label>
+                <Label htmlFor="action-session-type">Session Type</Label>
                 <Select
                     value={sessionType}
                     onValueChange={handleSessionTypeChange}
@@ -90,10 +93,23 @@ function StepEditor({
                     </SelectContent>
                 </Select>
             </div>
+            <div className="flex items-center gap-2">
+                <Switch
+                    id="action-standalone"
+                    checked={standalone}
+                    onCheckedChange={setStandalone}
+                />
+                <Label htmlFor="action-standalone" className="cursor-pointer">
+                    Standalone
+                </Label>
+                <span className="text-muted-foreground text-xs">
+                    — available in the Run menu
+                </span>
+            </div>
             <div className="flex-1">
-                <Label htmlFor="step-prompt">Prompt</Label>
+                <Label htmlFor="action-prompt">Prompt</Label>
                 <Textarea
-                    id="step-prompt"
+                    id="action-prompt"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     placeholder="Instructions for the agent..."
@@ -103,7 +119,7 @@ function StepEditor({
             {(sessionType === "claude" || sessionType === "codex") && (
                 <div className="border-border rounded-md border p-1">
                     <AgentOptionsPanel
-                        key={`${step?.id ?? "new-step"}-${sessionType}`}
+                        key={`${action?.id ?? "new-action"}-${sessionType}`}
                         agentType={sessionType}
                         value={agentOptions}
                         emitOnMount
@@ -112,28 +128,28 @@ function StepEditor({
                 </div>
             )}
             <div className="flex justify-end gap-2">
-                {step && onDelete && (
+                {action && onDelete && (
                     <Button
                         variant="destructive"
                         onClick={onDelete}
                         disabled={deleteDisabled}
                         title={deleteDisabledReason}
                     >
-                        Delete Step
+                        Delete Action
                     </Button>
                 )}
                 <Button variant="ghost" onClick={onCancel}>
                     Cancel
                 </Button>
                 <Button onClick={handleSave} disabled={!isValid}>
-                    Save Step
+                    Save Action
                 </Button>
             </div>
-            {step && deleteDisabledReason && (
+            {action && deleteDisabledReason && (
                 <p className="text-muted-foreground text-xs">{deleteDisabledReason}</p>
             )}
         </div>
     );
 }
 
-export { StepEditor };
+export { ActionEditor };

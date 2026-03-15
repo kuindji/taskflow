@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AgentLaunchOptions, ScriptsListResponse, ShellListResponse } from "@taskflow/shared";
+import type { ActionDefinition, AgentLaunchOptions, ScriptsListResponse, ShellListResponse } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
@@ -61,8 +61,22 @@ export function Workspace() {
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
     const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
+    const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
     const activeFlowRun = useFlowStore((s) => (taskId ? s.activeRuns[taskId] : undefined));
+    const flowDefinitions = useFlowStore((s) => s.flows);
+    const allActions = useFlowStore((s) => s.actions);
+    const standaloneActions = useMemo(
+        () => allActions.filter((a) => a.standalone),
+        [allActions],
+    );
+
+    useEffect(() => {
+        // Fetch flow/action definitions so the Run menu can show them
+        const store = useFlowStore.getState();
+        void store.fetchFlows();
+        void store.fetchActions();
+    }, [workspace.project?.id]);
 
     useEffect(() => {
         if (!taskId) {
@@ -402,6 +416,26 @@ export function Workspace() {
         );
     };
 
+    const handleRunAction = async (action: ActionDefinition) => {
+        const owner =
+            workspace.scope === "task"
+                ? { taskId: workspace.task.id }
+                : { projectId: workspace.project.id };
+        await createSession(
+            owner,
+            action.sessionType,
+            action.name,
+            action.prompt,
+            undefined,
+            action.sessionType !== "shell" ? action.agentOptions : undefined,
+        );
+    };
+
+    const handleStartFlow = (flowId: string) => {
+        if (!taskId) return;
+        void useFlowStore.getState().startFlow(taskId, flowId);
+    };
+
     const handleRunScript = async (scriptName: string) => {
         if (!workspace.workspaceKey) return;
         let shell = defaultShellPath;
@@ -424,7 +458,6 @@ export function Workspace() {
                 task={workspace.task ?? undefined}
                 project={workspace.project}
                 onDiff={canShowGitControls ? handleDiffTab : undefined}
-                flowRunsReady={flowRunsReady}
             />
             {activeFlowRun && taskId && <FlowPanel taskId={taskId} />}
             {worktreePending ? (
@@ -454,9 +487,15 @@ export function Workspace() {
                         onNewTab={handleNewTab}
                         onRunTab={handleRunTab}
                         onRunScript={handleRunScript}
+                        onRunAction={handleRunAction}
+                        onStartFlow={handleStartFlow}
+                        onManageFlows={toggleFlowManagement}
                         scripts={scripts}
                         defaultRuntime={defaultRuntime}
-                        showRunButton={workspace.scope === "task" || hasScripts}
+                        flows={flowRunsReady ? flowDefinitions : []}
+                        standaloneActions={standaloneActions}
+                        activeFlowRun={activeFlowRun ?? null}
+                        showRunButton={workspace.scope === "task" || hasScripts || standaloneActions.length > 0 || (flowRunsReady && flowDefinitions.length > 0)}
                         showAgentOptions={workspace.scope === "task"}
                         allowSessionTabs={true}
                     />

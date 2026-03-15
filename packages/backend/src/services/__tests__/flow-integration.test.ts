@@ -18,14 +18,14 @@ describe("flow lifecycle integration", () => {
         id: "flow-1",
         name: "Test Flow",
         description: "Integration test flow",
-        steps: [
+        actions: [
             {
                 id: "e1",
-                inline: { name: "Step 1", prompt: "Do first", sessionType: "claude" },
+                inline: { name: "Action 1", prompt: "Do first", sessionType: "claude" },
             },
             {
                 id: "e2",
-                inline: { name: "Step 2", prompt: "Do second", sessionType: "claude" },
+                inline: { name: "Action 2", prompt: "Do second", sessionType: "claude" },
             },
         ],
         createdAt: new Date().toISOString(),
@@ -71,30 +71,30 @@ describe("flow lifecycle integration", () => {
         await runner.startFlow("task-1", testFlow);
         expect(spawnedSessions).toHaveLength(1);
 
-        // Complete step 1
-        await runner.handleStepComplete("task-1", "flow-1", "session-1");
+        // Complete action 1
+        await runner.handleActionComplete("task-1", "flow-1", "session-1");
         expect(spawnedSessions).toHaveLength(2);
 
-        // Complete step 2
-        await runner.handleStepComplete("task-1", "flow-1", "session-2");
+        // Complete action 2
+        await runner.handleActionComplete("task-1", "flow-1", "session-2");
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
         expect(run?.status).toBe("completed");
-        expect(run?.steps.every((s) => s.status === "completed")).toBe(true);
+        expect(run?.actions.every((s) => s.status === "completed")).toBe(true);
     });
 
-    test("artifacts persist across steps", async () => {
+    test("artifacts persist across actions", async () => {
         await runner.startFlow("task-1", testFlow);
 
-        // Save artifact in step 1
+        // Save artifact in action 1
         await runner.saveArtifact("task-1", "flow-1", "e1", "session-1", {
             type: "plan",
             path: "docs/plan.md",
         });
 
-        // Complete step 1
-        await runner.handleStepComplete("task-1", "flow-1", "session-1");
+        // Complete action 1
+        await runner.handleActionComplete("task-1", "flow-1", "session-1");
 
         // Verify artifact persists after advancing
         const run = await flowStore.getFlowRun("task-1", "flow-1");
@@ -113,56 +113,56 @@ describe("flow lifecycle integration", () => {
         await runner.pauseFlow("task-1", "flow-1");
         let run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.status).toBe("paused");
-        expect(run?.steps[0].sessionId).toBeUndefined();
+        expect(run?.actions[0].sessionId).toBeUndefined();
         expect(closedSessions).toEqual(["session-1"]);
 
         // Resume
         await runner.resumeFlow("task-1", "flow-1");
         run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.status).toBe("running");
-        expect(run?.steps[0].sessionId).toBe("session-2");
+        expect(run?.actions[0].sessionId).toBe("session-2");
         expect(spawnedSessions).toHaveLength(2);
     });
 
-    test("skip step advances to next", async () => {
+    test("skip action advances to next", async () => {
         await runner.startFlow("task-1", testFlow);
         expect(spawnedSessions).toHaveLength(1);
 
-        // Skip step 1
-        await runner.skipStep("task-1", "flow-1");
+        // Skip action 1
+        await runner.skipAction("task-1", "flow-1");
 
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
-        expect(run?.steps[0].status).toBe("skipped");
-        expect(run?.currentStepIndex).toBe(1);
-        // Should have spawned a session for step 2
+        expect(run?.actions[0].status).toBe("skipped");
+        expect(run?.currentActionIndex).toBe(1);
+        // Should have spawned a session for action 2
         expect(spawnedSessions).toHaveLength(2);
     });
 
-    test("jumping backward from an active later step resets later state", async () => {
+    test("jumping backward from an active later action resets later state", async () => {
         await runner.startFlow("task-1", testFlow);
 
-        // Advance into step 2 so the later step is actively running.
-        await runner.handleStepComplete("task-1", "flow-1", "session-1");
+        // Advance into action 2 so the later action is actively running.
+        await runner.handleActionComplete("task-1", "flow-1", "session-1");
 
         let run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.status).toBe("running");
-        expect(run?.currentStepIndex).toBe(1);
-        expect(run?.steps[1].status).toBe("running");
-        expect(run?.steps[1].sessionId).toBe("session-2");
+        expect(run?.currentActionIndex).toBe(1);
+        expect(run?.actions[1].status).toBe("running");
+        expect(run?.actions[1].sessionId).toBe("session-2");
 
-        // Jump back to step 0
-        await runner.jumpToStep("task-1", "flow-1", 0);
+        // Jump back to action 0
+        await runner.jumpToAction("task-1", "flow-1", 0);
 
         run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.status).toBe("running");
-        expect(run?.currentStepIndex).toBe(0);
-        expect(run?.steps[0].status).toBe("running");
-        expect(run?.steps[0].sessionId).toBe("session-3");
-        // Later steps should be reset to pending
-        expect(run?.steps[1].status).toBe("pending");
-        expect(run?.steps[1].sessionId).toBeUndefined();
-        expect(run?.steps.filter((step) => step.status === "running")).toHaveLength(1);
+        expect(run?.currentActionIndex).toBe(0);
+        expect(run?.actions[0].status).toBe("running");
+        expect(run?.actions[0].sessionId).toBe("session-3");
+        // Later actions should be reset to pending
+        expect(run?.actions[1].status).toBe("pending");
+        expect(run?.actions[1].sessionId).toBeUndefined();
+        expect(run?.actions.filter((action) => action.status === "running")).toHaveLength(1);
         expect(closedSessions).toEqual(["session-2"]);
     });
 
@@ -177,7 +177,7 @@ describe("flow lifecycle integration", () => {
 
     test("flow run persists to disk and survives reload", async () => {
         await runner.startFlow("task-1", testFlow);
-        await runner.handleStepComplete("task-1", "flow-1", "session-1");
+        await runner.handleActionComplete("task-1", "flow-1", "session-1");
 
         // Create a new FlowStore pointing at same directory
         const freshStore = new FlowStore(join(tempDir, "flows"), join(tempDir, "flow-runs"));
@@ -186,20 +186,20 @@ describe("flow lifecycle integration", () => {
         const run = await freshStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
         expect(run?.status).toBe("running");
-        expect(run?.steps[0].status).toBe("completed");
-        expect(run?.steps[1].status).toBe("running");
-        expect(run?.currentStepIndex).toBe(1);
+        expect(run?.actions[0].status).toBe("completed");
+        expect(run?.actions[1].status).toBe("running");
+        expect(run?.currentActionIndex).toBe(1);
     });
 
-    test("shell steps auto-complete on clean exit and advance the flow", async () => {
+    test("shell actions auto-complete on clean exit and advance the flow", async () => {
         const shellFlow: FlowDefinition = {
             ...testFlow,
-            steps: [
+            actions: [
                 {
                     id: "e1",
                     inline: { name: "Lint", prompt: "bun run lint", sessionType: "shell" },
                 },
-                testFlow.steps[1],
+                testFlow.actions[1],
             ],
         };
         await flowStore.saveFlow(shellFlow);
@@ -212,9 +212,9 @@ describe("flow lifecycle integration", () => {
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run).not.toBeNull();
         expect(run?.status).toBe("running");
-        expect(run?.steps[0].status).toBe("completed");
-        expect(run?.steps[1].status).toBe("running");
-        expect(run?.steps[1].sessionId).toBe("session-2");
+        expect(run?.actions[0].status).toBe("completed");
+        expect(run?.actions[1].status).toBe("running");
+        expect(run?.actions[1].sessionId).toBe("session-2");
         expect(spawnedSessions).toHaveLength(2);
     });
 });

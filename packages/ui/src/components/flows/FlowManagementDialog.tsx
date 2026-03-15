@@ -1,45 +1,45 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { FlowDefinition, StepDefinition } from "@taskflow/shared";
+import type { FlowDefinition, ActionDefinition } from "@taskflow/shared";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
 import { useFlowStore } from "@/stores/flow-store";
 import { FlowEditor } from "./FlowEditor";
-import { StepEditor } from "./StepEditor";
+import { ActionEditor } from "./ActionEditor";
 
 function FlowManagementDialog() {
     const open = useUIStore((s) => s.flowManagementOpen);
     const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
 
     const flows = useFlowStore((s) => s.flows);
-    const steps = useFlowStore((s) => s.steps);
+    const actions = useFlowStore((s) => s.actions);
 
-    const [tab, setTab] = useState<"flows" | "steps">("flows");
+    const [tab, setTab] = useState<"flows" | "actions">("flows");
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
 
     useEffect(() => {
         if (!open) return;
-        const { fetchFlows, fetchSteps } = useFlowStore.getState();
+        const { fetchFlows, fetchActions } = useFlowStore.getState();
         void fetchFlows();
-        void fetchSteps();
+        void fetchActions();
     }, [open]);
 
     const selectedFlow = tab === "flows" ? (flows.find((f) => f.id === selectedId) ?? null) : null;
-    const selectedStep = tab === "steps" ? (steps.find((s) => s.id === selectedId) ?? null) : null;
+    const selectedAction = tab === "actions" ? (actions.find((s) => s.id === selectedId) ?? null) : null;
 
-    const referencingFlowsByStepId = useMemo(
+    const referencingFlowsByActionId = useMemo(
         () =>
             new Map(
-                steps.map((step) => [
-                    step.id,
+                actions.map((action) => [
+                    action.id,
                     flows.filter((flow) =>
-                        flow.steps.some((entry) => "stepId" in entry && entry.stepId === step.id),
+                        flow.actions.some((entry) => "actionId" in entry && entry.actionId === action.id),
                     ),
                 ]),
             ),
-        [flows, steps],
+        [flows, actions],
     );
 
     const handleOpenChange = useCallback(
@@ -55,9 +55,9 @@ function FlowManagementDialog() {
         setCreating(false);
     }, []);
 
-    const handleSaveStep = useCallback(async (step: StepDefinition) => {
-        await useFlowStore.getState().saveStep(step);
-        setSelectedId(step.id);
+    const handleSaveAction = useCallback(async (action: ActionDefinition) => {
+        await useFlowStore.getState().saveAction(action);
+        setSelectedId(action.id);
         setCreating(false);
     }, []);
 
@@ -67,13 +67,13 @@ function FlowManagementDialog() {
         setCreating(false);
     }, []);
 
-    const handleDeleteStep = useCallback(async (stepId: string) => {
-        await useFlowStore.getState().deleteStep(stepId);
+    const handleDeleteAction = useCallback(async (actionId: string) => {
+        await useFlowStore.getState().deleteAction(actionId);
         setSelectedId(null);
         setCreating(false);
     }, []);
 
-    const switchTab = useCallback((newTab: "flows" | "steps") => {
+    const switchTab = useCallback((newTab: "flows" | "actions") => {
         setTab(newTab);
         setSelectedId(null);
         setCreating(false);
@@ -109,11 +109,11 @@ function FlowManagementDialog() {
                                 Flows
                             </Button>
                             <Button
-                                variant={tab === "steps" ? "default" : "ghost"}
+                                variant={tab === "actions" ? "default" : "ghost"}
                                 size="sm"
-                                onClick={() => switchTab("steps")}
+                                onClick={() => switchTab("actions")}
                             >
-                                Steps
+                                Actions
                             </Button>
                         </div>
                         <Button
@@ -139,12 +139,12 @@ function FlowManagementDialog() {
                                 >
                                     <div>{f.name}</div>
                                     <div className="text-muted-foreground text-xs">
-                                        {f.steps.length} steps
+                                        {f.actions.length} actions
                                     </div>
                                 </button>
                             ))}
-                        {tab === "steps" &&
-                            steps.map((s) => (
+                        {tab === "actions" &&
+                            actions.map((s) => (
                                 <button
                                     key={s.id}
                                     onClick={() => selectItem(s.id)}
@@ -169,7 +169,7 @@ function FlowManagementDialog() {
                         <FlowEditor
                             key={creating ? "new-flow" : selectedFlow?.id}
                             flow={creating ? null : selectedFlow}
-                            globalSteps={steps}
+                            globalActions={actions}
                             onSave={handleSaveFlow}
                             onCancel={clearSelection}
                             onDelete={
@@ -179,33 +179,33 @@ function FlowManagementDialog() {
                             }
                         />
                     )}
-                    {tab === "steps" && (creating || selectedStep) && (
-                        <StepEditor
-                            key={creating ? "new-step" : selectedStep?.id}
-                            step={creating ? null : selectedStep}
-                            onSave={handleSaveStep}
+                    {tab === "actions" && (creating || selectedAction) && (
+                        <ActionEditor
+                            key={creating ? "new-action" : selectedAction?.id}
+                            action={creating ? null : selectedAction}
+                            onSave={handleSaveAction}
                             onCancel={clearSelection}
                             onDelete={
-                                selectedStep
-                                    ? () => void handleDeleteStep(selectedStep.id)
+                                selectedAction
+                                    ? () => void handleDeleteAction(selectedAction.id)
                                     : undefined
                             }
                             deleteDisabled={
-                                !!selectedStep &&
-                                (referencingFlowsByStepId.get(selectedStep.id)?.length ?? 0) > 0
+                                !!selectedAction &&
+                                (referencingFlowsByActionId.get(selectedAction.id)?.length ?? 0) > 0
                             }
                             deleteDisabledReason={
-                                selectedStep &&
-                                (referencingFlowsByStepId.get(selectedStep.id)?.length ?? 0) > 0
-                                    ? `Used by ${(referencingFlowsByStepId
-                                          .get(selectedStep.id)
+                                selectedAction &&
+                                (referencingFlowsByActionId.get(selectedAction.id)?.length ?? 0) > 0
+                                    ? `Used by ${(referencingFlowsByActionId
+                                          .get(selectedAction.id)
                                           ?.map((f) => f.name)
                                           .join(", ")) ?? ""}`
                                     : undefined
                             }
                         />
                     )}
-                    {!creating && !selectedFlow && !selectedStep && (
+                    {!creating && !selectedFlow && !selectedAction && (
                         <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
                             Select an item or click + to create
                         </div>

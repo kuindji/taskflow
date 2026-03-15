@@ -22,8 +22,8 @@ Use taskflow-cli proactively:
 - After merging a worktree branch, disable the worktree: \`taskflow-cli task worktree --disable\`
 Session status is app-controlled, so do not post manual session status updates.
 
-When running as a flow step (TASKFLOW_FLOW_ID is set):
-- Signal step completion: \`taskflow-cli step complete\`
+When running as a flow action (TASKFLOW_FLOW_ID is set):
+- Signal action completion: \`taskflow-cli action complete\`
 - Save a file artifact: \`taskflow-cli artifact save <type> --path <path>\`
 - Save a text artifact: \`taskflow-cli artifact save <type> --text <text>\`
 - List all artifacts: \`taskflow-cli artifact list\`
@@ -94,20 +94,20 @@ This verifies the branch was merged, removes the worktree from disk, and deletes
 
 ## Flow commands (available when TASKFLOW_FLOW_ID is set)
 
-Signal that this step is done (the next step starts automatically):
+Signal that this action is done (the next action starts automatically):
 
 \`\`\`
-taskflow-cli step complete
+taskflow-cli action complete
 \`\`\`
 
-Save artifacts for use by subsequent steps:
+Save artifacts for use by subsequent actions:
 
 \`\`\`
 taskflow-cli artifact save plan --path docs/plan.md
 taskflow-cli artifact save summary --text "Brief summary here"
 \`\`\`
 
-Read artifacts from prior steps:
+Read artifacts from prior actions:
 
 \`\`\`
 taskflow-cli artifact list
@@ -297,28 +297,28 @@ case "$cmd" in
     fi
     ;;
 
-  step)
+  action)
     if [ "\${1:-}" = "complete" ]; then
       if [ -z "$TASKFLOW_FLOW_ID" ]; then
-        echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow step)" >&2
+        echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
         exit 1
       fi
       payload=$(printf '{"taskId":%s,"flowId":%s,"sessionId":%s}' \
         "$(json_string "$TASKFLOW_TASK_ID")" \
         "$(json_string "$TASKFLOW_FLOW_ID")" \
         "$(json_string "$TASKFLOW_SESSION_ID")")
-      curl -sf -X POST "$TASKFLOW_API_URL/api/flow/step-complete" \\
+      curl -sf -X POST "$TASKFLOW_API_URL/api/flow/action-complete" \\
         -H "Content-Type: application/json" \\
         -d "$payload"
     else
-      echo "Usage: taskflow-cli step complete" >&2
+      echo "Usage: taskflow-cli action complete" >&2
       exit 1
     fi
     ;;
 
   artifact)
     if [ -z "$TASKFLOW_FLOW_ID" ]; then
-      echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow step)" >&2
+      echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
       exit 1
     fi
     subcmd="\${1:-}"
@@ -349,10 +349,10 @@ case "$cmd" in
           exit 1
         fi
         if [ -n "$artifact_path" ]; then
-          payload=$(printf '{"taskId":%s,"flowId":%s,"stepEntryId":%s,"sessionId":%s,"type":%s,"path":%s}' \
+          payload=$(printf '{"taskId":%s,"flowId":%s,"actionEntryId":%s,"sessionId":%s,"type":%s,"path":%s}' \
             "$(json_string "$TASKFLOW_TASK_ID")" \
             "$(json_string "$TASKFLOW_FLOW_ID")" \
-            "$(json_string "$TASKFLOW_STEP_ENTRY_ID")" \
+            "$(json_string "$TASKFLOW_ACTION_ENTRY_ID")" \
             "$(json_string "$TASKFLOW_SESSION_ID")" \
             "$(json_string "$artifact_type")" \
             "$(json_string "$artifact_path")")
@@ -360,10 +360,10 @@ case "$cmd" in
             -H "Content-Type: application/json" \\
             -d "$payload"
         else
-          payload=$(printf '{"taskId":%s,"flowId":%s,"stepEntryId":%s,"sessionId":%s,"type":%s,"text":%s}' \
+          payload=$(printf '{"taskId":%s,"flowId":%s,"actionEntryId":%s,"sessionId":%s,"type":%s,"text":%s}' \
             "$(json_string "$TASKFLOW_TASK_ID")" \
             "$(json_string "$TASKFLOW_FLOW_ID")" \
-            "$(json_string "$TASKFLOW_STEP_ENTRY_ID")" \
+            "$(json_string "$TASKFLOW_ACTION_ENTRY_ID")" \
             "$(json_string "$TASKFLOW_SESSION_ID")" \
             "$(json_string "$artifact_type")" \
             "$(json_string "$artifact_text")")
@@ -399,7 +399,7 @@ case "$cmd" in
     echo "  task worktree --disable                       Disable worktree after branch merge" >&2
     echo "  log <type> <message> [--hash h]               Log to task (info|commit|warning|error)" >&2
     echo "  browser <url> [--label l] [--project]         Open a browser tab" >&2
-    echo "  step complete                                 Signal flow step completion" >&2
+    echo "  action complete                               Signal flow action completion" >&2
     echo "  artifact <save|list|get>                      Manage flow artifacts" >&2
     exit 1
     ;;

@@ -1,6 +1,6 @@
 import { readFile, writeFile, readdir, unlink, mkdir } from "fs/promises";
 import { join } from "path";
-import type { StepDefinition, FlowDefinition, FlowRun } from "@taskflow/shared";
+import type { ActionDefinition, FlowDefinition, FlowRun } from "@taskflow/shared";
 
 const FLOW_RUN_SEPARATOR = "--";
 
@@ -9,21 +9,21 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 function assertValidFlowDefinition(flow: FlowDefinition): void {
-    if (flow.steps.length === 0) {
-        throw new Error(`Flow "${flow.id}" must define at least one step`);
+    if (flow.actions.length === 0) {
+        throw new Error(`Flow "${flow.id}" must define at least one action`);
     }
 
-    for (const entry of flow.steps) {
-        const hasStepId = entry.stepId !== undefined;
+    for (const entry of flow.actions) {
+        const hasActionId = entry.actionId !== undefined;
         const hasInline = entry.inline !== undefined;
-        if (hasStepId === hasInline) {
+        if (hasActionId === hasInline) {
             throw new Error(
-                `Flow step "${entry.id}" must define exactly one of stepId or inline`,
+                `Flow action "${entry.id}" must define exactly one of actionId or inline`,
             );
         }
 
-        if (hasStepId && (typeof entry.stepId !== "string" || entry.stepId.trim().length === 0)) {
-            throw new Error(`Flow step "${entry.id}" must use a non-empty stepId`);
+        if (hasActionId && (typeof entry.actionId !== "string" || entry.actionId.trim().length === 0)) {
+            throw new Error(`Flow action "${entry.id}" must use a non-empty actionId`);
         }
 
         if (hasInline) {
@@ -35,7 +35,7 @@ function assertValidFlowDefinition(flow: FlowDefinition): void {
                 typeof inline.prompt !== "string" ||
                 typeof inline.sessionType !== "string"
             ) {
-                throw new Error(`Flow step "${entry.id}" must use a valid inline step`);
+                throw new Error(`Flow action "${entry.id}" must use a valid inline action`);
             }
         }
     }
@@ -54,42 +54,42 @@ class FlowStore {
         await mkdir(this.flowRunsDir, { recursive: true });
     }
 
-    // --- Step Definitions ---
+    // --- Action Definitions ---
 
-    private get stepsFile(): string {
-        return join(this.flowsDir, "steps.json");
+    private get actionsFile(): string {
+        return join(this.flowsDir, "actions.json");
     }
 
-    async getSteps(): Promise<StepDefinition[]> {
-        return (await this.readJsonFile<StepDefinition[]>(this.stepsFile)) ?? [];
+    async getActions(): Promise<ActionDefinition[]> {
+        return (await this.readJsonFile<ActionDefinition[]>(this.actionsFile)) ?? [];
     }
 
-    async saveStep(step: StepDefinition): Promise<void> {
-        await this.withMutation("steps", async () => {
-            const steps = await this.getSteps();
-            const index = steps.findIndex((s) => s.id === step.id);
+    async saveAction(action: ActionDefinition): Promise<void> {
+        await this.withMutation("actions", async () => {
+            const actions = await this.getActions();
+            const index = actions.findIndex((s) => s.id === action.id);
             if (index >= 0) {
-                steps[index] = step;
+                actions[index] = action;
             } else {
-                steps.push(step);
+                actions.push(action);
             }
-            await writeFile(this.stepsFile, JSON.stringify(steps, null, 2));
+            await writeFile(this.actionsFile, JSON.stringify(actions, null, 2));
         });
     }
 
-    async deleteStep(id: string): Promise<void> {
+    async deleteAction(id: string): Promise<void> {
         await this.withMutation("definitions", async () => {
-            const referencingFlows = await this.getFlowsReferencingStep(id);
+            const referencingFlows = await this.getFlowsReferencingAction(id);
             if (referencingFlows.length > 0) {
                 throw new Error(
-                    `Cannot delete step "${id}" because it is used by: ${referencingFlows.map((flow) => flow.name).join(", ")}`,
+                    `Cannot delete action "${id}" because it is used by: ${referencingFlows.map((flow) => flow.name).join(", ")}`,
                 );
             }
 
-            await this.withMutation("steps", async () => {
-                const steps = await this.getSteps();
-                const filtered = steps.filter((s) => s.id !== id);
-                await writeFile(this.stepsFile, JSON.stringify(filtered, null, 2));
+            await this.withMutation("actions", async () => {
+                const actions = await this.getActions();
+                const filtered = actions.filter((s) => s.id !== id);
+                await writeFile(this.actionsFile, JSON.stringify(filtered, null, 2));
             });
         });
     }
@@ -108,9 +108,9 @@ class FlowStore {
         return flows;
     }
 
-    async getFlowsReferencingStep(stepId: string): Promise<FlowDefinition[]> {
+    async getFlowsReferencingAction(actionId: string): Promise<FlowDefinition[]> {
         const flows = await this.getFlows();
-        return flows.filter((flow) => flow.steps.some((entry) => entry.stepId === stepId));
+        return flows.filter((flow) => flow.actions.some((entry) => entry.actionId === actionId));
     }
 
     async saveFlow(flow: FlowDefinition): Promise<void> {

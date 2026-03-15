@@ -92,7 +92,7 @@ async function main() {
                     agentOptions: opts.agentOptions,
                     flow: {
                         flowId: opts.flowId,
-                        stepEntryId: opts.stepEntryId,
+                        actionEntryId: opts.actionEntryId,
                     },
                     onSessionExited: (sessionId, exitCode) => {
                         void flowRunner.handleSessionExit(sessionId, exitCode);
@@ -116,11 +116,11 @@ async function main() {
             for (const run of runs) {
                 if (run.status === "running") {
                     run.status = "paused";
-                    const currentStep = run.steps[run.currentStepIndex];
-                    if (currentStep?.status === "running") {
-                        currentStep.status = "failed";
-                        currentStep.completedAt = new Date().toISOString();
-                        currentStep.sessionId = undefined;
+                    const currentAction = run.actions[run.currentActionIndex];
+                    if (currentAction?.status === "running") {
+                        currentAction.status = "failed";
+                        currentAction.completedAt = new Date().toISOString();
+                        currentAction.sessionId = undefined;
                     }
                     await flowStore.saveFlowRun(run);
                 }

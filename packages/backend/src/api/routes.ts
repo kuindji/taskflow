@@ -354,9 +354,9 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         return jsonResponse(await settingsStore.update(body));
     });
 
-    // --- Flow step completion ---
+    // --- Flow action completion ---
 
-    apiRouter.register("POST", "/api/flow/step-complete", async (req) => {
+    apiRouter.register("POST", "/api/flow/action-complete", async (req) => {
         let body: Record<string, unknown>;
         try {
             body = (await req.json()) as Record<string, unknown>;
@@ -370,7 +370,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         }
 
         try {
-            await flowRunner.handleStepComplete(taskId, flowId, sessionId);
+            await flowRunner.handleActionComplete(taskId, flowId, sessionId);
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
@@ -388,16 +388,16 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const { taskId, flowId, stepEntryId, sessionId, type, path, text } = body;
+        const { taskId, flowId, actionEntryId, sessionId, type, path, text } = body;
         if (
             typeof taskId !== "string" ||
             typeof flowId !== "string" ||
-            typeof stepEntryId !== "string" ||
+            typeof actionEntryId !== "string" ||
             typeof sessionId !== "string" ||
             typeof type !== "string"
         ) {
             return errorResponse(
-                "Fields taskId, flowId, stepEntryId, sessionId, and type are required strings",
+                "Fields taskId, flowId, actionEntryId, sessionId, and type are required strings",
                 400,
             );
         }
@@ -409,7 +409,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         }
 
         try {
-            await flowRunner.saveArtifact(taskId, flowId, stepEntryId, sessionId, {
+            await flowRunner.saveArtifact(taskId, flowId, actionEntryId, sessionId, {
                 type,
                 path: hasPath ? path : undefined,
                 text: hasText ? text : undefined,
@@ -422,9 +422,9 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             }
             if (
                 message === "Flow run is not active" ||
-                message === "No running step available for artifact save" ||
-                message === "Artifacts can only be saved for the current step" ||
-                message === "Artifacts can only be saved by the active step session" ||
+                message === "No running action available for artifact save" ||
+                message === "Artifacts can only be saved for the current action" ||
+                message === "Artifacts can only be saved by the active action session" ||
                 message === "Artifact must include exactly one of path or text"
             ) {
                 return errorResponse(message, 409);

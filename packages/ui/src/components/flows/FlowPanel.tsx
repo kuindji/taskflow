@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import type { FlowStepState } from "@taskflow/shared";
+import type { FlowActionState } from "@taskflow/shared";
 import { useFlowStore } from "@/stores/flow-store";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +21,7 @@ interface FlowPanelProps {
 function FlowPanel({ taskId }: FlowPanelProps) {
     const run = useFlowStore((s) => s.activeRuns[taskId]);
     const flows = useFlowStore((s) => s.flows);
-    const steps = useFlowStore((s) => s.steps);
+    const actions = useFlowStore((s) => s.actions);
     const [jumpConfirm, setJumpConfirm] = useState<{ index: number; name: string } | null>(null);
 
     const handlePause = useCallback(() => {
@@ -43,7 +43,7 @@ function FlowPanel({ taskId }: FlowPanelProps) {
         (e: React.MouseEvent) => {
             if (!run) return;
             e.stopPropagation();
-            void useFlowStore.getState().skipStep(taskId, run.flowId);
+            void useFlowStore.getState().skipAction(taskId, run.flowId);
         },
         [taskId, run],
     );
@@ -53,38 +53,38 @@ function FlowPanel({ taskId }: FlowPanelProps) {
     const flowDef = flows.find((f) => f.id === run.flowId);
     const flowName = flowDef?.name ?? "Flow";
 
-    const getStepName = (_state: FlowStepState, index: number): string => {
-        const entry = flowDef?.steps[index];
-        if (!entry) return `Step ${index + 1}`;
+    const getActionName = (_state: FlowActionState, index: number): string => {
+        const entry = flowDef?.actions[index];
+        if (!entry) return `Action ${index + 1}`;
         if (entry.label) return entry.label;
         if ("inline" in entry && entry.inline) return entry.inline.name;
-        if ("stepId" in entry && entry.stepId) {
-            return steps.find((step) => step.id === entry.stepId)?.name ?? `Step ${index + 1}`;
+        if ("actionId" in entry && entry.actionId) {
+            return actions.find((action) => action.id === entry.actionId)?.name ?? `Action ${index + 1}`;
         }
-        return `Step ${index + 1}`;
+        return `Action ${index + 1}`;
     };
 
-    const getStepSessionType = (index: number): string => {
-        const entry = flowDef?.steps[index];
+    const getActionSessionType = (index: number): string => {
+        const entry = flowDef?.actions[index];
         if (!entry) return "agent";
         if ("inline" in entry && entry.inline) return entry.inline.sessionType;
-        if ("stepId" in entry && entry.stepId) {
-            return steps.find((step) => step.id === entry.stepId)?.sessionType ?? "agent";
+        if ("actionId" in entry && entry.actionId) {
+            return actions.find((action) => action.id === entry.actionId)?.sessionType ?? "agent";
         }
         return "agent";
     };
 
     const handleJump = (index: number) => {
-        setJumpConfirm({ index, name: getStepName(run.steps[index], index) });
+        setJumpConfirm({ index, name: getActionName(run.actions[index], index) });
     };
 
     const confirmJump = () => {
         if (!jumpConfirm) return;
-        void useFlowStore.getState().jumpToStep(taskId, run.flowId, jumpConfirm.index);
+        void useFlowStore.getState().jumpToAction(taskId, run.flowId, jumpConfirm.index);
         setJumpConfirm(null);
     };
 
-    const statusIcon = (status: FlowStepState["status"]) => {
+    const statusIcon = (status: FlowActionState["status"]) => {
         switch (status) {
             case "completed":
                 return <Check className="h-3 w-3 text-green-400" />;
@@ -144,42 +144,42 @@ function FlowPanel({ taskId }: FlowPanelProps) {
                 </div>
             </div>
 
-            {/* Step list */}
+            {/* Action list */}
             <div className="max-h-48 space-y-0.5 overflow-y-auto p-2">
-                {run.steps.map((step, i) => (
+                {run.actions.map((action, i) => (
                     <div
-                        key={step.stepEntryId}
+                        key={action.actionEntryId}
                         className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs ${
-                            step.status === "running"
+                            action.status === "running"
                                 ? "border border-blue-800/50 bg-blue-950/40"
                                 : ""
-                        } ${step.status === "completed" ? "bg-green-950/20" : ""} ${
-                            step.status === "failed" ? "bg-red-950/20" : ""
+                        } ${action.status === "completed" ? "bg-green-950/20" : ""} ${
+                            action.status === "failed" ? "bg-red-950/20" : ""
                         } ${
-                            step.status === "pending" || step.status === "skipped"
+                            action.status === "pending" || action.status === "skipped"
                                 ? "opacity-50"
                                 : ""
                         }`}
                         onClick={() =>
-                            step.status === "completed" || step.status === "failed"
+                            action.status === "completed" || action.status === "failed"
                                 ? handleJump(i)
                                 : undefined
                         }
                     >
                         <div className="flex h-5 w-5 shrink-0 items-center justify-center">
-                            {step.status === "pending" ? (
+                            {action.status === "pending" ? (
                                 <span className="text-muted-foreground">{i + 1}</span>
                             ) : (
-                                statusIcon(step.status)
+                                statusIcon(action.status)
                             )}
                         </div>
                         <div className="min-w-0 flex-1">
-                            <div className="truncate">{getStepName(step, i)}</div>
+                            <div className="truncate">{getActionName(action, i)}</div>
                             <div className="text-muted-foreground text-[10px]">
-                                {getStepSessionType(i)}
+                                {getActionSessionType(i)}
                             </div>
                         </div>
-                        {step.status === "running" && run.status === "running" && (
+                        {action.status === "running" && run.status === "running" && (
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -218,10 +218,10 @@ function FlowPanel({ taskId }: FlowPanelProps) {
             >
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Re-run step?</AlertDialogTitle>
+                        <AlertDialogTitle>Re-run action?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Re-run step &quot;{jumpConfirm?.name}&quot;? This will reset all
-                            subsequent steps.
+                            Re-run action &quot;{jumpConfirm?.name}&quot;? This will reset all
+                            subsequent actions.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
