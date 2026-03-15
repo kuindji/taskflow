@@ -89,6 +89,16 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         const task = await store.getTask(id);
         if (!task) throw new Error(`Task not found: ${id}`);
         await stopTaskSessions(task, true);
+
+        // Cascade: archive all subtasks first
+        if (!task.parentId) {
+            const subtasks = await store.getSubtasks(id);
+            for (const subtask of subtasks) {
+                await stopTaskSessions(subtask, true);
+                await store.archiveTask(subtask.id);
+            }
+        }
+
         return store.archiveTask(id);
     });
 
@@ -99,7 +109,17 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
 
     router.register(MSG.TASK_UNARCHIVE, async (payload) => {
         const { id } = payload as TaskUnarchivePayload;
-        return store.unarchiveTask(id);
+        const task = await store.unarchiveTask(id);
+
+        // Cascade: unarchive all subtasks
+        if (!task.parentId) {
+            const archivedSubtasks = await store.getArchivedSubtasks(id);
+            for (const subtask of archivedSubtasks) {
+                await store.unarchiveTask(subtask.id);
+            }
+        }
+
+        return task;
     });
 
     router.register(MSG.TASK_DELETE, async (payload) => {
