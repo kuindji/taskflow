@@ -21,7 +21,7 @@ Allow users to fork a project into a sibling folder with a new git branch. The f
 ### Fork Button (TaskHeader)
 
 - Placement: after the Diff button, before the rename/delete buttons
-- Visibility: only when viewing a project (not a task) — same condition as the rename button (`!task && project`)
+- Visibility: uses the `showGitButtons` condition (`!!project && (!task || isWorktreeTask)`) — same as Commit and Diff buttons, since forking is a git operation
 - Style: `variant="ghost" size="xs"` with `GitFork` icon from lucide-react and "Fork" label
 - Uses `[-webkit-app-region:no-drag]` class like other header buttons
 
@@ -98,13 +98,14 @@ Steps:
 7. Clone: `git clone --local --branch <currentBranch> <sourcePath> <targetPath>`
 8. Create new branch in clone: `git checkout -b <newBranch>` in `targetPath`
 9. If original remote URL exists, re-point: `git remote set-url origin <originalRemoteUrl>` in `targetPath`
-10. Add as project: `store.addProject({ name: auto-generated, path: targetPath })`
+10. Derive project name using the same logic as the `PROJECT_ADD` handler: last two path segments + branch in parentheses (e.g., `Projects/feature-new-auth (feature/new-auth)`). Then call `store.addProject({ name, path: targetPath })`
 11. Return `{ project, targetPath, branch }`
 
 Error handling:
 - Target folder exists → throw with descriptive message
 - Clone fails → clean up partial target folder with `rm -rf`, then throw
 - Branch already exists → git will error on `checkout -b`, propagate the error
+- Clone failure cleanup: if any step after clone fails (branch creation, remote re-pointing), clean up the cloned folder
 
 ### GitService Additions
 
@@ -117,6 +118,7 @@ async getRemoteUrl(repoPath: string): Promise<string | null>
 
 async clone(source: string, target: string, branch: string): Promise<void>
 // Runs: git clone --local --branch <branch> <source> <target>
+// Note: uses dirname(target) as cwd since the target doesn't exist yet
 
 async setRemoteUrl(repoPath: string, url: string): Promise<void>
 // Runs: git remote set-url origin <url>
