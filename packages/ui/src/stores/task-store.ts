@@ -117,7 +117,7 @@ export const useTaskStore = create<TaskStore>((set) => ({
     async unarchiveTask(id) {
         await sendRequest(MSG.TASK_UNARCHIVE, { id });
         set((s) => ({
-            archivedTasks: s.archivedTasks.filter((t) => t.id !== id),
+            archivedTasks: s.archivedTasks.filter((t) => t.id !== id && t.parentId !== id),
         }));
         void useTaskStore.getState().fetchTasks();
     },
