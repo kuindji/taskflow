@@ -118,13 +118,13 @@ export function TaskCard({
                     </TruncatedText>
                 )}
                 {(task.sessions.length > 0 || task.worktree.enabled) && (
-                    <div className="mt-1.5 flex min-w-0 gap-1.5">
+                    <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
                         {task.worktree.enabled && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Badge
                                         variant="outline"
-                                        className="border-border/60 bg-muted/50 gap-0.5 px-1 py-0 text-[10px] font-medium"
+                                        className="border-border/60 bg-muted/50 gap-0.5 px-1 py-0 text-xs font-medium"
                                     >
                                         <GitBranch className="text-muted-foreground h-3 w-3" />
                                         {diffStats && (
