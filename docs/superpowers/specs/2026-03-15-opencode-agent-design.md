@@ -90,7 +90,7 @@ This env var will be passed via the PTY spawn's environment, alongside existing 
 - Reads defaults from `useSettingsStore` `opencode` section.
 
 **`components/workspace/TabBar.tsx`**
-- Add `opencode` tab color variant: `"text-info"` (blue).
+- Add `opencode` tab color variant: `"text-opencode"` (purple, via custom `--opencode` CSS variable).
 - Add OpenCode icon button in the tab bar (same Popover pattern as Claude/Codex).
 - Add OpenCode entry in the Run dropdown menu.
 - Extend `onNewTab` / `onRunTab` type unions.
@@ -130,7 +130,7 @@ This env var will be passed via the PTY spawn's environment, alongside existing 
 | Model format | Simple name (`opus`, `sonnet`, `haiku`) | N/A (no model selection) | Free-text `provider/model` string |
 | Full access flag | `--dangerously-skip-permissions` | `--full-auto` | `OPENCODE_CONFIG_CONTENT` with permission JSON |
 | System prompt | `--append-system-prompt` | TOML `-c developer_instructions=...` + `-c skills.config=[...]` | `OPENCODE_CONFIG_CONTENT` with `instructions` array |
-| Tab color | Warning (amber) | Success (green) | Info (blue) |
+| Tab color | Warning (amber) | Success (green) | Custom purple (`#cba6f7`) |
 | Spawn env | Standard | Standard | Standard + `OPENCODE_CONFIG_CONTENT` |
 
 ## Return Type Change for `buildAgentLaunchSpec`
