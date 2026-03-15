@@ -1,7 +1,8 @@
 import { useMemo, useState, useCallback, type MouseEvent } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Archive, ArchiveRestore, GitBranch, Pin, Plus, Trash2 } from "lucide-react";
-import type { Task } from "@taskflow/shared";
+import type { Task, SessionRef } from "@taskflow/shared";
+import { useShallow } from "zustand/react/shallow";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,8 @@ const taskCardVariants = cva("px-2.5 py-2.5 mx-1.5 rounded-lg cursor-pointer tra
     },
     defaultVariants: { active: false },
 });
+
+const emptySessions: SessionRef[] = [];
 
 interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     task: Task;
@@ -67,12 +70,12 @@ export function TaskCard({
     const subtaskCount = useTaskStore((s) =>
         isSubtask ? 0 : s.tasks.filter((t) => t.parentId === task.id).length,
     );
-    const subtaskSessions = useTaskStore((s) => {
-        if (isSubtask || isExpanded) return [];
-        return s.tasks
-            .filter((t) => t.parentId === task.id)
-            .flatMap((t) => t.sessions);
-    });
+    const subtaskSessions = useTaskStore(
+        useShallow((s) => {
+            if (isSubtask || isExpanded) return emptySessions;
+            return s.tasks.filter((t) => t.parentId === task.id).flatMap((t) => t.sessions);
+        }),
+    );
     const displaySessions = useMemo(
         () => (isExpanded || isSubtask ? task.sessions : [...task.sessions, ...subtaskSessions]),
         [task.sessions, subtaskSessions, isExpanded, isSubtask],
