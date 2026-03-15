@@ -516,7 +516,7 @@ export class TaskStore {
         const task: Task = {
             id: randomUUID(),
             projectId: input.projectId,
-            ...(input.parentId ? { parentId: input.parentId } : {}),
+            parentId: input.parentId,
             title: input.title,
             description: input.description,
             notes: "",

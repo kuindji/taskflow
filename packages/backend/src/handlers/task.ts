@@ -88,9 +88,8 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         const { id } = payload as TaskArchivePayload;
         const task = await store.getTask(id);
         if (!task) throw new Error(`Task not found: ${id}`);
-        await stopTaskSessions(task, true);
 
-        // Cascade: archive all subtasks first
+        // Cascade: stop sessions and archive subtasks before parent
         if (!task.parentId) {
             const subtasks = await store.getSubtasks(id);
             for (const subtask of subtasks) {
@@ -99,6 +98,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             }
         }
 
+        await stopTaskSessions(task, true);
         return store.archiveTask(id);
     });
 
