@@ -131,35 +131,35 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                     {run.status === "running" && (
                         <Button
                             variant="ghost"
-                            size="icon-xs"
+                            size="icon-2xs"
                             onClick={handlePause}
                             tooltip="Pause"
                             tooltipSide="bottom"
                         >
-                            <Pause className="h-3 w-3" />
+                            <Pause className="h-2 w-2" />
                         </Button>
                     )}
                     {run.status === "paused" && (
                         <Button
                             variant="ghost"
-                            size="icon-xs"
+                            size="icon-2xs"
                             onClick={handleResume}
                             tooltip="Resume"
                             tooltipSide="bottom"
                         >
-                            <Play className="h-3 w-3" />
+                            <Play className="h-2 w-2" />
                         </Button>
                     )}
                     {(run.status === "running" || run.status === "paused") && (
                         <Button
                             variant="ghost"
-                            size="icon-xs"
+                            size="icon-2xs"
                             className="text-destructive"
                             onClick={handleStop}
                             tooltip="Stop"
                             tooltipSide="bottom"
                         >
-                            <Square className="h-3 w-3" />
+                            <Square className="h-2 w-2" />
                         </Button>
                     )}
                     <Button
@@ -211,25 +211,23 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                         {action.status === "running" && run.status === "running" && (
                             <Button
                                 variant="ghost"
-                                size="icon"
-                                className="h-4 w-4"
+                                size="icon-2xs"
                                 onClick={handleSkip}
                                 tooltip="Skip"
                                 tooltipSide="left"
                             >
-                                <SkipForward className="h-3 w-3" />
+                                <SkipForward className="h-2 w-2" />
                             </Button>
                         )}
                         {isFlowDone && (action.status === "completed" || action.status === "failed") && (
                             <Button
                                 variant="ghost"
-                                size="icon"
-                                className="h-4 w-4"
+                                size="icon-2xs"
                                 onClick={(e) => handleRerun(e, i)}
                                 tooltip="Re-run"
                                 tooltipSide="left"
                             >
-                                <RotateCcw className="h-3 w-3" />
+                                <RotateCcw className="h-2 w-2" />
                             </Button>
                         )}
                     </div>

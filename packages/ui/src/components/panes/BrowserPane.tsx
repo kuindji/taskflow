@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Toolbar } from "@/components/ui/toolbar";
 import { ArrowLeft, ExternalLink, RotateCw } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
 import { normalizeUrl } from "@/utils/url";
@@ -133,7 +134,7 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
 
     return (
         <div className="flex flex-1 flex-col">
-            <div className="border-border flex min-h-9 items-center gap-1 border-b px-1.5 py-1.5">
+            <Toolbar className="gap-1">
                 <Button
                     variant="ghost"
                     size="icon-xs"
@@ -173,7 +174,7 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
                     className="h-7 flex-1 px-2.5 text-sm"
                     placeholder="Enter URL..."
                 />
-            </div>
+            </Toolbar>
 
             {isElectron ? (
                 <webview ref={webviewRef} src={url} style={frameStyle} />

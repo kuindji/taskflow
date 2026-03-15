@@ -137,7 +137,7 @@ function TaskInfoPanel() {
     if (workspace.scope === "project" && workspace.project) {
         return (
             <div className="flex h-full flex-col">
-                <Toolbar noBorder className="gap-2">
+                <Toolbar className="gap-2">
                     <span className="text-muted-foreground ml-2 text-xs font-medium">Project Info</span>
                     <div className="flex-1" />
                     <Button
@@ -151,7 +151,6 @@ function TaskInfoPanel() {
                         <X className="h-3 w-3" />
                     </Button>
                 </Toolbar>
-                <Separator />
                 <div className="flex-1 overflow-y-auto p-3">
                     <div className="space-y-4">
                         <div>
@@ -196,7 +195,7 @@ function TaskInfoPanel() {
 
     return (
         <div className="flex h-full flex-col">
-            <Toolbar noBorder className="gap-2">
+            <Toolbar className="gap-2">
                 <span className="text-muted-foreground ml-2 text-xs font-medium">Task Info</span>
                 <div className="flex-1" />
                 <Button
@@ -210,7 +209,6 @@ function TaskInfoPanel() {
                     <X className="h-3 w-3" />
                 </Button>
             </Toolbar>
-            <Separator />
 
             <div className="flex-1 overflow-y-auto p-3">
                 <div className="space-y-4">
