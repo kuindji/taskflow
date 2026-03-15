@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { StatusDot } from "@/components/ui/status-dot";
 import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
+import { NoDragSpacer } from "./NoDragSpacer";
 import { MissingLocationDialog } from "./MissingLocationDialog";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -166,16 +167,18 @@ export function ProjectGroup({
                 </div>
                 {!locationInvalid && (
                     <CollapsibleContent>
-                        {tasks.map((task) => (
-                            <TaskCard
-                                key={task.id}
-                                task={task}
-                                isActive={task.id === activeTaskId}
-                                onClick={() => onTaskClick(task.id)}
-                                archived={archived}
-                                compact={compact}
-                                diffStats={diffStatsByTask?.[task.id]}
-                            />
+                        {tasks.map((task, index) => (
+                            <div key={task.id}>
+                                {index > 0 && <NoDragSpacer />}
+                                <TaskCard
+                                    task={task}
+                                    isActive={task.id === activeTaskId}
+                                    onClick={() => onTaskClick(task.id)}
+                                    archived={archived}
+                                    compact={compact}
+                                    diffStats={diffStatsByTask?.[task.id]}
+                                />
+                            </div>
                         ))}
                     </CollapsibleContent>
                 )}

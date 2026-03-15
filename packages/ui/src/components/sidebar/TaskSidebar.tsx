@@ -9,6 +9,7 @@ import { useDiffStore } from "@/stores/diff-store";
 import { useThemeStore } from "@/stores/theme-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
+import { NoDragSpacer } from "./NoDragSpacer";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
 import { ArrowDownToLine, Loader2, Palette, Plus, Settings2 } from "lucide-react";
@@ -258,25 +259,27 @@ export function TaskSidebar() {
                 {showArchive && displayTasks.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">No archived tasks.</div>
                 )}
-                {visibleProjects.map((project) => {
+                {visibleProjects.map((project, index) => {
                     const projectTasks = tasksByProject.get(project.id) ?? [];
                     const projectOpen = !collapsedProjectIds.includes(project.id);
                     return (
-                        <ProjectGroup
-                            key={project.id}
-                            project={project}
-                            tasks={projectTasks}
-                            activeTaskId={activeTaskId}
-                            isActive={!activeTaskId && activeProjectId === project.id}
-                            diffStats={diffStatsByProject[project.id]}
-                            diffStatsByTask={diffStatsByProject}
-                            onProjectClick={handleProjectClick}
-                            onTaskClick={handleTaskClick}
-                            archived={showArchive}
-                            compact={compactSidebar}
-                            open={projectOpen}
-                            onOpenChange={(open) => handleProjectOpenChange(project.id, open)}
-                        />
+                        <div key={project.id}>
+                            {index > 0 && <NoDragSpacer />}
+                            <ProjectGroup
+                                project={project}
+                                tasks={projectTasks}
+                                activeTaskId={activeTaskId}
+                                isActive={!activeTaskId && activeProjectId === project.id}
+                                diffStats={diffStatsByProject[project.id]}
+                                diffStatsByTask={diffStatsByProject}
+                                onProjectClick={handleProjectClick}
+                                onTaskClick={handleTaskClick}
+                                archived={showArchive}
+                                compact={compactSidebar}
+                                open={projectOpen}
+                                onOpenChange={(open) => handleProjectOpenChange(project.id, open)}
+                            />
+                        </div>
                     );
                 })}
             </div>
