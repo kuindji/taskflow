@@ -164,13 +164,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         sendFireAndForget(MSG.TERMINAL_RESIZE, { sessionId, cols, rows });
     },
     addTab(workspaceKey, tab) {
-        set((s) => ({
-            tabsByWorkspace: {
-                ...s.tabsByWorkspace,
-                [workspaceKey]: [...(s.tabsByWorkspace[workspaceKey] ?? []), tab],
-            },
-            activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: tab.id },
-        }));
+        set((s) => {
+            const existing = s.tabsByWorkspace[workspaceKey] ?? [];
+            // Prevent duplicate tabs for the same session (race between
+            // MSG.TASK_UPDATED broadcast triggering syncWithTasks and the
+            // SESSION_CREATE response calling addTab directly).
+            if (tab.sessionId && existing.some((t) => t.sessionId === tab.sessionId)) {
+                const existingTab = existing.find((t) => t.sessionId === tab.sessionId)!;
+                return {
+                    activeTabByWorkspace: {
+                        ...s.activeTabByWorkspace,
+                        [workspaceKey]: existingTab.id,
+                    },
+                };
+            }
+            return {
+                tabsByWorkspace: {
+                    ...s.tabsByWorkspace,
+                    [workspaceKey]: [...existing, tab],
+                },
+                activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: tab.id },
+            };
+        });
     },
     async closeTab(workspaceKey, tabId) {
         const tab = (get().tabsByWorkspace[workspaceKey] ?? []).find((entry) => entry.id === tabId);
