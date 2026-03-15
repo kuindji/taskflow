@@ -8,7 +8,7 @@ Add single-level subtask support to Taskflow. Subtasks are regular tasks with a 
 
 ### Task type changes (`packages/shared/src/types/task.ts`)
 
-Add `parentId?: string` to the `Task` interface. Undefined for top-level tasks, set for subtasks.
+Add `parentId?: string` to the `Task` interface. Undefined for top-level tasks, set for subtasks. This field is also added to the `createTask` input type in `task-store.ts`.
 
 No `children` array — subtasks are derived by filtering tasks where `parentId === task.id`.
 
@@ -35,13 +35,15 @@ The `worktree` field in `TaskCreatePayload` is ignored for subtasks — always i
 
 ### Archive cascade
 
-- `archiveTask(id)`: If the task has subtasks, archive all of them. The handler returns the subtask count so the UI can show a confirmation dialog.
+- `archiveTask(id)`: If the task has subtasks, archive all of them and stop their active sessions (existing handler already calls `stopTaskSessions` for the target task — extend to subtasks).
 - `unarchiveTask(id)`: If the task has archived subtasks, unarchive them all automatically (no prompt).
+- The UI determines subtask count locally from its own `tasks` array — no preflight request needed. The confirmation dialog is shown before sending the archive request.
 
 ### Delete cascade
 
-- `deleteTask(id)`: If the task has subtasks, delete all of them. The handler returns the subtask count so the UI can show a confirmation dialog.
-- Worktree cleanup: Subtasks share the parent's worktree, so only the parent's delete dialog offers the "delete worktree" toggle. Subtask deletion never touches the worktree.
+- `deleteTask(id)`: If the task has subtasks, delete all of them and stop their active sessions first.
+- The UI determines subtask count locally and shows confirmation before sending the delete request.
+- Worktree cleanup: Subtasks share the parent's worktree, so only the parent's delete dialog offers the "delete worktree" toggle. When deleting a single subtask (not via parent cascade), the delete dialog does not show the worktree toggle, and the backend ignores `deleteWorktree` for subtasks (tasks with `parentId`).
 
 ### Listing
 
@@ -54,6 +56,16 @@ A helper `getSubtasks(parentId)` is added for convenience (filters active tasks 
 No changes. Subtasks inherit `worktree.path` from the parent, so the existing logic (`task.worktree.path || project.path`) works as-is.
 
 ## UI: Sidebar Task List
+
+### Rendering logic in ProjectGroup
+
+`ProjectGroup` receives the flat `tasks` array. It partitions tasks into:
+- **Top-level tasks**: tasks where `parentId` is undefined
+- **Subtask map**: `Map<string, Task[]>` keyed by `parentId`
+
+For each top-level task, render:
+1. The task card (with chevron if it has entries in the subtask map)
+2. If expanded, render its subtasks indented below it
 
 ### Parent tasks with subtasks
 
@@ -73,6 +85,7 @@ No changes. Subtasks inherit `worktree.path` from the parent, so the existing lo
 
 - All parent tasks start collapsed on app launch (not persisted)
 - Managed in `useTaskStore` as `expandedTasks: Set<string>` with a `toggleTaskExpanded(taskId)` action
+- Creating a subtask auto-expands its parent
 
 ## UI: NewTaskDialog Changes
 
@@ -87,10 +100,14 @@ The create payload includes `parentId`, and the backend handles project/worktree
 
 ## UI: Confirmation Dialogs
 
+Archive confirmation is a new dialog added to `TaskCard`. Currently archive has no confirmation — it fires immediately. With subtasks, a confirmation is needed only when the parent has subtasks.
+
 ### Archive parent with subtasks
 
 > "This task has N subtasks that will also be archived. Archive all?"
 > [Cancel] [Archive]
+
+Shown only when the task has subtasks (count computed from UI store). Tasks without subtasks archive immediately as before.
 
 ### Delete parent with subtasks
 
@@ -106,8 +123,12 @@ No dialog — silently unarchives parent and all subtasks.
 
 - `useTaskStore` already holds a flat `tasks` array. Subtasks live in the same array.
 - Derived helper: `getSubtasks(parentId)` — filters tasks by `parentId`
-- New state: `expandedTasks: Set<string>` to track expanded parent tasks in the sidebar
+- New state: `expandedTasks: Set<string>` to track expanded parent tasks in the sidebar (ephemeral, not persisted)
 - New action: `toggleTaskExpanded(taskId)` to flip expand/collapse
+- `archiveTask(id)`: After the backend call, also remove subtasks from local `tasks` array (filter by `parentId === id`)
+- `deleteTask(id)`: Same — remove subtasks locally after backend call
+- `unarchiveTask(id)`: Re-fetch tasks after unarchive to pick up cascade-unarchived subtasks (or backend returns them)
+- When the active task is a subtask whose parent gets archived/deleted, clear `activeTaskId`
 - No changes to workspace store, session store, or WebSocket hooks
 
 ## UI: Workspace
