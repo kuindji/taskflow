@@ -25,6 +25,7 @@ export function TaskCreationDialogHost() {
         newTaskOpen,
         newProjectOpen,
         projectError,
+        parentTaskId,
         setNewTaskOpen,
         setNewProjectOpen,
         setProjectError,
@@ -80,6 +81,7 @@ export function TaskCreationDialogHost() {
             title?: string;
             description: string;
             worktree: boolean;
+            parentId?: string;
             startWith?: "claude" | "codex";
             agentOptions?: AgentLaunchOptions;
         }) => {
@@ -88,7 +90,7 @@ export function TaskCreationDialogHost() {
                 setActiveProject(task.projectId);
                 setActiveTask(task.id);
                 if (data.startWith) {
-                    if (data.worktree) {
+                    if (data.worktree && !data.parentId) {
                         // Defer session start until worktree is ready
                         pendingSessionRef.current = {
                             taskId: task.id,
@@ -127,6 +129,7 @@ export function TaskCreationDialogHost() {
                 onOpenChange={setNewTaskOpen}
                 projects={projects}
                 defaultProjectId={defaultProjectId}
+                parentId={parentTaskId}
                 onSubmit={(data) => void handleCreateTask(data)}
             />
         </>
