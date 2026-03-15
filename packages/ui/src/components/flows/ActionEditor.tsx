@@ -69,7 +69,7 @@ function ActionEditor({
     return (
         <div className="flex h-full flex-col">
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto px-6">
                 <h3 className="mb-5 text-base font-semibold">
                     {action ? action.name || "Edit Action" : "New Action"}
                 </h3>
@@ -135,32 +135,34 @@ function ActionEditor({
                         </div>
                     )}
                 </div>
+
+                {/* Sticky footer */}
+                <div className="flex flex-row items-center shrink-0 gap-2 pt-3">
+                    {action && onDelete && (
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={onDelete}
+                            disabled={deleteDisabled}
+                            title={deleteDisabledReason}
+                        >
+                            Delete Action
+                        </Button>
+                    )}
+                    {action && deleteDisabledReason && (
+                        <span className="text-muted-foreground text-xs">{deleteDisabledReason}</span>
+                    )}
+                    <div className="flex-1" />
+                    <Button variant="secondary" size="sm" onClick={onCancel}>
+                        Cancel
+                    </Button>
+                    <Button size="sm" onClick={handleSave} disabled={!isValid}>
+                        Save Action
+                    </Button>
+                </div>
             </div>
 
-            {/* Sticky footer */}
-            <div className="border-border flex shrink-0 items-center gap-2 border-t px-6 py-3">
-                {action && onDelete && (
-                    <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={onDelete}
-                        disabled={deleteDisabled}
-                        title={deleteDisabledReason}
-                    >
-                        Delete Action
-                    </Button>
-                )}
-                {action && deleteDisabledReason && (
-                    <span className="text-muted-foreground text-xs">{deleteDisabledReason}</span>
-                )}
-                <div className="flex-1" />
-                <Button variant="secondary" size="sm" onClick={onCancel}>
-                    Cancel
-                </Button>
-                <Button size="sm" onClick={handleSave} disabled={!isValid}>
-                    Save Action
-                </Button>
-            </div>
+            
         </div>
     );
 }

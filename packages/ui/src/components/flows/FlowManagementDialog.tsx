@@ -96,12 +96,12 @@ function FlowManagementDialog() {
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="flex h-[80vh] w-[80rem] max-w-[calc(100vw-2rem)] flex-col gap-0 p-0 pb-3 sm:max-w-[calc(100vw-2rem)]">
+            <DialogContent className="w-6xl max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]">
                 <DialogHeader className="shrink-0 px-6 py-4">
                     <DialogTitle>Flows & Actions</DialogTitle>
                 </DialogHeader>
 
-                <div className="flex min-h-0 flex-1">
+                <div className="flex h-[60vh] flex-1">
                     {/* Left column: navigation tabs */}
                     <nav className="border-border w-40 shrink-0 space-y-1 border-r px-3 py-2">
                         <button
@@ -128,17 +128,6 @@ function FlowManagementDialog() {
 
                     {/* Middle column: item list */}
                     <div className="border-border flex w-56 shrink-0 flex-col border-r">
-                        <div className="flex items-center justify-end px-3 py-2.5">
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                                onClick={startCreating}
-                                title={tab === "flows" ? "New flow" : "New action"}
-                            >
-                                <Plus className="h-4 w-4" />
-                            </Button>
-                        </div>
                         <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
                             {tab === "flows" &&
                                 flows.map((f) => (
@@ -184,6 +173,17 @@ function FlowManagementDialog() {
                                     No actions yet
                                 </div>
                             )}
+                        </div>
+                        <div className="flex items-center justify-end px-3 py-2.5">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={startCreating}
+                                title={tab === "flows" ? "New flow" : "New action"}
+                            >
+                                <Plus className="h-4 w-4" />
+                            </Button>
                         </div>
                     </div>
 

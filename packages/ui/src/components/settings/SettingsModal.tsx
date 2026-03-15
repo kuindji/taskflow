@@ -339,7 +339,7 @@ function SettingsModal() {
                                             Location where projects, tasks, and session data are
                                             stored
                                         </Label>
-                                        <div className="space-y-3">
+                                        <div className="flex flex-col gap-2">
                                             <TruncatedText
                                                 as="code"
                                                 tooltip

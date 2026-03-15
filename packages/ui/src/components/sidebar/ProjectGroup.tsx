@@ -89,7 +89,7 @@ export function ProjectGroup({
             <Collapsible open={open} onOpenChange={onOpenChange} className="min-w-0">
                 <div
                     className={cn(
-                        "group mx-1.5 flex max-w-[calc(100%-0.75rem)] min-w-0 cursor-pointer items-stretch overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
+                        "group mx-1 flex max-w-[calc(100%-0.75rem)] min-w-0 cursor-pointer items-stretch overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
                         isActive && !locationInvalid ? "bg-accent/15" : "hover:bg-muted/50",
                     )}
                 >
@@ -167,9 +167,9 @@ export function ProjectGroup({
                 </div>
                 {!locationInvalid && (
                     <CollapsibleContent>
-                        {tasks.map((task, index) => (
+                        {tasks.map((task) => (
                             <div key={task.id}>
-                                {index > 0 && <NoDragSpacer />}
+                                <NoDragSpacer />
                                 <TaskCard
                                     task={task}
                                     isActive={task.id === activeTaskId}

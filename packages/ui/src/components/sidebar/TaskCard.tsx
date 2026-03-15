@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { SessionBadge } from "./SessionBadge";
 
 const taskCardVariants = cva(
-    "px-3 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-colors",
+    "px-2.5 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-colors",
     {
         variants: {
             active: {
@@ -117,7 +117,7 @@ export function TaskCard({
                     className={cn("text-sm font-medium", isActive && "text-foreground")}
                 >
                     {task.pinned && (
-                        <Pin className="text-muted-foreground mr-1 inline h-3 w-3 shrink-0" />
+                        <Pin className="text-muted-foreground mr-1.5 inline h-3 w-3 shrink-0" />
                     )}
                     {title}
                 </TruncatedText>
@@ -158,7 +158,7 @@ export function TaskCard({
                         ))}
                     </div>
                 )}
-                <div className="absolute right-1 bottom-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="absolute right-1 bottom-1 flex gap-0.25 opacity-0 transition-opacity group-hover:opacity-100">
                     {!archived && (
                         <Button
                             variant="ghost"

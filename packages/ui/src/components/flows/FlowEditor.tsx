@@ -180,7 +180,7 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
     return (
         <div className="flex h-full flex-col">
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto px-6">
                 <h3 className="mb-5 text-base font-semibold">
                     {flow ? flow.name || "Edit Flow" : "New Flow"}
                 </h3>
@@ -357,22 +357,23 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
                         </p>
                     </div>
                 </div>
+
+                <div className="flex flex-row items-center shrink-0 gap-2 pt-3">
+                    {flow && onDelete && (
+                        <Button variant="destructive" size="sm" onClick={onDelete} className="mr-auto">
+                            Delete Flow
+                        </Button>
+                    )}
+                    <Button variant="secondary" size="sm" onClick={onCancel}>
+                        Cancel
+                    </Button>
+                    <Button size="sm" onClick={handleSave} disabled={!isValid}>
+                        Save Flow
+                    </Button>
+                </div>
             </div>
 
-            {/* Sticky footer */}
-            <div className="border-border flex shrink-0 justify-end gap-2 border-t px-6 py-3">
-                {flow && onDelete && (
-                    <Button variant="destructive" size="sm" onClick={onDelete} className="mr-auto">
-                        Delete Flow
-                    </Button>
-                )}
-                <Button variant="secondary" size="sm" onClick={onCancel}>
-                    Cancel
-                </Button>
-                <Button size="sm" onClick={handleSave} disabled={!isValid}>
-                    Save Flow
-                </Button>
-            </div>
+            
         </div>
     );
 }
