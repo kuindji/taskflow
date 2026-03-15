@@ -10,12 +10,14 @@ import { TruncatedText } from "@/components/ui/truncated-text";
 import { CopyButton } from "@/components/ui/copy-button";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
+import { ForkProjectDialog } from "./ForkProjectDialog";
 import {
     Archive,
     ArrowUpFromLine,
     Diff,
     FolderTree,
     GitCommitHorizontal,
+    GitFork,
     NotebookText,
     Pencil,
     Trash2,
@@ -40,6 +42,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
     const [commitOpen, setCommitOpen] = useState(false);
+    const [forkOpen, setForkOpen] = useState(false);
     const isWorktreeTask = !!task?.worktree.enabled && !!task.worktree.path;
     const gitRepoPath = isWorktreeTask ? (task?.worktree.path ?? "") : (project?.path ?? "");
     const diffKey = isWorktreeTask ? task.id : project?.id;
@@ -189,6 +192,18 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             )}
                         </Button>
                     )}
+                    {showGitButtons && !task && project && (
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => setForkOpen(true)}
+                            aria-label="Fork project"
+                            className="[-webkit-app-region:no-drag]"
+                        >
+                            <GitFork className="h-3 w-3" />
+                            <span className="text-xs">Fork</span>
+                        </Button>
+                    )}
                     {task && (
                         <Button
                             variant="ghost"
@@ -254,6 +269,13 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                     onOpenChange={setCommitOpen}
                     repoPath={gitRepoPath}
                     sessionOwner={task ? { taskId: task.id } : { projectId: project?.id ?? "" }}
+                />
+            )}
+            {project && (
+                <ForkProjectDialog
+                    open={forkOpen}
+                    onOpenChange={setForkOpen}
+                    project={project}
                 />
             )}
         </div>
