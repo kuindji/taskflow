@@ -277,7 +277,7 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
                                     </div>
 
                                     {"inline" in entry && entry.inline && (
-                                        <div className="mt-3 flex flex-col gap-2 border-t pt-3">
+                                        <div className="border-border mt-3 flex flex-col gap-2 border-t pt-3">
                                             <Input
                                                 value={entry.inline.name}
                                                 onChange={(e) =>
@@ -360,7 +360,7 @@ function FlowEditor({ flow, globalActions, onSave, onCancel, onDelete }: FlowEdi
             </div>
 
             {/* Sticky footer */}
-            <div className="flex shrink-0 justify-end gap-2 border-t px-6 py-3">
+            <div className="border-border flex shrink-0 justify-end gap-2 border-t px-6 py-3">
                 {flow && onDelete && (
                     <Button variant="destructive" size="sm" onClick={onDelete} className="mr-auto">
                         Delete Flow

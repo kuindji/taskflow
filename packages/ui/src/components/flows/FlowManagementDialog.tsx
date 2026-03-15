@@ -96,31 +96,39 @@ function FlowManagementDialog() {
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="flex h-[80vh] max-w-5xl flex-col gap-0 p-0" showCloseButton={false}>
-                <DialogHeader className="shrink-0 border-b px-6 py-4">
+            <DialogContent className="flex h-[80vh] w-[80rem] max-w-[calc(100vw-2rem)] flex-col gap-0 p-0 pb-3 sm:max-w-[calc(100vw-2rem)]">
+                <DialogHeader className="shrink-0 px-6 py-4">
                     <DialogTitle>Flows & Actions</DialogTitle>
                 </DialogHeader>
 
                 <div className="flex min-h-0 flex-1">
-                    {/* Left panel: list */}
-                    <div className="flex w-64 shrink-0 flex-col border-r">
-                        <div className="flex items-center justify-between border-b px-3 py-2.5">
-                            <div className="flex gap-1">
-                                <Button
-                                    variant={tab === "flows" ? "default" : "ghost"}
-                                    size="sm"
-                                    onClick={() => switchTab("flows")}
-                                >
-                                    Flows
-                                </Button>
-                                <Button
-                                    variant={tab === "actions" ? "default" : "ghost"}
-                                    size="sm"
-                                    onClick={() => switchTab("actions")}
-                                >
-                                    Actions
-                                </Button>
-                            </div>
+                    {/* Left column: navigation tabs */}
+                    <nav className="border-border w-40 shrink-0 space-y-1 border-r px-3 py-2">
+                        <button
+                            onClick={() => switchTab("flows")}
+                            className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                                tab === "flows"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                            }`}
+                        >
+                            Flows
+                        </button>
+                        <button
+                            onClick={() => switchTab("actions")}
+                            className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                                tab === "actions"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                            }`}
+                        >
+                            Actions
+                        </button>
+                    </nav>
+
+                    {/* Middle column: item list */}
+                    <div className="border-border flex w-56 shrink-0 flex-col border-r">
+                        <div className="flex items-center justify-end px-3 py-2.5">
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -179,7 +187,7 @@ function FlowManagementDialog() {
                         </div>
                     </div>
 
-                    {/* Right panel: editor */}
+                    {/* Right column: editor */}
                     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                         {tab === "flows" && (creating || selectedFlow) && (
                             <FlowEditor

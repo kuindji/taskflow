@@ -138,7 +138,7 @@ function ActionEditor({
             </div>
 
             {/* Sticky footer */}
-            <div className="flex shrink-0 items-center gap-2 border-t px-6 py-3">
+            <div className="border-border flex shrink-0 items-center gap-2 border-t px-6 py-3">
                 {action && onDelete && (
                     <Button
                         variant="destructive"
