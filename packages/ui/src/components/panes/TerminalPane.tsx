@@ -815,9 +815,10 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
             if (files.length > 0) {
                 const paths: string[] = [];
                 for (let i = 0; i < files.length; i++) {
-                    const file = files[i] as File & { path?: string };
-                    console.debug("[drop] file:", file.name, "path:", file.path);
-                    if (file.path) paths.push(shellQuote(file.path));
+                    const file = files[i];
+                    const filePath = window.taskflow?.getPathForFile(file) ?? "";
+                    console.debug("[drop] file:", file.name, "path:", filePath);
+                    if (filePath) paths.push(shellQuote(filePath));
                 }
                 if (paths.length > 0) {
                     console.debug("[drop] sending paths:", paths);

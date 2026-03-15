@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 contextBridge.exposeInMainWorld("taskflow", {
     getBackendPort: () => ipcRenderer.invoke("get-backend-port"),
@@ -99,4 +99,5 @@ contextBridge.exposeInMainWorld("taskflow", {
     quitAndInstallUpdate: () => {
         ipcRenderer.send("quit-and-install-update");
     },
+    getPathForFile: (file: File) => webUtils.getPathForFile(file),
 });
