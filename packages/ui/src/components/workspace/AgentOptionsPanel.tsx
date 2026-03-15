@@ -47,7 +47,10 @@ function AgentOptionsPanel({
 
     const isFirstRender = useRef(true);
     const onChangeRef = useRef(onChange);
-    onChangeRef.current = onChange;
+
+    useEffect(() => {
+        onChangeRef.current = onChange;
+    }, [onChange]);
 
     useEffect(() => {
         setFullAccess(defaultFullAccess);
