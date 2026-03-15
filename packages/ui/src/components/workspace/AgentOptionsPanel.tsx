@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { AgentLaunchOptions } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -46,6 +46,8 @@ function AgentOptionsPanel({
     const [model, setModel] = useState<string>(defaultModel);
 
     const isFirstRender = useRef(true);
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
 
     useEffect(() => {
         setFullAccess(defaultFullAccess);
@@ -54,25 +56,30 @@ function AgentOptionsPanel({
         }
     }, [agentType, defaultFullAccess, defaultModel]);
 
-    useEffect(() => {
-        if (isFirstRender.current) {
-            isFirstRender.current = false;
-            if (!emitOnMount) return;
-        }
-        if (!onChange) return;
+    const emitChange = useCallback(() => {
+        const cb = onChangeRef.current;
+        if (!cb) return;
         if (agentType === "claude") {
-            onChange({
+            cb({
                 type: "claude",
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
             });
         } else {
-            onChange({
+            cb({
                 type: "codex",
                 fullAccess: fullAccess || undefined,
             });
         }
-    }, [agentType, emitOnMount, fullAccess, model, onChange]);
+    }, [agentType, fullAccess, model]);
+
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            if (!emitOnMount) return;
+        }
+        emitChange();
+    }, [emitOnMount, emitChange]);
 
     const handleRun = () => {
         if (!onRun) return;

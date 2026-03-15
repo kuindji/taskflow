@@ -174,7 +174,7 @@ function FlowManagementDialog() {
                                 </div>
                             )}
                         </div>
-                        <div className="flex items-center justify-end px-3 py-2.5">
+                        <div className="flex items-center justify-end px-2">
                             <Button
                                 variant="ghost"
                                 size="icon"

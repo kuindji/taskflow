@@ -15,6 +15,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Check, X, SkipForward, Pause, Play, Square, Loader2, RotateCcw } from "lucide-react";
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 
 interface FlowPanelProps {
@@ -126,8 +127,8 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
         <div className="flex h-full flex-col">
             {/* Header */}
             <Toolbar className="justify-between">
-                <span className="ml-2 truncate text-xs font-medium">{flowName}</span>
-                <div className="flex gap-1">
+                <TruncatedText tooltip tooltipSide="bottom" className="ml-2 text-xs font-medium">{flowName}</TruncatedText>
+                <div className="flex gap-1 items-center">
                     {run.status === "running" && (
                         <Button
                             variant="ghost"
