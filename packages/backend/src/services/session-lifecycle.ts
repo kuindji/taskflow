@@ -54,6 +54,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             await taskStore.updateTask(targetTask.id, (task) => ({
                 sessions: task.sessions.filter((session) => session.id !== sessionId),
             }));
+            await taskStore.deleteSessionHistory(targetTask.id, sessionId);
             return;
         }
 
@@ -64,6 +65,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             await taskStore.updateProject(targetProject.id, (project) => ({
                 sessions: project.sessions.filter((session) => session.id !== sessionId),
             }));
+            await taskStore.deleteSessionHistory(targetProject.id, sessionId);
             return;
         }
 
@@ -74,6 +76,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             await taskStore.updateTask(activeOwner.id, (task) => ({
                 sessions: task.sessions.filter((session) => session.id !== sessionId),
             }));
+            await taskStore.deleteSessionHistory(activeOwner.id, sessionId);
             return;
         }
 
@@ -84,6 +87,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             await taskStore.updateProject(activeProjectOwner.id, (project) => ({
                 sessions: project.sessions.filter((session) => session.id !== sessionId),
             }));
+            await taskStore.deleteSessionHistory(activeProjectOwner.id, sessionId);
             return;
         }
 
@@ -95,6 +99,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         await taskStore.updateArchived(archivedOwner.id, (task) => ({
             sessions: task.sessions.filter((session) => session.id !== sessionId),
         }));
+        await taskStore.deleteSessionHistory(archivedOwner.id, sessionId);
     }
 
     async function createSession(opts: CreateSessionOpts): Promise<string> {
@@ -186,6 +191,10 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             await taskStore.updateTask(task.id, (currentTask) => ({
                 sessions: [...currentTask.sessions, sessionRef],
             }));
+            const updatedTask = await taskStore.getTask(task.id);
+            if (updatedTask) {
+                broadcast({ type: MSG.TASK_UPDATED, payload: updatedTask });
+            }
         } else {
             await taskStore.updateProject(project.id, (currentProject) => ({
                 sessions: [...currentProject.sessions, sessionRef],

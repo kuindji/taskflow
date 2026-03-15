@@ -240,7 +240,7 @@ describe("session handlers", () => {
             lastSequence: 2,
         });
 
-        ptyManager.close(created.sessionId);
+        await router.handle(MSG.SESSION_CLOSE, { sessionId: created.sessionId });
 
         expect(
             await router.handle(MSG.SESSION_HISTORY, {
@@ -271,7 +271,7 @@ describe("session handlers", () => {
             lastSequence: 1,
         });
 
-        ptyManager.close(created.sessionId);
+        await router.handle(MSG.SESSION_CLOSE, { sessionId: created.sessionId });
 
         expect(
             await router.handle(MSG.SESSION_HISTORY, {
