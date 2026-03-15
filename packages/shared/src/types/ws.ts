@@ -79,6 +79,7 @@ export interface TaskUpdatePayload {
     description?: string;
     notes?: string;
     worktree?: TaskWorktree;
+    pinned?: boolean;
 }
 
 export interface TaskArchivePayload {
