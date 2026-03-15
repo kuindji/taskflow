@@ -90,7 +90,7 @@ export function TaskSidebar() {
             path: p.path,
         }));
         for (const task of tasks) {
-            if (task.worktree.enabled && task.worktree.path) {
+            if (task.worktree.enabled && task.worktree.path && !task.parentId) {
                 targets.push({ id: task.id, path: task.worktree.path });
             }
         }
