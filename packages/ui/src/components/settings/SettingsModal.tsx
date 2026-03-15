@@ -68,12 +68,13 @@ function SettingsModal() {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
-    const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex">(
+    const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex" | "opencode">(
         "general",
     );
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
+    const opencodeAvailable = isAgentAvailable(agents, "opencode");
     const [migrating, setMigrating] = useState(false);
     const [migrationError, setMigrationError] = useState<string | null>(null);
     const [conflictPath, setConflictPath] = useState<string | null>(null);
@@ -124,7 +125,7 @@ function SettingsModal() {
 
     const handleDefaultAgent = useCallback(
         (value: string) => {
-            if (value === "claude" || value === "codex") {
+            if (value === "claude" || value === "codex" || value === "opencode") {
                 void updateSettings({ general: { defaultAgent: value } });
             }
         },
@@ -157,6 +158,20 @@ function SettingsModal() {
     const handleCodexFullAccess = useCallback(
         (fullAccess: boolean) => {
             void updateSettings({ codex: { fullAccess } });
+        },
+        [updateSettings],
+    );
+
+    const handleOpencodeModel = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            void updateSettings({ opencode: { defaultModel: e.target.value } });
+        },
+        [updateSettings],
+    );
+
+    const handleOpencodeFullAccess = useCallback(
+        (fullAccess: boolean) => {
+            void updateSettings({ opencode: { fullAccess } });
         },
         [updateSettings],
     );
@@ -326,6 +341,16 @@ function SettingsModal() {
                         >
                             Codex
                         </button>
+                        <button
+                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
+                                section === "opencode"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                            }`}
+                            onClick={() => setSection("opencode")}
+                        >
+                            OpenCode
+                        </button>
                     </nav>
 
                     {/* Content */}
@@ -461,6 +486,48 @@ function SettingsModal() {
                                 </section>
                             </>
                         )}
+                        {section === "opencode" && (
+                            <>
+                                <section className="space-y-2">
+                                    <h3 className="mb-0 text-sm font-medium">Default Model</h3>
+                                    <div className="space-y-1">
+                                        <Label className={defaultsSelectLabelClassName}>
+                                            Pre-selected model when running OpenCode sessions (provider/model format)
+                                        </Label>
+                                        <input
+                                            type="text"
+                                            className="bg-input border-border h-8 w-64 rounded-md border px-2 text-sm"
+                                            placeholder="e.g. anthropic/claude-sonnet-4-20250514"
+                                            value={settings.opencode.defaultModel}
+                                            onChange={handleOpencodeModel}
+                                        />
+                                    </div>
+                                </section>
+                                <section className="space-y-2">
+                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
+                                    <div className="space-y-1">
+                                        <Label className={defaultsSelectLabelClassName}>
+                                            Auto-approve all tool permissions by default
+                                        </Label>
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <Switch
+                                                id="opencode-full-access"
+                                                checked={settings.opencode.fullAccess}
+                                                onCheckedChange={handleOpencodeFullAccess}
+                                            />
+                                            <Label
+                                                htmlFor="opencode-full-access"
+                                                className="cursor-pointer text-sm font-normal normal-case"
+                                            >
+                                                {settings.opencode.fullAccess
+                                                    ? "Enabled"
+                                                    : "Disabled"}
+                                            </Label>
+                                        </div>
+                                    </div>
+                                </section>
+                            </>
+                        )}
                         {section === "defaults" && (
                             <>
                                 <section className="space-y-2">
@@ -506,6 +573,9 @@ function SettingsModal() {
                                                 </SelectItem>
                                                 <SelectItem value="codex" disabled={!codexAvailable}>
                                                     Codex{!codexAvailable ? " (not installed)" : ""}
+                                                </SelectItem>
+                                                <SelectItem value="opencode" disabled={!opencodeAvailable}>
+                                                    OpenCode{!opencodeAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
                                             </SelectContent>
                                         </Select>
