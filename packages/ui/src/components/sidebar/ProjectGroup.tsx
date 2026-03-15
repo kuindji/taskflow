@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Project, SessionStatus, Task } from "@taskflow/shared";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
@@ -10,6 +10,7 @@ import { MissingLocationDialog } from "./MissingLocationDialog";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
+import { useTaskStore } from "@/stores/task-store";
 
 interface ProjectGroupProps {
     project: Project;
@@ -41,6 +42,25 @@ export function ProjectGroup({
     onOpenChange,
 }: ProjectGroupProps) {
     const [missingDialogOpen, setMissingDialogOpen] = useState(false);
+
+    const { topLevelTasks, subtaskMap } = useMemo(() => {
+        const topLevel: Task[] = [];
+        const subtasks = new Map<string, Task[]>();
+        for (const task of tasks) {
+            if (task.parentId) {
+                const list = subtasks.get(task.parentId) ?? [];
+                list.push(task);
+                subtasks.set(task.parentId, list);
+            } else {
+                topLevel.push(task);
+            }
+        }
+        return { topLevelTasks: topLevel, subtaskMap: subtasks };
+    }, [tasks]);
+
+    const expandedTasks = useTaskStore((s) => s.expandedTasks);
+    const toggleTaskExpanded = useTaskStore((s) => s.toggleTaskExpanded);
+
     const projectToggleLabel = open ? "Collapse project" : "Expand project";
     const projectStatus = useSessionStore((state) => {
         let hasWorking = false;
@@ -166,17 +186,44 @@ export function ProjectGroup({
                 </div>
                 {!locationInvalid && (
                     <CollapsibleContent>
-                        {tasks.map((task) => (
-                            <TaskCard
-                                key={task.id}
-                                task={task}
-                                isActive={task.id === activeTaskId}
-                                onClick={() => onTaskClick(task.id)}
-                                archived={archived}
-                                compact={compact}
-                                diffStats={diffStatsByTask?.[task.id]}
-                            />
-                        ))}
+                        {topLevelTasks.map((task) => {
+                            const subtasks = subtaskMap.get(task.id);
+                            const hasSubtasks = !!subtasks && subtasks.length > 0;
+                            const isExpanded = !!expandedTasks[task.id];
+
+                            return (
+                                <div key={task.id}>
+                                    <TaskCard
+                                        task={task}
+                                        isActive={task.id === activeTaskId}
+                                        onClick={() => onTaskClick(task.id)}
+                                        archived={archived}
+                                        compact={compact}
+                                        diffStats={diffStatsByTask?.[task.id]}
+                                        hasSubtasks={hasSubtasks}
+                                        isExpanded={isExpanded}
+                                        onToggleExpand={() => toggleTaskExpanded(task.id)}
+                                        isSubtask={false}
+                                    />
+                                    {hasSubtasks && isExpanded && (
+                                        <div className="ml-5 border-l border-border/60">
+                                            {subtasks.map((subtask) => (
+                                                <TaskCard
+                                                    key={subtask.id}
+                                                    task={subtask}
+                                                    isActive={subtask.id === activeTaskId}
+                                                    onClick={() => onTaskClick(subtask.id)}
+                                                    archived={archived}
+                                                    compact={compact}
+                                                    diffStats={diffStatsByTask?.[subtask.id]}
+                                                    isSubtask={true}
+                                                />
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </CollapsibleContent>
                 )}
             </Collapsible>
