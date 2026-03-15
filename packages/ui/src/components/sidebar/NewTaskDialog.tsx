@@ -28,11 +28,13 @@ interface NewTaskDialogProps {
     onOpenChange: (open: boolean) => void;
     projects: Project[];
     defaultProjectId?: string;
+    parentId?: string | null;
     onSubmit: (data: {
         projectId: string;
         title?: string;
         description: string;
         worktree: boolean;
+        parentId?: string;
         startWith?: "claude" | "codex";
         agentOptions?: AgentLaunchOptions;
     }) => void;
@@ -43,6 +45,7 @@ export function NewTaskDialog({
     onOpenChange,
     projects,
     defaultProjectId,
+    parentId,
     onSubmit,
 }: NewTaskDialogProps) {
     const [projectId, setProjectId] = useState(defaultProjectId ?? "");
@@ -52,6 +55,7 @@ export function NewTaskDialog({
     const [startWith, setStartWith] = useState("none");
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
+    const isSubtask = !!parentId;
 
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
@@ -81,7 +85,7 @@ export function NewTaskDialog({
         [onOpenChange, resetForm, defaultProjectId],
     );
 
-    const canSubmit = projectId !== "" && description.trim() !== "";
+    const canSubmit = (isSubtask || projectId !== "") && description.trim() !== "";
 
     const handleSubmit = useCallback(() => {
         if (!canSubmit) return;
@@ -89,7 +93,8 @@ export function NewTaskDialog({
             projectId,
             title: title.trim() || undefined,
             description: description.trim(),
-            worktree,
+            worktree: isSubtask ? false : worktree,
+            parentId: parentId ?? undefined,
             startWith: startWith === "claude" || startWith === "codex" ? startWith : undefined,
             agentOptions,
         });
@@ -101,6 +106,8 @@ export function NewTaskDialog({
         title,
         description,
         worktree,
+        isSubtask,
+        parentId,
         startWith,
         agentOptions,
         onSubmit,
@@ -131,25 +138,27 @@ export function NewTaskDialog({
                 onOpenAutoFocus={handleOpenAutoFocus}
             >
                 <DialogHeader>
-                    <DialogTitle>New Task</DialogTitle>
+                    <DialogTitle>{isSubtask ? "New Subtask" : "New Task"}</DialogTitle>
                 </DialogHeader>
 
                 <div className="flex flex-col gap-3">
-                    <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="new-task-project">Project</Label>
-                        <Select value={projectId} onValueChange={setProjectId}>
-                            <SelectTrigger id="new-task-project" className="w-full">
-                                <SelectValue placeholder="Select a project" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {projects.map((p) => (
-                                    <SelectItem key={p.id} value={p.id}>
-                                        {p.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
+                    {!isSubtask && (
+                        <div className="flex flex-col gap-1.5">
+                            <Label htmlFor="new-task-project">Project</Label>
+                            <Select value={projectId} onValueChange={setProjectId}>
+                                <SelectTrigger id="new-task-project" className="w-full">
+                                    <SelectValue placeholder="Select a project" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {projects.map((p) => (
+                                        <SelectItem key={p.id} value={p.id}>
+                                            {p.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
 
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="new-task-description">Description</Label>
@@ -178,19 +187,21 @@ export function NewTaskDialog({
                         />
                     </div>
 
-                    <div className="flex items-center gap-2">
-                        <Switch
-                            id="new-task-worktree"
-                            checked={worktree}
-                            onCheckedChange={setWorktree}
-                        />
-                        <Label
-                            htmlFor="new-task-worktree"
-                            className="cursor-pointer tracking-normal normal-case"
-                        >
-                            Use git worktree
-                        </Label>
-                    </div>
+                    {!isSubtask && (
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="new-task-worktree"
+                                checked={worktree}
+                                onCheckedChange={setWorktree}
+                            />
+                            <Label
+                                htmlFor="new-task-worktree"
+                                className="cursor-pointer tracking-normal normal-case"
+                            >
+                                Use git worktree
+                            </Label>
+                        </div>
+                    )}
 
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="new-task-start-with">Start immediately with</Label>
@@ -226,7 +237,7 @@ export function NewTaskDialog({
                         disabled={!canSubmit}
                         className="bg-accent text-accent-foreground hover:bg-accent/90"
                     >
-                        Create Task
+                        {isSubtask ? "Create Subtask" : "Create Task"}
                     </Button>
                 </DialogFooter>
             </DialogContent>
