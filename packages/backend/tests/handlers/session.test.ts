@@ -96,7 +96,6 @@ describe("session handlers", () => {
                 events.push(event);
             },
             getPort: () => 0,
-            agents: [],
         });
         registerSessionHandlers({
             router,
