@@ -101,6 +101,7 @@ async function main() {
             ptyManager,
             broadcast: server.broadcast,
             settingsStore,
+            gitService,
             generateTitle: (taskId, description) => {
                 void titleGenerator.generate(taskId, description);
             },

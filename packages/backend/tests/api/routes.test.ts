@@ -34,6 +34,7 @@ describe("api routes", () => {
                 events.push(event);
             },
             settingsStore: new SettingsStore(join(tempDir, "settings.json")),
+            gitService: {} as never,
         });
     });
 
@@ -106,6 +107,7 @@ describe("settings routes", () => {
             ptyManager: new FakePtyManager() as never,
             broadcast: () => {},
             settingsStore,
+            gitService: {} as never,
         });
     });
 
