@@ -574,7 +574,9 @@ export class TaskStore {
     async updateTask(
         id: string,
         updates:
-            | Partial<Pick<Task, "title" | "description" | "notes" | "worktree" | "sessions" | "pinned">>
+            | Partial<
+                  Pick<Task, "title" | "description" | "notes" | "worktree" | "sessions" | "pinned">
+              >
             | ((
                   task: Task,
               ) => Partial<

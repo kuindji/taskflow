@@ -23,7 +23,6 @@ import {
     NotebookText,
     Pencil,
     Trash2,
-
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
 import { Toolbar } from "@/components/ui/toolbar";
@@ -110,9 +109,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     }, [deleteTask, project, removeProject, task]);
 
     return (
-        <Toolbar
-            className={`gap-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
-        >
+        <Toolbar className={`gap-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
             {task || project ? (
                 <>
                     <Button
@@ -136,7 +133,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             {task?.title ?? project?.name}
                         </TruncatedText>
                         {task?.worktree?.branch && (
-                            <div className="border-border flex min-w-0 shrink-3 items-center gap-1 rounded-md border pl-2 pr-1 py-0.5 [-webkit-app-region:no-drag]">
+                            <div className="border-border flex min-w-0 shrink-3 items-center gap-1 rounded-md border py-0.5 pr-1 pl-2 [-webkit-app-region:no-drag]">
                                 <TruncatedText
                                     as="div"
                                     tooltip
@@ -151,7 +148,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                     tooltip="Copy branch name"
                                     variant="transparent"
                                     size="icon-2xs"
-                                    className="text-muted-foreground hover:text-foreground shrink-0 [-webkit-app-region:no-drag] px-0"
+                                    className="text-muted-foreground hover:text-foreground shrink-0 px-0 [-webkit-app-region:no-drag]"
                                 />
                             </div>
                         )}
@@ -278,11 +275,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                 />
             )}
             {project && (
-                <ForkProjectDialog
-                    open={forkOpen}
-                    onOpenChange={setForkOpen}
-                    project={project}
-                />
+                <ForkProjectDialog open={forkOpen} onOpenChange={setForkOpen} project={project} />
             )}
         </Toolbar>
     );

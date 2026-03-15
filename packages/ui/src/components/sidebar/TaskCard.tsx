@@ -23,18 +23,15 @@ import {
 import { cn } from "@/lib/utils";
 import { SessionBadge } from "./SessionBadge";
 
-const taskCardVariants = cva(
-    "px-2.5 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-colors",
-    {
-        variants: {
-            active: {
-                true: "bg-accent/15 text-foreground",
-                false: "text-secondary-foreground hover:bg-muted/50",
-            },
+const taskCardVariants = cva("px-2.5 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-colors", {
+    variants: {
+        active: {
+            true: "bg-accent/15 text-foreground",
+            false: "text-secondary-foreground hover:bg-muted/50",
         },
-        defaultVariants: { active: false },
     },
-);
+    defaultVariants: { active: false },
+});
 
 interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     task: Task;
@@ -133,54 +130,68 @@ export function TaskCard({
                 onClick={onClick}
                 className={cn(
                     cardClasses,
+                    "flex flex-col gap-1.5",
                     "group relative min-w-0 overflow-hidden [-webkit-app-region:no-drag]",
                     compact && "py-1.5",
-                    isSubtask && "py-1.5",
+                    isSubtask && "ml-0.5 py-1.5",
                 )}
             >
-                <div className="flex items-start gap-1">
-                    {hasSubtasks && (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onToggleExpand?.();
-                            }}
-                            className="text-muted-foreground mt-0.5 shrink-0 p-0"
-                            aria-label={isExpanded ? "Collapse subtasks" : "Expand subtasks"}
-                        >
-                            <ChevronRight
-                                className={cn(
-                                    "h-3.5 w-3.5 transition-transform",
-                                    isExpanded && "rotate-90",
-                                )}
-                            />
-                        </button>
-                    )}
-                    <div className="min-w-0 flex-1">
-                        <TruncatedText
-                            truncate={!!compact}
-                            tooltip={!!compact}
-                            tooltipSide="right"
-                            className={cn(
-                                "font-medium",
-                                isSubtask ? "text-xs" : "text-sm",
-                                isActive && "text-foreground",
-                            )}
-                        >
-                            {task.pinned && (
-                                <Pin className="text-muted-foreground mr-1.5 inline h-3 w-3 shrink-0" />
-                            )}
-                            {title}
-                        </TruncatedText>
-                        {!compact && description && (
-                            <TruncatedText className="text-muted-foreground mt-0.5 text-xs">
-                                {description}
-                            </TruncatedText>
+                <div className="min-w-0 flex-1">
+                    <TruncatedText
+                        truncate={!!compact}
+                        tooltip={!!compact}
+                        tooltipSide="right"
+                        className={cn(
+                            "leading-none font-medium",
+                            isSubtask ? "text-xs" : "text-sm",
+                            isActive && "text-foreground",
                         )}
-                    </div>
+                    >
+                        {title}
+                    </TruncatedText>
                 </div>
-                {(task.sessions.length > 0 || (!isSubtask && task.worktree.enabled)) && (
-                    <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
+                {!compact && description && (
+                    <div className="min-w-0 flex-1">
+                        <TruncatedText className="text-muted-foreground text-xs leading-none">
+                            {description}
+                        </TruncatedText>
+                    </div>
+                )}
+
+                {(task.sessions.length > 0 ||
+                    (!isSubtask && task.worktree.enabled) ||
+                    hasSubtasks ||
+                    task.pinned) && (
+                    <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1">
+                        {hasSubtasks && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onToggleExpand?.();
+                                        }}
+                                        className="text-muted-foreground -ml-0.5 shrink-0 p-0"
+                                        aria-label={
+                                            isExpanded ? "Collapse subtasks" : "Expand subtasks"
+                                        }
+                                    >
+                                        <ChevronRight
+                                            className={cn(
+                                                "h-3.5 w-3.5 transition-transform",
+                                                isExpanded && "rotate-90",
+                                            )}
+                                        />
+                                    </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">
+                                    {isExpanded ? "Collapse subtasks" : "Expand subtasks"}
+                                </TooltipContent>
+                            </Tooltip>
+                        )}
+                        {task.pinned && (
+                            <Pin className="text-muted-foreground mr-1.5 inline h-3 w-3 shrink-0" />
+                        )}
                         {!isSubtask && task.worktree.enabled && (
                             <Tooltip>
                                 <TooltipTrigger asChild>

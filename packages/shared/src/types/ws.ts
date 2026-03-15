@@ -383,6 +383,5 @@ export interface ThemeDeletePayload {
     id: string;
 }
 
-
 // System messages
 export type SystemInfoResponse = SystemInfo;

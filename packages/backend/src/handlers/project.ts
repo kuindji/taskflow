@@ -84,7 +84,10 @@ export function registerProjectHandlers(
         const targetPath = join(dirname(project.path), derivedFolder);
 
         // Check target doesn't exist
-        const exists = await stat(targetPath).then(() => true, () => false);
+        const exists = await stat(targetPath).then(
+            () => true,
+            () => false,
+        );
         if (exists) {
             throw new Error(`Folder already exists: ${targetPath}`);
         }

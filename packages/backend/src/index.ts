@@ -92,7 +92,8 @@ async function main() {
                     label: opts.label,
                     prompt: opts.prompt,
                     systemPrompt: opts.systemPrompt,
-                    shell: opts.sessionType === "shell" ? (systemShellPath ?? undefined) : undefined,
+                    shell:
+                        opts.sessionType === "shell" ? (systemShellPath ?? undefined) : undefined,
                     agentOptions: opts.agentOptions,
                     flow: {
                         flowId: opts.flowId,
@@ -205,7 +206,12 @@ async function main() {
             `Detected runtimes: ${runtimes.map((r) => r.name + " " + r.version).join(", ") || "none"}`,
         );
         console.log(
-            `Detected agents: ${agents.filter((a) => a.available).map((a) => a.type + " " + a.version).join(", ") || "none"}`,
+            `Detected agents: ${
+                agents
+                    .filter((a) => a.available)
+                    .map((a) => a.type + " " + a.version)
+                    .join(", ") || "none"
+            }`,
         );
 
         const startedServer = await server.start();

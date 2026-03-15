@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ActionDefinition, AgentLaunchOptions, ScriptsListResponse, ShellListResponse } from "@taskflow/shared";
+import type {
+    ActionDefinition,
+    AgentLaunchOptions,
+    ScriptsListResponse,
+    ShellListResponse,
+} from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
@@ -67,10 +72,7 @@ export function Workspace() {
     const activeFlowRun = useFlowStore((s) => (ownerId ? s.activeRuns[ownerId] : undefined));
     const flowDefinitions = useFlowStore((s) => s.flows);
     const allActions = useFlowStore((s) => s.actions);
-    const standaloneActions = useMemo(
-        () => allActions.filter((a) => a.standalone),
-        [allActions],
-    );
+    const standaloneActions = useMemo(() => allActions.filter((a) => a.standalone), [allActions]);
 
     useEffect(() => {
         // Fetch flow/action definitions so the Run menu can show them
@@ -500,7 +502,12 @@ export function Workspace() {
                         flows={flowRunsReady ? flowDefinitions : []}
                         standaloneActions={standaloneActions}
                         activeFlowRun={activeFlowRun ?? null}
-                        showRunButton={workspace.scope === "task" || hasScripts || standaloneActions.length > 0 || (flowRunsReady && flowDefinitions.length > 0)}
+                        showRunButton={
+                            workspace.scope === "task" ||
+                            hasScripts ||
+                            standaloneActions.length > 0 ||
+                            (flowRunsReady && flowDefinitions.length > 0)
+                        }
                         showAgentOptions={workspace.scope === "task"}
                         allowSessionTabs={true}
                     />

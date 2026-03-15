@@ -43,6 +43,6 @@ describe("parseTerminalAppXml", () => {
     });
 
     it("returns null for unsupported plist content", () => {
-        expect(parseTerminalAppXml("<plist version=\"1.0\"><dict /></plist>", "Bad")).toBeNull();
+        expect(parseTerminalAppXml('<plist version="1.0"><dict /></plist>', "Bad")).toBeNull();
     });
 });

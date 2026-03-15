@@ -70,7 +70,10 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
         if (entry.label) return entry.label;
         if ("inline" in entry && entry.inline) return entry.inline.name;
         if ("actionId" in entry && entry.actionId) {
-            return actions.find((action) => action.id === entry.actionId)?.name ?? `Action ${index + 1}`;
+            return (
+                actions.find((action) => action.id === entry.actionId)?.name ??
+                `Action ${index + 1}`
+            );
         }
         return `Action ${index + 1}`;
     };
@@ -115,7 +118,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
             case "failed":
                 return <X className="h-3 w-3 text-red-400" />;
             case "skipped":
-                return <SkipForward className="h-3 w-3 text-muted-foreground" />;
+                return <SkipForward className="text-muted-foreground h-3 w-3" />;
             default:
                 return null;
         }
@@ -127,8 +130,10 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
         <div className="flex h-full flex-col">
             {/* Header */}
             <Toolbar className="justify-between">
-                <TruncatedText tooltip tooltipSide="bottom" className="ml-2 text-xs font-medium">{flowName}</TruncatedText>
-                <div className="flex gap-1 items-center">
+                <TruncatedText tooltip tooltipSide="bottom" className="ml-2 text-xs font-medium">
+                    {flowName}
+                </TruncatedText>
+                <div className="flex items-center gap-1">
                     {run.status === "running" && (
                         <Button
                             variant="ghost"
@@ -220,17 +225,18 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                                 <SkipForward className="h-2 w-2" />
                             </Button>
                         )}
-                        {isFlowDone && (action.status === "completed" || action.status === "failed") && (
-                            <Button
-                                variant="ghost"
-                                size="icon-2xs"
-                                onClick={(e) => handleRerun(e, i)}
-                                tooltip="Re-run"
-                                tooltipSide="left"
-                            >
-                                <RotateCcw className="h-2 w-2" />
-                            </Button>
-                        )}
+                        {isFlowDone &&
+                            (action.status === "completed" || action.status === "failed") && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon-2xs"
+                                    onClick={(e) => handleRerun(e, i)}
+                                    tooltip="Re-run"
+                                    tooltipSide="left"
+                                >
+                                    <RotateCcw className="h-2 w-2" />
+                                </Button>
+                            )}
                     </div>
                 ))}
             </div>

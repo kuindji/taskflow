@@ -3,7 +3,13 @@ import { cva } from "class-variance-authority";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import type { ActionDefinition, AgentLaunchOptions, FlowDefinition, FlowRun, ShellInfo } from "@taskflow/shared";
+import type {
+    ActionDefinition,
+    AgentLaunchOptions,
+    FlowDefinition,
+    FlowRun,
+    ShellInfo,
+} from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG, type ShellListResponse } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
@@ -304,7 +310,9 @@ export function TabBar({
                         )}
                         {showAgentOptions && (
                             <>
-                                {(scriptNames.length > 0 || flows.length > 0 || standaloneActions.length > 0) && <DropdownMenuSeparator />}
+                                {(scriptNames.length > 0 ||
+                                    flows.length > 0 ||
+                                    standaloneActions.length > 0) && <DropdownMenuSeparator />}
                                 <DropdownMenuItem
                                     disabled={!claudeAvailable}
                                     onClick={() => claudeAvailable && onRunTab("claude")}
@@ -370,7 +378,11 @@ export function TabBar({
                                     }
                                 }}
                                 aria-label="New Claude session"
-                                tooltip={claudeAvailable ? "New Claude session (Shift+click for options)" : "Claude CLI not installed"}
+                                tooltip={
+                                    claudeAvailable
+                                        ? "New Claude session (Shift+click for options)"
+                                        : "Claude CLI not installed"
+                                }
                                 tooltipSide="bottom"
                             >
                                 <ClaudeIcon className="h-3.5 w-3.5" />
@@ -402,7 +414,11 @@ export function TabBar({
                                     }
                                 }}
                                 aria-label="New Codex session"
-                                tooltip={codexAvailable ? "New Codex session (Shift+click for options)" : "Codex CLI not installed"}
+                                tooltip={
+                                    codexAvailable
+                                        ? "New Codex session (Shift+click for options)"
+                                        : "Codex CLI not installed"
+                                }
                                 tooltipSide="bottom"
                             >
                                 <CodexIcon className="h-3.5 w-3.5" />

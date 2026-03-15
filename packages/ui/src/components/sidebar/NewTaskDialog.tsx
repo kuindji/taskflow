@@ -74,13 +74,16 @@ export function NewTaskDialog({
         setStartWithFlowId("");
     }, []);
 
-    const handleStartWithChange = useCallback((value: string) => {
-        if (value === "claude" && !claudeAvailable) return;
-        if (value === "codex" && !codexAvailable) return;
-        setStartWith(value);
-        if (value !== "claude" && value !== "codex") setAgentOptions(undefined);
-        if (value !== "flow") setStartWithFlowId("");
-    }, [claudeAvailable, codexAvailable]);
+    const handleStartWithChange = useCallback(
+        (value: string) => {
+            if (value === "claude" && !claudeAvailable) return;
+            if (value === "codex" && !codexAvailable) return;
+            setStartWith(value);
+            if (value !== "claude" && value !== "codex") setAgentOptions(undefined);
+            if (value !== "flow") setStartWithFlowId("");
+        },
+        [claudeAvailable, codexAvailable],
+    );
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
@@ -92,7 +95,8 @@ export function NewTaskDialog({
     );
 
     const hasFlowSelection = startWith !== "flow" || startWithFlowId !== "";
-    const canSubmit = (isSubtask || projectId !== "") && description.trim() !== "" && hasFlowSelection;
+    const canSubmit =
+        (isSubtask || projectId !== "") && description.trim() !== "" && hasFlowSelection;
 
     const handleSubmit = useCallback(() => {
         if (!canSubmit) return;
@@ -226,9 +230,7 @@ export function NewTaskDialog({
                                 <SelectItem value="codex" disabled={!codexAvailable}>
                                     Codex{!codexAvailable ? " (not installed)" : ""}
                                 </SelectItem>
-                                {flows.length > 0 && (
-                                    <SelectItem value="flow">Flow</SelectItem>
-                                )}
+                                {flows.length > 0 && <SelectItem value="flow">Flow</SelectItem>}
                             </SelectContent>
                         </Select>
                     </div>

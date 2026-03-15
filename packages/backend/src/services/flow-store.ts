@@ -23,7 +23,10 @@ function assertValidFlowDefinition(flow: FlowDefinition): void {
             );
         }
 
-        if (hasActionId && (typeof entry.actionId !== "string" || entry.actionId.trim().length === 0)) {
+        if (
+            hasActionId &&
+            (typeof entry.actionId !== "string" || entry.actionId.trim().length === 0)
+        ) {
             throw new Error(`Flow action "${entry.id}" must use a non-empty actionId`);
         }
 
@@ -153,10 +156,7 @@ class FlowStore {
         const ownerId = getFlowRunOwnerId(run);
         const key = `${ownerId}${FLOW_RUN_SEPARATOR}${run.flowId}`;
         await this.withMutation(key, async () => {
-            await writeFile(
-                this.flowRunPath(ownerId, run.flowId),
-                JSON.stringify(run, null, 2),
-            );
+            await writeFile(this.flowRunPath(ownerId, run.flowId), JSON.stringify(run, null, 2));
         });
     }
 

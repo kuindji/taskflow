@@ -209,18 +209,21 @@ export function ProjectGroup({
                                         isSubtask={false}
                                     />
                                     {hasSubtasks && isExpanded && (
-                                        <div className="ml-5 border-l border-border/60">
+                                        <div className="pl-4">
                                             {subtasks.map((subtask) => (
-                                                <TaskCard
-                                                    key={subtask.id}
-                                                    task={subtask}
-                                                    isActive={subtask.id === activeTaskId}
-                                                    onClick={() => onTaskClick(subtask.id)}
-                                                    archived={archived}
-                                                    compact={compact}
-                                                    diffStats={diffStatsByTask?.[subtask.id]}
-                                                    isSubtask={true}
-                                                />
+                                                <>
+                                                    <NoDragSpacer />
+                                                    <TaskCard
+                                                        key={subtask.id}
+                                                        task={subtask}
+                                                        isActive={subtask.id === activeTaskId}
+                                                        onClick={() => onTaskClick(subtask.id)}
+                                                        archived={archived}
+                                                        compact={compact}
+                                                        diffStats={diffStatsByTask?.[subtask.id]}
+                                                        isSubtask={true}
+                                                    />
+                                                </>
                                             ))}
                                         </div>
                                     )}

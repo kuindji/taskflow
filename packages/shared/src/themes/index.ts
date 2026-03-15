@@ -15,10 +15,14 @@ import posterpole from "./bundled/posterpole.json";
 import rosePine from "./bundled/rose-pine.json";
 import sonokai from "./bundled/sonokai.json";
 
-
 // JSON imports widen literal types (version: number, origin: string).
 // This narrows them back to the ThemeSource literal types.
-function asSource(json: { version: number; name: string; origin: string; colors: Record<string, unknown> }): ThemeSource {
+function asSource(json: {
+    version: number;
+    name: string;
+    origin: string;
+    colors: Record<string, unknown>;
+}): ThemeSource {
     return json as unknown as ThemeSource;
 }
 

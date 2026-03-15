@@ -38,8 +38,17 @@ function errorResponse(message: string, status: number): Response {
 }
 
 export function registerApiRoutes(deps: ApiRouteDeps): void {
-    const { apiRouter, taskStore, ptyManager, broadcast, settingsStore, flowStore, flowRunner, gitService, generateTitle } =
-        deps;
+    const {
+        apiRouter,
+        taskStore,
+        ptyManager,
+        broadcast,
+        settingsStore,
+        flowStore,
+        flowRunner,
+        gitService,
+        generateTitle,
+    } = deps;
     const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention"]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
@@ -375,9 +384,17 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         }
 
         const { taskId, projectId, flowId, sessionId } = body;
-        const ownerId = typeof taskId === "string" ? taskId : typeof projectId === "string" ? projectId : undefined;
+        const ownerId =
+            typeof taskId === "string"
+                ? taskId
+                : typeof projectId === "string"
+                  ? projectId
+                  : undefined;
         if (!ownerId || typeof flowId !== "string" || typeof sessionId !== "string") {
-            return errorResponse("Fields flowId, sessionId, and one of taskId/projectId are required strings", 400);
+            return errorResponse(
+                "Fields flowId, sessionId, and one of taskId/projectId are required strings",
+                400,
+            );
         }
 
         try {
@@ -400,7 +417,12 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         }
 
         const { taskId, projectId, flowId, actionEntryId, sessionId, type, path, text } = body;
-        const ownerId = typeof taskId === "string" ? taskId : typeof projectId === "string" ? projectId : undefined;
+        const ownerId =
+            typeof taskId === "string"
+                ? taskId
+                : typeof projectId === "string"
+                  ? projectId
+                  : undefined;
         if (
             !ownerId ||
             typeof flowId !== "string" ||

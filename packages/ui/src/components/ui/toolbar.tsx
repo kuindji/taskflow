@@ -9,7 +9,7 @@ function Toolbar({ className, noBorder, ...props }: ToolbarProps) {
     return (
         <div
             className={cn(
-                "flex h-9 min-h-9 max-h-9 items-center px-1.5",
+                "flex h-9 max-h-9 min-h-9 items-center px-1.5",
                 !noBorder && "border-border border-b",
                 className,
             )}

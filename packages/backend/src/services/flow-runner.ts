@@ -54,9 +54,7 @@ class FlowRunner {
         const ownerId = owner.taskId ?? owner.projectId;
 
         const existingRuns = await this.deps.flowStore.getFlowRunsForOwner(ownerId);
-        const activeRun = existingRuns.find(
-            (r) => r.status === "running" || r.status === "paused",
-        );
+        const activeRun = existingRuns.find((r) => r.status === "running" || r.status === "paused");
         if (activeRun) {
             throw new Error(`Owner already has an active flow: ${activeRun.flowId}`);
         }
@@ -92,11 +90,7 @@ class FlowRunner {
         return run;
     }
 
-    async handleActionComplete(
-        ownerId: string,
-        flowId: string,
-        sessionId: string,
-    ): Promise<void> {
+    async handleActionComplete(ownerId: string, flowId: string, sessionId: string): Promise<void> {
         const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run || run.status !== "running") return;
 
@@ -128,11 +122,7 @@ class FlowRunner {
         await this.advanceOrComplete(run);
     }
 
-    async jumpToAction(
-        ownerId: string,
-        flowId: string,
-        targetIndex: number,
-    ): Promise<void> {
+    async jumpToAction(ownerId: string, flowId: string, targetIndex: number): Promise<void> {
         const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
         if (!run) return;
 
@@ -155,10 +145,7 @@ class FlowRunner {
         if (targetIndex > currentActionIndex) {
             const skippedAt = new Date().toISOString();
             for (let i = currentActionIndex; i < targetIndex; i++) {
-                if (
-                    run.actions[i].status === "running" ||
-                    run.actions[i].status === "pending"
-                ) {
+                if (run.actions[i].status === "running" || run.actions[i].status === "pending") {
                     run.actions[i].status = "skipped";
                     run.actions[i].completedAt = skippedAt;
                     run.actions[i].sessionId = undefined;
@@ -218,12 +205,7 @@ class FlowRunner {
         this.broadcastUpdate(run);
 
         const owner = this.ownerFromRun(run);
-        await this.launchPersistedActionWithRecovery(
-            owner,
-            flowId,
-            run,
-            run.currentActionIndex,
-        );
+        await this.launchPersistedActionWithRecovery(owner, flowId, run, run.currentActionIndex);
     }
 
     async stopFlow(ownerId: string, flowId: string): Promise<void> {
@@ -313,9 +295,7 @@ class FlowRunner {
     }
 
     getArtifacts(run: FlowRun, type?: string): FlowArtifact[] {
-        const artifacts = type
-            ? run.artifacts.filter((a) => a.type === type)
-            : run.artifacts;
+        const artifacts = type ? run.artifacts.filter((a) => a.type === type) : run.artifacts;
         return artifacts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
 
@@ -459,9 +439,7 @@ class FlowRunner {
         throw new Error(`FlowActionEntry has neither actionId nor inline: ${entry.id}`);
     }
 
-    private async resolveFlowDefinition(
-        flowId: string,
-    ): Promise<FlowDefinition | null> {
+    private async resolveFlowDefinition(flowId: string): Promise<FlowDefinition | null> {
         const flows = await this.deps.flowStore.getFlows();
         return flows.find((f) => f.id === flowId) ?? null;
     }
@@ -474,10 +452,7 @@ class FlowRunner {
         return flow;
     }
 
-    private async markActionLaunchFailed(
-        run: FlowRun,
-        actionIndex: number,
-    ): Promise<void> {
+    private async markActionLaunchFailed(run: FlowRun, actionIndex: number): Promise<void> {
         const action = run.actions[actionIndex];
         if (action) {
             action.status = "failed";
