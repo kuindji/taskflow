@@ -293,7 +293,7 @@ export class GitService {
         const output = await git(["branch", "--merged"], repoPath);
         return output
             .split("\n")
-            .some((line) => line.replace(/^\*?\s+/, "") === branch);
+            .some((line) => line.replace(/^[*+]?\s+/, "") === branch);
     }
 
     async removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
