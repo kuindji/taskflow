@@ -1,4 +1,4 @@
-type AgentType = "claude" | "codex";
+type AgentType = "claude" | "codex" | "opencode";
 
 interface ClaudeLaunchOptions {
     type: Extract<AgentType, "claude">;
@@ -11,7 +11,13 @@ interface CodexLaunchOptions {
     fullAccess?: boolean;
 }
 
-type AgentLaunchOptions = ClaudeLaunchOptions | CodexLaunchOptions;
+interface OpenCodeLaunchOptions {
+    type: Extract<AgentType, "opencode">;
+    fullAccess?: boolean;
+    model?: string;
+}
+
+type AgentLaunchOptions = ClaudeLaunchOptions | CodexLaunchOptions | OpenCodeLaunchOptions;
 
 interface AgentAvailability {
     type: AgentType;
@@ -20,4 +26,4 @@ interface AgentAvailability {
     version: string;
 }
 
-export type { AgentType, ClaudeLaunchOptions, CodexLaunchOptions, AgentLaunchOptions, AgentAvailability };
+export type { AgentType, ClaudeLaunchOptions, CodexLaunchOptions, OpenCodeLaunchOptions, AgentLaunchOptions, AgentAvailability };
