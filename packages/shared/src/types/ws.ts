@@ -45,6 +45,18 @@ export interface ProjectUpdatePayload {
     path?: string;
 }
 
+export interface ProjectForkPayload {
+    projectId: string;
+    branch: string;
+    folderName?: string;
+}
+
+export interface ProjectForkResponse {
+    project: Project;
+    targetPath: string;
+    branch: string;
+}
+
 // Task messages
 export interface TaskListPayload {
     projectId?: string;
