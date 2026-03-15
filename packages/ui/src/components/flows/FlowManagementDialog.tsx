@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { FlowDefinition, ActionDefinition } from "@taskflow/shared";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
@@ -96,120 +96,137 @@ function FlowManagementDialog() {
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="flex h-[70vh] max-w-3xl p-0" showCloseButton={false}>
-                {/* Left panel: list */}
-                <div className="flex w-52 flex-col border-r">
-                    <div className="flex items-center justify-between border-b p-2">
-                        <div className="flex gap-1">
-                            <Button
-                                variant={tab === "flows" ? "default" : "ghost"}
-                                size="sm"
-                                onClick={() => switchTab("flows")}
-                            >
-                                Flows
-                            </Button>
-                            <Button
-                                variant={tab === "actions" ? "default" : "ghost"}
-                                size="sm"
-                                onClick={() => switchTab("actions")}
-                            >
-                                Actions
-                            </Button>
-                        </div>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={startCreating}
-                        >
-                            <Plus className="h-4 w-4" />
-                        </Button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-2">
-                        {tab === "flows" &&
-                            flows.map((f) => (
-                                <button
-                                    key={f.id}
-                                    onClick={() => selectItem(f.id)}
-                                    className={`w-full rounded p-2 text-left text-sm ${
-                                        selectedId === f.id
-                                            ? "bg-accent"
-                                            : "hover:bg-muted"
-                                    }`}
-                                >
-                                    <div>{f.name}</div>
-                                    <div className="text-muted-foreground text-xs">
-                                        {f.actions.length} actions
-                                    </div>
-                                </button>
-                            ))}
-                        {tab === "actions" &&
-                            actions.map((s) => (
-                                <button
-                                    key={s.id}
-                                    onClick={() => selectItem(s.id)}
-                                    className={`w-full rounded p-2 text-left text-sm ${
-                                        selectedId === s.id
-                                            ? "bg-accent"
-                                            : "hover:bg-muted"
-                                    }`}
-                                >
-                                    <div>{s.name}</div>
-                                    <div className="text-muted-foreground text-xs">
-                                        {s.sessionType}
-                                    </div>
-                                </button>
-                            ))}
-                    </div>
-                </div>
+            <DialogContent className="flex h-[80vh] max-w-5xl flex-col gap-0 p-0" showCloseButton={false}>
+                <DialogHeader className="shrink-0 border-b px-6 py-4">
+                    <DialogTitle>Flows & Actions</DialogTitle>
+                </DialogHeader>
 
-                {/* Right panel: editor */}
-                <div className="flex-1 overflow-y-auto">
-                    {tab === "flows" && (creating || selectedFlow) && (
-                        <FlowEditor
-                            key={creating ? "new-flow" : selectedFlow?.id}
-                            flow={creating ? null : selectedFlow}
-                            globalActions={actions}
-                            onSave={handleSaveFlow}
-                            onCancel={clearSelection}
-                            onDelete={
-                                selectedFlow
-                                    ? () => void handleDeleteFlow(selectedFlow.id)
-                                    : undefined
-                            }
-                        />
-                    )}
-                    {tab === "actions" && (creating || selectedAction) && (
-                        <ActionEditor
-                            key={creating ? "new-action" : selectedAction?.id}
-                            action={creating ? null : selectedAction}
-                            onSave={handleSaveAction}
-                            onCancel={clearSelection}
-                            onDelete={
-                                selectedAction
-                                    ? () => void handleDeleteAction(selectedAction.id)
-                                    : undefined
-                            }
-                            deleteDisabled={
-                                !!selectedAction &&
-                                (referencingFlowsByActionId.get(selectedAction.id)?.length ?? 0) > 0
-                            }
-                            deleteDisabledReason={
-                                selectedAction &&
-                                (referencingFlowsByActionId.get(selectedAction.id)?.length ?? 0) > 0
-                                    ? `Used by ${(referencingFlowsByActionId
-                                          .get(selectedAction.id)
-                                          ?.map((f) => f.name)
-                                          .join(", ")) ?? ""}`
-                                    : undefined
-                            }
-                        />
-                    )}
-                    {!creating && !selectedFlow && !selectedAction && (
-                        <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-                            Select an item or click + to create
+                <div className="flex min-h-0 flex-1">
+                    {/* Left panel: list */}
+                    <div className="flex w-64 shrink-0 flex-col border-r">
+                        <div className="flex items-center justify-between border-b px-3 py-2.5">
+                            <div className="flex gap-1">
+                                <Button
+                                    variant={tab === "flows" ? "default" : "ghost"}
+                                    size="sm"
+                                    onClick={() => switchTab("flows")}
+                                >
+                                    Flows
+                                </Button>
+                                <Button
+                                    variant={tab === "actions" ? "default" : "ghost"}
+                                    size="sm"
+                                    onClick={() => switchTab("actions")}
+                                >
+                                    Actions
+                                </Button>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={startCreating}
+                                title={tab === "flows" ? "New flow" : "New action"}
+                            >
+                                <Plus className="h-4 w-4" />
+                            </Button>
                         </div>
-                    )}
+                        <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
+                            {tab === "flows" &&
+                                flows.map((f) => (
+                                    <button
+                                        key={f.id}
+                                        onClick={() => selectItem(f.id)}
+                                        className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                                            selectedId === f.id
+                                                ? "bg-accent text-accent-foreground"
+                                                : "hover:bg-muted"
+                                        }`}
+                                    >
+                                        <div className="font-medium">{f.name}</div>
+                                        <div className="text-muted-foreground mt-0.5 text-xs">
+                                            {f.actions.length} action{f.actions.length !== 1 ? "s" : ""}
+                                        </div>
+                                    </button>
+                                ))}
+                            {tab === "flows" && flows.length === 0 && (
+                                <div className="text-muted-foreground px-3 py-6 text-center text-xs">
+                                    No flows yet
+                                </div>
+                            )}
+                            {tab === "actions" &&
+                                actions.map((s) => (
+                                    <button
+                                        key={s.id}
+                                        onClick={() => selectItem(s.id)}
+                                        className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                                            selectedId === s.id
+                                                ? "bg-accent text-accent-foreground"
+                                                : "hover:bg-muted"
+                                        }`}
+                                    >
+                                        <div className="font-medium">{s.name}</div>
+                                        <div className="text-muted-foreground mt-0.5 text-xs">
+                                            {s.sessionType}
+                                        </div>
+                                    </button>
+                                ))}
+                            {tab === "actions" && actions.length === 0 && (
+                                <div className="text-muted-foreground px-3 py-6 text-center text-xs">
+                                    No actions yet
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Right panel: editor */}
+                    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                        {tab === "flows" && (creating || selectedFlow) && (
+                            <FlowEditor
+                                key={creating ? "new-flow" : selectedFlow?.id}
+                                flow={creating ? null : selectedFlow}
+                                globalActions={actions}
+                                onSave={handleSaveFlow}
+                                onCancel={clearSelection}
+                                onDelete={
+                                    selectedFlow
+                                        ? () => void handleDeleteFlow(selectedFlow.id)
+                                        : undefined
+                                }
+                            />
+                        )}
+                        {tab === "actions" && (creating || selectedAction) && (
+                            <ActionEditor
+                                key={creating ? "new-action" : selectedAction?.id}
+                                action={creating ? null : selectedAction}
+                                onSave={handleSaveAction}
+                                onCancel={clearSelection}
+                                onDelete={
+                                    selectedAction
+                                        ? () => void handleDeleteAction(selectedAction.id)
+                                        : undefined
+                                }
+                                deleteDisabled={
+                                    !!selectedAction &&
+                                    (referencingFlowsByActionId.get(selectedAction.id)?.length ?? 0) > 0
+                                }
+                                deleteDisabledReason={
+                                    selectedAction &&
+                                    (referencingFlowsByActionId.get(selectedAction.id)?.length ?? 0) > 0
+                                        ? `Used by ${(referencingFlowsByActionId
+                                              .get(selectedAction.id)
+                                              ?.map((f) => f.name)
+                                              .join(", ")) ?? ""}`
+                                        : undefined
+                                }
+                            />
+                        )}
+                        {!creating && !selectedFlow && !selectedAction && (
+                            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
+                                Select an item or click <Plus className="mx-1 inline h-4 w-4" /> to create
+                            </div>
+                        )}
+                    </div>
                 </div>
             </DialogContent>
         </Dialog>

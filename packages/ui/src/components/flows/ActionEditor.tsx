@@ -67,70 +67,82 @@ function ActionEditor({
     const isValid = name.trim() !== "" && prompt.trim() !== "";
 
     return (
-        <div className="flex flex-col gap-4 p-4">
-            <div>
-                <Label htmlFor="action-name">Name</Label>
-                <Input
-                    id="action-name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g., Plan Review"
-                />
-            </div>
-            <div>
-                <Label htmlFor="action-session-type">Session Type</Label>
-                <Select
-                    value={sessionType}
-                    onValueChange={handleSessionTypeChange}
-                >
-                    <SelectTrigger>
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="claude">Claude</SelectItem>
-                        <SelectItem value="codex">Codex</SelectItem>
-                        <SelectItem value="shell">Shell</SelectItem>
-                    </SelectContent>
-                </Select>
-            </div>
-            <div className="flex items-center gap-2">
-                <Switch
-                    id="action-standalone"
-                    checked={standalone}
-                    onCheckedChange={setStandalone}
-                />
-                <Label htmlFor="action-standalone" className="cursor-pointer">
-                    Standalone
-                </Label>
-                <span className="text-muted-foreground text-xs">
-                    — available in the Run menu
-                </span>
-            </div>
-            <div className="flex-1">
-                <Label htmlFor="action-prompt">Prompt</Label>
-                <Textarea
-                    id="action-prompt"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Instructions for the agent..."
-                    className="min-h-[200px] font-mono text-sm"
-                />
-            </div>
-            {(sessionType === "claude" || sessionType === "codex") && (
-                <div className="border-border rounded-md border p-1">
-                    <AgentOptionsPanel
-                        key={`${action?.id ?? "new-action"}-${sessionType}`}
-                        agentType={sessionType}
-                        value={agentOptions}
-                        emitOnMount
-                        onChange={handleAgentOptionsChange}
-                    />
+        <div className="flex h-full flex-col">
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto p-6">
+                <h3 className="mb-5 text-base font-semibold">
+                    {action ? action.name || "Edit Action" : "New Action"}
+                </h3>
+
+                <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="action-name">Name</Label>
+                        <Input
+                            id="action-name"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="e.g., Plan Review"
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="action-session-type">Session Type</Label>
+                        <Select
+                            value={sessionType}
+                            onValueChange={handleSessionTypeChange}
+                        >
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="claude">Claude</SelectItem>
+                                <SelectItem value="codex">Codex</SelectItem>
+                                <SelectItem value="shell">Shell</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            id="action-standalone"
+                            checked={standalone}
+                            onCheckedChange={setStandalone}
+                        />
+                        <Label htmlFor="action-standalone" className="cursor-pointer">
+                            Standalone
+                        </Label>
+                        <span className="text-muted-foreground text-xs">
+                            — available in the Run menu
+                        </span>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="action-prompt">Prompt</Label>
+                        <Textarea
+                            id="action-prompt"
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            placeholder="Instructions for the agent..."
+                            className="min-h-[200px] font-mono text-sm"
+                        />
+                    </div>
+                    {(sessionType === "claude" || sessionType === "codex") && (
+                        <div className="border-border rounded-md border p-1">
+                            <AgentOptionsPanel
+                                key={`${action?.id ?? "new-action"}-${sessionType}`}
+                                agentType={sessionType}
+                                value={agentOptions}
+                                emitOnMount
+                                onChange={handleAgentOptionsChange}
+                            />
+                        </div>
+                    )}
                 </div>
-            )}
-            <div className="flex justify-end gap-2">
+            </div>
+
+            {/* Sticky footer */}
+            <div className="flex shrink-0 items-center gap-2 border-t px-6 py-3">
                 {action && onDelete && (
                     <Button
                         variant="destructive"
+                        size="sm"
                         onClick={onDelete}
                         disabled={deleteDisabled}
                         title={deleteDisabledReason}
@@ -138,16 +150,17 @@ function ActionEditor({
                         Delete Action
                     </Button>
                 )}
-                <Button variant="ghost" onClick={onCancel}>
+                {action && deleteDisabledReason && (
+                    <span className="text-muted-foreground text-xs">{deleteDisabledReason}</span>
+                )}
+                <div className="flex-1" />
+                <Button variant="secondary" size="sm" onClick={onCancel}>
                     Cancel
                 </Button>
-                <Button onClick={handleSave} disabled={!isValid}>
+                <Button size="sm" onClick={handleSave} disabled={!isValid}>
                     Save Action
                 </Button>
             </div>
-            {action && deleteDisabledReason && (
-                <p className="text-muted-foreground text-xs">{deleteDisabledReason}</p>
-            )}
         </div>
     );
 }
