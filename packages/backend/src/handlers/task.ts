@@ -127,6 +127,21 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         const task = (await store.getTask(id)) ?? (await store.getArchived(id));
         if (!task) throw new Error(`Task not found: ${id}`);
 
+        // Cascade: delete all subtasks for top-level tasks
+        if (!task.parentId) {
+            const [subtasks, archivedSubtasks] = await Promise.all([
+                store.getSubtasks(id),
+                store.getArchivedSubtasks(id),
+            ]);
+            for (const subtask of subtasks) {
+                await stopTaskSessions(subtask, false);
+                await store.deleteTask(subtask.id);
+            }
+            for (const subtask of archivedSubtasks) {
+                await store.deleteArchived(subtask.id);
+            }
+        }
+
         if (task.status === "active") {
             await stopTaskSessions(task, false);
             await store.deleteTask(id);
@@ -134,7 +149,14 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             await store.deleteArchived(id);
         }
 
-        if (deleteWorktree && task.worktree.enabled && task.worktree.path && task.worktree.branch) {
+        // Only clean up worktree for top-level tasks
+        if (
+            !task.parentId &&
+            deleteWorktree &&
+            task.worktree.enabled &&
+            task.worktree.path &&
+            task.worktree.branch
+        ) {
             const project = await store.getProject(task.projectId);
             if (project) {
                 try {
