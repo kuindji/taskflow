@@ -30,8 +30,10 @@
         }
     },
     "overrides": {
+        "--background": "#26233a",
         "--border": "#403d52",
         "--sidebar-border": "#403d52",
-        "--input": "#403d52"
+        "--input": "#403d52",
+        "--muted": "#403d52"
     }
 }
