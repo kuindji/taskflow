@@ -63,7 +63,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             }
             // Subtasks inherit parent's projectId and worktree config
             resolvedProjectId = parent.projectId;
-            resolvedWorktree = parent.worktree;
+            resolvedWorktree = { ...parent.worktree };
         }
 
         const task = await store.createTask({
