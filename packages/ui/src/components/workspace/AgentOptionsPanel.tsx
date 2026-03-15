@@ -14,7 +14,7 @@ import { Play } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 
 interface AgentOptionsPanelProps {
-    agentType: "claude" | "codex";
+    agentType: "claude" | "codex" | "opencode";
     onRun?: (options: AgentLaunchOptions) => void;
     onChange?: (options: AgentLaunchOptions) => void;
 }
@@ -22,12 +22,20 @@ interface AgentOptionsPanelProps {
 function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProps) {
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
+    const opencodeSettings = useSettingsStore((s) => s.settings?.opencode);
 
     const defaultFullAccess =
         agentType === "claude"
             ? (claudeSettings?.fullAccess ?? false)
-            : (codexSettings?.fullAccess ?? false);
-    const defaultModel = claudeSettings?.defaultModel ?? "default";
+            : agentType === "opencode"
+              ? (opencodeSettings?.fullAccess ?? false)
+              : (codexSettings?.fullAccess ?? false);
+    const defaultModel =
+        agentType === "claude"
+            ? (claudeSettings?.defaultModel ?? "default")
+            : agentType === "opencode"
+              ? (opencodeSettings?.defaultModel ?? "")
+              : "";
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [model, setModel] = useState<string>(defaultModel);
@@ -46,6 +54,12 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
             });
+        } else if (agentType === "opencode") {
+            onChange({
+                type: "opencode",
+                fullAccess: fullAccess || undefined,
+                model: model || undefined,
+            });
         } else {
             onChange({
                 type: "codex",
@@ -61,6 +75,12 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
                 type: "claude",
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
+            });
+        } else if (agentType === "opencode") {
+            onRun({
+                type: "opencode",
+                fullAccess: fullAccess || undefined,
+                model: model || undefined,
             });
         } else {
             onRun({
@@ -102,6 +122,22 @@ function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProp
                         </Select>
                     </div>
                 </>
+            )}
+
+            {agentType === "opencode" && (
+                <div className="flex flex-col gap-1">
+                    <Label htmlFor="agent-model" className="text-xs">
+                        Model
+                    </Label>
+                    <input
+                        id="agent-model"
+                        type="text"
+                        className="bg-input border-border h-7 rounded-md border px-2 text-xs"
+                        placeholder="e.g. anthropic/claude-sonnet-4-20250514"
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                    />
+                </div>
             )}
 
             {onRun && (
