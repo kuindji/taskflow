@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, type MouseEvent } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Archive, ArchiveRestore, GitBranch, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, GitBranch, Pin, Trash2 } from "lucide-react";
 import type { Task } from "@taskflow/shared";
 import { useTaskStore } from "@/stores/task-store";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { SessionBadge } from "./SessionBadge";
 
 const taskCardVariants = cva(
-    "px-3 py-2.5 mx-1.5 my-0.5 rounded-lg cursor-pointer transition-colors",
+    "px-3 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-colors",
     {
         variants: {
             active: {
@@ -59,6 +59,7 @@ export function TaskCard({
     const archiveTask = useTaskStore((s) => s.archiveTask);
     const unarchiveTask = useTaskStore((s) => s.unarchiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
+    const updateTask = useTaskStore((s) => s.updateTask);
     const hasWorktree = task.worktree.enabled && !!task.worktree.path;
 
     const cardClasses = useMemo(
@@ -82,6 +83,11 @@ export function TaskCard({
     const handleUnarchive = (e: MouseEvent) => {
         e.stopPropagation();
         void unarchiveTask(task.id);
+    };
+
+    const handlePinToggle = (e: MouseEvent) => {
+        e.stopPropagation();
+        void updateTask(task.id, { pinned: !task.pinned });
     };
 
     const handleDeleteClick = (e: MouseEvent) => {
@@ -110,6 +116,9 @@ export function TaskCard({
                     tooltipSide="right"
                     className={cn("text-sm font-medium", isActive && "text-foreground")}
                 >
+                    {task.pinned && (
+                        <Pin className="text-muted-foreground mr-1 inline h-3 w-3 shrink-0" />
+                    )}
                     {title}
                 </TruncatedText>
                 {!compact && description && (
@@ -150,6 +159,19 @@ export function TaskCard({
                     </div>
                 )}
                 <div className="absolute right-1 bottom-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    {!archived && (
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={handlePinToggle}
+                            className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
+                            aria-label={task.pinned ? "Unpin task" : "Pin task"}
+                            tooltip={task.pinned ? "Unpin task" : "Pin task"}
+                            tooltipSide="top"
+                        >
+                            <Pin className={cn("h-3.5 w-3.5", task.pinned && "fill-current")} />
+                        </Button>
+                    )}
                     {archived ? (
                         <Button
                             variant="ghost"
