@@ -7,6 +7,7 @@ import useIsElectron from "@/hooks/useIsElectron";
 interface AppShellProps {
     sidebar: ReactNode;
     fileExplorer: ReactNode;
+    flowPanel?: ReactNode;
     workspace: ReactNode;
     taskInfo: ReactNode;
 }
@@ -15,6 +16,8 @@ const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 350;
 const FILE_EXPLORER_MIN = 150;
 const FILE_EXPLORER_MAX = 500;
+const FLOW_PANEL_MIN = 150;
+const FLOW_PANEL_MAX = 400;
 const TASK_INFO_MIN = 150;
 const TASK_INFO_MAX = 500;
 
@@ -22,16 +25,18 @@ function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
 }
 
-export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShellProps) {
+export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo }: AppShellProps) {
     const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
     const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
     const sidebarWidth = useUIStore((s) => s.sidebarWidth);
     const fileExplorerWidth = useUIStore((s) => s.fileExplorerWidth);
     const taskInfoWidth = useUIStore((s) => s.taskInfoWidth);
+    const flowPanelWidth = useUIStore((s) => s.flowPanelWidth);
     const panelGap = useUIStore((s) => s.panelGap);
     const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
     const setFileExplorerWidth = useUIStore((s) => s.setFileExplorerWidth);
     const setTaskInfoWidth = useUIStore((s) => s.setTaskInfoWidth);
+    const setFlowPanelWidth = useUIStore((s) => s.setFlowPanelWidth);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
     const innerPanelGap = Math.max(panelGap - 1, 0);
 
@@ -51,6 +56,14 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
         [setFileExplorerWidth],
     );
 
+    const handleFlowPanelResize = useCallback(
+        (delta: number) => {
+            const current = useUIStore.getState().flowPanelWidth;
+            setFlowPanelWidth(clamp(current + delta, FLOW_PANEL_MIN, FLOW_PANEL_MAX));
+        },
+        [setFlowPanelWidth],
+    );
+
     const handleTaskInfoResize = useCallback(
         (delta: number) => {
             const current = useUIStore.getState().taskInfoWidth;
@@ -60,9 +73,12 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
     );
 
     const handleResizeEnd = useCallback(() => {
-        const { sidebarWidth, fileExplorerWidth, taskInfoWidth } = useUIStore.getState();
+        const { sidebarWidth, fileExplorerWidth, taskInfoWidth, flowPanelWidth } =
+            useUIStore.getState();
         void updateSettings({
-            layout: { panels: { sidebarWidth, fileExplorerWidth, taskInfoWidth } },
+            layout: {
+                panels: { sidebarWidth, fileExplorerWidth, taskInfoWidth, flowPanelWidth },
+            },
         });
     }, [updateSettings]);
 
@@ -99,6 +115,23 @@ export function AppShell({ sidebar, fileExplorer, workspace, taskInfo }: AppShel
                 {fileExplorerOpen && (
                     <ResizeHandle
                         onResize={handleFileExplorerResize}
+                        onResizeEnd={handleResizeEnd}
+                        panelGap={innerPanelGap}
+                    />
+                )}
+
+                {flowPanel && (
+                    <div
+                        className="bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20"
+                        style={{ width: flowPanelWidth }}
+                    >
+                        {flowPanel}
+                    </div>
+                )}
+
+                {flowPanel && (
+                    <ResizeHandle
+                        onResize={handleFlowPanelResize}
                         onResizeEnd={handleResizeEnd}
                         panelGap={innerPanelGap}
                     />

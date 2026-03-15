@@ -25,6 +25,7 @@ export interface Task {
     createdAt: string;
     status: "active" | "archived";
     archivedAt: string | null;
+    pinned: boolean;
 }
 
 export type TaskLogEntryType = "info" | "commit" | "warning" | "error";

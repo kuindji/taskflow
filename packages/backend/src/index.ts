@@ -24,6 +24,10 @@ import { ApiRouter } from "./api/router";
 import { registerApiRoutes } from "./api/routes";
 import { createTitleGenerator } from "./services/title-generator";
 import { ensureCliScript } from "./services/internal-agent-skill";
+import { FlowStore } from "./services/flow-store";
+import { FlowRunner } from "./services/flow-runner";
+import { createSessionLifecycle } from "./services/session-lifecycle";
+import { registerFlowHandlers } from "./handlers/flow";
 import { writeFile } from "fs/promises";
 
 async function main() {
@@ -44,20 +48,92 @@ async function main() {
         await store.cleanupAllSessionLogs();
         await store.cleanExpiredArchives();
 
+        const flowStore = new FlowStore(config.flowsDir, config.flowRunsDir);
+        await flowStore.init();
+
         const ptyManager = new PtyManager();
         const gitService = new GitService();
         const fileWatcher = new FileWatcher();
+        const settingsStore = new SettingsStore(config.settingsFile);
+
+        const shells = await detectShells();
+        const systemShellPath = resolveSystemShellPath(shells);
 
         const router = new Router();
         const apiRouter = new ApiRouter();
         const server = createServer(router, config.port, apiRouter);
         let serverPort = config.port;
 
+        const sessionLifecycle = createSessionLifecycle({
+            ptyManager,
+            taskStore: store,
+            broadcast: server.broadcast,
+            getPort: () => serverPort,
+        });
+
         const titleGenerator = createTitleGenerator({
             taskStore: store,
             gitService,
             broadcast: server.broadcast,
         });
+
+        // FlowRunner is referenced inside its own spawnSession callback (for
+        // handleSessionExit) — the closure captures the variable, not the value,
+        // so `const` is safe here since the callback is only invoked later.
+        const flowRunner = new FlowRunner({
+            flowStore,
+            spawnSession: async (opts) => {
+                const owner = opts.owner.taskId
+                    ? { taskId: opts.owner.taskId }
+                    : { projectId: opts.owner.projectId };
+                return sessionLifecycle.createSession({
+                    owner,
+                    type: opts.sessionType,
+                    label: opts.label,
+                    prompt: opts.prompt,
+                    systemPrompt: opts.systemPrompt,
+                    shell: opts.sessionType === "shell" ? (systemShellPath ?? undefined) : undefined,
+                    agentOptions: opts.agentOptions,
+                    flow: {
+                        flowId: opts.flowId,
+                        actionEntryId: opts.actionEntryId,
+                    },
+                    onSessionExited: (sessionId, exitCode) => {
+                        void flowRunner.handleSessionExit(sessionId, exitCode);
+                    },
+                });
+            },
+            closeSession: (sessionId) => {
+                ptyManager.close(sessionId);
+            },
+            broadcast: server.broadcast,
+            getOwnerDescription: async (owner) => {
+                if (owner.taskId) {
+                    const task = await store.getTask(owner.taskId);
+                    return task?.description ?? "";
+                }
+                // If not task-scoped, must be project-scoped (FlowOwner is a discriminated union)
+                const projectId = owner.projectId;
+                if (!projectId) return "";
+                const project = await store.getProject(projectId);
+                return project?.name ?? "";
+            },
+        });
+
+        // Recover flow runs stuck in "running" from a previous process crash
+        const activeRuns = await flowStore.getAllActiveRuns();
+        for (const run of activeRuns) {
+            if (run.status === "running") {
+                run.status = "paused";
+                const currentAction = run.actions[run.currentActionIndex];
+                if (currentAction?.status === "running") {
+                    currentAction.status = "failed";
+                    currentAction.completedAt = new Date().toISOString();
+                    currentAction.sessionId = undefined;
+                }
+                await flowStore.saveFlowRun(run);
+            }
+        }
 
         registerProjectHandlers(router, store, gitService, (sessionId) => {
             ptyManager.close(sessionId);
@@ -72,15 +148,15 @@ async function main() {
             generateTitle: (taskId, description) => {
                 void titleGenerator.generate(taskId, description);
             },
+            flowStore,
+            flowRunner,
         });
         const agents = await detectAgents();
         registerSessionHandlers({
             router,
             ptyManager,
             taskStore: store,
-            broadcast: server.broadcast,
-            getPort: () => serverPort,
-            agents,
+            sessionLifecycle,
         });
         registerFileHandlers({
             router,
@@ -90,17 +166,20 @@ async function main() {
         });
         registerGitHandlers({ router, git: gitService, taskStore: store });
 
-        const settingsStore = new SettingsStore(config.settingsFile);
         const themeService = new ThemeService(config.themesDir);
         registerSettingsHandlers({ router, settingsStore, taskStore: store });
         registerThemeHandlers(router, themeService);
         registerScriptsHandlers(router);
+        registerFlowHandlers({ router, flowStore, flowRunner });
         registerApiRoutes({
             apiRouter,
             taskStore: store,
             ptyManager,
             broadcast: server.broadcast,
             settingsStore,
+            flowStore,
+            flowRunner,
+            gitService,
             generateTitle: (taskId, description) => {
                 void titleGenerator.generate(taskId, description);
             },
@@ -113,12 +192,11 @@ async function main() {
         });
 
         const editors = await detectEditors();
-        const shells = await detectShells();
         const runtimes = await detectRuntimes();
         router.register(MSG.SYSTEM_INFO, async () => ({ editors }));
         router.register(MSG.SHELLS_LIST, async () => ({
             shells,
-            systemShellPath: resolveSystemShellPath(shells),
+            systemShellPath,
         }));
         router.register(MSG.RUNTIMES_LIST, async () => ({ runtimes }));
         router.register(MSG.AGENTS_LIST, async () => ({ agents }));

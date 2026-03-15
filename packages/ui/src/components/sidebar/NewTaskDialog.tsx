@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import type { AgentLaunchOptions } from "@taskflow/shared";
+import type { AgentLaunchOptions, FlowDefinition } from "@taskflow/shared";
 import type { Project } from "@taskflow/shared";
 import {
     Dialog,
@@ -27,6 +27,7 @@ interface NewTaskDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     projects: Project[];
+    flows: FlowDefinition[];
     defaultProjectId?: string;
     parentId?: string | null;
     onSubmit: (data: {
@@ -37,6 +38,7 @@ interface NewTaskDialogProps {
         parentId?: string;
         startWith?: "claude" | "codex";
         agentOptions?: AgentLaunchOptions;
+        startWithFlowId?: string;
     }) => void;
 }
 
@@ -44,6 +46,7 @@ export function NewTaskDialog({
     open,
     onOpenChange,
     projects,
+    flows,
     defaultProjectId,
     parentId,
     onSubmit,
@@ -54,6 +57,7 @@ export function NewTaskDialog({
     const [worktree, setWorktree] = useState(false);
     const [startWith, setStartWith] = useState("none");
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
+    const [startWithFlowId, setStartWithFlowId] = useState("");
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
     const isSubtask = !!parentId;
 
@@ -67,13 +71,15 @@ export function NewTaskDialog({
         setWorktree(false);
         setStartWith("none");
         setAgentOptions(undefined);
+        setStartWithFlowId("");
     }, []);
 
     const handleStartWithChange = useCallback((value: string) => {
         if (value === "claude" && !claudeAvailable) return;
         if (value === "codex" && !codexAvailable) return;
         setStartWith(value);
-        if (value === "none") setAgentOptions(undefined);
+        if (value !== "claude" && value !== "codex") setAgentOptions(undefined);
+        if (value !== "flow") setStartWithFlowId("");
     }, [claudeAvailable, codexAvailable]);
 
     const handleOpenChange = useCallback(
@@ -85,7 +91,8 @@ export function NewTaskDialog({
         [onOpenChange, resetForm, defaultProjectId],
     );
 
-    const canSubmit = (isSubtask || projectId !== "") && description.trim() !== "";
+    const hasFlowSelection = startWith !== "flow" || startWithFlowId !== "";
+    const canSubmit = (isSubtask || projectId !== "") && description.trim() !== "" && hasFlowSelection;
 
     const handleSubmit = useCallback(() => {
         if (!canSubmit) return;
@@ -97,6 +104,7 @@ export function NewTaskDialog({
             parentId: parentId ?? undefined,
             startWith: startWith === "claude" || startWith === "codex" ? startWith : undefined,
             agentOptions,
+            startWithFlowId: startWith === "flow" && startWithFlowId ? startWithFlowId : undefined,
         });
         resetForm();
         onOpenChange(false);
@@ -110,6 +118,7 @@ export function NewTaskDialog({
         parentId,
         startWith,
         agentOptions,
+        startWithFlowId,
         onSubmit,
         resetForm,
         onOpenChange,
@@ -217,9 +226,33 @@ export function NewTaskDialog({
                                 <SelectItem value="codex" disabled={!codexAvailable}>
                                     Codex{!codexAvailable ? " (not installed)" : ""}
                                 </SelectItem>
+                                {flows.length > 0 && (
+                                    <SelectItem value="flow">Flow</SelectItem>
+                                )}
                             </SelectContent>
                         </Select>
                     </div>
+
+                    {startWith === "flow" && flows.length > 0 && (
+                        <div className="flex flex-col gap-1.5">
+                            <Label htmlFor="new-task-flow">Flow</Label>
+                            <Select value={startWithFlowId} onValueChange={setStartWithFlowId}>
+                                <SelectTrigger id="new-task-flow" className="w-full">
+                                    <SelectValue placeholder="Select a flow" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {flows.map((f) => (
+                                        <SelectItem key={f.id} value={f.id}>
+                                            {f.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-muted-foreground text-xs">
+                                Select a flow to start immediately after task creation.
+                            </p>
+                        </div>
+                    )}
 
                     {(startWith === "claude" || startWith === "codex") && (
                         <div className="border-border rounded-md border p-1">

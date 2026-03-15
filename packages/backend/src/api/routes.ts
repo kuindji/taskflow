@@ -2,6 +2,9 @@ import type { ApiRouter } from "./router";
 import type { TaskStore } from "../services/task-store";
 import type { PtyManager } from "../services/pty-manager";
 import type { SettingsStore } from "../services/settings-store";
+import type { FlowStore } from "../services/flow-store";
+import type { FlowRunner } from "../services/flow-runner";
+import type { GitService } from "../services/git-service";
 import type {
     SessionStatus,
     Task,
@@ -17,6 +20,9 @@ interface ApiRouteDeps {
     ptyManager: PtyManager;
     broadcast: (event: WsEvent) => void;
     settingsStore: SettingsStore;
+    flowStore: FlowStore;
+    flowRunner: FlowRunner;
+    gitService: GitService;
     generateTitle?: (taskId: string, description: string) => void;
 }
 
@@ -32,7 +38,8 @@ function errorResponse(message: string, status: number): Response {
 }
 
 export function registerApiRoutes(deps: ApiRouteDeps): void {
-    const { apiRouter, taskStore, ptyManager, broadcast, settingsStore, generateTitle } = deps;
+    const { apiRouter, taskStore, ptyManager, broadcast, settingsStore, flowStore, flowRunner, gitService, generateTitle } =
+        deps;
     const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention"]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
@@ -68,6 +75,72 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             if (message.includes("not found")) {
                 return errorResponse(message, 404);
             }
+            return errorResponse(message, 500);
+        }
+    });
+
+    apiRouter.register("PATCH", "/api/tasks/:taskId/worktree", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        if (typeof body.enabled !== "boolean") {
+            return errorResponse('Field "enabled" must be a boolean', 400);
+        }
+
+        try {
+            const task = await taskStore.getTask(params.taskId);
+            if (!task) {
+                return errorResponse(`Task not found: ${params.taskId}`, 404);
+            }
+
+            if (!body.enabled) {
+                if (!task.worktree.enabled) {
+                    return errorResponse("Worktree is already disabled", 400);
+                }
+
+                const project = await taskStore.getProject(task.projectId);
+                if (!project) {
+                    return errorResponse(`Project not found: ${task.projectId}`, 404);
+                }
+
+                if (task.worktree.branch) {
+                    const merged = await gitService.isBranchMerged(
+                        project.path,
+                        task.worktree.branch,
+                    );
+                    if (!merged) {
+                        return errorResponse(
+                            `Branch "${task.worktree.branch}" has not been merged`,
+                            409,
+                        );
+                    }
+                }
+
+                if (task.worktree.path && task.worktree.branch) {
+                    try {
+                        await gitService.removeWorktree(project.path, task.worktree.path);
+                    } catch {
+                        // Worktree may already be removed
+                    }
+                    try {
+                        await gitService.deleteBranch(project.path, task.worktree.branch);
+                    } catch {
+                        // Branch may already be deleted
+                    }
+                }
+            }
+
+            const updated = await taskStore.updateTask(params.taskId, {
+                worktree: { ...task.worktree, enabled: body.enabled },
+            });
+            broadcast({ type: MSG.TASK_UPDATED, payload: updated });
+            return jsonResponse(updated);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
             return errorResponse(message, 500);
         }
     });
@@ -193,6 +266,16 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         return jsonResponse({ success: true });
     });
 
+    apiRouter.register("GET", "/api/projects/:projectId/tasks", async (_req, params) => {
+        try {
+            const tasks = await taskStore.listTasks(params.projectId);
+            return jsonResponse({ tasks });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, 500);
+        }
+    });
+
     apiRouter.register("POST", "/api/projects/:projectId/tasks", async (req, params) => {
         let body: Record<string, unknown>;
         try {
@@ -279,5 +362,100 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
         return jsonResponse(await settingsStore.update(body));
+    });
+
+    // --- Flow action completion ---
+
+    apiRouter.register("POST", "/api/flow/action-complete", async (req) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const { taskId, projectId, flowId, sessionId } = body;
+        const ownerId = typeof taskId === "string" ? taskId : typeof projectId === "string" ? projectId : undefined;
+        if (!ownerId || typeof flowId !== "string" || typeof sessionId !== "string") {
+            return errorResponse("Fields flowId, sessionId, and one of taskId/projectId are required strings", 400);
+        }
+
+        try {
+            await flowRunner.handleActionComplete(ownerId, flowId, sessionId);
+            return jsonResponse({ success: true });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, 500);
+        }
+    });
+
+    // --- Flow artifacts ---
+
+    apiRouter.register("POST", "/api/flow/artifact", async (req) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const { taskId, projectId, flowId, actionEntryId, sessionId, type, path, text } = body;
+        const ownerId = typeof taskId === "string" ? taskId : typeof projectId === "string" ? projectId : undefined;
+        if (
+            !ownerId ||
+            typeof flowId !== "string" ||
+            typeof actionEntryId !== "string" ||
+            typeof sessionId !== "string" ||
+            typeof type !== "string"
+        ) {
+            return errorResponse(
+                "Fields flowId, actionEntryId, sessionId, type, and one of taskId/projectId are required strings",
+                400,
+            );
+        }
+
+        const hasPath = typeof path === "string";
+        const hasText = typeof text === "string";
+        if (hasPath === hasText) {
+            return errorResponse("Exactly one of path or text is required", 400);
+        }
+
+        try {
+            await flowRunner.saveArtifact(ownerId, flowId, actionEntryId, sessionId, {
+                type,
+                path: hasPath ? path : undefined,
+                text: hasText ? text : undefined,
+            });
+            return jsonResponse({ success: true });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            if (message === "No flow run found") {
+                return errorResponse(message, 404);
+            }
+            if (
+                message === "Flow run is not active" ||
+                message === "No running action available for artifact save" ||
+                message === "Artifacts can only be saved for the current action" ||
+                message === "Artifacts can only be saved by the active action session" ||
+                message === "Artifact must include exactly one of path or text"
+            ) {
+                return errorResponse(message, 409);
+            }
+            return errorResponse(message, 500);
+        }
+    });
+
+    apiRouter.register("GET", "/api/flow/artifact/:ownerId/:flowId", async (_req, params) => {
+        const run = await flowStore.getFlowRun(params.ownerId, params.flowId);
+        if (!run) return errorResponse("Flow run not found", 404);
+        return jsonResponse({ artifacts: flowRunner.getArtifacts(run) });
+    });
+
+    apiRouter.register("GET", "/api/flow/artifact/:ownerId/:flowId/:type", async (_req, params) => {
+        const run = await flowStore.getFlowRun(params.ownerId, params.flowId);
+        if (!run) return errorResponse("Flow run not found", 404);
+        const artifacts = flowRunner.getArtifacts(run, params.type);
+        if (artifacts.length === 0) return errorResponse("Artifact not found", 404);
+        return jsonResponse(artifacts[0]);
     });
 }

@@ -33,6 +33,7 @@ const DEFAULTS: AppSettings = {
             sidebarWidth: 220,
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
+            flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: [],
         },

@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, type MouseEvent } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Archive, ArchiveRestore, ChevronRight, GitBranch, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronRight, GitBranch, Pin, Plus, Trash2 } from "lucide-react";
 import type { Task } from "@taskflow/shared";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 import { SessionBadge } from "./SessionBadge";
 
 const taskCardVariants = cva(
-    "px-3 py-2.5 mx-1.5 my-0.5 rounded-lg cursor-pointer transition-colors",
+    "px-2.5 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-colors",
     {
         variants: {
             active: {
@@ -69,6 +69,7 @@ export function TaskCard({
     const archiveTask = useTaskStore((s) => s.archiveTask);
     const unarchiveTask = useTaskStore((s) => s.unarchiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
+    const updateTask = useTaskStore((s) => s.updateTask);
     const requestNewSubtask = useTaskCreationStore((s) => s.requestNewSubtask);
     const subtaskCount = useTaskStore((s) =>
         isSubtask ? 0 : s.tasks.filter((t) => t.parentId === task.id).length,
@@ -109,6 +110,11 @@ export function TaskCard({
     const handleUnarchive = (e: MouseEvent) => {
         e.stopPropagation();
         void unarchiveTask(task.id);
+    };
+
+    const handlePinToggle = (e: MouseEvent) => {
+        e.stopPropagation();
+        void updateTask(task.id, { pinned: !task.pinned });
     };
 
     const handleDeleteClick = (e: MouseEvent) => {
@@ -161,6 +167,9 @@ export function TaskCard({
                                 isActive && "text-foreground",
                             )}
                         >
+                            {task.pinned && (
+                                <Pin className="text-muted-foreground mr-1.5 inline h-3 w-3 shrink-0" />
+                            )}
                             {title}
                         </TruncatedText>
                         {!compact && description && (
@@ -171,13 +180,13 @@ export function TaskCard({
                     </div>
                 </div>
                 {(task.sessions.length > 0 || (!isSubtask && task.worktree.enabled)) && (
-                    <div className="mt-1.5 flex min-w-0 gap-1.5">
+                    <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
                         {!isSubtask && task.worktree.enabled && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Badge
                                         variant="outline"
-                                        className="border-border/60 bg-muted/50 gap-0.5 px-1 py-0 text-[10px] font-medium"
+                                        className="border-border/60 bg-muted/50 gap-0.5 px-1 py-0 text-xs font-medium"
                                     >
                                         <GitBranch className="text-muted-foreground h-3 w-3" />
                                         {diffStats && (
@@ -202,13 +211,13 @@ export function TaskCard({
                         ))}
                     </div>
                 )}
-                <div className="absolute right-1 bottom-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="absolute right-1 bottom-1 flex gap-0.25 opacity-0 transition-opacity group-hover:opacity-100">
                     {!archived && !isSubtask && (
                         <Button
                             variant="ghost"
                             size="xs"
                             onClick={handleAddSubtask}
-                            className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
+                            className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Add subtask"
                             tooltip="Add subtask"
                             tooltipSide="top"
@@ -216,12 +225,25 @@ export function TaskCard({
                             <Plus className="h-3.5 w-3.5" />
                         </Button>
                     )}
+                    {!archived && !isSubtask && (
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={handlePinToggle}
+                            className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
+                            aria-label={task.pinned ? "Unpin task" : "Pin task"}
+                            tooltip={task.pinned ? "Unpin task" : "Pin task"}
+                            tooltipSide="top"
+                        >
+                            <Pin className={cn("h-3.5 w-3.5", task.pinned && "fill-current")} />
+                        </Button>
+                    )}
                     {archived ? (
                         <Button
                             variant="ghost"
                             size="xs"
                             onClick={handleUnarchive}
-                            className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
+                            className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Unarchive task"
                             tooltip="Unarchive task"
                             tooltipSide="top"
@@ -233,7 +255,7 @@ export function TaskCard({
                             variant="ghost"
                             size="xs"
                             onClick={handleArchive}
-                            className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground h-6 w-6 border p-0 shadow-xs"
+                            className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Archive task"
                             tooltip="Archive task"
                             tooltipSide="top"
@@ -245,7 +267,7 @@ export function TaskCard({
                         variant="ghost"
                         size="xs"
                         onClick={handleDeleteClick}
-                        className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-destructive h-6 w-6 border p-0 shadow-xs"
+                        className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-destructive h-6 w-6 border p-0 shadow-xs"
                         aria-label="Delete task"
                         tooltip="Delete task"
                         tooltipSide="top"

@@ -5,14 +5,17 @@ import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { updateCollapsedProjectIds, useUIStore } from "@/stores/ui-store";
+import { useFlowStore } from "@/stores/flow-store";
 import { useDiffStore } from "@/stores/diff-store";
 import { useThemeStore } from "@/stores/theme-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { ProjectGroup } from "./ProjectGroup";
+import { NoDragSpacer } from "./NoDragSpacer";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
-import { ArrowDownToLine, Loader2, Palette, Plus, Settings2 } from "lucide-react";
+import { ArrowDownToLine, Loader2, Palette, Plus, Settings2, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Toolbar } from "@/components/ui/toolbar";
 import { Separator } from "@/components/ui/separator";
 import {
     AlertDialog,
@@ -44,6 +47,7 @@ export function TaskSidebar() {
         (s) => s.settings?.layout?.panels?.compactSidebar ?? false,
     );
     const openSettings = useUIStore((s) => s.openSettings);
+    const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const fetchThemes = useThemeStore((s) => s.fetchThemes);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -60,6 +64,8 @@ export function TaskSidebar() {
         if (!connected) return;
         void fetchProjects();
         void fetchTasks();
+        void useFlowStore.getState().fetchFlows();
+        void useFlowStore.getState().fetchActions();
 
         void (async () => {
             try {
@@ -219,7 +225,7 @@ export function TaskSidebar() {
 
     return (
         <>
-            <div className="border-border flex min-h-9 items-center justify-between gap-2 border-b px-1.5 py-1.5">
+            <Toolbar className="justify-between gap-2">
                 <div className="flex flex-1 items-center justify-end gap-1">
                     {showArchive ? (
                         <span className="text-muted-foreground px-1 text-xs font-medium">
@@ -240,8 +246,8 @@ export function TaskSidebar() {
                         </>
                     )}
                 </div>
-            </div>
-            <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
+            </Toolbar>
+            <div className="flex-1 overflow-x-hidden overflow-y-auto py-1.5">
                 {!showArchive && projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>
@@ -258,30 +264,32 @@ export function TaskSidebar() {
                 {showArchive && displayTasks.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">No archived tasks.</div>
                 )}
-                {visibleProjects.map((project) => {
+                {visibleProjects.map((project, index) => {
                     const projectTasks = tasksByProject.get(project.id) ?? [];
                     const projectOpen = !collapsedProjectIds.includes(project.id);
                     return (
-                        <ProjectGroup
-                            key={project.id}
-                            project={project}
-                            tasks={projectTasks}
-                            activeTaskId={activeTaskId}
-                            isActive={!activeTaskId && activeProjectId === project.id}
-                            diffStats={diffStatsByProject[project.id]}
-                            diffStatsByTask={diffStatsByProject}
-                            onProjectClick={handleProjectClick}
-                            onTaskClick={handleTaskClick}
-                            archived={showArchive}
-                            compact={compactSidebar}
-                            open={projectOpen}
-                            onOpenChange={(open) => handleProjectOpenChange(project.id, open)}
-                        />
+                        <div key={project.id}>
+                            {index > 0 && <NoDragSpacer />}
+                            <ProjectGroup
+                                project={project}
+                                tasks={projectTasks}
+                                activeTaskId={activeTaskId}
+                                isActive={!activeTaskId && activeProjectId === project.id}
+                                diffStats={diffStatsByProject[project.id]}
+                                diffStatsByTask={diffStatsByProject}
+                                onProjectClick={handleProjectClick}
+                                onTaskClick={handleTaskClick}
+                                archived={showArchive}
+                                compact={compactSidebar}
+                                open={projectOpen}
+                                onOpenChange={(open) => handleProjectOpenChange(project.id, open)}
+                            />
+                        </div>
                     );
                 })}
             </div>
             <Separator />
-            <div className="flex items-center justify-between px-1.5 py-1.5">
+            <Toolbar noBorder className="justify-between">
                 <div className="flex items-center">
                     {updateStatus.status === "checking" && (
                         <Button
@@ -327,6 +335,17 @@ export function TaskSidebar() {
                     <Button
                         variant="ghost"
                         size="icon-xs"
+                        onClick={toggleFlowManagement}
+                        aria-label="Flows"
+                        tooltip="Flows"
+                        tooltipSide="bottom"
+                        className="text-muted-foreground [-webkit-app-region:no-drag]"
+                    >
+                        <Workflow className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
                         onClick={toggleAppearance}
                         aria-label="Appearance"
                         tooltip="Appearance"
@@ -347,7 +366,7 @@ export function TaskSidebar() {
                         <Settings2 className="h-3.5 w-3.5" />
                     </Button>
                 </div>
-            </div>
+            </Toolbar>
             <NewProjectDialog
                 open={newProjectOpen}
                 onOpenChange={handleProjectDialogChange}

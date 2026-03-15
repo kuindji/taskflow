@@ -13,6 +13,8 @@ import type {
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
 import type { GitService } from "../services/git-service";
+import type { FlowStore } from "../services/flow-store";
+import type { FlowRunner } from "../services/flow-runner";
 
 interface TaskHandlerDeps {
     router: Router;
@@ -20,10 +22,22 @@ interface TaskHandlerDeps {
     gitService: GitService;
     closeSession?: (sessionId: string) => void;
     generateTitle?: (taskId: string, description: string) => void;
+    flowStore?: FlowStore;
+    flowRunner?: FlowRunner;
 }
 
 export function registerTaskHandlers(deps: TaskHandlerDeps): void {
-    const { router, store, gitService, closeSession, generateTitle } = deps;
+    const { router, store, gitService, closeSession, generateTitle, flowStore, flowRunner } = deps;
+
+    async function failActiveFlows(taskId: string): Promise<void> {
+        if (!flowStore || !flowRunner) return;
+        const runs = await flowStore.getFlowRunsForOwner(taskId);
+        for (const run of runs) {
+            if (run.status === "running" || run.status === "paused") {
+                await flowRunner.failFlowByIds(taskId, run.flowId);
+            }
+        }
+    }
 
     async function stopTaskSessions(task: Task, clearPersistedSessions: boolean): Promise<void> {
         if (task.sessions.length === 0) {
@@ -98,6 +112,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             }
         }
 
+        await failActiveFlows(id);
         await stopTaskSessions(task, true);
         return store.archiveTask(id);
     });
@@ -143,6 +158,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         }
 
         if (task.status === "active") {
+            await failActiveFlows(id);
             await stopTaskSessions(task, false);
             await store.deleteTask(id);
         } else {

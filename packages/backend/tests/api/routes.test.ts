@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, expect, it } from "bun:test";
+import { beforeEach, afterEach, describe, expect, it, mock } from "bun:test";
 import { MSG, type AppSettings, type WsEvent } from "@taskflow/shared";
 import { ApiRouter } from "../../src/api/router";
 import { registerApiRoutes } from "../../src/api/routes";
@@ -34,6 +34,9 @@ describe("api routes", () => {
                 events.push(event);
             },
             settingsStore: new SettingsStore(join(tempDir, "settings.json")),
+            flowStore: {} as never,
+            flowRunner: {} as never,
+            gitService: {} as never,
         });
     });
 
@@ -106,6 +109,9 @@ describe("settings routes", () => {
             ptyManager: new FakePtyManager() as never,
             broadcast: () => {},
             settingsStore,
+            flowStore: {} as never,
+            flowRunner: {} as never,
+            gitService: {} as never,
         });
     });
 
@@ -151,5 +157,76 @@ describe("settings routes", () => {
             }),
         );
         expect(response?.status).toBe(400);
+    });
+});
+
+describe("flow artifact routes", () => {
+    let apiRouter: ApiRouter;
+    const flowRunner = {
+        saveArtifact: mock(async () => {}),
+    };
+
+    beforeEach(() => {
+        apiRouter = new ApiRouter();
+        flowRunner.saveArtifact.mockClear();
+        registerApiRoutes({
+            apiRouter,
+            taskStore: {} as never,
+            ptyManager: new FakePtyManager() as never,
+            broadcast: () => {},
+            settingsStore: {} as never,
+            flowStore: {} as never,
+            flowRunner: flowRunner as never,
+            gitService: {} as never,
+        });
+    });
+
+    it("requires a sessionId when saving an artifact", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/flow/artifact", {
+                method: "POST",
+                body: JSON.stringify({
+                    taskId: "task-1",
+                    flowId: "flow-1",
+                    actionEntryId: "entry-1",
+                    type: "summary",
+                    text: "hello",
+                }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+
+        expect(response?.status).toBe(400);
+        expect(flowRunner.saveArtifact).not.toHaveBeenCalled();
+    });
+
+    it("passes the active session through to artifact saves", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/flow/artifact", {
+                method: "POST",
+                body: JSON.stringify({
+                    taskId: "task-1",
+                    flowId: "flow-1",
+                    actionEntryId: "entry-1",
+                    sessionId: "session-1",
+                    type: "summary",
+                    text: 'line "one"\nline two',
+                }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+
+        expect(response?.status).toBe(200);
+        expect(flowRunner.saveArtifact).toHaveBeenCalledWith(
+            "task-1",
+            "flow-1",
+            "entry-1",
+            "session-1",
+            {
+                type: "summary",
+                path: undefined,
+                text: 'line "one"\nline two',
+            },
+        );
     });
 });

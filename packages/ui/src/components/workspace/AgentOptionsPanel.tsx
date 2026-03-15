@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { AgentLaunchOptions } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -15,44 +15,71 @@ import { useSettingsStore } from "@/stores/settings-store";
 
 interface AgentOptionsPanelProps {
     agentType: "claude" | "codex";
+    value?: AgentLaunchOptions;
+    emitOnMount?: boolean;
     onRun?: (options: AgentLaunchOptions) => void;
     onChange?: (options: AgentLaunchOptions) => void;
 }
 
-function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProps) {
+function AgentOptionsPanel({
+    agentType,
+    value,
+    emitOnMount = false,
+    onRun,
+    onChange,
+}: AgentOptionsPanelProps) {
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
 
+    const matchingValue = value?.type === agentType ? value : undefined;
     const defaultFullAccess =
-        agentType === "claude"
+        matchingValue?.fullAccess ??
+        (agentType === "claude"
             ? (claudeSettings?.fullAccess ?? false)
-            : (codexSettings?.fullAccess ?? false);
-    const defaultModel = claudeSettings?.defaultModel ?? "default";
+            : (codexSettings?.fullAccess ?? false));
+    const defaultModel =
+        agentType === "claude" && matchingValue?.type === "claude"
+            ? (matchingValue.model ?? "default")
+            : (claudeSettings?.defaultModel ?? "default");
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [model, setModel] = useState<string>(defaultModel);
 
     const isFirstRender = useRef(true);
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
 
     useEffect(() => {
-        if (isFirstRender.current) {
-            isFirstRender.current = false;
-            return;
-        }
-        if (!onChange) return;
+        setFullAccess(defaultFullAccess);
         if (agentType === "claude") {
-            onChange({
+            setModel(defaultModel);
+        }
+    }, [agentType, defaultFullAccess, defaultModel]);
+
+    const emitChange = useCallback(() => {
+        const cb = onChangeRef.current;
+        if (!cb) return;
+        if (agentType === "claude") {
+            cb({
                 type: "claude",
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
             });
         } else {
-            onChange({
+            cb({
                 type: "codex",
                 fullAccess: fullAccess || undefined,
             });
         }
-    }, [agentType, fullAccess, model, onChange]);
+    }, [agentType, fullAccess, model]);
+
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            if (!emitOnMount) return;
+        }
+        emitChange();
+    }, [emitOnMount, emitChange]);
 
     const handleRun = () => {
         if (!onRun) return;

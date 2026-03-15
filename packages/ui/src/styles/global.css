@@ -133,3 +133,9 @@ body {
 .xterm:hover .xterm-viewport::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.25);
 }
+
+/* Hide native browser caret on xterm's hidden input textarea — xterm renders
+   its own cursor, so the browser caret creates a duplicate cursor artifact. */
+.xterm .xterm-helper-textarea {
+    caret-color: transparent !important;
+}

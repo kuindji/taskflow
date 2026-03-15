@@ -36,6 +36,12 @@ function getCreatedAtTimestamp(value: string): number {
 }
 
 function compareTasksByCreatedAtDesc(a: Task, b: Task): number {
+    const aPinned = a.pinned ? 1 : 0;
+    const bPinned = b.pinned ? 1 : 0;
+    if (aPinned !== bPinned) {
+        return bPinned - aPinned;
+    }
+
     const createdAtDiff = getCreatedAtTimestamp(b.createdAt) - getCreatedAtTimestamp(a.createdAt);
     if (createdAtDiff !== 0) {
         return createdAtDiff;
@@ -151,7 +157,8 @@ export class TaskStore {
         }
 
         try {
-            return JSON.parse(data) as Task;
+            const task = JSON.parse(data) as Task;
+            return { ...task, pinned: task.pinned ?? false };
         } catch (error) {
             if (isJsonParseError(error)) {
                 await this.unlinkIfPresent(filePath);
@@ -525,6 +532,7 @@ export class TaskStore {
             createdAt: new Date().toISOString(),
             status: "active",
             archivedAt: null,
+            pinned: false,
         };
         await this.writeTask(this.taskPath(task.id), task);
         return task;
@@ -566,11 +574,11 @@ export class TaskStore {
     async updateTask(
         id: string,
         updates:
-            | Partial<Pick<Task, "title" | "description" | "notes" | "worktree" | "sessions">>
+            | Partial<Pick<Task, "title" | "description" | "notes" | "worktree" | "sessions" | "pinned">>
             | ((
                   task: Task,
               ) => Partial<
-                  Pick<Task, "title" | "description" | "notes" | "worktree" | "sessions">
+                  Pick<Task, "title" | "description" | "notes" | "worktree" | "sessions" | "pinned">
               >),
     ): Promise<Task> {
         return this.withTaskMutation(id, async () => {
@@ -591,6 +599,7 @@ export class TaskStore {
                 ...task,
                 status: "archived",
                 archivedAt: new Date().toISOString(),
+                pinned: false,
             };
             await this.writeTask(this.archivePath(id), archived);
             await this.unlinkIfPresent(this.taskPath(id));

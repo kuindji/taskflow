@@ -41,6 +41,7 @@ export interface PanelSettings {
     sidebarWidth: number;
     fileExplorerWidth: number;
     taskInfoWidth: number;
+    flowPanelWidth: number;
     compactSidebar: boolean;
     collapsedProjectIds: string[];
 }
