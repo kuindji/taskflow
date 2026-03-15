@@ -7,11 +7,12 @@ import type {
     TaskUnarchivePayload,
     TaskDeletePayload,
     TaskLogListPayload,
+    Task,
+    TaskWorktree,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
 import type { GitService } from "../services/git-service";
-import type { Task } from "@taskflow/shared";
 
 interface TaskHandlerDeps {
     router: Router;
@@ -45,12 +46,32 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
     });
 
     router.register(MSG.TASK_CREATE, async (payload) => {
-        const { projectId, title, description, worktree } = payload as TaskCreatePayload;
+        const { projectId, parentId, title, description, worktree } = payload as TaskCreatePayload;
+
+        let resolvedProjectId = projectId;
+        let resolvedWorktree: TaskWorktree | undefined = worktree
+            ? { enabled: true, path: null, branch: null }
+            : undefined;
+
+        if (parentId) {
+            const parent = await store.getTask(parentId);
+            if (!parent) {
+                throw new Error(`Parent task not found: ${parentId}`);
+            }
+            if (parent.parentId) {
+                throw new Error("Cannot create a subtask of a subtask");
+            }
+            // Subtasks inherit parent's projectId and worktree config
+            resolvedProjectId = parent.projectId;
+            resolvedWorktree = parent.worktree;
+        }
+
         const task = await store.createTask({
-            projectId,
+            projectId: resolvedProjectId,
+            parentId,
             title: title ?? "",
             description,
-            worktree: worktree ? { enabled: true, path: null, branch: null } : undefined,
+            worktree: resolvedWorktree,
         });
         if (!title && description && generateTitle) {
             generateTitle(task.id, description);

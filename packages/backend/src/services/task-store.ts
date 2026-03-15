@@ -508,6 +508,7 @@ export class TaskStore {
 
     async createTask(input: {
         projectId: string;
+        parentId?: string;
         title: string;
         description: string;
         worktree?: TaskWorktree;
@@ -515,6 +516,7 @@ export class TaskStore {
         const task: Task = {
             id: randomUUID(),
             projectId: input.projectId,
+            ...(input.parentId ? { parentId: input.parentId } : {}),
             title: input.title,
             description: input.description,
             notes: "",
@@ -614,6 +616,16 @@ export class TaskStore {
 
     async listArchived(): Promise<Task[]> {
         return this.readTasksFromDir(this.config.archiveDir);
+    }
+
+    async getSubtasks(parentId: string): Promise<Task[]> {
+        const tasks = await this.listTasks();
+        return tasks.filter((t) => t.parentId === parentId);
+    }
+
+    async getArchivedSubtasks(parentId: string): Promise<Task[]> {
+        const tasks = await this.listArchived();
+        return tasks.filter((t) => t.parentId === parentId);
     }
 
     async unarchiveTask(id: string): Promise<Task> {
