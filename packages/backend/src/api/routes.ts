@@ -4,6 +4,7 @@ import type { PtyManager } from "../services/pty-manager";
 import type { SettingsStore } from "../services/settings-store";
 import type { FlowStore } from "../services/flow-store";
 import type { FlowRunner } from "../services/flow-runner";
+import type { GitService } from "../services/git-service";
 import type {
     SessionStatus,
     Task,
@@ -21,6 +22,7 @@ interface ApiRouteDeps {
     settingsStore: SettingsStore;
     flowStore: FlowStore;
     flowRunner: FlowRunner;
+    gitService: GitService;
     generateTitle?: (taskId: string, description: string) => void;
 }
 
@@ -36,7 +38,7 @@ function errorResponse(message: string, status: number): Response {
 }
 
 export function registerApiRoutes(deps: ApiRouteDeps): void {
-    const { apiRouter, taskStore, ptyManager, broadcast, settingsStore, flowStore, flowRunner, generateTitle } =
+    const { apiRouter, taskStore, ptyManager, broadcast, settingsStore, flowStore, flowRunner, gitService, generateTitle } =
         deps;
     const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention"]);
 
@@ -73,6 +75,72 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             if (message.includes("not found")) {
                 return errorResponse(message, 404);
             }
+            return errorResponse(message, 500);
+        }
+    });
+
+    apiRouter.register("PATCH", "/api/tasks/:taskId/worktree", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        if (typeof body.enabled !== "boolean") {
+            return errorResponse('Field "enabled" must be a boolean', 400);
+        }
+
+        try {
+            const task = await taskStore.getTask(params.taskId);
+            if (!task) {
+                return errorResponse(`Task not found: ${params.taskId}`, 404);
+            }
+
+            if (!body.enabled) {
+                if (!task.worktree.enabled) {
+                    return errorResponse("Worktree is already disabled", 400);
+                }
+
+                const project = await taskStore.getProject(task.projectId);
+                if (!project) {
+                    return errorResponse(`Project not found: ${task.projectId}`, 404);
+                }
+
+                if (task.worktree.branch) {
+                    const merged = await gitService.isBranchMerged(
+                        project.path,
+                        task.worktree.branch,
+                    );
+                    if (!merged) {
+                        return errorResponse(
+                            `Branch "${task.worktree.branch}" has not been merged`,
+                            409,
+                        );
+                    }
+                }
+
+                if (task.worktree.path && task.worktree.branch) {
+                    try {
+                        await gitService.removeWorktree(project.path, task.worktree.path);
+                    } catch {
+                        // Worktree may already be removed
+                    }
+                    try {
+                        await gitService.deleteBranch(project.path, task.worktree.branch);
+                    } catch {
+                        // Branch may already be deleted
+                    }
+                }
+            }
+
+            const updated = await taskStore.updateTask(params.taskId, {
+                worktree: { ...task.worktree, enabled: body.enabled },
+            });
+            broadcast({ type: MSG.TASK_UPDATED, payload: updated });
+            return jsonResponse(updated);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
             return errorResponse(message, 500);
         }
     });

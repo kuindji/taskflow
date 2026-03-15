@@ -26,6 +26,7 @@ interface TaskflowBridge {
     sendWordWrapState(enabled: boolean): void;
     onUpdateStatus(callback: (payload: { status: string; version?: string }) => void): () => void;
     quitAndInstallUpdate(): void;
+    getPathForFile(file: File): string;
 }
 
 declare global {
@@ -38,6 +39,7 @@ declare global {
 
     interface WebviewElement extends HTMLElement {
         src: string;
+        getURL(): string;
         goBack(): void;
         goForward(): void;
         reload(): void;

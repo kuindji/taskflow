@@ -289,6 +289,13 @@ export class GitService {
         await git(["worktree", "add", "-b", branch, worktreePath], repoPath);
     }
 
+    async isBranchMerged(repoPath: string, branch: string): Promise<boolean> {
+        const output = await git(["branch", "--merged"], repoPath);
+        return output
+            .split("\n")
+            .some((line) => line.replace(/^\*?\s+/, "") === branch);
+    }
+
     async removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
         await git(["worktree", "remove", worktreePath, "--force"], repoPath);
     }
@@ -374,5 +381,29 @@ export class GitService {
             throw new Error("Failed to generate commit message");
         }
         return stdout.trim();
+    }
+
+    async getRemoteUrl(repoPath: string): Promise<string | null> {
+        try {
+            const output = await git(["remote", "get-url", "origin"], repoPath);
+            return output.trim() || null;
+        } catch {
+            return null;
+        }
+    }
+
+    async clone(source: string, target: string, branch: string): Promise<void> {
+        await git(
+            ["clone", "--local", "--branch", branch, source, target],
+            dirname(target),
+        );
+    }
+
+    async setRemoteUrl(repoPath: string, url: string): Promise<void> {
+        await git(["remote", "set-url", "origin", url], repoPath);
+    }
+
+    async createBranch(repoPath: string, branch: string): Promise<void> {
+        await git(["checkout", "-b", branch], repoPath);
     }
 }

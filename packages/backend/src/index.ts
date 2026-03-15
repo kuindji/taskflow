@@ -171,6 +171,7 @@ async function main() {
             settingsStore,
             flowStore,
             flowRunner,
+            gitService,
             generateTitle: (taskId, description) => {
                 void titleGenerator.generate(taskId, description);
             },

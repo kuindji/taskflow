@@ -19,6 +19,7 @@ Use taskflow-cli proactively:
 - Log types: info (findings/progress), commit (commits), warning (concerns), error (failures).
 - Open a browser tab: \`taskflow-cli browser "https://..." --label "Optional"\`
 - Open a project-scoped browser tab: \`taskflow-cli browser "https://..." --label "Optional" --project\`
+- After merging a worktree branch, disable the worktree: \`taskflow-cli task worktree --disable\`
 Session status is app-controlled, so do not post manual session status updates.
 
 When running as a flow step (TASKFLOW_FLOW_ID is set):
@@ -81,6 +82,16 @@ taskflow-cli browser "https://example.com" --project
 
 Use \`--project\` for project-scoped tabs, otherwise tabs are task-scoped.
 
+## Worktree management
+
+After merging a task's worktree branch into the project, disable the worktree so future sessions run from the project root:
+
+\`\`\`
+taskflow-cli task worktree --disable
+\`\`\`
+
+This verifies the branch was merged, removes the worktree from disk, and deletes the branch. It will fail if the branch has not been merged yet.
+
 ## Flow commands (available when TASKFLOW_FLOW_ID is set)
 
 Signal that this step is done (the next step starts automatically):
@@ -138,7 +149,28 @@ shift 2>/dev/null || true
 case "$cmd" in
   task)
     subcmd="\${1:-}"
-    if [ "$subcmd" = "create" ]; then
+    if [ "$subcmd" = "worktree" ]; then
+      shift
+      if [ -z "$TASKFLOW_TASK_ID" ]; then
+        echo "Error: TASKFLOW_TASK_ID is not set" >&2
+        exit 1
+      fi
+      disable=false
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --disable) disable=true; shift ;;
+          *) shift ;;
+        esac
+      done
+      if [ "$disable" = true ]; then
+        curl -sf -X PATCH "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/worktree" \\
+          -H "Content-Type: application/json" \\
+          -d "{\\"enabled\\":false}"
+      else
+        echo "Usage: taskflow-cli task worktree --disable" >&2
+        exit 1
+      fi
+    elif [ "$subcmd" = "create" ]; then
       shift
       if [ -z "$TASKFLOW_PROJECT_ID" ]; then
         echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
@@ -364,6 +396,7 @@ case "$cmd" in
     echo "Commands:" >&2
     echo "  task                                          Get task context and log" >&2
     echo "  task create <desc> [--title t]                Create a new task in the project" >&2
+    echo "  task worktree --disable                       Disable worktree after branch merge" >&2
     echo "  log <type> <message> [--hash h]               Log to task (info|commit|warning|error)" >&2
     echo "  browser <url> [--label l] [--project]         Open a browser tab" >&2
     echo "  step complete                                 Signal flow step completion" >&2

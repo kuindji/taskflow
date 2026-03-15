@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Project } from "@taskflow/shared";
+import type { Project, ProjectForkResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "../hooks/useWebSocket";
 import { useTaskStore } from "./task-store";
@@ -12,6 +12,7 @@ interface ProjectStore {
     addProject(path: string): Promise<Project>;
     updateProject(id: string, updates: { name?: string; path?: string }): Promise<Project>;
     removeProject(id: string): Promise<void>;
+    forkProject(projectId: string, branch: string, folderName?: string): Promise<ProjectForkResponse>;
 }
 
 export const useProjectStore = create<ProjectStore>((set) => ({
@@ -46,5 +47,14 @@ export const useProjectStore = create<ProjectStore>((set) => ({
         }
         useUIStore.getState().setProjectCollapsed(id, false);
         await useTaskStore.getState().fetchTasks();
+    },
+    async forkProject(projectId, branch, folderName) {
+        const response = await sendRequest<ProjectForkResponse>(MSG.PROJECT_FORK, {
+            projectId,
+            branch,
+            folderName,
+        });
+        set((s) => ({ projects: [...s.projects, response.project] }));
+        return response;
     },
 }));

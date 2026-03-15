@@ -36,6 +36,7 @@ describe("api routes", () => {
             settingsStore: new SettingsStore(join(tempDir, "settings.json")),
             flowStore: {} as never,
             flowRunner: {} as never,
+            gitService: {} as never,
         });
     });
 
@@ -110,6 +111,7 @@ describe("settings routes", () => {
             settingsStore,
             flowStore: {} as never,
             flowRunner: {} as never,
+            gitService: {} as never,
         });
     });
 
@@ -175,6 +177,7 @@ describe("flow artifact routes", () => {
             settingsStore: {} as never,
             flowStore: {} as never,
             flowRunner: flowRunner as never,
+            gitService: {} as never,
         });
     });
 
