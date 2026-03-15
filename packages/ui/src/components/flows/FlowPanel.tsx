@@ -100,7 +100,7 @@ function FlowPanel({ taskId }: FlowPanelProps) {
     };
 
     return (
-        <div className="border-border flex flex-col border-b">
+        <div className="flex h-full flex-col">
             {/* Header */}
             <div className="border-border flex items-center justify-between border-b px-3 py-1.5">
                 <span className="truncate text-xs font-medium">{flowName}</span>
@@ -145,7 +145,7 @@ function FlowPanel({ taskId }: FlowPanelProps) {
             </div>
 
             {/* Action list */}
-            <div className="max-h-48 space-y-0.5 overflow-y-auto p-2">
+            <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
                 {run.actions.map((action, i) => (
                     <div
                         key={action.actionEntryId}

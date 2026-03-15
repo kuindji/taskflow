@@ -11,7 +11,7 @@ import { sendRequest } from "@/hooks/useWebSocket";
 import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
-import { FlowPanel } from "@/components/flows/FlowPanel";
+
 import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import { useFlowStore } from "@/stores/flow-store";
@@ -459,7 +459,6 @@ export function Workspace() {
                 project={workspace.project}
                 onDiff={canShowGitControls ? handleDiffTab : undefined}
             />
-            {activeFlowRun && taskId && <FlowPanel taskId={taskId} />}
             {worktreePending ? (
                 <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-sm">
                     <Loader2 className="h-5 w-5 animate-spin" />

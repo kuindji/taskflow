@@ -14,7 +14,10 @@ import { TaskCreationDialogHost } from "@/components/sidebar/TaskCreationDialogH
 import { TaskSidebar } from "@/components/sidebar/TaskSidebar";
 import { FileExplorer } from "@/components/panels/FileExplorer";
 import { TaskInfoPanel } from "@/components/panels/TaskInfoPanel";
+import { FlowPanel } from "@/components/flows/FlowPanel";
 import { Workspace } from "@/components/workspace/Workspace";
+import { useTaskStore } from "@/stores/task-store";
+import { useFlowStore } from "@/stores/flow-store";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 function ConnectionOverlay() {
@@ -71,6 +74,11 @@ export function App() {
         window.taskflow?.sendTaskInfoState(taskInfoOpen);
     }, [taskInfoOpen]);
 
+    const activeTaskId = useTaskStore((s) => s.activeTaskId);
+    const activeFlowRun = useFlowStore((s) =>
+        activeTaskId ? s.activeRuns[activeTaskId] : undefined,
+    );
+
     const wordWrap = useSettingsStore((s) => s.settings?.editor?.wordWrap);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
 
@@ -115,6 +123,11 @@ export function App() {
                     <AppShell
                         sidebar={<TaskSidebar />}
                         fileExplorer={<FileExplorer />}
+                        flowPanel={
+                            activeFlowRun && activeTaskId ? (
+                                <FlowPanel taskId={activeTaskId} />
+                            ) : undefined
+                        }
                         workspace={<Workspace />}
                         taskInfo={<TaskInfoPanel />}
                     />

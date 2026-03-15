@@ -6,6 +6,8 @@ const FILE_EXPLORER_MIN = 150;
 const FILE_EXPLORER_MAX = 500;
 const TASK_INFO_MIN = 150;
 const TASK_INFO_MAX = 500;
+const FLOW_PANEL_MIN = 150;
+const FLOW_PANEL_MAX = 400;
 
 function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
@@ -34,6 +36,7 @@ interface UIStore {
     sidebarWidth: number;
     fileExplorerWidth: number;
     taskInfoWidth: number;
+    flowPanelWidth: number;
     panelGap: number;
     collapsedProjectIds: string[];
     toggleFileExplorer(): void;
@@ -47,12 +50,14 @@ interface UIStore {
     setSidebarWidth(width: number): void;
     setFileExplorerWidth(width: number): void;
     setTaskInfoWidth(width: number): void;
+    setFlowPanelWidth(width: number): void;
     setPanelGap(gap: number): void;
     setProjectCollapsed(projectId: string, collapsed: boolean): void;
     hydrateLayout(panels: {
         sidebarWidth?: number;
         fileExplorerWidth?: number;
         taskInfoWidth?: number;
+        flowPanelWidth?: number;
         collapsedProjectIds?: string[];
     }): void;
 }
@@ -67,6 +72,7 @@ export const useUIStore = create<UIStore>((set) => ({
     sidebarWidth: 220,
     fileExplorerWidth: 220,
     taskInfoWidth: 220,
+    flowPanelWidth: 220,
     panelGap: 4,
     collapsedProjectIds: [],
     toggleFileExplorer() {
@@ -102,6 +108,9 @@ export const useUIStore = create<UIStore>((set) => ({
     setTaskInfoWidth(width) {
         set({ taskInfoWidth: width });
     },
+    setFlowPanelWidth(width) {
+        set({ flowPanelWidth: width });
+    },
     setPanelGap(gap) {
         set({ panelGap: gap });
     },
@@ -123,6 +132,7 @@ export const useUIStore = create<UIStore>((set) => ({
                 FILE_EXPLORER_MAX,
             ),
             taskInfoWidth: clamp(panels.taskInfoWidth ?? 220, TASK_INFO_MIN, TASK_INFO_MAX),
+            flowPanelWidth: clamp(panels.flowPanelWidth ?? 220, FLOW_PANEL_MIN, FLOW_PANEL_MAX),
             collapsedProjectIds: panels.collapsedProjectIds ?? [],
         });
     },
