@@ -254,11 +254,11 @@ export async function ensureCliScript(binDir: string): Promise<void> {
 }
 
 export function buildAgentLaunchSpec(
-    type: "claude" | "codex",
+    type: "claude" | "codex" | "opencode",
     prompt: string | undefined,
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
-): { command: string; args: string[] } {
+): { command: string; args: string[]; env?: Record<string, string> } {
     if (type === "claude") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "claude") {
@@ -275,6 +275,27 @@ export function buildAgentLaunchSpec(
                 INTERNAL_AGENT_SYSTEM_PROMPT,
                 ...(prompt ? [prompt] : []),
             ],
+        };
+    }
+
+    if (type === "opencode") {
+        const config: Record<string, unknown> = {
+            instructions: [skillPath],
+        };
+        if (agentOptions?.type === "opencode" && agentOptions.fullAccess) {
+            config.permission = { edit: "allow", bash: "allow", write: "allow" };
+        }
+
+        const args: string[] = [];
+        if (agentOptions?.type === "opencode" && agentOptions.model) {
+            args.push("--model", agentOptions.model);
+        }
+        if (prompt) args.push("--prompt", prompt);
+
+        return {
+            command: "opencode",
+            args,
+            env: { OPENCODE_CONFIG_CONTENT: JSON.stringify(config) },
         };
     }
 
