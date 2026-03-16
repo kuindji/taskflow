@@ -43,6 +43,7 @@ export interface ProjectUpdatePayload {
     id: string;
     name?: string;
     path?: string;
+    hidden?: boolean;
 }
 
 export interface ProjectForkPayload {

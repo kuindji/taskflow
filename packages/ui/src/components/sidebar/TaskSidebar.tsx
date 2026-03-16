@@ -158,6 +158,7 @@ export function TaskSidebar() {
     const visibleProjects = useMemo(
         () =>
             projects.filter((project) => {
+                if (project.hidden) return false;
                 if (!showArchive) return true;
                 return (tasksByProject.get(project.id) ?? []).length > 0;
             }),

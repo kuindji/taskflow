@@ -58,13 +58,14 @@ export function registerProjectHandlers(
     });
 
     router.register(MSG.PROJECT_UPDATE, async (payload) => {
-        const { id, name, path } = payload as ProjectUpdatePayload;
-        if (!name && !path) {
-            throw new Error("At least one of name or path must be provided");
+        const { id, name, path, hidden } = payload as ProjectUpdatePayload;
+        if (!name && !path && hidden === undefined) {
+            throw new Error("At least one of name, path, or hidden must be provided");
         }
-        const updates: Partial<Pick<Project, "name" | "path">> = {};
+        const updates: Partial<Pick<Project, "name" | "path" | "hidden">> = {};
         if (name) updates.name = name;
         if (path) updates.path = path;
+        if (hidden !== undefined) updates.hidden = hidden;
         return store.updateProject(id, updates);
     });
 

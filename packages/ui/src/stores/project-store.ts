@@ -10,7 +10,11 @@ interface ProjectStore {
     loading: boolean;
     fetchProjects(): Promise<void>;
     addProject(path: string): Promise<Project>;
-    updateProject(id: string, updates: { name?: string; path?: string }): Promise<Project>;
+    updateProject(
+        id: string,
+        updates: { name?: string; path?: string; hidden?: boolean },
+    ): Promise<Project>;
+    hideProject(id: string): Promise<void>;
     removeProject(id: string): Promise<void>;
     forkProject(
         projectId: string,
@@ -46,6 +50,15 @@ export const useProjectStore = create<ProjectStore>((set) => ({
             projects: s.projects.map((p) => (p.id === id ? project : p)),
         }));
         return project;
+    },
+    async hideProject(id) {
+        const project = await sendRequest<Project>(MSG.PROJECT_UPDATE, { id, hidden: true });
+        set((s) => ({
+            projects: s.projects.map((p) => (p.id === id ? project : p)),
+        }));
+        if (useUIStore.getState().activeProjectId === id) {
+            useUIStore.getState().setActiveProject(null);
+        }
     },
     async removeProject(id) {
         await sendRequest(MSG.PROJECT_REMOVE, { id });

@@ -205,6 +205,9 @@ export class TaskStore {
         const projects = await this.listProjects();
         const duplicate = projects.find((p) => p.path === resolvedPath);
         if (duplicate) {
+            if (duplicate.hidden) {
+                return this.updateProject(duplicate.id, { hidden: false });
+            }
             throw new Error(`A project already exists at this path: ${duplicate.name}`);
         }
         const project: Project = {
@@ -230,8 +233,8 @@ export class TaskStore {
     async updateProject(
         id: string,
         updates:
-            | Partial<Pick<Project, "name" | "path" | "sessions">>
-            | ((project: Project) => Partial<Pick<Project, "name" | "path" | "sessions">>),
+            | Partial<Pick<Project, "name" | "path" | "sessions" | "hidden">>
+            | ((project: Project) => Partial<Pick<Project, "name" | "path" | "sessions" | "hidden">>),
     ): Promise<Project> {
         const projects = await this.listProjects();
         const index = projects.findIndex((p) => p.id === id);

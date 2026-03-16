@@ -13,6 +13,7 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
 import { ForkProjectDialog } from "./ForkProjectDialog";
+import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import {
     Archive,
     ArrowUpFromLine,
@@ -41,7 +42,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const archiveTask = useTaskStore((s) => s.archiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const updateProject = useProjectStore((s) => s.updateProject);
+    const hideProject = useProjectStore((s) => s.hideProject);
     const removeProject = useProjectStore((s) => s.removeProject);
+    const [removeOpen, setRemoveOpen] = useState(false);
 
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
@@ -99,14 +102,8 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
             return;
         }
         if (!project) return;
-        void confirm({
-            title: "Remove project",
-            description: `Remove "${project.name}" and delete all of its tasks? This cannot be undone.`,
-            confirmLabel: "Remove",
-            variant: "destructive",
-            onConfirm: () => removeProject(project.id),
-        });
-    }, [deleteTask, project, removeProject, task]);
+        setRemoveOpen(true);
+    }, [deleteTask, project, task]);
 
     return (
         <Toolbar className={`gap-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
@@ -276,6 +273,15 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
             )}
             {project && (
                 <ForkProjectDialog open={forkOpen} onOpenChange={setForkOpen} project={project} />
+            )}
+            {project && (
+                <RemoveProjectDialog
+                    open={removeOpen}
+                    project={project}
+                    onOpenChange={setRemoveOpen}
+                    onRemove={removeProject}
+                    onHide={hideProject}
+                />
             )}
         </Toolbar>
     );
