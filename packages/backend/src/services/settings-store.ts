@@ -7,13 +7,12 @@ import {
     DEFAULT_TERMINAL_SHELL,
     DEFAULT_THEME_ID,
 } from "@taskflow/shared";
-import type { AppSettings, SettingsUpdatePayload } from "@taskflow/shared";
+import type { AppSettings, GeneralSettings, SettingsUpdatePayload } from "@taskflow/shared";
 
 const DEFAULTS: AppSettings = {
     general: {
         fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
         fontSize: 13,
-        externalEditor: "system",
         defaultAgent: "claude",
         defaultRuntime: "bun",
     },
@@ -26,6 +25,8 @@ const DEFAULTS: AppSettings = {
         fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
         fontSize: DEFAULT_EDITOR_FONT_SIZE,
         wordWrap: DEFAULT_EDITOR_WORD_WRAP,
+        internalEditor: "monaco",
+        externalEditor: "system",
     },
     layout: {
         window: { width: 1400, height: 900, isMaximized: false },
@@ -71,9 +72,23 @@ export class SettingsStore {
     async get(): Promise<AppSettings> {
         try {
             const raw = await readFile(this.filePath, "utf-8");
-            const parsed = JSON.parse(raw) as Partial<AppSettings>;
+            const parsed = JSON.parse(raw) as Partial<AppSettings> & {
+                general?: Partial<GeneralSettings> & { externalEditor?: string };
+            };
             const defaults = createDefaultSettings();
-            return {
+
+            // Migration: move externalEditor from general to editor
+            let needsMigration = false;
+            if (parsed.general && "externalEditor" in parsed.general) {
+                if (!parsed.editor) parsed.editor = {};
+                if (!parsed.editor.externalEditor) {
+                    parsed.editor.externalEditor = parsed.general.externalEditor;
+                }
+                delete parsed.general.externalEditor;
+                needsMigration = true;
+            }
+
+            const result = {
                 general: { ...defaults.general, ...parsed.general },
                 terminal: { ...defaults.terminal, ...parsed.terminal },
                 editor: { ...defaults.editor, ...parsed.editor },
@@ -85,6 +100,13 @@ export class SettingsStore {
                 codex: { ...defaults.codex, ...parsed.codex },
                 appearance: { ...defaults.appearance, ...parsed.appearance },
             };
+
+            // Persist migration so it only runs once
+            if (needsMigration) {
+                await writeFile(this.filePath, JSON.stringify(result, null, 2));
+            }
+
+            return result;
         } catch {
             return createDefaultSettings();
         }
