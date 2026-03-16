@@ -195,7 +195,7 @@ export function Workspace() {
         setWorktreeMissingDialogOpen(false);
     }, [workspace.task, deleteTask]);
 
-    const hasScripts = useMemo(() => Object.keys(scripts).length > 0, [scripts]);
+    const hasScripts = Object.keys(scripts).length > 0;
 
     const canShowGitControls =
         !!workspace.project &&
@@ -203,7 +203,7 @@ export function Workspace() {
             !workspace.task?.worktree.enabled ||
             !!workspace.task.worktree.path);
 
-    const visibleTabs = useMemo(() => tabs, [tabs]);
+    const visibleTabs = tabs;
 
     const activeTab = visibleTabs.find((t) => t.id === activeTabId) ?? visibleTabs[0];
 

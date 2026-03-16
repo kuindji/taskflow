@@ -88,7 +88,13 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
     }, [editValue, tab.label, tab.id, onTabRename]);
 
     return (
-        <div onClick={() => onTabClick(tab.id)} className={classes}>
+        <div
+            role="button"
+            tabIndex={0}
+            onClick={() => onTabClick(tab.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTabClick(tab.id); } }}
+            className={classes}
+        >
             {tab.sessionId && <StatusDot status={status} className="mr-1" />}
             {isEditing ? (
                 <input

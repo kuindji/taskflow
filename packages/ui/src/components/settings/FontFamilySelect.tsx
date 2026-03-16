@@ -43,13 +43,13 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
         );
     }, []);
 
-    useEffect(() => {
-        if (open) {
+    const handleOpenChange = useCallback((nextOpen: boolean) => {
+        if (nextOpen) {
             setSearch("");
-            // Focus the search input after popover opens
             requestAnimationFrame(() => searchRef.current?.focus());
         }
-    }, [open]);
+        setOpen(nextOpen);
+    }, []);
 
     const filtered = useMemo(() => {
         if (!fonts) return [];
@@ -79,7 +79,7 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
 
     return (
         <div ref={containerRef} className="min-w-0">
-            <Popover open={open} onOpenChange={setOpen}>
+            <Popover open={open} onOpenChange={handleOpenChange}>
                 <PopoverTrigger asChild>
                     <Button
                         variant="outline"

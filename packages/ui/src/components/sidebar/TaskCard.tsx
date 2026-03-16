@@ -136,7 +136,10 @@ export function TaskCard({
     return (
         <>
             <div
+                role="button"
+                tabIndex={0}
                 onClick={onClick}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } }}
                 className={cn(
                     cardClasses,
                     "flex flex-col gap-1.5",

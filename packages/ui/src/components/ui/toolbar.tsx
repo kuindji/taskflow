@@ -19,4 +19,3 @@ function Toolbar({ className, noBorder, ...props }: ToolbarProps) {
 }
 
 export { Toolbar };
-export type { ToolbarProps };

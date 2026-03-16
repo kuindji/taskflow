@@ -119,4 +119,3 @@ function alert(options: AlertOptions): Promise<void> {
 }
 
 export { useDialogStore, confirm, alert };
-export type { ConfirmOptions, AlertOptions, DialogVariant };

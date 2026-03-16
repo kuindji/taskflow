@@ -59,28 +59,26 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
         };
     }, [isElectron]);
 
-    const navigate = useCallback((raw: string) => {
-        const normalized = normalizeUrl(raw);
-        if (!normalized) return;
-        setUrl(normalized);
-        setInputUrl(normalized);
-        setHistoryIndex((prevIndex) => {
-            setHistory((prev) => {
-                const next = prev.slice(0, prevIndex + 1);
-                next.push(normalized);
-                return next;
+    const navigate = useCallback(
+        (raw: string) => {
+            const normalized = normalizeUrl(raw);
+            if (!normalized) return;
+            setUrl(normalized);
+            setInputUrl(normalized);
+            setHistoryIndex((prevIndex) => {
+                setHistory((prev) => {
+                    const next = prev.slice(0, prevIndex + 1);
+                    next.push(normalized);
+                    return next;
+                });
+                return prevIndex + 1;
             });
-            return prevIndex + 1;
-        });
-    }, []);
-
-    useEffect(() => {
-        if (isElectron) {
-            setCanGoBack(webviewReady && (webviewRef.current?.canGoBack() ?? false));
-        } else {
-            setCanGoBack(historyIndex > 0);
-        }
-    }, [isElectron, webviewReady, historyIndex, url]);
+            if (!isElectron) {
+                setCanGoBack(true);
+            }
+        },
+        [isElectron],
+    );
 
     const goBack = useCallback(() => {
         if (isElectron) {
@@ -92,6 +90,7 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
             setHistoryIndex(newIndex);
             setUrl(history[newIndex]);
             setInputUrl(history[newIndex]);
+            setCanGoBack(newIndex > 0);
         }
     }, [isElectron, webviewReady, historyIndex, history]);
 

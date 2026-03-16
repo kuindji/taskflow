@@ -186,6 +186,8 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                 {run.actions.map((action, i) => (
                     <div
                         key={action.actionEntryId}
+                        role="button"
+                        tabIndex={0}
                         className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${
                             action.sessionId && workspaceKey ? "cursor-pointer" : ""
                         } ${
@@ -200,6 +202,12 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                                 : ""
                         }`}
                         onClick={() => handleActionClick(action)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleActionClick(action);
+                            }
+                        }}
                     >
                         <div className="flex h-5 w-5 shrink-0 items-center justify-center">
                             {action.status === "pending" ? (
@@ -247,8 +255,8 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                     <div className="text-muted-foreground mb-1 text-[10px] uppercase">
                         Artifacts
                     </div>
-                    {run.artifacts.map((a, i) => (
-                        <div key={i} className="flex items-center gap-2 text-xs">
+                    {run.artifacts.map((a) => (
+                        <div key={`${a.actionEntryId}-${a.createdAt}`} className="flex items-center gap-2 text-xs">
                             <span className="text-blue-400">&bull;</span>
                             <span>{a.type}</span>
                             <span className="text-muted-foreground truncate text-[10px]">

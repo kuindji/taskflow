@@ -156,7 +156,7 @@ function FlowEditor({ flow, globalActions, defaultProjectId, onSave, onCancel, o
             createdAt: flow?.createdAt ?? now,
             updatedAt: now,
         });
-    }, [flow, name, description, actions, onSave]);
+    }, [flow, name, description, actions, projectId, onSave]);
 
     const isValid =
         name.trim() !== "" &&

@@ -66,7 +66,7 @@ function ActionEditor({
             createdAt: action?.createdAt ?? now,
             updatedAt: now,
         });
-    }, [action, name, prompt, sessionType, agentOptions, standalone, onSave]);
+    }, [action, name, prompt, projectId, sessionType, agentOptions, standalone, onSave]);
 
     const handleAgentOptionsChange = useCallback((options: AgentLaunchOptions) => {
         setAgentOptions(options);
