@@ -17,6 +17,7 @@ Use taskflow-cli proactively:
 - Create a new task: \`taskflow-cli task create "description" [--title "title"]\`
 - Log significant findings: \`taskflow-cli log info "your message"\`
 - After committing, log the commit: \`taskflow-cli log commit "commit message" --hash <hash>\`
+- After doing code changes, with quick summary of changes: \`taskflow-cli log info "summary of changes"\`
 - Log types: info (findings/progress), commit (commits), warning (concerns), error (failures).
 - Open a browser tab: \`taskflow-cli browser "https://..." --label "Optional"\`
 - Open a project-scoped browser tab: \`taskflow-cli browser "https://..." --label "Optional" --project\`
