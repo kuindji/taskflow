@@ -154,9 +154,9 @@ export function TaskCard({
                         tooltip={!!compact}
                         tooltipSide="right"
                         className={cn(
-                            "leading-none font-medium",
                             isSubtask ? "text-xs" : "text-sm",
                             isActive && "text-foreground",
+                            "leading-[1.2] font-medium"
                         )}
                     >
                         {title}
@@ -171,7 +171,7 @@ export function TaskCard({
                 )}
 
                 {(displaySessions.length > 0 || (!isSubtask && task.worktree.enabled)) && (
-                    <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1">
+                    <div className="mt-0.25 flex min-w-0 flex-wrap items-center gap-1">
                         {!isSubtask && task.worktree.enabled && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
