@@ -189,6 +189,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             type,
             label: opts.label ?? getDefaultSessionLabel(type),
             createdAt: new Date().toISOString(),
+            instance: config.instanceId,
         };
         if (task) {
             await taskStore.updateTask(task.id, (currentTask) => ({

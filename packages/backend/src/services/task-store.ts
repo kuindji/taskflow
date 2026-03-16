@@ -71,16 +71,34 @@ export class TaskStore {
         await mkdir(this.config.taskLogsDir, { recursive: true });
     }
 
-    async clearAllSessions(): Promise<void> {
+    async clearAllSessions(instanceId?: string, purgeStale?: boolean): Promise<void> {
+        const staleMs = 24 * 60 * 60 * 1000;
+        const now = Date.now();
+
+        function shouldClear(s: { instance?: string; createdAt: string }): boolean {
+            if (!s.instance) return true;
+            if (instanceId && s.instance === instanceId) return true;
+            if (purgeStale && now - Date.parse(s.createdAt) > staleMs) return true;
+            return false;
+        }
+
         const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
         for (const task of tasks) {
-            if (task.sessions.length > 0) {
-                await this.updateTask(task.id, { sessions: [] });
+            if (task.sessions.length === 0) continue;
+            const remaining = instanceId
+                ? task.sessions.filter((s) => !shouldClear(s))
+                : [];
+            if (remaining.length !== task.sessions.length) {
+                await this.updateTask(task.id, { sessions: remaining });
             }
         }
         for (const project of projects) {
-            if (project.sessions.length > 0) {
-                await this.updateProject(project.id, { sessions: [] });
+            if (project.sessions.length === 0) continue;
+            const remaining = instanceId
+                ? project.sessions.filter((s) => !shouldClear(s))
+                : [];
+            if (remaining.length !== project.sessions.length) {
+                await this.updateProject(project.id, { sessions: remaining });
             }
         }
     }

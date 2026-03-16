@@ -5,6 +5,7 @@ export interface SessionRef {
     type: "claude" | "codex" | "shell";
     label: string;
     createdAt: string;
+    instance?: string;
 }
 
 export interface TaskWorktree {

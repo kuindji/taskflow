@@ -74,6 +74,7 @@ export const config = {
     portFile: process.env.TASKFLOW_PORT_FILE ?? join(tmpdir(), `.taskflow-port-${process.pid}`),
     port: Number.isInteger(devPort) && devPort > 0 ? devPort : 0,
     sessionLogsDir: getSessionLogsDir(),
+    instanceId: devBranch ? `dev-${devBranch}` : "main",
     ...buildDataPaths(initialDataDir),
 };
 
