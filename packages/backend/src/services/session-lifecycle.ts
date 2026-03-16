@@ -4,6 +4,7 @@ import type { PtyManager } from "./pty-manager";
 import type { TaskStore } from "./task-store";
 import { buildAgentLaunchSpec, ensureInternalAgentSkillFile } from "./internal-agent-skill";
 import { config } from "../config";
+import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
 
 interface SessionOwner {
     taskId?: string;
@@ -197,7 +198,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             }));
             const updatedTask = await taskStore.getTask(task.id);
             if (updatedTask) {
-                broadcast({ type: MSG.TASK_UPDATED, payload: updatedTask });
+                broadcast({ type: MSG.TASK_UPDATED, payload: filterTaskSessions(updatedTask, config.instanceId) });
             }
         } else {
             await taskStore.updateProject(project.id, (currentProject) => ({
@@ -205,7 +206,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             }));
             const updatedProject = await taskStore.getProject(project.id);
             if (updatedProject) {
-                broadcast({ type: MSG.PROJECT_UPDATED, payload: updatedProject });
+                broadcast({ type: MSG.PROJECT_UPDATED, payload: filterProjectSessions(updatedProject, config.instanceId) });
             }
         }
 
