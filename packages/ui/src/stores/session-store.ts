@@ -32,11 +32,12 @@ interface SessionStore {
     lastTerminalSize: { cols: number; rows: number } | null;
     createSession(
         owner: { taskId?: string; projectId?: string },
-        type: "claude" | "codex" | "shell",
+        type: "claude" | "codex" | "shell" | "editor",
         label?: string,
         prompt?: string,
         shell?: string,
         agentOptions?: AgentLaunchOptions,
+        editorOpts?: { editorId: string; filePath: string; line?: number },
     ): Promise<string>;
     closeSession(sessionId: string): Promise<void>;
     sendInput(sessionId: string, data: string): void;
@@ -58,11 +59,12 @@ export type { Tab };
 function getDefaultSessionLabel(type: Tab["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
+    if (type === "editor") return "Editor";
     return `${type} session`;
 }
 
 function normalizeSessionLabel(type: SessionRef["type"], label?: string): string {
-    if (!label || label === `${type} session`) {
+    if (!label || label === `${type} session` || (type === "editor" && label === "Editor")) {
         return getDefaultSessionLabel(type);
     }
     return label;
@@ -117,7 +119,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     activeTabByWorkspace: {},
     sessionStatus: {},
     lastTerminalSize: null,
-    async createSession(owner, type, label, prompt, shell, agentOptions) {
+    async createSession(owner, type, label, prompt, shell, agentOptions, editorOpts) {
         const ownerId = owner.taskId ?? owner.projectId;
         if (!ownerId) throw new Error("Either taskId or projectId is required");
         const lastTerminalSize = get().lastTerminalSize;
@@ -130,12 +132,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             cols: lastTerminalSize?.cols,
             rows: lastTerminalSize?.rows,
             agentOptions,
+            ...(editorOpts && {
+                editorId: editorOpts.editorId,
+                filePath: editorOpts.filePath,
+                line: editorOpts.line,
+            }),
         });
         const tab: Tab = {
             id: sessionId,
             type,
             label: normalizeSessionLabel(type, label),
             sessionId,
+            ...(editorOpts && { filePath: editorOpts.filePath }),
         };
         const workspaceKey = owner.taskId
             ? getTaskWorkspaceKey(owner.taskId)
