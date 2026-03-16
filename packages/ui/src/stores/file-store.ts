@@ -7,6 +7,7 @@ import type {
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { onEvent, sendRequest } from "../hooks/useWebSocket";
+import { useDiffStore } from "./diff-store";
 
 interface FileStore {
     tree: FileNode | null;
@@ -35,6 +36,7 @@ interface FileStore {
 
 let fileChangeSubscriptionReady = false;
 let fileChangeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let diffStoreUnsubscribe: (() => void) | null = null;
 let treeRequestId = 0;
 let gitStatusRequestId = 0;
 
@@ -94,11 +96,27 @@ export const useFileStore = create<FileStore>((set, get) => ({
             await sendRequest(MSG.FILE_UNWATCH, { path: previousPath });
             set({ watchedPath: null });
         }
+        if (diffStoreUnsubscribe) {
+            diffStoreUnsubscribe();
+            diffStoreUnsubscribe = null;
+        }
+        diffStoreUnsubscribe = useDiffStore.subscribe((state, prevState) => {
+            if (state.statsByProject !== prevState.statsByProject) {
+                const watchedPath = get().watchedPath;
+                if (watchedPath) {
+                    get().fetchGitStatus(watchedPath).catch(console.error);
+                }
+            }
+        });
         await sendRequest(MSG.FILE_WATCH, { path });
         set({ watchedPath: path });
     },
     async unwatchPath(path) {
         if (get().watchedPath !== path) return;
+        if (diffStoreUnsubscribe) {
+            diffStoreUnsubscribe();
+            diffStoreUnsubscribe = null;
+        }
         await sendRequest(MSG.FILE_UNWATCH, { path });
         set({ watchedPath: null });
     },

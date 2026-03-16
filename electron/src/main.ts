@@ -83,10 +83,12 @@ async function startBackend(): Promise<number> {
 
     const { binary, args } = getBackendPath();
 
+    const { CLAUDECODE: _cc, CLAUDE_CODE_ENTRYPOINT: _cce, ...safeEnv } = process.env;
+
     backendProcess = spawn(binary, args, {
         stdio: ["ignore", "pipe", "pipe"],
         env: {
-            ...process.env,
+            ...safeEnv,
             TASKFLOW_PORT_FILE: backendPortFile,
         },
     });
@@ -176,11 +178,24 @@ async function createWindow() {
 
     mainWindow = new BrowserWindow(windowOptions);
 
+    mainWindow.webContents.on("will-attach-webview", (_event, webPreferences) => {
+        webPreferences.nodeIntegration = false;
+        webPreferences.nodeIntegrationInSubFrames = false;
+        delete webPreferences.preload;
+    });
+
     if (saved?.isMaximized) {
         mainWindow.maximize();
     }
 
     let lastNonMaximizedBounds = mainWindow.getBounds();
+    mainWindow.on("focus", () => {
+        mainWindow?.webContents.send("window-focus-changed", { focused: true });
+    });
+    mainWindow.on("blur", () => {
+        mainWindow?.webContents.send("window-focus-changed", { focused: false });
+    });
+
     mainWindow.on("moved", () => {
         if (mainWindow && !mainWindow.isMaximized()) {
             lastNonMaximizedBounds = mainWindow.getBounds();
@@ -518,15 +533,21 @@ app.on("before-quit", (e) => {
     if (windowSavePromise) {
         quitting = true;
         e.preventDefault();
-        void windowSavePromise.then(() => {
-            windowSavePromise = null;
-            if (backendProcess) {
-                backendProcess.kill();
-                backendProcess = null;
-            }
-            void cleanupBackendArtifacts();
-            app.quit();
-        });
+        void windowSavePromise
+            .then(() => {
+                windowSavePromise = null;
+            })
+            .catch(() => {
+                windowSavePromise = null;
+            })
+            .finally(() => {
+                if (backendProcess) {
+                    backendProcess.kill();
+                    backendProcess = null;
+                }
+                void cleanupBackendArtifacts();
+                app.quit();
+            });
         return;
     }
     if (backendProcess) {
@@ -582,13 +603,18 @@ ipcMain.on("word-wrap-state-changed", (_event, enabled: boolean) => {
 });
 
 ipcMain.handle("get-backend-port", () => backendPort);
-ipcMain.handle("open-external-url", (_event, url: string) => shell.openExternal(url));
+ipcMain.handle("open-external-url", (_event, url: string) => {
+    if (!url.startsWith("https://") && !url.startsWith("http://")) return;
+    return shell.openExternal(url);
+});
 ipcMain.on("show-item-in-folder", (_event, filePath: string) => {
+    if (!filePath.startsWith("/") || filePath.includes("..")) return;
     shell.showItemInFolder(filePath);
 });
 ipcMain.handle(
     "open-external-file",
     (_event, filePath: string, opts?: { line?: number; col?: number; editor?: string }) => {
+        if (!filePath.startsWith("/") || filePath.includes("..")) return "";
         const editor = opts?.editor ?? "system";
         if (editor === "system") return shell.openPath(filePath);
 
@@ -646,7 +672,10 @@ ipcMain.handle("select-theme-file", async () => {
     const result = await dialog.showOpenDialog({
         properties: ["openFile"],
         filters: [
-            { name: "Theme Files", extensions: ["json", "toml", "yaml", "yml", "conf", "plist", "terminal"] },
+            {
+                name: "Theme Files",
+                extensions: ["json", "toml", "yaml", "yml", "conf", "plist", "terminal"],
+            },
             { name: "All Files", extensions: ["*"] },
         ],
     });

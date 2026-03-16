@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { WebSocketProvider } from "@/providers/WebSocketProvider";
 import { useWsStatus } from "@/providers/ws-context";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -8,12 +8,16 @@ import "@/lib/monaco-theme"; // Ensure module-level defineTheme runs
 import { AppShell } from "@/components/AppShell";
 import { DialogHost } from "@/components/DialogHost";
 import { SettingsModal } from "@/components/settings/SettingsModal";
+import { FlowManagementDialog } from "@/components/flows/FlowManagementDialog";
 import { AppearanceDialog } from "@/components/appearance/AppearanceDialog";
 import { TaskCreationDialogHost } from "@/components/sidebar/TaskCreationDialogHost";
 import { TaskSidebar } from "@/components/sidebar/TaskSidebar";
 import { FileExplorer } from "@/components/panels/FileExplorer";
 import { TaskInfoPanel } from "@/components/panels/TaskInfoPanel";
+import { FlowPanel } from "@/components/flows/FlowPanel";
 import { Workspace } from "@/components/workspace/Workspace";
+import { useTaskStore } from "@/stores/task-store";
+import { useFlowStore } from "@/stores/flow-store";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 function ConnectionOverlay() {
@@ -70,6 +74,24 @@ export function App() {
         window.taskflow?.sendTaskInfoState(taskInfoOpen);
     }, [taskInfoOpen]);
 
+    const activeTaskId = useTaskStore((s) => s.activeTaskId);
+    const activeProjectId = useUIStore((s) => s.activeProjectId);
+    const activeOwnerId = activeTaskId ?? activeProjectId;
+    const activeFlowRun = useFlowStore((s) =>
+        activeOwnerId ? s.activeRuns[activeOwnerId] : undefined,
+    );
+    const flowPanelOpen = useUIStore((s) => s.flowPanelOpen);
+
+    // Auto-open flow panel when a flow run appears
+    const prevFlowRunId = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        const runId = activeFlowRun?.flowId;
+        if (runId && runId !== prevFlowRunId.current) {
+            useUIStore.getState().setFlowPanelOpen(true);
+        }
+        prevFlowRunId.current = runId;
+    }, [activeFlowRun?.flowId]);
+
     const wordWrap = useSettingsStore((s) => s.settings?.editor?.wordWrap);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
 
@@ -107,12 +129,21 @@ export function App() {
                 <ConnectionOverlay />
                 <DialogHost />
                 <SettingsModal />
+                <FlowManagementDialog />
                 <AppearanceDialog />
                 <TaskCreationDialogHost />
                 <TooltipProvider>
                     <AppShell
                         sidebar={<TaskSidebar />}
                         fileExplorer={<FileExplorer />}
+                        flowPanel={
+                            flowPanelOpen && activeFlowRun && activeOwnerId ? (
+                                <FlowPanel
+                                    ownerId={activeOwnerId}
+                                    onClose={() => useUIStore.getState().setFlowPanelOpen(false)}
+                                />
+                            ) : undefined
+                        }
                         workspace={<Workspace />}
                         taskInfo={<TaskInfoPanel />}
                     />

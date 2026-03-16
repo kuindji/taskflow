@@ -17,7 +17,6 @@ function isAlwaysMounted(type: Tab["type"]): boolean {
     return type === "claude" || type === "codex" || type === "gemini" || type === "shell" || type === "browser";
 }
 
-
 function TabContent({ tabs, activeTabId }: TabContentProps) {
     const workspace = useActiveWorkspace();
 

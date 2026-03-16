@@ -13,13 +13,22 @@ Environment variables TASKFLOW_API_URL, TASKFLOW_TASK_ID, TASKFLOW_PROJECT_ID, a
 
 Use taskflow-cli proactively:
 - At session start, read task context: \`taskflow-cli task\` (returns task info and log from prior sessions).
+- List all tasks in the project: \`taskflow-cli task list\`
 - Create a new task: \`taskflow-cli task create "description" [--title "title"]\`
 - Log significant findings: \`taskflow-cli log info "your message"\`
 - After committing, log the commit: \`taskflow-cli log commit "commit message" --hash <hash>\`
 - Log types: info (findings/progress), commit (commits), warning (concerns), error (failures).
 - Open a browser tab: \`taskflow-cli browser "https://..." --label "Optional"\`
 - Open a project-scoped browser tab: \`taskflow-cli browser "https://..." --label "Optional" --project\`
-Session status is app-controlled, so do not post manual session status updates.`;
+- After merging a worktree branch, disable the worktree: \`taskflow-cli task worktree --disable\`
+Session status is app-controlled, so do not post manual session status updates.
+
+When running as a flow action (TASKFLOW_FLOW_ID is set):
+- Signal action completion: \`taskflow-cli action complete\`
+- Save a file artifact: \`taskflow-cli artifact save <type> --path <path>\`
+- Save a text artifact: \`taskflow-cli artifact save <type> --text <text>\`
+- List all artifacts: \`taskflow-cli artifact list\`
+- Get artifact by type: \`taskflow-cli artifact get <type>\``;
 
 const INTERNAL_AGENT_SKILL_MARKDOWN = `---
 name: taskflow-internal-api
@@ -41,6 +50,14 @@ Read task info and log from prior sessions:
 
 \`\`\`
 taskflow-cli task
+\`\`\`
+
+## List tasks
+
+List all tasks in the current project (returns task IDs, titles, statuses):
+
+\`\`\`
+taskflow-cli task list
 \`\`\`
 
 ## Create a task
@@ -73,6 +90,38 @@ taskflow-cli browser "https://example.com" --project
 \`\`\`
 
 Use \`--project\` for project-scoped tabs, otherwise tabs are task-scoped.
+
+## Worktree management
+
+After merging a task's worktree branch into the project, disable the worktree so future sessions run from the project root:
+
+\`\`\`
+taskflow-cli task worktree --disable
+\`\`\`
+
+This verifies the branch was merged, removes the worktree from disk, and deletes the branch. It will fail if the branch has not been merged yet.
+
+## Flow commands (available when TASKFLOW_FLOW_ID is set)
+
+Signal that this action is done (the next action starts automatically):
+
+\`\`\`
+taskflow-cli action complete
+\`\`\`
+
+Save artifacts for use by subsequent actions:
+
+\`\`\`
+taskflow-cli artifact save plan --path docs/plan.md
+taskflow-cli artifact save summary --text "Brief summary here"
+\`\`\`
+
+Read artifacts from prior actions:
+
+\`\`\`
+taskflow-cli artifact list
+taskflow-cli artifact get plan
+\`\`\`
 `;
 
 const CLI_SCRIPT = `#!/bin/sh
@@ -86,13 +135,57 @@ if [ -z "$TASKFLOW_API_URL" ]; then
   exit 1
 fi
 
+json_string() {
+  printf '%s' "$1" | awk '
+    BEGIN { printf "\\"" }
+    {
+      if (NR > 1) {
+        printf "\\\\n"
+      }
+      gsub(/\\\\/, "\\\\\\\\")
+      gsub(/"/, "\\\\\\"")
+      gsub(/\t/, "\\\\t")
+      gsub(/\r/, "\\\\r")
+      printf "%s", $0
+    }
+    END { printf "\\"" }
+  '
+}
+
 cmd="\${1:-}"
 shift 2>/dev/null || true
 
 case "$cmd" in
   task)
     subcmd="\${1:-}"
-    if [ "$subcmd" = "create" ]; then
+    if [ "$subcmd" = "worktree" ]; then
+      shift
+      if [ -z "$TASKFLOW_TASK_ID" ]; then
+        echo "Error: TASKFLOW_TASK_ID is not set" >&2
+        exit 1
+      fi
+      disable=false
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --disable) disable=true; shift ;;
+          *) shift ;;
+        esac
+      done
+      if [ "$disable" = true ]; then
+        curl -sf -X PATCH "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/worktree" \\
+          -H "Content-Type: application/json" \\
+          -d "{\\"enabled\\":false}"
+      else
+        echo "Usage: taskflow-cli task worktree --disable" >&2
+        exit 1
+      fi
+    elif [ "$subcmd" = "list" ]; then
+      if [ -z "$TASKFLOW_PROJECT_ID" ]; then
+        echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
+        exit 1
+      fi
+      curl -sf "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks"
+    elif [ "$subcmd" = "create" ]; then
       shift
       if [ -z "$TASKFLOW_PROJECT_ID" ]; then
         echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
@@ -116,11 +209,11 @@ case "$cmd" in
       if [ -n "$title" ]; then
         curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \\
           -H "Content-Type: application/json" \\
-          -d "{\\"description\\":\\"$description\\",\\"title\\":\\"$title\\"}"
+          -d "$(printf '{"description":%s,"title":%s}' "$(json_string "$description")" "$(json_string "$title")")"
       else
         curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \\
           -H "Content-Type: application/json" \\
-          -d "{\\"description\\":\\"$description\\"}"
+          -d "$(printf '{"description":%s}' "$(json_string "$description")")"
       fi
     else
       if [ -z "$TASKFLOW_TASK_ID" ]; then
@@ -153,13 +246,22 @@ case "$cmd" in
     done
 
     if [ -n "$hash" ]; then
+      payload=$(printf '{"type":%s,"message":%s,"sessionId":%s,"meta":{"hash":%s}}' \
+        "$(json_string "$log_type")" \
+        "$(json_string "$log_message")" \
+        "$(json_string "$TASKFLOW_SESSION_ID")" \
+        "$(json_string "$hash")")
       curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"type\\":\\"$log_type\\",\\"message\\":\\"$log_message\\",\\"sessionId\\":\\"$TASKFLOW_SESSION_ID\\",\\"meta\\":{\\"hash\\":\\"$hash\\"}}"
+        -d "$payload"
     else
+      payload=$(printf '{"type":%s,"message":%s,"sessionId":%s}' \
+        "$(json_string "$log_type")" \
+        "$(json_string "$log_message")" \
+        "$(json_string "$TASKFLOW_SESSION_ID")")
       curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"type\\":\\"$log_type\\",\\"message\\":\\"$log_message\\",\\"sessionId\\":\\"$TASKFLOW_SESSION_ID\\"}"
+        -d "$payload"
     fi
     ;;
 
@@ -196,14 +298,124 @@ case "$cmd" in
     fi
 
     if [ -n "$label" ]; then
+      payload=$(printf '{"url":%s,"label":%s}' \
+        "$(json_string "$url")" \
+        "$(json_string "$label")")
       curl -sf -X POST "$endpoint" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"url\\":\\"$url\\",\\"label\\":\\"$label\\"}"
+        -d "$payload"
     else
+      payload=$(printf '{"url":%s}' "$(json_string "$url")")
       curl -sf -X POST "$endpoint" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"url\\":\\"$url\\"}"
+        -d "$payload"
     fi
+    ;;
+
+  action)
+    if [ "\${1:-}" = "complete" ]; then
+      if [ -z "$TASKFLOW_FLOW_ID" ]; then
+        echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
+        exit 1
+      fi
+      if [ -n "$TASKFLOW_TASK_ID" ]; then
+        owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
+      else
+        owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
+      fi
+      payload=$(printf '{%s,"flowId":%s,"sessionId":%s}' \
+        "$owner_field" \
+        "$(json_string "$TASKFLOW_FLOW_ID")" \
+        "$(json_string "$TASKFLOW_SESSION_ID")")
+      curl -sf -X POST "$TASKFLOW_API_URL/api/flow/action-complete" \\
+        -H "Content-Type: application/json" \\
+        -d "$payload"
+    else
+      echo "Usage: taskflow-cli action complete" >&2
+      exit 1
+    fi
+    ;;
+
+  artifact)
+    if [ -z "$TASKFLOW_FLOW_ID" ]; then
+      echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
+      exit 1
+    fi
+    # Determine owner ID (task or project)
+    if [ -n "$TASKFLOW_TASK_ID" ]; then
+      flow_owner_id="$TASKFLOW_TASK_ID"
+      owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
+    else
+      flow_owner_id="$TASKFLOW_PROJECT_ID"
+      owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
+    fi
+    subcmd="\${1:-}"
+    shift 2>/dev/null || true
+    case "$subcmd" in
+      save)
+        artifact_type="\${1:-}"
+        if [ -z "$artifact_type" ]; then
+          echo "Usage: taskflow-cli artifact save <type> --path <path> | --text <text>" >&2
+          exit 1
+        fi
+        shift
+        artifact_path=""
+        artifact_text=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --path) artifact_path="\${2:-}"; shift 2 ;;
+            --text) artifact_text="\${2:-}"; shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        if [ -n "$artifact_path" ] && [ -n "$artifact_text" ]; then
+          echo "Use either --path or --text, not both" >&2
+          exit 1
+        fi
+        if [ -z "$artifact_path" ] && [ -z "$artifact_text" ]; then
+          echo "Either --path or --text is required" >&2
+          exit 1
+        fi
+        if [ -n "$artifact_path" ]; then
+          payload=$(printf '{%s,"flowId":%s,"actionEntryId":%s,"sessionId":%s,"type":%s,"path":%s}' \
+            "$owner_field" \
+            "$(json_string "$TASKFLOW_FLOW_ID")" \
+            "$(json_string "$TASKFLOW_ACTION_ENTRY_ID")" \
+            "$(json_string "$TASKFLOW_SESSION_ID")" \
+            "$(json_string "$artifact_type")" \
+            "$(json_string "$artifact_path")")
+          curl -sf -X POST "$TASKFLOW_API_URL/api/flow/artifact" \\
+            -H "Content-Type: application/json" \\
+            -d "$payload"
+        else
+          payload=$(printf '{%s,"flowId":%s,"actionEntryId":%s,"sessionId":%s,"type":%s,"text":%s}' \
+            "$owner_field" \
+            "$(json_string "$TASKFLOW_FLOW_ID")" \
+            "$(json_string "$TASKFLOW_ACTION_ENTRY_ID")" \
+            "$(json_string "$TASKFLOW_SESSION_ID")" \
+            "$(json_string "$artifact_type")" \
+            "$(json_string "$artifact_text")")
+          curl -sf -X POST "$TASKFLOW_API_URL/api/flow/artifact" \\
+            -H "Content-Type: application/json" \\
+            -d "$payload"
+        fi
+        ;;
+      list)
+        curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$flow_owner_id/$TASKFLOW_FLOW_ID"
+        ;;
+      get)
+        artifact_type="\${1:-}"
+        if [ -z "$artifact_type" ]; then
+          echo "Usage: taskflow-cli artifact get <type>" >&2
+          exit 1
+        fi
+        curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$flow_owner_id/$TASKFLOW_FLOW_ID/$artifact_type"
+        ;;
+      *)
+        echo "Usage: taskflow-cli artifact <save|list|get>" >&2
+        exit 1
+        ;;
+    esac
     ;;
 
   *)
@@ -211,9 +423,13 @@ case "$cmd" in
     echo "" >&2
     echo "Commands:" >&2
     echo "  task                                          Get task context and log" >&2
+    echo "  task list                                     List all tasks in the project" >&2
     echo "  task create <desc> [--title t]                Create a new task in the project" >&2
+    echo "  task worktree --disable                       Disable worktree after branch merge" >&2
     echo "  log <type> <message> [--hash h]               Log to task (info|commit|warning|error)" >&2
     echo "  browser <url> [--label l] [--project]         Open a browser tab" >&2
+    echo "  action complete                               Signal flow action completion" >&2
+    echo "  artifact <save|list|get>                      Manage flow artifacts" >&2
     exit 1
     ;;
 esac
@@ -253,12 +469,18 @@ export async function ensureCliScript(binDir: string): Promise<void> {
     await chmod(scriptPath, 0o755);
 }
 
+export { CLI_SCRIPT };
 export function buildAgentLaunchSpec(
     type: "claude" | "codex" | "gemini",
     prompt: string | undefined,
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
+    additionalSystemPrompt?: string,
 ): { command: string; args: string[] } {
+    const systemPrompt = additionalSystemPrompt
+        ? `${INTERNAL_AGENT_SYSTEM_PROMPT}\n\n${additionalSystemPrompt}`
+        : INTERNAL_AGENT_SYSTEM_PROMPT;
+
     if (type === "claude") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "claude") {
@@ -272,7 +494,7 @@ export function buildAgentLaunchSpec(
                 "--allowedTools",
                 "Bash(taskflow-cli*)",
                 "--append-system-prompt",
-                INTERNAL_AGENT_SYSTEM_PROMPT,
+                systemPrompt,
                 ...(prompt ? [prompt] : []),
             ],
         };
@@ -306,7 +528,7 @@ export function buildAgentLaunchSpec(
         args: [
             ...optionArgs,
             "-c",
-            `developer_instructions="${escapeTomlBasicString(INTERNAL_AGENT_SYSTEM_PROMPT)}"`,
+            `developer_instructions="${escapeTomlBasicString(systemPrompt)}"`,
             "-c",
             `skills.config=[{path="${escapeTomlBasicString(skillPath)}", enabled=true}]`,
             ...(prompt ? [prompt] : []),

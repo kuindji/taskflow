@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 contextBridge.exposeInMainWorld("taskflow", {
     getBackendPort: () => ipcRenderer.invoke("get-backend-port"),
@@ -99,4 +99,13 @@ contextBridge.exposeInMainWorld("taskflow", {
     quitAndInstallUpdate: () => {
         ipcRenderer.send("quit-and-install-update");
     },
+    onWindowFocusChanged: (callback: (focused: boolean) => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, payload: { focused: boolean }) =>
+            callback(payload.focused);
+        ipcRenderer.on("window-focus-changed", listener);
+        return () => {
+            ipcRenderer.removeListener("window-focus-changed", listener);
+        };
+    },
+    getPathForFile: (file: File) => webUtils.getPathForFile(file),
 });

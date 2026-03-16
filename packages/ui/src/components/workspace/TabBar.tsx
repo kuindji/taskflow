@@ -3,7 +3,13 @@ import { cva } from "class-variance-authority";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import type { AgentLaunchOptions, ShellInfo } from "@taskflow/shared";
+import type {
+    ActionDefinition,
+    AgentLaunchOptions,
+    FlowDefinition,
+    FlowRun,
+    ShellInfo,
+} from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG, type ShellListResponse } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
@@ -21,7 +27,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AgentOptionsPanel } from "./AgentOptionsPanel";
 import { StatusDot } from "@/components/ui/status-dot";
-import { X, Play, Terminal, Globe, ChevronDown, SquareTerminal } from "lucide-react";
+import { X, Play, Terminal, Globe, ChevronDown, SquareTerminal, Workflow, Zap } from "lucide-react";
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
 import { CodexIcon } from "@/components/icons/CodexIcon";
 import { GeminiIcon } from "@/components/icons/GeminiIcon";
@@ -84,7 +90,13 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
     }, [editValue, tab.label, tab.id, onTabRename]);
 
     return (
-        <div onClick={() => onTabClick(tab.id)} className={classes}>
+        <div
+            role="button"
+            tabIndex={0}
+            onClick={() => onTabClick(tab.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTabClick(tab.id); } }}
+            className={classes}
+        >
             {tab.sessionId && <StatusDot status={status} className="mr-1" />}
             {isEditing ? (
                 <input
@@ -148,8 +160,14 @@ interface TabBarProps {
     ) => void;
     onRunTab: (type: "claude" | "codex" | "gemini", agentOptions?: AgentLaunchOptions) => void;
     onRunScript: (scriptName: string) => void;
+    onRunAction: (action: ActionDefinition) => void;
+    onStartFlow: (flowId: string) => void;
+    onManageFlows: () => void;
     scripts: Record<string, string>;
     defaultRuntime: string;
+    flows: FlowDefinition[];
+    standaloneActions: ActionDefinition[];
+    activeFlowRun: FlowRun | null;
     showRunButton: boolean;
     showAgentOptions: boolean;
     allowSessionTabs: boolean;
@@ -164,8 +182,14 @@ export function TabBar({
     onNewTab,
     onRunTab,
     onRunScript,
+    onRunAction,
+    onStartFlow,
+    onManageFlows,
     scripts,
     defaultRuntime,
+    flows,
+    standaloneActions,
+    activeFlowRun,
     showRunButton,
     showAgentOptions,
     allowSessionTabs,
@@ -243,9 +267,62 @@ export function TabBar({
                                 </DropdownMenuSubContent>
                             </DropdownMenuSub>
                         )}
-                        {showAgentOptions && (
+                        {flows.length > 0 && !activeFlowRun && (
                             <>
                                 {scriptNames.length > 0 && <DropdownMenuSeparator />}
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger>
+                                        <Workflow className="mr-2 h-4 w-4" />
+                                        Flows
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent>
+                                        {flows.map((f) => (
+                                            <DropdownMenuItem
+                                                key={f.id}
+                                                onClick={() => onStartFlow(f.id)}
+                                            >
+                                                {f.name}
+                                            </DropdownMenuItem>
+                                        ))}
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem onClick={onManageFlows}>
+                                            Manage Flows...
+                                        </DropdownMenuItem>
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            </>
+                        )}
+                        {standaloneActions.length > 0 && (
+                            <>
+                                {scriptNames.length > 0 && flows.length === 0 && (
+                                    <DropdownMenuSeparator />
+                                )}
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger>
+                                        <Zap className="mr-2 h-4 w-4" />
+                                        Actions
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent>
+                                        {standaloneActions.map((a) => (
+                                            <DropdownMenuItem
+                                                key={a.id}
+                                                onClick={() => onRunAction(a)}
+                                            >
+                                                {a.name}
+                                                <span className="text-muted-foreground ml-auto text-xs">
+                                                    {a.sessionType}
+                                                </span>
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            </>
+                        )}
+                        {showAgentOptions && (
+                            <>
+                                {(scriptNames.length > 0 ||
+                                    flows.length > 0 ||
+                                    standaloneActions.length > 0) && <DropdownMenuSeparator />}
                                 <DropdownMenuItem
                                     disabled={!claudeAvailable}
                                     onClick={() => claudeAvailable && onRunTab("claude")}
@@ -332,7 +409,11 @@ export function TabBar({
                                     }
                                 }}
                                 aria-label="New Claude session"
-                                tooltip={claudeAvailable ? "New Claude session (Shift+click for options)" : "Claude CLI not installed"}
+                                tooltip={
+                                    claudeAvailable
+                                        ? "New Claude session (Shift+click for options)"
+                                        : "Claude CLI not installed"
+                                }
                                 tooltipSide="bottom"
                             >
                                 <ClaudeIcon className="h-3.5 w-3.5" />
@@ -364,7 +445,11 @@ export function TabBar({
                                     }
                                 }}
                                 aria-label="New Codex session"
-                                tooltip={codexAvailable ? "New Codex session (Shift+click for options)" : "Codex CLI not installed"}
+                                tooltip={
+                                    codexAvailable
+                                        ? "New Codex session (Shift+click for options)"
+                                        : "Codex CLI not installed"
+                                }
                                 tooltipSide="bottom"
                             >
                                 <CodexIcon className="h-3.5 w-3.5" />

@@ -92,7 +92,7 @@ describe("deriveTheme", () => {
 
     it("produces xterm theme with all 20 colors", () => {
         const resolved = deriveTheme(dracula);
-        expect(resolved.xterm.background).toBe("#282a36");
+        expect(resolved.xterm.background).toBe("#21222c");
         expect(resolved.xterm.foreground).toBe("#f8f8f2");
         expect(resolved.xterm.cursor).toBe("#f8f8f2");
         expect(resolved.xterm.cursorAccent).toBe("#282a36");

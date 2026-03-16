@@ -2,12 +2,22 @@ import { MSG } from "@taskflow/shared";
 import type {
     Project,
     ProjectAddPayload,
+    ProjectForkPayload,
     ProjectRemovePayload,
     ProjectUpdatePayload,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
 import type { GitService } from "../services/git-service";
+import { stat, rm } from "fs/promises";
+import { dirname, join } from "path";
+
+function slugify(branch: string): string {
+    return branch
+        .toLowerCase()
+        .replace(/[/ ]/g, "-")
+        .replace(/[^a-z0-9\-.]/g, "");
+}
 
 export function registerProjectHandlers(
     router: Router,
@@ -56,5 +66,58 @@ export function registerProjectHandlers(
         if (name) updates.name = name;
         if (path) updates.path = path;
         return store.updateProject(id, updates);
+    });
+
+    router.register(MSG.PROJECT_FORK, async (payload) => {
+        const { projectId, branch, folderName } = payload as ProjectForkPayload;
+
+        const project = await store.getProject(projectId);
+        if (!project) {
+            throw new Error("Project not found");
+        }
+
+        const derivedFolder = folderName?.trim() || slugify(branch);
+        if (!derivedFolder) {
+            throw new Error("Could not derive folder name from branch");
+        }
+
+        const targetPath = join(dirname(project.path), derivedFolder);
+
+        // Check target doesn't exist
+        const exists = await stat(targetPath).then(
+            () => true,
+            () => false,
+        );
+        if (exists) {
+            throw new Error(`Folder already exists: ${targetPath}`);
+        }
+
+        const currentBranch = await gitService.getBranch(project.path);
+        if (!currentBranch) {
+            throw new Error("Could not determine current branch");
+        }
+
+        const remoteUrl = await gitService.getRemoteUrl(project.path);
+
+        // Clone and set up — clean up on failure
+        try {
+            await gitService.clone(project.path, targetPath, currentBranch);
+            await gitService.createBranch(targetPath, branch);
+            if (remoteUrl) {
+                await gitService.setRemoteUrl(targetPath, remoteUrl);
+            }
+        } catch (err) {
+            // Clean up partial clone
+            await rm(targetPath, { recursive: true, force: true }).catch(() => {});
+            throw err;
+        }
+
+        // Derive name same as PROJECT_ADD handler
+        const segments = targetPath.split("/").filter(Boolean).slice(-2).join("/");
+        const newName = `${segments} (${branch})`;
+
+        const newProject = await store.addProject({ name: newName, path: targetPath });
+
+        return { project: newProject, targetPath, branch };
     });
 }

@@ -59,7 +59,9 @@ function getColorParser(): HTMLDivElement | null {
 }
 
 function toHexByte(value: number): string {
-    return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
+    return Math.max(0, Math.min(255, Math.round(value)))
+        .toString(16)
+        .padStart(2, "0");
 }
 
 function parseCssColor(value: string, fallback: string): [number, number, number, number] {
@@ -101,12 +103,7 @@ function parseColorString(value: string): [number, number, number, number] | nul
     if (!match) return null;
 
     const [, r, g, b, alpha] = match;
-    return [
-        Number(r),
-        Number(g),
-        Number(b),
-        alpha === undefined ? 1 : Number(alpha),
-    ];
+    return [Number(r), Number(g), Number(b), alpha === undefined ? 1 : Number(alpha)];
 }
 
 function toMonacoColor(value: string, fallback: string, alphaMultiplier = 1): string {
@@ -156,10 +153,7 @@ function updateMonacoTheme(resolved: ResolvedTheme): void {
                 FALLBACKS.selection,
                 0.5,
             ),
-            "editor.lineHighlightBackground": toMonacoColor(
-                css["--card"],
-                FALLBACKS.lineHighlight,
-            ),
+            "editor.lineHighlightBackground": toMonacoColor(css["--card"], FALLBACKS.lineHighlight),
             "editorCursor.foreground": resolved.xterm.cursor,
             "editorWhitespace.foreground": toMonacoColor(
                 css["--secondary"],

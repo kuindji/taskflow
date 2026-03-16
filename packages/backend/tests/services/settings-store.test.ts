@@ -17,6 +17,7 @@ const DEFAULT_LAYOUT = {
         sidebarWidth: 220,
         fileExplorerWidth: 220,
         taskInfoWidth: 220,
+        flowPanelWidth: 220,
         compactSidebar: false,
         collapsedProjectIds: [],
     },
@@ -165,6 +166,7 @@ describe("SettingsStore", () => {
                 sidebarWidth: 220,
                 fileExplorerWidth: 220,
                 taskInfoWidth: 220,
+                flowPanelWidth: 220,
                 compactSidebar: false,
                 collapsedProjectIds: [],
             },
@@ -207,6 +209,7 @@ describe("SettingsStore", () => {
             sidebarWidth: 220,
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
+            flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: [],
         });
@@ -232,6 +235,7 @@ describe("SettingsStore", () => {
             sidebarWidth: 280,
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
+            flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: [],
         });
@@ -251,6 +255,7 @@ describe("SettingsStore", () => {
             sidebarWidth: 220,
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
+            flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: ["project-a", "project-b"],
         });

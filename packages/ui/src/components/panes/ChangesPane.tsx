@@ -87,8 +87,24 @@ function FileStatusRow({
         [file.status],
     );
 
+    const handleKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect(file.path);
+            }
+        },
+        [onSelect, file.path],
+    );
+
     return (
-        <div onClick={() => onSelect(file.path)} className={rowClasses}>
+        <div
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelect(file.path)}
+            onKeyDown={handleKeyDown}
+            className={rowClasses}
+        >
             <span className="flex min-w-0 items-center gap-1.5">
                 <Badge
                     variant="outline"
@@ -387,7 +403,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                                 </div>
                                 {diff.staged.split("\n").map((line, i) => (
                                     <div
-                                        key={`staged-${i}`}
+                                        key={`s-${i}-${line.slice(0, 20)}`}
                                         className={diffLineVariants({
                                             type: getDiffLineType(line),
                                         })}
@@ -407,7 +423,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                                 </div>
                                 {diff.unstaged.split("\n").map((line, i) => (
                                     <div
-                                        key={`unstaged-${i}`}
+                                        key={`u-${i}-${line.slice(0, 20)}`}
                                         className={diffLineVariants({
                                             type: getDiffLineType(line),
                                         })}
@@ -433,4 +449,3 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
 }
 
 export { ChangesPane };
-export type { ChangesPaneProps };

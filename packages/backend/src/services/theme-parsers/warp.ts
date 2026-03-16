@@ -23,7 +23,10 @@ function normalizeHex(value: unknown): string | null {
     return `#${match[1].toLowerCase()}`;
 }
 
-function extractAnsi(normal: Record<string, string> | undefined, bright: Record<string, string> | undefined): AnsiColors | null {
+function extractAnsi(
+    normal: Record<string, string> | undefined,
+    bright: Record<string, string> | undefined,
+): AnsiColors | null {
     const colorMap: Record<string, keyof AnsiColors> = {
         black: "black",
         red: "red",

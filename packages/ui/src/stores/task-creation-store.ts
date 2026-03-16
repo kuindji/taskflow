@@ -6,7 +6,9 @@ interface TaskCreationStore {
     newProjectOpen: boolean;
     openTaskAfterProject: boolean;
     projectError: string | null;
+    parentTaskId: string | null;
     requestNewTask(): void;
+    requestNewSubtask(parentTaskId: string): void;
     openProjectDialog(thenOpenTask?: boolean): void;
     setNewTaskOpen(open: boolean): void;
     setNewProjectOpen(open: boolean): void;
@@ -19,12 +21,23 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
     newProjectOpen: false,
     openTaskAfterProject: false,
     projectError: null,
+    parentTaskId: null,
     requestNewTask() {
         const hasProjects = useProjectStore.getState().projects.length > 0;
         set({
             newTaskOpen: hasProjects,
             newProjectOpen: !hasProjects,
             openTaskAfterProject: !hasProjects,
+            projectError: null,
+            parentTaskId: null,
+        });
+    },
+    requestNewSubtask(parentTaskId: string) {
+        set({
+            newTaskOpen: true,
+            parentTaskId,
+            newProjectOpen: false,
+            openTaskAfterProject: false,
             projectError: null,
         });
     },
@@ -37,7 +50,7 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
         });
     },
     setNewTaskOpen(open) {
-        set({ newTaskOpen: open });
+        set(open ? { newTaskOpen: open } : { newTaskOpen: open, parentTaskId: null });
     },
     setNewProjectOpen(open) {
         set((state) => ({

@@ -132,8 +132,7 @@ function parseTerminalAppXml(xml: string, fallbackName: string): ThemeSource | n
         background: bg,
         cursor: colorForKeys(parsed, ["CursorColor", "Cursor Color"]) ?? fg,
         cursorText: bg,
-        selection:
-            colorForKeys(parsed, ["SelectionColor", "Selection Color"]) ?? resolvedAnsi.blue,
+        selection: colorForKeys(parsed, ["SelectionColor", "Selection Color"]) ?? resolvedAnsi.blue,
         selectionText: fg,
         ansi: resolvedAnsi,
     };

@@ -44,7 +44,12 @@ function tokenize(xml: string): Token[] {
 }
 
 export function isPlistDict(value: PlistValue): value is PlistDict {
-    return typeof value === "object" && value !== null && !Array.isArray(value) && !(value instanceof Uint8Array);
+    return (
+        typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        !(value instanceof Uint8Array)
+    );
 }
 
 export function parsePlistXml(xml: string): PlistValue | null {

@@ -39,7 +39,6 @@ function AppearanceDialog() {
                         <ImportTab />
                     </TabsContent>
 
-
                     <TabsContent value="fonts" className="mt-4 flex-1 overflow-y-auto">
                         <FontsTab />
                     </TabsContent>

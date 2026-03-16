@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { AgentLaunchOptions, AgentType } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -15,58 +15,89 @@ import { useSettingsStore } from "@/stores/settings-store";
 
 interface AgentOptionsPanelProps {
     agentType: AgentType;
+    value?: AgentLaunchOptions;
+    emitOnMount?: boolean;
     onRun?: (options: AgentLaunchOptions) => void;
     onChange?: (options: AgentLaunchOptions) => void;
 }
 
-function AgentOptionsPanel({ agentType, onRun, onChange }: AgentOptionsPanelProps) {
+function AgentOptionsPanel({
+    agentType,
+    value,
+    emitOnMount = false,
+    onRun,
+    onChange,
+}: AgentOptionsPanelProps) {
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
     const geminiSettings = useSettingsStore((s) => s.settings?.gemini);
 
+    const matchingValue = value?.type === agentType ? value : undefined;
     const defaultFullAccess =
-        agentType === "claude"
+        matchingValue?.fullAccess ??
+        (agentType === "claude"
             ? (claudeSettings?.fullAccess ?? false)
             : agentType === "gemini"
               ? (geminiSettings?.fullAccess ?? false)
-              : (codexSettings?.fullAccess ?? false);
+              : (codexSettings?.fullAccess ?? false));
     const defaultModel =
-        agentType === "claude"
-            ? (claudeSettings?.defaultModel ?? "default")
-            : agentType === "gemini"
-              ? (geminiSettings?.defaultModel ?? "default")
-              : "default";
+        agentType === "claude" && matchingValue?.type === "claude"
+            ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
+            : agentType === "gemini" && matchingValue?.type === "gemini"
+              ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "default")
+              : agentType === "claude"
+                ? (claudeSettings?.defaultModel ?? "default")
+                : agentType === "gemini"
+                  ? (geminiSettings?.defaultModel ?? "default")
+                  : "default";
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [model, setModel] = useState<string>(defaultModel);
 
     const isFirstRender = useRef(true);
+    const onChangeRef = useRef(onChange);
 
     useEffect(() => {
-        if (isFirstRender.current) {
-            isFirstRender.current = false;
-            return;
+        onChangeRef.current = onChange;
+    }, [onChange]);
+
+    useEffect(() => {
+        setFullAccess(defaultFullAccess);
+        if (agentType === "claude" || agentType === "gemini") {
+            setModel(defaultModel);
         }
-        if (!onChange) return;
+    }, [agentType, defaultFullAccess, defaultModel]);
+
+    const emitChange = useCallback(() => {
+        const cb = onChangeRef.current;
+        if (!cb) return;
         if (agentType === "claude") {
-            onChange({
+            cb({
                 type: "claude",
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
             });
         } else if (agentType === "gemini") {
-            onChange({
+            cb({
                 type: "gemini",
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
             });
         } else {
-            onChange({
+            cb({
                 type: "codex",
                 fullAccess: fullAccess || undefined,
             });
         }
-    }, [agentType, fullAccess, model, onChange]);
+    }, [agentType, fullAccess, model]);
+
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            if (!emitOnMount) return;
+        }
+        emitChange();
+    }, [emitOnMount, emitChange]);
 
     const handleRun = () => {
         if (!onRun) return;

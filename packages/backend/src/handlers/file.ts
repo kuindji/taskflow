@@ -44,7 +44,7 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
 
     router.register(MSG.FILE_WRITE, async (payload) => {
         const { path, content } = payload as FileWritePayload;
-        const workspacePath = await assertWorkspacePath(taskStore, path);
+        const workspacePath = await assertMutableWorkspacePath(taskStore, path);
         await writeFile(workspacePath, content, "utf-8");
         return { success: true };
     });
