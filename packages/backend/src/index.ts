@@ -58,6 +58,7 @@ async function main() {
 
         const shells = await detectShells();
         const systemShellPath = resolveSystemShellPath(shells);
+        const editors = await detectEditors();
 
         const router = new Router();
         const apiRouter = new ApiRouter();
@@ -69,6 +70,7 @@ async function main() {
             taskStore: store,
             broadcast: server.broadcast,
             getPort: () => serverPort,
+            detectedEditors: editors,
         });
 
         const titleGenerator = createTitleGenerator({
@@ -192,7 +194,6 @@ async function main() {
             return { success: true };
         });
 
-        const editors = await detectEditors();
         const runtimes = await detectRuntimes();
         router.register(MSG.SYSTEM_INFO, async () => ({ editors }));
         router.register(MSG.SHELLS_LIST, async () => ({
