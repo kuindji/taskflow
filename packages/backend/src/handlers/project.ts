@@ -11,6 +11,8 @@ import type { TaskStore } from "../services/task-store";
 import type { GitService } from "../services/git-service";
 import { stat, rm } from "fs/promises";
 import { dirname, join } from "path";
+import { filterProjectSessions } from "../services/instance-filter";
+import { config } from "../config";
 
 function slugify(branch: string): string {
     return branch
@@ -27,7 +29,7 @@ export function registerProjectHandlers(
 ): void {
     router.register(MSG.PROJECT_LIST, async () => {
         const projects = await store.listProjects();
-        return { projects };
+        return { projects: projects.map((p) => filterProjectSessions(p, config.instanceId)) };
     });
 
     router.register(MSG.PROJECT_ADD, async (payload) => {
@@ -66,7 +68,8 @@ export function registerProjectHandlers(
         if (name) updates.name = name;
         if (path) updates.path = path;
         if (hidden !== undefined) updates.hidden = hidden;
-        return store.updateProject(id, updates);
+        const updated = await store.updateProject(id, updates);
+        return filterProjectSessions(updated, config.instanceId);
     });
 
     router.register(MSG.PROJECT_FORK, async (payload) => {

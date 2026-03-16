@@ -15,6 +15,8 @@ import type { TaskStore } from "../services/task-store";
 import type { GitService } from "../services/git-service";
 import type { FlowStore } from "../services/flow-store";
 import type { FlowRunner } from "../services/flow-runner";
+import { filterTaskSessions } from "../services/instance-filter";
+import { config } from "../config";
 
 interface TaskHandlerDeps {
     router: Router;
@@ -56,7 +58,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
     router.register(MSG.TASK_LIST, async (payload) => {
         const { projectId } = (payload ?? {}) as TaskListPayload;
         const tasks = await store.listTasks(projectId);
-        return { tasks };
+        return { tasks: tasks.map((t) => filterTaskSessions(t, config.instanceId)) };
     });
 
     router.register(MSG.TASK_CREATE, async (payload) => {
@@ -95,7 +97,8 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
 
     router.register(MSG.TASK_UPDATE, async (payload) => {
         const { id, ...updates } = payload as TaskUpdatePayload;
-        return store.updateTask(id, updates);
+        const updated = await store.updateTask(id, updates);
+        return filterTaskSessions(updated, config.instanceId);
     });
 
     router.register(MSG.TASK_ARCHIVE, async (payload) => {
@@ -114,12 +117,13 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
 
         await failActiveFlows(id);
         await stopTaskSessions(task, true);
-        return store.archiveTask(id);
+        const archived = await store.archiveTask(id);
+        return filterTaskSessions(archived, config.instanceId);
     });
 
     router.register(MSG.TASK_LIST_ARCHIVED, async () => {
         const tasks = await store.listArchived();
-        return { tasks };
+        return { tasks: tasks.map((t) => filterTaskSessions(t, config.instanceId)) };
     });
 
     router.register(MSG.TASK_UNARCHIVE, async (payload) => {
@@ -134,7 +138,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             }
         }
 
-        return task;
+        return filterTaskSessions(task, config.instanceId);
     });
 
     router.register(MSG.TASK_DELETE, async (payload) => {
