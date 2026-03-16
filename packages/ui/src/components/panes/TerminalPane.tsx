@@ -126,22 +126,48 @@ function openUrlInApp(url: string, workspaceKey: string | null) {
     });
 }
 
-function openFileInApp(filePath: string, workspaceKey: string | null) {
+function openFileInApp(
+    filePath: string,
+    workspaceKey: string | null,
+    owner?: { taskId?: string; projectId?: string },
+    line?: number,
+) {
     if (!workspaceKey) return;
     const store = useSessionStore.getState();
-    const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
-    const existing = existingTabs.find((t) => t.type === "editor" && t.filePath === filePath);
-    if (existing) {
-        store.setActiveTab(workspaceKey, existing.id);
-        return;
+    const settings = useSettingsStore.getState().settings;
+    const internalEditor = settings?.editor.internalEditor ?? "monaco";
+
+    if (internalEditor === "monaco") {
+        // Existing Monaco behavior
+        const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
+        const existing = existingTabs.find(
+            (t) => t.type === "editor" && t.filePath === filePath && !t.sessionId,
+        );
+        if (existing) {
+            store.setActiveTab(workspaceKey, existing.id);
+            return;
+        }
+        const label = filePath.split("/").pop() ?? filePath;
+        store.addTab(workspaceKey, {
+            id: crypto.randomUUID(),
+            type: "editor",
+            label,
+            filePath,
+        });
+    } else if (owner) {
+        // CLI editor: spawn terminal session
+        const basename = filePath.split("/").pop() ?? filePath;
+        const label = `${internalEditor}: ${basename}`;
+        void store.createSession(
+            owner,
+            "editor",
+            label,
+            undefined,
+            undefined,
+            undefined,
+            { editorId: internalEditor, filePath, line },
+        );
     }
-    const label = filePath.split("/").pop() ?? filePath;
-    store.addTab(workspaceKey, {
-        id: crypto.randomUUID(),
-        type: "editor",
-        label,
-        filePath,
-    });
 }
 
 function openExternalUrl(url: string) {
@@ -154,7 +180,7 @@ function openExternalUrl(url: string) {
 
 function openExternalFile(filePath: string, opts?: { line?: number; col?: number }) {
     if (window.taskflow) {
-        const editor = useSettingsStore.getState().settings?.general.externalEditor;
+        const editor = useSettingsStore.getState().settings?.editor.externalEditor;
         void window.taskflow.openExternalFile(filePath, { ...opts, editor });
     }
 }
@@ -282,7 +308,7 @@ function createFilePathLinkProvider(
                         },
                         text: fullMatch,
                         activate(event: MouseEvent, text: string) {
-                            void handlePathActivation(text, workingDir, workspaceKey, event);
+                            void handlePathActivation(text, workingDir, workspaceKey, event, taskId, projectId);
                         },
                     });
                 }
@@ -298,6 +324,8 @@ async function handlePathActivation(
     workingDir: string | null,
     workspaceKey: string | null,
     event: MouseEvent,
+    taskId?: string,
+    projectId?: string,
 ): Promise<void> {
     const resolved = resolvePath(text, workingDir);
     if (!resolved) return;
@@ -329,7 +357,7 @@ async function handlePathActivation(
         if (isExternal) {
             openExternalFile(resolved, { line, col });
         } else {
-            openFileInApp(resolved, workspaceKey);
+            openFileInApp(resolved, workspaceKey, { taskId, projectId }, line);
         }
     }
 }

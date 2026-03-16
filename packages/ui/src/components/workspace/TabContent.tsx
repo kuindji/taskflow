@@ -13,8 +13,9 @@ interface TabContentProps {
 }
 
 /** Tab types that stay mounted when inactive (never display:none) */
-function isAlwaysMounted(type: Tab["type"]): boolean {
-    return type === "claude" || type === "codex" || type === "shell" || type === "browser";
+function isAlwaysMounted(tab: Tab): boolean {
+    if (tab.type === "editor" && tab.sessionId) return true;
+    return tab.type === "claude" || tab.type === "codex" || tab.type === "shell" || tab.type === "browser";
 }
 
 function TabContent({ tabs, activeTabId }: TabContentProps) {
@@ -60,6 +61,19 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
 
                     case "editor":
                         label = tab.filePath?.split("/").pop() ?? "Editor";
+                        if (tab.sessionId) {
+                            // CLI editor running in terminal
+                            pane = (
+                                <TerminalPane
+                                    taskId={workspace.task?.id}
+                                    projectId={workspace.task ? undefined : workspace.project?.id}
+                                    sessionId={tab.sessionId}
+                                    visible={isActive}
+                                />
+                            );
+                            break;
+                        }
+                        // Monaco editor (no sessionId)
                         if (!isActive) return null;
                         pane = tab.filePath ? (
                             <EditorPane filePath={tab.filePath} />
@@ -92,7 +106,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                 // Always-mounted tabs (terminals, browser) use absolute positioning
                 // with visibility toggle instead of display:none. This ensures xterm's
                 // viewport always has valid DOM dimensions for scroll calculations.
-                if (isAlwaysMounted(tab.type)) {
+                if (isAlwaysMounted(tab)) {
                     return (
                         <ErrorBoundary key={tab.id} fallbackLabel={label}>
                             <div
