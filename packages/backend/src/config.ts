@@ -1,3 +1,4 @@
+import { execFileSync } from "child_process";
 import { readFileSync } from "fs";
 import { mkdir, writeFile, access } from "fs/promises";
 import { join } from "path";
@@ -35,6 +36,34 @@ function buildDataPaths(dataDir: string) {
 
 const devPort = process.env.TASKFLOW_DEV_PORT ? parseInt(process.env.TASKFLOW_DEV_PORT, 10) : 0;
 
+function getDevBranch(): string | null {
+    if (process.env.TASKFLOW_DEV_BRANCH) {
+        return process.env.TASKFLOW_DEV_BRANCH;
+    }
+    if (process.env.TASKFLOW_DEV) {
+        try {
+            return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+                encoding: "utf-8",
+                timeout: 3000,
+            })
+                .trim()
+                .replace(/\//g, "-");
+        } catch {
+            return "unknown";
+        }
+    }
+    return null;
+}
+
+const devBranch = getDevBranch();
+
+function getSessionLogsDir(): string {
+    if (devBranch) {
+        return join(tmpdir(), `taskflow-session-logs-dev-${devBranch}`);
+    }
+    return join(tmpdir(), "taskflow-session-logs");
+}
+
 const initialDataDir = readDataDir();
 
 export const config = {
@@ -44,7 +73,7 @@ export const config = {
     settingsFile: join(BASE_DIR, "settings.json"),
     portFile: process.env.TASKFLOW_PORT_FILE ?? join(tmpdir(), `.taskflow-port-${process.pid}`),
     port: Number.isInteger(devPort) && devPort > 0 ? devPort : 0,
-    sessionLogsDir: join(tmpdir(), "taskflow-session-logs"),
+    sessionLogsDir: getSessionLogsDir(),
     ...buildDataPaths(initialDataDir),
 };
 

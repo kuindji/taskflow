@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from "electron";
 import { autoUpdater } from "electron-updater";
-import { spawn, execFile, type ChildProcess } from "child_process";
+import { spawn, execFile, execFileSync, type ChildProcess } from "child_process";
 import { constants } from "fs";
 import { access, readFile, rm } from "fs/promises";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
 
 let mainWindow: BrowserWindow | null = null;
@@ -90,6 +90,7 @@ async function startBackend(): Promise<number> {
         env: {
             ...safeEnv,
             TASKFLOW_PORT_FILE: backendPortFile,
+            ...(devBranch ? { TASKFLOW_DEV_BRANCH: devBranch } : {}),
         },
     });
 
@@ -492,6 +493,22 @@ function setupAutoUpdater() {
     autoUpdater.checkForUpdates().catch((err: unknown) => {
         console.error("[updater] Startup check failed:", err);
     });
+}
+
+let devBranch: string | null = null;
+
+if (process.env.TASKFLOW_DEV) {
+    try {
+        const raw = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+            encoding: "utf-8",
+            timeout: 3000,
+        }).trim();
+        devBranch = raw.replace(/\//g, "-");
+    } catch {
+        devBranch = "unknown";
+    }
+    app.setName(`Taskflow Dev (${devBranch})`);
+    app.setPath("userData", join(homedir(), ".config", `taskflow-dev-${devBranch}`));
 }
 
 const gotLock = app.requestSingleInstanceLock();
