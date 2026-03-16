@@ -5,6 +5,8 @@ import type { WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 import { slugify } from "../utils/slugify";
+import { filterTaskSessions } from "./instance-filter";
+import { config } from "../config";
 
 interface TitleGeneratorDeps {
     taskStore: TaskStore;
@@ -33,7 +35,7 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
             const updated = await taskStore.updateTask(taskId, {
                 worktree: { enabled: true, path: worktreePath, branch },
             });
-            broadcast({ type: MSG.TASK_UPDATED, payload: updated });
+            broadcast({ type: MSG.TASK_UPDATED, payload: filterTaskSessions(updated, config.instanceId) });
         } catch (error) {
             console.error(`Failed to create worktree for task ${taskId}:`, error);
         }
@@ -66,7 +68,7 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
             if (!title) return;
 
             const updated = await taskStore.updateTask(taskId, { title });
-            broadcast({ type: MSG.TASK_UPDATED, payload: updated });
+            broadcast({ type: MSG.TASK_UPDATED, payload: filterTaskSessions(updated, config.instanceId) });
 
             await createWorktreeForTask(taskId, title);
         } catch {
