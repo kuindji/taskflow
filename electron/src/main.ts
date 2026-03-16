@@ -639,7 +639,6 @@ ipcMain.handle(
                 ...(col != null ? ["--column", String(col)] : []),
                 filePath,
             ],
-            emacs: () => ["emacs", line != null ? `+${line}:${col ?? 1}` : "+1", filePath],
         };
 
         const buildArgs = editorCommands[editor];
