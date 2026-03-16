@@ -5,6 +5,8 @@ export const MSG = {
     PROJECT_ADD: "project:add",
     PROJECT_REMOVE: "project:remove",
     PROJECT_UPDATE: "project:update",
+    PROJECT_FORK: "project:fork",
+    PROJECT_UPDATED: "project:updated",
 
     // Tasks
     TASK_LIST: "task:list",
@@ -63,6 +65,25 @@ export const MSG = {
     GIT_GENERATE_COMMIT_MSG: "git:generate-commit-msg",
     GIT_CREATE_PR: "git:create-pr",
 
+    // Flow definitions
+    FLOW_DEFINITIONS_LIST: "flow:definitions-list",
+    FLOW_ACTIONS_LIST: "flow:actions-list",
+    FLOW_DEFINITION_SAVE: "flow:definition-save",
+    FLOW_ACTION_SAVE: "flow:action-save",
+    FLOW_DEFINITION_DELETE: "flow:definition-delete",
+    FLOW_ACTION_DELETE: "flow:action-delete",
+
+    // Flow execution
+    FLOW_START: "flow:start",
+    FLOW_STOP: "flow:stop",
+    FLOW_PAUSE: "flow:pause",
+    FLOW_RESUME: "flow:resume",
+    FLOW_SKIP_ACTION: "flow:skip-action",
+    FLOW_JUMP_TO_ACTION: "flow:jump-to-action",
+    FLOW_RUN_GET: "flow:run-get",
+    FLOW_RUNS_LIST: "flow:runs-list",
+    FLOW_RUN_UPDATED: "flow:run-updated",
+
     // Browser
     BROWSER_OPEN: "browser:open",
 
@@ -77,7 +98,6 @@ export const MSG = {
     THEME_IMPORT_SCAN: "theme:import-scan",
     THEME_IMPORT: "theme:import",
     THEME_IMPORT_FILE: "theme:import-file",
-
 
     THEME_DELETE: "theme:delete",
 

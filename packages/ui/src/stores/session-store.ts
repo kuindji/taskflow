@@ -78,8 +78,12 @@ function createSessionTab(session: SessionRef): Tab {
     };
 }
 
-/** Check whether a session's tab is currently visible (active task + active tab). */
+/** Whether the Electron/browser window is currently focused. */
+let windowFocused = true;
+
+/** Check whether a session's tab is currently visible (active task + active tab + window focused). */
 function isSessionFocused(sessionId: string): boolean {
+    if (!windowFocused) return false;
     const activeTaskId = useTaskStore.getState().activeTaskId;
     const activeProjectId = useUIStore.getState().activeProjectId;
     const workspaceKey = activeTaskId
@@ -161,20 +165,39 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         sendFireAndForget(MSG.TERMINAL_RESIZE, { sessionId, cols, rows });
     },
     addTab(workspaceKey, tab) {
-        set((s) => ({
-            tabsByWorkspace: {
-                ...s.tabsByWorkspace,
-                [workspaceKey]: [...(s.tabsByWorkspace[workspaceKey] ?? []), tab],
-            },
-            activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: tab.id },
-        }));
+        set((s) => {
+            const existing = s.tabsByWorkspace[workspaceKey] ?? [];
+            // Prevent duplicate tabs for the same session (race between
+            // MSG.TASK_UPDATED broadcast triggering syncWithTasks and the
+            // SESSION_CREATE response calling addTab directly).
+            const existingTab = tab.sessionId
+                ? existing.find((t) => t.sessionId === tab.sessionId)
+                : undefined;
+            if (existingTab) {
+                return {
+                    activeTabByWorkspace: {
+                        ...s.activeTabByWorkspace,
+                        [workspaceKey]: existingTab.id,
+                    },
+                };
+            }
+            return {
+                tabsByWorkspace: {
+                    ...s.tabsByWorkspace,
+                    [workspaceKey]: [...existing, tab],
+                },
+                activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: tab.id },
+            };
+        });
     },
     async closeTab(workspaceKey, tabId) {
         const tab = (get().tabsByWorkspace[workspaceKey] ?? []).find((entry) => entry.id === tabId);
-        if (tab?.sessionId) {
-            await get().closeSession(tab.sessionId);
-        }
-        set((s) => {
+        try {
+            if (tab?.sessionId) {
+                await get().closeSession(tab.sessionId);
+            }
+        } finally {
+            set((s) => {
             const tabs = (s.tabsByWorkspace[workspaceKey] ?? []).filter((t) => t.id !== tabId);
             const activeId =
                 s.activeTabByWorkspace[workspaceKey] === tabId
@@ -187,6 +210,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 sessionStatus: tab?.sessionId ? remainingStatus : s.sessionStatus,
             };
         });
+        }
     },
     setActiveTab(workspaceKey, tabId) {
         set((s) => {
@@ -533,3 +557,38 @@ const _unsubActiveProject = useUIStore.subscribe((state, prevState) => {
         sessionStore.setActiveTab(workspaceKey, attentionTab.id);
     }
 });
+
+// --- Window focus tracking ---
+
+function onWindowFocusChanged(focused: boolean): void {
+    windowFocused = focused;
+    if (focused) {
+        // Re-settle all sessions: clears attention on the currently visible tab
+        const store = useSessionStore.getState();
+        for (const sessionId of Object.keys(store.sessionStatus)) {
+            if (store.sessionStatus[sessionId] === "attention") {
+                settleInactiveSession(sessionId);
+            }
+        }
+    }
+}
+
+if (window.taskflow?.onWindowFocusChanged) {
+    window.taskflow.onWindowFocusChanged(onWindowFocusChanged);
+} else {
+    // Fallback for non-Electron (browser dev mode)
+    document.addEventListener("visibilitychange", () => {
+        onWindowFocusChanged(document.visibilityState === "visible");
+    });
+}
+
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        _unsubTerminalOutput();
+        _unsubSessionStatus();
+        _unsubSessionExited();
+        _unsubBrowserOpen();
+        _unsubActiveTask();
+        _unsubActiveProject();
+    });
+}

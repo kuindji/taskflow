@@ -42,7 +42,7 @@ function ImportTab() {
                 </p>
                 <button
                     type="button"
-                    className="rounded-md bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                    className="bg-accent/10 text-accent hover:bg-accent/20 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
                     onClick={handleFileImport}
                     disabled={importing === "file"}
                 >
@@ -51,7 +51,7 @@ function ImportTab() {
             </div>
 
             {scanning && (
-                <p className="text-muted-foreground text-xs animate-pulse">
+                <p className="text-muted-foreground animate-pulse text-xs">
                     Scanning for terminal apps...
                 </p>
             )}
@@ -71,7 +71,7 @@ function ImportTab() {
                             return (
                                 <div
                                     key={key}
-                                    className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2"
+                                    className="border-border/50 flex items-center justify-between rounded-md border px-3 py-2"
                                 >
                                     <div className="flex items-center gap-3">
                                         <div className="flex gap-1">
@@ -95,7 +95,7 @@ function ImportTab() {
                                     </div>
                                     <button
                                         type="button"
-                                        className="rounded-md bg-accent/10 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                                        className="bg-accent/10 text-accent hover:bg-accent/20 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50"
                                         onClick={() => handleImportTheme(theme, key)}
                                         disabled={importing === key}
                                     >

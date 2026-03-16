@@ -26,4 +26,11 @@ interface AgentAvailability {
     version: string;
 }
 
-export type { AgentType, ClaudeLaunchOptions, CodexLaunchOptions, OpenCodeLaunchOptions, AgentLaunchOptions, AgentAvailability };
+export type {
+    AgentType,
+    ClaudeLaunchOptions,
+    CodexLaunchOptions,
+    OpenCodeLaunchOptions,
+    AgentLaunchOptions,
+    AgentAvailability,
+};

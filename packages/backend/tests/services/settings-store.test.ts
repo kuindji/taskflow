@@ -17,6 +17,7 @@ const DEFAULT_LAYOUT = {
         sidebarWidth: 220,
         fileExplorerWidth: 220,
         taskInfoWidth: 220,
+        flowPanelWidth: 220,
         compactSidebar: false,
         collapsedProjectIds: [],
     },
@@ -24,6 +25,7 @@ const DEFAULT_LAYOUT = {
 
 const DEFAULT_CLAUDE = { defaultModel: "default" as const, fullAccess: false };
 const DEFAULT_CODEX = { fullAccess: false };
+const DEFAULT_OPENCODE = { defaultModel: "", fullAccess: false };
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
 
 describe("SettingsStore", () => {
@@ -64,6 +66,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            opencode: DEFAULT_OPENCODE,
             appearance: DEFAULT_APPEARANCE,
         });
 
@@ -90,6 +93,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            opencode: DEFAULT_OPENCODE,
             appearance: DEFAULT_APPEARANCE,
         });
     });
@@ -124,6 +128,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            opencode: DEFAULT_OPENCODE,
             appearance: DEFAULT_APPEARANCE,
         });
 
@@ -148,6 +153,7 @@ describe("SettingsStore", () => {
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
+            opencode: DEFAULT_OPENCODE,
             appearance: DEFAULT_APPEARANCE,
         });
     });
@@ -160,6 +166,7 @@ describe("SettingsStore", () => {
                 sidebarWidth: 220,
                 fileExplorerWidth: 220,
                 taskInfoWidth: 220,
+                flowPanelWidth: 220,
                 compactSidebar: false,
                 collapsedProjectIds: [],
             },
@@ -202,6 +209,7 @@ describe("SettingsStore", () => {
             sidebarWidth: 220,
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
+            flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: [],
         });
@@ -227,6 +235,7 @@ describe("SettingsStore", () => {
             sidebarWidth: 280,
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
+            flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: [],
         });
@@ -246,6 +255,7 @@ describe("SettingsStore", () => {
             sidebarWidth: 220,
             fileExplorerWidth: 220,
             taskInfoWidth: 220,
+            flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: ["project-a", "project-b"],
         });

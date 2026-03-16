@@ -16,6 +16,7 @@ export interface TaskWorktree {
 export interface Task {
     id: string;
     projectId: string;
+    parentId?: string;
     title: string;
     description: string;
     notes: string;
@@ -24,6 +25,7 @@ export interface Task {
     createdAt: string;
     status: "active" | "archived";
     archivedAt: string | null;
+    pinned: boolean;
 }
 
 export type TaskLogEntryType = "info" | "commit" | "warning" | "error";

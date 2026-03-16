@@ -7,11 +7,14 @@ import type {
     TaskUnarchivePayload,
     TaskDeletePayload,
     TaskLogListPayload,
+    Task,
+    TaskWorktree,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
 import type { GitService } from "../services/git-service";
-import type { Task } from "@taskflow/shared";
+import type { FlowStore } from "../services/flow-store";
+import type { FlowRunner } from "../services/flow-runner";
 
 interface TaskHandlerDeps {
     router: Router;
@@ -19,10 +22,22 @@ interface TaskHandlerDeps {
     gitService: GitService;
     closeSession?: (sessionId: string) => void;
     generateTitle?: (taskId: string, description: string) => void;
+    flowStore?: FlowStore;
+    flowRunner?: FlowRunner;
 }
 
 export function registerTaskHandlers(deps: TaskHandlerDeps): void {
-    const { router, store, gitService, closeSession, generateTitle } = deps;
+    const { router, store, gitService, closeSession, generateTitle, flowStore, flowRunner } = deps;
+
+    async function failActiveFlows(taskId: string): Promise<void> {
+        if (!flowStore || !flowRunner) return;
+        const runs = await flowStore.getFlowRunsForOwner(taskId);
+        for (const run of runs) {
+            if (run.status === "running" || run.status === "paused") {
+                await flowRunner.failFlowByIds(taskId, run.flowId);
+            }
+        }
+    }
 
     async function stopTaskSessions(task: Task, clearPersistedSessions: boolean): Promise<void> {
         if (task.sessions.length === 0) {
@@ -45,12 +60,32 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
     });
 
     router.register(MSG.TASK_CREATE, async (payload) => {
-        const { projectId, title, description, worktree } = payload as TaskCreatePayload;
+        const { projectId, parentId, title, description, worktree } = payload as TaskCreatePayload;
+
+        let resolvedProjectId = projectId;
+        let resolvedWorktree: TaskWorktree | undefined = worktree
+            ? { enabled: true, path: null, branch: null }
+            : undefined;
+
+        if (parentId) {
+            const parent = await store.getTask(parentId);
+            if (!parent) {
+                throw new Error(`Parent task not found: ${parentId}`);
+            }
+            if (parent.parentId) {
+                throw new Error("Cannot create a subtask of a subtask");
+            }
+            // Subtasks inherit parent's projectId and worktree config
+            resolvedProjectId = parent.projectId;
+            resolvedWorktree = { ...parent.worktree };
+        }
+
         const task = await store.createTask({
-            projectId,
+            projectId: resolvedProjectId,
+            parentId,
             title: title ?? "",
             description,
-            worktree: worktree ? { enabled: true, path: null, branch: null } : undefined,
+            worktree: resolvedWorktree,
         });
         if (!title && description && generateTitle) {
             generateTitle(task.id, description);
@@ -67,6 +102,17 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         const { id } = payload as TaskArchivePayload;
         const task = await store.getTask(id);
         if (!task) throw new Error(`Task not found: ${id}`);
+
+        // Cascade: stop sessions and archive subtasks before parent
+        if (!task.parentId) {
+            const subtasks = await store.getSubtasks(id);
+            for (const subtask of subtasks) {
+                await stopTaskSessions(subtask, true);
+                await store.archiveTask(subtask.id);
+            }
+        }
+
+        await failActiveFlows(id);
         await stopTaskSessions(task, true);
         return store.archiveTask(id);
     });
@@ -78,7 +124,17 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
 
     router.register(MSG.TASK_UNARCHIVE, async (payload) => {
         const { id } = payload as TaskUnarchivePayload;
-        return store.unarchiveTask(id);
+        const task = await store.unarchiveTask(id);
+
+        // Cascade: unarchive all subtasks
+        if (!task.parentId) {
+            const archivedSubtasks = await store.getArchivedSubtasks(id);
+            for (const subtask of archivedSubtasks) {
+                await store.unarchiveTask(subtask.id);
+            }
+        }
+
+        return task;
     });
 
     router.register(MSG.TASK_DELETE, async (payload) => {
@@ -86,14 +142,37 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         const task = (await store.getTask(id)) ?? (await store.getArchived(id));
         if (!task) throw new Error(`Task not found: ${id}`);
 
+        // Cascade: delete all subtasks for top-level tasks
+        if (!task.parentId) {
+            const [subtasks, archivedSubtasks] = await Promise.all([
+                store.getSubtasks(id),
+                store.getArchivedSubtasks(id),
+            ]);
+            for (const subtask of subtasks) {
+                await stopTaskSessions(subtask, false);
+                await store.deleteTask(subtask.id);
+            }
+            for (const subtask of archivedSubtasks) {
+                await store.deleteArchived(subtask.id);
+            }
+        }
+
         if (task.status === "active") {
+            await failActiveFlows(id);
             await stopTaskSessions(task, false);
             await store.deleteTask(id);
         } else {
             await store.deleteArchived(id);
         }
 
-        if (deleteWorktree && task.worktree.enabled && task.worktree.path && task.worktree.branch) {
+        // Only clean up worktree for top-level tasks
+        if (
+            !task.parentId &&
+            deleteWorktree &&
+            task.worktree.enabled &&
+            task.worktree.path &&
+            task.worktree.branch
+        ) {
             const project = await store.getProject(task.projectId);
             if (project) {
                 try {

@@ -3,6 +3,7 @@ import type { AgentLaunchOptions } from "@taskflow/shared";
 import { useProjectStore } from "@/stores/project-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useTaskStore } from "@/stores/task-store";
+import { useFlowStore } from "@/stores/flow-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
 import { NewProjectDialog } from "./NewProjectDialog";
@@ -15,9 +16,15 @@ interface PendingSession {
     agentOptions?: AgentLaunchOptions;
 }
 
+interface PendingFlow {
+    taskId: string;
+    flowId: string;
+}
+
 export function TaskCreationDialogHost() {
     const { projects, addProject } = useProjectStore();
     const { tasks, activeTaskId, setActiveTask, createTask } = useTaskStore();
+    const flowDefinitions = useFlowStore((s) => s.flows);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
     const createSession = useSessionStore((s) => s.createSession);
@@ -25,6 +32,7 @@ export function TaskCreationDialogHost() {
         newTaskOpen,
         newProjectOpen,
         projectError,
+        parentTaskId,
         setNewTaskOpen,
         setNewProjectOpen,
         setProjectError,
@@ -32,32 +40,43 @@ export function TaskCreationDialogHost() {
     } = useTaskCreationStore();
 
     const pendingSessionRef = useRef<PendingSession | null>(null);
+    const pendingFlowRef = useRef<PendingFlow | null>(null);
 
     const defaultProjectId = activeTaskId
         ? (tasks.find((task) => task.id === activeTaskId)?.projectId ?? projects[0]?.id)
         : (activeProjectId ?? projects[0]?.id);
 
-    // Watch for worktree readiness and start deferred session
+    // Watch for worktree readiness and start deferred session or flow
     useEffect(() => {
-        const pending = pendingSessionRef.current;
-        if (!pending) return;
-
-        const task = tasks.find((t) => t.id === pending.taskId);
-        if (!task) {
-            pendingSessionRef.current = null;
-            return;
+        const pendingSession = pendingSessionRef.current;
+        if (pendingSession) {
+            const task = tasks.find((t) => t.id === pendingSession.taskId);
+            if (!task) {
+                pendingSessionRef.current = null;
+            } else if (!task.worktree.enabled || task.worktree.path) {
+                pendingSessionRef.current = null;
+                void createSession(
+                    { taskId: pendingSession.taskId },
+                    pendingSession.type,
+                    undefined,
+                    pendingSession.description,
+                    undefined,
+                    pendingSession.agentOptions,
+                );
+            }
         }
 
-        if (!task.worktree.enabled || task.worktree.path) {
-            pendingSessionRef.current = null;
-            void createSession(
-                { taskId: pending.taskId },
-                pending.type,
-                undefined,
-                pending.description,
-                undefined,
-                pending.agentOptions,
-            );
+        const pendingFlow = pendingFlowRef.current;
+        if (pendingFlow) {
+            const task = tasks.find((t) => t.id === pendingFlow.taskId);
+            if (!task) {
+                pendingFlowRef.current = null;
+            } else if (!task.worktree.enabled || task.worktree.path) {
+                pendingFlowRef.current = null;
+                void useFlowStore
+                    .getState()
+                    .startFlow({ taskId: pendingFlow.taskId, flowId: pendingFlow.flowId });
+            }
         }
     }, [tasks, createSession]);
 
@@ -80,15 +99,28 @@ export function TaskCreationDialogHost() {
             title?: string;
             description: string;
             worktree: boolean;
+            parentId?: string;
             startWith?: "claude" | "codex" | "opencode";
             agentOptions?: AgentLaunchOptions;
+            startWithFlowId?: string;
         }) => {
             try {
                 const task = await createTask(data);
                 setActiveProject(task.projectId);
                 setActiveTask(task.id);
-                if (data.startWith) {
-                    if (data.worktree) {
+                if (data.startWithFlowId) {
+                    if (data.worktree && !data.parentId) {
+                        pendingFlowRef.current = {
+                            taskId: task.id,
+                            flowId: data.startWithFlowId,
+                        };
+                    } else {
+                        void useFlowStore
+                            .getState()
+                            .startFlow({ taskId: task.id, flowId: data.startWithFlowId });
+                    }
+                } else if (data.startWith) {
+                    if (data.worktree && !data.parentId) {
                         // Defer session start until worktree is ready
                         pendingSessionRef.current = {
                             taskId: task.id,
@@ -126,7 +158,9 @@ export function TaskCreationDialogHost() {
                 open={newTaskOpen}
                 onOpenChange={setNewTaskOpen}
                 projects={projects}
+                flows={flowDefinitions}
                 defaultProjectId={defaultProjectId}
+                parentId={parentTaskId}
                 onSubmit={(data) => void handleCreateTask(data)}
             />
         </>

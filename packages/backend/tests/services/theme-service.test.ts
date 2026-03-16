@@ -65,10 +65,7 @@ describe("ThemeService", () => {
 
         it("lists user themes from directory", async () => {
             const source = makeValidSource({ name: "My Custom" });
-            await writeFile(
-                join(tempDir, "my-custom.json"),
-                JSON.stringify(source),
-            );
+            await writeFile(join(tempDir, "my-custom.json"), JSON.stringify(source));
 
             const themes = await service.listAll();
             const userTheme = themes.find((t) => t.id === "my-custom");
@@ -89,10 +86,7 @@ describe("ThemeService", () => {
         it("skips files with unknown version", async () => {
             const source = makeValidSource();
             const raw = { ...source, version: 99 };
-            await writeFile(
-                join(tempDir, "bad-version.json"),
-                JSON.stringify(raw),
-            );
+            await writeFile(join(tempDir, "bad-version.json"), JSON.stringify(raw));
 
             const themes = await service.listAll();
             const ids = themes.map((t) => t.id);
@@ -101,10 +95,7 @@ describe("ThemeService", () => {
 
         it("skips user files whose filename collides with bundled ID", async () => {
             const source = makeValidSource({ name: "Fake Dracula" });
-            await writeFile(
-                join(tempDir, "dracula.json"),
-                JSON.stringify(source),
-            );
+            await writeFile(join(tempDir, "dracula.json"), JSON.stringify(source));
 
             const themes = await service.listAll();
             const draculas = themes.filter((t) => t.id === "dracula");
@@ -116,10 +107,7 @@ describe("ThemeService", () => {
         it("skips files with invalid origin", async () => {
             const source = makeValidSource();
             const raw = { ...source, origin: "garbage" };
-            await writeFile(
-                join(tempDir, "bad-origin.json"),
-                JSON.stringify(raw),
-            );
+            await writeFile(join(tempDir, "bad-origin.json"), JSON.stringify(raw));
 
             const themes = await service.listAll();
             const ids = themes.map((t) => t.id);
@@ -137,18 +125,12 @@ describe("ThemeService", () => {
                     // missing cursor, cursorText, selection, selectionText, ansi
                 },
             };
-            await writeFile(
-                join(tempDir, "incomplete.json"),
-                JSON.stringify(incomplete),
-            );
+            await writeFile(join(tempDir, "incomplete.json"), JSON.stringify(incomplete));
 
             const themes = await service.listAll();
             const ids = themes.map((t) => t.id);
             expect(ids).not.toContain("incomplete");
         });
-
-
-
     });
 
     describe("save", () => {
@@ -171,10 +153,7 @@ describe("ThemeService", () => {
             expect(record.id).toBe("dracula-2");
 
             // Verify the file was written
-            const raw = await readFile(
-                join(tempDir, "dracula-2.json"),
-                "utf-8",
-            );
+            const raw = await readFile(join(tempDir, "dracula-2.json"), "utf-8");
             const parsed = JSON.parse(raw) as ThemeSource;
             expect(parsed.name).toBe("Dracula");
         });
@@ -290,9 +269,7 @@ describe("ThemeService", () => {
 
         it("rejects path traversal IDs", async () => {
             // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
-            await expect(service.delete("../../etc/passwd")).rejects.toThrow(
-                "Invalid theme id",
-            );
+            await expect(service.delete("../../etc/passwd")).rejects.toThrow("Invalid theme id");
         });
 
         it("is a no-op for bundled theme IDs", async () => {

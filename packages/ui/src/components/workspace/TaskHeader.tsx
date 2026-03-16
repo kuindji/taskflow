@@ -4,23 +4,28 @@ import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
+
 import { useDiffStore } from "@/stores/diff-store";
 import { confirm } from "@/stores/dialog-store";
 import { TruncatedText } from "@/components/ui/truncated-text";
+
 import { CopyButton } from "@/components/ui/copy-button";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
+import { ForkProjectDialog } from "./ForkProjectDialog";
 import {
     Archive,
     ArrowUpFromLine,
     Diff,
     FolderTree,
     GitCommitHorizontal,
+    GitFork,
     NotebookText,
     Pencil,
     Trash2,
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
+import { Toolbar } from "@/components/ui/toolbar";
 
 interface TaskHeaderProps {
     task?: Task;
@@ -37,9 +42,11 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const updateProject = useProjectStore((s) => s.updateProject);
     const removeProject = useProjectStore((s) => s.removeProject);
+
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
     const [commitOpen, setCommitOpen] = useState(false);
+    const [forkOpen, setForkOpen] = useState(false);
     const isWorktreeTask = !!task?.worktree.enabled && !!task.worktree.path;
     const gitRepoPath = isWorktreeTask ? (task?.worktree.path ?? "") : (project?.path ?? "");
     const diffKey = isWorktreeTask ? task.id : project?.id;
@@ -102,9 +109,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     }, [deleteTask, project, removeProject, task]);
 
     return (
-        <div
-            className={`border-border flex min-h-9 items-center gap-1.5 border-b px-1.5 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
-        >
+        <Toolbar className={`gap-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
             {task || project ? (
                 <>
                     <Button
@@ -128,7 +133,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             {task?.title ?? project?.name}
                         </TruncatedText>
                         {task?.worktree?.branch && (
-                            <div className="border-border flex min-w-0 shrink-3 items-center gap-1 rounded-md border pl-2 pr-1 py-0.5 [-webkit-app-region:no-drag]">
+                            <div className="border-border flex min-w-0 shrink-3 items-center gap-1 rounded-md border py-0.5 pr-1 pl-2 [-webkit-app-region:no-drag]">
                                 <TruncatedText
                                     as="div"
                                     tooltip
@@ -143,7 +148,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                     tooltip="Copy branch name"
                                     variant="transparent"
                                     size="icon-2xs"
-                                    className="text-muted-foreground hover:text-foreground shrink-0 [-webkit-app-region:no-drag] px-0"
+                                    className="text-muted-foreground hover:text-foreground shrink-0 px-0 [-webkit-app-region:no-drag]"
                                 />
                             </div>
                         )}
@@ -154,6 +159,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                     <span className="text-muted-foreground ml-2 text-sm">No task selected</span>
                 </div>
             )}
+
             <div className="flex-1" />
             {(task || project) && (
                 <>
@@ -187,6 +193,18 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                     <span className="text-destructive">-{diffStats.deletions}</span>
                                 </span>
                             )}
+                        </Button>
+                    )}
+                    {showGitButtons && !task && project && (
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => setForkOpen(true)}
+                            aria-label="Fork project"
+                            className="[-webkit-app-region:no-drag]"
+                        >
+                            <GitFork className="h-3 w-3" />
+                            <span className="text-xs">Fork</span>
                         </Button>
                     )}
                     {task && (
@@ -256,6 +274,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                     sessionOwner={task ? { taskId: task.id } : { projectId: project?.id ?? "" }}
                 />
             )}
-        </div>
+            {project && (
+                <ForkProjectDialog open={forkOpen} onOpenChange={setForkOpen} project={project} />
+            )}
+        </Toolbar>
     );
 }

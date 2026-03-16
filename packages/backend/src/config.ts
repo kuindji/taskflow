@@ -28,6 +28,8 @@ function buildDataPaths(dataDir: string) {
         taskLogsDir: join(dataDir, "task-logs"),
         agentSkillsDir: join(dataDir, "agent-skills"),
         themesDir: join(dataDir, "themes"),
+        flowsDir: join(dataDir, "flows"),
+        flowRunsDir: join(dataDir, "flow-runs"),
     };
 }
 
@@ -63,6 +65,8 @@ export async function ensureDirectories(): Promise<void> {
     await mkdir(config.agentSkillsDir, { recursive: true });
     await mkdir(config.binDir, { recursive: true });
     await mkdir(config.themesDir, { recursive: true });
+    await mkdir(config.flowsDir, { recursive: true });
+    await mkdir(config.flowRunsDir, { recursive: true });
     await seedThemeExample(config.themesDir);
 }
 

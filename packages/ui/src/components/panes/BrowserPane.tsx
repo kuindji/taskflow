@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, RotateCw } from "lucide-react";
+import { Toolbar } from "@/components/ui/toolbar";
+import { ArrowLeft, ExternalLink, RotateCw } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
 import { normalizeUrl } from "@/utils/url";
 
 interface BrowserPaneProps {
     initialUrl: string;
 }
+
+type WebviewNavigationEvent = Event & { url?: string };
 
 function BrowserPane({ initialUrl }: BrowserPaneProps) {
     const isElectron = useIsElectron();
@@ -22,40 +25,60 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
     const [reloadKey, setReloadKey] = useState(0);
     const webviewRef = useRef<WebviewElement | null>(null);
     const [webviewReady, setWebviewReady] = useState(false);
+    const [canGoBack, setCanGoBack] = useState(false);
 
     useEffect(() => {
         const wv = webviewRef.current;
         if (!wv || !isElectron) return;
 
-        const onReady = () => setWebviewReady(true);
+        const syncWebviewState = (nextUrl?: string) => {
+            const resolvedUrl = nextUrl || wv.getURL?.() || wv.src;
+            if (resolvedUrl) {
+                setUrl(resolvedUrl);
+                setInputUrl(resolvedUrl);
+            }
+            setCanGoBack(wv.canGoBack());
+        };
+
+        const onReady = () => {
+            setWebviewReady(true);
+            syncWebviewState();
+        };
+        const onNavigate = (event: WebviewNavigationEvent) => {
+            const nextUrl = event.url;
+            syncWebviewState(nextUrl);
+        };
+
         wv.addEventListener("dom-ready", onReady);
-        return () => wv.removeEventListener("dom-ready", onReady);
+        wv.addEventListener("did-navigate", onNavigate);
+        wv.addEventListener("did-navigate-in-page", onNavigate);
+        return () => {
+            wv.removeEventListener("dom-ready", onReady);
+            wv.removeEventListener("did-navigate", onNavigate);
+            wv.removeEventListener("did-navigate-in-page", onNavigate);
+        };
     }, [isElectron]);
 
-    const navigate = useCallback((raw: string) => {
-        const normalized = normalizeUrl(raw);
-        if (!normalized) return;
-        setUrl(normalized);
-        setInputUrl(normalized);
-        setHistoryIndex((prevIndex) => {
-            setHistory((prev) => {
-                const next = prev.slice(0, prevIndex + 1);
-                next.push(normalized);
-                return next;
+    const navigate = useCallback(
+        (raw: string) => {
+            const normalized = normalizeUrl(raw);
+            if (!normalized) return;
+            setUrl(normalized);
+            setInputUrl(normalized);
+            setHistoryIndex((prevIndex) => {
+                setHistory((prev) => {
+                    const next = prev.slice(0, prevIndex + 1);
+                    next.push(normalized);
+                    return next;
+                });
+                return prevIndex + 1;
             });
-            return prevIndex + 1;
-        });
-    }, []);
-
-    const [canGoBack, setCanGoBack] = useState(false);
-
-    useEffect(() => {
-        if (isElectron) {
-            setCanGoBack(webviewReady && Boolean(webviewRef.current?.canGoBack()));
-        } else {
-            setCanGoBack(historyIndex > 0);
-        }
-    }, [isElectron, webviewReady, historyIndex, url]);
+            if (!isElectron) {
+                setCanGoBack(true);
+            }
+        },
+        [isElectron],
+    );
 
     const goBack = useCallback(() => {
         if (isElectron) {
@@ -67,6 +90,7 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
             setHistoryIndex(newIndex);
             setUrl(history[newIndex]);
             setInputUrl(history[newIndex]);
+            setCanGoBack(newIndex > 0);
         }
     }, [isElectron, webviewReady, historyIndex, history]);
 
@@ -77,6 +101,19 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
         }
         setReloadKey((k) => k + 1);
     }, [isElectron, webviewReady]);
+
+    const openExternal = useCallback(() => {
+        const targetUrl =
+            (isElectron && webviewReady ? webviewRef.current?.getURL?.() : undefined) || url;
+        if (!targetUrl || targetUrl === "about:blank") return;
+
+        if (window.taskflow) {
+            void window.taskflow.openExternalUrl(targetUrl);
+            return;
+        }
+
+        window.open(targetUrl, "_blank", "noopener,noreferrer");
+    }, [isElectron, webviewReady, url]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -96,7 +133,7 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
 
     return (
         <div className="flex flex-1 flex-col">
-            <div className="border-border flex items-center gap-1 border-b px-1.5 py-1.5">
+            <Toolbar className="gap-1">
                 <Button
                     variant="ghost"
                     size="icon-xs"
@@ -118,14 +155,25 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
                 >
                     <RotateCw className="h-4 w-4" />
                 </Button>
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={openExternal}
+                    disabled={!url || url === "about:blank"}
+                    aria-label="Open in external browser"
+                    tooltip="Open in external browser"
+                    tooltipSide="bottom"
+                >
+                    <ExternalLink className="h-4 w-4" />
+                </Button>
                 <Input
                     value={inputUrl}
                     onChange={(e) => setInputUrl(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className="h-8 flex-1 text-sm"
+                    className="h-7 flex-1 px-2.5 text-sm"
                     placeholder="Enter URL..."
                 />
-            </div>
+            </Toolbar>
 
             {isElectron ? (
                 <webview ref={webviewRef} src={url} style={frameStyle} />

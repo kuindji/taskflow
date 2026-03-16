@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Toolbar } from "@/components/ui/toolbar";
 
 const logTypeStyles: Record<TaskLogEntryType, string> = {
     info: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -136,8 +137,10 @@ function TaskInfoPanel() {
     if (workspace.scope === "project" && workspace.project) {
         return (
             <div className="flex h-full flex-col">
-                <div className="flex items-center gap-2 px-3 py-2.5">
-                    <span className="text-muted-foreground text-xs font-medium">Project Info</span>
+                <Toolbar className="gap-2">
+                    <span className="text-muted-foreground ml-2 text-xs font-medium">
+                        Project Info
+                    </span>
                     <div className="flex-1" />
                     <Button
                         variant="ghost"
@@ -149,14 +152,13 @@ function TaskInfoPanel() {
                     >
                         <X className="h-3 w-3" />
                     </Button>
-                </div>
-                <Separator />
+                </Toolbar>
                 <div className="flex-1 overflow-y-auto p-3">
                     <div className="space-y-4">
                         <div>
-                            <label className="text-muted-foreground text-xs font-medium">
+                            <span className="text-muted-foreground text-xs font-medium">
                                 Name
-                            </label>
+                            </span>
                             <div className="text-secondary-foreground mt-1 text-sm">
                                 {workspace.project.name}
                             </div>
@@ -165,9 +167,9 @@ function TaskInfoPanel() {
                         <Separator className="my-4" />
 
                         <div>
-                            <label className="text-muted-foreground text-xs font-medium">
+                            <span className="text-muted-foreground text-xs font-medium">
                                 Path
-                            </label>
+                            </span>
                             <div className="text-secondary-foreground mt-1 text-sm break-all">
                                 {workspace.project.path}
                             </div>
@@ -176,9 +178,9 @@ function TaskInfoPanel() {
                         <Separator className="my-4" />
 
                         <div>
-                            <label className="text-muted-foreground text-xs font-medium">
+                            <span className="text-muted-foreground text-xs font-medium">
                                 Created
-                            </label>
+                            </span>
                             <div className="text-secondary-foreground mt-1 text-sm">
                                 {new Date(workspace.project.createdAt).toLocaleString()}
                             </div>
@@ -195,8 +197,8 @@ function TaskInfoPanel() {
 
     return (
         <div className="flex h-full flex-col">
-            <div className="flex items-center gap-2 px-3 py-2.5">
-                <span className="text-muted-foreground text-xs font-medium">Task Info</span>
+            <Toolbar className="gap-2">
+                <span className="text-muted-foreground ml-2 text-xs font-medium">Task Info</span>
                 <div className="flex-1" />
                 <Button
                     variant="ghost"
@@ -208,14 +210,14 @@ function TaskInfoPanel() {
                 >
                     <X className="h-3 w-3" />
                 </Button>
-            </div>
-            <Separator />
+            </Toolbar>
 
             <div className="flex-1 overflow-y-auto p-3">
                 <div className="space-y-4">
                     <div>
-                        <label className="text-muted-foreground text-xs font-medium">Title</label>
+                        <label htmlFor="task-info-title" className="text-muted-foreground text-xs font-medium">Title</label>
                         <Input
+                            id="task-info-title"
                             value={titleDraft}
                             onChange={(e) => setTitleDraft(e.target.value)}
                             placeholder="Short task name..."
@@ -227,10 +229,11 @@ function TaskInfoPanel() {
 
                     {/* Description */}
                     <div>
-                        <label className="text-muted-foreground text-xs font-medium">
+                        <label htmlFor="task-info-description" className="text-muted-foreground text-xs font-medium">
                             Description
                         </label>
                         <Textarea
+                            id="task-info-description"
                             value={descriptionDraft}
                             onChange={(e) => setDescriptionDraft(e.target.value)}
                             rows={4}
@@ -243,9 +246,9 @@ function TaskInfoPanel() {
                     {/* Branch */}
                     {task.worktree.branch && (
                         <div>
-                            <label className="text-muted-foreground text-xs font-medium">
+                            <span className="text-muted-foreground text-xs font-medium">
                                 Branch
-                            </label>
+                            </span>
                             <div className="mt-1 flex items-center gap-1">
                                 <Badge variant="outline" colorScheme="active">
                                     {task.worktree.branch}
@@ -261,9 +264,9 @@ function TaskInfoPanel() {
                     {/* Worktree */}
                     {task.worktree.path && (
                         <div>
-                            <label className="text-muted-foreground text-xs font-medium">
+                            <span className="text-muted-foreground text-xs font-medium">
                                 Worktree
-                            </label>
+                            </span>
                             <div className="text-secondary-foreground mt-1 flex items-center gap-1 text-sm">
                                 <span className="break-all">{task.worktree.path}</span>
                                 <CopyButton
@@ -279,7 +282,7 @@ function TaskInfoPanel() {
 
                     {/* Created */}
                     <div>
-                        <label className="text-muted-foreground text-xs font-medium">Created</label>
+                        <span className="text-muted-foreground text-xs font-medium">Created</span>
                         <div className="text-secondary-foreground mt-1 text-sm">
                             {new Date(task.createdAt).toLocaleString()}
                         </div>
@@ -289,8 +292,9 @@ function TaskInfoPanel() {
 
                     {/* Notes */}
                     <div>
-                        <label className="text-muted-foreground text-xs font-medium">Notes</label>
+                        <label htmlFor="task-info-notes" className="text-muted-foreground text-xs font-medium">Notes</label>
                         <Textarea
+                            id="task-info-notes"
                             value={notesDraft}
                             onChange={(e) => setNotesDraft(e.target.value)}
                             rows={6}
@@ -304,9 +308,9 @@ function TaskInfoPanel() {
                         <>
                             <Separator className="my-4" />
                             <div>
-                                <label className="text-muted-foreground text-xs font-medium">
+                                <span className="text-muted-foreground text-xs font-medium">
                                     Log
-                                </label>
+                                </span>
                                 <div className="mt-2 space-y-2">
                                     {taskLogs.map((entry) => (
                                         <div

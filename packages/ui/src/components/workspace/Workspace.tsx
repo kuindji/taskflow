@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AgentLaunchOptions, ScriptsListResponse, ShellListResponse } from "@taskflow/shared";
+import type {
+    ActionDefinition,
+    AgentLaunchOptions,
+    ScriptsListResponse,
+    ShellListResponse,
+} from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
@@ -11,8 +16,10 @@ import { sendRequest } from "@/hooks/useWebSocket";
 import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
+
 import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
+import { useFlowStore, filterByProject } from "@/stores/flow-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import useIsElectron from "@/hooks/useIsElectron";
 import {
@@ -41,8 +48,12 @@ export function Workspace() {
     const activeTabId = useSessionStore((s) =>
         workspace.workspaceKey ? (s.activeTabByWorkspace[workspace.workspaceKey] ?? "") : "",
     );
-    const { setActiveTab, closeTab, createSession, addTab, sendInput, renameTab } =
-        useSessionStore();
+    const setActiveTab = useSessionStore((s) => s.setActiveTab);
+    const closeTab = useSessionStore((s) => s.closeTab);
+    const createSession = useSessionStore((s) => s.createSession);
+    const addTab = useSessionStore((s) => s.addTab);
+    const sendInput = useSessionStore((s) => s.sendInput);
+    const renameTab = useSessionStore((s) => s.renameTab);
     const setActiveTask = useTaskStore((s) => s.setActiveTask);
     const updateTask = useTaskStore((s) => s.updateTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
@@ -54,10 +65,60 @@ export function Workspace() {
     const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
+    const [flowRunsHydratedOwnerId, setFlowRunsHydratedOwnerId] = useState<string | null>(null);
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
     const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
+    const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
+    const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
+    const ownerId = taskId ?? workspace.project?.id;
+    const activeFlowRun = useFlowStore((s) => (ownerId ? s.activeRuns[ownerId] : undefined));
+    const allFlows = useFlowStore((s) => s.flows);
+    const allActions = useFlowStore((s) => s.actions);
+    const currentProjectId = workspace.project?.id ?? null;
+    const flowDefinitions = useMemo(
+        () => filterByProject(allFlows, currentProjectId),
+        [allFlows, currentProjectId],
+    );
+    const standaloneActions = useMemo(
+        () => filterByProject(allActions, currentProjectId).filter((a) => a.standalone),
+        [allActions, currentProjectId],
+    );
+
+    useEffect(() => {
+        // Fetch flow/action definitions so the Run menu can show them
+        const store = useFlowStore.getState();
+        void store.fetchFlows();
+        void store.fetchActions();
+    }, [workspace.project?.id]);
+
+    useEffect(() => {
+        if (!ownerId) {
+            setFlowRunsHydratedOwnerId(null);
+            return;
+        }
+
+        let cancelled = false;
+        setFlowRunsHydratedOwnerId(null);
+        void useFlowStore
+            .getState()
+            .fetchFlowRuns(ownerId)
+            .then(() => {
+                if (!cancelled) {
+                    setFlowRunsHydratedOwnerId(ownerId);
+                }
+            })
+            .catch(() => {
+                // Keep the start control hidden until we can confirm the current owner state.
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [ownerId]);
+
+    const flowRunsReady = flowRunsHydratedOwnerId === ownerId;
 
     const worktreePending =
         workspace.scope === "task" &&
@@ -138,7 +199,7 @@ export function Workspace() {
         setWorktreeMissingDialogOpen(false);
     }, [workspace.task, deleteTask]);
 
-    const hasScripts = useMemo(() => Object.keys(scripts).length > 0, [scripts]);
+    const hasScripts = Object.keys(scripts).length > 0;
 
     const canShowGitControls =
         !!workspace.project &&
@@ -146,7 +207,7 @@ export function Workspace() {
             !workspace.task?.worktree.enabled ||
             !!workspace.task.worktree.path);
 
-    const visibleTabs = useMemo(() => tabs, [tabs]);
+    const visibleTabs = tabs;
 
     const activeTab = visibleTabs.find((t) => t.id === activeTabId) ?? visibleTabs[0];
 
@@ -370,6 +431,31 @@ export function Workspace() {
         );
     };
 
+    const handleRunAction = async (action: ActionDefinition) => {
+        const owner =
+            workspace.scope === "task"
+                ? { taskId: workspace.task.id }
+                : { projectId: workspace.project.id };
+        await createSession(
+            owner,
+            action.sessionType,
+            action.name,
+            action.prompt,
+            undefined,
+            action.sessionType !== "shell" ? action.agentOptions : undefined,
+        );
+    };
+
+    const handleStartFlow = (flowId: string) => {
+        const owner = taskId
+            ? { taskId, flowId }
+            : workspace.project
+              ? { projectId: workspace.project.id, flowId }
+              : null;
+        if (!owner) return;
+        void useFlowStore.getState().startFlow(owner);
+    };
+
     const handleRunScript = async (scriptName: string) => {
         if (!workspace.workspaceKey) return;
         let shell = defaultShellPath;
@@ -420,9 +506,20 @@ export function Workspace() {
                         onNewTab={handleNewTab}
                         onRunTab={handleRunTab}
                         onRunScript={handleRunScript}
+                        onRunAction={handleRunAction}
+                        onStartFlow={handleStartFlow}
+                        onManageFlows={toggleFlowManagement}
                         scripts={scripts}
                         defaultRuntime={defaultRuntime}
-                        showRunButton={workspace.scope === "task" || hasScripts}
+                        flows={flowRunsReady ? flowDefinitions : []}
+                        standaloneActions={standaloneActions}
+                        activeFlowRun={activeFlowRun ?? null}
+                        showRunButton={
+                            workspace.scope === "task" ||
+                            hasScripts ||
+                            standaloneActions.length > 0 ||
+                            (flowRunsReady && flowDefinitions.length > 0)
+                        }
                         showAgentOptions={workspace.scope === "task"}
                         allowSessionTabs={true}
                     />

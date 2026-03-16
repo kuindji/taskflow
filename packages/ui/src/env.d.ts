@@ -24,8 +24,10 @@ interface TaskflowBridge {
     sendTaskInfoState(open: boolean): void;
     onToggleWordWrap(callback: () => void): () => void;
     sendWordWrapState(enabled: boolean): void;
+    onWindowFocusChanged(callback: (focused: boolean) => void): () => void;
     onUpdateStatus(callback: (payload: { status: string; version?: string }) => void): () => void;
     quitAndInstallUpdate(): void;
+    getPathForFile(file: File): string;
 }
 
 declare global {
@@ -38,6 +40,7 @@ declare global {
 
     interface WebviewElement extends HTMLElement {
         src: string;
+        getURL(): string;
         goBack(): void;
         goForward(): void;
         reload(): void;

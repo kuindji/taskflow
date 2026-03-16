@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Project, SessionStatus, Task } from "@taskflow/shared";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { StatusDot } from "@/components/ui/status-dot";
 import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
+import { NoDragSpacer } from "./NoDragSpacer";
 import { MissingLocationDialog } from "./MissingLocationDialog";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,33 @@ export function ProjectGroup({
     onOpenChange,
 }: ProjectGroupProps) {
     const [missingDialogOpen, setMissingDialogOpen] = useState(false);
+
+    const { topLevelTasks, subtaskMap } = useMemo(() => {
+        const topLevel: Task[] = [];
+        const subtasks = new Map<string, Task[]>();
+        for (const task of tasks) {
+            if (task.parentId) {
+                const list = subtasks.get(task.parentId) ?? [];
+                list.push(task);
+                subtasks.set(task.parentId, list);
+            } else {
+                topLevel.push(task);
+            }
+        }
+        return { topLevelTasks: topLevel, subtaskMap: subtasks };
+    }, [tasks]);
+
+    const activeSubtaskParentIds = useMemo(() => {
+        const ids = new Set<string>();
+        if (!activeTaskId) return ids;
+        for (const [parentId, subs] of subtaskMap) {
+            if (parentId === activeTaskId || subs.some((s) => s.id === activeTaskId)) {
+                ids.add(parentId);
+            }
+        }
+        return ids;
+    }, [activeTaskId, subtaskMap]);
+
     const projectToggleLabel = open ? "Collapse project" : "Expand project";
     const projectStatus = useSessionStore((state) => {
         let hasWorking = false;
@@ -83,12 +111,13 @@ export function ProjectGroup({
         }
     };
 
+    //max-w-[calc(100%-0.75rem)]
     return (
         <>
             <Collapsible open={open} onOpenChange={onOpenChange} className="min-w-0">
                 <div
                     className={cn(
-                        "group mx-1.5 flex max-w-[calc(100%-0.75rem)] min-w-0 cursor-pointer items-stretch overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
+                        "group mx-1.5 flex min-w-0 cursor-pointer items-stretch overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
                         isActive && !locationInvalid ? "bg-accent/15" : "hover:bg-muted/50",
                     )}
                 >
@@ -166,17 +195,51 @@ export function ProjectGroup({
                 </div>
                 {!locationInvalid && (
                     <CollapsibleContent>
-                        {tasks.map((task) => (
-                            <TaskCard
-                                key={task.id}
-                                task={task}
-                                isActive={task.id === activeTaskId}
-                                onClick={() => onTaskClick(task.id)}
-                                archived={archived}
-                                compact={compact}
-                                diffStats={diffStatsByTask?.[task.id]}
-                            />
-                        ))}
+                        {topLevelTasks.map((task, index) => {
+                            const subtasks = subtaskMap.get(task.id);
+                            const hasSubtasks = !!subtasks && subtasks.length > 0;
+                            const isExpanded = activeSubtaskParentIds.has(task.id);
+                            const prevTask = index > 0 ? topLevelTasks[index - 1] : null;
+                            const showPinnedSeparator = prevTask?.pinned === true && !task.pinned;
+
+                            return (
+                                <div key={task.id}>
+                                    {showPinnedSeparator && (
+                                        <div className="border-border/40 mx-3 mt-1 mb-0.25 border-t" />
+                                    )}
+                                    <NoDragSpacer />
+                                    <TaskCard
+                                        task={task}
+                                        isActive={task.id === activeTaskId}
+                                        onClick={() => onTaskClick(task.id)}
+                                        archived={archived}
+                                        compact={compact}
+                                        diffStats={diffStatsByTask?.[task.id]}
+                                        isSubtask={false}
+                                        isExpanded={hasSubtasks && isExpanded}
+                                    />
+                                    {hasSubtasks && isExpanded && (
+                                        <div className="pl-4">
+                                            {subtasks.map((subtask) => (
+                                                <>
+                                                    <NoDragSpacer />
+                                                    <TaskCard
+                                                        key={subtask.id}
+                                                        task={subtask}
+                                                        isActive={subtask.id === activeTaskId}
+                                                        onClick={() => onTaskClick(subtask.id)}
+                                                        archived={archived}
+                                                        compact={compact}
+                                                        diffStats={diffStatsByTask?.[subtask.id]}
+                                                        isSubtask={true}
+                                                    />
+                                                </>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </CollapsibleContent>
                 )}
             </Collapsible>

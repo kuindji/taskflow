@@ -8,6 +8,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Toolbar } from "@/components/ui/toolbar";
 import useIsElectron from "@/hooks/useIsElectron";
 import { FileTree } from "./FileTree";
 
@@ -137,9 +138,7 @@ function FileExplorer() {
 
     return (
         <div className="flex h-full flex-col">
-            <div
-                className={`flex items-center gap-2 px-1.5 py-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}
-            >
+            <Toolbar noBorder className={`gap-2 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
                 <span className="text-muted-foreground ml-2 flex h-6 items-center text-xs font-medium">
                     Files
                 </span>
@@ -155,7 +154,7 @@ function FileExplorer() {
                 >
                     <X className="h-3 w-3" />
                 </Button>
-            </div>
+            </Toolbar>
             <Separator />
             <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
                 {tree && treePath === workingDir ? (

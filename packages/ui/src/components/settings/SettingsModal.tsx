@@ -261,7 +261,13 @@ function SettingsModal() {
         } finally {
             setMigrating(false);
         }
-    }, [confirmDataDirChange, dataDirInfo, updateDataDir, showMigrationError, showDataDirChangedAlert]);
+    }, [
+        confirmDataDirChange,
+        dataDirInfo,
+        updateDataDir,
+        showMigrationError,
+        showDataDirChangedAlert,
+    ]);
 
     const handleConflictChoice = useCallback(
         async (mode: "overwrite" | "adopt") => {
@@ -280,7 +286,13 @@ function SettingsModal() {
                 setMigrating(false);
             }
         },
-        [conflictPath, dataDirInfo?.dataDir, updateDataDir, showMigrationError, showDataDirChangedAlert],
+        [
+            conflictPath,
+            dataDirInfo?.dataDir,
+            updateDataDir,
+            showMigrationError,
+            showDataDirChangedAlert,
+        ],
     );
 
     if (!settings) return null;
@@ -364,12 +376,12 @@ function SettingsModal() {
                                             Location where projects, tasks, and session data are
                                             stored
                                         </Label>
-                                        <div className="space-y-2">
+                                        <div className="flex flex-col gap-2">
                                             <TruncatedText
                                                 as="code"
                                                 tooltip
                                                 tooltipSide="bottom"
-                                                className="bg-muted text-foreground flex h-8 min-w-0 max-w-85 overflow-x-auto w-full items-center rounded px-2 text-xs"
+                                                className="bg-muted text-foreground flex h-8 w-full max-w-85 min-w-0 items-center overflow-x-auto rounded px-2 text-xs"
                                                 tooltipContent={
                                                     dataDirInfo?.dataDir ?? "Loading..."
                                                 }
@@ -568,10 +580,17 @@ function SettingsModal() {
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="claude" disabled={!claudeAvailable}>
-                                                    Claude{!claudeAvailable ? " (not installed)" : ""}
+                                                <SelectItem
+                                                    value="claude"
+                                                    disabled={!claudeAvailable}
+                                                >
+                                                    Claude
+                                                    {!claudeAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
-                                                <SelectItem value="codex" disabled={!codexAvailable}>
+                                                <SelectItem
+                                                    value="codex"
+                                                    disabled={!codexAvailable}
+                                                >
                                                     Codex{!codexAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
                                                 <SelectItem value="opencode" disabled={!opencodeAvailable}>

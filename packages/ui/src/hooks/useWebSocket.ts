@@ -18,6 +18,7 @@ const pendingRequests = new Map<
     {
         resolve: (value: unknown) => void;
         reject: (reason: unknown) => void;
+        timeoutId: ReturnType<typeof setTimeout>;
     }
 >();
 const eventListeners = new Map<string, Set<(payload: unknown) => void>>();
@@ -75,6 +76,7 @@ export function connectWebSocket(port: number): Promise<void> {
             if (typeof data.correlationId === "string" && pendingRequests.has(data.correlationId)) {
                 const pending = pendingRequests.get(data.correlationId);
                 if (!pending) return;
+                clearTimeout(pending.timeoutId);
                 pendingRequests.delete(data.correlationId);
                 if (data.error)
                     pending.reject(
@@ -89,8 +91,10 @@ export function connectWebSocket(port: number): Promise<void> {
             }
         };
         ws.onclose = () => {
-            for (const [, pending] of pendingRequests)
+            for (const [, pending] of pendingRequests) {
+                clearTimeout(pending.timeoutId);
                 pending.reject(new Error("WebSocket closed"));
+            }
             pendingRequests.clear();
             connected = false;
             notifyStatus();
@@ -106,18 +110,19 @@ export function sendRequest<T = unknown>(type: string, payload: unknown = {}): P
             return;
         }
         const correlationId = crypto.randomUUID();
-        pendingRequests.set(correlationId, {
-            resolve: resolve as (value: unknown) => void,
-            reject,
-        });
-        const request: WsRequest = { correlationId, type, payload };
-        ws.send(JSON.stringify(request));
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
             if (pendingRequests.has(correlationId)) {
                 pendingRequests.delete(correlationId);
                 reject(new Error(`Request timeout: ${type}`));
             }
         }, 30000);
+        pendingRequests.set(correlationId, {
+            resolve: resolve as (value: unknown) => void,
+            reject,
+            timeoutId,
+        });
+        const request: WsRequest = { correlationId, type, payload };
+        ws.send(JSON.stringify(request));
     });
 }
 
