@@ -114,13 +114,16 @@ export interface TaskLogAddedEvent {
 export interface SessionCreatePayload {
     taskId?: string;
     projectId?: string;
-    type: "claude" | "codex" | "shell";
+    type: "claude" | "codex" | "shell" | "editor";
     label?: string;
     prompt?: string;
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
     cols?: number;
     rows?: number;
     agentOptions?: AgentLaunchOptions;
+    editorId?: string;
+    filePath?: string;
+    line?: number;
 }
 
 export interface SessionCreateResponse {
