@@ -47,9 +47,8 @@ export function deriveTheme(source: ThemeSource): ResolvedTheme {
         "--sidebar-ring": ansi.blue,
     };
 
-    // Apply overrides — typed as Record<string, string>, so any CSS variable can be overridden
     const css: CssVariables = source.overrides
-        ? { ...derived, ...(source.overrides as Partial<CssVariables>) }
+        ? { ...derived, ...source.overrides }
         : derived;
 
     const xterm: XtermTheme = {

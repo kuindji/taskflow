@@ -62,15 +62,19 @@ export const useTaskStore = create<TaskStore>((set) => ({
     taskLogs: {},
     async fetchTasks() {
         set({ loading: true });
-        const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST);
-        const sortedTasks = sortTasksByCreatedAtDesc(tasks);
-        set((state) => ({
-            tasks: sortedTasks,
-            loading: false,
-            activeTaskId: sortedTasks.some((task) => task.id === state.activeTaskId)
-                ? state.activeTaskId
-                : null,
-        }));
+        try {
+            const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST);
+            const sortedTasks = sortTasksByCreatedAtDesc(tasks);
+            set((state) => ({
+                tasks: sortedTasks,
+                loading: false,
+                activeTaskId: sortedTasks.some((task) => task.id === state.activeTaskId)
+                    ? state.activeTaskId
+                    : null,
+            }));
+        } catch {
+            set({ loading: false });
+        }
     },
     async fetchArchivedTasks() {
         const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST_ARCHIVED);

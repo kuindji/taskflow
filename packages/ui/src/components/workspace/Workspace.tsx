@@ -48,8 +48,12 @@ export function Workspace() {
     const activeTabId = useSessionStore((s) =>
         workspace.workspaceKey ? (s.activeTabByWorkspace[workspace.workspaceKey] ?? "") : "",
     );
-    const { setActiveTab, closeTab, createSession, addTab, sendInput, renameTab } =
-        useSessionStore();
+    const setActiveTab = useSessionStore((s) => s.setActiveTab);
+    const closeTab = useSessionStore((s) => s.closeTab);
+    const createSession = useSessionStore((s) => s.createSession);
+    const addTab = useSessionStore((s) => s.addTab);
+    const sendInput = useSessionStore((s) => s.sendInput);
+    const renameTab = useSessionStore((s) => s.renameTab);
     const setActiveTask = useTaskStore((s) => s.setActiveTask);
     const updateTask = useTaskStore((s) => s.updateTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);

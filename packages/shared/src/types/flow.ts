@@ -71,9 +71,7 @@ interface FlowArtifact {
 // Exactly one of taskId or projectId must be set
 type FlowOwner = { taskId: string; projectId?: never } | { projectId: string; taskId?: never };
 
-interface FlowRun {
-    taskId?: string;
-    projectId?: string;
+type FlowRun = FlowOwner & {
     flowId: string;
     status: FlowRunStatus;
     currentActionIndex: number;
@@ -81,7 +79,7 @@ interface FlowRun {
     artifacts: FlowArtifact[];
     startedAt: string;
     completedAt?: string;
-}
+};
 
 function getFlowRunOwnerId(run: FlowRun): string {
     const id = run.taskId ?? run.projectId;

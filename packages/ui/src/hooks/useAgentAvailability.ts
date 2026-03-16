@@ -1,12 +1,23 @@
 import { useState, useEffect } from "react";
 import { MSG } from "@taskflow/shared";
 import type { AgentAvailability, AgentListResponse, AgentType } from "@taskflow/shared";
-import { sendRequest } from "./useWebSocket";
+import { sendRequest, onStatusChange } from "./useWebSocket";
 
 const emptyAgents: AgentAvailability[] = [];
 
 let cachedAgents: AgentAvailability[] | null = null;
 let fetchPromise: Promise<AgentAvailability[]> | null = null;
+
+function clearAgentCache(): void {
+    cachedAgents = null;
+    fetchPromise = null;
+}
+
+onStatusChange((status) => {
+    if (!status.connected) {
+        clearAgentCache();
+    }
+});
 
 function fetchAgents(): Promise<AgentAvailability[]> {
     if (cachedAgents) return Promise.resolve(cachedAgents);

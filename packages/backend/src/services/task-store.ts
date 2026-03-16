@@ -340,9 +340,6 @@ export class TaskStore {
             return await mutation();
         } finally {
             release();
-            if (this.sessionLogMutations.get(key) === queued) {
-                this.sessionLogMutations.delete(key);
-            }
         }
     }
 
@@ -451,9 +448,6 @@ export class TaskStore {
             return await mutation();
         } finally {
             release();
-            if (this.taskLogMutations.get(key) === queued) {
-                this.taskLogMutations.delete(key);
-            }
         }
     }
 

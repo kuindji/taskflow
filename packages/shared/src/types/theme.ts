@@ -35,7 +35,7 @@ export interface ThemeSource {
     author?: string;
     origin: ThemeOrigin;
     colors: ThemeColors;
-    overrides?: Record<string, string>;
+    overrides?: Partial<CssVariables>;
 }
 
 export interface ThemeRecord {

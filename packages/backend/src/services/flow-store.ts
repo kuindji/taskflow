@@ -90,11 +90,9 @@ class FlowStore {
                 );
             }
 
-            await this.withMutation("actions", async () => {
-                const actions = await this.getActions();
-                const filtered = actions.filter((s) => s.id !== id);
-                await writeFile(this.actionsFile, JSON.stringify(filtered, null, 2));
-            });
+            const actions = await this.getActions();
+            const filtered = actions.filter((s) => s.id !== id);
+            await writeFile(this.actionsFile, JSON.stringify(filtered, null, 2));
         });
     }
 

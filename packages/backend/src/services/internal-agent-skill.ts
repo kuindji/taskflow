@@ -209,11 +209,11 @@ case "$cmd" in
       if [ -n "$title" ]; then
         curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \\
           -H "Content-Type: application/json" \\
-          -d "{\\"description\\":\\"$description\\",\\"title\\":\\"$title\\"}"
+          -d "$(printf '{"description":%s,"title":%s}' "$(json_string "$description")" "$(json_string "$title")")"
       else
         curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \\
           -H "Content-Type: application/json" \\
-          -d "{\\"description\\":\\"$description\\"}"
+          -d "$(printf '{"description":%s}' "$(json_string "$description")")"
       fi
     else
       if [ -z "$TASKFLOW_TASK_ID" ]; then

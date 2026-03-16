@@ -41,9 +41,29 @@ class FlowRunner {
     private deps: FlowRunnerDeps;
     // Maps sessionId → flow metadata for exit handling
     private sessionFlowMap = new Map<string, SessionFlowMapping>();
+    private ownerLocks = new Map<string, Promise<void>>();
 
     constructor(deps: FlowRunnerDeps) {
         this.deps = deps;
+    }
+
+    private async withOwnerLock<T>(ownerId: string, fn: () => Promise<T>): Promise<T> {
+        const previous = this.ownerLocks.get(ownerId) ?? Promise.resolve();
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const queued = previous.catch(() => undefined).then(() => gate);
+        this.ownerLocks.set(ownerId, queued);
+        await previous.catch(() => undefined);
+        try {
+            return await fn();
+        } finally {
+            release();
+            if (this.ownerLocks.get(ownerId) === queued) {
+                this.ownerLocks.delete(ownerId);
+            }
+        }
     }
 
     async startFlow(owner: FlowOwner, flow: FlowDefinition): Promise<FlowRun> {
@@ -53,41 +73,45 @@ class FlowRunner {
 
         const ownerId = owner.taskId ?? owner.projectId;
 
-        const existingRuns = await this.deps.flowStore.getFlowRunsForOwner(ownerId);
-        const activeRun = existingRuns.find((r) => r.status === "running" || r.status === "paused");
-        if (activeRun) {
-            throw new Error(`Owner already has an active flow: ${activeRun.flowId}`);
-        }
-
-        // Overwrite only terminal runs; active runs are blocked above
-        const existingRun = await this.deps.flowStore.getFlowRun(ownerId, flow.id);
-        if (existingRun) {
-            if (existingRun.status === "running" || existingRun.status === "paused") {
-                throw new Error(`Flow "${flow.id}" is still active on owner "${ownerId}"`);
+        return this.withOwnerLock(ownerId, async () => {
+            const existingRuns = await this.deps.flowStore.getFlowRunsForOwner(ownerId);
+            const activeRun = existingRuns.find(
+                (r) => r.status === "running" || r.status === "paused",
+            );
+            if (activeRun) {
+                throw new Error(`Owner already has an active flow: ${activeRun.flowId}`);
             }
-            await this.deps.flowStore.deleteFlowRun(ownerId, flow.id);
-        }
 
-        const run: FlowRun = {
-            ...(owner.taskId ? { taskId: owner.taskId } : { projectId: owner.projectId }),
-            flowId: flow.id,
-            status: "running",
-            currentActionIndex: 0,
-            actions: flow.actions.map((s) => ({
-                actionEntryId: s.id,
-                status: "pending",
-            })),
-            artifacts: [],
-            startedAt: new Date().toISOString(),
-        };
+            // Overwrite only terminal runs; active runs are blocked above
+            const existingRun = await this.deps.flowStore.getFlowRun(ownerId, flow.id);
+            if (existingRun) {
+                if (existingRun.status === "running" || existingRun.status === "paused") {
+                    throw new Error(`Flow "${flow.id}" is still active on owner "${ownerId}"`);
+                }
+                await this.deps.flowStore.deleteFlowRun(ownerId, flow.id);
+            }
 
-        run.actions[0].status = "running";
-        run.actions[0].startedAt = new Date().toISOString();
-        await this.deps.flowStore.saveFlowRun(run);
-        this.broadcastUpdate(run);
+            const run: FlowRun = {
+                ...owner,
+                flowId: flow.id,
+                status: "running",
+                currentActionIndex: 0,
+                actions: flow.actions.map((s) => ({
+                    actionEntryId: s.id,
+                    status: "pending",
+                })),
+                artifacts: [],
+                startedAt: new Date().toISOString(),
+            };
 
-        await this.launchActionWithRecovery(owner, flow, run, 0);
-        return run;
+            run.actions[0].status = "running";
+            run.actions[0].startedAt = new Date().toISOString();
+            await this.deps.flowStore.saveFlowRun(run);
+            this.broadcastUpdate(run);
+
+            await this.launchActionWithRecovery(owner, flow, run, 0);
+            return run;
+        });
     }
 
     async handleActionComplete(ownerId: string, flowId: string, sessionId: string): Promise<void> {

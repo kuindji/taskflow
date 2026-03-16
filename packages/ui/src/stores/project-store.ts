@@ -24,11 +24,15 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     loading: false,
     async fetchProjects() {
         set({ loading: true });
-        const { projects } = await sendRequest<{ projects: Project[] }>(MSG.PROJECT_LIST);
-        set({ projects, loading: false });
-        const activeProjectId = useUIStore.getState().activeProjectId;
-        if (activeProjectId && !projects.some((project) => project.id === activeProjectId)) {
-            useUIStore.getState().setActiveProject(null);
+        try {
+            const { projects } = await sendRequest<{ projects: Project[] }>(MSG.PROJECT_LIST);
+            set({ projects, loading: false });
+            const activeProjectId = useUIStore.getState().activeProjectId;
+            if (activeProjectId && !projects.some((project) => project.id === activeProjectId)) {
+                useUIStore.getState().setActiveProject(null);
+            }
+        } catch {
+            set({ loading: false });
         }
     },
     async addProject(path) {

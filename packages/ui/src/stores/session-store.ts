@@ -191,10 +191,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     },
     async closeTab(workspaceKey, tabId) {
         const tab = (get().tabsByWorkspace[workspaceKey] ?? []).find((entry) => entry.id === tabId);
-        if (tab?.sessionId) {
-            await get().closeSession(tab.sessionId);
-        }
-        set((s) => {
+        try {
+            if (tab?.sessionId) {
+                await get().closeSession(tab.sessionId);
+            }
+        } finally {
+            set((s) => {
             const tabs = (s.tabsByWorkspace[workspaceKey] ?? []).filter((t) => t.id !== tabId);
             const activeId =
                 s.activeTabByWorkspace[workspaceKey] === tabId
@@ -207,6 +209,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 sessionStatus: tab?.sessionId ? remainingStatus : s.sessionStatus,
             };
         });
+        }
     },
     setActiveTab(workspaceKey, tabId) {
         set((s) => {
@@ -575,5 +578,16 @@ if (window.taskflow?.onWindowFocusChanged) {
     // Fallback for non-Electron (browser dev mode)
     document.addEventListener("visibilitychange", () => {
         onWindowFocusChanged(document.visibilityState === "visible");
+    });
+}
+
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        _unsubTerminalOutput();
+        _unsubSessionStatus();
+        _unsubSessionExited();
+        _unsubBrowserOpen();
+        _unsubActiveTask();
+        _unsubActiveProject();
     });
 }
