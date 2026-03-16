@@ -44,7 +44,7 @@ async function main() {
             taskLogsDir: config.taskLogsDir,
         });
         await store.init();
-        await store.clearAllSessions(config.instanceId, config.instanceId === "main");
+        await store.clearAllSessions(config.instanceId);
         await store.cleanupAllSessionLogs();
         await store.cleanExpiredArchives();
 
