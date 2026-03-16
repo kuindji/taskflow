@@ -870,10 +870,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 "m-1.5 flex-1 overflow-hidden",
                 dragOver && "ring-primary/50 ring-2 ring-inset",
             )}
-            role="button"
-            tabIndex={0}
             onClick={handleContainerClick}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleContainerClick(); } }}
         />
     );
 }
