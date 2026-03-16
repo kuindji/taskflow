@@ -16,9 +16,14 @@ When the backend serves task/project data to the UI over WebSocket, filter `sess
 
 **File:** `packages/backend/src/services/task-store.ts`
 
-- In all methods that return task or project data to the UI, apply a filter step that strips sessions not belonging to the current instance.
+- Extract a reusable helper (e.g., `filterSessionsByInstance(sessions, instanceId)`) that strips sessions not belonging to the current instance.
+- Apply this filter in all methods that return task or project data to the UI.
 - Sessions with no `instance` field (legacy orphans) are also filtered out.
 - The raw JSON files on disk remain untouched — filtering is read-only.
+
+**File:** `packages/backend/src/services/session-lifecycle.ts`
+
+- After session creation/removal, the lifecycle service fetches the updated task/project and broadcasts it via `TASK_UPDATED`/`PROJECT_UPDATED`. These broadcast payloads must also be filtered using the same helper before being sent, otherwise the UI receives unfiltered data containing foreign-instance sessions as a live push event.
 
 ### 2. Simplify startup cleanup
 
@@ -36,5 +41,6 @@ The UI's `syncWithTasks` rebuilds tabs from whatever sessions the backend provid
 
 ## Scope
 
-- `packages/backend/src/services/task-store.ts` — Add session filtering on read paths; simplify `clearAllSessions`
+- `packages/backend/src/services/task-store.ts` — Add `filterSessionsByInstance` helper; apply on read paths; simplify `clearAllSessions`
+- `packages/backend/src/services/session-lifecycle.ts` — Filter broadcast payloads before sending `TASK_UPDATED`/`PROJECT_UPDATED`
 - `packages/backend/src/index.ts` — Remove `purgeStale` argument from `clearAllSessions` call
