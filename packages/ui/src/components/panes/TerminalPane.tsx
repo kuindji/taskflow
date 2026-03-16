@@ -15,6 +15,8 @@ import type {
     SessionHistoryResponse,
     FileStatResponse,
     XtermTheme,
+    EditorInfo,
+    SystemInfoResponse,
 } from "@taskflow/shared";
 import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -61,6 +63,13 @@ interface FitResult {
 interface TerminalViewportSnapshot {
     distanceFromBottom: number;
 }
+
+/** Module-level cache of detected editors for synchronous availability checks. */
+let cachedEditors: EditorInfo[] = [];
+void sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {}).then(
+    (info) => { cachedEditors = info.editors; },
+    () => {},
+);
 
 /** Module-level cache: keeps one xterm instance per mounted terminal tab. */
 const terminalCache = new Map<string, CachedTerminal>();
@@ -136,8 +145,11 @@ function openFileInApp(
     const store = useSessionStore.getState();
     const settings = useSettingsStore.getState().settings;
     const internalEditor = settings?.editor.internalEditor ?? "monaco";
+    const editorAvailable = cachedEditors.some(
+        (e) => e.id === internalEditor && e.type === "internal",
+    );
 
-    if (internalEditor === "monaco") {
+    if (internalEditor === "monaco" || !editorAvailable) {
         // Existing Monaco behavior
         const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
         const existing = existingTabs.find(
