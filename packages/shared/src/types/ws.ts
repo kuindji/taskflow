@@ -335,6 +335,11 @@ export interface GitCreatePrPayload {
     taskId?: string;
 }
 
+export interface GitCheckPrPayload {
+    path: string;
+    branch: string;
+}
+
 export interface GitCreatePrResult {
     url: string;
     number: number;

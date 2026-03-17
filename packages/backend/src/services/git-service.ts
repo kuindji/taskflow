@@ -356,6 +356,29 @@ export class GitService {
         return { url, number };
     }
 
+    async checkBranchPr(
+        repoPath: string,
+        branch: string,
+    ): Promise<{ url: string; number: number } | null> {
+        const proc = Bun.spawn(
+            ["gh", "pr", "list", "--head", branch, "--json", "number,url", "--limit", "1"],
+            { cwd: repoPath, stdout: "pipe", stderr: "pipe" },
+        );
+        const [stdout, , exitCode] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+            proc.exited,
+        ]);
+        if (exitCode !== 0) return null;
+        try {
+            const prs = JSON.parse(stdout.trim()) as Array<{ number: number; url: string }>;
+            if (prs.length === 0) return null;
+            return { number: prs[0].number, url: prs[0].url };
+        } catch {
+            return null;
+        }
+    }
+
     async generateCommitMessage(repoPath: string, includeUnstaged = true): Promise<string> {
         const diffResult = await this.diff(repoPath);
         const files = includeUnstaged ? diffResult.files : diffResult.files.filter((f) => f.staged);

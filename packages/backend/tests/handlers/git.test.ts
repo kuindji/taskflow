@@ -74,6 +74,7 @@ describe("git handlers", () => {
             router,
             git: git as unknown as GitService,
             taskStore: store,
+            broadcast: () => {},
         });
     });
 

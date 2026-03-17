@@ -8,6 +8,7 @@ import type {
     GitCommitPayload,
     GitPushPayload,
     GitCreatePrPayload,
+    GitCheckPrPayload,
     GitStagePayload,
     GitUnstagePayload,
     GitGenerateCommitMsgPayload,
@@ -15,6 +16,8 @@ import type {
 import type { Router } from "../ws/router";
 import type { GitService } from "../services/git-service";
 import type { TaskStore } from "../services/task-store";
+import { filterTaskSessions } from "../services/instance-filter";
+import { config } from "../config";
 import {
     assertWorkspaceRepo,
     assertRepoFilePath,
@@ -25,10 +28,11 @@ interface GitHandlerDeps {
     router: Router;
     git: GitService;
     taskStore: TaskStore;
+    broadcast: (message: { type: string; payload: unknown }) => void;
 }
 
 export function registerGitHandlers(deps: GitHandlerDeps): void {
-    const { router, git, taskStore } = deps;
+    const { router, git, taskStore, broadcast } = deps;
 
     router.register(MSG.GIT_STATUS, async (payload) => {
         const { path } = payload as GitStatusPayload;
@@ -116,17 +120,28 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
 
         if (taskId) {
             try {
-                await taskStore.updateTask(taskId, (task) => ({
+                const updated = await taskStore.updateTask(taskId, (task) => ({
                     worktree: {
                         ...task.worktree,
                         pr: { number: result.number, url: result.url },
                     },
                 }));
+                broadcast({
+                    type: MSG.TASK_UPDATED,
+                    payload: filterTaskSessions(updated, config.instanceId),
+                });
             } catch {
                 // Don't fail the PR creation if task update fails
             }
         }
 
         return result;
+    });
+
+    router.register(MSG.GIT_CHECK_PR, async (payload) => {
+        const { path, branch } = payload as GitCheckPrPayload;
+        const repoPath = await assertWorkspaceRepo(taskStore, path);
+        const pr = await git.checkBranchPr(repoPath, branch);
+        return { pr };
     });
 }
