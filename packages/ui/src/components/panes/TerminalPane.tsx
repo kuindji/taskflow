@@ -447,7 +447,10 @@ function getOrCreateTerminal(
     if (existing) return existing;
 
     const terminalSettings = useSettingsStore.getState().settings?.terminal;
+    const lastTerminalSize = useSessionStore.getState().lastTerminalSize;
     const term = new Terminal({
+        cols: lastTerminalSize?.cols ?? undefined,
+        rows: lastTerminalSize?.rows ?? undefined,
         theme: getTerminalTheme(),
         fontFamily: terminalSettings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
         fontSize: terminalSettings?.fontSize ?? 13,
