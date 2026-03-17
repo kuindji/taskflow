@@ -135,7 +135,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             command = shell;
         } else {
             const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
-            const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions, systemPrompt);
+            const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions, systemPrompt, !task);
             command = spec.command;
             args.push(...spec.args);
         }
