@@ -959,11 +959,11 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     }, [sessionId]);
 
     return (
-        <div className="relative flex-1 overflow-hidden">
+        <div className="relative flex-1 overflow-hidden p-1.5">
             <div
                 ref={containerRef}
                 className={cn(
-                    "m-1.5 h-full overflow-hidden",
+                    "h-full overflow-hidden",
                     dragOver && "ring-primary/50 ring-2 ring-inset",
                 )}
                 onClick={handleContainerClick}
