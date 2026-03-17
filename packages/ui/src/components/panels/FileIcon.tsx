@@ -15,15 +15,15 @@ function FileIcon({ name, isDirectory, isOpen, className }: FileIconProps) {
             const folderKey = getFolderIconName(name);
             if (folderKey) {
                 return isOpen
-                    ? `/icons/catppuccin/folder_${folderKey}_open.svg`
-                    : `/icons/catppuccin/folder_${folderKey}.svg`;
+                    ? `./icons/catppuccin/folder_${folderKey}_open.svg`
+                    : `./icons/catppuccin/folder_${folderKey}.svg`;
             }
             return isOpen
-                ? "/icons/catppuccin/_folder_open.svg"
-                : "/icons/catppuccin/_folder.svg";
+                ? "./icons/catppuccin/_folder_open.svg"
+                : "./icons/catppuccin/_folder.svg";
         }
         const iconName = getFileIconName(name);
-        return `/icons/catppuccin/${iconName}.svg`;
+        return `./icons/catppuccin/${iconName}.svg`;
     }, [name, isDirectory, isOpen]);
 
     return (
