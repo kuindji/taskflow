@@ -511,16 +511,21 @@ if (process.env.TASKFLOW_DEV) {
     app.setPath("userData", join(homedir(), ".config", `taskflow-dev-${devBranch}`));
 }
 
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-    app.quit();
+if (devBranch) {
+    // Dev mode: skip single-instance lock to allow multiple dev instances
+    // from different branches. Each dev instance already has isolated userData.
 } else {
-    app.on("second-instance", () => {
-        if (mainWindow) {
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.focus();
-        }
-    });
+    const gotLock = app.requestSingleInstanceLock();
+    if (!gotLock) {
+        app.quit();
+    } else {
+        app.on("second-instance", () => {
+            if (mainWindow) {
+                if (mainWindow.isMinimized()) mainWindow.restore();
+                mainWindow.focus();
+            }
+        });
+    }
 }
 
 void app.whenReady().then(async () => {
