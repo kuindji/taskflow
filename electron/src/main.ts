@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from "electron";
 import { autoUpdater } from "electron-updater";
-import { spawn, execFile, execFileSync, type ChildProcess } from "child_process";
+import { spawn, execFile, type ChildProcess } from "child_process";
+
+declare const BUILD_GIT_BRANCH: string;
 import { constants } from "fs";
 import { access, readFile, rm } from "fs/promises";
 import { homedir, tmpdir } from "os";
@@ -498,15 +500,7 @@ function setupAutoUpdater() {
 let devBranch: string | null = null;
 
 if (process.env.TASKFLOW_DEV) {
-    try {
-        const raw = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-            encoding: "utf-8",
-            timeout: 3000,
-        }).trim();
-        devBranch = raw.replace(/\//g, "-");
-    } catch {
-        devBranch = "unknown";
-    }
+    devBranch = BUILD_GIT_BRANCH;
     app.setName(`Taskflow Dev (${devBranch})`);
     app.setPath("userData", join(homedir(), ".config", `taskflow-dev-${devBranch}`));
 }
