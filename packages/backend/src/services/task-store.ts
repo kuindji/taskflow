@@ -71,16 +71,24 @@ export class TaskStore {
         await mkdir(this.config.taskLogsDir, { recursive: true });
     }
 
-    async clearAllSessions(): Promise<void> {
+    async clearAllSessions(instanceId?: string): Promise<void> {
         const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
         for (const task of tasks) {
-            if (task.sessions.length > 0) {
-                await this.updateTask(task.id, { sessions: [] });
+            if (task.sessions.length === 0) continue;
+            const remaining = instanceId
+                ? task.sessions.filter((s) => s.instance !== undefined && s.instance !== instanceId)
+                : [];
+            if (remaining.length !== task.sessions.length) {
+                await this.updateTask(task.id, { sessions: remaining });
             }
         }
         for (const project of projects) {
-            if (project.sessions.length > 0) {
-                await this.updateProject(project.id, { sessions: [] });
+            if (project.sessions.length === 0) continue;
+            const remaining = instanceId
+                ? project.sessions.filter((s) => s.instance !== undefined && s.instance !== instanceId)
+                : [];
+            if (remaining.length !== project.sessions.length) {
+                await this.updateProject(project.id, { sessions: remaining });
             }
         }
     }
@@ -158,7 +166,11 @@ export class TaskStore {
 
         try {
             const task = JSON.parse(data) as Task;
-            return { ...task, pinned: task.pinned ?? false };
+            return {
+                ...task,
+                pinned: task.pinned ?? false,
+                worktree: { ...task.worktree, pr: task.worktree.pr ?? null },
+            };
         } catch (error) {
             if (isJsonParseError(error)) {
                 await this.unlinkIfPresent(filePath);
@@ -205,6 +217,9 @@ export class TaskStore {
         const projects = await this.listProjects();
         const duplicate = projects.find((p) => p.path === resolvedPath);
         if (duplicate) {
+            if (duplicate.hidden) {
+                return this.updateProject(duplicate.id, { hidden: false });
+            }
             throw new Error(`A project already exists at this path: ${duplicate.name}`);
         }
         const project: Project = {
@@ -230,8 +245,8 @@ export class TaskStore {
     async updateProject(
         id: string,
         updates:
-            | Partial<Pick<Project, "name" | "path" | "sessions">>
-            | ((project: Project) => Partial<Pick<Project, "name" | "path" | "sessions">>),
+            | Partial<Pick<Project, "name" | "path" | "sessions" | "hidden">>
+            | ((project: Project) => Partial<Pick<Project, "name" | "path" | "sessions" | "hidden">>),
     ): Promise<Project> {
         const projects = await this.listProjects();
         const index = projects.findIndex((p) => p.id === id);
@@ -521,7 +536,7 @@ export class TaskStore {
             title: input.title,
             description: input.description,
             notes: "",
-            worktree: input.worktree ?? { enabled: false, path: null, branch: null },
+            worktree: input.worktree ?? { enabled: false, path: null, branch: null, pr: null },
             sessions: [],
             createdAt: new Date().toISOString(),
             status: "active",

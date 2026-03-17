@@ -146,7 +146,7 @@ describe("session handlers", () => {
 
         expect(events).toContainEqual({
             type: MSG.SESSION_STATUS,
-            payload: { sessionId: created.sessionId, status: "working" },
+            payload: { sessionId: created.sessionId, status: "initializing" },
         });
     });
 
@@ -170,6 +170,7 @@ describe("session handlers", () => {
                 enabled: true,
                 path: join(tempDir, "project", ".worktrees", "task"),
                 branch: "task/task",
+                pr: null,
             },
         });
 

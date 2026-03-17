@@ -5,6 +5,7 @@ import type { TaskStore } from "./task-store";
 import { buildAgentLaunchSpec, ensureInternalAgentSkillFile } from "./internal-agent-skill";
 import { getEditorById } from "./editor-detector";
 import { config } from "../config";
+import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
 
 interface SessionOwner {
     taskId?: string;
@@ -166,7 +167,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             command = shell;
         } else {
             const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
-            const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions, systemPrompt);
+            const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions, systemPrompt, !task);
             command = spec.command;
             args.push(...spec.args);
         }
@@ -221,6 +222,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             type,
             label: opts.label ?? getDefaultSessionLabel(type),
             createdAt: new Date().toISOString(),
+            instance: config.instanceId,
         };
         if (task) {
             await taskStore.updateTask(task.id, (currentTask) => ({
@@ -228,7 +230,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             }));
             const updatedTask = await taskStore.getTask(task.id);
             if (updatedTask) {
-                broadcast({ type: MSG.TASK_UPDATED, payload: updatedTask });
+                broadcast({ type: MSG.TASK_UPDATED, payload: filterTaskSessions(updatedTask, config.instanceId) });
             }
         } else {
             await taskStore.updateProject(project.id, (currentProject) => ({
@@ -236,14 +238,14 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             }));
             const updatedProject = await taskStore.getProject(project.id);
             if (updatedProject) {
-                broadcast({ type: MSG.PROJECT_UPDATED, payload: updatedProject });
+                broadcast({ type: MSG.PROJECT_UPDATED, payload: filterProjectSessions(updatedProject, config.instanceId) });
             }
         }
 
         if (type !== "shell" && type !== "editor") {
             broadcast({
                 type: MSG.SESSION_STATUS,
-                payload: { sessionId, status: "working" },
+                payload: { sessionId, status: "initializing" },
             });
         }
 

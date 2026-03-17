@@ -44,9 +44,9 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                     case "codex":
                     case "shell":
                         label = `${tab.type} terminal`;
-                        // Terminal panes are always mounted and use visibility+absolute
-                        // positioning instead of display:none so xterm.js always has
-                        // valid DOM measurements for its scroll viewport.
+                        // Terminal panes are always mounted and use offscreen positioning
+                        // (left:-9999em) for inactive tabs so xterm.js's IntersectionObserver
+                        // correctly pauses/resumes rendering on tab switch.
                         pane = tab.sessionId ? (
                             <TerminalPane
                                 taskId={workspace.task?.id}
@@ -104,15 +104,18 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                 }
 
                 // Always-mounted tabs (terminals, browser) use absolute positioning
-                // with visibility toggle instead of display:none. This ensures xterm's
-                // viewport always has valid DOM dimensions for scroll calculations.
+                // with offscreen placement instead of visibility:hidden. Moving inactive
+                // tabs to left:-9999em lets xterm.js's internal IntersectionObserver
+                // correctly detect the terminal as not visible and pause rendering.
+                // When brought back (left:0), the ResizeObserver fires naturally and
+                // xterm resumes without stale viewport state.
                 if (isAlwaysMounted(tab)) {
                     return (
                         <ErrorBoundary key={tab.id} fallbackLabel={label}>
                             <div
                                 className={cn(
                                     "absolute inset-0 flex",
-                                    isActive ? "visible z-10" : "pointer-events-none invisible z-0",
+                                    isActive ? "z-10" : "pointer-events-none z-0 -left-[9999em]",
                                 )}
                             >
                                 {pane}

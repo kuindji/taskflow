@@ -4,7 +4,7 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "bun run --watch src/index.ts",
+        "dev": "TASKFLOW_DEV=1 bun run --watch src/index.ts",
         "start": "bun run src/index.ts",
         "build": "bun build src/index.ts --outdir dist --target bun",
         "build:bin": "bun build src/index.ts --compile --outfile dist/taskflow-backend",

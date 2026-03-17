@@ -44,7 +44,7 @@ async function main() {
             taskLogsDir: config.taskLogsDir,
         });
         await store.init();
-        await store.clearAllSessions();
+        await store.clearAllSessions(config.instanceId);
         await store.cleanupAllSessionLogs();
         await store.cleanExpiredArchives();
 
@@ -167,7 +167,7 @@ async function main() {
             taskStore: store,
             broadcast: server.broadcast,
         });
-        registerGitHandlers({ router, git: gitService, taskStore: store });
+        registerGitHandlers({ router, git: gitService, taskStore: store, broadcast: server.broadcast });
 
         const themeService = new ThemeService(config.themesDir);
         registerSettingsHandlers({ router, settingsStore, taskStore: store });

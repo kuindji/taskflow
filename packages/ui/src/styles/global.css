@@ -138,4 +138,5 @@ body {
    its own cursor, so the browser caret creates a duplicate cursor artifact. */
 .xterm .xterm-helper-textarea {
     caret-color: transparent !important;
+    opacity: 0 !important;
 }

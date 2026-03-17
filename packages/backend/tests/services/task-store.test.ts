@@ -175,6 +175,7 @@ describe("TaskStore", () => {
                     enabled: true,
                     path: join(projectDir, ".worktrees", "worktree-task"),
                     branch: "task/worktree-task",
+                    pr: null,
                 },
             });
 
@@ -182,6 +183,7 @@ describe("TaskStore", () => {
                 enabled: true,
                 path: join(projectDir, ".worktrees", "worktree-task"),
                 branch: "task/worktree-task",
+                pr: null,
             });
 
             const updated = await store.updateTask(task.id, {
@@ -189,6 +191,7 @@ describe("TaskStore", () => {
                     enabled: true,
                     path: join(projectDir, ".worktrees", "renamed"),
                     branch: "task/renamed",
+                    pr: null,
                 },
             });
 
@@ -196,6 +199,7 @@ describe("TaskStore", () => {
                 enabled: true,
                 path: join(projectDir, ".worktrees", "renamed"),
                 branch: "task/renamed",
+                pr: null,
             });
             expect((await store.getTask(task.id))?.worktree).toEqual(updated.worktree);
         });
@@ -289,6 +293,64 @@ describe("TaskStore", () => {
             await store.cleanExpiredArchives();
             const remaining = await store.listArchived();
             expect(remaining).toHaveLength(0);
+        });
+    });
+
+    describe("clearAllSessions", () => {
+        it("only clears sessions matching the given instanceId", async () => {
+            const projectDir = await createProjectDir("test");
+            const project = await store.addProject({ name: "test", path: projectDir });
+            const task = await store.createTask({
+                projectId: project.id,
+                title: "Task",
+                description: "test",
+            });
+
+            await store.updateTask(task.id, {
+                sessions: [
+                    { id: "s1", type: "claude", label: "A", createdAt: new Date().toISOString(), instance: "main" },
+                    { id: "s2", type: "claude", label: "B", createdAt: new Date().toISOString(), instance: "dev-feature" },
+                    { id: "s3", type: "claude", label: "C", createdAt: new Date().toISOString() },
+                ],
+            });
+            await store.updateProject(project.id, {
+                sessions: [
+                    { id: "s4", type: "shell", label: "D", createdAt: new Date().toISOString(), instance: "main" },
+                    { id: "s5", type: "shell", label: "E", createdAt: new Date().toISOString(), instance: "dev-feature" },
+                ],
+            });
+
+            await store.clearAllSessions("main");
+
+            const updatedTask = await store.getTask(task.id);
+            expect(updatedTask!.sessions).toHaveLength(1);
+            expect(updatedTask!.sessions[0].id).toBe("s2");
+
+            const projects = await store.listProjects();
+            const updatedProject = projects.find((p) => p.id === project.id)!;
+            expect(updatedProject.sessions).toHaveLength(1);
+            expect(updatedProject.sessions[0].id).toBe("s5");
+        });
+
+        it("clears all sessions when no instanceId is provided", async () => {
+            const projectDir = await createProjectDir("test");
+            const project = await store.addProject({ name: "test", path: projectDir });
+            const task = await store.createTask({
+                projectId: project.id,
+                title: "Task",
+                description: "test",
+            });
+
+            await store.updateTask(task.id, {
+                sessions: [
+                    { id: "s1", type: "claude", label: "A", createdAt: new Date().toISOString(), instance: "main" },
+                ],
+            });
+
+            await store.clearAllSessions();
+
+            const updatedTask = await store.getTask(task.id);
+            expect(updatedTask!.sessions).toHaveLength(0);
         });
     });
 });

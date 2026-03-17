@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import type { Task, Project } from "@taskflow/shared";
+import type { Task, Project, TaskWorktreePr } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -13,6 +13,7 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
 import { ForkProjectDialog } from "./ForkProjectDialog";
+import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import {
     Archive,
     ArrowUpFromLine,
@@ -20,6 +21,7 @@ import {
     FolderTree,
     GitCommitHorizontal,
     GitFork,
+    GitPullRequestCreateArrow,
     NotebookText,
     Pencil,
     Trash2,
@@ -33,6 +35,30 @@ interface TaskHeaderProps {
     onDiff?: () => void;
 }
 
+function openUrl(url: string) {
+    if (window.taskflow) {
+        void window.taskflow.openExternalUrl(url);
+    } else {
+        window.open(url, "_blank");
+    }
+}
+
+function PrLink({ pr }: { pr: TaskWorktreePr }) {
+    return (
+        <span
+            role="link"
+            tabIndex={0}
+            className="text-accent hover:underline cursor-pointer text-xs font-medium"
+            onClick={() => openUrl(pr.url)}
+            onKeyDown={(e) => {
+                if (e.key === "Enter") openUrl(pr.url);
+            }}
+        >
+            #{pr.number}
+        </span>
+    );
+}
+
 export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
     const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
@@ -41,7 +67,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const archiveTask = useTaskStore((s) => s.archiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const updateProject = useProjectStore((s) => s.updateProject);
+    const hideProject = useProjectStore((s) => s.hideProject);
     const removeProject = useProjectStore((s) => s.removeProject);
+    const [removeOpen, setRemoveOpen] = useState(false);
 
     const isElectron = useIsElectron();
     const [renameOpen, setRenameOpen] = useState(false);
@@ -62,8 +90,14 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     );
 
     const showPush = !hasChanges && !commitDisabled;
-    const commitLabel = showPush ? "Push" : "Commit";
-    const CommitIcon = showPush ? ArrowUpFromLine : GitCommitHorizontal;
+    const showCreatePr =
+        commitDisabled && isWorktreeTask && !!task?.worktree.branch && !task?.worktree.pr;
+    const commitLabel = showCreatePr ? "Create PR" : showPush ? "Push" : "Commit";
+    const CommitIcon = showCreatePr
+        ? GitPullRequestCreateArrow
+        : showPush
+          ? ArrowUpFromLine
+          : GitCommitHorizontal;
 
     const showGitButtons = !!project && (!task || isWorktreeTask);
     const showDiffButton = !!onDiff && showGitButtons;
@@ -99,14 +133,8 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
             return;
         }
         if (!project) return;
-        void confirm({
-            title: "Remove project",
-            description: `Remove "${project.name}" and delete all of its tasks? This cannot be undone.`,
-            confirmLabel: "Remove",
-            variant: "destructive",
-            onConfirm: () => removeProject(project.id),
-        });
-    }, [deleteTask, project, removeProject, task]);
+        setRemoveOpen(true);
+    }, [deleteTask, project, task]);
 
     return (
         <Toolbar className={`gap-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
@@ -143,6 +171,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                 >
                                     {task.worktree.branch}
                                 </TruncatedText>
+                                {task.worktree.pr && (
+                                    <PrLink pr={task.worktree.pr} />
+                                )}
                                 <CopyButton
                                     value={task.worktree.branch}
                                     tooltip="Copy branch name"
@@ -168,7 +199,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             variant="ghost"
                             size="xs"
                             onClick={() => setCommitOpen(true)}
-                            disabled={commitDisabled}
+                            disabled={commitDisabled && !showCreatePr}
                             aria-label={commitLabel}
                             className="[-webkit-app-region:no-drag]"
                         >
@@ -276,6 +307,15 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
             )}
             {project && (
                 <ForkProjectDialog open={forkOpen} onOpenChange={setForkOpen} project={project} />
+            )}
+            {project && (
+                <RemoveProjectDialog
+                    open={removeOpen}
+                    project={project}
+                    onOpenChange={setRemoveOpen}
+                    onRemove={removeProject}
+                    onHide={hideProject}
+                />
             )}
         </Toolbar>
     );

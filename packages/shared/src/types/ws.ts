@@ -43,6 +43,7 @@ export interface ProjectUpdatePayload {
     id: string;
     name?: string;
     path?: string;
+    hidden?: boolean;
 }
 
 export interface ProjectForkPayload {
@@ -214,6 +215,15 @@ export interface FileTreeResponse {
     gitignorePatterns: string[];
 }
 
+export interface FileListDirPayload {
+    path: string;
+}
+
+export interface FileListDirResponse {
+    entries: FileNode[];
+    gitignorePatterns: string[];
+}
+
 export interface FileReadPayload {
     path: string;
 }
@@ -334,10 +344,17 @@ export interface GitCreatePrPayload {
     path: string;
     title: string;
     body?: string;
+    taskId?: string;
+}
+
+export interface GitCheckPrPayload {
+    path: string;
+    branch: string;
 }
 
 export interface GitCreatePrResult {
     url: string;
+    number: number;
 }
 
 // Scripts messages

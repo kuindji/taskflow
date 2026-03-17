@@ -360,7 +360,7 @@ async function handlePathActivation(
         if (isExternal) {
             window.taskflow?.showItemInFolder(resolved);
         } else {
-            useFileStore.getState().setExpandToPath(resolved);
+            void useFileStore.getState().expandToPathAndLoad(resolved);
             if (!useUIStore.getState().fileExplorerOpen) {
                 useUIStore.getState().toggleFileExplorer();
             }
@@ -577,8 +577,11 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     const termRef = useRef<Terminal | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const visibleRef = useRef(visible);
+    const sessionStatus = useSessionStore((s) => s.sessionStatus[sessionId]);
+    const isInitializing = sessionStatus === "initializing";
     const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const fitFrameRef = useRef<number | null>(null);
+    const fitRetryTimeoutRef = useRef<number | null>(null);
     const resizeDebounceTimeoutRef = useRef<number | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const dragCounterRef = useRef(0);
@@ -610,9 +613,13 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     );
 
     const scheduleFit = useCallback(
-        (forceResize = false, focus = false, scrollToBottom = false, retries = 2) => {
+        (forceResize = false, focus = false, scrollToBottom = false, retries = 5) => {
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
+            }
+            if (fitRetryTimeoutRef.current !== null) {
+                window.clearTimeout(fitRetryTimeoutRef.current);
+                fitRetryTimeoutRef.current = null;
             }
             fitFrameRef.current = requestAnimationFrame(() => {
                 fitFrameRef.current = null;
@@ -622,7 +629,15 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 const fitResult = fitTerminal(fitRef.current, termRef.current);
                 if (!fitResult.measured) {
                     if (retries > 0) {
-                        scheduleFit(forceResize, focus, scrollToBottom, retries - 1);
+                        // Use setTimeout with backoff instead of rAF for retries.
+                        // After off-screen→on-screen transitions the browser may
+                        // need several layout passes before the container reports
+                        // real dimensions to proposeDimensions().
+                        const delay = Math.min(50 * Math.pow(2, 5 - retries), 400);
+                        fitRetryTimeoutRef.current = window.setTimeout(() => {
+                            fitRetryTimeoutRef.current = null;
+                            scheduleFit(forceResize, focus, scrollToBottom, retries - 1);
+                        }, delay);
                     } else if (focus && termRef.current) {
                         termRef.current.focus();
                     }
@@ -699,6 +714,10 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
                 fitFrameRef.current = null;
+            }
+            if (fitRetryTimeoutRef.current !== null) {
+                window.clearTimeout(fitRetryTimeoutRef.current);
+                fitRetryTimeoutRef.current = null;
             }
             if (resizeDebounceTimeoutRef.current !== null) {
                 window.clearTimeout(resizeDebounceTimeoutRef.current);
@@ -904,17 +923,26 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     }, [sessionId]);
 
     return (
-        <div
-            ref={containerRef}
-            className={cn(
-                "m-1.5 flex-1 overflow-hidden",
-                dragOver && "ring-primary/50 ring-2 ring-inset",
+        <div className="relative flex-1 overflow-hidden">
+            <div
+                ref={containerRef}
+                className={cn(
+                    "m-1.5 h-full overflow-hidden",
+                    dragOver && "ring-primary/50 ring-2 ring-inset",
+                )}
+                onClick={handleContainerClick}
+            />
+            {isInitializing && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="border-muted-foreground h-6 w-6 animate-spin rounded-full border-2 border-t-transparent" />
+                        <span className="text-muted-foreground text-sm">
+                            Starting agent...
+                        </span>
+                    </div>
+                </div>
             )}
-            role="button"
-            tabIndex={0}
-            onClick={handleContainerClick}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleContainerClick(); } }}
-        />
+        </div>
     );
 }
 
