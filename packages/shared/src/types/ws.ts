@@ -221,6 +221,15 @@ export interface FileTreeResponse {
     gitignorePatterns: string[];
 }
 
+export interface FileListDirPayload {
+    path: string;
+}
+
+export interface FileListDirResponse {
+    entries: FileNode[];
+    gitignorePatterns: string[];
+}
+
 export interface FileReadPayload {
     path: string;
 }

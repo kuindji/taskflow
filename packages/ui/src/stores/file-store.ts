@@ -3,11 +3,45 @@ import type {
     FileNode,
     GitStatusResult,
     FileChangeEvent,
-    FileTreeResponse,
+    FileListDirResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { onEvent, sendRequest } from "../hooks/useWebSocket";
 import { useDiffStore } from "./diff-store";
+
+function setChildrenAtPath(
+    root: FileNode,
+    targetPath: string,
+    children: FileNode[],
+): FileNode {
+    if (root.path === targetPath) {
+        return { ...root, children, loaded: true };
+    }
+    if (!root.children) return root;
+    return {
+        ...root,
+        children: root.children.map((child) =>
+            child.type === "directory" &&
+                (targetPath === child.path || targetPath.startsWith(child.path + "/"))
+                ? setChildrenAtPath(child, targetPath, children)
+                : child,
+        ),
+    };
+}
+
+function isDirLoaded(root: FileNode, dirPath: string): boolean {
+    if (root.path === dirPath) return root.loaded === true;
+    if (!root.children) return false;
+    for (const child of root.children) {
+        if (
+            child.type === "directory" &&
+            (dirPath === child.path || dirPath.startsWith(child.path + "/"))
+        ) {
+            if (isDirLoaded(child, dirPath)) return true;
+        }
+    }
+    return false;
+}
 
 interface FileStore {
     tree: FileNode | null;
@@ -17,8 +51,10 @@ interface FileStore {
     gitStatusPath: string | null;
     watchedPath: string | null;
     loading: boolean;
+    loadingDirs: Set<string>;
     expandToPath: string | null;
     fetchTree(path: string): Promise<void>;
+    fetchDir(dirPath: string): Promise<void>;
     fetchGitStatus(path: string): Promise<void>;
     watchPath(path: string): Promise<void>;
     unwatchPath(path: string): Promise<void>;
@@ -32,13 +68,17 @@ interface FileStore {
     openExternal(path: string): Promise<void>;
     revealInFinder(path: string): Promise<void>;
     setExpandToPath(path: string | null): void;
+    expandToPathAndLoad(targetPath: string): Promise<void>;
 }
 
 let fileChangeSubscriptionReady = false;
 let fileChangeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+const pendingChangedDirs = new Set<string>();
 let diffStoreUnsubscribe: (() => void) | null = null;
 let treeRequestId = 0;
 let gitStatusRequestId = 0;
+
+const emptyLoadingDirs = new Set<string>();
 
 export const useFileStore = create<FileStore>((set, get) => ({
     tree: null,
@@ -48,6 +88,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
     gitStatusPath: null,
     watchedPath: null,
     loading: false,
+    loadingDirs: emptyLoadingDirs,
     expandToPath: null,
     setExpandToPath(path) {
         set({ expandToPath: path });
@@ -59,12 +100,50 @@ export const useFileStore = create<FileStore>((set, get) => ({
             tree: state.treePath === path ? state.tree : null,
             treePath: state.treePath === path ? state.treePath : null,
             gitignorePatterns: state.treePath === path ? state.gitignorePatterns : [],
+            loadingDirs: emptyLoadingDirs,
         }));
-        const { tree, gitignorePatterns } = await sendRequest<FileTreeResponse>(MSG.FILE_TREE, {
-            path,
-        });
+        const { entries, gitignorePatterns } = await sendRequest<FileListDirResponse>(
+            MSG.FILE_LIST_DIR,
+            { path },
+        );
         if (requestId !== treeRequestId) return;
-        set({ tree, treePath: path, gitignorePatterns, loading: false });
+        const rootNode: FileNode = {
+            name: path.split("/").pop() ?? path,
+            path,
+            type: "directory",
+            children: entries,
+            loaded: true,
+        };
+        set({ tree: rootNode, treePath: path, gitignorePatterns, loading: false });
+    },
+    async fetchDir(dirPath) {
+        if (get().loadingDirs.has(dirPath)) return;
+        const newLoading = new Set(get().loadingDirs);
+        newLoading.add(dirPath);
+        set({ loadingDirs: newLoading });
+        try {
+            const { entries } = await sendRequest<FileListDirResponse>(
+                MSG.FILE_LIST_DIR,
+                { path: dirPath },
+            );
+            set((state) => {
+                const updatedLoading = new Set(state.loadingDirs);
+                updatedLoading.delete(dirPath);
+                const newTree = state.tree
+                    ? setChildrenAtPath(state.tree, dirPath, entries)
+                    : state.tree;
+                return {
+                    tree: newTree,
+                    loadingDirs: updatedLoading,
+                };
+            });
+        } catch {
+            set((state) => {
+                const updatedLoading = new Set(state.loadingDirs);
+                updatedLoading.delete(dirPath);
+                return { loadingDirs: updatedLoading };
+            });
+        }
     },
     async fetchGitStatus(path) {
         const requestId = ++gitStatusRequestId;
@@ -85,9 +164,17 @@ export const useFileStore = create<FileStore>((set, get) => ({
                 const event = payload as FileChangeEvent;
                 const watchedPath = get().watchedPath;
                 if (!watchedPath || !event.path.startsWith(watchedPath)) return;
+                const parentDir = event.path.substring(0, event.path.lastIndexOf("/"));
+                pendingChangedDirs.add(parentDir);
                 if (fileChangeRefreshTimer) clearTimeout(fileChangeRefreshTimer);
                 fileChangeRefreshTimer = setTimeout(() => {
-                    get().fetchTree(watchedPath).catch(console.error);
+                    const tree = get().tree;
+                    for (const dir of pendingChangedDirs) {
+                        if (tree && isDirLoaded(tree, dir)) {
+                            get().fetchDir(dir).catch(console.error);
+                        }
+                    }
+                    pendingChangedDirs.clear();
                     get().fetchGitStatus(watchedPath).catch(console.error);
                 }, 150);
             });
@@ -130,7 +217,35 @@ export const useFileStore = create<FileStore>((set, get) => ({
             gitStatus: null,
             gitStatusPath: null,
             loading: false,
+            loadingDirs: emptyLoadingDirs,
         });
+    },
+    async expandToPathAndLoad(targetPath) {
+        const treePath = get().treePath;
+        if (!treePath || !targetPath.startsWith(treePath)) return;
+
+        // Collect ancestor directories from root to target
+        const dirsToLoad: string[] = [];
+        let current = targetPath;
+        while (current !== treePath && current.length > treePath.length) {
+            const lastSlash = current.lastIndexOf("/");
+            if (lastSlash <= 0) break;
+            current = current.slice(0, lastSlash);
+            if (current.length >= treePath.length) {
+                dirsToLoad.unshift(current);
+            }
+        }
+
+        // Load directories sequentially (each depends on parent being in the tree)
+        for (const dir of dirsToLoad) {
+            const tree = get().tree;
+            if (tree && !isDirLoaded(tree, dir)) {
+                await get().fetchDir(dir);
+            }
+        }
+
+        // Set expandToPath after all directories are loaded so the UI can latch them open
+        set({ expandToPath: targetPath });
     },
     async readFile(path) {
         const { content } = await sendRequest<{ content: string }>(MSG.FILE_READ, { path });

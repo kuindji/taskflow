@@ -41,6 +41,7 @@ export const MSG = {
 
     // Files
     FILE_TREE: "file:tree",
+    FILE_LIST_DIR: "file:list-dir",
     FILE_READ: "file:read",
     FILE_WRITE: "file:write",
     FILE_CHANGED: "file:changed",

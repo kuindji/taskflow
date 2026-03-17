@@ -66,6 +66,41 @@ export class FileWatcher {
         return { tree: node, gitignorePatterns };
     }
 
+    async listDir(
+        dirPath: string,
+    ): Promise<{ entries: FileNode[]; gitignorePatterns: string[] }> {
+        const entries: FileNode[] = [];
+        let gitignorePatterns: string[] = [];
+
+        try {
+            const dirEntries = await readdir(dirPath, { withFileTypes: true });
+            for (const entry of dirEntries) {
+                if (IGNORED.has(entry.name)) continue;
+                const fullPath = join(dirPath, entry.name);
+                entries.push({
+                    name: entry.name,
+                    path: fullPath,
+                    type: entry.isDirectory() ? "directory" : "file",
+                });
+            }
+            entries.sort((a, b) => {
+                if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+                return a.name.localeCompare(b.name);
+            });
+        } catch {
+            /* permission denied */
+        }
+
+        try {
+            const content = await readFile(join(dirPath, ".gitignore"), "utf-8");
+            gitignorePatterns = content.split("\n");
+        } catch {
+            // No .gitignore
+        }
+
+        return { entries, gitignorePatterns };
+    }
+
     private async snapshotPath(
         targetPath: string,
         entries = new Map<string, SnapshotEntry>(),
@@ -79,7 +114,7 @@ export class FileWatcher {
                     mtimeMs: info.mtimeMs,
                     size: info.size,
                 });
-                if (depth > 10) {
+                if (depth > 3) {
                     return entries;
                 }
 

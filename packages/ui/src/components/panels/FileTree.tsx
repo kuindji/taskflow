@@ -3,8 +3,10 @@ import { cva } from "class-variance-authority";
 import type { FileNode } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TruncatedText } from "@/components/ui/truncated-text";
-import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { FileIcon } from "./FileIcon";
 import { cn } from "@/lib/utils";
+import { useFileStore } from "@/stores/file-store";
 import { FileContextMenu } from "./FileContextMenu";
 
 type GitStatusVariant =
@@ -55,6 +57,9 @@ function FileTree({
     rootPath,
 }: FileTreeProps) {
     const [open, setOpen] = useState(depth < 1);
+    const fetchDir = useFileStore((s) => s.fetchDir);
+    const loadingDirs = useFileStore((s) => s.loadingDirs);
+    const isLoading = node.type === "directory" && loadingDirs.has(node.path);
 
     // Latch: when expandedPaths includes this node, permanently open it
     useEffect(() => {
@@ -62,6 +67,17 @@ function FileTree({
             setOpen(true);
         }
     }, [expandedPaths, node.path]);
+
+    const handleOpenChange = useCallback(
+        (nextOpen: boolean) => {
+            setOpen(nextOpen);
+            if (nextOpen && node.type === "directory" && !node.loaded) {
+                void fetchDir(node.path);
+            }
+        },
+        [node.path, node.type, node.loaded, fetchDir],
+    );
+
     const rawStatus = gitFiles?.get(node.path);
     const isIgnored = !rawStatus && ignoredFiles?.has(node.path);
     const gitStatus: GitStatusVariant =
@@ -97,23 +113,22 @@ function FileTree({
     if (node.type === "file") {
         return (
             <FileContextMenu filePath={node.path} isDirectory={false} rootPath={rootPath ?? ""}>
-                <TruncatedText
-                    as="div"
+                <div
                     onClick={() => onFileClick(node.path)}
                     draggable
                     onDragStart={handleDragStart}
-                    className={fileClasses}
+                    className={cn(fileClasses, "flex min-w-0 items-center gap-1.5")}
                     style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
-                    tooltipContent={node.path}
                 >
-                    {node.name}
-                </TruncatedText>
+                    <FileIcon name={node.name} isDirectory={false} />
+                    <TruncatedText tooltipContent={node.path}>{node.name}</TruncatedText>
+                </div>
             </FileContextMenu>
         );
     }
 
     return (
-        <Collapsible open={open} onOpenChange={setOpen}>
+        <Collapsible open={open} onOpenChange={handleOpenChange}>
             <FileContextMenu filePath={node.path} isDirectory={true} rootPath={rootPath ?? ""}>
                 <CollapsibleTrigger
                     draggable
@@ -126,27 +141,32 @@ function FileTree({
                     ) : (
                         <ChevronRight className="mr-1.5 h-4 w-4 shrink-0" />
                     )}
-                    {open ? (
-                        <FolderOpen className="text-accent mr-1.5 h-4 w-4 shrink-0" />
-                    ) : (
-                        <Folder className="text-accent/85 mr-1.5 h-4 w-4 shrink-0" />
-                    )}
+                    <FileIcon name={node.name} isDirectory isOpen={open} className="mr-1.5" />
                     <TruncatedText tooltipContent={node.path}>{node.name}</TruncatedText>
                 </CollapsibleTrigger>
             </FileContextMenu>
             <CollapsibleContent>
-                {node.children?.map((child) => (
-                    <FileTree
-                        key={child.path}
-                        node={child}
-                        depth={depth + 1}
-                        gitFiles={gitFiles}
-                        ignoredFiles={ignoredFiles}
-                        onFileClick={onFileClick}
-                        expandedPaths={expandedPaths}
-                        rootPath={rootPath}
-                    />
-                ))}
+                {isLoading ? (
+                    <div
+                        className="text-muted-foreground py-1 text-xs"
+                        style={{ paddingLeft: Math.min(depth + 1, 8) * 16 + 12 }}
+                    >
+                        Loading...
+                    </div>
+                ) : (
+                    node.children?.map((child) => (
+                        <FileTree
+                            key={child.path}
+                            node={child}
+                            depth={depth + 1}
+                            gitFiles={gitFiles}
+                            ignoredFiles={ignoredFiles}
+                            onFileClick={onFileClick}
+                            expandedPaths={expandedPaths}
+                            rootPath={rootPath}
+                        />
+                    ))
+                )}
             </CollapsibleContent>
         </Collapsible>
     );

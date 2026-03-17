@@ -25,7 +25,7 @@ function CreateFileDialog({ open, onOpenChange, directoryPath, mode }: CreateFil
     const inputRef = useRef<HTMLInputElement>(null);
     const createFile = useFileStore((s) => s.createFile);
     const createDirectory = useFileStore((s) => s.createDirectory);
-    const setExpandToPath = useFileStore((s) => s.setExpandToPath);
+    const expandToPathAndLoad = useFileStore((s) => s.expandToPathAndLoad);
 
     useEffect(() => {
         if (open) {
@@ -62,7 +62,7 @@ function CreateFileDialog({ open, onOpenChange, directoryPath, mode }: CreateFil
             } else {
                 await createDirectory(fullPath);
             }
-            setExpandToPath(directoryPath);
+            void expandToPathAndLoad(directoryPath);
             onOpenChange(false);
         } catch (e) {
             setError(e instanceof Error ? e.message : "Creation failed");
