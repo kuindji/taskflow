@@ -537,6 +537,8 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     const termRef = useRef<Terminal | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const visibleRef = useRef(visible);
+    const sessionStatus = useSessionStore((s) => s.sessionStatus[sessionId]);
+    const isInitializing = sessionStatus === "initializing";
     const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const fitFrameRef = useRef<number | null>(null);
     const resizeDebounceTimeoutRef = useRef<number | null>(null);
@@ -864,14 +866,26 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     }, [sessionId]);
 
     return (
-        <div
-            ref={containerRef}
-            className={cn(
-                "m-1.5 flex-1 overflow-hidden",
-                dragOver && "ring-primary/50 ring-2 ring-inset",
+        <div className="relative flex-1 overflow-hidden">
+            <div
+                ref={containerRef}
+                className={cn(
+                    "m-1.5 h-full overflow-hidden",
+                    dragOver && "ring-primary/50 ring-2 ring-inset",
+                )}
+                onClick={handleContainerClick}
+            />
+            {isInitializing && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="border-muted-foreground h-6 w-6 animate-spin rounded-full border-2 border-t-transparent" />
+                        <span className="text-muted-foreground text-sm">
+                            Starting agent...
+                        </span>
+                    </div>
+                </div>
             )}
-            onClick={handleContainerClick}
-        />
+        </div>
     );
 }
 

@@ -76,29 +76,39 @@ export function ProjectGroup({
 
         const getAggregateStatus = (sessionIds: string[]): SessionStatus | undefined => {
             let hasLocalWorking = false;
+            let hasInitializing = false;
 
             for (const sessionId of sessionIds) {
                 const status = sessionStatus[sessionId];
                 if (status === "attention") return "attention";
                 if (status === "working") hasLocalWorking = true;
+                if (status === "initializing") hasInitializing = true;
             }
 
-            return hasLocalWorking ? "working" : undefined;
+            if (hasLocalWorking) return "working";
+            if (hasInitializing) return "initializing";
+            return undefined;
         };
+
+        let hasInitializing = false;
 
         const projectLevelStatus = getAggregateStatus(
             project.sessions.map((session) => session.id),
         );
         if (projectLevelStatus === "attention") return "attention";
         if (projectLevelStatus === "working") hasWorking = true;
+        if (projectLevelStatus === "initializing") hasInitializing = true;
 
         for (const task of tasks) {
             const taskStatus = getAggregateStatus(task.sessions.map((session) => session.id));
             if (taskStatus === "attention") return "attention";
             if (taskStatus === "working") hasWorking = true;
+            if (taskStatus === "initializing") hasInitializing = true;
         }
 
-        return hasWorking ? "working" : undefined;
+        if (hasWorking) return "working";
+        if (hasInitializing) return "initializing";
+        return undefined;
     });
 
     const locationInvalid = project.locationValid === false;

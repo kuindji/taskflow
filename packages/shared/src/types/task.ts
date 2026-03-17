@@ -1,4 +1,4 @@
-export type SessionStatus = "working" | "attention";
+export type SessionStatus = "working" | "attention" | "initializing";
 
 export interface SessionRef {
     id: string;

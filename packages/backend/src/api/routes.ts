@@ -51,7 +51,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         gitService,
         generateTitle,
     } = deps;
-    const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention"]);
+    const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention", "initializing"]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
         let body: Record<string, unknown>;

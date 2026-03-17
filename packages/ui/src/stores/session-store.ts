@@ -247,13 +247,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const tabs = get().tabsByWorkspace[getTaskWorkspaceKey(taskId)] ?? [];
         const statuses = get().sessionStatus;
         let hasAttention = false;
+        let hasInitializing = false;
         for (const tab of tabs) {
             if (!tab.sessionId) continue;
             const s = statuses[tab.sessionId];
             if (s === "working") return "working";
             if (s === "attention") hasAttention = true;
+            if (s === "initializing") hasInitializing = true;
         }
-        return hasAttention ? "attention" : undefined;
+        if (hasAttention) return "attention";
+        if (hasInitializing) return "initializing";
+        return undefined;
     },
     renameTab(workspaceKey, tabId, newLabel) {
         const tabs = get().tabsByWorkspace[workspaceKey] ?? [];

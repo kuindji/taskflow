@@ -213,7 +213,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         if (type !== "shell") {
             broadcast({
                 type: MSG.SESSION_STATUS,
-                payload: { sessionId, status: "working" },
+                payload: { sessionId, status: "initializing" },
             });
         }
 
