@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
-    INTERNAL_AGENT_SYSTEM_PROMPT,
     buildSystemPrompt,
     ensureCliScript,
     buildAgentLaunchSpec,
@@ -49,7 +48,7 @@ describe("internal agent skill", () => {
     it("task-scoped prompt includes proactive task commands", () => {
         const prompt = buildSystemPrompt(false);
         expect(prompt).toContain("TASKFLOW_TASK_ID is also set");
-        expect(prompt).toContain("taskflow-cli task\`");
+        expect(prompt).toContain("taskflow-cli task`");
         expect(prompt).toContain("taskflow-cli task worktree --disable");
     });
 
