@@ -1,6 +1,7 @@
 import { MSG } from "@taskflow/shared";
 import type {
     FileTreePayload,
+    FileListDirPayload,
     FileReadPayload,
     FileWatchPayload,
     FileUnwatchPayload,
@@ -33,6 +34,13 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         const workspacePath = await assertWorkspacePath(taskStore, path);
         const { tree, gitignorePatterns } = await fileWatcher.buildTree(workspacePath);
         return { tree, gitignorePatterns };
+    });
+
+    router.register(MSG.FILE_LIST_DIR, async (payload) => {
+        const { path } = payload as FileListDirPayload;
+        const workspacePath = await assertWorkspacePath(taskStore, path);
+        const { entries, gitignorePatterns } = await fileWatcher.listDir(workspacePath);
+        return { entries, gitignorePatterns };
     });
 
     router.register(MSG.FILE_READ, async (payload) => {
