@@ -21,7 +21,8 @@ function setChildrenAtPath(
     return {
         ...root,
         children: root.children.map((child) =>
-            child.type === "directory" && targetPath.startsWith(child.path + "/")
+            child.type === "directory" &&
+                (targetPath === child.path || targetPath.startsWith(child.path + "/"))
                 ? setChildrenAtPath(child, targetPath, children)
                 : child,
         ),
@@ -32,7 +33,10 @@ function isDirLoaded(root: FileNode, dirPath: string): boolean {
     if (root.path === dirPath) return root.loaded === true;
     if (!root.children) return false;
     for (const child of root.children) {
-        if (child.type === "directory" && dirPath.startsWith(child.path + "/")) {
+        if (
+            child.type === "directory" &&
+            (dirPath === child.path || dirPath.startsWith(child.path + "/"))
+        ) {
             if (isDirLoaded(child, dirPath)) return true;
         }
     }
