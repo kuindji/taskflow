@@ -166,7 +166,11 @@ export class TaskStore {
 
         try {
             const task = JSON.parse(data) as Task;
-            return { ...task, pinned: task.pinned ?? false };
+            return {
+                ...task,
+                pinned: task.pinned ?? false,
+                worktree: { ...task.worktree, pr: task.worktree.pr ?? null },
+            };
         } catch (error) {
             if (isJsonParseError(error)) {
                 await this.unlinkIfPresent(filePath);
@@ -532,7 +536,7 @@ export class TaskStore {
             title: input.title,
             description: input.description,
             notes: "",
-            worktree: input.worktree ?? { enabled: false, path: null, branch: null },
+            worktree: input.worktree ?? { enabled: false, path: null, branch: null, pr: null },
             sessions: [],
             createdAt: new Date().toISOString(),
             status: "active",

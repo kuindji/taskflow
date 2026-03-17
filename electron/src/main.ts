@@ -4,7 +4,7 @@ import { spawn, execFile, type ChildProcess } from "child_process";
 
 declare const BUILD_GIT_BRANCH: string;
 import { constants } from "fs";
-import { access, readFile, rm } from "fs/promises";
+import { access, copyFile, readFile, rm, writeFile } from "fs/promises";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 
@@ -627,6 +627,44 @@ ipcMain.on("show-item-in-folder", (_event, filePath: string) => {
     if (!filePath.startsWith("/") || filePath.includes("..")) return;
     shell.showItemInFolder(filePath);
 });
+ipcMain.handle(
+    "save-artifact",
+    async (
+        _event,
+        opts: { path?: string; text?: string; defaultName?: string },
+    ): Promise<{ success: boolean; error?: string }> => {
+        const defaultPath = opts.defaultName
+            ? join(app.getPath("downloads"), opts.defaultName)
+            : undefined;
+        const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+        const result = win
+            ? await dialog.showSaveDialog(win, { defaultPath })
+            : await dialog.showSaveDialog({ defaultPath });
+        if (result.canceled || !result.filePath)
+            return { success: false };
+        try {
+            if (typeof opts.path === "string") {
+                if (!opts.path.startsWith("/") || opts.path.includes(".."))
+                    return { success: false, error: "Invalid source path" };
+                await copyFile(opts.path, result.filePath);
+            } else if (typeof opts.text === "string") {
+                await writeFile(result.filePath, opts.text, "utf-8");
+            } else {
+                return { success: false, error: "No path or text provided" };
+            }
+            return { success: true };
+        } catch (err) {
+            const message =
+                err instanceof Error ? err.message : "Unknown error";
+            await dialog.showMessageBox({
+                type: "error",
+                title: "Download failed",
+                message: `Could not save the artifact:\n${message}`,
+            });
+            return { success: false, error: message };
+        }
+    },
+);
 ipcMain.handle(
     "open-external-file",
     (_event, filePath: string, opts?: { line?: number; col?: number; editor?: string }) => {

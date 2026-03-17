@@ -101,6 +101,18 @@ describe("GitService", () => {
         });
     });
 
+    it("shows individual untracked files inside new directories", async () => {
+        const { mkdir } = await import("fs/promises");
+        await mkdir(join(repoDir, "new-dir"), { recursive: true });
+        await writeFile(join(repoDir, "new-dir", "a.txt"), "aaa");
+        await writeFile(join(repoDir, "new-dir", "b.txt"), "bbb");
+
+        const status = await git.status(repoDir);
+        const paths = status.unstagedFiles.map((f) => f.path).sort();
+        expect(paths).toEqual(["new-dir/a.txt", "new-dir/b.txt"]);
+        expect(status.unstagedFiles.every((f) => f.status === "untracked")).toBe(true);
+    });
+
     it("gets diff", async () => {
         await writeFile(join(repoDir, "initial.txt"), "modified content");
         const diff = await git.diff(repoDir);

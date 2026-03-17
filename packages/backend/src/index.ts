@@ -165,7 +165,7 @@ async function main() {
             taskStore: store,
             broadcast: server.broadcast,
         });
-        registerGitHandlers({ router, git: gitService, taskStore: store });
+        registerGitHandlers({ router, git: gitService, taskStore: store, broadcast: server.broadcast });
 
         const themeService = new ThemeService(config.themesDir);
         registerSettingsHandlers({ router, settingsStore, taskStore: store });

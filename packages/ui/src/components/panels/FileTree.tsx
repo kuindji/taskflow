@@ -3,7 +3,8 @@ import { cva } from "class-variance-authority";
 import type { FileNode } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TruncatedText } from "@/components/ui/truncated-text";
-import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { FileIcon } from "./FileIcon";
 import { cn } from "@/lib/utils";
 import { useFileStore } from "@/stores/file-store";
 import { FileContextMenu } from "./FileContextMenu";
@@ -112,17 +113,16 @@ function FileTree({
     if (node.type === "file") {
         return (
             <FileContextMenu filePath={node.path} isDirectory={false} rootPath={rootPath ?? ""}>
-                <TruncatedText
-                    as="div"
+                <div
                     onClick={() => onFileClick(node.path)}
                     draggable
                     onDragStart={handleDragStart}
-                    className={fileClasses}
+                    className={cn(fileClasses, "flex min-w-0 items-center gap-1.5")}
                     style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
-                    tooltipContent={node.path}
                 >
-                    {node.name}
-                </TruncatedText>
+                    <FileIcon name={node.name} isDirectory={false} />
+                    <TruncatedText tooltipContent={node.path}>{node.name}</TruncatedText>
+                </div>
             </FileContextMenu>
         );
     }
@@ -141,11 +141,7 @@ function FileTree({
                     ) : (
                         <ChevronRight className="mr-1.5 h-4 w-4 shrink-0" />
                     )}
-                    {open ? (
-                        <FolderOpen className="text-accent mr-1.5 h-4 w-4 shrink-0" />
-                    ) : (
-                        <Folder className="text-accent/85 mr-1.5 h-4 w-4 shrink-0" />
-                    )}
+                    <FileIcon name={node.name} isDirectory isOpen={open} className="mr-1.5" />
                     <TruncatedText tooltipContent={node.path}>{node.name}</TruncatedText>
                 </CollapsibleTrigger>
             </FileContextMenu>

@@ -341,10 +341,17 @@ export interface GitCreatePrPayload {
     path: string;
     title: string;
     body?: string;
+    taskId?: string;
+}
+
+export interface GitCheckPrPayload {
+    path: string;
+    branch: string;
 }
 
 export interface GitCreatePrResult {
     url: string;
+    number: number;
 }
 
 // Scripts messages

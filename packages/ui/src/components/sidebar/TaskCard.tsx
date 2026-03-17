@@ -164,7 +164,13 @@ export function TaskCard({
                 </div>
                 {!compact && description && (
                     <div className="min-w-0 flex-1">
-                        <TruncatedText className="text-muted-foreground text-xs leading-normal">
+                        <TruncatedText
+                            tooltip
+                            tooltipSide="right"
+                            tooltipDelay={1000}
+                            tooltipClassName="max-w-[300px]"
+                            className="text-muted-foreground text-xs leading-normal"
+                        >
                             {description}
                         </TruncatedText>
                     </div>
@@ -180,6 +186,11 @@ export function TaskCard({
                                         className="border-border/60 bg-muted/50 min-h-4.5 gap-0.5 px-1 py-0 text-xs font-medium"
                                     >
                                         <GitBranch className="text-muted-foreground" />
+                                        {task.worktree.pr && (
+                                            <span className="text-accent">
+                                                #{task.worktree.pr.number}
+                                            </span>
+                                        )}
                                         {diffStats && (
                                             <>
                                                 <span className="text-success">

@@ -414,6 +414,7 @@ class FlowRunner {
         });
         run.actions[actionIndex].sessionId = sessionId;
         await this.deps.flowStore.saveFlowRun(run);
+        this.broadcastUpdate(run);
     }
 
     private async launchActionWithRecovery(

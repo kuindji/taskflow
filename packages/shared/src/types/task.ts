@@ -8,10 +8,16 @@ export interface SessionRef {
     instance?: string;
 }
 
+export interface TaskWorktreePr {
+    number: number;
+    url: string;
+}
+
 export interface TaskWorktree {
     enabled: boolean;
     path: string | null;
     branch: string | null;
+    pr: TaskWorktreePr | null;
 }
 
 export interface Task {
