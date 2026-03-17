@@ -111,6 +111,8 @@ export function ProjectGroup({
         return undefined;
     });
 
+    const hasAgents = project.sessions.length > 0 || tasks.some((t) => t.sessions.length > 0);
+
     const locationInvalid = project.locationValid === false;
 
     const handleProjectClick = () => {
@@ -168,7 +170,15 @@ export function ProjectGroup({
                                     </TooltipContent>
                                 </Tooltip>
                             )}
-                            {!open && !locationInvalid && <StatusDot status={projectStatus} />}
+                            {!open &&
+                                !locationInvalid &&
+                                (projectStatus ? (
+                                    <StatusDot status={projectStatus} />
+                                ) : (
+                                    hasAgents && (
+                                        <span className="bg-muted-foreground/30 inline-block h-2 w-2 shrink-0 rounded-full" />
+                                    )
+                                ))}
                             <span
                                 className={cn(
                                     "block w-full min-w-0 truncate text-xs font-medium tracking-wide",
