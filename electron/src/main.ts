@@ -632,21 +632,37 @@ ipcMain.handle(
     async (
         _event,
         opts: { path?: string; text?: string; defaultName?: string },
-    ): Promise<boolean | null> => {
+    ): Promise<{ success: boolean; error?: string }> => {
         const defaultPath = opts.defaultName
             ? join(app.getPath("downloads"), opts.defaultName)
             : undefined;
-        const result = await dialog.showSaveDialog({ defaultPath });
-        if (result.canceled || !result.filePath) return null;
-        if (typeof opts.path === "string") {
-            if (!opts.path.startsWith("/") || opts.path.includes("..")) return null;
-            await copyFile(opts.path, result.filePath);
-        } else if (typeof opts.text === "string") {
-            await writeFile(result.filePath, opts.text, "utf-8");
-        } else {
-            return null;
+        const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+        const result = win
+            ? await dialog.showSaveDialog(win, { defaultPath })
+            : await dialog.showSaveDialog({ defaultPath });
+        if (result.canceled || !result.filePath)
+            return { success: false };
+        try {
+            if (typeof opts.path === "string") {
+                if (!opts.path.startsWith("/") || opts.path.includes(".."))
+                    return { success: false, error: "Invalid source path" };
+                await copyFile(opts.path, result.filePath);
+            } else if (typeof opts.text === "string") {
+                await writeFile(result.filePath, opts.text, "utf-8");
+            } else {
+                return { success: false, error: "No path or text provided" };
+            }
+            return { success: true };
+        } catch (err) {
+            const message =
+                err instanceof Error ? err.message : "Unknown error";
+            await dialog.showMessageBox({
+                type: "error",
+                title: "Download failed",
+                message: `Could not save the artifact:\n${message}`,
+            });
+            return { success: false, error: message };
         }
-        return true;
     },
 );
 ipcMain.handle(

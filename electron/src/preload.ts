@@ -109,5 +109,5 @@ contextBridge.exposeInMainWorld("taskflow", {
     },
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
     saveArtifact: (opts: { path?: string; text?: string; defaultName?: string }) =>
-        ipcRenderer.invoke("save-artifact", opts) as Promise<boolean | null>,
+        ipcRenderer.invoke("save-artifact", opts) as Promise<{ success: boolean; error?: string }>,
 });
