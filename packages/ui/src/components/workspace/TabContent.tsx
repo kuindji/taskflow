@@ -12,9 +12,9 @@ interface TabContentProps {
     activeTabId: string;
 }
 
-/** Tab types that stay mounted when inactive (never display:none) */
+/** Tab types that stay mounted when inactive */
 function isAlwaysMounted(type: Tab["type"]): boolean {
-    return type === "claude" || type === "codex" || type === "shell" || type === "browser";
+    return type === "browser";
 }
 
 function TabContent({ tabs, activeTabId }: TabContentProps) {
@@ -43,9 +43,9 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                     case "codex":
                     case "shell":
                         label = `${tab.type} terminal`;
-                        // Terminal panes are always mounted and use offscreen positioning
-                        // (left:-9999em) for inactive tabs so xterm.js's IntersectionObserver
-                        // correctly pauses/resumes rendering on tab switch.
+                        // Terminal panes unmount when inactive and restore from
+                        // backend snapshots on remount, freeing GPU contexts.
+                        if (!isActive) return null;
                         pane = tab.sessionId ? (
                             <TerminalPane
                                 taskId={workspace.task?.id}
@@ -89,12 +89,9 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                         return null;
                 }
 
-                // Always-mounted tabs (terminals, browser) use absolute positioning
-                // with offscreen placement instead of visibility:hidden. Moving inactive
-                // tabs to left:-9999em lets xterm.js's internal IntersectionObserver
-                // correctly detect the terminal as not visible and pause rendering.
-                // When brought back (left:0), the ResizeObserver fires naturally and
-                // xterm resumes without stale viewport state.
+                // Always-mounted tabs (browser) use absolute positioning with offscreen
+                // placement. Terminal tabs now unmount when inactive to free GPU contexts
+                // and restore from backend snapshots on remount.
                 if (isAlwaysMounted(tab.type)) {
                     return (
                         <ErrorBoundary key={tab.id} fallbackLabel={label}>
