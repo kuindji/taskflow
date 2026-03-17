@@ -541,6 +541,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     const isInitializing = sessionStatus === "initializing";
     const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const fitFrameRef = useRef<number | null>(null);
+    const fitRetryTimeoutRef = useRef<number | null>(null);
     const resizeDebounceTimeoutRef = useRef<number | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const dragCounterRef = useRef(0);
@@ -572,9 +573,13 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     );
 
     const scheduleFit = useCallback(
-        (forceResize = false, focus = false, scrollToBottom = false, retries = 2) => {
+        (forceResize = false, focus = false, scrollToBottom = false, retries = 5) => {
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
+            }
+            if (fitRetryTimeoutRef.current !== null) {
+                window.clearTimeout(fitRetryTimeoutRef.current);
+                fitRetryTimeoutRef.current = null;
             }
             fitFrameRef.current = requestAnimationFrame(() => {
                 fitFrameRef.current = null;
@@ -584,7 +589,15 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 const fitResult = fitTerminal(fitRef.current, termRef.current);
                 if (!fitResult.measured) {
                     if (retries > 0) {
-                        scheduleFit(forceResize, focus, scrollToBottom, retries - 1);
+                        // Use setTimeout with backoff instead of rAF for retries.
+                        // After off-screen→on-screen transitions the browser may
+                        // need several layout passes before the container reports
+                        // real dimensions to proposeDimensions().
+                        const delay = Math.min(50 * Math.pow(2, 5 - retries), 400);
+                        fitRetryTimeoutRef.current = window.setTimeout(() => {
+                            fitRetryTimeoutRef.current = null;
+                            scheduleFit(forceResize, focus, scrollToBottom, retries - 1);
+                        }, delay);
                     } else if (focus && termRef.current) {
                         termRef.current.focus();
                     }
@@ -661,6 +674,10 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
                 fitFrameRef.current = null;
+            }
+            if (fitRetryTimeoutRef.current !== null) {
+                window.clearTimeout(fitRetryTimeoutRef.current);
+                fitRetryTimeoutRef.current = null;
             }
             if (resizeDebounceTimeoutRef.current !== null) {
                 window.clearTimeout(resizeDebounceTimeoutRef.current);
