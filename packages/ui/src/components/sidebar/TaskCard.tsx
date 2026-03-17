@@ -142,7 +142,7 @@ export function TaskCard({
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } }}
                 className={cn(
                     cardClasses,
-                    "flex flex-col gap-1.5",
+                    "flex flex-col",
                     "group relative min-w-0 overflow-hidden [-webkit-app-region:no-drag]",
                     compact && "py-1.5",
                     isSubtask && "ml-0.5 py-1.5",
@@ -156,7 +156,7 @@ export function TaskCard({
                         className={cn(
                             isSubtask ? "text-xs" : "text-sm",
                             isActive && "text-foreground",
-                            "leading-[1.2] font-medium"
+                            "leading-normal font-medium"
                         )}
                     >
                         {title}
@@ -164,14 +164,14 @@ export function TaskCard({
                 </div>
                 {!compact && description && (
                     <div className="min-w-0 flex-1">
-                        <TruncatedText className="text-muted-foreground text-xs leading-none">
+                        <TruncatedText className="text-muted-foreground text-xs leading-normal">
                             {description}
                         </TruncatedText>
                     </div>
                 )}
 
                 {(displaySessions.length > 0 || (!isSubtask && task.worktree.enabled)) && (
-                    <div className="mt-0.25 flex min-w-0 flex-wrap items-center gap-1">
+                    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
                         {!isSubtask && task.worktree.enabled && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
