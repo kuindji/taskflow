@@ -164,7 +164,13 @@ export function TaskCard({
                 </div>
                 {!compact && description && (
                     <div className="min-w-0 flex-1">
-                        <TruncatedText className="text-muted-foreground text-xs leading-normal">
+                        <TruncatedText
+                            tooltip
+                            tooltipSide="right"
+                            tooltipDelay={1000}
+                            tooltipClassName="max-w-[300px]"
+                            className="text-muted-foreground text-xs leading-normal"
+                        >
                             {description}
                         </TruncatedText>
                     </div>
