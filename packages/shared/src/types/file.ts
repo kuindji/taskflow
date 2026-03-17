@@ -3,6 +3,7 @@ export interface FileNode {
     path: string;
     type: "file" | "directory";
     children?: FileNode[];
+    loaded?: boolean;
     gitStatus?: "new" | "modified" | "deleted" | "untracked" | "renamed" | null;
 }
 

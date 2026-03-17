@@ -320,7 +320,7 @@ async function handlePathActivation(
         if (isExternal) {
             window.taskflow?.showItemInFolder(resolved);
         } else {
-            useFileStore.getState().setExpandToPath(resolved);
+            void useFileStore.getState().expandToPathAndLoad(resolved);
             if (!useUIStore.getState().fileExplorerOpen) {
                 useUIStore.getState().toggleFileExplorer();
             }
