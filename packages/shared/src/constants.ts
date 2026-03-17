@@ -37,6 +37,7 @@ export const MSG = {
     TERMINAL_OUTPUT: "terminal:output",
     TERMINAL_RESIZE: "terminal:resize",
     SESSION_HISTORY: "session:history",
+    SESSION_SNAPSHOT: "session:snapshot",
 
     // Files
     FILE_TREE: "file:tree",

@@ -176,6 +176,15 @@ export interface SessionHistoryResponse {
     lastSequence: number;
 }
 
+export interface SessionSnapshotPayload {
+    sessionId: string;
+}
+
+export interface SessionSnapshotResponse {
+    snapshot: string | null;
+    lastSequence: number;
+}
+
 // Shell detection
 export interface ShellInfo {
     name: string;
