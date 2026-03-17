@@ -13,6 +13,7 @@ import type {
     TerminalOutputEvent,
     SessionExitedEvent,
     SessionHistoryResponse,
+    SessionSnapshotResponse,
     FileStatResponse,
     XtermTheme,
 } from "@taskflow/shared";
@@ -65,6 +66,13 @@ interface TerminalViewportSnapshot {
 /** Module-level cache: keeps one xterm instance per mounted terminal tab. */
 const terminalCache = new Map<string, CachedTerminal>();
 const RESIZE_DEBOUNCE_MS = 250;
+
+/** Pending delayed destructions — cancelled if terminal remounts within the grace period. */
+const pendingDetaches = new Map<string, ReturnType<typeof setTimeout>>();
+const DETACH_GRACE_MS = 50;
+
+/** Saved viewport positions for terminals pending detach or recently detached. */
+const viewportSnapshots = new Map<string, TerminalViewportSnapshot>();
 
 function applyThemeToCachedTerminal(cached: CachedTerminal, theme: XtermTheme): void {
     cached.term.options.theme = { ...theme };
@@ -419,6 +427,17 @@ function getTerminalTheme(): XtermTheme {
     return { ...useThemeStore.getState().resolved.xterm };
 }
 
+function flushPendingChunks(
+    pendingData: BufferedTerminalChunk[],
+    lastSequence: number,
+    writer: { write: (data: string) => void },
+): void {
+    for (const chunk of pendingData) {
+        if (chunk.sequence > lastSequence) writer.write(chunk.data);
+    }
+    pendingData.length = 0;
+}
+
 function getOrCreateTerminal(
     sessionId: string,
     taskId?: string,
@@ -488,21 +507,37 @@ function getOrCreateTerminal(
         }
     });
 
-    // Replay scrollback then flush buffered live data
-    sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, { taskId, projectId, sessionId })
-        .then(({ data, lastSequence }) => {
-            if (data) writer.write(data);
-            historyLoaded = true;
-            for (const chunk of pendingData) {
-                if (chunk.sequence > lastSequence) writer.write(chunk.data);
+    // Try snapshot first (pixel-perfect for active sessions),
+    // fall back to JSONL history for exited sessions.
+    sendRequest<SessionSnapshotResponse>(MSG.SESSION_SNAPSHOT, { sessionId })
+        .then(({ snapshot, lastSequence }) => {
+            if (snapshot !== null) {
+                writer.write(snapshot);
+                historyLoaded = true;
+                flushPendingChunks(pendingData, lastSequence, writer);
+                return;
             }
-            pendingData.length = 0;
+            return replayFromHistory();
         })
-        .catch(() => {
-            historyLoaded = true;
-            for (const chunk of pendingData) writer.write(chunk.data);
-            pendingData.length = 0;
-        });
+        .catch(() => replayFromHistory());
+
+    function replayFromHistory() {
+        return sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, {
+            taskId,
+            projectId,
+            sessionId,
+        })
+            .then(({ data, lastSequence }) => {
+                if (data) writer.write(data);
+                historyLoaded = true;
+                flushPendingChunks(pendingData, lastSequence, writer);
+            })
+            .catch(() => {
+                historyLoaded = true;
+                for (const chunk of pendingData) writer.write(chunk.data);
+                pendingData.length = 0;
+            });
+    }
 
     const cached: CachedTerminal = {
         term,
@@ -522,6 +557,8 @@ function getOrCreateTerminal(
 
 /** Remove a terminal from cache and dispose all resources */
 function destroyTerminal(sessionId: string): void {
+    cancelDetach(sessionId);
+    viewportSnapshots.delete(sessionId);
     const cached = terminalCache.get(sessionId);
     if (!cached) return;
     terminalCache.delete(sessionId);
@@ -530,6 +567,30 @@ function destroyTerminal(sessionId: string): void {
     cached.disposeRuntime();
     cached.element.remove();
     cached.term.dispose();
+}
+
+/** Schedule terminal destruction after a grace period. */
+function scheduleDetach(sessionId: string): void {
+    if (pendingDetaches.has(sessionId)) return;
+    const cached = terminalCache.get(sessionId);
+    if (cached) {
+        viewportSnapshots.set(sessionId, captureViewport(cached.term));
+    }
+    const timer = setTimeout(() => {
+        pendingDetaches.delete(sessionId);
+        viewportSnapshots.delete(sessionId);
+        destroyTerminal(sessionId);
+    }, DETACH_GRACE_MS);
+    pendingDetaches.set(sessionId, timer);
+}
+
+/** Cancel a pending detach if the terminal is being remounted. Returns true if cancelled. */
+function cancelDetach(sessionId: string): boolean {
+    const timer = pendingDetaches.get(sessionId);
+    if (timer === undefined) return false;
+    clearTimeout(timer);
+    pendingDetaches.delete(sessionId);
+    return true;
 }
 
 function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPaneProps) {
@@ -631,6 +692,9 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     useEffect(() => {
         if (!containerRef.current) return;
 
+        // Cancel any pending detach from a previous unmount
+        const wasPending = cancelDetach(sessionId);
+
         const cached = getOrCreateTerminal(sessionId, taskId, projectId);
         const { term, fit, element } = cached;
 
@@ -641,7 +705,18 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         containerRef.current.appendChild(element);
 
         if (visible) {
-            scheduleFit(true, true, true);
+            const savedViewport = viewportSnapshots.get(sessionId);
+            if (wasPending && savedViewport) {
+                // Reusing cached terminal after cancelled detach — restore scroll position
+                scheduleFit(true, true, false);
+                requestAnimationFrame(() => {
+                    restoreViewport(term, savedViewport);
+                    viewportSnapshots.delete(sessionId);
+                });
+            } else {
+                viewportSnapshots.delete(sessionId);
+                scheduleFit(true, true, true);
+            }
         }
 
         // Shift+Enter → send the same escape sequence as Alt+Enter (\x1b\r)
@@ -683,10 +758,11 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 window.clearTimeout(resizeDebounceTimeoutRef.current);
                 resizeDebounceTimeoutRef.current = null;
             }
-            // Workspace switches unmount the pane completely. Rebuild the
-            // terminal UI from backend history on return instead of reusing a
-            // detached xterm viewport whose scroll state can go stale.
-            destroyTerminal(sessionId);
+            // Schedule delayed destruction instead of immediate teardown.
+            // If the terminal remounts within DETACH_GRACE_MS (e.g., rapid
+            // tab switch), the pending detach is cancelled and the cached
+            // instance is reused.
+            scheduleDetach(sessionId);
             termRef.current = null;
             fitRef.current = null;
         };
