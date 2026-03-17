@@ -169,6 +169,7 @@ describe("session handlers", () => {
                 enabled: true,
                 path: join(tempDir, "project", ".worktrees", "task"),
                 branch: "task/task",
+                pr: null,
             },
         });
 

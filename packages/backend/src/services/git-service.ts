@@ -38,7 +38,7 @@ export class GitService {
         const branchOutput = await git(["branch", "--show-current"], repoPath);
         // Use the NUL-delimited porcelain format so paths are machine-safe even when
         // rename targets contain spaces or other escaped characters.
-        const statusOutput = await git(["status", "--porcelain=v1", "-z"], repoPath);
+        const statusOutput = await git(["status", "--porcelain=v1", "-z", "-uall"], repoPath);
 
         const stagedFiles: GitFileStatus[] = [];
         const unstagedFiles: GitFileStatus[] = [];
@@ -328,7 +328,11 @@ export class GitService {
         return { hash: hashOutput.trim(), message };
     }
 
-    async createPr(repoPath: string, title: string, body?: string): Promise<{ url: string }> {
+    async createPr(
+        repoPath: string,
+        title: string,
+        body?: string,
+    ): Promise<{ url: string; number: number }> {
         const args = ["pr", "create", "--title", title];
         if (body) {
             args.push("--body", body);
@@ -346,7 +350,10 @@ export class GitService {
                 stderr.trim() || stdout.trim() || `gh pr create failed with exit code ${exitCode}`,
             );
         }
-        return { url: stdout.trim() };
+        const url = stdout.trim();
+        const prNumberMatch = url.match(/\/pull\/(\d+)/);
+        const number = prNumberMatch ? parseInt(prNumberMatch[1], 10) : 0;
+        return { url, number };
     }
 
     async generateCommitMessage(repoPath: string, includeUnstaged = true): Promise<string> {

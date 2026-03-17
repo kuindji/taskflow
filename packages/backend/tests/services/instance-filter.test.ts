@@ -20,7 +20,7 @@ describe("filterTaskSessions", () => {
         title: "Test",
         description: "",
         notes: "",
-        worktree: { enabled: false, path: null, branch: null },
+        worktree: { enabled: false, path: null, branch: null, pr: null },
         sessions: [],
         createdAt: new Date().toISOString(),
         status: "active",

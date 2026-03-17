@@ -64,6 +64,7 @@ describe("git handlers", () => {
                 enabled: true,
                 path: worktreePath,
                 branch: "task/task-worktree",
+                pr: null,
             },
         });
 

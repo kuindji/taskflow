@@ -180,6 +180,11 @@ export function TaskCard({
                                         className="border-border/60 bg-muted/50 min-h-4.5 gap-0.5 px-1 py-0 text-xs font-medium"
                                     >
                                         <GitBranch className="text-muted-foreground" />
+                                        {task.worktree.pr && (
+                                            <span className="text-accent">
+                                                #{task.worktree.pr.number}
+                                            </span>
+                                        )}
                                         {diffStats && (
                                             <>
                                                 <span className="text-success">

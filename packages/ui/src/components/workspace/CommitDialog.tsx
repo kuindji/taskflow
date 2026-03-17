@@ -78,6 +78,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         if (!checked) setCreatePr(false);
     }, []);
 
+    const taskId = "taskId" in sessionOwner ? sessionOwner.taskId : undefined;
     const pushOnly = hasChanges === false;
     const commitButtonDisabled = !pushOnly && !includeUnstaged && !hasStagedChanges;
 
@@ -95,9 +96,10 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                         path: repoPath,
                     });
                     const branchName = status.status.branch ?? "update";
-                    await sendRequest<{ url: string }>(MSG.GIT_CREATE_PR, {
+                    await sendRequest<{ url: string; number: number }>(MSG.GIT_CREATE_PR, {
                         path: repoPath,
                         title: branchName,
+                        taskId,
                     });
                 }
                 handleOpenChange(false);
@@ -148,9 +150,10 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
             );
 
             if (createPr) {
-                await sendRequest<{ url: string }>(MSG.GIT_CREATE_PR, {
+                await sendRequest<{ url: string; number: number }>(MSG.GIT_CREATE_PR, {
                     path: repoPath,
                     title: commitResult.message,
+                    taskId,
                 });
             }
 
@@ -168,6 +171,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         createPr,
         includeUnstaged,
         repoPath,
+        taskId,
         sessionOwner,
         createSession,
         handleOpenChange,

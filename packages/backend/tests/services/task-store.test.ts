@@ -175,6 +175,7 @@ describe("TaskStore", () => {
                     enabled: true,
                     path: join(projectDir, ".worktrees", "worktree-task"),
                     branch: "task/worktree-task",
+                    pr: null,
                 },
             });
 
@@ -182,6 +183,7 @@ describe("TaskStore", () => {
                 enabled: true,
                 path: join(projectDir, ".worktrees", "worktree-task"),
                 branch: "task/worktree-task",
+                pr: null,
             });
 
             const updated = await store.updateTask(task.id, {
@@ -189,6 +191,7 @@ describe("TaskStore", () => {
                     enabled: true,
                     path: join(projectDir, ".worktrees", "renamed"),
                     branch: "task/renamed",
+                    pr: null,
                 },
             });
 
@@ -196,6 +199,7 @@ describe("TaskStore", () => {
                 enabled: true,
                 path: join(projectDir, ".worktrees", "renamed"),
                 branch: "task/renamed",
+                pr: null,
             });
             expect((await store.getTask(task.id))?.worktree).toEqual(updated.worktree);
         });

@@ -81,7 +81,7 @@ describe("task handlers", () => {
             worktree: true,
         })) as Task;
 
-        expect(task.worktree).toEqual({ enabled: true, path: null, branch: null });
+        expect(task.worktree).toEqual({ enabled: true, path: null, branch: null, pr: null });
     });
 
     it("requests generated titles when creating untitled tasks", async () => {
@@ -174,6 +174,7 @@ describe("task handlers", () => {
                 enabled: true,
                 path: join(projectPath, ".worktrees", "worktree-task"),
                 branch: "task/worktree-task",
+                pr: null,
             },
         });
 
@@ -199,6 +200,7 @@ describe("task handlers", () => {
                 enabled: true,
                 path: join(projectPath, ".worktrees", "worktree-task"),
                 branch: "task/worktree-task",
+                pr: null,
             },
         });
 

@@ -33,7 +33,7 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
         try {
             await gitService.createWorktree(project.path, branch, worktreePath);
             const updated = await taskStore.updateTask(taskId, {
-                worktree: { enabled: true, path: worktreePath, branch },
+                worktree: { enabled: true, path: worktreePath, branch, pr: null },
             });
             broadcast({ type: MSG.TASK_UPDATED, payload: filterTaskSessions(updated, config.instanceId) });
         } catch (error) {

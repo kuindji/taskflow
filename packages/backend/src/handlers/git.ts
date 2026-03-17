@@ -110,8 +110,23 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
     });
 
     router.register(MSG.GIT_CREATE_PR, async (payload) => {
-        const { path, title, body } = payload as GitCreatePrPayload;
+        const { path, title, body, taskId } = payload as GitCreatePrPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, path);
-        return await git.createPr(repoPath, title, body);
+        const result = await git.createPr(repoPath, title, body);
+
+        if (taskId) {
+            try {
+                await taskStore.updateTask(taskId, (task) => ({
+                    worktree: {
+                        ...task.worktree,
+                        pr: { number: result.number, url: result.url },
+                    },
+                }));
+            } catch {
+                // Don't fail the PR creation if task update fails
+            }
+        }
+
+        return result;
     });
 }
