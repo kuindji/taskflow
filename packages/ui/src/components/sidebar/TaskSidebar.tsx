@@ -112,11 +112,14 @@ export function TaskSidebar() {
 
     // Poll for PRs on worktree tasks that don't have one yet
     const updateTask = useTaskStore((s) => s.updateTask);
-    const prCheckTasksRef = useRef<Task[]>([]);
-    prCheckTasksRef.current = useMemo(
+    const prCheckTasks = useMemo(
         () => tasks.filter((t) => t.worktree.enabled && t.worktree.branch && !t.worktree.pr && !t.parentId),
         [tasks],
     );
+    const prCheckTasksRef = useRef<Task[]>(prCheckTasks);
+    useEffect(() => {
+        prCheckTasksRef.current = prCheckTasks;
+    }, [prCheckTasks]);
 
     useEffect(() => {
         if (!connected) return;

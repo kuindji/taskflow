@@ -34,6 +34,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const [hasChanges, setHasChanges] = useState<boolean | null>(null);
     const [hasStagedChanges, setHasStagedChanges] = useState(false);
     const [includeUnstaged, setIncludeUnstaged] = useState(true);
+    const [ahead, setAhead] = useState<number | null>(null);
 
     const createSession = useSessionStore((s) => s.createSession);
 
@@ -47,6 +48,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         setHasChanges(null);
         setHasStagedChanges(false);
         setIncludeUnstaged(true);
+        setAhead(null);
     }, []);
 
     const handleOpenChange = useCallback(
@@ -66,8 +68,11 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                     res.status.stagedFiles.length > 0 || res.status.unstagedFiles.length > 0;
                 setHasChanges(changed);
                 setHasStagedChanges(res.status.stagedFiles.length > 0);
+                setAhead(res.status.ahead);
                 // In push-only mode, push is always on
                 if (!changed) setPush(true);
+                // In PR-only mode, enable create PR by default
+                if (!changed && res.status.ahead === 0) setCreatePr(true);
             },
             () => setHasChanges(true), // Assume changes on error
         );
@@ -79,14 +84,31 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     }, []);
 
     const taskId = "taskId" in sessionOwner ? sessionOwner.taskId : undefined;
-    const pushOnly = hasChanges === false;
-    const commitButtonDisabled = !pushOnly && !includeUnstaged && !hasStagedChanges;
+    const pushOnly = hasChanges === false && (ahead ?? 0) > 0;
+    const prOnly = hasChanges === false && ahead === 0;
+    const commitButtonDisabled = !pushOnly && !prOnly && !includeUnstaged && !hasStagedChanges;
 
     const handleSubmit = useCallback(async () => {
         setError(null);
         setLoading(true);
 
         try {
+            if (prOnly) {
+                // PR-only mode — everything is committed and pushed
+                const prTitle = message.trim() || null;
+                const status = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, {
+                    path: repoPath,
+                });
+                const title = prTitle ?? status.status.branch ?? "update";
+                await sendRequest<{ url: string; number: number }>(MSG.GIT_CREATE_PR, {
+                    path: repoPath,
+                    title,
+                    taskId,
+                });
+                handleOpenChange(false);
+                return;
+            }
+
             if (pushOnly) {
                 // Push-only mode
                 await sendRequest(MSG.GIT_PUSH, { path: repoPath });
@@ -168,6 +190,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         useAgent,
         push,
         pushOnly,
+        prOnly,
         createPr,
         includeUnstaged,
         repoPath,
@@ -187,8 +210,8 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         [loading, handleSubmit],
     );
 
-    const submitLabel = pushOnly ? "Push" : push ? "Commit & Push" : "Commit";
-    const dialogTitle = pushOnly ? "Push" : "Commit & Push";
+    const submitLabel = prOnly ? "Create PR" : pushOnly ? "Push" : push ? "Commit & Push" : "Commit";
+    const dialogTitle = prOnly ? "Create Pull Request" : pushOnly ? "Push" : "Commit & Push";
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -198,7 +221,25 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                 </DialogHeader>
 
                 <div className="flex flex-col gap-3">
-                    {!pushOnly && (
+                    {prOnly && (
+                        <div className="flex flex-col gap-1.5">
+                            <Label htmlFor="pr-title">
+                                Title{" "}
+                                <span className="text-muted-foreground/60 text-xs tracking-normal normal-case">
+                                    (optional — defaults to branch name)
+                                </span>
+                            </Label>
+                            <Textarea
+                                id="pr-title"
+                                placeholder="Leave empty to use branch name..."
+                                value={message}
+                                onChange={(e) => setMessage(e.target.value)}
+                                className="max-h-40 min-h-20"
+                            />
+                        </div>
+                    )}
+
+                    {!pushOnly && !prOnly && (
                         <>
                             <div className="flex flex-col gap-1.5">
                                 <Label htmlFor="commit-message">
@@ -262,20 +303,22 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                         </>
                     )}
 
-                    <div className="flex items-center gap-2">
-                        <Switch
-                            id="commit-create-pr"
-                            checked={createPr}
-                            onCheckedChange={setCreatePr}
-                            disabled={!push}
-                        />
-                        <Label
-                            htmlFor="commit-create-pr"
-                            className={`cursor-pointer tracking-normal normal-case ${!push ? "text-muted-foreground" : ""}`}
-                        >
-                            Create PR
-                        </Label>
-                    </div>
+                    {!prOnly && (
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="commit-create-pr"
+                                checked={createPr}
+                                onCheckedChange={setCreatePr}
+                                disabled={!push}
+                            />
+                            <Label
+                                htmlFor="commit-create-pr"
+                                className={`cursor-pointer tracking-normal normal-case ${!push ? "text-muted-foreground" : ""}`}
+                            >
+                                Create PR
+                            </Label>
+                        </div>
+                    )}
 
                     {error && <p className="text-destructive text-sm">{error}</p>}
                 </div>
@@ -286,7 +329,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                     </Button>
                     <Button
                         onClick={() => void handleSubmit()}
-                        loading={loading || hasChanges === null}
+                        loading={loading || hasChanges === null || ahead === null}
                         disabled={commitButtonDisabled}
                         tooltip={commitButtonDisabled ? "No staged changes to commit" : undefined}
                         className="bg-accent text-accent-foreground hover:bg-accent/90"

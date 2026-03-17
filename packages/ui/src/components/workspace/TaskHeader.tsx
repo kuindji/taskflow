@@ -21,6 +21,7 @@ import {
     FolderTree,
     GitCommitHorizontal,
     GitFork,
+    GitPullRequestCreateArrow,
     NotebookText,
     Pencil,
     Trash2,
@@ -89,8 +90,14 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     );
 
     const showPush = !hasChanges && !commitDisabled;
-    const commitLabel = showPush ? "Push" : "Commit";
-    const CommitIcon = showPush ? ArrowUpFromLine : GitCommitHorizontal;
+    const showCreatePr =
+        commitDisabled && isWorktreeTask && !!task?.worktree.branch && !task?.worktree.pr;
+    const commitLabel = showCreatePr ? "Create PR" : showPush ? "Push" : "Commit";
+    const CommitIcon = showCreatePr
+        ? GitPullRequestCreateArrow
+        : showPush
+          ? ArrowUpFromLine
+          : GitCommitHorizontal;
 
     const showGitButtons = !!project && (!task || isWorktreeTask);
     const showDiffButton = !!onDiff && showGitButtons;
@@ -192,7 +199,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             variant="ghost"
                             size="xs"
                             onClick={() => setCommitOpen(true)}
-                            disabled={commitDisabled}
+                            disabled={commitDisabled && !showCreatePr}
                             aria-label={commitLabel}
                             className="[-webkit-app-region:no-drag]"
                         >
