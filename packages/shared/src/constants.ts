@@ -84,6 +84,10 @@ export const MSG = {
     FLOW_RUNS_LIST: "flow:runs-list",
     FLOW_RUN_UPDATED: "flow:run-updated",
 
+    // Cursor
+    CURSOR_RULES_CHECK: "cursor:rules-check",
+    CURSOR_RULES_ENSURE: "cursor:rules-ensure",
+
     // Browser
     BROWSER_OPEN: "browser:open",
 

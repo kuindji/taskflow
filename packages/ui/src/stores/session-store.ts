@@ -18,7 +18,7 @@ import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWo
 
 interface Tab {
     id: string;
-    type: "claude" | "codex" | "shell" | "editor" | "changes" | "browser";
+    type: "claude" | "codex" | "cursor" | "shell" | "editor" | "changes" | "browser";
     label: string;
     sessionId?: string;
     filePath?: string;
@@ -32,7 +32,7 @@ interface SessionStore {
     lastTerminalSize: { cols: number; rows: number } | null;
     createSession(
         owner: { taskId?: string; projectId?: string },
-        type: "claude" | "codex" | "shell",
+        type: "claude" | "codex" | "cursor" | "shell",
         label?: string,
         prompt?: string,
         shell?: string,
@@ -58,6 +58,7 @@ export type { Tab };
 function getDefaultSessionLabel(type: Tab["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
+    if (type === "cursor") return "Cursor";
     return `${type} session`;
 }
 
@@ -109,7 +110,7 @@ function getSessionTab(sessionId: string): Tab | undefined {
 
 function usesTerminalActivityStatus(sessionId: string): boolean {
     const type = getSessionTab(sessionId)?.type;
-    return type === "claude" || type === "codex";
+    return type === "claude" || type === "codex" || type === "cursor";
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({

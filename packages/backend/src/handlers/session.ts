@@ -7,11 +7,14 @@ import type {
     SessionHistoryPayload,
     TerminalResizePayload,
     SessionRef,
+    CursorRulesCheckPayload,
+    CursorRulesEnsurePayload,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { PtyManager } from "../services/pty-manager";
 import type { TaskStore } from "../services/task-store";
 import type { createSessionLifecycle } from "../services/session-lifecycle";
+import { checkCursorRulesStatus, ensureCursorRulesFile } from "../services/cursor-rules";
 
 interface SessionHandlerDeps {
     router: Router;
@@ -92,5 +95,17 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             throw new Error("Exactly one of taskId or projectId is required");
         }
         return taskStore.getSessionHistory(ownerId, sessionId);
+    });
+
+    router.register(MSG.CURSOR_RULES_CHECK, async (payload) => {
+        const { cwd } = payload as CursorRulesCheckPayload;
+        const status = await checkCursorRulesStatus(cwd);
+        return { status };
+    });
+
+    router.register(MSG.CURSOR_RULES_ENSURE, async (payload) => {
+        const { cwd } = payload as CursorRulesEnsurePayload;
+        await ensureCursorRulesFile(cwd);
+        return { ok: true };
     });
 }

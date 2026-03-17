@@ -472,7 +472,7 @@ export async function ensureCliScript(binDir: string): Promise<void> {
 
 export { CLI_SCRIPT };
 export function buildAgentLaunchSpec(
-    type: "claude" | "codex",
+    type: "claude" | "codex" | "cursor",
     prompt: string | undefined,
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
@@ -496,6 +496,22 @@ export function buildAgentLaunchSpec(
                 "Bash(taskflow-cli*)",
                 "--append-system-prompt",
                 systemPrompt,
+                ...(prompt ? [prompt] : []),
+            ],
+        };
+    }
+
+    if (type === "cursor") {
+        const optionArgs: string[] = [];
+        if (agentOptions?.type === "cursor") {
+            if (agentOptions.fullAccess) optionArgs.push("--yolo");
+            if (agentOptions.model && agentOptions.model !== "default") optionArgs.push("--model", agentOptions.model);
+        }
+        return {
+            command: "cursor",
+            args: [
+                "agent",
+                ...optionArgs,
                 ...(prompt ? [prompt] : []),
             ],
         };

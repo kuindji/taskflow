@@ -1,4 +1,4 @@
-type AgentType = "claude" | "codex";
+type AgentType = "claude" | "codex" | "cursor";
 
 interface ClaudeLaunchOptions {
     type: Extract<AgentType, "claude">;
@@ -11,7 +11,13 @@ interface CodexLaunchOptions {
     fullAccess?: boolean;
 }
 
-type AgentLaunchOptions = ClaudeLaunchOptions | CodexLaunchOptions;
+interface CursorLaunchOptions {
+    type: Extract<AgentType, "cursor">;
+    fullAccess?: boolean;
+    model?: string;
+}
+
+type AgentLaunchOptions = ClaudeLaunchOptions | CodexLaunchOptions | CursorLaunchOptions;
 
 interface AgentAvailability {
     type: AgentType;
@@ -24,6 +30,7 @@ export type {
     AgentType,
     ClaudeLaunchOptions,
     CodexLaunchOptions,
+    CursorLaunchOptions,
     AgentLaunchOptions,
     AgentAvailability,
 };

@@ -10,11 +10,12 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Play } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 
 interface AgentOptionsPanelProps {
-    agentType: "claude" | "codex";
+    agentType: "claude" | "codex" | "cursor";
     value?: AgentLaunchOptions;
     emitOnMount?: boolean;
     onRun?: (options: AgentLaunchOptions) => void;
@@ -30,17 +31,24 @@ function AgentOptionsPanel({
 }: AgentOptionsPanelProps) {
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
+    const cursorSettings = useSettingsStore((s) => s.settings?.cursor);
 
     const matchingValue = value?.type === agentType ? value : undefined;
     const defaultFullAccess =
         matchingValue?.fullAccess ??
         (agentType === "claude"
             ? (claudeSettings?.fullAccess ?? false)
-            : (codexSettings?.fullAccess ?? false));
+            : agentType === "cursor"
+              ? (cursorSettings?.fullAccess ?? false)
+              : (codexSettings?.fullAccess ?? false));
     const defaultModel =
         agentType === "claude" && matchingValue?.type === "claude"
             ? (matchingValue.model ?? "default")
-            : (claudeSettings?.defaultModel ?? "default");
+            : agentType === "cursor" && matchingValue?.type === "cursor"
+              ? (matchingValue.model ?? "default")
+              : agentType === "cursor"
+                ? (cursorSettings?.defaultModel ?? "default")
+                : (claudeSettings?.defaultModel ?? "default");
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [model, setModel] = useState<string>(defaultModel);
@@ -54,7 +62,7 @@ function AgentOptionsPanel({
 
     useEffect(() => {
         setFullAccess(defaultFullAccess);
-        if (agentType === "claude") {
+        if (agentType === "claude" || agentType === "cursor") {
             setModel(defaultModel);
         }
     }, [agentType, defaultFullAccess, defaultModel]);
@@ -67,6 +75,12 @@ function AgentOptionsPanel({
                 type: "claude",
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
+            });
+        } else if (agentType === "cursor") {
+            cb({
+                type: "cursor",
+                fullAccess: fullAccess || undefined,
+                model: model === "default" ? undefined : model,
             });
         } else {
             cb({
@@ -92,6 +106,12 @@ function AgentOptionsPanel({
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
             });
+        } else if (agentType === "cursor") {
+            onRun({
+                type: "cursor",
+                fullAccess: fullAccess || undefined,
+                model: model === "default" ? undefined : model,
+            });
         } else {
             onRun({
                 type: "codex",
@@ -113,23 +133,33 @@ function AgentOptionsPanel({
                 </Label>
             </div>
 
-            {agentType === "claude" && (
+            {(agentType === "claude" || agentType === "cursor") && (
                 <>
                     <div className="flex flex-col gap-1">
                         <Label htmlFor="agent-model" className="text-xs">
                             Model
                         </Label>
-                        <Select value={model} onValueChange={setModel}>
-                            <SelectTrigger id="agent-model" className="h-7 text-xs">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="default">Default</SelectItem>
-                                <SelectItem value="opus">Opus</SelectItem>
-                                <SelectItem value="sonnet">Sonnet</SelectItem>
-                                <SelectItem value="haiku">Haiku</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        {agentType === "claude" ? (
+                            <Select value={model} onValueChange={setModel}>
+                                <SelectTrigger id="agent-model" className="h-7 text-xs">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="default">Default</SelectItem>
+                                    <SelectItem value="opus">Opus</SelectItem>
+                                    <SelectItem value="sonnet">Sonnet</SelectItem>
+                                    <SelectItem value="haiku">Haiku</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        ) : (
+                            <Input
+                                id="agent-model"
+                                className="h-7 text-xs"
+                                value={model === "default" ? "" : model}
+                                placeholder="default"
+                                onChange={(e) => setModel(e.target.value || "default")}
+                            />
+                        )}
                     </div>
                 </>
             )}

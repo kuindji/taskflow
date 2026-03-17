@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
     ActionDefinition,
     AgentLaunchOptions,
+    CursorRulesCheckResponse,
     ScriptsListResponse,
     ShellListResponse,
 } from "@taskflow/shared";
@@ -63,6 +64,11 @@ export function Workspace() {
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
+    const [cursorRulesDialog, setCursorRulesDialog] = useState<{
+        pending: true;
+        type: "new" | "run";
+        agentOptions?: AgentLaunchOptions;
+    } | null>(null);
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
     const [flowRunsHydratedOwnerId, setFlowRunsHydratedOwnerId] = useState<string | null>(null);
@@ -383,11 +389,22 @@ export function Workspace() {
     };
 
     const handleNewTab = async (
-        type: "claude" | "codex" | "browser" | "shell",
+        type: "claude" | "codex" | "cursor" | "browser" | "shell",
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
+        skipCursorRulesCheck?: boolean,
     ) => {
         if (!workspace.workspaceKey) return;
+        if (type === "cursor" && workspace.workingDir && !skipCursorRulesCheck) {
+            const { status } = await sendRequest<CursorRulesCheckResponse>(
+                MSG.CURSOR_RULES_CHECK,
+                { cwd: workspace.workingDir },
+            );
+            if (status === "missing") {
+                setCursorRulesDialog({ pending: true, type: "new", agentOptions });
+                return;
+            }
+        }
         if (type === "browser") {
             addTab(workspace.workspaceKey, {
                 id: crypto.randomUUID(),
@@ -419,8 +436,22 @@ export function Workspace() {
         }
     };
 
-    const handleRunTab = async (type: "claude" | "codex", agentOptions?: AgentLaunchOptions) => {
+    const handleRunTab = async (
+        type: "claude" | "codex" | "cursor",
+        agentOptions?: AgentLaunchOptions,
+        skipCursorRulesCheck?: boolean,
+    ) => {
         if (workspace.scope !== "task" || !workspace.task) return;
+        if (type === "cursor" && workspace.workingDir && !skipCursorRulesCheck) {
+            const { status } = await sendRequest<CursorRulesCheckResponse>(
+                MSG.CURSOR_RULES_CHECK,
+                { cwd: workspace.workingDir },
+            );
+            if (status === "missing") {
+                setCursorRulesDialog({ pending: true, type: "run", agentOptions });
+                return;
+            }
+        }
         await createSession(
             { taskId: workspace.task.id },
             type,
@@ -526,6 +557,51 @@ export function Workspace() {
                     <TabContent tabs={visibleTabs} activeTabId={activeTab?.id ?? ""} />
                 </>
             )}
+            <AlertDialog
+                open={cursorRulesDialog !== null}
+                onOpenChange={(open) => {
+                    if (!open) setCursorRulesDialog(null);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Cursor Rules Setup</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Taskflow needs to create a rules file at{" "}
+                            <code>.cursor/rules/taskflow.mdc</code> in your project directory so
+                            the Cursor agent can use taskflow-cli. This file will be added to
+                            your project.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={() => {
+                                const dialog = cursorRulesDialog;
+                                setCursorRulesDialog(null);
+                                if (!dialog || !workspace.workingDir) return;
+                                void (async () => {
+                                    await sendRequest(MSG.CURSOR_RULES_ENSURE, {
+                                        cwd: workspace.workingDir,
+                                    });
+                                    if (dialog.type === "run") {
+                                        await handleRunTab("cursor", dialog.agentOptions, true);
+                                    } else {
+                                        await handleNewTab(
+                                            "cursor",
+                                            undefined,
+                                            dialog.agentOptions,
+                                            true,
+                                        );
+                                    }
+                                })();
+                            }}
+                        >
+                            Create Rules File
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
             <AlertDialog
                 open={worktreeMissingDialogOpen}
                 onOpenChange={setWorktreeMissingDialogOpen}

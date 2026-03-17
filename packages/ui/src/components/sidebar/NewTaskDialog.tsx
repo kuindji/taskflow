@@ -36,7 +36,7 @@ interface NewTaskDialogProps {
         description: string;
         worktree: boolean;
         parentId?: string;
-        startWith?: "claude" | "codex";
+        startWith?: "claude" | "codex" | "cursor";
         agentOptions?: AgentLaunchOptions;
         startWithFlowId?: string;
     }) => void;
@@ -64,6 +64,7 @@ export function NewTaskDialog({
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
+    const cursorAvailable = isAgentAvailable(agents, "cursor");
 
     const resetForm = useCallback(() => {
         setDescription("");
@@ -78,11 +79,13 @@ export function NewTaskDialog({
         (value: string) => {
             if (value === "claude" && !claudeAvailable) return;
             if (value === "codex" && !codexAvailable) return;
+            if (value === "cursor" && !cursorAvailable) return;
             setStartWith(value);
-            if (value !== "claude" && value !== "codex") setAgentOptions(undefined);
+            if (value !== "claude" && value !== "codex" && value !== "cursor")
+                setAgentOptions(undefined);
             if (value !== "flow") setStartWithFlowId("");
         },
-        [claudeAvailable, codexAvailable],
+        [claudeAvailable, codexAvailable, cursorAvailable],
     );
 
     const handleOpenChange = useCallback(
@@ -106,7 +109,10 @@ export function NewTaskDialog({
             description: description.trim(),
             worktree: isSubtask ? false : worktree,
             parentId: parentId ?? undefined,
-            startWith: startWith === "claude" || startWith === "codex" ? startWith : undefined,
+            startWith:
+                startWith === "claude" || startWith === "codex" || startWith === "cursor"
+                    ? startWith
+                    : undefined,
             agentOptions,
             startWithFlowId: startWith === "flow" && startWithFlowId ? startWithFlowId : undefined,
         });
@@ -230,6 +236,9 @@ export function NewTaskDialog({
                                 <SelectItem value="codex" disabled={!codexAvailable}>
                                     Codex{!codexAvailable ? " (not installed)" : ""}
                                 </SelectItem>
+                                <SelectItem value="cursor" disabled={!cursorAvailable}>
+                                    Cursor{!cursorAvailable ? " (not installed)" : ""}
+                                </SelectItem>
                                 {flows.length > 0 && <SelectItem value="flow">Flow</SelectItem>}
                             </SelectContent>
                         </Select>
@@ -256,7 +265,7 @@ export function NewTaskDialog({
                         </div>
                     )}
 
-                    {(startWith === "claude" || startWith === "codex") && (
+                    {(startWith === "claude" || startWith === "codex" || startWith === "cursor") && (
                         <div className="border-border rounded-md border p-1">
                             <AgentOptionsPanel agentType={startWith} onChange={setAgentOptions} />
                         </div>

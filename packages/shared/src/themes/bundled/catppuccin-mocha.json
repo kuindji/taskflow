@@ -30,6 +30,7 @@
         }
     },
     "overrides": {
-        "--warning": "#ffb703"
+        "--warning": "#ffb703",
+        "--cursor-agent": "#F54E00"
     }
 }

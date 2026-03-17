@@ -2,7 +2,7 @@ export type SessionStatus = "working" | "attention" | "initializing";
 
 export interface SessionRef {
     id: string;
-    type: "claude" | "codex" | "shell";
+    type: "claude" | "codex" | "cursor" | "shell";
     label: string;
     createdAt: string;
     instance?: string;

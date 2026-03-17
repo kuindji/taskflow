@@ -17,6 +17,11 @@ export interface CodexSettings {
     fullAccess: boolean;
 }
 
+export interface CursorSettings {
+    defaultModel: string;
+    fullAccess: boolean;
+}
+
 export interface TerminalSettings {
     fontFamily: string;
     fontSize: number;
@@ -62,6 +67,7 @@ export interface AppSettings {
     layout: LayoutSettings;
     claude: ClaudeSettings;
     codex: CodexSettings;
+    cursor: CursorSettings;
     appearance: AppearanceSettings;
 }
 
@@ -75,5 +81,6 @@ export interface SettingsUpdatePayload {
     };
     claude?: Partial<ClaudeSettings>;
     codex?: Partial<CodexSettings>;
+    cursor?: Partial<CursorSettings>;
     appearance?: Partial<AppearanceSettings>;
 }

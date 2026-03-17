@@ -66,6 +66,8 @@ export interface CssVariables {
     "--warning-foreground": string;
     "--info": string;
     "--info-foreground": string;
+    "--cursor-agent": string;
+    "--cursor-agent-foreground": string;
     "--border": string;
     "--input": string;
     "--ring": string;
