@@ -9,6 +9,7 @@ import type {
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
 import type { GitService } from "../services/git-service";
+import type { ChangeTracker } from "../services/change-tracker";
 import { stat, rm } from "fs/promises";
 import { dirname, join } from "path";
 import { filterProjectSessions } from "../services/instance-filter";
@@ -26,6 +27,7 @@ export function registerProjectHandlers(
     store: TaskStore,
     gitService: GitService,
     closeSession?: (sessionId: string) => void,
+    changeTracker?: ChangeTracker,
 ): void {
     router.register(MSG.PROJECT_LIST, async () => {
         const projects = await store.listProjects();
@@ -40,7 +42,9 @@ export function registerProjectHandlers(
             const branch = await gitService.getBranch(path).catch(() => null);
             resolvedName = branch ? `${segments} (${branch})` : segments;
         }
-        return store.addProject({ name: resolvedName, path });
+        const project = await store.addProject({ name: resolvedName, path });
+        changeTracker?.track(project.id, project.path);
+        return project;
     });
 
     router.register(MSG.PROJECT_REMOVE, async (payload) => {
@@ -56,6 +60,7 @@ export function registerProjectHandlers(
             }
         }
         await store.removeProject(id);
+        changeTracker?.untrack(id);
         return { success: true };
     });
 
@@ -69,6 +74,10 @@ export function registerProjectHandlers(
         if (path) updates.path = path;
         if (hidden !== undefined) updates.hidden = hidden;
         const updated = await store.updateProject(id, updates);
+        if (path) {
+            changeTracker?.untrack(id);
+            changeTracker?.track(id, path);
+        }
         return filterProjectSessions(updated, config.instanceId);
     });
 
@@ -121,6 +130,7 @@ export function registerProjectHandlers(
         const newName = `${segments} (${branch})`;
 
         const newProject = await store.addProject({ name: newName, path: targetPath });
+        changeTracker?.track(newProject.id, newProject.path);
 
         return { project: newProject, targetPath, branch };
     });

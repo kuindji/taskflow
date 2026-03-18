@@ -3,7 +3,6 @@ import type { AgentType } from "./agent";
 export interface GeneralSettings {
     fontFamily: string;
     fontSize: number;
-    externalEditor: string;
     defaultAgent: AgentType;
     defaultRuntime: string;
 }
@@ -32,6 +31,8 @@ export interface EditorSettings {
     fontFamily: string;
     fontSize: number;
     wordWrap: boolean;
+    internalEditor: string;
+    externalEditor: string;
 }
 
 export interface WindowSettings {

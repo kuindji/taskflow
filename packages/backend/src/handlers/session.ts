@@ -25,8 +25,20 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     const { router, ptyManager, taskStore, sessionLifecycle } = deps;
 
     router.register(MSG.SESSION_CREATE, async (payload) => {
-        const { taskId, projectId, type, label, prompt, shell, cols, rows, agentOptions } =
-            payload as SessionCreatePayload;
+        const {
+            taskId,
+            projectId,
+            type,
+            label,
+            prompt,
+            shell,
+            cols,
+            rows,
+            agentOptions,
+            editorId,
+            filePath,
+            line,
+        } = payload as SessionCreatePayload;
         const sessionId = await sessionLifecycle.createSession({
             owner: { taskId, projectId },
             type,
@@ -36,6 +48,9 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             agentOptions,
             cols,
             rows,
+            editorId,
+            filePath,
+            line,
         });
         return { sessionId };
     });

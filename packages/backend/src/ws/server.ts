@@ -10,9 +10,15 @@ export function createServer(
 ): {
     start(): Promise<{ port: number; stop(): void }>;
     broadcast(event: WsEvent): void;
+    onConnect(callback: () => void): void;
 } {
     let server: Server<unknown>;
     const clients = new Set<ServerWebSocket<unknown>>();
+    let connectCallback: (() => void) | null = null;
+
+    function onConnect(callback: () => void): void {
+        connectCallback = callback;
+    }
 
     function broadcast(event: WsEvent): void {
         const data = JSON.stringify(event);
@@ -35,6 +41,7 @@ export function createServer(
             websocket: {
                 open(ws) {
                     clients.add(ws);
+                    if (connectCallback) connectCallback();
                 },
                 close(ws) {
                     clients.delete(ws);
@@ -81,5 +88,5 @@ export function createServer(
         };
     }
 
-    return { start, broadcast };
+    return { start, broadcast, onConnect };
 }

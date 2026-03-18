@@ -1,7 +1,7 @@
 import type { Project } from "./project";
 import type { SessionStatus, Task, TaskLogEntry, TaskWorktree } from "./task";
 import type { FileNode, FileChangeEvent } from "./file";
-import type { GitStatusResult, GitDiffResult, GitFileStatus } from "./git";
+import type { GitStatusResult, GitDiffResult, GitFileStatus, ChangeStats } from "./git";
 import type { SystemInfo } from "./system";
 import type { AgentLaunchOptions, AgentAvailability } from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
@@ -115,13 +115,16 @@ export interface TaskLogAddedEvent {
 export interface SessionCreatePayload {
     taskId?: string;
     projectId?: string;
-    type: "claude" | "codex" | "gemini" | "shell";
+    type: "claude" | "codex" | "gemini" | "shell" | "editor";
     label?: string;
     prompt?: string;
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
     cols?: number;
     rows?: number;
     agentOptions?: AgentLaunchOptions;
+    editorId?: string;
+    filePath?: string;
+    line?: number;
 }
 
 export interface SessionCreateResponse {
@@ -357,6 +360,11 @@ export interface GitCreatePrPayload {
 export interface GitCheckPrPayload {
     path: string;
     branch: string;
+}
+
+export interface ChangeStatsEvent {
+    targetId: string;
+    stats: ChangeStats | null;
 }
 
 export interface GitCreatePrResult {

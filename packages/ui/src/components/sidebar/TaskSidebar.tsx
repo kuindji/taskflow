@@ -60,7 +60,6 @@ export function TaskSidebar() {
     }>({ status: "idle" });
     const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
     const diffStatsByProject = useDiffStore((s) => s.statsByProject);
-    const startPolling = useDiffStore((s) => s.startPolling);
 
     useEffect(() => {
         if (!connected) return;
@@ -91,24 +90,6 @@ export function TaskSidebar() {
     useEffect(() => {
         syncWithProjects(projects);
     }, [projects, syncWithProjects]);
-
-    const diffTargets = useMemo(() => {
-        const targets: Array<{ id: string; path: string }> = projects.map((p) => ({
-            id: p.id,
-            path: p.path,
-        }));
-        for (const task of tasks) {
-            if (task.worktree.enabled && task.worktree.path && !task.parentId) {
-                targets.push({ id: task.id, path: task.worktree.path });
-            }
-        }
-        return targets;
-    }, [projects, tasks]);
-
-    useEffect(() => {
-        if (!connected || diffTargets.length === 0) return;
-        return startPolling(diffTargets);
-    }, [connected, startPolling, diffTargets]);
 
     // Poll for PRs on worktree tasks that don't have one yet
     const updateTask = useTaskStore((s) => s.updateTask);

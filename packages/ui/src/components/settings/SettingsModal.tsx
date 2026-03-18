@@ -32,6 +32,8 @@ import {
     type RuntimeListResponse,
     type ClaudeSettings,
     type GeminiSettings,
+    type EditorInfo,
+    type SystemInfoResponse,
 } from "@taskflow/shared";
 import {
     AlertDialog,
@@ -46,18 +48,6 @@ import { TruncatedText } from "@/components/ui/truncated-text";
 import { alert, confirm } from "@/stores/dialog-store";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
 
-const EDITOR_OPTIONS = [
-    { value: "system", label: "System Default" },
-    { value: "vscode", label: "VS Code" },
-    { value: "cursor", label: "Cursor" },
-    { value: "windsurf", label: "Windsurf" },
-    { value: "zed", label: "Zed" },
-    { value: "sublime", label: "Sublime Text" },
-    { value: "webstorm", label: "WebStorm" },
-    { value: "idea", label: "IntelliJ IDEA" },
-    { value: "emacs", label: "Emacs" },
-] as const;
-
 function SettingsModal() {
     const open = useUIStore((s) => s.settingsOpen);
     const toggleSettings = useUIStore((s) => s.toggleSettings);
@@ -69,6 +59,7 @@ function SettingsModal() {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
+    const [systemEditors, setSystemEditors] = useState<EditorInfo[]>([]);
     const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex" | "gemini">(
         "general",
     );
@@ -101,6 +92,11 @@ function SettingsModal() {
             (response) => setRuntimes(response.runtimes),
             () => setRuntimes([]),
         );
+
+        sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {}).then(
+            (info) => setSystemEditors(info.editors),
+            () => {},
+        );
     }, [open, fetchDataDir]);
 
     const handleOpenChange = useCallback(
@@ -118,9 +114,7 @@ function SettingsModal() {
     );
 
     const handleExternalEditor = useCallback(
-        (externalEditor: string) => {
-            void updateSettings({ general: { externalEditor } });
-        },
+        (value: string) => updateSettings({ editor: { externalEditor: value } }),
         [updateSettings],
     );
 
@@ -552,24 +546,59 @@ function SettingsModal() {
                         {section === "defaults" && (
                             <>
                                 <section className="space-y-2">
+                                    <h3 className="mb-0 text-sm font-medium">Internal Editor</h3>
+                                    <div className="space-y-1">
+                                        <Label className={defaultsSelectLabelClassName}>
+                                            Used when opening files by clicking paths in the terminal
+                                        </Label>
+                                        <Select
+                                            value={settings.editor.internalEditor}
+                                            onValueChange={(value) =>
+                                                updateSettings({
+                                                    editor: { internalEditor: value },
+                                                })
+                                            }
+                                        >
+                                            <SelectTrigger className="h-8 w-full text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="monaco">Monaco</SelectItem>
+                                                {systemEditors
+                                                    .filter((e) => e.type === "internal")
+                                                    .map((e) => (
+                                                        <SelectItem key={e.id} value={e.id}>
+                                                            {e.name}
+                                                        </SelectItem>
+                                                    ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </section>
+                                <section className="space-y-2">
                                     <h3 className="mb-0 text-sm font-medium">External Editor</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
-                                            Used when opening files with Cmd+Click in the terminal
+                                            Used when Cmd+clicking file paths in the terminal
                                         </Label>
                                         <Select
-                                            value={settings.general.externalEditor}
+                                            value={settings.editor.externalEditor}
                                             onValueChange={handleExternalEditor}
                                         >
                                             <SelectTrigger className="h-8 w-full text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {EDITOR_OPTIONS.map((opt) => (
-                                                    <SelectItem key={opt.value} value={opt.value}>
-                                                        {opt.label}
-                                                    </SelectItem>
-                                                ))}
+                                                <SelectItem value="system">
+                                                    System Default
+                                                </SelectItem>
+                                                {systemEditors
+                                                    .filter((e) => e.type === "external")
+                                                    .map((e) => (
+                                                        <SelectItem key={e.id} value={e.id}>
+                                                            {e.name}
+                                                        </SelectItem>
+                                                    ))}
                                             </SelectContent>
                                         </Select>
                                     </div>
