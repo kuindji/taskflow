@@ -2,8 +2,8 @@ import type { SVGProps } from "react";
 
 function OpenCodeIcon(props: SVGProps<SVGSVGElement>) {
     return (
-        <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" {...props}>
-            <path d="M8.5 3.5L1.5 12l7 8.5M15.5 3.5l7 8.5-7 8.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        <svg viewBox="0 0 240 300" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path d="M180 60H60V240H180V60ZM240 300H0V0H240V300Z" fill="currentColor" />
         </svg>
     );
 }

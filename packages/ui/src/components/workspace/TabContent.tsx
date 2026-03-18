@@ -16,7 +16,7 @@ interface TabContentProps {
 /** Tab types that stay mounted when inactive (never display:none) */
 function isAlwaysMounted(tab: Tab): boolean {
     if (tab.type === "editor" && tab.sessionId) return true;
-    return tab.type === "claude" || tab.type === "codex" || tab.type === "gemini" || tab.type === "cursor" || tab.type === "shell" || tab.type === "browser";
+    return tab.type === "claude" || tab.type === "codex" || tab.type === "opencode" || tab.type === "gemini" || tab.type === "cursor" || tab.type === "shell" || tab.type === "browser";
 }
 
 function TabContent({ tabs, activeTabId }: TabContentProps) {
@@ -43,6 +43,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                 switch (tab.type) {
                     case "claude":
                     case "codex":
+                    case "opencode":
                     case "gemini":
                     case "cursor":
                     case "shell":
