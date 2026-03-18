@@ -43,6 +43,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { alert, confirm } from "@/stores/dialog-store";
@@ -60,13 +61,14 @@ function SettingsModal() {
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
     const [systemEditors, setSystemEditors] = useState<EditorInfo[]>([]);
-    const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex" | "gemini">(
+    const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex" | "gemini" | "cursor">(
         "general",
     );
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
     const geminiAvailable = isAgentAvailable(agents, "gemini");
+    const cursorAvailable = isAgentAvailable(agents, "cursor");
     const [migrating, setMigrating] = useState(false);
     const [migrationError, setMigrationError] = useState<string | null>(null);
     const [conflictPath, setConflictPath] = useState<string | null>(null);
@@ -120,7 +122,7 @@ function SettingsModal() {
 
     const handleDefaultAgent = useCallback(
         (value: string) => {
-            if (value === "claude" || value === "codex" || value === "gemini") {
+            if (value === "claude" || value === "codex" || value === "gemini" || value === "cursor") {
                 void updateSettings({ general: { defaultAgent: value } });
             }
         },
@@ -166,9 +168,23 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleCursorModel = useCallback(
+        (defaultModel: string) => {
+            void updateSettings({ cursor: { defaultModel: defaultModel || "default" } });
+        },
+        [updateSettings],
+    );
+
     const handleGeminiFullAccess = useCallback(
         (fullAccess: boolean) => {
             void updateSettings({ gemini: { fullAccess } });
+        },
+        [updateSettings],
+    );
+
+    const handleCursorFullAccess = useCallback(
+        (fullAccess: boolean) => {
+            void updateSettings({ cursor: { fullAccess } });
         },
         [updateSettings],
     );
@@ -360,6 +376,16 @@ function SettingsModal() {
                         >
                             Gemini
                         </button>
+                        <button
+                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
+                                section === "cursor"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                            }`}
+                            onClick={() => setSection("cursor")}
+                        >
+                            Cursor
+                        </button>
                     </nav>
 
                     {/* Content */}
@@ -543,6 +569,51 @@ function SettingsModal() {
                                 </section>
                             </>
                         )}
+                        {section === "cursor" && (
+                            <>
+                                <section className="space-y-2">
+                                    <h3 className="mb-0 text-sm font-medium">Default Model</h3>
+                                    <div className="space-y-1">
+                                        <Label className={defaultsSelectLabelClassName}>
+                                            Pre-selected model when running Cursor sessions
+                                        </Label>
+                                        <Input
+                                            className="h-8 w-64 text-sm"
+                                            value={
+                                                settings.cursor.defaultModel === "default"
+                                                    ? ""
+                                                    : settings.cursor.defaultModel
+                                            }
+                                            placeholder="default"
+                                            onChange={(e) => handleCursorModel(e.target.value)}
+                                        />
+                                    </div>
+                                </section>
+                                <section className="space-y-2">
+                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
+                                    <div className="space-y-1">
+                                        <Label className={defaultsSelectLabelClassName}>
+                                            Run in yolo mode by default (auto-approve commands)
+                                        </Label>
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <Switch
+                                                id="cursor-full-access"
+                                                checked={settings.cursor.fullAccess}
+                                                onCheckedChange={handleCursorFullAccess}
+                                            />
+                                            <Label
+                                                htmlFor="cursor-full-access"
+                                                className="cursor-pointer text-sm font-normal normal-case"
+                                            >
+                                                {settings.cursor.fullAccess
+                                                    ? "Enabled"
+                                                    : "Disabled"}
+                                            </Label>
+                                        </div>
+                                    </div>
+                                </section>
+                            </>
+                        )}
                         {section === "defaults" && (
                             <>
                                 <section className="space-y-2">
@@ -633,6 +704,13 @@ function SettingsModal() {
                                                 </SelectItem>
                                                 <SelectItem value="gemini" disabled={!geminiAvailable}>
                                                     Gemini{!geminiAvailable ? " (not installed)" : ""}
+                                                </SelectItem>
+                                                <SelectItem
+                                                    value="cursor"
+                                                    disabled={!cursorAvailable}
+                                                >
+                                                    Cursor
+                                                    {!cursorAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
                                             </SelectContent>
                                         </Select>

@@ -22,6 +22,7 @@ const badgeVariants = cva(
                 claude: "",
                 codex: "",
                 gemini: "",
+                cursor: "",
                 shell: "",
                 active: "",
                 archived: "",
@@ -42,6 +43,11 @@ const badgeVariants = cva(
                 variant: "outline",
                 colorScheme: "gemini",
                 className: "bg-primary/20 text-primary border-primary/30",
+            },
+            {
+                variant: "outline",
+                colorScheme: "cursor",
+                className: "bg-cursor-agent/20 text-cursor-agent border-cursor-agent/30",
             },
             {
                 variant: "outline",
@@ -72,6 +78,11 @@ const badgeVariants = cva(
                 variant: "default",
                 colorScheme: "gemini",
                 className: "bg-primary/20 text-primary border-primary/30",
+            },
+            {
+                variant: "default",
+                colorScheme: "cursor",
+                className: "bg-cursor-agent/20 text-cursor-agent border-cursor-agent/30",
             },
             {
                 variant: "default",

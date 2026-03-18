@@ -1,4 +1,4 @@
-type AgentType = "claude" | "codex" | "gemini";
+type AgentType = "claude" | "codex" | "gemini" | "cursor";
 
 interface ClaudeLaunchOptions {
     type: Extract<AgentType, "claude">;
@@ -17,7 +17,13 @@ interface GeminiLaunchOptions {
     model?: "auto" | "pro" | "flash" | "flash-lite";
 }
 
-type AgentLaunchOptions = ClaudeLaunchOptions | CodexLaunchOptions | GeminiLaunchOptions;
+interface CursorLaunchOptions {
+    type: Extract<AgentType, "cursor">;
+    fullAccess?: boolean;
+    model?: string;
+}
+
+type AgentLaunchOptions = ClaudeLaunchOptions | CodexLaunchOptions | GeminiLaunchOptions | CursorLaunchOptions;
 
 interface AgentAvailability {
     type: AgentType;
@@ -31,6 +37,7 @@ export type {
     ClaudeLaunchOptions,
     CodexLaunchOptions,
     GeminiLaunchOptions,
+    CursorLaunchOptions,
     AgentLaunchOptions,
     AgentAvailability,
 };

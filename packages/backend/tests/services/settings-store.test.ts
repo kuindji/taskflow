@@ -26,6 +26,7 @@ const DEFAULT_LAYOUT = {
 const DEFAULT_CLAUDE = { defaultModel: "default" as const, fullAccess: false };
 const DEFAULT_CODEX = { fullAccess: false };
 const DEFAULT_GEMINI = { defaultModel: "default" as const, fullAccess: false };
+const DEFAULT_CURSOR = { defaultModel: "default", fullAccess: false };
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
 
 describe("SettingsStore", () => {
@@ -49,7 +50,6 @@ describe("SettingsStore", () => {
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 13,
-                externalEditor: "system",
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
             },
@@ -62,11 +62,14 @@ describe("SettingsStore", () => {
                 fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
                 wordWrap: DEFAULT_EDITOR_WORD_WRAP,
+                internalEditor: "monaco",
+                externalEditor: "system",
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
             gemini: DEFAULT_GEMINI,
+            cursor: DEFAULT_CURSOR,
             appearance: DEFAULT_APPEARANCE,
         });
 
@@ -76,7 +79,6 @@ describe("SettingsStore", () => {
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 13,
-                externalEditor: "system",
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
             },
@@ -89,11 +91,14 @@ describe("SettingsStore", () => {
                 fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
                 wordWrap: DEFAULT_EDITOR_WORD_WRAP,
+                internalEditor: "monaco",
+                externalEditor: "system",
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
             gemini: DEFAULT_GEMINI,
+            cursor: DEFAULT_CURSOR,
             appearance: DEFAULT_APPEARANCE,
         });
     });
@@ -111,7 +116,6 @@ describe("SettingsStore", () => {
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 15,
-                externalEditor: "system",
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
             },
@@ -124,11 +128,14 @@ describe("SettingsStore", () => {
                 fontFamily: "Fira Code",
                 fontSize: DEFAULT_EDITOR_FONT_SIZE,
                 wordWrap: DEFAULT_EDITOR_WORD_WRAP,
+                internalEditor: "monaco",
+                externalEditor: "system",
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
             gemini: DEFAULT_GEMINI,
+            cursor: DEFAULT_CURSOR,
             appearance: DEFAULT_APPEARANCE,
         });
 
@@ -136,7 +143,6 @@ describe("SettingsStore", () => {
             general: {
                 fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
                 fontSize: 15,
-                externalEditor: "system",
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
             },
@@ -149,11 +155,14 @@ describe("SettingsStore", () => {
                 fontFamily: "Fira Code",
                 fontSize: 16,
                 wordWrap: DEFAULT_EDITOR_WORD_WRAP,
+                internalEditor: "monaco",
+                externalEditor: "system",
             },
             layout: DEFAULT_LAYOUT,
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
             gemini: DEFAULT_GEMINI,
+            cursor: DEFAULT_CURSOR,
             appearance: DEFAULT_APPEARANCE,
         });
     });

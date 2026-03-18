@@ -10,6 +10,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Play } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 
@@ -31,6 +32,7 @@ function AgentOptionsPanel({
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
     const geminiSettings = useSettingsStore((s) => s.settings?.gemini);
+    const cursorSettings = useSettingsStore((s) => s.settings?.cursor);
 
     const matchingValue = value?.type === agentType ? value : undefined;
     const defaultFullAccess =
@@ -39,17 +41,23 @@ function AgentOptionsPanel({
             ? (claudeSettings?.fullAccess ?? false)
             : agentType === "gemini"
               ? (geminiSettings?.fullAccess ?? false)
-              : (codexSettings?.fullAccess ?? false));
+              : agentType === "cursor"
+                ? (cursorSettings?.fullAccess ?? false)
+                : (codexSettings?.fullAccess ?? false));
     const defaultModel =
         agentType === "claude" && matchingValue?.type === "claude"
             ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
             : agentType === "gemini" && matchingValue?.type === "gemini"
               ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "default")
-              : agentType === "claude"
-                ? (claudeSettings?.defaultModel ?? "default")
-                : agentType === "gemini"
-                  ? (geminiSettings?.defaultModel ?? "default")
-                  : "default";
+              : agentType === "cursor" && matchingValue?.type === "cursor"
+                ? (matchingValue.model ?? cursorSettings?.defaultModel ?? "default")
+                : agentType === "claude"
+                  ? (claudeSettings?.defaultModel ?? "default")
+                  : agentType === "gemini"
+                    ? (geminiSettings?.defaultModel ?? "default")
+                    : agentType === "cursor"
+                      ? (cursorSettings?.defaultModel ?? "default")
+                      : "default";
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [model, setModel] = useState<string>(defaultModel);
@@ -63,7 +71,7 @@ function AgentOptionsPanel({
 
     useEffect(() => {
         setFullAccess(defaultFullAccess);
-        if (agentType === "claude" || agentType === "gemini") {
+        if (agentType === "claude" || agentType === "gemini" || agentType === "cursor") {
             setModel(defaultModel);
         }
     }, [agentType, defaultFullAccess, defaultModel]);
@@ -82,6 +90,12 @@ function AgentOptionsPanel({
                 type: "gemini",
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
+            });
+        } else if (agentType === "cursor") {
+            cb({
+                type: "cursor",
+                fullAccess: fullAccess || undefined,
+                model: model === "default" ? undefined : model,
             });
         } else {
             cb({
@@ -112,6 +126,12 @@ function AgentOptionsPanel({
                 type: "gemini",
                 fullAccess: fullAccess || undefined,
                 model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
+            });
+        } else if (agentType === "cursor") {
+            onRun({
+                type: "cursor",
+                fullAccess: fullAccess || undefined,
+                model: model === "default" ? undefined : model,
             });
         } else {
             onRun({
@@ -170,6 +190,21 @@ function AgentOptionsPanel({
                             <SelectItem value="flash-lite">Flash Lite</SelectItem>
                         </SelectContent>
                     </Select>
+                </div>
+            )}
+
+            {agentType === "cursor" && (
+                <div className="flex flex-col gap-1">
+                    <Label htmlFor="agent-model" className="text-xs">
+                        Model
+                    </Label>
+                    <Input
+                        id="agent-model"
+                        className="h-7 text-xs"
+                        value={model === "default" ? "" : model}
+                        placeholder="default"
+                        onChange={(e) => setModel(e.target.value || "default")}
+                    />
                 </div>
             )}
 

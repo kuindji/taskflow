@@ -115,7 +115,7 @@ export interface TaskLogAddedEvent {
 export interface SessionCreatePayload {
     taskId?: string;
     projectId?: string;
-    type: "claude" | "codex" | "gemini" | "shell" | "editor";
+    type: "claude" | "codex" | "gemini" | "cursor" | "shell" | "editor";
     label?: string;
     prompt?: string;
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
@@ -416,6 +416,19 @@ export interface ThemeImportScanResponse {
 
 export interface ThemeDeletePayload {
     id: string;
+}
+
+// Cursor rules messages
+export interface CursorRulesCheckPayload {
+    cwd: string;
+}
+
+export interface CursorRulesCheckResponse {
+    status: "missing" | "present";
+}
+
+export interface CursorRulesEnsurePayload {
+    cwd: string;
 }
 
 // System messages

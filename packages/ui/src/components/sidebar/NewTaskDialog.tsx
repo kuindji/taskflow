@@ -36,7 +36,7 @@ interface NewTaskDialogProps {
         description: string;
         worktree: boolean;
         parentId?: string;
-        startWith?: "claude" | "codex" | "gemini";
+        startWith?: "claude" | "codex" | "gemini" | "cursor";
         agentOptions?: AgentLaunchOptions;
         startWithFlowId?: string;
     }) => void;
@@ -65,6 +65,7 @@ export function NewTaskDialog({
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
     const geminiAvailable = isAgentAvailable(agents, "gemini");
+    const cursorAvailable = isAgentAvailable(agents, "cursor");
 
     const resetForm = useCallback(() => {
         setDescription("");
@@ -80,12 +81,13 @@ export function NewTaskDialog({
             if (value === "claude" && !claudeAvailable) return;
             if (value === "codex" && !codexAvailable) return;
             if (value === "gemini" && !geminiAvailable) return;
+            if (value === "cursor" && !cursorAvailable) return;
             setStartWith(value);
-            if (value !== "claude" && value !== "codex" && value !== "gemini")
+            if (value !== "claude" && value !== "codex" && value !== "gemini" && value !== "cursor")
                 setAgentOptions(undefined);
             if (value !== "flow") setStartWithFlowId("");
         },
-        [claudeAvailable, codexAvailable, geminiAvailable],
+        [claudeAvailable, codexAvailable, geminiAvailable, cursorAvailable],
     );
 
     const handleOpenChange = useCallback(
@@ -110,7 +112,7 @@ export function NewTaskDialog({
             worktree: isSubtask ? false : worktree,
             parentId: parentId ?? undefined,
             startWith:
-                startWith === "claude" || startWith === "codex" || startWith === "gemini"
+                startWith === "claude" || startWith === "codex" || startWith === "gemini" || startWith === "cursor"
                     ? startWith
                     : undefined,
             agentOptions,
@@ -239,6 +241,9 @@ export function NewTaskDialog({
                                 <SelectItem value="gemini" disabled={!geminiAvailable}>
                                     Gemini{!geminiAvailable ? " (not installed)" : ""}
                                 </SelectItem>
+                                <SelectItem value="cursor" disabled={!cursorAvailable}>
+                                    Cursor{!cursorAvailable ? " (not installed)" : ""}
+                                </SelectItem>
                                 {flows.length > 0 && <SelectItem value="flow">Flow</SelectItem>}
                             </SelectContent>
                         </Select>
@@ -265,7 +270,7 @@ export function NewTaskDialog({
                         </div>
                     )}
 
-                    {(startWith === "claude" || startWith === "codex" || startWith === "gemini") && (
+                    {(startWith === "claude" || startWith === "codex" || startWith === "gemini" || startWith === "cursor") && (
                         <div className="border-border rounded-md border p-1">
                             <AgentOptionsPanel agentType={startWith} onChange={setAgentOptions} />
                         </div>

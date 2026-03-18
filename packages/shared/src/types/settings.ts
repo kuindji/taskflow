@@ -21,6 +21,11 @@ export interface GeminiSettings {
     fullAccess: boolean;
 }
 
+export interface CursorSettings {
+    defaultModel: string;
+    fullAccess: boolean;
+}
+
 export interface TerminalSettings {
     fontFamily: string;
     fontSize: number;
@@ -69,6 +74,7 @@ export interface AppSettings {
     claude: ClaudeSettings;
     codex: CodexSettings;
     gemini: GeminiSettings;
+    cursor: CursorSettings;
     appearance: AppearanceSettings;
 }
 
@@ -83,5 +89,6 @@ export interface SettingsUpdatePayload {
     claude?: Partial<ClaudeSettings>;
     codex?: Partial<CodexSettings>;
     gemini?: Partial<GeminiSettings>;
+    cursor?: Partial<CursorSettings>;
     appearance?: Partial<AppearanceSettings>;
 }

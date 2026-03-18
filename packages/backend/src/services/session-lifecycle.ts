@@ -3,6 +3,7 @@ import type { SessionRef, WsEvent } from "@taskflow/shared";
 import type { PtyManager } from "./pty-manager";
 import type { TaskStore } from "./task-store";
 import { buildAgentLaunchSpec, ensureInternalAgentSkillFile } from "./internal-agent-skill";
+import { ensureCursorRulesFile } from "./cursor-rules";
 import { getEditorById } from "./editor-detector";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
@@ -14,7 +15,7 @@ interface SessionOwner {
 
 interface CreateSessionOpts {
     owner: SessionOwner;
-    type: "claude" | "codex" | "gemini" | "shell" | "editor";
+    type: "claude" | "codex" | "gemini" | "cursor" | "shell" | "editor";
     label?: string;
     prompt?: string;
     systemPrompt?: string;
@@ -44,6 +45,7 @@ function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
     if (type === "gemini") return "Gemini";
+    if (type === "cursor") return "Cursor";
     if (type === "editor") return "Editor";
     return `${type} session`;
 }
@@ -168,6 +170,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             command = shell;
         } else {
             const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
+            if (type === "cursor" && systemPrompt) {
+                await ensureCursorRulesFile(cwd, systemPrompt);
+            }
             const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions, systemPrompt, !task);
             command = spec.command;
             args.push(...spec.args);

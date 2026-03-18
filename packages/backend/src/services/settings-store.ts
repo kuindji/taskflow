@@ -7,7 +7,7 @@ import {
     DEFAULT_TERMINAL_SHELL,
     DEFAULT_THEME_ID,
 } from "@taskflow/shared";
-import type { AppSettings, GeneralSettings, SettingsUpdatePayload } from "@taskflow/shared";
+import type { AppSettings, EditorSettings, GeneralSettings, SettingsUpdatePayload } from "@taskflow/shared";
 
 const DEFAULTS: AppSettings = {
     general: {
@@ -50,6 +50,10 @@ const DEFAULTS: AppSettings = {
         defaultModel: "default",
         fullAccess: false,
     },
+    cursor: {
+        defaultModel: "default",
+        fullAccess: false,
+    },
     appearance: {
         theme: DEFAULT_THEME_ID,
     },
@@ -67,6 +71,7 @@ function createDefaultSettings(): AppSettings {
         claude: { ...DEFAULTS.claude },
         codex: { ...DEFAULTS.codex },
         gemini: { ...DEFAULTS.gemini },
+        cursor: { ...DEFAULTS.cursor },
         appearance: { ...DEFAULTS.appearance },
     };
 }
@@ -85,10 +90,11 @@ export class SettingsStore {
             // Migration: move externalEditor from general to editor
             let needsMigration = false;
             if (parsed.general && "externalEditor" in parsed.general) {
-                if (!parsed.editor) parsed.editor = {};
-                if (!parsed.editor.externalEditor) {
-                    parsed.editor.externalEditor = parsed.general.externalEditor;
+                const editorPartial: Partial<EditorSettings> = parsed.editor ?? {};
+                if (!editorPartial.externalEditor) {
+                    editorPartial.externalEditor = parsed.general.externalEditor;
                 }
+                parsed.editor = editorPartial as EditorSettings;
                 delete parsed.general.externalEditor;
                 needsMigration = true;
             }
@@ -104,6 +110,7 @@ export class SettingsStore {
                 claude: { ...defaults.claude, ...parsed.claude },
                 codex: { ...defaults.codex, ...parsed.codex },
                 gemini: { ...defaults.gemini, ...parsed.gemini },
+                cursor: { ...defaults.cursor, ...parsed.cursor },
                 appearance: { ...defaults.appearance, ...parsed.appearance },
             };
 
@@ -143,6 +150,9 @@ export class SettingsStore {
         }
         if (partial.gemini) {
             Object.assign(current.gemini, partial.gemini);
+        }
+        if (partial.cursor) {
+            Object.assign(current.cursor, partial.cursor);
         }
         if (partial.appearance) {
             Object.assign(current.appearance, partial.appearance);

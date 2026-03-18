@@ -490,7 +490,7 @@ export async function ensureCliScript(binDir: string): Promise<void> {
 
 export { CLI_SCRIPT };
 export function buildAgentLaunchSpec(
-    type: "claude" | "codex" | "gemini",
+    type: "claude" | "codex" | "gemini" | "cursor",
     prompt: string | undefined,
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
@@ -536,6 +536,22 @@ export function buildAgentLaunchSpec(
                 ...optionArgs,
                 "--prompt-interactive",
                 interactivePrompt,
+            ],
+        };
+    }
+
+    if (type === "cursor") {
+        const optionArgs: string[] = [];
+        if (agentOptions?.type === "cursor") {
+            if (agentOptions.fullAccess) optionArgs.push("--yolo");
+            if (agentOptions.model && agentOptions.model !== "default") optionArgs.push("--model", agentOptions.model);
+        }
+        return {
+            command: "cursor",
+            args: [
+                "agent",
+                ...optionArgs,
+                ...(prompt ? [prompt] : []),
             ],
         };
     }

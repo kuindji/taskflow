@@ -31,6 +31,7 @@ import { X, Play, Terminal, Globe, ChevronDown, SquareTerminal, Workflow, Zap } 
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
 import { CodexIcon } from "@/components/icons/CodexIcon";
 import { GeminiIcon } from "@/components/icons/GeminiIcon";
+import { CursorIcon } from "@/components/icons/CursorIcon";
 import { cn } from "@/lib/utils";
 import {
     getShellDisplayName,
@@ -47,6 +48,7 @@ const tabVariants = cva(
                 claude: "text-warning",
                 codex: "text-success",
                 gemini: "text-primary",
+                cursor: "text-cursor-agent",
                 shell: "text-info",
                 editor: "text-muted-foreground",
                 changes: "text-muted-foreground",
@@ -154,11 +156,11 @@ interface TabBarProps {
     onTabClose: (tabId: string) => void;
     onTabRename: (tabId: string, newLabel: string) => void;
     onNewTab: (
-        type: "claude" | "codex" | "gemini" | "browser" | "shell",
+        type: "claude" | "codex" | "gemini" | "cursor" | "browser" | "shell",
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => void;
-    onRunTab: (type: "claude" | "codex" | "gemini", agentOptions?: AgentLaunchOptions) => void;
+    onRunTab: (type: "claude" | "codex" | "gemini" | "cursor", agentOptions?: AgentLaunchOptions) => void;
     onRunScript: (scriptName: string) => void;
     onRunAction: (action: ActionDefinition) => void;
     onStartFlow: (flowId: string) => void;
@@ -199,10 +201,12 @@ export function TabBar({
     const [claudePopoverOpen, setClaudePopoverOpen] = useState(false);
     const [codexPopoverOpen, setCodexPopoverOpen] = useState(false);
     const [geminiPopoverOpen, setGeminiPopoverOpen] = useState(false);
+    const [cursorPopoverOpen, setCursorPopoverOpen] = useState(false);
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
     const geminiAvailable = isAgentAvailable(agents, "gemini");
+    const cursorAvailable = isAgentAvailable(agents, "cursor");
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
@@ -386,6 +390,27 @@ export function TabBar({
                                         </DropdownMenuSubContent>
                                     )}
                                 </DropdownMenuSub>
+                                <DropdownMenuItem
+                                    disabled={!cursorAvailable}
+                                    onClick={() => cursorAvailable && onRunTab("cursor")}
+                                >
+                                    <CursorIcon className="mr-2 h-4 w-4" />
+                                    Cursor{!cursorAvailable ? " (not installed)" : ""}
+                                </DropdownMenuItem>
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger disabled={!cursorAvailable}>
+                                        <CursorIcon className="mr-2 h-4 w-4" />
+                                        Cursor with options
+                                    </DropdownMenuSubTrigger>
+                                    {cursorAvailable && (
+                                        <DropdownMenuSubContent className="p-0">
+                                            <AgentOptionsPanel
+                                                agentType="cursor"
+                                                onRun={(options) => onRunTab("cursor", options)}
+                                            />
+                                        </DropdownMenuSubContent>
+                                    )}
+                                </DropdownMenuSub>
                             </>
                         )}
                     </DropdownMenuContent>
@@ -401,6 +426,7 @@ export function TabBar({
                                 className="text-warning"
                                 disabled={!claudeAvailable}
                                 onClick={(e) => {
+                                    e.preventDefault();
                                     if (!claudeAvailable) return;
                                     if (e.shiftKey) {
                                         setClaudePopoverOpen(true);
@@ -437,6 +463,7 @@ export function TabBar({
                                 className="text-success"
                                 disabled={!codexAvailable}
                                 onClick={(e) => {
+                                    e.preventDefault();
                                     if (!codexAvailable) return;
                                     if (e.shiftKey) {
                                         setCodexPopoverOpen(true);
@@ -473,6 +500,7 @@ export function TabBar({
                                 className="text-primary"
                                 disabled={!geminiAvailable}
                                 onClick={(e) => {
+                                    e.preventDefault();
                                     if (!geminiAvailable) return;
                                     if (e.shiftKey) {
                                         setGeminiPopoverOpen(true);
@@ -493,6 +521,43 @@ export function TabBar({
                                 onRun={(options) => {
                                     setGeminiPopoverOpen(false);
                                     onNewTab("gemini", undefined, options);
+                                }}
+                            />
+                        </PopoverContent>
+                    </Popover>
+                    <Popover open={cursorPopoverOpen} onOpenChange={setCursorPopoverOpen}>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="text-cursor-agent"
+                                disabled={!cursorAvailable}
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    if (!cursorAvailable) return;
+                                    if (e.shiftKey) {
+                                        setCursorPopoverOpen(true);
+                                    } else {
+                                        onNewTab("cursor");
+                                    }
+                                }}
+                                aria-label="New Cursor session"
+                                tooltip={
+                                    cursorAvailable
+                                        ? "New Cursor session (Shift+click for options)"
+                                        : "Cursor CLI not installed"
+                                }
+                                tooltipSide="bottom"
+                            >
+                                <CursorIcon className="h-3.5 w-3.5" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-0">
+                            <AgentOptionsPanel
+                                agentType="cursor"
+                                onRun={(options) => {
+                                    setCursorPopoverOpen(false);
+                                    onNewTab("cursor", undefined, options);
                                 }}
                             />
                         </PopoverContent>
