@@ -210,7 +210,13 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         [loading, handleSubmit],
     );
 
-    const submitLabel = prOnly ? "Create PR" : pushOnly ? "Push" : push ? "Commit & Push" : "Commit";
+    const submitLabel = prOnly
+        ? "Create PR"
+        : pushOnly
+          ? "Push"
+          : push
+            ? "Commit & Push"
+            : "Commit";
     const dialogTitle = prOnly ? "Create Pull Request" : pushOnly ? "Push" : "Commit & Push";
 
     return (

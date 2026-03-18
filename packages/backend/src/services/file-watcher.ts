@@ -66,9 +66,7 @@ export class FileWatcher {
         return { tree: node, gitignorePatterns };
     }
 
-    async listDir(
-        dirPath: string,
-    ): Promise<{ entries: FileNode[]; gitignorePatterns: string[] }> {
+    async listDir(dirPath: string): Promise<{ entries: FileNode[]; gitignorePatterns: string[] }> {
         const entries: FileNode[] = [];
         let gitignorePatterns: string[] = [];
 

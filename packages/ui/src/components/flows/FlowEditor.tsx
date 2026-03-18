@@ -36,7 +36,14 @@ interface FlowEditorProps {
     onDelete?: () => void;
 }
 
-function FlowEditor({ flow, globalActions, defaultProjectId, onSave, onCancel, onDelete }: FlowEditorProps) {
+function FlowEditor({
+    flow,
+    globalActions,
+    defaultProjectId,
+    onSave,
+    onCancel,
+    onDelete,
+}: FlowEditorProps) {
     const projects = useProjectStore((s) => s.projects);
     const [name, setName] = useState(flow?.name ?? "");
     const [description, setDescription] = useState(flow?.description ?? "");
@@ -46,8 +53,7 @@ function FlowEditor({ flow, globalActions, defaultProjectId, onSave, onCancel, o
     const [actions, setActions] = useState<FlowActionEntry[]>(flow?.actions ?? []);
 
     const libraryActions = useMemo(
-        () =>
-            globalActions.filter((a) => !a.projectId || a.projectId === projectId),
+        () => globalActions.filter((a) => !a.projectId || a.projectId === projectId),
         [globalActions, projectId],
     );
 
@@ -222,9 +228,7 @@ function FlowEditor({ flow, globalActions, defaultProjectId, onSave, onCancel, o
                         <Label htmlFor="flow-project">Project</Label>
                         <Select
                             value={projectId ?? "__global__"}
-                            onValueChange={(v) =>
-                                setProjectId(v === "__global__" ? undefined : v)
-                            }
+                            onValueChange={(v) => setProjectId(v === "__global__" ? undefined : v)}
                         >
                             <SelectTrigger>
                                 <SelectValue />

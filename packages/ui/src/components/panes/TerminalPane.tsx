@@ -309,7 +309,14 @@ function createFilePathLinkProvider(
                         },
                         text: fullMatch,
                         activate(event: MouseEvent, text: string) {
-                            void handlePathActivation(text, workingDir, workspaceKey, event, taskId, projectId);
+                            void handlePathActivation(
+                                text,
+                                workingDir,
+                                workspaceKey,
+                                event,
+                                taskId,
+                                projectId,
+                            );
                         },
                     });
                 }
@@ -484,8 +491,9 @@ function loadBestEffortRendererAddons(term: Terminal): () => void {
             term.loadAddon(addon);
 
             // Remove the Canvas cursor layer now that WebGL is rendering.
-            const screenElement = (term as unknown as { element: HTMLElement }).element
-                ?.querySelector<HTMLElement>(".xterm-screen");
+            const screenElement = (
+                term as unknown as { element: HTMLElement }
+            ).element?.querySelector<HTMLElement>(".xterm-screen");
             if (screenElement) {
                 removeCanvasCursorLayer(screenElement);
             }
@@ -1071,9 +1079,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 <div className="absolute inset-0 flex items-center justify-center">
                     <div className="flex flex-col items-center gap-3">
                         <div className="border-muted-foreground h-6 w-6 animate-spin rounded-full border-2 border-t-transparent" />
-                        <span className="text-muted-foreground text-sm">
-                            Starting agent...
-                        </span>
+                        <span className="text-muted-foreground text-sm">Starting agent...</span>
                     </div>
                 </div>
             )}

@@ -84,10 +84,7 @@ describe("filterProjectSessions", () => {
     it("keeps only sessions matching the instanceId", () => {
         const project: Project = {
             ...baseProject,
-            sessions: [
-                makeSessionRef("s1", "main"),
-                makeSessionRef("s2", "dev-main"),
-            ],
+            sessions: [makeSessionRef("s1", "main"), makeSessionRef("s2", "dev-main")],
         };
         const filtered = filterProjectSessions(project, "main");
         expect(filtered.sessions).toHaveLength(1);

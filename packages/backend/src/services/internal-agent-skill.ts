@@ -550,10 +550,7 @@ export function buildAgentLaunchSpec(
         }
         return {
             command: "gemini",
-            args: [
-                ...optionArgs,
-                ...(prompt ? ["--prompt-interactive", prompt] : []),
-            ],
+            args: [...optionArgs, ...(prompt ? ["--prompt-interactive", prompt] : [])],
         };
     }
 
@@ -561,15 +558,12 @@ export function buildAgentLaunchSpec(
         const optionArgs: string[] = [];
         if (agentOptions?.type === "cursor") {
             if (agentOptions.fullAccess) optionArgs.push("--yolo");
-            if (agentOptions.model && agentOptions.model !== "default") optionArgs.push("--model", agentOptions.model);
+            if (agentOptions.model && agentOptions.model !== "default")
+                optionArgs.push("--model", agentOptions.model);
         }
         return {
             command: "cursor",
-            args: [
-                "agent",
-                ...optionArgs,
-                ...(prompt ? [prompt] : []),
-            ],
+            args: ["agent", ...optionArgs, ...(prompt ? [prompt] : [])],
         };
     }
 

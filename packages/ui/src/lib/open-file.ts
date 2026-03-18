@@ -11,10 +11,16 @@ let fetchPromise: Promise<void> | null = null;
 function ensureEditorsCached(): Promise<void> {
     if (cachedEditors.length > 0) return Promise.resolve();
     if (!fetchPromise) {
-        fetchPromise = sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {}).then(
-            (info) => { cachedEditors = info.editors; },
-            () => {},
-        ).finally(() => { fetchPromise = null; });
+        fetchPromise = sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {})
+            .then(
+                (info) => {
+                    cachedEditors = info.editors;
+                },
+                () => {},
+            )
+            .finally(() => {
+                fetchPromise = null;
+            });
     }
     return fetchPromise;
 }
@@ -57,15 +63,11 @@ async function openFileInApp(
         // CLI editor: spawn terminal session
         const basename = filePath.split("/").pop() ?? filePath;
         const label = `${internalEditor}: ${basename}`;
-        void store.createSession(
-            owner,
-            "editor",
-            label,
-            undefined,
-            undefined,
-            undefined,
-            { editorId: internalEditor, filePath, line },
-        );
+        void store.createSession(owner, "editor", label, undefined, undefined, undefined, {
+            editorId: internalEditor,
+            filePath,
+            line,
+        });
     }
 }
 

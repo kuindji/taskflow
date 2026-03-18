@@ -31,7 +31,16 @@ interface TaskHandlerDeps {
 }
 
 export function registerTaskHandlers(deps: TaskHandlerDeps): void {
-    const { router, store, gitService, closeSession, generateTitle, flowStore, flowRunner, changeTracker } = deps;
+    const {
+        router,
+        store,
+        gitService,
+        closeSession,
+        generateTitle,
+        flowStore,
+        flowRunner,
+        changeTracker,
+    } = deps;
 
     async function failActiveFlows(taskId: string): Promise<void> {
         if (!flowStore || !flowRunner) return;

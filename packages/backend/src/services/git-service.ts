@@ -7,7 +7,11 @@ async function git(
     cwd: string,
     options: { allowExitCodes?: number[] } = {},
 ): Promise<string> {
-    const proc = Bun.spawn(["git", "--no-optional-locks", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["git", "--no-optional-locks", ...args], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
     const [stdout, stderr, exitCode] = await Promise.all([
         new Response(proc.stdout).text(),
         new Response(proc.stderr).text(),
@@ -41,9 +45,7 @@ export class GitService {
     }
 
     async numstat(repoPath: string, cached = false): Promise<NumstatEntry[]> {
-        const args = cached
-            ? ["diff", "--cached", "--numstat"]
-            : ["diff", "--numstat"];
+        const args = cached ? ["diff", "--cached", "--numstat"] : ["diff", "--numstat"];
         const output = await git(args, repoPath);
         if (!output.trim()) return [];
 

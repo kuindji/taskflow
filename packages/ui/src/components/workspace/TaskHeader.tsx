@@ -48,7 +48,7 @@ function PrLink({ pr }: { pr: TaskWorktreePr }) {
         <span
             role="link"
             tabIndex={0}
-            className="text-accent hover:underline cursor-pointer text-xs font-medium"
+            className="text-accent cursor-pointer text-xs font-medium hover:underline"
             onClick={() => openUrl(pr.url)}
             onKeyDown={(e) => {
                 if (e.key === "Enter") openUrl(pr.url);
@@ -171,9 +171,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                 >
                                     {task.worktree.branch}
                                 </TruncatedText>
-                                {task.worktree.pr && (
-                                    <PrLink pr={task.worktree.pr} />
-                                )}
+                                {task.worktree.pr && <PrLink pr={task.worktree.pr} />}
                                 <CopyButton
                                     value={task.worktree.branch}
                                     tooltip="Copy branch name"

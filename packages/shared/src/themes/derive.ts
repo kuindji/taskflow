@@ -49,9 +49,7 @@ export function deriveTheme(source: ThemeSource): ResolvedTheme {
         "--sidebar-ring": ansi.blue,
     };
 
-    const css: CssVariables = source.overrides
-        ? { ...derived, ...source.overrides }
-        : derived;
+    const css: CssVariables = source.overrides ? { ...derived, ...source.overrides } : derived;
 
     const xterm: XtermTheme = {
         background: css["--card"],

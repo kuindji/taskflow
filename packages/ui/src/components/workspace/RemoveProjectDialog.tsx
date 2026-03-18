@@ -65,10 +65,7 @@ export function RemoveProjectDialog({
                     <Button variant="secondary" onClick={() => onOpenChange(false)}>
                         Cancel
                     </Button>
-                    <Button
-                        variant={keepData ? "default" : "destructive"}
-                        onClick={handleConfirm}
-                    >
+                    <Button variant={keepData ? "default" : "destructive"} onClick={handleConfirm}>
                         {keepData ? "Hide" : "Remove"}
                     </Button>
                 </DialogFooter>

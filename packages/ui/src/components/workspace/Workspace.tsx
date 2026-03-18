@@ -398,10 +398,9 @@ export function Workspace() {
     ) => {
         if (!workspace.workspaceKey) return;
         if (type === "cursor" && workspace.workingDir && !skipCursorRulesCheck) {
-            const { status } = await sendRequest<CursorRulesCheckResponse>(
-                MSG.CURSOR_RULES_CHECK,
-                { cwd: workspace.workingDir },
-            );
+            const { status } = await sendRequest<CursorRulesCheckResponse>(MSG.CURSOR_RULES_CHECK, {
+                cwd: workspace.workingDir,
+            });
             if (status === "missing") {
                 setCursorRulesDialog({ pending: true, type: "new", agentOptions });
                 return;
@@ -445,10 +444,9 @@ export function Workspace() {
     ) => {
         if (workspace.scope !== "task" || !workspace.task) return;
         if (type === "cursor" && workspace.workingDir && !skipCursorRulesCheck) {
-            const { status } = await sendRequest<CursorRulesCheckResponse>(
-                MSG.CURSOR_RULES_CHECK,
-                { cwd: workspace.workingDir },
-            );
+            const { status } = await sendRequest<CursorRulesCheckResponse>(MSG.CURSOR_RULES_CHECK, {
+                cwd: workspace.workingDir,
+            });
             if (status === "missing") {
                 setCursorRulesDialog({ pending: true, type: "run", agentOptions });
                 return;
@@ -535,7 +533,11 @@ export function Workspace() {
                                 void closeTab(workspace.workspaceKey, id);
                             };
 
-                            if (tab?.type === "editor" && tab.filePath && isEditorDirty(tab.filePath)) {
+                            if (
+                                tab?.type === "editor" &&
+                                tab.filePath &&
+                                isEditorDirty(tab.filePath)
+                            ) {
                                 void confirm({
                                     title: "Unsaved Changes",
                                     description: `"${tab.filePath.split("/").pop()}" has unsaved changes that will be lost.`,
@@ -604,9 +606,9 @@ export function Workspace() {
                         <AlertDialogTitle>Cursor Rules Setup</AlertDialogTitle>
                         <AlertDialogDescription>
                             Taskflow needs to create a rules file at{" "}
-                            <code>.cursor/rules/taskflow.mdc</code> in your project directory so
-                            the Cursor agent can use taskflow-cli. This file will be added to
-                            your project.
+                            <code>.cursor/rules/taskflow.mdc</code> in your project directory so the
+                            Cursor agent can use taskflow-cli. This file will be added to your
+                            project.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

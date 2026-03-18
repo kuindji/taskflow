@@ -79,7 +79,9 @@ function Tooltip({
     }, []);
 
     return (
-        <TooltipContext.Provider value={{ open, setOpen, triggerEl, setTriggerEl, contentRef, delayDuration }}>
+        <TooltipContext.Provider
+            value={{ open, setOpen, triggerEl, setTriggerEl, contentRef, delayDuration }}
+        >
             {children}
         </TooltipContext.Provider>
     );

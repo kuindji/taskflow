@@ -184,7 +184,14 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     systemPrompt,
                 );
             }
-            const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions, systemPrompt, !task);
+            const spec = buildAgentLaunchSpec(
+                type,
+                prompt,
+                skillPath,
+                agentOptions,
+                systemPrompt,
+                !task,
+            );
             command = spec.command;
             args.push(...spec.args);
             specEnv = spec.env;
@@ -251,7 +258,10 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             }));
             const updatedTask = await taskStore.getTask(task.id);
             if (updatedTask) {
-                broadcast({ type: MSG.TASK_UPDATED, payload: filterTaskSessions(updatedTask, config.instanceId) });
+                broadcast({
+                    type: MSG.TASK_UPDATED,
+                    payload: filterTaskSessions(updatedTask, config.instanceId),
+                });
             }
         } else {
             await taskStore.updateProject(project.id, (currentProject) => ({
@@ -259,7 +269,10 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             }));
             const updatedProject = await taskStore.getProject(project.id);
             if (updatedProject) {
-                broadcast({ type: MSG.PROJECT_UPDATED, payload: filterProjectSessions(updatedProject, config.instanceId) });
+                broadcast({
+                    type: MSG.PROJECT_UPDATED,
+                    payload: filterProjectSessions(updatedProject, config.instanceId),
+                });
             }
         }
 

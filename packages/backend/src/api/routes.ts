@@ -291,7 +291,9 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
     apiRouter.register("GET", "/api/projects/:projectId/tasks", async (_req, params) => {
         try {
             const tasks = await taskStore.listTasks(params.projectId);
-            return jsonResponse({ tasks: tasks.map((t) => filterTaskSessions(t, config.instanceId)) });
+            return jsonResponse({
+                tasks: tasks.map((t) => filterTaskSessions(t, config.instanceId)),
+            });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             return errorResponse(message, 500);

@@ -7,7 +7,12 @@ import {
     DEFAULT_TERMINAL_SHELL,
     DEFAULT_THEME_ID,
 } from "@taskflow/shared";
-import type { AppSettings, EditorSettings, GeneralSettings, SettingsUpdatePayload } from "@taskflow/shared";
+import type {
+    AppSettings,
+    EditorSettings,
+    GeneralSettings,
+    SettingsUpdatePayload,
+} from "@taskflow/shared";
 
 const DEFAULTS: AppSettings = {
     general: {

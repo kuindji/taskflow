@@ -139,7 +139,12 @@ export function TaskCard({
                 role="button"
                 tabIndex={0}
                 onClick={onClick}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } }}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onClick?.();
+                    }
+                }}
                 className={cn(
                     cardClasses,
                     "flex flex-col",
@@ -156,7 +161,7 @@ export function TaskCard({
                         className={cn(
                             isSubtask ? "text-xs" : "text-sm",
                             isActive && "text-foreground",
-                            "leading-normal font-medium"
+                            "leading-normal font-medium",
                         )}
                     >
                         {title}

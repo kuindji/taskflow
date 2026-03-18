@@ -194,12 +194,18 @@ export class PtyManager {
         }
     }
 
-    getSnapshot(id: string): { snapshot: string | null; lastSequence: number; cursorHidden: boolean } {
+    getSnapshot(id: string): {
+        snapshot: string | null;
+        lastSequence: number;
+        cursorHidden: boolean;
+    } {
         const session = this.sessions.get(id);
         if (!session) return { snapshot: null, lastSequence: 0, cursorHidden: false };
         // Access internal API: SerializeAddon v0.13.0 doesn't serialize DECTCEM
         // (cursor visibility), so we read it from the headless terminal's core.
-        const core = (session.headless as unknown as { _core: { coreService: { isCursorHidden: boolean } } })._core;
+        const core = (
+            session.headless as unknown as { _core: { coreService: { isCursorHidden: boolean } } }
+        )._core;
         const cursorHidden = core?.coreService?.isCursorHidden ?? false;
         return {
             snapshot: session.serializer.serialize(),

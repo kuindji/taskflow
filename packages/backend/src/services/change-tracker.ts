@@ -79,10 +79,7 @@ export class ChangeTracker {
     /** Called when a file changes in a watched directory */
     onFileChanged(filePath: string): void {
         for (const target of this.targets.values()) {
-            if (
-                filePath === target.path ||
-                filePath.startsWith(target.path + "/")
-            ) {
+            if (filePath === target.path || filePath.startsWith(target.path + "/")) {
                 const existing = this.debounceTimers.get(target.id);
                 if (existing) clearTimeout(existing);
                 this.debounceTimers.set(
@@ -138,9 +135,7 @@ export class ChangeTracker {
         for (const target of this.targets.values()) {
             if (target.stats) totalFiles += target.stats.fileCount;
         }
-        return totalFiles >= LARGE_CHANGESET_THRESHOLD
-            ? POLL_INTERVAL_LARGE
-            : POLL_INTERVAL_NORMAL;
+        return totalFiles >= LARGE_CHANGESET_THRESHOLD ? POLL_INTERVAL_LARGE : POLL_INTERVAL_NORMAL;
     }
 
     private async pollAll(): Promise<void> {
@@ -187,13 +182,9 @@ export class ChangeTracker {
 
         // Count lines in untracked files from disk
         let untrackedAdditions = 0;
-        const untrackedFiles = status.unstagedFiles.filter(
-            (f) => f.status === "untracked",
-        );
+        const untrackedFiles = status.unstagedFiles.filter((f) => f.status === "untracked");
         for (const file of untrackedFiles) {
-            untrackedAdditions += await this.countFileLines(
-                join(repoPath, file.path),
-            );
+            untrackedAdditions += await this.countFileLines(join(repoPath, file.path));
         }
 
         const additions =
@@ -204,8 +195,7 @@ export class ChangeTracker {
             unstaged.reduce((sum, e) => sum + e.deletions, 0) +
             staged.reduce((sum, e) => sum + e.deletions, 0);
 
-        const fileCount =
-            status.stagedFiles.length + status.unstagedFiles.length;
+        const fileCount = status.stagedFiles.length + status.unstagedFiles.length;
         const hasChanges = fileCount > 0;
 
         return {

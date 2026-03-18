@@ -38,7 +38,10 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
                 worktree: { enabled: true, path: worktreePath, branch, pr: null },
             });
             changeTracker?.track(taskId, worktreePath);
-            broadcast({ type: MSG.TASK_UPDATED, payload: filterTaskSessions(updated, config.instanceId) });
+            broadcast({
+                type: MSG.TASK_UPDATED,
+                payload: filterTaskSessions(updated, config.instanceId),
+            });
         } catch (error) {
             console.error(`Failed to create worktree for task ${taskId}:`, error);
         }
@@ -71,7 +74,10 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
             if (!title) return;
 
             const updated = await taskStore.updateTask(taskId, { title });
-            broadcast({ type: MSG.TASK_UPDATED, payload: filterTaskSessions(updated, config.instanceId) });
+            broadcast({
+                type: MSG.TASK_UPDATED,
+                payload: filterTaskSessions(updated, config.instanceId),
+            });
 
             await createWorktreeForTask(taskId, title);
         } catch {

@@ -44,15 +44,20 @@ const _unsubChangeStats = onEvent(MSG.GIT_CHANGE_STATS, (payload) => {
     }
 
     const diffStats: DiffStats | null =
-        stats.additions === 0 && stats.deletions === 0 ? null : {
-            additions: stats.additions,
-            deletions: stats.deletions,
-        };
+        stats.additions === 0 && stats.deletions === 0
+            ? null
+            : {
+                  additions: stats.additions,
+                  deletions: stats.deletions,
+              };
 
     useDiffStore.setState((state) => ({
         statsByProject: { ...state.statsByProject, [targetId]: diffStats },
         diffDisabledByProject: { ...state.diffDisabledByProject, [targetId]: stats.diffDisabled },
-        commitDisabledByProject: { ...state.commitDisabledByProject, [targetId]: stats.commitDisabled },
+        commitDisabledByProject: {
+            ...state.commitDisabledByProject,
+            [targetId]: stats.commitDisabled,
+        },
         hasChangesByProject: { ...state.hasChangesByProject, [targetId]: stats.hasChanges },
     }));
 });

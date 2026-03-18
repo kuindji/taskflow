@@ -14,7 +14,17 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Check, X, SkipForward, Pause, Play, Square, Loader2, RotateCcw, Download } from "lucide-react";
+import {
+    Check,
+    X,
+    SkipForward,
+    Pause,
+    Play,
+    Square,
+    Loader2,
+    RotateCcw,
+    Download,
+} from "lucide-react";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 
@@ -256,7 +266,10 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                         Artifacts
                     </div>
                     {run.artifacts.map((a) => (
-                        <div key={`${a.actionEntryId}-${a.createdAt}`} className="flex items-center gap-2 text-xs">
+                        <div
+                            key={`${a.actionEntryId}-${a.createdAt}`}
+                            className="flex items-center gap-2 text-xs"
+                        >
                             <span className="text-blue-400">&bull;</span>
                             <span>{a.type}</span>
                             <span className="text-muted-foreground min-w-0 flex-1 truncate text-[10px]">
@@ -270,7 +283,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                                     tooltipSide="left"
                                     onClick={() => {
                                         const defaultName = a.path
-                                            ? a.path.split("/").pop() ?? a.type
+                                            ? (a.path.split("/").pop() ?? a.type)
                                             : `${a.type}.txt`;
                                         void window.taskflow?.saveArtifact({
                                             path: a.path,

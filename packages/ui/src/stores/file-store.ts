@@ -9,11 +9,7 @@ import { MSG } from "@taskflow/shared";
 import { onEvent, sendRequest } from "../hooks/useWebSocket";
 import { useDiffStore } from "./diff-store";
 
-function setChildrenAtPath(
-    root: FileNode,
-    targetPath: string,
-    children: FileNode[],
-): FileNode {
+function setChildrenAtPath(root: FileNode, targetPath: string, children: FileNode[]): FileNode {
     if (root.path === targetPath) {
         return { ...root, children, loaded: true };
     }
@@ -22,7 +18,7 @@ function setChildrenAtPath(
         ...root,
         children: root.children.map((child) =>
             child.type === "directory" &&
-                (targetPath === child.path || targetPath.startsWith(child.path + "/"))
+            (targetPath === child.path || targetPath.startsWith(child.path + "/"))
                 ? setChildrenAtPath(child, targetPath, children)
                 : child,
         ),
@@ -122,10 +118,9 @@ export const useFileStore = create<FileStore>((set, get) => ({
         newLoading.add(dirPath);
         set({ loadingDirs: newLoading });
         try {
-            const { entries } = await sendRequest<FileListDirResponse>(
-                MSG.FILE_LIST_DIR,
-                { path: dirPath },
-            );
+            const { entries } = await sendRequest<FileListDirResponse>(MSG.FILE_LIST_DIR, {
+                path: dirPath,
+            });
             set((state) => {
                 const updatedLoading = new Set(state.loadingDirs);
                 updatedLoading.delete(dirPath);

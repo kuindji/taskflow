@@ -156,9 +156,7 @@ function TaskInfoPanel() {
                 <div className="flex-1 overflow-y-auto p-3">
                     <div className="space-y-4">
                         <div>
-                            <span className="text-muted-foreground text-xs font-medium">
-                                Name
-                            </span>
+                            <span className="text-muted-foreground text-xs font-medium">Name</span>
                             <div className="text-secondary-foreground mt-1 text-sm">
                                 {workspace.project.name}
                             </div>
@@ -167,9 +165,7 @@ function TaskInfoPanel() {
                         <Separator className="my-4" />
 
                         <div>
-                            <span className="text-muted-foreground text-xs font-medium">
-                                Path
-                            </span>
+                            <span className="text-muted-foreground text-xs font-medium">Path</span>
                             <div className="text-secondary-foreground mt-1 text-sm break-all">
                                 {workspace.project.path}
                             </div>
@@ -215,7 +211,12 @@ function TaskInfoPanel() {
             <div className="flex-1 overflow-y-auto p-3">
                 <div className="space-y-4">
                     <div>
-                        <label htmlFor="task-info-title" className="text-muted-foreground text-xs font-medium">Title</label>
+                        <label
+                            htmlFor="task-info-title"
+                            className="text-muted-foreground text-xs font-medium"
+                        >
+                            Title
+                        </label>
                         <Input
                             id="task-info-title"
                             value={titleDraft}
@@ -229,7 +230,10 @@ function TaskInfoPanel() {
 
                     {/* Description */}
                     <div>
-                        <label htmlFor="task-info-description" className="text-muted-foreground text-xs font-medium">
+                        <label
+                            htmlFor="task-info-description"
+                            className="text-muted-foreground text-xs font-medium"
+                        >
                             Description
                         </label>
                         <Textarea
@@ -292,7 +296,12 @@ function TaskInfoPanel() {
 
                     {/* Notes */}
                     <div>
-                        <label htmlFor="task-info-notes" className="text-muted-foreground text-xs font-medium">Notes</label>
+                        <label
+                            htmlFor="task-info-notes"
+                            className="text-muted-foreground text-xs font-medium"
+                        >
+                            Notes
+                        </label>
                         <Textarea
                             id="task-info-notes"
                             value={notesDraft}

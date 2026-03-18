@@ -262,7 +262,6 @@ let fileExplorerChecked = false;
 let taskInfoChecked = false;
 let wordWrapChecked = true;
 
-
 function buildAppMenu() {
     const template: Electron.MenuItemConstructorOptions[] = [
         {
@@ -642,8 +641,7 @@ ipcMain.handle(
         const result = win
             ? await dialog.showSaveDialog(win, { defaultPath })
             : await dialog.showSaveDialog({ defaultPath });
-        if (result.canceled || !result.filePath)
-            return { success: false };
+        if (result.canceled || !result.filePath) return { success: false };
         try {
             if (typeof opts.path === "string") {
                 if (!opts.path.startsWith("/") || opts.path.includes(".."))
@@ -656,8 +654,7 @@ ipcMain.handle(
             }
             return { success: true };
         } catch (err) {
-            const message =
-                err instanceof Error ? err.message : "Unknown error";
+            const message = err instanceof Error ? err.message : "Unknown error";
             await dialog.showMessageBox({
                 type: "error",
                 title: "Download failed",

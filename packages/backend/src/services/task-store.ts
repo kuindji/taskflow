@@ -85,7 +85,9 @@ export class TaskStore {
         for (const project of projects) {
             if (project.sessions.length === 0) continue;
             const remaining = instanceId
-                ? project.sessions.filter((s) => s.instance !== undefined && s.instance !== instanceId)
+                ? project.sessions.filter(
+                      (s) => s.instance !== undefined && s.instance !== instanceId,
+                  )
                 : [];
             if (remaining.length !== project.sessions.length) {
                 await this.updateProject(project.id, { sessions: remaining });
@@ -246,7 +248,9 @@ export class TaskStore {
         id: string,
         updates:
             | Partial<Pick<Project, "name" | "path" | "sessions" | "hidden">>
-            | ((project: Project) => Partial<Pick<Project, "name" | "path" | "sessions" | "hidden">>),
+            | ((
+                  project: Project,
+              ) => Partial<Pick<Project, "name" | "path" | "sessions" | "hidden">>),
     ): Promise<Project> {
         const projects = await this.listProjects();
         const index = projects.findIndex((p) => p.id === id);

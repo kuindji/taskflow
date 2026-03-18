@@ -98,7 +98,12 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
             role="button"
             tabIndex={0}
             onClick={() => onTabClick(tab.id)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTabClick(tab.id); } }}
+            onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onTabClick(tab.id);
+                }
+            }}
             className={classes}
         >
             {tab.sessionId && <StatusDot status={status} className="mr-1" />}
@@ -162,7 +167,10 @@ interface TabBarProps {
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => void;
-    onRunTab: (type: "claude" | "codex" | "opencode" | "gemini" | "cursor", agentOptions?: AgentLaunchOptions) => void;
+    onRunTab: (
+        type: "claude" | "codex" | "opencode" | "gemini" | "cursor",
+        agentOptions?: AgentLaunchOptions,
+    ) => void;
     onRunScript: (scriptName: string) => void;
     onRunAction: (action: ActionDefinition) => void;
     onStartFlow: (flowId: string) => void;
@@ -534,7 +542,11 @@ export function TabBar({
                                     }
                                 }}
                                 aria-label="New OpenCode session"
-                                tooltip={opencodeAvailable ? "New OpenCode session (Shift+click for options)" : "OpenCode CLI not installed"}
+                                tooltip={
+                                    opencodeAvailable
+                                        ? "New OpenCode session (Shift+click for options)"
+                                        : "OpenCode CLI not installed"
+                                }
                                 tooltipSide="bottom"
                             >
                                 <OpenCodeIcon className="h-3.5 w-3.5" />
@@ -567,7 +579,11 @@ export function TabBar({
                                     }
                                 }}
                                 aria-label="New Gemini session"
-                                tooltip={geminiAvailable ? "New Gemini session (Shift+click for options)" : "Gemini CLI not installed"}
+                                tooltip={
+                                    geminiAvailable
+                                        ? "New Gemini session (Shift+click for options)"
+                                        : "Gemini CLI not installed"
+                                }
                                 tooltipSide="bottom"
                             >
                                 <GeminiIcon className="h-3.5 w-3.5" />

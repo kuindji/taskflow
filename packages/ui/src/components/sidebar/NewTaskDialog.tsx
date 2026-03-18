@@ -85,7 +85,13 @@ export function NewTaskDialog({
             if (value === "gemini" && !geminiAvailable) return;
             if (value === "cursor" && !cursorAvailable) return;
             setStartWith(value);
-            if (value !== "claude" && value !== "codex" && value !== "opencode" && value !== "gemini" && value !== "cursor")
+            if (
+                value !== "claude" &&
+                value !== "codex" &&
+                value !== "opencode" &&
+                value !== "gemini" &&
+                value !== "cursor"
+            )
                 setAgentOptions(undefined);
             if (value !== "flow") setStartWithFlowId("");
         },
@@ -114,7 +120,11 @@ export function NewTaskDialog({
             worktree: isSubtask ? false : worktree,
             parentId: parentId ?? undefined,
             startWith:
-                startWith === "claude" || startWith === "codex" || startWith === "opencode" || startWith === "gemini" || startWith === "cursor"
+                startWith === "claude" ||
+                startWith === "codex" ||
+                startWith === "opencode" ||
+                startWith === "gemini" ||
+                startWith === "cursor"
                     ? startWith
                     : undefined,
             agentOptions,
@@ -275,7 +285,11 @@ export function NewTaskDialog({
                         </div>
                     )}
 
-                    {(startWith === "claude" || startWith === "codex" || startWith === "opencode" || startWith === "gemini" || startWith === "cursor") && (
+                    {(startWith === "claude" ||
+                        startWith === "codex" ||
+                        startWith === "opencode" ||
+                        startWith === "gemini" ||
+                        startWith === "cursor") && (
                         <div className="border-border rounded-md border p-1">
                             <AgentOptionsPanel agentType={startWith} onChange={setAgentOptions} />
                         </div>

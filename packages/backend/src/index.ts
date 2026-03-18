@@ -142,9 +142,15 @@ async function main() {
             }
         }
 
-        registerProjectHandlers(router, store, gitService, (sessionId) => {
-            ptyManager.close(sessionId);
-        }, changeTracker);
+        registerProjectHandlers(
+            router,
+            store,
+            gitService,
+            (sessionId) => {
+                ptyManager.close(sessionId);
+            },
+            changeTracker,
+        );
         registerTaskHandlers({
             router,
             store,
@@ -173,7 +179,13 @@ async function main() {
             broadcast: server.broadcast,
             changeTracker,
         });
-        registerGitHandlers({ router, git: gitService, taskStore: store, broadcast: server.broadcast, changeTracker });
+        registerGitHandlers({
+            router,
+            git: gitService,
+            taskStore: store,
+            broadcast: server.broadcast,
+            changeTracker,
+        });
 
         const themeService = new ThemeService(config.themesDir);
         registerSettingsHandlers({ router, settingsStore, taskStore: store });

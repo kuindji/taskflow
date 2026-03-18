@@ -29,7 +29,12 @@ interface CursorLaunchOptions {
     model?: string;
 }
 
-type AgentLaunchOptions = ClaudeLaunchOptions | CodexLaunchOptions | OpenCodeLaunchOptions | GeminiLaunchOptions | CursorLaunchOptions;
+type AgentLaunchOptions =
+    | ClaudeLaunchOptions
+    | CodexLaunchOptions
+    | OpenCodeLaunchOptions
+    | GeminiLaunchOptions
+    | CursorLaunchOptions;
 
 interface AgentAvailability {
     type: AgentType;

@@ -18,7 +18,16 @@ import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWo
 
 interface Tab {
     id: string;
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "shell" | "editor" | "changes" | "browser";
+    type:
+        | "claude"
+        | "codex"
+        | "opencode"
+        | "gemini"
+        | "cursor"
+        | "shell"
+        | "editor"
+        | "changes"
+        | "browser";
     label: string;
     sessionId?: string;
     filePath?: string;
@@ -115,7 +124,13 @@ function getSessionTab(sessionId: string): Tab | undefined {
 
 function usesTerminalActivityStatus(sessionId: string): boolean {
     const type = getSessionTab(sessionId)?.type;
-    return type === "claude" || type === "codex" || type === "opencode" || type === "gemini" || type === "cursor";
+    return (
+        type === "claude" ||
+        type === "codex" ||
+        type === "opencode" ||
+        type === "gemini" ||
+        type === "cursor"
+    );
 }
 
 const exitedSessions = new Set<string>();
@@ -216,18 +231,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             }
         } finally {
             set((s) => {
-            const tabs = (s.tabsByWorkspace[workspaceKey] ?? []).filter((t) => t.id !== tabId);
-            const activeId =
-                s.activeTabByWorkspace[workspaceKey] === tabId
-                    ? (tabs[tabs.length - 1]?.id ?? "")
-                    : s.activeTabByWorkspace[workspaceKey];
-            const { [tab?.sessionId ?? ""]: _, ...remainingStatus } = s.sessionStatus;
-            return {
-                tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: tabs },
-                activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: activeId },
-                sessionStatus: tab?.sessionId ? remainingStatus : s.sessionStatus,
-            };
-        });
+                const tabs = (s.tabsByWorkspace[workspaceKey] ?? []).filter((t) => t.id !== tabId);
+                const activeId =
+                    s.activeTabByWorkspace[workspaceKey] === tabId
+                        ? (tabs[tabs.length - 1]?.id ?? "")
+                        : s.activeTabByWorkspace[workspaceKey];
+                const { [tab?.sessionId ?? ""]: _, ...remainingStatus } = s.sessionStatus;
+                return {
+                    tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: tabs },
+                    activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: activeId },
+                    sessionStatus: tab?.sessionId ? remainingStatus : s.sessionStatus,
+                };
+            });
         }
     },
     setActiveTab(workspaceKey, tabId) {

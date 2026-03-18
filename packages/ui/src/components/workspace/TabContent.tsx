@@ -16,7 +16,15 @@ interface TabContentProps {
 /** Tab types that stay mounted when inactive (never display:none) */
 function isAlwaysMounted(tab: Tab): boolean {
     if (tab.type === "editor" && tab.sessionId) return true;
-    return tab.type === "claude" || tab.type === "codex" || tab.type === "opencode" || tab.type === "gemini" || tab.type === "cursor" || tab.type === "shell" || tab.type === "browser";
+    return (
+        tab.type === "claude" ||
+        tab.type === "codex" ||
+        tab.type === "opencode" ||
+        tab.type === "gemini" ||
+        tab.type === "cursor" ||
+        tab.type === "shell" ||
+        tab.type === "browser"
+    );
 }
 
 function TabContent({ tabs, activeTabId }: TabContentProps) {
@@ -122,9 +130,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                         return (
                             <ErrorBoundary key={tab.id} fallbackLabel={label}>
                                 <Activity mode={isActive ? "visible" : "hidden"}>
-                                    <div className="absolute inset-0 flex z-10">
-                                        {pane}
-                                    </div>
+                                    <div className="absolute inset-0 z-10 flex">{pane}</div>
                                 </Activity>
                             </ErrorBoundary>
                         );
@@ -135,7 +141,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                             <div
                                 className={cn(
                                     "absolute inset-0 flex",
-                                    isActive ? "z-10" : "pointer-events-none z-0 -left-[9999em]",
+                                    isActive ? "z-10" : "pointer-events-none -left-[9999em] z-0",
                                 )}
                             >
                                 {pane}

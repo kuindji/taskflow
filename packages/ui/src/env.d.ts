@@ -28,7 +28,11 @@ interface TaskflowBridge {
     onUpdateStatus(callback: (payload: { status: string; version?: string }) => void): () => void;
     quitAndInstallUpdate(): void;
     getPathForFile(file: File): string;
-    saveArtifact(opts: { path?: string; text?: string; defaultName?: string }): Promise<{ success: boolean; error?: string }>;
+    saveArtifact(opts: {
+        path?: string;
+        text?: string;
+        defaultName?: string;
+    }): Promise<{ success: boolean; error?: string }>;
 }
 
 declare global {

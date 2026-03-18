@@ -78,7 +78,12 @@ function AgentOptionsPanel({
 
     useEffect(() => {
         setFullAccess(defaultFullAccess);
-        if (agentType === "claude" || agentType === "opencode" || agentType === "gemini" || agentType === "cursor") {
+        if (
+            agentType === "claude" ||
+            agentType === "opencode" ||
+            agentType === "gemini" ||
+            agentType === "cursor"
+        ) {
             setModel(defaultModel);
         }
     }, [agentType, defaultFullAccess, defaultModel]);
@@ -102,7 +107,10 @@ function AgentOptionsPanel({
             cb({
                 type: "gemini",
                 fullAccess: fullAccess || undefined,
-                model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
+                model:
+                    model === "default"
+                        ? undefined
+                        : (model as "auto" | "pro" | "flash" | "flash-lite"),
             });
         } else if (agentType === "cursor") {
             cb({
@@ -144,7 +152,10 @@ function AgentOptionsPanel({
             onRun({
                 type: "gemini",
                 fullAccess: fullAccess || undefined,
-                model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
+                model:
+                    model === "default"
+                        ? undefined
+                        : (model as "auto" | "pro" | "flash" | "flash-lite"),
             });
         } else if (agentType === "cursor") {
             onRun({

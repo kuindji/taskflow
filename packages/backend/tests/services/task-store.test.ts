@@ -308,15 +308,39 @@ describe("TaskStore", () => {
 
             await store.updateTask(task.id, {
                 sessions: [
-                    { id: "s1", type: "claude", label: "A", createdAt: new Date().toISOString(), instance: "main" },
-                    { id: "s2", type: "claude", label: "B", createdAt: new Date().toISOString(), instance: "dev-feature" },
+                    {
+                        id: "s1",
+                        type: "claude",
+                        label: "A",
+                        createdAt: new Date().toISOString(),
+                        instance: "main",
+                    },
+                    {
+                        id: "s2",
+                        type: "claude",
+                        label: "B",
+                        createdAt: new Date().toISOString(),
+                        instance: "dev-feature",
+                    },
                     { id: "s3", type: "claude", label: "C", createdAt: new Date().toISOString() },
                 ],
             });
             await store.updateProject(project.id, {
                 sessions: [
-                    { id: "s4", type: "shell", label: "D", createdAt: new Date().toISOString(), instance: "main" },
-                    { id: "s5", type: "shell", label: "E", createdAt: new Date().toISOString(), instance: "dev-feature" },
+                    {
+                        id: "s4",
+                        type: "shell",
+                        label: "D",
+                        createdAt: new Date().toISOString(),
+                        instance: "main",
+                    },
+                    {
+                        id: "s5",
+                        type: "shell",
+                        label: "E",
+                        createdAt: new Date().toISOString(),
+                        instance: "dev-feature",
+                    },
                 ],
             });
 
@@ -343,7 +367,13 @@ describe("TaskStore", () => {
 
             await store.updateTask(task.id, {
                 sessions: [
-                    { id: "s1", type: "claude", label: "A", createdAt: new Date().toISOString(), instance: "main" },
+                    {
+                        id: "s1",
+                        type: "claude",
+                        label: "A",
+                        createdAt: new Date().toISOString(),
+                        instance: "main",
+                    },
                 ],
             });
 

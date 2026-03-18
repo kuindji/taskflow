@@ -76,7 +76,11 @@ function TruncatedText({
     }
 
     return (
-        <Tooltip open={tooltipOpen} onOpenChange={(open) => setTooltipOpen(open && isTruncated)} delayDuration={tooltipDelay}>
+        <Tooltip
+            open={tooltipOpen}
+            onOpenChange={(open) => setTooltipOpen(open && isTruncated)}
+            delayDuration={tooltipDelay}
+        >
             <TooltipTrigger asChild>
                 <Component
                     ref={ref}
@@ -87,7 +91,9 @@ function TruncatedText({
                     {children}
                 </Component>
             </TooltipTrigger>
-            <TooltipContent side={tooltipSide} className={tooltipClassName}>{tooltipContent ?? children}</TooltipContent>
+            <TooltipContent side={tooltipSide} className={tooltipClassName}>
+                {tooltipContent ?? children}
+            </TooltipContent>
         </Tooltip>
     );
 }

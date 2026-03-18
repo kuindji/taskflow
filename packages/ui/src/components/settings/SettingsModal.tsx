@@ -61,9 +61,9 @@ function SettingsModal() {
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
     const [systemEditors, setSystemEditors] = useState<EditorInfo[]>([]);
-    const [section, setSection] = useState<"general" | "defaults" | "claude" | "codex" | "opencode" | "gemini" | "cursor">(
-        "general",
-    );
+    const [section, setSection] = useState<
+        "general" | "defaults" | "claude" | "codex" | "opencode" | "gemini" | "cursor"
+    >("general");
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
@@ -123,7 +123,13 @@ function SettingsModal() {
 
     const handleDefaultAgent = useCallback(
         (value: string) => {
-            if (value === "claude" || value === "codex" || value === "opencode" || value === "gemini" || value === "cursor") {
+            if (
+                value === "claude" ||
+                value === "codex" ||
+                value === "opencode" ||
+                value === "gemini" ||
+                value === "cursor"
+            ) {
                 void updateSettings({ general: { defaultAgent: value } });
             }
         },
@@ -552,7 +558,8 @@ function SettingsModal() {
                                     <h3 className="mb-0 text-sm font-medium">Default Model</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
-                                            Pre-selected model when running OpenCode sessions (provider/model format)
+                                            Pre-selected model when running OpenCode sessions
+                                            (provider/model format)
                                         </Label>
                                         <input
                                             type="text"
@@ -608,7 +615,9 @@ function SettingsModal() {
                                                 <SelectItem value="auto">Auto</SelectItem>
                                                 <SelectItem value="pro">Pro</SelectItem>
                                                 <SelectItem value="flash">Flash</SelectItem>
-                                                <SelectItem value="flash-lite">Flash Lite</SelectItem>
+                                                <SelectItem value="flash-lite">
+                                                    Flash Lite
+                                                </SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -629,7 +638,9 @@ function SettingsModal() {
                                                 htmlFor="gemini-full-access"
                                                 className="cursor-pointer text-sm font-normal normal-case"
                                             >
-                                                {settings.gemini.fullAccess ? "Enabled" : "Disabled"}
+                                                {settings.gemini.fullAccess
+                                                    ? "Enabled"
+                                                    : "Disabled"}
                                             </Label>
                                         </div>
                                     </div>
@@ -687,7 +698,8 @@ function SettingsModal() {
                                     <h3 className="mb-0 text-sm font-medium">Internal Editor</h3>
                                     <div className="space-y-1">
                                         <Label className={defaultsSelectLabelClassName}>
-                                            Used when opening files by clicking paths in the terminal
+                                            Used when opening files by clicking paths in the
+                                            terminal
                                         </Label>
                                         <Select
                                             value={settings.editor.internalEditor}
@@ -769,11 +781,19 @@ function SettingsModal() {
                                                 >
                                                     Codex{!codexAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
-                                                <SelectItem value="opencode" disabled={!opencodeAvailable}>
-                                                    OpenCode{!opencodeAvailable ? " (not installed)" : ""}
+                                                <SelectItem
+                                                    value="opencode"
+                                                    disabled={!opencodeAvailable}
+                                                >
+                                                    OpenCode
+                                                    {!opencodeAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
-                                                <SelectItem value="gemini" disabled={!geminiAvailable}>
-                                                    Gemini{!geminiAvailable ? " (not installed)" : ""}
+                                                <SelectItem
+                                                    value="gemini"
+                                                    disabled={!geminiAvailable}
+                                                >
+                                                    Gemini
+                                                    {!geminiAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
                                                 <SelectItem
                                                     value="cursor"

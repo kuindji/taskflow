@@ -20,9 +20,7 @@ export async function ensureGeminiSystemFile(
     additionalPrompt?: string,
 ): Promise<string> {
     const basePrompt = buildSystemPrompt(isProjectScope);
-    const content = additionalPrompt
-        ? `${basePrompt}\n\n${additionalPrompt}\n`
-        : `${basePrompt}\n`;
+    const content = additionalPrompt ? `${basePrompt}\n\n${additionalPrompt}\n` : `${basePrompt}\n`;
 
     try {
         return await writeSystemFile(baseDir, content);

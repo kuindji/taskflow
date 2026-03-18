@@ -29,9 +29,7 @@ function FlowManagementDialog() {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
     // "all" = show everything, "global" = only global, otherwise a projectId
-    const [projectFilter, setProjectFilter] = useState<string>(
-        activeProjectId ?? "all",
-    );
+    const [projectFilter, setProjectFilter] = useState<string>(activeProjectId ?? "all");
 
     useEffect(() => {
         if (!open) return;
@@ -40,10 +38,7 @@ function FlowManagementDialog() {
         void fetchActions();
     }, [open]);
 
-    const projectMap = useMemo(
-        () => new Map(projects.map((p) => [p.id, p.name])),
-        [projects],
-    );
+    const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
 
     const filteredFlows = useMemo(() => {
         if (projectFilter === "all") return flows;
@@ -60,7 +55,8 @@ function FlowManagementDialog() {
     const defaultProjectId =
         projectFilter !== "all" && projectFilter !== "global" ? projectFilter : undefined;
 
-    const selectedFlow = tab === "flows" ? (filteredFlows.find((f) => f.id === selectedId) ?? null) : null;
+    const selectedFlow =
+        tab === "flows" ? (filteredFlows.find((f) => f.id === selectedId) ?? null) : null;
     const selectedAction =
         tab === "actions" ? (filteredActions.find((s) => s.id === selectedId) ?? null) : null;
 
@@ -166,11 +162,14 @@ function FlowManagementDialog() {
                     {/* Middle column: item list */}
                     <div className="border-border flex w-56 shrink-0 flex-col border-r">
                         <div className="border-border border-b p-2">
-                            <Select value={projectFilter} onValueChange={(v) => {
-                                setProjectFilter(v);
-                                setSelectedId(null);
-                                setCreating(false);
-                            }}>
+                            <Select
+                                value={projectFilter}
+                                onValueChange={(v) => {
+                                    setProjectFilter(v);
+                                    setSelectedId(null);
+                                    setCreating(false);
+                                }}
+                            >
                                 <SelectTrigger className="h-7 text-xs">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -261,7 +260,11 @@ function FlowManagementDialog() {
                     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                         {tab === "flows" && (creating || selectedFlow) && (
                             <FlowEditor
-                                key={creating ? `new-flow-${defaultProjectId ?? "global"}` : selectedFlow?.id}
+                                key={
+                                    creating
+                                        ? `new-flow-${defaultProjectId ?? "global"}`
+                                        : selectedFlow?.id
+                                }
                                 flow={creating ? null : selectedFlow}
                                 globalActions={actions}
                                 defaultProjectId={defaultProjectId}
@@ -276,7 +279,11 @@ function FlowManagementDialog() {
                         )}
                         {tab === "actions" && (creating || selectedAction) && (
                             <ActionEditor
-                                key={creating ? `new-action-${defaultProjectId ?? "global"}` : selectedAction?.id}
+                                key={
+                                    creating
+                                        ? `new-action-${defaultProjectId ?? "global"}`
+                                        : selectedAction?.id
+                                }
                                 action={creating ? null : selectedAction}
                                 defaultProjectId={defaultProjectId}
                                 onSave={handleSaveAction}
