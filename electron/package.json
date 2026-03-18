@@ -1,6 +1,6 @@
 {
     "name": "taskflow",
-    "version": "0.6.11",
+    "version": "0.6.12",
     "description": "Desktop app for orchestrating AI coding agents",
     "author": "Ivan Kuindzhi",
     "private": true,

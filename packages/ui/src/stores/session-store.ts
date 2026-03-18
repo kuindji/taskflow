@@ -32,11 +32,12 @@ interface SessionStore {
     lastTerminalSize: { cols: number; rows: number } | null;
     createSession(
         owner: { taskId?: string; projectId?: string },
-        type: "claude" | "codex" | "opencode" | "shell",
+        type: "claude" | "codex" | "opencode" | "shell" | "editor",
         label?: string,
         prompt?: string,
         shell?: string,
         agentOptions?: AgentLaunchOptions,
+        editorOpts?: { editorId: string; filePath: string; line?: number },
     ): Promise<string>;
     closeSession(sessionId: string): Promise<void>;
     sendInput(sessionId: string, data: string): void;
@@ -54,16 +55,18 @@ interface SessionStore {
 }
 
 export type { Tab };
+export { isSessionExited };
 
 function getDefaultSessionLabel(type: Tab["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
     if (type === "opencode") return "OpenCode";
+    if (type === "editor") return "Editor";
     return `${type} session`;
 }
 
 function normalizeSessionLabel(type: SessionRef["type"], label?: string): string {
-    if (!label || label === `${type} session`) {
+    if (!label || label === `${type} session` || (type === "editor" && label === "Editor")) {
         return getDefaultSessionLabel(type);
     }
     return label;
@@ -113,12 +116,18 @@ function usesTerminalActivityStatus(sessionId: string): boolean {
     return type === "claude" || type === "codex" || type === "opencode";
 }
 
+const exitedSessions = new Set<string>();
+
+function isSessionExited(sessionId: string): boolean {
+    return exitedSessions.has(sessionId);
+}
+
 export const useSessionStore = create<SessionStore>((set, get) => ({
     tabsByWorkspace: {},
     activeTabByWorkspace: {},
     sessionStatus: {},
     lastTerminalSize: null,
-    async createSession(owner, type, label, prompt, shell, agentOptions) {
+    async createSession(owner, type, label, prompt, shell, agentOptions, editorOpts) {
         const ownerId = owner.taskId ?? owner.projectId;
         if (!ownerId) throw new Error("Either taskId or projectId is required");
         const lastTerminalSize = get().lastTerminalSize;
@@ -131,12 +140,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             cols: lastTerminalSize?.cols,
             rows: lastTerminalSize?.rows,
             agentOptions,
+            ...(editorOpts && {
+                editorId: editorOpts.editorId,
+                filePath: editorOpts.filePath,
+                line: editorOpts.line,
+            }),
         });
         const tab: Tab = {
             id: sessionId,
             type,
             label: normalizeSessionLabel(type, label),
             sessionId,
+            ...(editorOpts && { filePath: editorOpts.filePath }),
         };
         const workspaceKey = owner.taskId
             ? getTaskWorkspaceKey(owner.taskId)
@@ -194,6 +209,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const tab = (get().tabsByWorkspace[workspaceKey] ?? []).find((entry) => entry.id === tabId);
         try {
             if (tab?.sessionId) {
+                exitedSessions.delete(tab.sessionId);
                 await get().closeSession(tab.sessionId);
             }
         } finally {
@@ -452,11 +468,23 @@ function scheduleActivityTimeout(sessionId: string): void {
 const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
     const { sessionId } = payload as TerminalOutputEvent;
+
+    const store = useSessionStore.getState();
+    const currentStatus = store.sessionStatus[sessionId];
+
+    // "initializing" is only set for claude/codex sessions, so terminal
+    // output is a reliable signal the agent has started — transition
+    // immediately without requiring the tab to exist in the store yet.
+    if (currentStatus === "initializing") {
+        store.setSessionStatus(sessionId, "working");
+        scheduleActivityTimeout(sessionId);
+        return;
+    }
+
     if (isUserInteracting(sessionId)) return;
     if (!usesTerminalActivityStatus(sessionId)) return;
 
-    const store = useSessionStore.getState();
-    if (store.sessionStatus[sessionId] !== "working") {
+    if (currentStatus !== "working") {
         store.setSessionStatus(sessionId, "working");
     }
 
@@ -488,6 +516,7 @@ const _unsubSessionStatus = onEvent(MSG.SESSION_STATUS, (payload) => {
 const _unsubSessionExited = onEvent(MSG.SESSION_EXITED, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
     const { sessionId } = payload as SessionExitedEvent;
+    exitedSessions.add(sessionId);
     clearActivityTimer(sessionId);
     clearInteraction(sessionId);
     const { [sessionId]: _, ...remaining } = useSessionStore.getState().sessionStatus;

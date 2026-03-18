@@ -2,6 +2,7 @@ import { join } from "path";
 import type { TaskStore } from "./task-store";
 import type { GitService } from "./git-service";
 import type { WsEvent } from "@taskflow/shared";
+import type { ChangeTracker } from "./change-tracker";
 import { MSG } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 import { slugify } from "../utils/slugify";
@@ -12,10 +13,11 @@ interface TitleGeneratorDeps {
     taskStore: TaskStore;
     gitService: GitService;
     broadcast: (event: WsEvent) => void;
+    changeTracker?: ChangeTracker;
 }
 
 export function createTitleGenerator(deps: TitleGeneratorDeps) {
-    const { taskStore, gitService, broadcast } = deps;
+    const { taskStore, gitService, broadcast, changeTracker } = deps;
 
     async function createWorktreeForTask(taskId: string, title: string): Promise<void> {
         const task = await taskStore.getTask(taskId);
@@ -35,6 +37,7 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
             const updated = await taskStore.updateTask(taskId, {
                 worktree: { enabled: true, path: worktreePath, branch, pr: null },
             });
+            changeTracker?.track(taskId, worktreePath);
             broadcast({ type: MSG.TASK_UPDATED, payload: filterTaskSessions(updated, config.instanceId) });
         } catch (error) {
             console.error(`Failed to create worktree for task ${taskId}:`, error);
