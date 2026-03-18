@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
 import type { Subprocess, Terminal } from "bun";
+import { Terminal as HeadlessTerminal } from "@xterm/headless";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { buildShellPath } from "./shell-path";
 
 interface SpawnOptions {
@@ -68,6 +70,8 @@ interface Session {
     terminal: Terminal | null;
     scrollback: string[];
     lastSequence: number;
+    headless: HeadlessTerminal;
+    serializer: SerializeAddon;
 }
 
 interface ScrollbackSnapshot {
@@ -92,6 +96,15 @@ export class PtyManager {
         let lastSequence = 0;
         let sessionEntry: Session | null = null;
 
+        const headless = new HeadlessTerminal({
+            cols,
+            rows,
+            scrollback: 10_000,
+            allowProposedApi: true,
+        });
+        const serializer = new SerializeAddon();
+        headless.loadAddon(serializer);
+
         const batcher = new DataBatcher((batchedData) => {
             lastSequence += 1;
             if (sessionEntry) sessionEntry.lastSequence = lastSequence;
@@ -101,6 +114,7 @@ export class PtyManager {
                 const removed = scrollback.shift();
                 if (removed) scrollbackLen -= removed.length;
             }
+            headless.write(batchedData);
             options.onData(batchedData, lastSequence);
         });
 
@@ -129,6 +143,11 @@ export class PtyManager {
         void proc.exited.then((exitCode) => {
             batcher.flush();
             batcher.dispose();
+            const session = this.sessions.get(id);
+            if (session) {
+                session.serializer.dispose();
+                session.headless.dispose();
+            }
             this.sessions.delete(id);
             options.onExit(exitCode);
         });
@@ -138,6 +157,8 @@ export class PtyManager {
             terminal: proc.terminal ?? null,
             scrollback,
             lastSequence,
+            headless,
+            serializer,
         };
 
         this.sessions.set(id, sessionEntry);
@@ -154,11 +175,14 @@ export class PtyManager {
         const session = this.sessions.get(id);
         if (!session) return;
         session.terminal?.resize(cols, rows);
+        session.headless.resize(cols, rows);
     }
 
     close(id: string): void {
         const session = this.sessions.get(id);
         if (session) {
+            session.serializer.dispose();
+            session.headless.dispose();
             session.proc.kill();
             this.sessions.delete(id);
         }
@@ -168,6 +192,20 @@ export class PtyManager {
         for (const [id] of this.sessions) {
             this.close(id);
         }
+    }
+
+    getSnapshot(id: string): { snapshot: string | null; lastSequence: number; cursorHidden: boolean } {
+        const session = this.sessions.get(id);
+        if (!session) return { snapshot: null, lastSequence: 0, cursorHidden: false };
+        // Access internal API: SerializeAddon v0.13.0 doesn't serialize DECTCEM
+        // (cursor visibility), so we read it from the headless terminal's core.
+        const core = (session.headless as unknown as { _core: { coreService: { isCursorHidden: boolean } } })._core;
+        const cursorHidden = core?.coreService?.isCursorHidden ?? false;
+        return {
+            snapshot: session.serializer.serialize(),
+            lastSequence: session.lastSequence,
+            cursorHidden,
+        };
     }
 
     getScrollback(id: string): ScrollbackSnapshot {

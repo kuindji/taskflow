@@ -18,6 +18,8 @@ import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
 
 import { destroyTerminal } from "@/components/panes/TerminalPane";
+import { isEditorDirty, clearEditorDirty } from "@/components/panes/editor-dirty-state";
+import { confirm } from "@/stores/dialog-store";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import { useFlowStore, filterByProject } from "@/stores/flow-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -495,8 +497,26 @@ export function Workspace() {
                         onTabClose={(id) => {
                             if (!workspace.workspaceKey) return;
                             const tab = visibleTabs.find((t) => t.id === id);
-                            if (tab?.sessionId) destroyTerminal(tab.sessionId);
-                            void closeTab(workspace.workspaceKey, id);
+
+                            const doClose = () => {
+                                if (tab?.filePath) clearEditorDirty(tab.filePath);
+                                if (tab?.sessionId) destroyTerminal(tab.sessionId);
+                                void closeTab(workspace.workspaceKey, id);
+                            };
+
+                            if (tab?.type === "editor" && tab.filePath && isEditorDirty(tab.filePath)) {
+                                void confirm({
+                                    title: "Unsaved Changes",
+                                    description: `"${tab.filePath.split("/").pop()}" has unsaved changes that will be lost.`,
+                                    confirmLabel: "Close Without Saving",
+                                    cancelLabel: "Cancel",
+                                    variant: "destructive",
+                                    onConfirm: async () => doClose(),
+                                });
+                                return;
+                            }
+
+                            doClose();
                         }}
                         onTabRename={(id, newLabel) => {
                             if (workspace.workspaceKey) {

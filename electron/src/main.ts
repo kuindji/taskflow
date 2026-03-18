@@ -255,20 +255,13 @@ async function createWindow() {
 
 let manualCheckInProgress = false;
 let downloadedVersion: string | null = null;
+let downloadingVersion: string | null = null;
 let showArchiveChecked = false;
 let compactSidebarChecked = false;
 let fileExplorerChecked = false;
 let taskInfoChecked = false;
 let wordWrapChecked = true;
 
-function setUpdateMenuItem(label: string, enabled = true) {
-    const menu = Menu.getApplicationMenu();
-    const item = menu?.getMenuItemById("check-for-updates");
-    if (item) {
-        item.label = label;
-        item.enabled = enabled;
-    }
-}
 
 function buildAppMenu() {
     const template: Electron.MenuItemConstructorOptions[] = [
@@ -288,7 +281,12 @@ function buildAppMenu() {
                     id: "check-for-updates",
                     label: downloadedVersion
                         ? `Restart to Update to v${downloadedVersion}`
-                        : "Check for Updates…",
+                        : downloadingVersion
+                          ? `Downloading v${downloadingVersion}…`
+                          : manualCheckInProgress
+                            ? "Checking for Updates…"
+                            : "Check for Updates…",
+                    enabled: !downloadingVersion && !manualCheckInProgress,
                     click: () => {
                         if (downloadedVersion) {
                             autoUpdater.quitAndInstall();
@@ -296,7 +294,7 @@ function buildAppMenu() {
                         }
                         if (manualCheckInProgress) return;
                         manualCheckInProgress = true;
-                        setUpdateMenuItem("Checking for Updates…", false);
+                        buildAppMenu();
                         autoUpdater.checkForUpdates().catch((err: unknown) => {
                             console.error("[updater] Manual check failed:", err);
                         });
@@ -440,7 +438,8 @@ function setupAutoUpdater() {
 
     autoUpdater.on("update-available", (info) => {
         console.log(`[updater] Update available: v${info.version}`);
-        setUpdateMenuItem(`Downloading v${info.version}…`, false);
+        downloadingVersion = info.version;
+        buildAppMenu();
         mainWindow?.webContents.send("update-status", {
             status: "downloading",
             version: info.version,
@@ -461,23 +460,26 @@ function setupAutoUpdater() {
                 detail: `Taskflow ${app.getVersion()} is the latest version.`,
             });
         }
-        setUpdateMenuItem("Check for Updates…");
+        downloadingVersion = null;
+        buildAppMenu();
     });
 
     autoUpdater.on("update-downloaded", (info) => {
         console.log(`[updater] Update downloaded: v${info.version}`);
         manualCheckInProgress = false;
         downloadedVersion = info.version;
+        downloadingVersion = null;
         mainWindow?.webContents.send("update-status", {
             status: "ready",
             version: info.version,
         });
-        // Rebuild menu so the click handler switches to quitAndInstall
         buildAppMenu();
     });
 
     autoUpdater.on("error", (err) => {
-        console.error("[updater] Error:", err.message);
+        console.error("[updater] Error:", err.message, err.stack);
+        downloadedVersion = null;
+        downloadingVersion = null;
         mainWindow?.webContents.send("update-status", { status: "idle" });
         if (manualCheckInProgress) {
             manualCheckInProgress = false;
@@ -488,7 +490,7 @@ function setupAutoUpdater() {
                 detail: err.message,
             });
         }
-        setUpdateMenuItem("Check for Updates…");
+        buildAppMenu();
     });
 
     // Silent check on startup

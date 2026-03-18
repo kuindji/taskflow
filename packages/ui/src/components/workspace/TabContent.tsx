@@ -44,9 +44,9 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                     case "codex":
                     case "shell":
                         label = `${tab.type} terminal`;
-                        // Terminal panes are always mounted and use offscreen positioning
-                        // (left:-9999em) for inactive tabs so xterm.js's IntersectionObserver
-                        // correctly pauses/resumes rendering on tab switch.
+                        // Terminal panes unmount when inactive and restore from
+                        // backend snapshots on remount, freeing GPU contexts.
+                        if (!isActive) return null;
                         pane = tab.sessionId ? (
                             <TerminalPane
                                 taskId={workspace.task?.id}
