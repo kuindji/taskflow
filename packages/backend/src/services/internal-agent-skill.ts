@@ -527,15 +527,11 @@ export function buildAgentLaunchSpec(
             if (agentOptions.fullAccess) optionArgs.push("--yolo");
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
         }
-        const interactivePrompt = prompt
-            ? `${systemPrompt}\n\n---\n\n${prompt}`
-            : systemPrompt;
         return {
             command: "gemini",
             args: [
                 ...optionArgs,
-                "--prompt-interactive",
-                interactivePrompt,
+                ...(prompt ? ["--prompt-interactive", prompt] : []),
             ],
         };
     }
