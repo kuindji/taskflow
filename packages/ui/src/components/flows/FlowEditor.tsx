@@ -5,6 +5,7 @@ import type {
     FlowActionEntry,
     ActionDefinition,
     SessionType,
+    FlowInputDefinition,
 } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,7 @@ function FlowEditor({
         flow?.projectId ?? defaultProjectId,
     );
     const [actions, setActions] = useState<FlowActionEntry[]>(flow?.actions ?? []);
+    const [inputs, setInputs] = useState<FlowInputDefinition[]>(flow?.inputs ?? []);
 
     const libraryActions = useMemo(
         () => globalActions.filter((a) => !a.projectId || a.projectId === projectId),
@@ -115,6 +117,23 @@ function FlowEditor({
         [],
     );
 
+    const addInput = useCallback(() => {
+        setInputs((prev) => [...prev, { id: "", label: "", type: "text" }]);
+    }, []);
+
+    const removeInput = useCallback((index: number) => {
+        setInputs((prev) => prev.filter((_, i) => i !== index));
+    }, []);
+
+    const updateInput = useCallback(
+        (index: number, updates: Partial<FlowInputDefinition>) => {
+            setInputs((prev) =>
+                prev.map((input, i) => (i === index ? { ...input, ...updates } : input)),
+            );
+        },
+        [],
+    );
+
     const handleInlineSessionTypeChange = useCallback((entryId: string, value: string) => {
         const nextSessionType = value as SessionType;
         setActions((prev) =>
@@ -159,10 +178,11 @@ function FlowEditor({
             name: name.trim(),
             description: description.trim(),
             actions: normalizedActions,
+            inputs: inputs.length > 0 ? inputs : undefined,
             createdAt: flow?.createdAt ?? now,
             updatedAt: now,
         });
-    }, [flow, name, description, actions, projectId, onSave]);
+    }, [flow, name, description, actions, inputs, projectId, onSave]);
 
     const isValid =
         name.trim() !== "" &&
@@ -175,7 +195,9 @@ function FlowEditor({
                 (entry.inline.sessionType === "shell" ||
                     entry.inline.agentOptions?.type === entry.inline.sessionType)
             );
-        });
+        }) &&
+        inputs.every((input) => input.id.trim() !== "" && input.label.trim() !== "") &&
+        new Set(inputs.map((i) => i.id)).size === inputs.length;
 
     const getActionName = (entry: FlowActionEntry): string => {
         if (entry.label) return entry.label;
@@ -242,6 +264,69 @@ function FlowEditor({
                                 ))}
                             </SelectContent>
                         </Select>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                            <Label>Inputs</Label>
+                            <Button variant="outline" size="sm" onClick={addInput}>
+                                <Plus className="mr-1 h-3 w-3" /> Add Input
+                            </Button>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            {inputs.map((input, i) => (
+                                <div
+                                    key={i}
+                                    className="bg-muted/50 flex items-start gap-2 rounded-md border p-3"
+                                >
+                                    <div className="flex flex-1 flex-col gap-2">
+                                        <div className="flex gap-2">
+                                            <Input
+                                                value={input.id}
+                                                onChange={(e) =>
+                                                    updateInput(i, { id: e.target.value })
+                                                }
+                                                placeholder="Input ID"
+                                                className="flex-1"
+                                            />
+                                            <Select
+                                                value={input.type}
+                                                onValueChange={(v) =>
+                                                    updateInput(i, {
+                                                        type: v as "text" | "filepath",
+                                                    })
+                                                }
+                                            >
+                                                <SelectTrigger className="w-[120px]">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="text">Text</SelectItem>
+                                                    <SelectItem value="filepath">
+                                                        File Path
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Input
+                                            value={input.label}
+                                            onChange={(e) =>
+                                                updateInput(i, { label: e.target.value })
+                                            }
+                                            placeholder="Display label"
+                                        />
+                                    </div>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="mt-1 h-6 w-6"
+                                        onClick={() => removeInput(i)}
+                                    >
+                                        <X className="h-3 w-3" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
                     </div>
 
                     <div className="flex flex-col gap-2">
