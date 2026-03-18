@@ -1,7 +1,7 @@
 import type { Project } from "./project";
 import type { SessionStatus, Task, TaskLogEntry, TaskWorktree } from "./task";
 import type { FileNode, FileChangeEvent } from "./file";
-import type { GitStatusResult, GitDiffResult, GitFileStatus } from "./git";
+import type { GitStatusResult, GitDiffResult, GitFileStatus, ChangeStats } from "./git";
 import type { SystemInfo } from "./system";
 import type { AgentLaunchOptions, AgentAvailability } from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
@@ -360,6 +360,11 @@ export interface GitCreatePrPayload {
 export interface GitCheckPrPayload {
     path: string;
     branch: string;
+}
+
+export interface ChangeStatsEvent {
+    targetId: string;
+    stats: ChangeStats | null;
 }
 
 export interface GitCreatePrResult {

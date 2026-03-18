@@ -15,6 +15,7 @@ import type {
 import type { Router } from "../ws/router";
 import type { FileWatcher } from "../services/file-watcher";
 import type { TaskStore } from "../services/task-store";
+import type { ChangeTracker } from "../services/change-tracker";
 import { readFile, writeFile, stat as fsStat, rename, rm, mkdir } from "fs/promises";
 import { assertWorkspacePath, assertMutableWorkspacePath } from "../utils/path-validation";
 import { buildShellPath } from "../services/shell-path";
@@ -24,10 +25,11 @@ interface FileHandlerDeps {
     fileWatcher: FileWatcher;
     taskStore: TaskStore;
     broadcast: (event: WsEvent) => void;
+    changeTracker?: ChangeTracker;
 }
 
 export function registerFileHandlers(deps: FileHandlerDeps): void {
-    const { router, fileWatcher, taskStore, broadcast } = deps;
+    const { router, fileWatcher, taskStore, broadcast, changeTracker } = deps;
 
     router.register(MSG.FILE_TREE, async (payload) => {
         const { path } = payload as FileTreePayload;
@@ -62,6 +64,7 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         const workspacePath = await assertWorkspacePath(taskStore, path);
         await fileWatcher.watch(workspacePath, (event) => {
             broadcast({ type: MSG.FILE_CHANGED, payload: event });
+            changeTracker?.onFileChanged(event.path);
         });
         return { success: true };
     });

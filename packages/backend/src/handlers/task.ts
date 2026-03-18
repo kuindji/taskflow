@@ -15,6 +15,7 @@ import type { TaskStore } from "../services/task-store";
 import type { GitService } from "../services/git-service";
 import type { FlowStore } from "../services/flow-store";
 import type { FlowRunner } from "../services/flow-runner";
+import type { ChangeTracker } from "../services/change-tracker";
 import { filterTaskSessions } from "../services/instance-filter";
 import { config } from "../config";
 
@@ -26,10 +27,11 @@ interface TaskHandlerDeps {
     generateTitle?: (taskId: string, description: string) => void;
     flowStore?: FlowStore;
     flowRunner?: FlowRunner;
+    changeTracker?: ChangeTracker;
 }
 
 export function registerTaskHandlers(deps: TaskHandlerDeps): void {
-    const { router, store, gitService, closeSession, generateTitle, flowStore, flowRunner } = deps;
+    const { router, store, gitService, closeSession, generateTitle, flowStore, flowRunner, changeTracker } = deps;
 
     async function failActiveFlows(taskId: string): Promise<void> {
         if (!flowStore || !flowRunner) return;
@@ -89,6 +91,9 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             description,
             worktree: resolvedWorktree,
         });
+        if (task.worktree.enabled && task.worktree.path && !task.parentId) {
+            changeTracker?.track(task.id, task.worktree.path);
+        }
         if (!title && description && generateTitle) {
             generateTitle(task.id, description);
         }
@@ -118,6 +123,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         await failActiveFlows(id);
         await stopTaskSessions(task, true);
         const archived = await store.archiveTask(id);
+        changeTracker?.untrack(id);
         return filterTaskSessions(archived, config.instanceId);
     });
 
@@ -136,6 +142,10 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             for (const subtask of archivedSubtasks) {
                 await store.unarchiveTask(subtask.id);
             }
+        }
+
+        if (task.worktree.enabled && task.worktree.path && !task.parentId) {
+            changeTracker?.track(task.id, task.worktree.path);
         }
 
         return filterTaskSessions(task, config.instanceId);
@@ -168,6 +178,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         } else {
             await store.deleteArchived(id);
         }
+        changeTracker?.untrack(id);
 
         // Only clean up worktree for top-level tasks
         if (

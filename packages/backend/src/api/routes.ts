@@ -5,6 +5,7 @@ import type { SettingsStore } from "../services/settings-store";
 import type { FlowStore } from "../services/flow-store";
 import type { FlowRunner } from "../services/flow-runner";
 import type { GitService } from "../services/git-service";
+import type { ChangeTracker } from "../services/change-tracker";
 import type {
     SessionStatus,
     Task,
@@ -26,6 +27,7 @@ interface ApiRouteDeps {
     flowRunner: FlowRunner;
     gitService: GitService;
     generateTitle?: (taskId: string, description: string) => void;
+    changeTracker?: ChangeTracker;
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -50,6 +52,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         flowRunner,
         gitService,
         generateTitle,
+        changeTracker,
     } = deps;
     const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention", "initializing"]);
 
@@ -143,6 +146,12 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
                     } catch {
                         // Branch may already be deleted
                     }
+                }
+                changeTracker?.untrack(params.taskId);
+            } else {
+                // Enabling — if a worktree path already exists, start tracking
+                if (task.worktree.path) {
+                    changeTracker?.track(params.taskId, task.worktree.path);
                 }
             }
 

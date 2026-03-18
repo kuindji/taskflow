@@ -67,6 +67,7 @@ export const MSG = {
     GIT_GENERATE_COMMIT_MSG: "git:generate-commit-msg",
     GIT_CREATE_PR: "git:create-pr",
     GIT_CHECK_PR: "git:check-pr",
+    GIT_CHANGE_STATS: "git:change-stats",
 
     // Flow definitions
     FLOW_DEFINITIONS_LIST: "flow:definitions-list",

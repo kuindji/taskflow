@@ -16,6 +16,7 @@ import type {
 import type { Router } from "../ws/router";
 import type { GitService } from "../services/git-service";
 import type { TaskStore } from "../services/task-store";
+import type { ChangeTracker } from "../services/change-tracker";
 import { filterTaskSessions } from "../services/instance-filter";
 import { config } from "../config";
 import {
@@ -29,10 +30,11 @@ interface GitHandlerDeps {
     git: GitService;
     taskStore: TaskStore;
     broadcast: (message: { type: string; payload: unknown }) => void;
+    changeTracker?: ChangeTracker;
 }
 
 export function registerGitHandlers(deps: GitHandlerDeps): void {
-    const { router, git, taskStore, broadcast } = deps;
+    const { router, git, taskStore, broadcast, changeTracker } = deps;
 
     router.register(MSG.GIT_STATUS, async (payload) => {
         const { path } = payload as GitStatusPayload;
@@ -66,6 +68,7 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
             assertRepoFilePath(repoPath, previousPath);
         }
         await git.revertFile(repoPath, { path: filePath, status, previousPath });
+        changeTracker?.invalidate(repoPath);
         return { success: true };
     });
 
@@ -74,6 +77,7 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
         const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
         if (filePath) assertRepoFilePath(repoPath, filePath);
         await git.stage(repoPath, filePath);
+        changeTracker?.invalidate(repoPath);
         return { success: true };
     });
 
@@ -82,6 +86,7 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
         const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
         if (filePath) assertRepoFilePath(repoPath, filePath);
         await git.unstage(repoPath, filePath);
+        changeTracker?.invalidate(repoPath);
         return { success: true };
     });
 
@@ -97,13 +102,16 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
         const { path } = payload as GitPushPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, path);
         await git.push(repoPath);
+        changeTracker?.invalidate(repoPath);
         return { success: true };
     });
 
     router.register(MSG.GIT_COMMIT, async (payload) => {
         const { path, message, push, includeUnstaged } = payload as GitCommitPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, path);
-        return await git.commit(repoPath, message, push, includeUnstaged ?? true);
+        const result = await git.commit(repoPath, message, push, includeUnstaged ?? true);
+        changeTracker?.invalidate(repoPath);
+        return result;
     });
 
     router.register(MSG.GIT_GENERATE_COMMIT_MSG, async (payload) => {

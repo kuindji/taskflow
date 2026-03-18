@@ -23,6 +23,7 @@ import { ThemeService } from "./services/theme-service";
 import { ApiRouter } from "./api/router";
 import { registerApiRoutes } from "./api/routes";
 import { createTitleGenerator } from "./services/title-generator";
+import { ChangeTracker } from "./services/change-tracker";
 import { ensureCliScript } from "./services/internal-agent-skill";
 import { FlowStore } from "./services/flow-store";
 import { FlowRunner } from "./services/flow-runner";
@@ -63,6 +64,8 @@ async function main() {
         const router = new Router();
         const apiRouter = new ApiRouter();
         const server = createServer(router, config.port, apiRouter);
+        const changeTracker = new ChangeTracker(gitService, server.broadcast);
+        server.onConnect(() => changeTracker.sendCurrentStats());
         let serverPort = config.port;
 
         const sessionLifecycle = createSessionLifecycle({
@@ -77,6 +80,7 @@ async function main() {
             taskStore: store,
             gitService,
             broadcast: server.broadcast,
+            changeTracker,
         });
 
         // FlowRunner is referenced inside its own spawnSession callback (for
@@ -140,7 +144,7 @@ async function main() {
 
         registerProjectHandlers(router, store, gitService, (sessionId) => {
             ptyManager.close(sessionId);
-        });
+        }, changeTracker);
         registerTaskHandlers({
             router,
             store,
@@ -153,6 +157,7 @@ async function main() {
             },
             flowStore,
             flowRunner,
+            changeTracker,
         });
         const agents = await detectAgents();
         registerSessionHandlers({
@@ -166,8 +171,9 @@ async function main() {
             fileWatcher,
             taskStore: store,
             broadcast: server.broadcast,
+            changeTracker,
         });
-        registerGitHandlers({ router, git: gitService, taskStore: store, broadcast: server.broadcast });
+        registerGitHandlers({ router, git: gitService, taskStore: store, broadcast: server.broadcast, changeTracker });
 
         const themeService = new ThemeService(config.themesDir);
         registerSettingsHandlers({ router, settingsStore, taskStore: store });
@@ -186,6 +192,7 @@ async function main() {
             generateTitle: (taskId, description) => {
                 void titleGenerator.generate(taskId, description);
             },
+            changeTracker,
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {
@@ -223,7 +230,24 @@ async function main() {
         console.log(`Taskflow backend running on port ${startedServer.port}`);
         console.log(`Detected editors: ${editors.map((e) => e.name).join(", ") || "none"}`);
 
+        // Register projects for change tracking
+        const initialProjects = await store.listProjects();
+        for (const project of initialProjects) {
+            if (project.locationValid !== false) {
+                changeTracker.track(project.id, project.path);
+            }
+        }
+
+        // Register worktree tasks for change tracking
+        const allTasks = await store.listTasks();
+        for (const task of allTasks) {
+            if (task.worktree.enabled && task.worktree.path && !task.parentId) {
+                changeTracker.track(task.id, task.worktree.path);
+            }
+        }
+
         const shutdown = () => {
+            changeTracker.dispose();
             ptyManager.closeAll();
             fileWatcher.stopAll();
             stop?.();
