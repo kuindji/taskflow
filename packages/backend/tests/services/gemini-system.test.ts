@@ -34,6 +34,7 @@ describe("gemini system prompt", () => {
 
     it("falls back to tmpdir when baseDir is not writable", async () => {
         const filePath = await ensureGeminiSystemFile("/nonexistent/path", false);
+        tempDirs.push(join(tmpdir(), "taskflow-agent-skills"));
         const content = await readFile(filePath, "utf-8");
         expect(content).toContain("taskflow-cli");
     });
