@@ -74,6 +74,10 @@ export function registerProjectHandlers(
         if (path) updates.path = path;
         if (hidden !== undefined) updates.hidden = hidden;
         const updated = await store.updateProject(id, updates);
+        if (path) {
+            changeTracker?.untrack(id);
+            changeTracker?.track(id, path);
+        }
         return filterProjectSessions(updated, config.instanceId);
     });
 
@@ -126,6 +130,7 @@ export function registerProjectHandlers(
         const newName = `${segments} (${branch})`;
 
         const newProject = await store.addProject({ name: newName, path: targetPath });
+        changeTracker?.track(newProject.id, newProject.path);
 
         return { project: newProject, targetPath, branch };
     });
