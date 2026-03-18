@@ -182,12 +182,12 @@ interface TabBarProps {
     onTabClose: (tabId: string) => void;
     onTabRename: (tabId: string, newLabel: string) => void;
     onNewTab: (
-        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "browser" | "shell",
+        type: AgentType | "browser" | "shell",
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => void;
     onRunTab: (
-        type: "claude" | "codex" | "opencode" | "gemini" | "cursor",
+        type: AgentType,
         agentOptions?: AgentLaunchOptions,
     ) => void;
     onRunScript: (scriptName: string) => void;

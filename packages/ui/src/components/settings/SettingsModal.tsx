@@ -62,11 +62,6 @@ function SettingsModal() {
         "general" | "defaults" | "claude" | "codex" | "opencode" | "gemini" | "cursor"
     >("general");
     const agents = useAgentAvailability();
-    const claudeAvailable = isAgentAvailable(agents, "claude");
-    const codexAvailable = isAgentAvailable(agents, "codex");
-    const opencodeAvailable = isAgentAvailable(agents, "opencode");
-    const geminiAvailable = isAgentAvailable(agents, "gemini");
-    const cursorAvailable = isAgentAvailable(agents, "cursor");
     const [migrating, setMigrating] = useState(false);
     const [migrationError, setMigrationError] = useState<string | null>(null);
     const [conflictPath, setConflictPath] = useState<string | null>(null);
@@ -137,7 +132,7 @@ function SettingsModal() {
         (agent: AgentType, checked: boolean) => {
             const current = settings?.general.favoriteAgents ?? ALL_AGENT_TYPES;
             const next = checked
-                ? [...current, agent]
+                ? current.includes(agent) ? current : [...current, agent]
                 : current.filter((a) => a !== agent);
             void updateSettings({ general: { favoriteAgents: next } });
         },
@@ -486,24 +481,18 @@ function SettingsModal() {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="claude" disabled={!claudeAvailable}>
-                                                Claude{!claudeAvailable ? " (not installed)" : ""}
-                                            </SelectItem>
-                                            <SelectItem value="codex" disabled={!codexAvailable}>
-                                                Codex{!codexAvailable ? " (not installed)" : ""}
-                                            </SelectItem>
-                                            <SelectItem
-                                                value="opencode"
-                                                disabled={!opencodeAvailable}>
-                                                OpenCode
-                                                {!opencodeAvailable ? " (not installed)" : ""}
-                                            </SelectItem>
-                                            <SelectItem value="gemini" disabled={!geminiAvailable}>
-                                                Gemini{!geminiAvailable ? " (not installed)" : ""}
-                                            </SelectItem>
-                                            <SelectItem value="cursor" disabled={!cursorAvailable}>
-                                                Cursor{!cursorAvailable ? " (not installed)" : ""}
-                                            </SelectItem>
+                                            {ALL_AGENT_TYPES.map((agent) => {
+                                                const available = isAgentAvailable(agents, agent);
+                                                return (
+                                                    <SelectItem
+                                                        key={agent}
+                                                        value={agent}
+                                                        disabled={!available}>
+                                                        {AGENT_DISPLAY_NAMES[agent]}
+                                                        {!available ? " (not installed)" : ""}
+                                                    </SelectItem>
+                                                );
+                                            })}
                                         </SelectContent>
                                     </Select>
                                 </SettingRow>
