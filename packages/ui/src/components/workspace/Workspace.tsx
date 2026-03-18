@@ -3,6 +3,7 @@ import type {
     ActionDefinition,
     AgentLaunchOptions,
     CursorRulesCheckResponse,
+    FlowInputDefinition,
     ScriptsListResponse,
     ShellListResponse,
 } from "@taskflow/shared";
@@ -17,6 +18,7 @@ import { sendRequest } from "@/hooks/useWebSocket";
 import { TaskHeader } from "./TaskHeader";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
+import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
 
 import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { isEditorDirty, clearEditorDirty } from "@/components/panes/editor-dirty-state";
@@ -74,6 +76,12 @@ export function Workspace() {
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
     const [flowRunsHydratedOwnerId, setFlowRunsHydratedOwnerId] = useState<string | null>(null);
+    const [flowInputState, setFlowInputState] = useState<{
+        flowId: string;
+        flowName: string;
+        inputs: FlowInputDefinition[];
+        owner: { taskId?: string; projectId?: string; flowId: string };
+    } | null>(null);
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
@@ -484,8 +492,32 @@ export function Workspace() {
               ? { projectId: workspace.project.id, flowId }
               : null;
         if (!owner) return;
+
+        const flow = useFlowStore.getState().flows.find((f) => f.id === flowId);
+        if (flow?.inputs && flow.inputs.length > 0) {
+            setFlowInputState({
+                flowId,
+                flowName: flow.name,
+                inputs: flow.inputs,
+                owner,
+            });
+            return;
+        }
+
         void useFlowStore.getState().startFlow(owner);
     };
+
+    const handleFlowInputSubmit = useCallback(
+        (values: Record<string, string>) => {
+            if (!flowInputState) return;
+            void useFlowStore.getState().startFlow({
+                ...flowInputState.owner,
+                inputValues: values,
+            });
+            setFlowInputState(null);
+        },
+        [flowInputState],
+    );
 
     const handleRunScript = async (scriptName: string) => {
         if (!workspace.workspaceKey) return;
@@ -640,6 +672,15 @@ export function Workspace() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+            {flowInputState && (
+                <FlowInputDialog
+                    open
+                    flowName={flowInputState.flowName}
+                    inputs={flowInputState.inputs}
+                    onSubmit={handleFlowInputSubmit}
+                    onCancel={() => setFlowInputState(null)}
+                />
+            )}
             <AlertDialog
                 open={worktreeMissingDialogOpen}
                 onOpenChange={setWorktreeMissingDialogOpen}
