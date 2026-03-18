@@ -1,7 +1,10 @@
 import { useCallback } from "react";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useSettingsStore } from "@/stores/settings-store";
 import { FontFamilySelect } from "@/components/settings/FontFamilySelect";
+
+const labelClassName = "block text-xxs text-muted-foreground";
 
 function FontsTab() {
     const settings = useSettingsStore((s) => s.settings);
@@ -61,81 +64,76 @@ function FontsTab() {
     if (!settings) return null;
 
     return (
-        <div className="flex flex-col">
-            <div className="hover:bg-island-base mx-1 rounded-md px-5 py-2.5 transition-colors">
-                <div className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium mb-2">
-                    Application
-                </div>
-                <div className="flex items-center gap-3">
-                    <span className="text-secondary-foreground text-[13px] font-medium shrink-0">
-                        Family
-                    </span>
-                    <div className="min-w-0 flex-1">
+        <div className="space-y-4">
+            <section className="space-y-2">
+                <h3 className="mb-0 text-sm font-medium">Application Font</h3>
+                <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
+                    <div className="min-w-0 space-y-1">
+                        <Label className={labelClassName}>Family</Label>
                         <FontFamilySelect
                             value={settings.general.fontFamily}
                             onChange={handleGeneralFontFamily}
                         />
                     </div>
-                    <Input
-                        type="number"
-                        min={8}
-                        max={32}
-                        value={settings.general.fontSize}
-                        onChange={handleGeneralFontSize}
-                        className="h-8 w-[80px] shrink-0 text-sm"
-                    />
+                    <div className="space-y-1">
+                        <Label className={labelClassName}>Size</Label>
+                        <Input
+                            type="number"
+                            min={8}
+                            max={32}
+                            value={settings.general.fontSize}
+                            onChange={handleGeneralFontSize}
+                            className="h-8 text-sm"
+                        />
+                    </div>
                 </div>
-            </div>
-
-            <div className="hover:bg-island-base mx-1 rounded-md px-5 py-2.5 transition-colors">
-                <div className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium mb-2">
-                    Terminal
-                </div>
-                <div className="flex items-center gap-3">
-                    <span className="text-secondary-foreground text-[13px] font-medium shrink-0">
-                        Family
-                    </span>
-                    <div className="min-w-0 flex-1">
+            </section>
+            <section className="space-y-2">
+                <h3 className="mb-0 text-sm font-medium">Terminal Font</h3>
+                <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
+                    <div className="min-w-0 space-y-1">
+                        <Label className={labelClassName}>Family</Label>
                         <FontFamilySelect
                             value={settings.terminal.fontFamily}
                             onChange={handleTerminalFontFamily}
                         />
                     </div>
-                    <Input
-                        type="number"
-                        min={8}
-                        max={32}
-                        value={settings.terminal.fontSize}
-                        onChange={handleTerminalFontSize}
-                        className="h-8 w-[80px] shrink-0 text-sm"
-                    />
+                    <div className="space-y-1">
+                        <Label className={labelClassName}>Size</Label>
+                        <Input
+                            type="number"
+                            min={8}
+                            max={32}
+                            value={settings.terminal.fontSize}
+                            onChange={handleTerminalFontSize}
+                            className="h-8 text-sm"
+                        />
+                    </div>
                 </div>
-            </div>
-
-            <div className="hover:bg-island-base mx-1 rounded-md px-5 py-2.5 transition-colors">
-                <div className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium mb-2">
-                    Editor
-                </div>
-                <div className="flex items-center gap-3">
-                    <span className="text-secondary-foreground text-[13px] font-medium shrink-0">
-                        Family
-                    </span>
-                    <div className="min-w-0 flex-1">
+            </section>
+            <section className="space-y-2">
+                <h3 className="mb-0 text-sm font-medium">Editor Font</h3>
+                <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
+                    <div className="min-w-0 space-y-1">
+                        <Label className={labelClassName}>Family</Label>
                         <FontFamilySelect
                             value={settings.editor.fontFamily}
                             onChange={handleEditorFontFamily}
                         />
                     </div>
-                    <Input
-                        type="number"
-                        min={8}
-                        max={32}
-                        value={settings.editor.fontSize}
-                        onChange={handleEditorFontSize}
-                        className="h-8 w-[80px] shrink-0 text-sm"
-                    />
+                    <div className="space-y-1">
+                        <Label className={labelClassName}>Size</Label>
+                        <Input
+                            type="number"
+                            min={8}
+                            max={32}
+                            value={settings.editor.fontSize}
+                            onChange={handleEditorFontSize}
+                            className="h-8 text-sm"
+                        />
+                    </div>
                 </div>
-            </div>
+            </section>
         </div>
     );
 }

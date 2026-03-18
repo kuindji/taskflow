@@ -129,42 +129,39 @@ function FlowManagementDialog() {
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent
-                className="bg-dialog-shell gap-0 rounded-xl border-border p-1.5 w-6xl max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]"
-                aria-describedby={undefined}
-            >
-                <DialogHeader className="px-4 py-3.5">
-                    <DialogTitle className="text-[15px]">Flows & Actions</DialogTitle>
+            <DialogContent className="w-6xl max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]">
+                <DialogHeader>
+                    <DialogTitle>Flows & Actions</DialogTitle>
                 </DialogHeader>
 
-                <div className="flex h-[60vh] gap-1.5">
-                    {/* Left sidebar nav */}
-                    <nav className="bg-card w-[148px] shrink-0 rounded-[10px] p-1.5">
+                <div className="flex h-[60vh] flex-1">
+                    {/* Left column: navigation tabs */}
+                    <nav className="border-border w-40 shrink-0 space-y-1 border-r py-2 pr-2">
                         <button
                             onClick={() => switchTab("flows")}
-                            className={`mb-px block w-full rounded-md px-3 py-[7px] text-left text-[13px] transition-colors ${
+                            className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors ${
                                 tab === "flows"
-                                    ? "bg-muted text-foreground font-medium"
-                                    : "text-muted-foreground hover:text-secondary-foreground hover:bg-muted/50"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                             }`}
                         >
                             Flows
                         </button>
                         <button
                             onClick={() => switchTab("actions")}
-                            className={`mb-px block w-full rounded-md px-3 py-[7px] text-left text-[13px] transition-colors ${
+                            className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors ${
                                 tab === "actions"
-                                    ? "bg-muted text-foreground font-medium"
-                                    : "text-muted-foreground hover:text-secondary-foreground hover:bg-muted/50"
+                                    ? "bg-accent text-accent-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                             }`}
                         >
                             Actions
                         </button>
                     </nav>
 
-                    {/* Middle list column */}
-                    <div className="bg-card w-[196px] shrink-0 rounded-[10px] flex flex-col">
-                        <div className="p-2">
+                    {/* Middle column: item list */}
+                    <div className="border-border flex w-56 shrink-0 flex-col border-r">
+                        <div className="border-border border-b p-2">
                             <Select
                                 value={projectFilter}
                                 onValueChange={(v) => {
@@ -187,16 +184,16 @@ function FlowManagementDialog() {
                                 </SelectContent>
                             </Select>
                         </div>
-                        <div className="flex-1 overflow-y-auto px-1.5 py-0.5">
+                        <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
                             {tab === "flows" &&
                                 filteredFlows.map((f) => (
                                     <button
                                         key={f.id}
                                         onClick={() => selectItem(f.id)}
-                                        className={`rounded-md px-2.5 py-2 text-left text-[13px] transition-colors mb-0.5 w-full ${
+                                        className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
                                             selectedId === f.id
-                                                ? "bg-muted text-foreground font-medium"
-                                                : "text-secondary-foreground hover:bg-muted/50"
+                                                ? "bg-accent text-accent-foreground"
+                                                : "hover:bg-muted"
                                         }`}
                                     >
                                         <div className="font-medium">{f.name}</div>
@@ -206,7 +203,7 @@ function FlowManagementDialog() {
                                                 {f.actions.length !== 1 ? "s" : ""}
                                             </span>
                                             {projectFilter === "all" && f.projectId && (
-                                                <span className="bg-muted truncate rounded px-1">
+                                                <span className="bg-accent truncate rounded px-1">
                                                     {projectMap.get(f.projectId) ?? "Unknown"}
                                                 </span>
                                             )}
@@ -223,17 +220,17 @@ function FlowManagementDialog() {
                                     <button
                                         key={s.id}
                                         onClick={() => selectItem(s.id)}
-                                        className={`rounded-md px-2.5 py-2 text-left text-[13px] transition-colors mb-0.5 w-full ${
+                                        className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
                                             selectedId === s.id
-                                                ? "bg-muted text-foreground font-medium"
-                                                : "text-secondary-foreground hover:bg-muted/50"
+                                                ? "bg-accent text-accent-foreground"
+                                                : "hover:bg-muted"
                                         }`}
                                     >
                                         <div className="font-medium">{s.name}</div>
                                         <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
                                             <span>{s.sessionType}</span>
                                             {projectFilter === "all" && s.projectId && (
-                                                <span className="bg-muted truncate rounded px-1">
+                                                <span className="bg-accent truncate rounded px-1">
                                                     {projectMap.get(s.projectId) ?? "Unknown"}
                                                 </span>
                                             )}
@@ -246,7 +243,7 @@ function FlowManagementDialog() {
                                 </div>
                             )}
                         </div>
-                        <div className="p-1 flex justify-end">
+                        <div className="flex items-center justify-end px-2">
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -259,8 +256,8 @@ function FlowManagementDialog() {
                         </div>
                     </div>
 
-                    {/* Right editor column */}
-                    <div className="bg-background flex-1 rounded-[10px] flex flex-col min-h-0 min-w-0">
+                    {/* Right column: editor */}
+                    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                         {tab === "flows" && (creating || selectedFlow) && (
                             <FlowEditor
                                 key={

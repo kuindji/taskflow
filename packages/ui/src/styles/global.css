@@ -47,6 +47,7 @@
     --radius-lg: var(--radius);
     --radius-xl: calc(var(--radius) + 4px);
     --color-island-base: var(--island-base);
+    --color-dialog-shell: var(--dialog-shell);
     --text-xxs: 0.625rem;
 }
 
@@ -88,6 +89,7 @@
     --cursor-agent: #f0f0f0;
     --cursor-agent-foreground: #1e1e2e;
     --island-base: rgba(24, 24, 37, 0.5);
+    --dialog-shell: #11111b;
 }
 
 body {

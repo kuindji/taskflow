@@ -141,7 +141,7 @@ export function ProjectGroup({
                                     onOpenChange(!open);
                                 }}
                                 aria-label={projectToggleLabel}
-                                className="text-muted-foreground flex h-full shrink-0 items-center pr-1"
+                                className="text-muted-foreground flex h-full shrink-0 items-center px-1"
                             >
                                 {open ? (
                                     <ChevronDown className="h-3.5 w-3.5" />

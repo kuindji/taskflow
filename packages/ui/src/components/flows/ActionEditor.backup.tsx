@@ -77,14 +77,14 @@ function ActionEditor({
     return (
         <div className="flex h-full flex-col">
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="flex-1 overflow-y-auto pl-4">
                 <h3 className="mb-5 text-base font-semibold">
                     {action ? action.name || "Edit Action" : "New Action"}
                 </h3>
 
                 <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="action-name" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Name</Label>
+                        <Label htmlFor="action-name">Name</Label>
                         <Input
                             id="action-name"
                             value={name}
@@ -93,7 +93,7 @@ function ActionEditor({
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="action-project" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Project</Label>
+                        <Label htmlFor="action-project">Project</Label>
                         <Select
                             value={projectId ?? "__global__"}
                             onValueChange={(v) => setProjectId(v === "__global__" ? undefined : v)}
@@ -112,7 +112,7 @@ function ActionEditor({
                         </Select>
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="action-session-type" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Session Type</Label>
+                        <Label htmlFor="action-session-type">Session Type</Label>
                         <Select value={sessionType} onValueChange={handleSessionTypeChange}>
                             <SelectTrigger>
                                 <SelectValue />
@@ -138,7 +138,7 @@ function ActionEditor({
                         </span>
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="action-prompt" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Prompt</Label>
+                        <Label htmlFor="action-prompt">Prompt</Label>
                         <Textarea
                             id="action-prompt"
                             value={prompt}
@@ -159,33 +159,33 @@ function ActionEditor({
                         </div>
                     )}
                 </div>
-            </div>
 
-            {/* Sticky footer outside scroll */}
-            <div className="flex shrink-0 items-center gap-2 px-6 py-3">
-                {action && onDelete && (
-                    <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={onDelete}
-                        disabled={deleteDisabled}
-                        title={deleteDisabledReason}
-                    >
-                        Delete Action
+                {/* Sticky footer */}
+                <div className="flex shrink-0 flex-row items-center gap-2 pt-3">
+                    {action && onDelete && (
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={onDelete}
+                            disabled={deleteDisabled}
+                            title={deleteDisabledReason}
+                        >
+                            Delete Action
+                        </Button>
+                    )}
+                    {action && deleteDisabledReason && (
+                        <span className="text-muted-foreground text-xs">
+                            {deleteDisabledReason}
+                        </span>
+                    )}
+                    <div className="flex-1" />
+                    <Button variant="secondary" size="sm" onClick={onCancel}>
+                        Cancel
                     </Button>
-                )}
-                {action && deleteDisabledReason && (
-                    <span className="text-muted-foreground text-xs">
-                        {deleteDisabledReason}
-                    </span>
-                )}
-                <div className="flex-1" />
-                <Button variant="secondary" size="sm" onClick={onCancel}>
-                    Cancel
-                </Button>
-                <Button size="sm" onClick={handleSave} disabled={!isValid}>
-                    Save Action
-                </Button>
+                    <Button size="sm" onClick={handleSave} disabled={!isValid}>
+                        Save Action
+                    </Button>
+                </div>
             </div>
         </div>
     );

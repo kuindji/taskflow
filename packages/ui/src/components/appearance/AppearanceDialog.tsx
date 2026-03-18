@@ -1,17 +1,24 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUIStore } from "@/stores/ui-store";
 import { useThemeStore } from "@/stores/theme-store";
 import { ThemeGrid } from "./ThemeGrid";
 import { ImportTab } from "./ImportTab";
-
 import { FontsTab } from "./FontsTab";
+
+type Section = "themes" | "import" | "fonts";
+
+const navItems: { key: Section; label: string }[] = [
+    { key: "themes", label: "Themes" },
+    { key: "import", label: "Import theme" },
+    { key: "fonts", label: "Fonts" },
+];
 
 function AppearanceDialog() {
     const open = useUIStore((s) => s.appearanceOpen);
     const setAppearanceOpen = useUIStore((s) => s.setAppearanceOpen);
     const fetchThemes = useThemeStore((s) => s.fetchThemes);
+    const [section, setSection] = useState<Section>("themes");
 
     useEffect(() => {
         if (open) {
@@ -21,28 +28,51 @@ function AppearanceDialog() {
 
     return (
         <Dialog open={open} onOpenChange={setAppearanceOpen}>
-            <DialogContent className="flex max-h-[80vh] max-w-2xl flex-col overflow-hidden">
-                <DialogHeader>
-                    <DialogTitle>Appearance</DialogTitle>
+            <DialogContent
+                className="bg-dialog-shell gap-0 rounded-xl border-border p-1.5 max-h-[80vh] max-w-2xl flex flex-col overflow-hidden"
+                aria-describedby={undefined}
+            >
+                <DialogHeader className="px-4 py-3.5">
+                    <DialogTitle className="text-[15px]">Appearance</DialogTitle>
                 </DialogHeader>
-                <Tabs defaultValue="themes" className="flex flex-1 flex-col overflow-hidden">
-                    <TabsList className="w-fit">
-                        <TabsTrigger value="themes">Themes</TabsTrigger>
-                        <TabsTrigger value="import">Import theme</TabsTrigger>
 
-                        <TabsTrigger value="fonts">Fonts</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="themes" className="mt-4 flex-1 overflow-y-auto">
-                        <ThemeGrid />
-                    </TabsContent>
-                    <TabsContent value="import" className="mt-4 flex-1 overflow-y-auto">
-                        <ImportTab />
-                    </TabsContent>
+                <div className="flex flex-1 gap-1.5 overflow-hidden">
+                    {/* Sidebar */}
+                    <nav className="bg-card w-[148px] shrink-0 rounded-[10px] p-1.5">
+                        {navItems.map((item) => (
+                            <button
+                                key={item.key}
+                                className={`mb-px block w-full rounded-md px-3 py-[7px] text-left text-[13px] transition-colors ${
+                                    section === item.key
+                                        ? "bg-muted text-foreground font-medium"
+                                        : "text-muted-foreground hover:text-secondary-foreground hover:bg-muted/50"
+                                }`}
+                                onClick={() => setSection(item.key)}
+                            >
+                                {item.label}
+                            </button>
+                        ))}
+                    </nav>
 
-                    <TabsContent value="fonts" className="mt-4 flex-1 overflow-y-auto">
-                        <FontsTab />
-                    </TabsContent>
-                </Tabs>
+                    {/* Content */}
+                    <div className="bg-background min-w-0 flex-1 rounded-[10px] overflow-y-auto">
+                        {section === "themes" && (
+                            <div className="px-5 py-4">
+                                <ThemeGrid />
+                            </div>
+                        )}
+                        {section === "import" && (
+                            <div className="py-1">
+                                <ImportTab />
+                            </div>
+                        )}
+                        {section === "fonts" && (
+                            <div className="py-1">
+                                <FontsTab />
+                            </div>
+                        )}
+                    </div>
+                </div>
             </DialogContent>
         </Dialog>
     );

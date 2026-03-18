@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -335,566 +329,362 @@ function SettingsModal() {
         shells,
         settings.terminal.defaultShell,
     );
-    const defaultsSelectLabelClassName = "block text-xxs text-muted-foreground";
+
+    const navItems: { key: typeof section; label: string }[] = [
+        { key: "general", label: "General" },
+        { key: "defaults", label: "Defaults" },
+        { key: "claude", label: "Claude" },
+        { key: "codex", label: "Codex" },
+        { key: "opencode", label: "OpenCode" },
+        { key: "gemini", label: "Gemini" },
+        { key: "cursor", label: "Cursor" },
+    ];
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-xl">
-                <DialogHeader>
-                    <DialogTitle>Settings</DialogTitle>
-                    <DialogDescription>Changes apply immediately.</DialogDescription>
+            <DialogContent
+                className="bg-dialog-shell gap-0 rounded-xl border-border p-1.5 w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-xl"
+                aria-describedby={undefined}
+            >
+                <DialogHeader className="px-4 py-3.5">
+                    <DialogTitle className="text-[15px]">Settings</DialogTitle>
                 </DialogHeader>
-                <div className="flex min-h-[360px]">
+
+                <div className="flex gap-1.5">
                     {/* Sidebar */}
-                    <nav className="border-border w-40 shrink-0 space-y-1 border-r pr-2">
-                        <button
-                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
-                                section === "general"
-                                    ? "bg-accent text-accent-foreground font-medium"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                            onClick={() => setSection("general")}
-                        >
-                            General
-                        </button>
-                        <button
-                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
-                                section === "defaults"
-                                    ? "bg-accent text-accent-foreground font-medium"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                            onClick={() => setSection("defaults")}
-                        >
-                            Defaults
-                        </button>
-                        <button
-                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
-                                section === "claude"
-                                    ? "bg-accent text-accent-foreground font-medium"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                            onClick={() => setSection("claude")}
-                        >
-                            Claude
-                        </button>
-                        <button
-                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
-                                section === "codex"
-                                    ? "bg-accent text-accent-foreground font-medium"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                            onClick={() => setSection("codex")}
-                        >
-                            Codex
-                        </button>
-                        <button
-                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
-                                section === "opencode"
-                                    ? "bg-accent text-accent-foreground font-medium"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                            onClick={() => setSection("opencode")}
-                        >
-                            OpenCode
-                        </button>
-                        <button
-                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
-                                section === "gemini"
-                                    ? "bg-accent text-accent-foreground font-medium"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                            onClick={() => setSection("gemini")}
-                        >
-                            Gemini
-                        </button>
-                        <button
-                            className={`w-full rounded-md px-3 py-1.5 text-left text-sm ${
-                                section === "cursor"
-                                    ? "bg-accent text-accent-foreground font-medium"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                            onClick={() => setSection("cursor")}
-                        >
-                            Cursor
-                        </button>
+                    <nav className="bg-card w-[148px] shrink-0 rounded-[10px] p-1.5">
+                        {navItems.map((item) => (
+                            <button
+                                key={item.key}
+                                className={`mb-px block w-full rounded-md px-3 py-[7px] text-left text-[13px] transition-colors ${
+                                    section === item.key
+                                        ? "bg-muted text-foreground font-medium"
+                                        : "text-muted-foreground hover:text-secondary-foreground hover:bg-muted/50"
+                                }`}
+                                onClick={() => setSection(item.key)}
+                            >
+                                {item.label}
+                            </button>
+                        ))}
                     </nav>
 
                     {/* Content */}
-                    <div className="min-w-0 flex-1 space-y-6 pl-6">
+                    <div className="bg-background min-h-[360px] min-w-0 flex-1 rounded-[10px] py-1">
                         {section === "general" && (
-                            <>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Data Folder</h3>
-                                    <div className="space-y-2">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Location where projects, tasks, and session data are
-                                            stored
-                                        </Label>
-                                        <div className="flex flex-col gap-2">
-                                            <TruncatedText
-                                                as="code"
-                                                tooltip
-                                                tooltipSide="bottom"
-                                                className="bg-muted text-foreground flex h-8 w-full max-w-85 min-w-0 items-center overflow-x-auto rounded px-2 text-xs"
-                                                tooltipContent={
-                                                    dataDirInfo?.dataDir ?? "Loading..."
-                                                }
-                                            >
-                                                {dataDirInfo?.dataDir ?? "Loading..."}
-                                            </TruncatedText>
-                                            <div className="flex flex-wrap gap-2">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    disabled={migrating}
-                                                    onClick={() => void handleChangeDataDir()}
-                                                >
-                                                    {migrating ? "Moving..." : "Change..."}
-                                                </Button>
-                                                {dataDirInfo && !dataDirInfo.isDefault && (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        disabled={migrating}
-                                                        onClick={() => void handleResetDataDir()}
-                                                    >
-                                                        Reset
-                                                    </Button>
-                                                )}
-                                            </div>
-                                        </div>
-                                        {migrationError && (
-                                            <p className="text-destructive text-xs">
-                                                {migrationError}
-                                            </p>
-                                        )}
-                                        {dataDirInfo && !dataDirInfo.isDefault && (
-                                            <p className="text-muted-foreground text-xxs">
-                                                Using custom location. Config files remain in
-                                                ~/.config/taskflow.
-                                            </p>
-                                        )}
+                            <div className="hover:bg-island-base mx-1 flex flex-col gap-2 rounded-md px-5 py-3 transition-colors">
+                                <div>
+                                    <div className="text-secondary-foreground text-[13px] font-medium">Data Folder</div>
+                                    <div className="text-muted-foreground text-[11px]">
+                                        Location where projects, tasks, and session data are stored
                                     </div>
-                                </section>
-                            </>
-                        )}
-                        {section === "claude" && (
-                            <>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Default Model</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Pre-selected model when running Claude sessions
-                                        </Label>
-                                        <Select
-                                            value={settings.claude.defaultModel}
-                                            onValueChange={handleClaudeModel}
+                                </div>
+                                <TruncatedText
+                                    as="code"
+                                    tooltip
+                                    tooltipSide="bottom"
+                                    className="bg-card border-border flex h-8 w-full min-w-0 items-center overflow-x-auto rounded-md border px-2.5 font-mono text-xs text-muted-foreground"
+                                    tooltipContent={dataDirInfo?.dataDir ?? "Loading..."}
+                                >
+                                    {dataDirInfo?.dataDir ?? "Loading..."}
+                                </TruncatedText>
+                                <div className="flex flex-wrap gap-1.5">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={migrating}
+                                        onClick={() => void handleChangeDataDir()}
+                                    >
+                                        {migrating ? "Moving..." : "Change..."}
+                                    </Button>
+                                    {dataDirInfo && !dataDirInfo.isDefault && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={migrating}
+                                            onClick={() => void handleResetDataDir()}
                                         >
-                                            <SelectTrigger className="h-8 w-64 text-sm">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="default">Default</SelectItem>
-                                                <SelectItem value="opus">Opus</SelectItem>
-                                                <SelectItem value="sonnet">Sonnet</SelectItem>
-                                                <SelectItem value="haiku">Haiku</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </section>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Skip permission prompts by default
-                                        </Label>
-                                        <div className="flex items-center gap-2 pt-1">
-                                            <Switch
-                                                id="claude-full-access"
-                                                checked={settings.claude.fullAccess}
-                                                onCheckedChange={handleClaudeFullAccess}
-                                            />
-                                            <Label
-                                                htmlFor="claude-full-access"
-                                                className="cursor-pointer text-sm font-normal normal-case"
-                                            >
-                                                {settings.claude.fullAccess
-                                                    ? "Enabled"
-                                                    : "Disabled"}
-                                            </Label>
-                                        </div>
-                                    </div>
-                                </section>
-                            </>
+                                            Reset
+                                        </Button>
+                                    )}
+                                </div>
+                                {migrationError && (
+                                    <p className="text-destructive text-xs">{migrationError}</p>
+                                )}
+                                {dataDirInfo && !dataDirInfo.isDefault && (
+                                    <p className="text-muted-foreground text-xxs">
+                                        Using custom location. Config files remain in
+                                        ~/.config/taskflow.
+                                    </p>
+                                )}
+                            </div>
                         )}
-                        {section === "codex" && (
-                            <>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Run in full-auto mode by default
-                                        </Label>
-                                        <div className="flex items-center gap-2 pt-1">
-                                            <Switch
-                                                id="codex-full-access"
-                                                checked={settings.codex.fullAccess}
-                                                onCheckedChange={handleCodexFullAccess}
-                                            />
-                                            <Label
-                                                htmlFor="codex-full-access"
-                                                className="cursor-pointer text-sm font-normal normal-case"
-                                            >
-                                                {settings.codex.fullAccess ? "Enabled" : "Disabled"}
-                                            </Label>
-                                        </div>
-                                    </div>
-                                </section>
-                            </>
-                        )}
-                        {section === "opencode" && (
-                            <>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Default Model</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Pre-selected model when running OpenCode sessions
-                                            (provider/model format)
-                                        </Label>
-                                        <input
-                                            type="text"
-                                            className="bg-input border-border h-8 w-64 rounded-md border px-2 text-sm"
-                                            placeholder="e.g. anthropic/claude-sonnet-4-20250514"
-                                            value={settings.opencode.defaultModel}
-                                            onChange={handleOpencodeModel}
-                                        />
-                                    </div>
-                                </section>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Auto-approve all tool permissions by default
-                                        </Label>
-                                        <div className="flex items-center gap-2 pt-1">
-                                            <Switch
-                                                id="opencode-full-access"
-                                                checked={settings.opencode.fullAccess}
-                                                onCheckedChange={handleOpencodeFullAccess}
-                                            />
-                                            <Label
-                                                htmlFor="opencode-full-access"
-                                                className="cursor-pointer text-sm font-normal normal-case"
-                                            >
-                                                {settings.opencode.fullAccess
-                                                    ? "Enabled"
-                                                    : "Disabled"}
-                                            </Label>
-                                        </div>
-                                    </div>
-                                </section>
-                            </>
-                        )}
-                        {section === "gemini" && (
-                            <>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Default Model</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Pre-selected model when running Gemini sessions
-                                        </Label>
-                                        <Select
-                                            value={settings.gemini.defaultModel}
-                                            onValueChange={handleGeminiModel}
-                                        >
-                                            <SelectTrigger className="h-8 w-64 text-sm">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="default">Default</SelectItem>
-                                                <SelectItem value="auto">Auto</SelectItem>
-                                                <SelectItem value="pro">Pro</SelectItem>
-                                                <SelectItem value="flash">Flash</SelectItem>
-                                                <SelectItem value="flash-lite">
-                                                    Flash Lite
-                                                </SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </section>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Auto-approve all actions by default
-                                        </Label>
-                                        <div className="flex items-center gap-2 pt-1">
-                                            <Switch
-                                                id="gemini-full-access"
-                                                checked={settings.gemini.fullAccess}
-                                                onCheckedChange={handleGeminiFullAccess}
-                                            />
-                                            <Label
-                                                htmlFor="gemini-full-access"
-                                                className="cursor-pointer text-sm font-normal normal-case"
-                                            >
-                                                {settings.gemini.fullAccess
-                                                    ? "Enabled"
-                                                    : "Disabled"}
-                                            </Label>
-                                        </div>
-                                    </div>
-                                </section>
-                            </>
-                        )}
-                        {section === "cursor" && (
-                            <>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Default Model</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Pre-selected model when running Cursor sessions
-                                        </Label>
-                                        <Input
-                                            className="h-8 w-64 text-sm"
-                                            value={
-                                                settings.cursor.defaultModel === "default"
-                                                    ? ""
-                                                    : settings.cursor.defaultModel
-                                            }
-                                            placeholder="default"
-                                            onChange={(e) => handleCursorModel(e.target.value)}
-                                        />
-                                    </div>
-                                </section>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Full Access</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Run in yolo mode by default (auto-approve commands)
-                                        </Label>
-                                        <div className="flex items-center gap-2 pt-1">
-                                            <Switch
-                                                id="cursor-full-access"
-                                                checked={settings.cursor.fullAccess}
-                                                onCheckedChange={handleCursorFullAccess}
-                                            />
-                                            <Label
-                                                htmlFor="cursor-full-access"
-                                                className="cursor-pointer text-sm font-normal normal-case"
-                                            >
-                                                {settings.cursor.fullAccess
-                                                    ? "Enabled"
-                                                    : "Disabled"}
-                                            </Label>
-                                        </div>
-                                    </div>
-                                </section>
-                            </>
-                        )}
+
                         {section === "defaults" && (
                             <>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Internal Editor</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Used when opening files by clicking paths in the
-                                            terminal
-                                        </Label>
-                                        <Select
-                                            value={settings.editor.internalEditor}
-                                            onValueChange={(value) =>
-                                                updateSettings({
-                                                    editor: { internalEditor: value },
-                                                })
-                                            }
-                                        >
-                                            <SelectTrigger className="h-8 w-full text-sm">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="monaco">Monaco</SelectItem>
-                                                {systemEditors
-                                                    .filter((e) => e.type === "internal")
-                                                    .map((e) => (
-                                                        <SelectItem key={e.id} value={e.id}>
-                                                            {e.name}
-                                                        </SelectItem>
-                                                    ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </section>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">External Editor</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Used when Cmd+clicking file paths in the terminal
-                                        </Label>
-                                        <Select
-                                            value={settings.editor.externalEditor}
-                                            onValueChange={handleExternalEditor}
-                                        >
-                                            <SelectTrigger className="h-8 w-full text-sm">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="system">
-                                                    System Default
+                                <SettingRow
+                                    label="Internal Editor"
+                                    hint="Opens files when clicking paths in the terminal"
+                                >
+                                    <Select
+                                        value={settings.editor.internalEditor}
+                                        onValueChange={(value) =>
+                                            updateSettings({ editor: { internalEditor: value } })
+                                        }
+                                    >
+                                        <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="monaco">Monaco</SelectItem>
+                                            {systemEditors
+                                                .filter((e) => e.type === "internal")
+                                                .map((e) => (
+                                                    <SelectItem key={e.id} value={e.id}>
+                                                        {e.name}
+                                                    </SelectItem>
+                                                ))}
+                                        </SelectContent>
+                                    </Select>
+                                </SettingRow>
+                                <SettingRow
+                                    label="External Editor"
+                                    hint="Opens files when Cmd+clicking paths in the terminal"
+                                >
+                                    <Select
+                                        value={settings.editor.externalEditor}
+                                        onValueChange={handleExternalEditor}
+                                    >
+                                        <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="system">System Default</SelectItem>
+                                            {systemEditors
+                                                .filter((e) => e.type === "external")
+                                                .map((e) => (
+                                                    <SelectItem key={e.id} value={e.id}>
+                                                        {e.name}
+                                                    </SelectItem>
+                                                ))}
+                                        </SelectContent>
+                                    </Select>
+                                </SettingRow>
+                                <SettingRow
+                                    label="Default Agent"
+                                    hint="Pre-selected for new tasks, titles, and commits"
+                                >
+                                    <Select
+                                        value={settings.general.defaultAgent}
+                                        onValueChange={handleDefaultAgent}
+                                    >
+                                        <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="claude" disabled={!claudeAvailable}>
+                                                Claude{!claudeAvailable ? " (not installed)" : ""}
+                                            </SelectItem>
+                                            <SelectItem value="codex" disabled={!codexAvailable}>
+                                                Codex{!codexAvailable ? " (not installed)" : ""}
+                                            </SelectItem>
+                                            <SelectItem value="opencode" disabled={!opencodeAvailable}>
+                                                OpenCode{!opencodeAvailable ? " (not installed)" : ""}
+                                            </SelectItem>
+                                            <SelectItem value="gemini" disabled={!geminiAvailable}>
+                                                Gemini{!geminiAvailable ? " (not installed)" : ""}
+                                            </SelectItem>
+                                            <SelectItem value="cursor" disabled={!cursorAvailable}>
+                                                Cursor{!cursorAvailable ? " (not installed)" : ""}
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </SettingRow>
+                                <SettingRow
+                                    label="Default Shell"
+                                    hint="Default shell for new terminal tabs"
+                                >
+                                    <Select
+                                        value={
+                                            configuredShellAvailable
+                                                ? settings.terminal.defaultShell
+                                                : "__missing__"
+                                        }
+                                        onValueChange={handleDefaultShell}
+                                    >
+                                        <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value={DEFAULT_TERMINAL_SHELL}>
+                                                {getTerminalShellSummary(
+                                                    shells,
+                                                    systemShellPath,
+                                                    DEFAULT_TERMINAL_SHELL,
+                                                )}
+                                            </SelectItem>
+                                            {shells.map((shell) => (
+                                                <SelectItem key={shell.path} value={shell.path}>
+                                                    {getShellDisplayName(shell)}
                                                 </SelectItem>
-                                                {systemEditors
-                                                    .filter((e) => e.type === "external")
-                                                    .map((e) => (
-                                                        <SelectItem key={e.id} value={e.id}>
-                                                            {e.name}
-                                                        </SelectItem>
-                                                    ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </section>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Default Agent</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Pre-selected agent for new tasks, title generation, and
-                                            commit messages
-                                        </Label>
-                                        <Select
-                                            value={settings.general.defaultAgent}
-                                            onValueChange={handleDefaultAgent}
-                                        >
-                                            <SelectTrigger className="h-8 w-full text-sm">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem
-                                                    value="claude"
-                                                    disabled={!claudeAvailable}
-                                                >
-                                                    Claude
-                                                    {!claudeAvailable ? " (not installed)" : ""}
-                                                </SelectItem>
-                                                <SelectItem
-                                                    value="codex"
-                                                    disabled={!codexAvailable}
-                                                >
-                                                    Codex{!codexAvailable ? " (not installed)" : ""}
-                                                </SelectItem>
-                                                <SelectItem
-                                                    value="opencode"
-                                                    disabled={!opencodeAvailable}
-                                                >
-                                                    OpenCode
-                                                    {!opencodeAvailable ? " (not installed)" : ""}
-                                                </SelectItem>
-                                                <SelectItem
-                                                    value="gemini"
-                                                    disabled={!geminiAvailable}
-                                                >
-                                                    Gemini
-                                                    {!geminiAvailable ? " (not installed)" : ""}
-                                                </SelectItem>
-                                                <SelectItem
-                                                    value="cursor"
-                                                    disabled={!cursorAvailable}
-                                                >
-                                                    Cursor
-                                                    {!cursorAvailable ? " (not installed)" : ""}
-                                                </SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </section>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Default Shell</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Default shell for new terminal tabs
-                                        </Label>
-                                        <Select
-                                            value={
-                                                configuredShellAvailable
-                                                    ? settings.terminal.defaultShell
-                                                    : "__missing__"
-                                            }
-                                            onValueChange={handleDefaultShell}
-                                        >
-                                            <SelectTrigger className="h-8 w-full text-sm">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value={DEFAULT_TERMINAL_SHELL}>
+                                            ))}
+                                            {!configuredShellAvailable && (
+                                                <SelectItem value="__missing__" disabled>
                                                     {getTerminalShellSummary(
                                                         shells,
                                                         systemShellPath,
-                                                        DEFAULT_TERMINAL_SHELL,
+                                                        settings.terminal.defaultShell,
                                                     )}
                                                 </SelectItem>
-                                                {shells.map((shell) => (
-                                                    <SelectItem key={shell.path} value={shell.path}>
-                                                        {getShellDisplayName(shell)}
-                                                    </SelectItem>
-                                                ))}
-                                                {!configuredShellAvailable && (
-                                                    <SelectItem value="__missing__" disabled>
-                                                        {getTerminalShellSummary(
-                                                            shells,
-                                                            systemShellPath,
-                                                            settings.terminal.defaultShell,
-                                                        )}
-                                                    </SelectItem>
-                                                )}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </section>
-                                <section className="space-y-2">
-                                    <h3 className="mb-0 text-sm font-medium">Default Runtime</h3>
-                                    <div className="space-y-1">
-                                        <Label className={defaultsSelectLabelClassName}>
-                                            Runtime for executing scripts and commands
-                                        </Label>
-                                        <Select
-                                            value={
-                                                runtimes.some(
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                </SettingRow>
+                                <SettingRow
+                                    label="Default Runtime"
+                                    hint="Runtime for executing scripts and commands"
+                                >
+                                    <Select
+                                        value={
+                                            runtimes.some(
+                                                (r) => r.name === settings.general.defaultRuntime,
+                                            )
+                                                ? settings.general.defaultRuntime
+                                                : "__missing__"
+                                        }
+                                        onValueChange={handleDefaultRuntime}
+                                    >
+                                        <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {runtimes.length === 0 && (
+                                                <SelectItem value="__none__" disabled>
+                                                    No runtimes detected
+                                                </SelectItem>
+                                            )}
+                                            {runtimes.map((rt) => (
+                                                <SelectItem key={rt.name} value={rt.name}>
+                                                    {rt.name} ({rt.version})
+                                                </SelectItem>
+                                            ))}
+                                            {runtimes.length > 0 &&
+                                                !runtimes.some(
                                                     (r) =>
                                                         r.name === settings.general.defaultRuntime,
-                                                )
-                                                    ? settings.general.defaultRuntime
-                                                    : "__missing__"
-                                            }
-                                            onValueChange={handleDefaultRuntime}
-                                        >
-                                            <SelectTrigger className="h-8 w-full text-sm">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {runtimes.length === 0 && (
-                                                    <SelectItem value="__none__" disabled>
-                                                        No runtimes detected
+                                                ) && (
+                                                    <SelectItem value="__missing__" disabled>
+                                                        {settings.general.defaultRuntime} (not found)
                                                     </SelectItem>
                                                 )}
-                                                {runtimes.map((rt) => (
-                                                    <SelectItem key={rt.name} value={rt.name}>
-                                                        {rt.name} ({rt.version})
-                                                    </SelectItem>
-                                                ))}
-                                                {runtimes.length > 0 &&
-                                                    !runtimes.some(
-                                                        (r) =>
-                                                            r.name ===
-                                                            settings.general.defaultRuntime,
-                                                    ) && (
-                                                        <SelectItem value="__missing__" disabled>
-                                                            {settings.general.defaultRuntime} (not
-                                                            found)
-                                                        </SelectItem>
-                                                    )}
-                                            </SelectContent>
-                                        </Select>
+                                        </SelectContent>
+                                    </Select>
+                                </SettingRow>
+                            </>
+                        )}
+
+                        {section === "claude" && (
+                            <>
+                                <SettingRow label="Default Model" hint="Pre-selected model when running Claude sessions">
+                                    <Select value={settings.claude.defaultModel} onValueChange={handleClaudeModel}>
+                                        <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="default">Default</SelectItem>
+                                            <SelectItem value="opus">Opus</SelectItem>
+                                            <SelectItem value="sonnet">Sonnet</SelectItem>
+                                            <SelectItem value="haiku">Haiku</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </SettingRow>
+                                <SettingRow label="Full Access" hint="Skip permission prompts by default">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch id="claude-full-access" checked={settings.claude.fullAccess} onCheckedChange={handleClaudeFullAccess} />
+                                        <Label htmlFor="claude-full-access" className="cursor-pointer text-[13px] font-normal normal-case text-muted-foreground">
+                                            {settings.claude.fullAccess ? "Enabled" : "Disabled"}
+                                        </Label>
                                     </div>
-                                </section>
+                                </SettingRow>
+                            </>
+                        )}
+
+                        {section === "codex" && (
+                            <SettingRow label="Full Access" hint="Run in full-auto mode by default">
+                                <div className="flex items-center gap-2.5">
+                                    <Switch id="codex-full-access" checked={settings.codex.fullAccess} onCheckedChange={handleCodexFullAccess} />
+                                    <Label htmlFor="codex-full-access" className="cursor-pointer text-[13px] font-normal normal-case text-muted-foreground">
+                                        {settings.codex.fullAccess ? "Enabled" : "Disabled"}
+                                    </Label>
+                                </div>
+                            </SettingRow>
+                        )}
+
+                        {section === "opencode" && (
+                            <>
+                                <SettingRow label="Default Model" hint="Pre-selected model (provider/model format)">
+                                    <Input
+                                        className="h-8 w-[180px] text-[13px]"
+                                        placeholder="e.g. anthropic/claude-sonnet-4-20250514"
+                                        value={settings.opencode.defaultModel}
+                                        onChange={handleOpencodeModel}
+                                    />
+                                </SettingRow>
+                                <SettingRow label="Full Access" hint="Auto-approve all tool permissions by default">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch id="opencode-full-access" checked={settings.opencode.fullAccess} onCheckedChange={handleOpencodeFullAccess} />
+                                        <Label htmlFor="opencode-full-access" className="cursor-pointer text-[13px] font-normal normal-case text-muted-foreground">
+                                            {settings.opencode.fullAccess ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
+                            </>
+                        )}
+
+                        {section === "gemini" && (
+                            <>
+                                <SettingRow label="Default Model" hint="Pre-selected model when running Gemini sessions">
+                                    <Select value={settings.gemini.defaultModel} onValueChange={handleGeminiModel}>
+                                        <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="default">Default</SelectItem>
+                                            <SelectItem value="auto">Auto</SelectItem>
+                                            <SelectItem value="pro">Pro</SelectItem>
+                                            <SelectItem value="flash">Flash</SelectItem>
+                                            <SelectItem value="flash-lite">Flash Lite</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </SettingRow>
+                                <SettingRow label="Full Access" hint="Auto-approve all actions by default">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch id="gemini-full-access" checked={settings.gemini.fullAccess} onCheckedChange={handleGeminiFullAccess} />
+                                        <Label htmlFor="gemini-full-access" className="cursor-pointer text-[13px] font-normal normal-case text-muted-foreground">
+                                            {settings.gemini.fullAccess ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
+                            </>
+                        )}
+
+                        {section === "cursor" && (
+                            <>
+                                <SettingRow label="Default Model" hint="Pre-selected model when running Cursor sessions">
+                                    <Input
+                                        className="h-8 w-[180px] text-[13px]"
+                                        value={settings.cursor.defaultModel === "default" ? "" : settings.cursor.defaultModel}
+                                        placeholder="default"
+                                        onChange={(e) => handleCursorModel(e.target.value)}
+                                    />
+                                </SettingRow>
+                                <SettingRow label="Full Access" hint="Run in yolo mode by default (auto-approve commands)">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch id="cursor-full-access" checked={settings.cursor.fullAccess} onCheckedChange={handleCursorFullAccess} />
+                                        <Label htmlFor="cursor-full-access" className="cursor-pointer text-[13px] font-normal normal-case text-muted-foreground">
+                                            {settings.cursor.fullAccess ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
                             </>
                         )}
                     </div>
@@ -931,6 +721,26 @@ function SettingsModal() {
                 </AlertDialogContent>
             </AlertDialog>
         </Dialog>
+    );
+}
+
+function SettingRow({
+    label,
+    hint,
+    children,
+}: {
+    label: string;
+    hint: string;
+    children: React.ReactNode;
+}) {
+    return (
+        <div className="hover:bg-island-base mx-1 flex items-start justify-between rounded-md px-5 py-3 transition-colors">
+            <div className="min-w-0 flex-1 pr-6">
+                <div className="text-secondary-foreground text-[13px] font-medium">{label}</div>
+                <div className="text-muted-foreground text-[11px] leading-snug">{hint}</div>
+            </div>
+            <div className="shrink-0">{children}</div>
+        </div>
     );
 }
 

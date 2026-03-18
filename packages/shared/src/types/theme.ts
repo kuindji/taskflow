@@ -72,6 +72,7 @@ export interface CssVariables {
     "--input": string;
     "--ring": string;
     "--island-base": string;
+    "--dialog-shell": string;
     "--chart-1": string;
     "--chart-2": string;
     "--chart-3": string;

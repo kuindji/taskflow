@@ -1,5 +1,5 @@
 import type { ThemeSource, ResolvedTheme, CssVariables, XtermTheme } from "../types/theme";
-import { hexToRgba } from "./color-utils";
+import { darken, hexToRgba } from "./color-utils";
 
 export function deriveTheme(source: ThemeSource): ResolvedTheme {
     const { colors } = source;
@@ -34,6 +34,7 @@ export function deriveTheme(source: ThemeSource): ResolvedTheme {
         "--input": colors.selection,
         "--ring": ansi.blue,
         "--island-base": hexToRgba(ansi.black, 0.5),
+        "--dialog-shell": darken(ansi.black, 0.4),
         "--chart-1": ansi.blue,
         "--chart-2": ansi.green,
         "--chart-3": ansi.yellow,

@@ -226,14 +226,14 @@ function FlowEditor({
     return (
         <div className="flex h-full flex-col">
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="flex-1 overflow-y-auto pl-4">
                 <h3 className="mb-5 text-base font-semibold">
                     {flow ? flow.name || "Edit Flow" : "New Flow"}
                 </h3>
 
                 <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="flow-name" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Name</Label>
+                        <Label htmlFor="flow-name">Name</Label>
                         <Input
                             id="flow-name"
                             value={name}
@@ -242,7 +242,7 @@ function FlowEditor({
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="flow-desc" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Description</Label>
+                        <Label htmlFor="flow-desc">Description</Label>
                         <Input
                             id="flow-desc"
                             value={description}
@@ -252,7 +252,7 @@ function FlowEditor({
                     </div>
 
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="flow-project" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Project</Label>
+                        <Label htmlFor="flow-project">Project</Label>
                         <Select
                             value={projectId ?? "__global__"}
                             onValueChange={(v) => setProjectId(v === "__global__" ? undefined : v)}
@@ -273,7 +273,7 @@ function FlowEditor({
 
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
-                            <Label className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Inputs</Label>
+                            <Label>Inputs</Label>
                             <Button variant="outline" size="sm" onClick={addInput}>
                                 <Plus className="mr-1 h-3 w-3" /> Add Input
                             </Button>
@@ -282,7 +282,7 @@ function FlowEditor({
                             {inputs.map((input, i) => (
                                 <div
                                     key={i}
-                                    className="bg-island-base border-border rounded-lg border p-2.5 flex items-start gap-2"
+                                    className="bg-muted/50 flex items-start gap-2 rounded-md border p-3"
                                 >
                                     <div className="flex flex-1 flex-col gap-2">
                                         <div className="flex gap-2">
@@ -336,7 +336,7 @@ function FlowEditor({
 
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
-                            <Label className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Actions</Label>
+                            <Label>Actions</Label>
                             <div className="flex gap-1">
                                 {libraryActions.length > 0 && (
                                     <DropdownMenu>
@@ -364,7 +364,7 @@ function FlowEditor({
                         </div>
                         <div className="flex flex-col gap-2">
                             {actions.map((entry, i) => (
-                                <div key={entry.id} className="bg-island-base border-border rounded-lg border p-2.5">
+                                <div key={entry.id} className="bg-muted/50 rounded-md border p-3">
                                     <div className="flex items-center gap-2">
                                         <div className="flex flex-col gap-0.5">
                                             <Button
@@ -488,26 +488,25 @@ function FlowEditor({
                         </p>
                     </div>
                 </div>
-            </div>
 
-            {/* Sticky footer outside scroll */}
-            <div className="flex shrink-0 items-center gap-2 px-6 py-3">
-                {flow && onDelete && (
-                    <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={onDelete}
-                        className="mr-auto"
-                    >
-                        Delete Flow
+                <div className="flex shrink-0 flex-row items-center gap-2 pt-3">
+                    {flow && onDelete && (
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={onDelete}
+                            className="mr-auto"
+                        >
+                            Delete Flow
+                        </Button>
+                    )}
+                    <Button variant="secondary" size="sm" onClick={onCancel}>
+                        Cancel
                     </Button>
-                )}
-                <Button variant="secondary" size="sm" onClick={onCancel}>
-                    Cancel
-                </Button>
-                <Button size="sm" onClick={handleSave} disabled={!isValid}>
-                    Save Flow
-                </Button>
+                    <Button size="sm" onClick={handleSave} disabled={!isValid}>
+                        Save Flow
+                    </Button>
+                </div>
             </div>
         </div>
     );
