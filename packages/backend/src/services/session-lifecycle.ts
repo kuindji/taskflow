@@ -4,6 +4,7 @@ import type { PtyManager } from "./pty-manager";
 import type { TaskStore } from "./task-store";
 import { buildAgentLaunchSpec, ensureInternalAgentSkillFile } from "./internal-agent-skill";
 import { ensureCursorRulesFile } from "./cursor-rules";
+import { ensureGeminiSystemFile } from "./gemini-system";
 import { getEditorById } from "./editor-detector";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
@@ -142,6 +143,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
 
         let command: string;
         const args: string[] = [];
+        let geminiSystemPath: string | undefined;
         if (type === "editor") {
             if (!editorId || !filePath) {
                 throw new Error("editorId and filePath are required for editor sessions");
@@ -173,6 +175,13 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             if (type === "cursor" && systemPrompt) {
                 await ensureCursorRulesFile(cwd, systemPrompt);
             }
+            if (type === "gemini") {
+                geminiSystemPath = await ensureGeminiSystemFile(
+                    config.agentSkillsDir,
+                    !task,
+                    systemPrompt,
+                );
+            }
             const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions, systemPrompt, !task);
             command = spec.command;
             args.push(...spec.args);
@@ -188,6 +197,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         if (flow) {
             taskflowEnv.TASKFLOW_FLOW_ID = flow.flowId;
             taskflowEnv.TASKFLOW_ACTION_ENTRY_ID = flow.actionEntryId;
+        }
+        if (geminiSystemPath) {
+            taskflowEnv.GEMINI_SYSTEM_MD = geminiSystemPath;
         }
 
         ptyManager.spawn({
