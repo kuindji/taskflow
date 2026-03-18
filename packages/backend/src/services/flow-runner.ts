@@ -66,9 +66,18 @@ class FlowRunner {
         }
     }
 
-    async startFlow(owner: FlowOwner, flow: FlowDefinition): Promise<FlowRun> {
+    async startFlow(owner: FlowOwner, flow: FlowDefinition, inputValues?: Record<string, string>): Promise<FlowRun> {
         if (flow.actions.length === 0) {
             throw new Error(`Flow "${flow.id}" must define at least one action`);
+        }
+
+        if (flow.inputs && flow.inputs.length > 0) {
+            for (const input of flow.inputs) {
+                const value = inputValues?.[input.id];
+                if (typeof value !== "string" || value.trim().length === 0) {
+                    throw new Error(`Missing required flow input: "${input.id}"`);
+                }
+            }
         }
 
         const ownerId = owner.taskId ?? owner.projectId;
@@ -101,6 +110,7 @@ class FlowRunner {
                     status: "pending",
                 })),
                 artifacts: [],
+                inputValues: flow.inputs && flow.inputs.length > 0 ? inputValues : undefined,
                 startedAt: new Date().toISOString(),
             };
 
@@ -512,6 +522,8 @@ class FlowRunner {
             `Use \`taskflow-cli task\` to read task info and logs.`,
             `Use \`taskflow-cli artifact list\` to see available artifacts from prior actions.`,
             `Use \`taskflow-cli artifact get <type>\` to retrieve a specific artifact.`,
+            `Use \`taskflow-cli flow input\` to list all flow input values.`,
+            `Use \`taskflow-cli flow input <id>\` to get a specific input value.`,
             `When you have completed this action, run \`taskflow-cli action complete\`.`,
         ].join("\n\n");
         return { prompt: actionPrompt, systemPrompt };
