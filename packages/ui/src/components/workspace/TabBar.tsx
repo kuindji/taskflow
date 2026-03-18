@@ -401,11 +401,11 @@ export function TabBar({
                                 className="text-warning"
                                 disabled={!claudeAvailable}
                                 onClick={(e) => {
+                                    e.preventDefault();
                                     if (!claudeAvailable) return;
                                     if (e.shiftKey) {
                                         setClaudePopoverOpen(true);
                                     } else {
-                                        e.preventDefault();
                                         onNewTab("claude");
                                     }
                                 }}
@@ -438,11 +438,11 @@ export function TabBar({
                                 className="text-success"
                                 disabled={!codexAvailable}
                                 onClick={(e) => {
+                                    e.preventDefault();
                                     if (!codexAvailable) return;
                                     if (e.shiftKey) {
                                         setCodexPopoverOpen(true);
                                     } else {
-                                        e.preventDefault();
                                         onNewTab("codex");
                                     }
                                 }}
@@ -475,6 +475,7 @@ export function TabBar({
                                 className="text-cursor-agent"
                                 disabled={!cursorAvailable}
                                 onClick={(e) => {
+                                    e.preventDefault();
                                     if (!cursorAvailable) return;
                                     if (e.shiftKey) {
                                         setCursorPopoverOpen(true);
