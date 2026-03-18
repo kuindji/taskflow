@@ -7,7 +7,7 @@ async function git(
     cwd: string,
     options: { allowExitCodes?: number[] } = {},
 ): Promise<string> {
-    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["git", "--no-optional-locks", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exitCode] = await Promise.all([
         new Response(proc.stdout).text(),
         new Response(proc.stderr).text(),
@@ -23,6 +23,12 @@ async function git(
     return stdout;
 }
 
+interface NumstatEntry {
+    path: string;
+    additions: number;
+    deletions: number;
+}
+
 export class GitService {
     async getBranch(repoPath: string): Promise<string | null> {
         try {
@@ -32,6 +38,26 @@ export class GitService {
         } catch {
             return null;
         }
+    }
+
+    async numstat(repoPath: string, cached = false): Promise<NumstatEntry[]> {
+        const args = cached
+            ? ["diff", "--cached", "--numstat"]
+            : ["diff", "--numstat"];
+        const output = await git(args, repoPath);
+        if (!output.trim()) return [];
+
+        return output
+            .trim()
+            .split("\n")
+            .map((line) => {
+                const [add, del, ...pathParts] = line.split("\t");
+                return {
+                    path: pathParts.join("\t"),
+                    additions: add === "-" ? 0 : parseInt(add, 10) || 0,
+                    deletions: del === "-" ? 0 : parseInt(del, 10) || 0,
+                };
+            });
     }
 
     async status(repoPath: string): Promise<GitStatusResult> {
