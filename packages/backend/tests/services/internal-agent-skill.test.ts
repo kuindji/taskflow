@@ -90,6 +90,40 @@ describe("internal agent skill", () => {
         ]);
     });
 
+    it("passes only user prompt to Gemini via --prompt-interactive", () => {
+        const spec = buildAgentLaunchSpec(
+            "gemini",
+            "Fix the bug",
+            "/tmp/ignored/SKILL.md",
+        );
+        expect(spec.command).toBe("gemini");
+        expect(spec.args).toContain("--prompt-interactive");
+        expect(spec.args).toContain("Fix the bug");
+        expect(spec.args.join(" ")).not.toContain("taskflow-cli");
+    });
+
+    it("omits --prompt-interactive for Gemini when no user prompt given", () => {
+        const spec = buildAgentLaunchSpec(
+            "gemini",
+            undefined,
+            "/tmp/ignored/SKILL.md",
+        );
+        expect(spec.command).toBe("gemini");
+        expect(spec.args).not.toContain("--prompt-interactive");
+    });
+
+    it("passes Gemini agent options through", () => {
+        const spec = buildAgentLaunchSpec(
+            "gemini",
+            "Do stuff",
+            "/tmp/ignored/SKILL.md",
+            { type: "gemini", fullAccess: true, model: "pro" },
+        );
+        expect(spec.args).toContain("--yolo");
+        expect(spec.args).toContain("--model");
+        expect(spec.args).toContain("pro");
+    });
+
     it("passes project scope through to the system prompt", () => {
         const projectPrompt = buildSystemPrompt(true);
         const spec = buildAgentLaunchSpec(

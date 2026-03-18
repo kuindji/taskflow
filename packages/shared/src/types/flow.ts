@@ -1,6 +1,6 @@
 import type { AgentLaunchOptions } from "./agent";
 
-type SessionType = "claude" | "codex" | "shell";
+type SessionType = "claude" | "codex" | "cursor" | "shell";
 
 interface ActionDefinition {
     id: string;

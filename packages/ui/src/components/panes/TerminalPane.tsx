@@ -485,7 +485,7 @@ function loadBestEffortRendererAddons(term: Terminal): () => void {
 
             // Remove the Canvas cursor layer now that WebGL is rendering.
             const screenElement = (term as unknown as { element: HTMLElement }).element
-                ?.querySelector(".xterm-screen");
+                ?.querySelector<HTMLElement>(".xterm-screen");
             if (screenElement) {
                 removeCanvasCursorLayer(screenElement);
             }
@@ -1058,7 +1058,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     }, [sessionId]);
 
     return (
-        <div className="relative flex-1 overflow-hidden p-1.5">
+        <div className="bg-card relative flex-1 overflow-hidden p-1.5">
             <div
                 ref={containerRef}
                 className={cn(

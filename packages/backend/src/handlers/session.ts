@@ -8,11 +8,14 @@ import type {
     SessionSnapshotPayload,
     TerminalResizePayload,
     SessionRef,
+    CursorRulesCheckPayload,
+    CursorRulesEnsurePayload,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { PtyManager } from "../services/pty-manager";
 import type { TaskStore } from "../services/task-store";
 import type { createSessionLifecycle } from "../services/session-lifecycle";
+import { checkCursorRulesStatus, ensureCursorRulesFile } from "../services/cursor-rules";
 
 interface SessionHandlerDeps {
     router: Router;
@@ -113,5 +116,17 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     router.register(MSG.SESSION_SNAPSHOT, async (payload) => {
         const { sessionId } = payload as SessionSnapshotPayload;
         return ptyManager.getSnapshot(sessionId);
+    });
+
+    router.register(MSG.CURSOR_RULES_CHECK, async (payload) => {
+        const { cwd } = payload as CursorRulesCheckPayload;
+        const status = await checkCursorRulesStatus(cwd);
+        return { status };
+    });
+
+    router.register(MSG.CURSOR_RULES_ENSURE, async (payload) => {
+        const { cwd } = payload as CursorRulesEnsurePayload;
+        await ensureCursorRulesFile(cwd);
+        return { ok: true };
     });
 }

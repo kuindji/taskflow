@@ -40,6 +40,8 @@
     --color-info-foreground: var(--info-foreground);
     --color-opencode: var(--opencode);
     --color-opencode-foreground: var(--opencode-foreground);
+    --color-cursor-agent: var(--cursor-agent);
+    --color-cursor-agent-foreground: var(--cursor-agent-foreground);
     --radius-sm: calc(var(--radius) - 4px);
     --radius-md: calc(var(--radius) - 2px);
     --radius-lg: var(--radius);
@@ -83,6 +85,8 @@
     --info-foreground: #1e1e2e;
     --opencode: #cba6f7;
     --opencode-foreground: #1e1e2e;
+    --cursor-agent: #f0f0f0;
+    --cursor-agent-foreground: #1e1e2e;
     --island-base: rgba(24, 24, 37, 0.5);
 }
 

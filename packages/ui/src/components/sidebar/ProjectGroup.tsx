@@ -129,7 +129,7 @@ export function ProjectGroup({
             <Collapsible open={open} onOpenChange={onOpenChange} className="min-w-0">
                 <div
                     className={cn(
-                        "group mx-1.5 flex min-w-0 cursor-pointer items-stretch overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
+                        "group mx-1.5 flex min-w-0 cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
                         isActive && !locationInvalid ? "bg-accent/15" : "hover:bg-muted/50",
                     )}
                 >
@@ -141,7 +141,7 @@ export function ProjectGroup({
                                     onOpenChange(!open);
                                 }}
                                 aria-label={projectToggleLabel}
-                                className="text-muted-foreground flex h-full shrink-0 items-center px-1.5 py-1.5"
+                                className="text-muted-foreground flex h-full shrink-0 items-center pr-1"
                             >
                                 {open ? (
                                     <ChevronDown className="h-3.5 w-3.5" />

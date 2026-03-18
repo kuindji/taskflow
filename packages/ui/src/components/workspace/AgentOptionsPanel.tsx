@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { AgentLaunchOptions } from "@taskflow/shared";
+import type { AgentLaunchOptions, AgentType } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -10,11 +10,12 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Play } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 
 interface AgentOptionsPanelProps {
-    agentType: "claude" | "codex" | "opencode";
+    agentType: AgentType;
     value?: AgentLaunchOptions;
     emitOnMount?: boolean;
     onRun?: (options: AgentLaunchOptions) => void;
@@ -31,6 +32,8 @@ function AgentOptionsPanel({
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
     const opencodeSettings = useSettingsStore((s) => s.settings?.opencode);
+    const geminiSettings = useSettingsStore((s) => s.settings?.gemini);
+    const cursorSettings = useSettingsStore((s) => s.settings?.cursor);
 
     const matchingValue = value?.type === agentType ? value : undefined;
     const defaultFullAccess =
@@ -39,13 +42,29 @@ function AgentOptionsPanel({
             ? (claudeSettings?.fullAccess ?? false)
             : agentType === "opencode"
               ? (opencodeSettings?.fullAccess ?? false)
-              : (codexSettings?.fullAccess ?? false));
+              : agentType === "gemini"
+                ? (geminiSettings?.fullAccess ?? false)
+                : agentType === "cursor"
+                  ? (cursorSettings?.fullAccess ?? false)
+                  : (codexSettings?.fullAccess ?? false));
     const defaultModel =
         agentType === "claude" && matchingValue?.type === "claude"
-            ? (matchingValue.model ?? "default")
+            ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
             : agentType === "opencode" && matchingValue?.type === "opencode"
               ? (matchingValue.model ?? opencodeSettings?.defaultModel ?? "")
-              : (claudeSettings?.defaultModel ?? "default");
+              : agentType === "gemini" && matchingValue?.type === "gemini"
+                ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "default")
+                : agentType === "cursor" && matchingValue?.type === "cursor"
+                  ? (matchingValue.model ?? cursorSettings?.defaultModel ?? "default")
+                  : agentType === "claude"
+                    ? (claudeSettings?.defaultModel ?? "default")
+                    : agentType === "opencode"
+                      ? (opencodeSettings?.defaultModel ?? "")
+                      : agentType === "gemini"
+                        ? (geminiSettings?.defaultModel ?? "default")
+                        : agentType === "cursor"
+                          ? (cursorSettings?.defaultModel ?? "default")
+                          : "default";
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [model, setModel] = useState<string>(defaultModel);
@@ -59,7 +78,7 @@ function AgentOptionsPanel({
 
     useEffect(() => {
         setFullAccess(defaultFullAccess);
-        if (agentType === "claude") {
+        if (agentType === "claude" || agentType === "opencode" || agentType === "gemini" || agentType === "cursor") {
             setModel(defaultModel);
         }
     }, [agentType, defaultFullAccess, defaultModel]);
@@ -78,6 +97,18 @@ function AgentOptionsPanel({
                 type: "opencode",
                 fullAccess: fullAccess || undefined,
                 model: model || undefined,
+            });
+        } else if (agentType === "gemini") {
+            cb({
+                type: "gemini",
+                fullAccess: fullAccess || undefined,
+                model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
+            });
+        } else if (agentType === "cursor") {
+            cb({
+                type: "cursor",
+                fullAccess: fullAccess || undefined,
+                model: model === "default" ? undefined : model,
             });
         } else {
             cb({
@@ -109,6 +140,18 @@ function AgentOptionsPanel({
                 fullAccess: fullAccess || undefined,
                 model: model || undefined,
             });
+        } else if (agentType === "gemini") {
+            onRun({
+                type: "gemini",
+                fullAccess: fullAccess || undefined,
+                model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
+            });
+        } else if (agentType === "cursor") {
+            onRun({
+                type: "cursor",
+                fullAccess: fullAccess || undefined,
+                model: model === "default" ? undefined : model,
+            });
         } else {
             onRun({
                 type: "codex",
@@ -131,24 +174,57 @@ function AgentOptionsPanel({
             </div>
 
             {agentType === "claude" && (
-                <>
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor="agent-model" className="text-xs">
-                            Model
-                        </Label>
-                        <Select value={model} onValueChange={setModel}>
-                            <SelectTrigger id="agent-model" className="h-7 text-xs">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="default">Default</SelectItem>
-                                <SelectItem value="opus">Opus</SelectItem>
-                                <SelectItem value="sonnet">Sonnet</SelectItem>
-                                <SelectItem value="haiku">Haiku</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </>
+                <div className="flex flex-col gap-1">
+                    <Label htmlFor="agent-model" className="text-xs">
+                        Model
+                    </Label>
+                    <Select value={model} onValueChange={setModel}>
+                        <SelectTrigger id="agent-model" className="h-7 text-xs">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="default">Default</SelectItem>
+                            <SelectItem value="opus">Opus</SelectItem>
+                            <SelectItem value="sonnet">Sonnet</SelectItem>
+                            <SelectItem value="haiku">Haiku</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            )}
+
+            {agentType === "gemini" && (
+                <div className="flex flex-col gap-1">
+                    <Label htmlFor="agent-model" className="text-xs">
+                        Model
+                    </Label>
+                    <Select value={model} onValueChange={setModel}>
+                        <SelectTrigger id="agent-model" className="h-7 text-xs">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="default">Default</SelectItem>
+                            <SelectItem value="auto">Auto</SelectItem>
+                            <SelectItem value="pro">Pro</SelectItem>
+                            <SelectItem value="flash">Flash</SelectItem>
+                            <SelectItem value="flash-lite">Flash Lite</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            )}
+
+            {agentType === "cursor" && (
+                <div className="flex flex-col gap-1">
+                    <Label htmlFor="agent-model" className="text-xs">
+                        Model
+                    </Label>
+                    <Input
+                        id="agent-model"
+                        className="h-7 text-xs"
+                        value={model === "default" ? "" : model}
+                        placeholder="default"
+                        onChange={(e) => setModel(e.target.value || "default")}
+                    />
+                </div>
             )}
 
             {agentType === "opencode" && (

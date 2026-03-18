@@ -490,7 +490,7 @@ export async function ensureCliScript(binDir: string): Promise<void> {
 
 export { CLI_SCRIPT };
 export function buildAgentLaunchSpec(
-    type: "claude" | "codex" | "opencode",
+    type: "claude" | "codex" | "opencode" | "gemini" | "cursor",
     prompt: string | undefined,
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
@@ -539,6 +539,37 @@ export function buildAgentLaunchSpec(
             command: "opencode",
             args,
             env: { OPENCODE_CONFIG_CONTENT: JSON.stringify(config) },
+        };
+    }
+
+    if (type === "gemini") {
+        const optionArgs: string[] = [];
+        if (agentOptions?.type === "gemini") {
+            if (agentOptions.fullAccess) optionArgs.push("--yolo");
+            if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
+        }
+        return {
+            command: "gemini",
+            args: [
+                ...optionArgs,
+                ...(prompt ? ["--prompt-interactive", prompt] : []),
+            ],
+        };
+    }
+
+    if (type === "cursor") {
+        const optionArgs: string[] = [];
+        if (agentOptions?.type === "cursor") {
+            if (agentOptions.fullAccess) optionArgs.push("--yolo");
+            if (agentOptions.model && agentOptions.model !== "default") optionArgs.push("--model", agentOptions.model);
+        }
+        return {
+            command: "cursor",
+            args: [
+                "agent",
+                ...optionArgs,
+                ...(prompt ? [prompt] : []),
+            ],
         };
     }
 

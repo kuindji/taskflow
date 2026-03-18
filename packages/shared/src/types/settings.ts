@@ -21,6 +21,16 @@ export interface OpenCodeSettings {
     fullAccess: boolean;
 }
 
+export interface GeminiSettings {
+    defaultModel: "default" | "auto" | "pro" | "flash" | "flash-lite";
+    fullAccess: boolean;
+}
+
+export interface CursorSettings {
+    defaultModel: string;
+    fullAccess: boolean;
+}
+
 export interface TerminalSettings {
     fontFamily: string;
     fontSize: number;
@@ -69,6 +79,8 @@ export interface AppSettings {
     claude: ClaudeSettings;
     codex: CodexSettings;
     opencode: OpenCodeSettings;
+    gemini: GeminiSettings;
+    cursor: CursorSettings;
     appearance: AppearanceSettings;
 }
 
@@ -83,5 +95,7 @@ export interface SettingsUpdatePayload {
     claude?: Partial<ClaudeSettings>;
     codex?: Partial<CodexSettings>;
     opencode?: Partial<OpenCodeSettings>;
+    gemini?: Partial<GeminiSettings>;
+    cursor?: Partial<CursorSettings>;
     appearance?: Partial<AppearanceSettings>;
 }

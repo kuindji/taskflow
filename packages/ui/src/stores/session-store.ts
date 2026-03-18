@@ -18,7 +18,7 @@ import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWo
 
 interface Tab {
     id: string;
-    type: "claude" | "codex" | "opencode" | "shell" | "editor" | "changes" | "browser";
+    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "shell" | "editor" | "changes" | "browser";
     label: string;
     sessionId?: string;
     filePath?: string;
@@ -32,7 +32,7 @@ interface SessionStore {
     lastTerminalSize: { cols: number; rows: number } | null;
     createSession(
         owner: { taskId?: string; projectId?: string },
-        type: "claude" | "codex" | "opencode" | "shell" | "editor",
+        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "shell" | "editor",
         label?: string,
         prompt?: string,
         shell?: string,
@@ -61,6 +61,8 @@ function getDefaultSessionLabel(type: Tab["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
     if (type === "opencode") return "OpenCode";
+    if (type === "gemini") return "Gemini";
+    if (type === "cursor") return "Cursor";
     if (type === "editor") return "Editor";
     return `${type} session`;
 }
@@ -113,7 +115,7 @@ function getSessionTab(sessionId: string): Tab | undefined {
 
 function usesTerminalActivityStatus(sessionId: string): boolean {
     const type = getSessionTab(sessionId)?.type;
-    return type === "claude" || type === "codex" || type === "opencode";
+    return type === "claude" || type === "codex" || type === "opencode" || type === "gemini" || type === "cursor";
 }
 
 const exitedSessions = new Set<string>();

@@ -6,7 +6,13 @@ import { StatusDot } from "@/components/ui/status-dot";
 export function SessionBadge({ session }: { session: SessionRef }) {
     const status = useSessionStore((s) => s.sessionStatus[session.id]);
     const colorScheme =
-        session.type === "claude" ? "claude" : session.type === "shell" ? "shell" : "codex";
+        session.type === "claude"
+            ? "claude"
+            : session.type === "cursor"
+              ? "cursor"
+              : session.type === "shell"
+                ? "shell"
+                : "codex";
 
     return (
         <Badge variant="outline" colorScheme={colorScheme} className="px-1 py-0 text-xs">
