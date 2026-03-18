@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState, useRef, useCallback } from "react";
+import { useMemo, useEffect, useState, useRef, useCallback, Fragment } from "react";
 import { cva } from "class-variance-authority";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -10,7 +10,14 @@ import type {
     FlowRun,
     ShellInfo,
 } from "@taskflow/shared";
-import { DEFAULT_TERMINAL_SHELL, MSG, type ShellListResponse } from "@taskflow/shared";
+import {
+    DEFAULT_TERMINAL_SHELL,
+    MSG,
+    ALL_AGENT_TYPES,
+    AGENT_DISPLAY_NAMES,
+    type AgentType,
+    type ShellListResponse,
+} from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
 import { Button } from "@/components/ui/button";
@@ -23,6 +30,7 @@ import {
     DropdownMenuSub,
     DropdownMenuSubTrigger,
     DropdownMenuSubContent,
+    DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AgentOptionsPanel } from "./AgentOptionsPanel";
@@ -40,6 +48,20 @@ import {
     getTerminalShellSummary,
     resolveTerminalShellPath,
 } from "@/lib/terminal-shells";
+
+const AGENT_META: Record<
+    AgentType,
+    {
+        icon: (props: { className?: string }) => React.ReactNode;
+        colorClass: string;
+    }
+> = {
+    claude: { icon: ClaudeIcon, colorClass: "text-warning" },
+    codex: { icon: CodexIcon, colorClass: "text-success" },
+    opencode: { icon: OpenCodeIcon, colorClass: "text-opencode" },
+    gemini: { icon: GeminiIcon, colorClass: "text-primary" },
+    cursor: { icon: CursorIcon, colorClass: "text-cursor-agent" },
+};
 
 const tabVariants = cva(
     "px-1.5 h-6 rounded-md cursor-pointer flex items-center gap-1 text-sm transition-colors",
@@ -205,19 +227,22 @@ export function TabBar({
 }: TabBarProps) {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
-    const [claudePopoverOpen, setClaudePopoverOpen] = useState(false);
-    const [codexPopoverOpen, setCodexPopoverOpen] = useState(false);
-    const [opencodePopoverOpen, setOpencodePopoverOpen] = useState(false);
-    const [geminiPopoverOpen, setGeminiPopoverOpen] = useState(false);
-    const [cursorPopoverOpen, setCursorPopoverOpen] = useState(false);
+    const [openAgentPopover, setOpenAgentPopover] = useState<AgentType | null>(null);
     const agents = useAgentAvailability();
-    const claudeAvailable = isAgentAvailable(agents, "claude");
-    const codexAvailable = isAgentAvailable(agents, "codex");
-    const opencodeAvailable = isAgentAvailable(agents, "opencode");
-    const geminiAvailable = isAgentAvailable(agents, "gemini");
-    const cursorAvailable = isAgentAvailable(agents, "cursor");
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
+    );
+    const favoriteAgents = useSettingsStore(
+        (s) => s.settings?.general.favoriteAgents ?? ALL_AGENT_TYPES,
+    );
+    const nonFavoriteAgents = useMemo(
+        () => ALL_AGENT_TYPES.filter((agent) => !favoriteAgents.includes(agent)),
+        [favoriteAgents],
+    );
+    const hasAvailableNonFavorites = useMemo(
+        () =>
+            nonFavoriteAgents.some((agent) => isAgentAvailable(agents, agent)),
+        [nonFavoriteAgents, agents],
     );
 
     useEffect(() => {
@@ -332,106 +357,46 @@ export function TabBar({
                                 {(scriptNames.length > 0 ||
                                     flows.length > 0 ||
                                     standaloneActions.length > 0) && <DropdownMenuSeparator />}
-                                <DropdownMenuItem
-                                    disabled={!claudeAvailable}
-                                    onClick={() => claudeAvailable && onRunTab("claude")}>
-                                    <ClaudeIcon className="mr-2 h-4 w-4" />
-                                    Claude Code{!claudeAvailable ? " (not installed)" : ""}
-                                </DropdownMenuItem>
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger disabled={!claudeAvailable}>
-                                        <ClaudeIcon className="mr-2 h-4 w-4" />
-                                        Claude Code with options
-                                    </DropdownMenuSubTrigger>
-                                    {claudeAvailable && (
-                                        <DropdownMenuSubContent className="p-0">
-                                            <AgentOptionsPanel
-                                                agentType="claude"
-                                                onRun={(options) => onRunTab("claude", options)}
-                                            />
-                                        </DropdownMenuSubContent>
-                                    )}
-                                </DropdownMenuSub>
-                                <DropdownMenuItem
-                                    disabled={!codexAvailable}
-                                    onClick={() => codexAvailable && onRunTab("codex")}>
-                                    <CodexIcon className="mr-2 h-4 w-4" />
-                                    Codex{!codexAvailable ? " (not installed)" : ""}
-                                </DropdownMenuItem>
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger disabled={!codexAvailable}>
-                                        <CodexIcon className="mr-2 h-4 w-4" />
-                                        Codex with options
-                                    </DropdownMenuSubTrigger>
-                                    {codexAvailable && (
-                                        <DropdownMenuSubContent className="p-0">
-                                            <AgentOptionsPanel
-                                                agentType="codex"
-                                                onRun={(options) => onRunTab("codex", options)}
-                                            />
-                                        </DropdownMenuSubContent>
-                                    )}
-                                </DropdownMenuSub>
-                                <DropdownMenuItem
-                                    disabled={!opencodeAvailable}
-                                    onClick={() => opencodeAvailable && onRunTab("opencode")}>
-                                    <OpenCodeIcon className="mr-2 h-4 w-4" />
-                                    OpenCode{!opencodeAvailable ? " (not installed)" : ""}
-                                </DropdownMenuItem>
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger disabled={!opencodeAvailable}>
-                                        <OpenCodeIcon className="mr-2 h-4 w-4" />
-                                        OpenCode with options
-                                    </DropdownMenuSubTrigger>
-                                    {opencodeAvailable && (
-                                        <DropdownMenuSubContent className="p-0">
-                                            <AgentOptionsPanel
-                                                agentType="opencode"
-                                                onRun={(options) => onRunTab("opencode", options)}
-                                            />
-                                        </DropdownMenuSubContent>
-                                    )}
-                                </DropdownMenuSub>
-                                <DropdownMenuItem
-                                    disabled={!geminiAvailable}
-                                    onClick={() => geminiAvailable && onRunTab("gemini")}>
-                                    <GeminiIcon className="mr-2 h-4 w-4" />
-                                    Gemini{!geminiAvailable ? " (not installed)" : ""}
-                                </DropdownMenuItem>
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger disabled={!geminiAvailable}>
-                                        <GeminiIcon className="mr-2 h-4 w-4" />
-                                        Gemini with options
-                                    </DropdownMenuSubTrigger>
-                                    {geminiAvailable && (
-                                        <DropdownMenuSubContent className="p-0">
-                                            <AgentOptionsPanel
-                                                agentType="gemini"
-                                                onRun={(options) => onRunTab("gemini", options)}
-                                            />
-                                        </DropdownMenuSubContent>
-                                    )}
-                                </DropdownMenuSub>
-                                <DropdownMenuItem
-                                    disabled={!cursorAvailable}
-                                    onClick={() => cursorAvailable && onRunTab("cursor")}>
-                                    <CursorIcon className="mr-2 h-4 w-4" />
-                                    Cursor{!cursorAvailable ? " (not installed)" : ""}
-                                </DropdownMenuItem>
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger disabled={!cursorAvailable}>
-                                        <CursorIcon className="mr-2 h-4 w-4" />
-                                        Cursor with options
-                                    </DropdownMenuSubTrigger>
-                                    {cursorAvailable && (
-                                        <DropdownMenuSubContent className="p-0">
-                                            <AgentOptionsPanel
-                                                agentType="cursor"
-                                                onRun={(options) => onRunTab("cursor", options)}
-                                            />
-                                        </DropdownMenuSubContent>
-                                    )}
-                                </DropdownMenuSub>
+                                <DropdownMenuLabel>Run agent with task description</DropdownMenuLabel>
+                                {ALL_AGENT_TYPES.map((agentType) => {
+                                    const meta = AGENT_META[agentType];
+                                    const available = isAgentAvailable(agents, agentType);
+                                    const Icon = meta.icon;
+                                    const label = AGENT_DISPLAY_NAMES[agentType];
+                                    return (
+                                        <Fragment key={agentType}>
+                                            <DropdownMenuItem
+                                                disabled={!available}
+                                                onClick={() =>
+                                                    available && onRunTab(agentType)
+                                                }>
+                                                <Icon className="mr-2 h-4 w-4" />
+                                                {label}
+                                                {!available ? " (not installed)" : ""}
+                                            </DropdownMenuItem>
+                                            <DropdownMenuSub>
+                                                <DropdownMenuSubTrigger
+                                                    disabled={!available}>
+                                                    <Icon className="mr-2 h-4 w-4" />
+                                                    {label} with options
+                                                </DropdownMenuSubTrigger>
+                                                {available && (
+                                                    <DropdownMenuSubContent className="p-0">
+                                                        <AgentOptionsPanel
+                                                            agentType={agentType}
+                                                            onRun={(options) =>
+                                                                onRunTab(
+                                                                    agentType,
+                                                                    options,
+                                                                )
+                                                            }
+                                                        />
+                                                    </DropdownMenuSubContent>
+                                                )}
+                                            </DropdownMenuSub>
+                                        </Fragment>
+                                    );
+                                })}
                             </>
                         )}
                     </DropdownMenuContent>
@@ -439,186 +404,55 @@ export function TabBar({
             )}
             {allowSessionTabs && (
                 <>
-                    <Popover open={claudePopoverOpen} onOpenChange={setClaudePopoverOpen}>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="text-warning"
-                                disabled={!claudeAvailable}
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    if (!claudeAvailable) return;
-                                    if (e.shiftKey) {
-                                        setClaudePopoverOpen(true);
-                                    } else {
-                                        onNewTab("claude");
-                                    }
-                                }}
-                                aria-label="New Claude session"
-                                tooltip={
-                                    claudeAvailable
-                                        ? "New Claude session (Shift+click for options)"
-                                        : "Claude CLI not installed"
-                                }
-                                tooltipSide="bottom">
-                                <ClaudeIcon className="h-3.5 w-3.5" />
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-56 p-0">
-                            <AgentOptionsPanel
-                                agentType="claude"
-                                onRun={(options) => {
-                                    setClaudePopoverOpen(false);
-                                    onNewTab("claude", undefined, options);
-                                }}
-                            />
-                        </PopoverContent>
-                    </Popover>
-                    <Popover open={codexPopoverOpen} onOpenChange={setCodexPopoverOpen}>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="text-success"
-                                disabled={!codexAvailable}
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    if (!codexAvailable) return;
-                                    if (e.shiftKey) {
-                                        setCodexPopoverOpen(true);
-                                    } else {
-                                        onNewTab("codex");
-                                    }
-                                }}
-                                aria-label="New Codex session"
-                                tooltip={
-                                    codexAvailable
-                                        ? "New Codex session (Shift+click for options)"
-                                        : "Codex CLI not installed"
-                                }
-                                tooltipSide="bottom">
-                                <CodexIcon className="h-3.5 w-3.5" />
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-56 p-0">
-                            <AgentOptionsPanel
-                                agentType="codex"
-                                onRun={(options) => {
-                                    setCodexPopoverOpen(false);
-                                    onNewTab("codex", undefined, options);
-                                }}
-                            />
-                        </PopoverContent>
-                    </Popover>
-                    <Popover open={opencodePopoverOpen} onOpenChange={setOpencodePopoverOpen}>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="text-opencode"
-                                disabled={!opencodeAvailable}
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    if (!opencodeAvailable) return;
-                                    if (e.shiftKey) {
-                                        setOpencodePopoverOpen(true);
-                                    } else {
-                                        onNewTab("opencode");
-                                    }
-                                }}
-                                aria-label="New OpenCode session"
-                                tooltip={
-                                    opencodeAvailable
-                                        ? "New OpenCode session (Shift+click for options)"
-                                        : "OpenCode CLI not installed"
-                                }
-                                tooltipSide="bottom">
-                                <OpenCodeIcon className="h-3.5 w-3.5" />
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-56 p-0">
-                            <AgentOptionsPanel
-                                agentType="opencode"
-                                onRun={(options) => {
-                                    setOpencodePopoverOpen(false);
-                                    onNewTab("opencode", undefined, options);
-                                }}
-                            />
-                        </PopoverContent>
-                    </Popover>
-                    <Popover open={geminiPopoverOpen} onOpenChange={setGeminiPopoverOpen}>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="text-primary"
-                                disabled={!geminiAvailable}
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    if (!geminiAvailable) return;
-                                    if (e.shiftKey) {
-                                        setGeminiPopoverOpen(true);
-                                    } else {
-                                        onNewTab("gemini");
-                                    }
-                                }}
-                                aria-label="New Gemini session"
-                                tooltip={
-                                    geminiAvailable
-                                        ? "New Gemini session (Shift+click for options)"
-                                        : "Gemini CLI not installed"
-                                }
-                                tooltipSide="bottom">
-                                <GeminiIcon className="h-3.5 w-3.5" />
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-56 p-0">
-                            <AgentOptionsPanel
-                                agentType="gemini"
-                                onRun={(options) => {
-                                    setGeminiPopoverOpen(false);
-                                    onNewTab("gemini", undefined, options);
-                                }}
-                            />
-                        </PopoverContent>
-                    </Popover>
-                    <Popover open={cursorPopoverOpen} onOpenChange={setCursorPopoverOpen}>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="text-cursor-agent"
-                                disabled={!cursorAvailable}
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    if (!cursorAvailable) return;
-                                    if (e.shiftKey) {
-                                        setCursorPopoverOpen(true);
-                                    } else {
-                                        onNewTab("cursor");
-                                    }
-                                }}
-                                aria-label="New Cursor session"
-                                tooltip={
-                                    cursorAvailable
-                                        ? "New Cursor session (Shift+click for options)"
-                                        : "Cursor CLI not installed"
-                                }
-                                tooltipSide="bottom">
-                                <CursorIcon className="h-3.5 w-3.5" />
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-56 p-0">
-                            <AgentOptionsPanel
-                                agentType="cursor"
-                                onRun={(options) => {
-                                    setCursorPopoverOpen(false);
-                                    onNewTab("cursor", undefined, options);
-                                }}
-                            />
-                        </PopoverContent>
-                    </Popover>
+                    {favoriteAgents.map((agentType) => {
+                        const meta = AGENT_META[agentType];
+                        const available = isAgentAvailable(agents, agentType);
+                        const Icon = meta.icon;
+                        const label = AGENT_DISPLAY_NAMES[agentType];
+                        return (
+                            <Popover
+                                key={agentType}
+                                open={openAgentPopover === agentType}
+                                onOpenChange={(open) =>
+                                    setOpenAgentPopover(open ? agentType : null)
+                                }>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        className={meta.colorClass}
+                                        disabled={!available}
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            if (!available) return;
+                                            if (e.shiftKey) {
+                                                setOpenAgentPopover(agentType);
+                                            } else {
+                                                onNewTab(agentType);
+                                            }
+                                        }}
+                                        aria-label={`New ${label} session`}
+                                        tooltip={
+                                            available
+                                                ? `New ${label} session (Shift+click for options)`
+                                                : `${label} CLI not installed`
+                                        }
+                                        tooltipSide="bottom">
+                                        <Icon className="h-3.5 w-3.5" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-56 p-0">
+                                    <AgentOptionsPanel
+                                        agentType={agentType}
+                                        onRun={(options) => {
+                                            setOpenAgentPopover(null);
+                                            onNewTab(agentType, undefined, options);
+                                        }}
+                                    />
+                                </PopoverContent>
+                            </Popover>
+                        );
+                    })}
                 </>
             )}
             {shells.length > 0 && (
@@ -646,43 +480,88 @@ export function TabBar({
                 tooltipSide="bottom">
                 <Globe className="h-3.5 w-3.5" />
             </Button>
-            {shells.length > 1 && (
+            {((hasAvailableNonFavorites && allowSessionTabs) ||
+                shells.length > 1) && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button
                             variant="ghost"
                             size="icon-xs"
-                            aria-label="Choose terminal shell"
-                            tooltip="Choose terminal shell"
+                            aria-label="More options"
+                            tooltip="More options"
                             tooltipSide="bottom">
                             <ChevronDown className="h-3.5 w-3.5" />
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                        <DropdownMenuItem
-                            disabled={!defaultShellPath}
-                            onClick={() => {
-                                if (defaultShellPath) onNewTab("shell", defaultShellPath);
-                            }}>
-                            <Terminal className="mr-2 h-4 w-4" />
-                            Default Terminal
-                            <span className="text-muted-foreground ml-auto text-xs">
-                                {configuredShell === DEFAULT_TERMINAL_SHELL
-                                    ? getShellNameFromPath(
-                                          defaultShellPath ?? systemShellPath ?? "",
-                                      )
-                                    : defaultShellSummary}
-                            </span>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {shells.map((shell) => (
-                            <DropdownMenuItem
-                                key={shell.path}
-                                onClick={() => onNewTab("shell", shell.path)}>
-                                <Terminal className="mr-2 h-4 w-4" />
-                                {getShellDisplayName(shell)}
-                            </DropdownMenuItem>
-                        ))}
+                        {allowSessionTabs &&
+                            nonFavoriteAgents.map((agentType) => {
+                                const meta = AGENT_META[agentType];
+                                const available = isAgentAvailable(
+                                    agents,
+                                    agentType,
+                                );
+                                const Icon = meta.icon;
+                                return (
+                                    <DropdownMenuItem
+                                        key={agentType}
+                                        disabled={!available}
+                                        onClick={() => {
+                                            if (available)
+                                                onNewTab(agentType);
+                                        }}>
+                                        <Icon className="mr-2 h-4 w-4" />
+                                        {AGENT_DISPLAY_NAMES[agentType]}
+                                        {!available && (
+                                            <span className="text-muted-foreground ml-auto text-xs">
+                                                not installed
+                                            </span>
+                                        )}
+                                    </DropdownMenuItem>
+                                );
+                            })}
+                        {nonFavoriteAgents.length > 0 &&
+                            allowSessionTabs &&
+                            shells.length > 1 && (
+                                <DropdownMenuSeparator />
+                            )}
+                        {shells.length > 1 && (
+                            <>
+                                <DropdownMenuItem
+                                    disabled={!defaultShellPath}
+                                    onClick={() => {
+                                        if (defaultShellPath)
+                                            onNewTab(
+                                                "shell",
+                                                defaultShellPath,
+                                            );
+                                    }}>
+                                    <Terminal className="mr-2 h-4 w-4" />
+                                    Default Terminal
+                                    <span className="text-muted-foreground ml-auto text-xs">
+                                        {configuredShell ===
+                                        DEFAULT_TERMINAL_SHELL
+                                            ? getShellNameFromPath(
+                                                  defaultShellPath ??
+                                                      systemShellPath ??
+                                                      "",
+                                              )
+                                            : defaultShellSummary}
+                                    </span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                {shells.map((shell) => (
+                                    <DropdownMenuItem
+                                        key={shell.path}
+                                        onClick={() =>
+                                            onNewTab("shell", shell.path)
+                                        }>
+                                        <Terminal className="mr-2 h-4 w-4" />
+                                        {getShellDisplayName(shell)}
+                                    </DropdownMenuItem>
+                                ))}
+                            </>
+                        )}
                     </DropdownMenuContent>
                 </DropdownMenu>
             )}
