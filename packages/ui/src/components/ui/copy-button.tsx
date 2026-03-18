@@ -38,8 +38,7 @@ function CopyButton({
             aria-label={copied ? "Copied" : tooltip}
             tooltip={copied ? "Copied!" : tooltip}
             tooltipSide={tooltipSide}
-            className={className}
-        >
+            className={className}>
             {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
         </Button>
     );

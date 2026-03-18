@@ -103,14 +103,12 @@ function FileStatusRow({
             tabIndex={0}
             onClick={() => onSelect(file.path)}
             onKeyDown={handleKeyDown}
-            className={rowClasses}
-        >
+            className={rowClasses}>
             <span className="flex min-w-0 items-center gap-1.5">
                 <Badge
                     variant="outline"
                     colorScheme={gitStatusToColorScheme(file.status)}
-                    className={badgeClasses}
-                >
+                    className={badgeClasses}>
                     {statusPrefix(file.status)}
                 </Badge>
                 <span className="text-secondary-foreground truncate">{displayPath(file)}</span>
@@ -126,8 +124,7 @@ function FileStatusRow({
                         onClick={(e) => {
                             e.stopPropagation();
                             onRevert(file);
-                        }}
-                    >
+                        }}>
                         <Undo2 className="h-3 w-3" />
                     </Button>
                 )}
@@ -141,8 +138,7 @@ function FileStatusRow({
                         onClick={(e) => {
                             e.stopPropagation();
                             onStageToggle(file);
-                        }}
-                    >
+                        }}>
                         {staged ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
                     </Button>
                 )}
@@ -164,8 +160,7 @@ function SectionHeader({ label, count, collapsed, onToggle, action }: SectionHea
         <div className="flex items-center justify-between px-1 py-1">
             <button
                 onClick={onToggle}
-                className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-xs font-medium transition-colors"
-            >
+                className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-xs font-medium transition-colors">
                 {collapsed ? (
                     <ChevronRight className="h-3 w-3" />
                 ) : (
@@ -178,8 +173,7 @@ function SectionHeader({ label, count, collapsed, onToggle, action }: SectionHea
                     variant="ghost"
                     size="sm"
                     className="h-5 px-1.5 text-xs"
-                    onClick={action.onClick}
-                >
+                    onClick={action.onClick}>
                     {action.label}
                 </Button>
             )}
@@ -406,8 +400,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                                         key={`s-${i}-${line.slice(0, 20)}`}
                                         className={diffLineVariants({
                                             type: getDiffLineType(line),
-                                        })}
-                                    >
+                                        })}>
                                         {line}
                                     </div>
                                 ))}
@@ -426,8 +419,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                                         key={`u-${i}-${line.slice(0, 20)}`}
                                         className={diffLineVariants({
                                             type: getDiffLineType(line),
-                                        })}
-                                    >
+                                        })}>
                                         {line}
                                     </div>
                                 ))}

@@ -150,8 +150,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                             size="icon-2xs"
                             onClick={handlePause}
                             tooltip="Pause"
-                            tooltipSide="bottom"
-                        >
+                            tooltipSide="bottom">
                             <Pause className="h-2 w-2" />
                         </Button>
                     )}
@@ -161,8 +160,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                             size="icon-2xs"
                             onClick={handleResume}
                             tooltip="Resume"
-                            tooltipSide="bottom"
-                        >
+                            tooltipSide="bottom">
                             <Play className="h-2 w-2" />
                         </Button>
                     )}
@@ -173,8 +171,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                             className="text-destructive"
                             onClick={handleStop}
                             tooltip="Stop"
-                            tooltipSide="bottom"
-                        >
+                            tooltipSide="bottom">
                             <Square className="h-2 w-2" />
                         </Button>
                     )}
@@ -184,8 +181,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                         onClick={onClose}
                         disabled={run.status === "running" || run.status === "paused"}
                         tooltip="Close"
-                        tooltipSide="bottom"
-                    >
+                        tooltipSide="bottom">
                         <X className="h-3 w-3" />
                     </Button>
                 </div>
@@ -217,8 +213,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                                 e.preventDefault();
                                 handleActionClick(action);
                             }
-                        }}
-                    >
+                        }}>
                         <div className="flex h-5 w-5 shrink-0 items-center justify-center">
                             {action.status === "pending" ? (
                                 <span className="text-muted-foreground">{i + 1}</span>
@@ -238,8 +233,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                                 size="icon-2xs"
                                 onClick={handleSkip}
                                 tooltip="Skip"
-                                tooltipSide="left"
-                            >
+                                tooltipSide="left">
                                 <SkipForward className="h-2 w-2" />
                             </Button>
                         )}
@@ -250,8 +244,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                                     size="icon-2xs"
                                     onClick={(e) => handleRerun(e, i)}
                                     tooltip="Re-run"
-                                    tooltipSide="left"
-                                >
+                                    tooltipSide="left">
                                     <RotateCcw className="h-2 w-2" />
                                 </Button>
                             )}
@@ -268,8 +261,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                     {run.artifacts.map((a) => (
                         <div
                             key={`${a.actionEntryId}-${a.createdAt}`}
-                            className="flex items-center gap-2 text-xs"
-                        >
+                            className="flex items-center gap-2 text-xs">
                             <span className="text-blue-400">&bull;</span>
                             <span>{a.type}</span>
                             <span className="text-muted-foreground min-w-0 flex-1 truncate text-[10px]">
@@ -290,8 +282,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                                             text: a.text,
                                             defaultName,
                                         });
-                                    }}
-                                >
+                                    }}>
                                     <Download className="h-2.5 w-2.5" />
                                 </Button>
                             )}
@@ -303,8 +294,7 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
             {/* Re-run confirmation dialog */}
             <AlertDialog
                 open={!!rerunConfirm}
-                onOpenChange={(open) => !open && setRerunConfirm(null)}
-            >
+                onOpenChange={(open) => !open && setRerunConfirm(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Re-run action?</AlertDialogTitle>

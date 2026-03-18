@@ -107,8 +107,7 @@ function CreateFileDialog({ open, onOpenChange, directoryPath, mode }: CreateFil
                     <Button
                         variant="outline"
                         onClick={() => onOpenChange(false)}
-                        disabled={submitting}
-                    >
+                        disabled={submitting}>
                         Cancel
                     </Button>
                     <Button onClick={() => void handleSubmit()} disabled={submitting}>

@@ -79,8 +79,7 @@ export function MissingLocationDialog({ project, open, onOpenChange }: MissingLo
                         </Button>
                         <Button
                             onClick={() => void handleChangeLocation()}
-                            className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2"
-                        >
+                            className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2">
                             <FolderOpen className="h-4 w-4" />
                             Change Location
                         </Button>
@@ -101,8 +100,7 @@ export function MissingLocationDialog({ project, open, onOpenChange }: MissingLo
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={() => void handleRemove()}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                             Remove
                         </AlertDialogAction>
                     </AlertDialogFooter>

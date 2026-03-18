@@ -125,14 +125,11 @@ function FlowEditor({
         setInputs((prev) => prev.filter((_, i) => i !== index));
     }, []);
 
-    const updateInput = useCallback(
-        (index: number, updates: Partial<FlowInputDefinition>) => {
-            setInputs((prev) =>
-                prev.map((input, i) => (i === index ? { ...input, ...updates } : input)),
-            );
-        },
-        [],
-    );
+    const updateInput = useCallback((index: number, updates: Partial<FlowInputDefinition>) => {
+        setInputs((prev) =>
+            prev.map((input, i) => (i === index ? { ...input, ...updates } : input)),
+        );
+    }, []);
 
     const handleInlineSessionTypeChange = useCallback((entryId: string, value: string) => {
         const nextSessionType = value as SessionType;
@@ -233,7 +230,11 @@ function FlowEditor({
 
                 <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="flow-name" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Name</Label>
+                        <Label
+                            htmlFor="flow-name"
+                            className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
+                            Name
+                        </Label>
                         <Input
                             id="flow-name"
                             value={name}
@@ -242,7 +243,11 @@ function FlowEditor({
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="flow-desc" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Description</Label>
+                        <Label
+                            htmlFor="flow-desc"
+                            className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
+                            Description
+                        </Label>
                         <Input
                             id="flow-desc"
                             value={description}
@@ -252,11 +257,14 @@ function FlowEditor({
                     </div>
 
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="flow-project" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Project</Label>
+                        <Label
+                            htmlFor="flow-project"
+                            className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
+                            Project
+                        </Label>
                         <Select
                             value={projectId ?? "__global__"}
-                            onValueChange={(v) => setProjectId(v === "__global__" ? undefined : v)}
-                        >
+                            onValueChange={(v) => setProjectId(v === "__global__" ? undefined : v)}>
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
@@ -273,7 +281,9 @@ function FlowEditor({
 
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
-                            <Label className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Inputs</Label>
+                            <Label className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
+                                Inputs
+                            </Label>
                             <Button variant="outline" size="sm" onClick={addInput}>
                                 <Plus className="mr-1 h-3 w-3" /> Add Input
                             </Button>
@@ -282,8 +292,7 @@ function FlowEditor({
                             {inputs.map((input, i) => (
                                 <div
                                     key={i}
-                                    className="bg-island-base border-border rounded-lg border p-2.5 flex items-start gap-2"
-                                >
+                                    className="bg-island-base border-border flex items-start gap-2 rounded-lg border p-2.5">
                                     <div className="flex flex-1 flex-col gap-2">
                                         <div className="flex gap-2">
                                             <Input
@@ -300,8 +309,7 @@ function FlowEditor({
                                                     updateInput(i, {
                                                         type: v as "text" | "filepath",
                                                     })
-                                                }
-                                            >
+                                                }>
                                                 <SelectTrigger className="w-[120px]">
                                                     <SelectValue />
                                                 </SelectTrigger>
@@ -325,8 +333,7 @@ function FlowEditor({
                                         variant="ghost"
                                         size="icon"
                                         className="mt-1 h-6 w-6"
-                                        onClick={() => removeInput(i)}
-                                    >
+                                        onClick={() => removeInput(i)}>
                                         <X className="h-3 w-3" />
                                     </Button>
                                 </div>
@@ -336,7 +343,9 @@ function FlowEditor({
 
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
-                            <Label className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Actions</Label>
+                            <Label className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
+                                Actions
+                            </Label>
                             <div className="flex gap-1">
                                 {libraryActions.length > 0 && (
                                     <DropdownMenu>
@@ -349,8 +358,7 @@ function FlowEditor({
                                             {libraryActions.map((action) => (
                                                 <DropdownMenuItem
                                                     key={action.id}
-                                                    onClick={() => addGlobalAction(action)}
-                                                >
+                                                    onClick={() => addGlobalAction(action)}>
                                                     {action.name}
                                                 </DropdownMenuItem>
                                             ))}
@@ -364,7 +372,9 @@ function FlowEditor({
                         </div>
                         <div className="flex flex-col gap-2">
                             {actions.map((entry, i) => (
-                                <div key={entry.id} className="bg-island-base border-border rounded-lg border p-2.5">
+                                <div
+                                    key={entry.id}
+                                    className="bg-island-base border-border rounded-lg border p-2.5">
                                     <div className="flex items-center gap-2">
                                         <div className="flex flex-col gap-0.5">
                                             <Button
@@ -372,8 +382,7 @@ function FlowEditor({
                                                 size="icon"
                                                 className="h-5 w-5"
                                                 onClick={() => moveAction(i, -1)}
-                                                disabled={i === 0}
-                                            >
+                                                disabled={i === 0}>
                                                 <ChevronUp className="h-3 w-3" />
                                             </Button>
                                             <Button
@@ -381,8 +390,7 @@ function FlowEditor({
                                                 size="icon"
                                                 className="h-5 w-5"
                                                 onClick={() => moveAction(i, 1)}
-                                                disabled={i === actions.length - 1}
-                                            >
+                                                disabled={i === actions.length - 1}>
                                                 <ChevronDown className="h-3 w-3" />
                                             </Button>
                                         </div>
@@ -399,8 +407,7 @@ function FlowEditor({
                                             variant="ghost"
                                             size="icon"
                                             className="h-6 w-6"
-                                            onClick={() => removeAction(i)}
-                                        >
+                                            onClick={() => removeAction(i)}>
                                             <X className="h-3 w-3" />
                                         </Button>
                                     </div>
@@ -420,8 +427,7 @@ function FlowEditor({
                                                 value={entry.inline.sessionType}
                                                 onValueChange={(value) =>
                                                     handleInlineSessionTypeChange(entry.id, value)
-                                                }
-                                            >
+                                                }>
                                                 <SelectTrigger>
                                                     <SelectValue />
                                                 </SelectTrigger>
@@ -493,12 +499,7 @@ function FlowEditor({
             {/* Sticky footer outside scroll */}
             <div className="flex shrink-0 items-center gap-2 px-6 py-3">
                 {flow && onDelete && (
-                    <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={onDelete}
-                        className="mr-auto"
-                    >
+                    <Button variant="destructive" size="sm" onClick={onDelete} className="mr-auto">
                         Delete Flow
                     </Button>
                 )}

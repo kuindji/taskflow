@@ -53,8 +53,7 @@ function DeleteFileDialog({ open, onOpenChange, filePath, isDirectory }: DeleteF
                             e.preventDefault();
                             void handleDelete();
                         }}
-                        disabled={submitting}
-                    >
+                        disabled={submitting}>
                         Delete
                     </AlertDialogAction>
                 </AlertDialogFooter>

@@ -56,8 +56,7 @@ function TruncatedText({
             <Component
                 data-slot="truncated-text"
                 className={cn("block min-w-0", className)}
-                {...props}
-            >
+                {...props}>
                 {children}
             </Component>
         );
@@ -68,8 +67,7 @@ function TruncatedText({
             <Component
                 data-slot="truncated-text"
                 className={cn("block min-w-0 truncate", className)}
-                {...props}
-            >
+                {...props}>
                 {children}
             </Component>
         );
@@ -79,15 +77,13 @@ function TruncatedText({
         <Tooltip
             open={tooltipOpen}
             onOpenChange={(open) => setTooltipOpen(open && isTruncated)}
-            delayDuration={tooltipDelay}
-        >
+            delayDuration={tooltipDelay}>
             <TooltipTrigger asChild>
                 <Component
                     ref={ref}
                     data-slot="truncated-text"
                     className={cn("block min-w-0 truncate", className)}
-                    {...props}
-                >
+                    {...props}>
                     {children}
                 </Component>
             </TooltipTrigger>

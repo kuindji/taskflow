@@ -92,8 +92,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                     style={{
                         width: sidebarWidth,
                         ...(isElectron ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : {}),
-                    }}
-                >
+                    }}>
                     {sidebar}
                 </div>
 
@@ -106,8 +105,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                 {fileExplorerOpen && (
                     <div
                         className="bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20"
-                        style={{ width: fileExplorerWidth }}
-                    >
+                        style={{ width: fileExplorerWidth }}>
                         {fileExplorer}
                     </div>
                 )}
@@ -123,8 +121,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                 {flowPanel && (
                     <div
                         className="bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20"
-                        style={{ width: flowPanelWidth }}
-                    >
+                        style={{ width: flowPanelWidth }}>
                         {flowPanel}
                     </div>
                 )}
@@ -152,8 +149,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                 {taskInfoOpen && (
                     <div
                         className="bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20"
-                        style={{ width: taskInfoWidth }}
-                    >
+                        style={{ width: taskInfoWidth }}>
                         {taskInfo}
                     </div>
                 )}

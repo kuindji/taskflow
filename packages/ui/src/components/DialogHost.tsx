@@ -88,8 +88,7 @@ export function DialogHost() {
                         disabled={loading}
                         className={cn(
                             variant === "destructive" && buttonVariants({ variant: "destructive" }),
-                        )}
-                    >
+                        )}>
                         {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                         {confirmLabel}
                     </AlertDialogAction>

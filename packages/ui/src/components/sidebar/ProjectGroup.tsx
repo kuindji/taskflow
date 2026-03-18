@@ -131,8 +131,7 @@ export function ProjectGroup({
                     className={cn(
                         "group mx-1.5 flex min-w-0 cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
                         isActive && !locationInvalid ? "bg-accent/15" : "hover:bg-muted/50",
-                    )}
-                >
+                    )}>
                     <Tooltip key={projectToggleLabel}>
                         <TooltipTrigger asChild>
                             <button
@@ -141,8 +140,7 @@ export function ProjectGroup({
                                     onOpenChange(!open);
                                 }}
                                 aria-label={projectToggleLabel}
-                                className="text-muted-foreground flex h-full shrink-0 items-center px-1"
-                            >
+                                className="text-muted-foreground flex h-full shrink-0 items-center px-1">
                                 {open ? (
                                     <ChevronDown className="h-3.5 w-3.5" />
                                 ) : (
@@ -157,8 +155,7 @@ export function ProjectGroup({
                     <button
                         onClick={handleProjectClick}
                         className="flex w-0 min-w-0 flex-1 cursor-pointer flex-col overflow-hidden py-1.5 pr-1.5 text-left"
-                        title={project.name}
-                    >
+                        title={project.name}>
                         <div className="flex min-w-0 items-center gap-1.5">
                             {locationInvalid && (
                                 <Tooltip>
@@ -185,8 +182,7 @@ export function ProjectGroup({
                                     locationInvalid
                                         ? "text-muted-foreground/60"
                                         : "text-muted-foreground",
-                                )}
-                            >
+                                )}>
                                 {project.name}
                             </span>
                         </div>
@@ -202,8 +198,7 @@ export function ProjectGroup({
                         {!locationInvalid && diffStats && (
                             <Badge
                                 variant="outline"
-                                className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0"
-                            >
+                                className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0">
                                 <span className="text-success">+{diffStats.additions}</span>
                                 <span className="text-destructive">-{diffStats.deletions}</span>
                             </Badge>

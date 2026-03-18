@@ -26,8 +26,7 @@ export function NewTaskControl({
             onClick={requestNewTask}
             tooltip="New task (Cmd+N)"
             tooltipSide={tooltipSide}
-            className={cn("[-webkit-app-region:no-drag]", className)}
-        >
+            className={cn("[-webkit-app-region:no-drag]", className)}>
             <Plus className={cn("h-4 w-4", iconClassName)} />
             Task
         </Button>

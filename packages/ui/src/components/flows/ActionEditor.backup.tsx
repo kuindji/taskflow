@@ -96,8 +96,7 @@ function ActionEditor({
                         <Label htmlFor="action-project">Project</Label>
                         <Select
                             value={projectId ?? "__global__"}
-                            onValueChange={(v) => setProjectId(v === "__global__" ? undefined : v)}
-                        >
+                            onValueChange={(v) => setProjectId(v === "__global__" ? undefined : v)}>
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
@@ -168,8 +167,7 @@ function ActionEditor({
                             size="sm"
                             onClick={onDelete}
                             disabled={deleteDisabled}
-                            title={deleteDisabledReason}
-                        >
+                            title={deleteDisabledReason}>
                             Delete Action
                         </Button>
                     )}

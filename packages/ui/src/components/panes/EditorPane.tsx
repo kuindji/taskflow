@@ -13,8 +13,7 @@ function EditorPane({ filePath }: EditorPaneProps) {
                 <div className="text-muted-foreground flex flex-1 items-center justify-center">
                     Loading editor...
                 </div>
-            }
-        >
+            }>
             <LazyEditorPane filePath={filePath} />
         </Suspense>
     );

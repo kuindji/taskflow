@@ -70,8 +70,7 @@ function FlowInputDialog({ open, flowName, inputs, onSubmit, onCancel }: FlowInp
                                         variant="outline"
                                         size="icon"
                                         onClick={() => void handleFilePick(input.id)}
-                                        title="Browse..."
-                                    >
+                                        title="Browse...">
                                         <FolderOpen className="h-4 w-4" />
                                     </Button>
                                 )}

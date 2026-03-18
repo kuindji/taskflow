@@ -628,8 +628,7 @@ export function Workspace() {
                 open={cursorRulesDialog !== null}
                 onOpenChange={(open) => {
                     if (!open) setCursorRulesDialog(null);
-                }}
-            >
+                }}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Cursor Rules Setup</AlertDialogTitle>
@@ -662,8 +661,7 @@ export function Workspace() {
                                         );
                                     }
                                 })();
-                            }}
-                        >
+                            }}>
                             Create Rules File
                         </AlertDialogAction>
                     </AlertDialogFooter>
@@ -681,8 +679,7 @@ export function Workspace() {
             )}
             <AlertDialog
                 open={worktreeMissingDialogOpen}
-                onOpenChange={setWorktreeMissingDialogOpen}
-            >
+                onOpenChange={setWorktreeMissingDialogOpen}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Worktree not found</AlertDialogTitle>
@@ -697,8 +694,7 @@ export function Workspace() {
                     <AlertDialogFooter>
                         <AlertDialogAction
                             onClick={handleWorktreeDeleteTask}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                             Delete task
                         </AlertDialogAction>
                         <AlertDialogCancel onClick={handleWorktreeReset}>

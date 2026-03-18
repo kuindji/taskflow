@@ -198,8 +198,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                         } catch (err: unknown) {
                             console.error("Failed to save file:", err);
                         }
-                    }}
-                >
+                    }}>
                     Save
                 </Button>
             )}

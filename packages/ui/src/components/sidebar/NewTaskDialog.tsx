@@ -168,8 +168,7 @@ export function NewTaskDialog({
             <DialogContent
                 className="sm:max-w-md"
                 onKeyDown={handleKeyDown}
-                onOpenAutoFocus={handleOpenAutoFocus}
-            >
+                onOpenAutoFocus={handleOpenAutoFocus}>
                 <DialogHeader>
                     <DialogTitle>{isSubtask ? "New Subtask" : "New Task"}</DialogTitle>
                 </DialogHeader>
@@ -229,8 +228,7 @@ export function NewTaskDialog({
                             />
                             <Label
                                 htmlFor="new-task-worktree"
-                                className="cursor-pointer tracking-normal normal-case"
-                            >
+                                className="cursor-pointer tracking-normal normal-case">
                                 Use git worktree
                             </Label>
                         </div>
@@ -303,8 +301,7 @@ export function NewTaskDialog({
                     <Button
                         onClick={handleSubmit}
                         disabled={!canSubmit}
-                        className="bg-accent text-accent-foreground hover:bg-accent/90"
-                    >
+                        className="bg-accent text-accent-foreground hover:bg-accent/90">
                         {isSubtask ? "Create Subtask" : "Create Task"}
                     </Button>
                 </DialogFooter>

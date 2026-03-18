@@ -44,8 +44,7 @@ function ImportTab() {
                     type="button"
                     className="bg-accent/10 text-accent hover:bg-accent/20 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
                     onClick={handleFileImport}
-                    disabled={importing === "file"}
-                >
+                    disabled={importing === "file"}>
                     {importing === "file" ? "Importing..." : "From File..."}
                 </button>
             </div>
@@ -71,8 +70,7 @@ function ImportTab() {
                             return (
                                 <div
                                     key={key}
-                                    className="border-border/50 flex items-center justify-between rounded-md border px-3 py-2"
-                                >
+                                    className="border-border/50 flex items-center justify-between rounded-md border px-3 py-2">
                                     <div className="flex items-center gap-3">
                                         <div className="flex gap-1">
                                             {[
@@ -97,8 +95,7 @@ function ImportTab() {
                                         type="button"
                                         className="bg-accent/10 text-accent hover:bg-accent/20 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50"
                                         onClick={() => handleImportTheme(theme, key)}
-                                        disabled={importing === key}
-                                    >
+                                        disabled={importing === key}>
                                         {importing === key ? "Importing..." : "Import"}
                                     </button>
                                 </div>

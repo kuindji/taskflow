@@ -148,8 +148,7 @@ export function ForkProjectDialog({ open, onOpenChange, project }: ForkProjectDi
                         onClick={() => void handleSubmit()}
                         disabled={!canSubmit}
                         loading={loading}
-                        className="bg-accent text-accent-foreground hover:bg-accent/90"
-                    >
+                        className="bg-accent text-accent-foreground hover:bg-accent/90">
                         Fork
                     </Button>
                 </DialogFooter>

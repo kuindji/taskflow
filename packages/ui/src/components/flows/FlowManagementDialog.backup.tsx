@@ -143,8 +143,7 @@ function FlowManagementDialog() {
                                 tab === "flows"
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                        >
+                            }`}>
                             Flows
                         </button>
                         <button
@@ -153,8 +152,7 @@ function FlowManagementDialog() {
                                 tab === "actions"
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                        >
+                            }`}>
                             Actions
                         </button>
                     </nav>
@@ -168,8 +166,7 @@ function FlowManagementDialog() {
                                     setProjectFilter(v);
                                     setSelectedId(null);
                                     setCreating(false);
-                                }}
-                            >
+                                }}>
                                 <SelectTrigger className="h-7 text-xs">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -194,8 +191,7 @@ function FlowManagementDialog() {
                                             selectedId === f.id
                                                 ? "bg-accent text-accent-foreground"
                                                 : "hover:bg-muted"
-                                        }`}
-                                    >
+                                        }`}>
                                         <div className="font-medium">{f.name}</div>
                                         <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
                                             <span>
@@ -224,8 +220,7 @@ function FlowManagementDialog() {
                                             selectedId === s.id
                                                 ? "bg-accent text-accent-foreground"
                                                 : "hover:bg-muted"
-                                        }`}
-                                    >
+                                        }`}>
                                         <div className="font-medium">{s.name}</div>
                                         <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
                                             <span>{s.sessionType}</span>
@@ -249,8 +244,7 @@ function FlowManagementDialog() {
                                 size="icon"
                                 className="h-7 w-7"
                                 onClick={startCreating}
-                                title={tab === "flows" ? "New flow" : "New action"}
-                            >
+                                title={tab === "flows" ? "New flow" : "New action"}>
                                 <Plus className="h-4 w-4" />
                             </Button>
                         </div>

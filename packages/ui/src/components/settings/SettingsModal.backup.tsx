@@ -353,8 +353,7 @@ function SettingsModal() {
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                             }`}
-                            onClick={() => setSection("general")}
-                        >
+                            onClick={() => setSection("general")}>
                             General
                         </button>
                         <button
@@ -363,8 +362,7 @@ function SettingsModal() {
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                             }`}
-                            onClick={() => setSection("defaults")}
-                        >
+                            onClick={() => setSection("defaults")}>
                             Defaults
                         </button>
                         <button
@@ -373,8 +371,7 @@ function SettingsModal() {
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                             }`}
-                            onClick={() => setSection("claude")}
-                        >
+                            onClick={() => setSection("claude")}>
                             Claude
                         </button>
                         <button
@@ -383,8 +380,7 @@ function SettingsModal() {
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                             }`}
-                            onClick={() => setSection("codex")}
-                        >
+                            onClick={() => setSection("codex")}>
                             Codex
                         </button>
                         <button
@@ -393,8 +389,7 @@ function SettingsModal() {
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                             }`}
-                            onClick={() => setSection("opencode")}
-                        >
+                            onClick={() => setSection("opencode")}>
                             OpenCode
                         </button>
                         <button
@@ -403,8 +398,7 @@ function SettingsModal() {
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                             }`}
-                            onClick={() => setSection("gemini")}
-                        >
+                            onClick={() => setSection("gemini")}>
                             Gemini
                         </button>
                         <button
@@ -413,8 +407,7 @@ function SettingsModal() {
                                     ? "bg-accent text-accent-foreground font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                             }`}
-                            onClick={() => setSection("cursor")}
-                        >
+                            onClick={() => setSection("cursor")}>
                             Cursor
                         </button>
                     </nav>
@@ -438,8 +431,7 @@ function SettingsModal() {
                                                 className="bg-muted text-foreground flex h-8 w-full max-w-85 min-w-0 items-center overflow-x-auto rounded px-2 text-xs"
                                                 tooltipContent={
                                                     dataDirInfo?.dataDir ?? "Loading..."
-                                                }
-                                            >
+                                                }>
                                                 {dataDirInfo?.dataDir ?? "Loading..."}
                                             </TruncatedText>
                                             <div className="flex flex-wrap gap-2">
@@ -447,8 +439,7 @@ function SettingsModal() {
                                                     variant="outline"
                                                     size="sm"
                                                     disabled={migrating}
-                                                    onClick={() => void handleChangeDataDir()}
-                                                >
+                                                    onClick={() => void handleChangeDataDir()}>
                                                     {migrating ? "Moving..." : "Change..."}
                                                 </Button>
                                                 {dataDirInfo && !dataDirInfo.isDefault && (
@@ -456,8 +447,7 @@ function SettingsModal() {
                                                         variant="outline"
                                                         size="sm"
                                                         disabled={migrating}
-                                                        onClick={() => void handleResetDataDir()}
-                                                    >
+                                                        onClick={() => void handleResetDataDir()}>
                                                         Reset
                                                     </Button>
                                                 )}
@@ -488,8 +478,7 @@ function SettingsModal() {
                                         </Label>
                                         <Select
                                             value={settings.claude.defaultModel}
-                                            onValueChange={handleClaudeModel}
-                                        >
+                                            onValueChange={handleClaudeModel}>
                                             <SelectTrigger className="h-8 w-64 text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
@@ -516,8 +505,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="claude-full-access"
-                                                className="cursor-pointer text-sm font-normal normal-case"
-                                            >
+                                                className="cursor-pointer text-sm font-normal normal-case">
                                                 {settings.claude.fullAccess
                                                     ? "Enabled"
                                                     : "Disabled"}
@@ -543,8 +531,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="codex-full-access"
-                                                className="cursor-pointer text-sm font-normal normal-case"
-                                            >
+                                                className="cursor-pointer text-sm font-normal normal-case">
                                                 {settings.codex.fullAccess ? "Enabled" : "Disabled"}
                                             </Label>
                                         </div>
@@ -584,8 +571,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="opencode-full-access"
-                                                className="cursor-pointer text-sm font-normal normal-case"
-                                            >
+                                                className="cursor-pointer text-sm font-normal normal-case">
                                                 {settings.opencode.fullAccess
                                                     ? "Enabled"
                                                     : "Disabled"}
@@ -605,8 +591,7 @@ function SettingsModal() {
                                         </Label>
                                         <Select
                                             value={settings.gemini.defaultModel}
-                                            onValueChange={handleGeminiModel}
-                                        >
+                                            onValueChange={handleGeminiModel}>
                                             <SelectTrigger className="h-8 w-64 text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
@@ -636,8 +621,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="gemini-full-access"
-                                                className="cursor-pointer text-sm font-normal normal-case"
-                                            >
+                                                className="cursor-pointer text-sm font-normal normal-case">
                                                 {settings.gemini.fullAccess
                                                     ? "Enabled"
                                                     : "Disabled"}
@@ -681,8 +665,7 @@ function SettingsModal() {
                                             />
                                             <Label
                                                 htmlFor="cursor-full-access"
-                                                className="cursor-pointer text-sm font-normal normal-case"
-                                            >
+                                                className="cursor-pointer text-sm font-normal normal-case">
                                                 {settings.cursor.fullAccess
                                                     ? "Enabled"
                                                     : "Disabled"}
@@ -707,8 +690,7 @@ function SettingsModal() {
                                                 updateSettings({
                                                     editor: { internalEditor: value },
                                                 })
-                                            }
-                                        >
+                                            }>
                                             <SelectTrigger className="h-8 w-full text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
@@ -733,8 +715,7 @@ function SettingsModal() {
                                         </Label>
                                         <Select
                                             value={settings.editor.externalEditor}
-                                            onValueChange={handleExternalEditor}
-                                        >
+                                            onValueChange={handleExternalEditor}>
                                             <SelectTrigger className="h-8 w-full text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
@@ -762,43 +743,37 @@ function SettingsModal() {
                                         </Label>
                                         <Select
                                             value={settings.general.defaultAgent}
-                                            onValueChange={handleDefaultAgent}
-                                        >
+                                            onValueChange={handleDefaultAgent}>
                                             <SelectTrigger className="h-8 w-full text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem
                                                     value="claude"
-                                                    disabled={!claudeAvailable}
-                                                >
+                                                    disabled={!claudeAvailable}>
                                                     Claude
                                                     {!claudeAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
                                                 <SelectItem
                                                     value="codex"
-                                                    disabled={!codexAvailable}
-                                                >
+                                                    disabled={!codexAvailable}>
                                                     Codex{!codexAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
                                                 <SelectItem
                                                     value="opencode"
-                                                    disabled={!opencodeAvailable}
-                                                >
+                                                    disabled={!opencodeAvailable}>
                                                     OpenCode
                                                     {!opencodeAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
                                                 <SelectItem
                                                     value="gemini"
-                                                    disabled={!geminiAvailable}
-                                                >
+                                                    disabled={!geminiAvailable}>
                                                     Gemini
                                                     {!geminiAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
                                                 <SelectItem
                                                     value="cursor"
-                                                    disabled={!cursorAvailable}
-                                                >
+                                                    disabled={!cursorAvailable}>
                                                     Cursor
                                                     {!cursorAvailable ? " (not installed)" : ""}
                                                 </SelectItem>
@@ -818,8 +793,7 @@ function SettingsModal() {
                                                     ? settings.terminal.defaultShell
                                                     : "__missing__"
                                             }
-                                            onValueChange={handleDefaultShell}
-                                        >
+                                            onValueChange={handleDefaultShell}>
                                             <SelectTrigger className="h-8 w-full text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
@@ -864,8 +838,7 @@ function SettingsModal() {
                                                     ? settings.general.defaultRuntime
                                                     : "__missing__"
                                             }
-                                            onValueChange={handleDefaultRuntime}
-                                        >
+                                            onValueChange={handleDefaultRuntime}>
                                             <SelectTrigger className="h-8 w-full text-sm">
                                                 <SelectValue />
                                             </SelectTrigger>
@@ -904,8 +877,7 @@ function SettingsModal() {
                 open={conflictPath !== null}
                 onOpenChange={(open) => {
                     if (!open) setConflictPath(null);
-                }}
-            >
+                }}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Existing Data Found</AlertDialogTitle>
@@ -920,8 +892,7 @@ function SettingsModal() {
                         </Button>
                         <Button
                             variant="destructive"
-                            onClick={() => void handleConflictChoice("overwrite")}
-                        >
+                            onClick={() => void handleConflictChoice("overwrite")}>
                             Overwrite
                         </Button>
                         <Button onClick={() => void handleConflictChoice("adopt")}>

@@ -272,8 +272,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                     />
                                     <Label
                                         htmlFor="commit-use-agent"
-                                        className="cursor-pointer tracking-normal normal-case"
-                                    >
+                                        className="cursor-pointer tracking-normal normal-case">
                                         Use agent
                                     </Label>
                                 </div>
@@ -286,8 +285,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                     />
                                     <Label
                                         htmlFor="commit-include-unstaged"
-                                        className="cursor-pointer tracking-normal normal-case"
-                                    >
+                                        className="cursor-pointer tracking-normal normal-case">
                                         Include unstaged changes
                                     </Label>
                                 </div>
@@ -300,8 +298,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                     />
                                     <Label
                                         htmlFor="commit-push"
-                                        className="cursor-pointer tracking-normal normal-case"
-                                    >
+                                        className="cursor-pointer tracking-normal normal-case">
                                         Push
                                     </Label>
                                 </div>
@@ -319,8 +316,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                             />
                             <Label
                                 htmlFor="commit-create-pr"
-                                className={`cursor-pointer tracking-normal normal-case ${!push ? "text-muted-foreground" : ""}`}
-                            >
+                                className={`cursor-pointer tracking-normal normal-case ${!push ? "text-muted-foreground" : ""}`}>
                                 Create PR
                             </Label>
                         </div>
@@ -338,8 +334,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                         loading={loading || hasChanges === null || ahead === null}
                         disabled={commitButtonDisabled}
                         tooltip={commitButtonDisabled ? "No staged changes to commit" : undefined}
-                        className="bg-accent text-accent-foreground hover:bg-accent/90"
-                    >
+                        className="bg-accent text-accent-foreground hover:bg-accent/90">
                         {submitLabel}
                     </Button>
                 </DialogFooter>

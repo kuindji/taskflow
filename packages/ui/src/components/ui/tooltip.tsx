@@ -80,8 +80,7 @@ function Tooltip({
 
     return (
         <TooltipContext.Provider
-            value={{ open, setOpen, triggerEl, setTriggerEl, contentRef, delayDuration }}
-        >
+            value={{ open, setOpen, triggerEl, setTriggerEl, contentRef, delayDuration }}>
             {children}
         </TooltipContext.Provider>
     );
@@ -140,8 +139,7 @@ function TooltipTrigger({
                     setTriggerEl(child ?? el);
                 }}
                 style={{ display: "contents" }}
-                {...eventHandlers}
-            >
+                {...eventHandlers}>
                 {children}
             </span>
         );
@@ -239,8 +237,7 @@ function TooltipContent({
                 ...floatingStyles,
                 visibility: isPositioned ? "visible" : "hidden",
             }}
-            className="pointer-events-none z-50 w-fit"
-        >
+            className="pointer-events-none z-50 w-fit">
             <div
                 className={cn(
                     "bg-foreground text-background max-w-[300px] rounded-md px-3 py-1.5 text-xs text-balance",
@@ -251,8 +248,7 @@ function TooltipContent({
                     actualSide === "top" && "slide-in-from-bottom-2",
                     className,
                 )}
-                {...props}
-            >
+                {...props}>
                 {children}
                 <div
                     ref={setArrowEl}

@@ -151,8 +151,7 @@ export function TaskCard({
                     "group relative min-w-0 overflow-hidden [-webkit-app-region:no-drag]",
                     compact && "py-1.5",
                     isSubtask && "ml-0.5 py-1.5",
-                )}
-            >
+                )}>
                 <div className="min-w-0 flex-1">
                     <TruncatedText
                         truncate={!!compact}
@@ -162,8 +161,7 @@ export function TaskCard({
                             isSubtask ? "text-xs" : "text-sm",
                             isActive && "text-foreground",
                             "leading-normal font-medium",
-                        )}
-                    >
+                        )}>
                         {title}
                     </TruncatedText>
                 </div>
@@ -174,8 +172,7 @@ export function TaskCard({
                             tooltipSide="right"
                             tooltipDelay={1000}
                             tooltipClassName="max-w-[300px]"
-                            className="text-muted-foreground text-xs leading-normal"
-                        >
+                            className="text-muted-foreground text-xs leading-normal">
                             {description}
                         </TruncatedText>
                     </div>
@@ -188,8 +185,7 @@ export function TaskCard({
                                 <TooltipTrigger asChild>
                                     <Badge
                                         variant="outline"
-                                        className="border-border/60 bg-muted/50 min-h-4.5 gap-0.5 px-1 py-0 text-xs font-medium"
-                                    >
+                                        className="border-border/60 bg-muted/50 min-h-4.5 gap-0.5 px-1 py-0 text-xs font-medium">
                                         <GitBranch className="text-muted-foreground" />
                                         {task.worktree.pr && (
                                             <span className="text-accent">
@@ -227,8 +223,7 @@ export function TaskCard({
                             className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Add subtask"
                             tooltip="Add subtask"
-                            tooltipSide="top"
-                        >
+                            tooltipSide="top">
                             <Plus className="h-3.5 w-3.5" />
                         </Button>
                     )}
@@ -240,8 +235,7 @@ export function TaskCard({
                             className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label={task.pinned ? "Unpin task" : "Pin task"}
                             tooltip={task.pinned ? "Unpin task" : "Pin task"}
-                            tooltipSide="top"
-                        >
+                            tooltipSide="top">
                             <Pin className={cn("h-3.5 w-3.5", task.pinned && "fill-current")} />
                         </Button>
                     )}
@@ -253,8 +247,7 @@ export function TaskCard({
                             className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Unarchive task"
                             tooltip="Unarchive task"
-                            tooltipSide="top"
-                        >
+                            tooltipSide="top">
                             <ArchiveRestore className="h-3.5 w-3.5" />
                         </Button>
                     ) : (
@@ -265,8 +258,7 @@ export function TaskCard({
                             className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-foreground h-6 w-6 border p-0 shadow-xs"
                             aria-label="Archive task"
                             tooltip="Archive task"
-                            tooltipSide="top"
-                        >
+                            tooltipSide="top">
                             <Archive className="h-3.5 w-3.5" />
                         </Button>
                     )}
@@ -277,8 +269,7 @@ export function TaskCard({
                         className="border-border/60 bg-background text-muted-foreground hover:bg-background dark:hover:bg-background hover:text-destructive h-6 w-6 border p-0 shadow-xs"
                         aria-label="Delete task"
                         tooltip="Delete task"
-                        tooltipSide="top"
-                    >
+                        tooltipSide="top">
                         <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                 </div>
@@ -302,8 +293,7 @@ export function TaskCard({
                             />
                             <Label
                                 htmlFor={`delete-worktree-${task.id}`}
-                                className="text-muted-foreground cursor-pointer text-sm tracking-normal normal-case"
-                            >
+                                className="text-muted-foreground cursor-pointer text-sm tracking-normal normal-case">
                                 Also delete worktree and branch ({task.worktree.branch})
                             </Label>
                         </div>
@@ -312,8 +302,7 @@ export function TaskCard({
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={handleDeleteConfirm}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                             Delete
                         </AlertDialogAction>
                     </AlertDialogFooter>

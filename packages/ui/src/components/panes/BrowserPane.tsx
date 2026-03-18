@@ -141,8 +141,7 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
                     disabled={!canGoBack}
                     aria-label="Go back"
                     tooltip="Go back"
-                    tooltipSide="bottom"
-                >
+                    tooltipSide="bottom">
                     <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <Button
@@ -151,8 +150,7 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
                     onClick={reload}
                     aria-label="Reload"
                     tooltip="Reload"
-                    tooltipSide="bottom"
-                >
+                    tooltipSide="bottom">
                     <RotateCw className="h-4 w-4" />
                 </Button>
                 <Button
@@ -162,8 +160,7 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
                     disabled={!url || url === "about:blank"}
                     aria-label="Open in external browser"
                     tooltip="Open in external browser"
-                    tooltipSide="bottom"
-                >
+                    tooltipSide="bottom">
                     <ExternalLink className="h-4 w-4" />
                 </Button>
                 <Input

@@ -148,8 +148,7 @@ function TaskInfoPanel() {
                         onClick={toggleTaskInfo}
                         aria-label="Hide task info"
                         tooltip="Hide task info"
-                        tooltipSide="bottom"
-                    >
+                        tooltipSide="bottom">
                         <X className="h-3 w-3" />
                     </Button>
                 </Toolbar>
@@ -202,8 +201,7 @@ function TaskInfoPanel() {
                     onClick={toggleTaskInfo}
                     aria-label="Hide task info"
                     tooltip="Hide task info"
-                    tooltipSide="bottom"
-                >
+                    tooltipSide="bottom">
                     <X className="h-3 w-3" />
                 </Button>
             </Toolbar>
@@ -213,8 +211,7 @@ function TaskInfoPanel() {
                     <div>
                         <label
                             htmlFor="task-info-title"
-                            className="text-muted-foreground text-xs font-medium"
-                        >
+                            className="text-muted-foreground text-xs font-medium">
                             Title
                         </label>
                         <Input
@@ -232,8 +229,7 @@ function TaskInfoPanel() {
                     <div>
                         <label
                             htmlFor="task-info-description"
-                            className="text-muted-foreground text-xs font-medium"
-                        >
+                            className="text-muted-foreground text-xs font-medium">
                             Description
                         </label>
                         <Textarea
@@ -298,8 +294,7 @@ function TaskInfoPanel() {
                     <div>
                         <label
                             htmlFor="task-info-notes"
-                            className="text-muted-foreground text-xs font-medium"
-                        >
+                            className="text-muted-foreground text-xs font-medium">
                             Notes
                         </label>
                         <Textarea
@@ -324,12 +319,10 @@ function TaskInfoPanel() {
                                     {taskLogs.map((entry) => (
                                         <div
                                             key={entry.id}
-                                            className="border-border/50 bg-muted/30 rounded-md border px-2.5 py-2"
-                                        >
+                                            className="border-border/50 bg-muted/30 rounded-md border px-2.5 py-2">
                                             <div className="flex items-center gap-2">
                                                 <span
-                                                    className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${logTypeStyles[entry.type]}`}
-                                                >
+                                                    className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${logTypeStyles[entry.type]}`}>
                                                     {entry.type}
                                                 </span>
                                                 <span className="text-muted-foreground text-[10px]">

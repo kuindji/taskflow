@@ -142,8 +142,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                                 className={cn(
                                     "absolute inset-0 flex",
                                     isActive ? "z-10" : "pointer-events-none -left-[9999em] z-0",
-                                )}
-                            >
+                                )}>
                                 {pane}
                             </div>
                         </ErrorBoundary>

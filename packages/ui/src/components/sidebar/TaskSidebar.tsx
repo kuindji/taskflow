@@ -266,8 +266,7 @@ export function TaskSidebar() {
                                 variant="ghost"
                                 size="xs"
                                 onClick={() => handleOpenProjectDialog()}
-                                className="[-webkit-app-region:no-drag]"
-                            >
+                                className="[-webkit-app-region:no-drag]">
                                 <Plus className="h-4 w-4" />
                                 Project
                             </Button>
@@ -283,8 +282,7 @@ export function TaskSidebar() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleOpenProjectDialog()}
-                            className="text-accent text-sm [-webkit-app-region:no-drag]"
-                        >
+                            className="text-accent text-sm [-webkit-app-region:no-drag]">
                             Add Project
                         </Button>
                     </div>
@@ -327,8 +325,7 @@ export function TaskSidebar() {
                             aria-label="Checking for updates"
                             tooltip="Checking for updates…"
                             tooltipSide="right"
-                            className="text-muted-foreground [-webkit-app-region:no-drag]"
-                        >
+                            className="text-muted-foreground [-webkit-app-region:no-drag]">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         </Button>
                     )}
@@ -340,8 +337,7 @@ export function TaskSidebar() {
                             aria-label="Downloading update"
                             tooltip={`Downloading v${updateStatus.version ?? ""}…`}
                             tooltipSide="right"
-                            className="text-muted-foreground [-webkit-app-region:no-drag]"
-                        >
+                            className="text-muted-foreground [-webkit-app-region:no-drag]">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         </Button>
                     )}
@@ -353,8 +349,7 @@ export function TaskSidebar() {
                             aria-label="Update available"
                             tooltip={`v${updateStatus.version ?? ""} available — click to update`}
                             tooltipSide="right"
-                            className="text-accent [-webkit-app-region:no-drag]"
-                        >
+                            className="text-accent [-webkit-app-region:no-drag]">
                             <ArrowDownToLine className="h-3.5 w-3.5" />
                         </Button>
                     )}
@@ -367,8 +362,7 @@ export function TaskSidebar() {
                         aria-label="Flows"
                         tooltip="Flows"
                         tooltipSide="bottom"
-                        className="text-muted-foreground [-webkit-app-region:no-drag]"
-                    >
+                        className="text-muted-foreground [-webkit-app-region:no-drag]">
                         <Workflow className="h-3.5 w-3.5" />
                     </Button>
                     <Button
@@ -378,8 +372,7 @@ export function TaskSidebar() {
                         aria-label="Appearance"
                         tooltip="Appearance"
                         tooltipSide="bottom"
-                        className="text-muted-foreground [-webkit-app-region:no-drag]"
-                    >
+                        className="text-muted-foreground [-webkit-app-region:no-drag]">
                         <Palette className="h-3.5 w-3.5" />
                     </Button>
                     <Button
@@ -389,8 +382,7 @@ export function TaskSidebar() {
                         aria-label="Settings"
                         tooltip="Settings"
                         tooltipSide="bottom"
-                        className="text-muted-foreground [-webkit-app-region:no-drag]"
-                    >
+                        className="text-muted-foreground [-webkit-app-region:no-drag]">
                         <Settings2 className="h-3.5 w-3.5" />
                     </Button>
                 </div>
@@ -414,8 +406,7 @@ export function TaskSidebar() {
                         <AlertDialogCancel size="sm">Later</AlertDialogCancel>
                         <AlertDialogAction
                             size="sm"
-                            onClick={() => window.taskflow?.quitAndInstallUpdate()}
-                        >
+                            onClick={() => window.taskflow?.quitAndInstallUpdate()}>
                             Restart Now
                         </AlertDialogAction>
                     </AlertDialogFooter>

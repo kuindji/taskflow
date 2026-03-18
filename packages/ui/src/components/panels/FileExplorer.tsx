@@ -138,8 +138,7 @@ function FileExplorer() {
                     aria-label="Hide file explorer"
                     tooltip="Hide file explorer"
                     tooltipSide="bottom"
-                    className="[-webkit-app-region:no-drag]"
-                >
+                    className="[-webkit-app-region:no-drag]">
                     <X className="h-3 w-3" />
                 </Button>
             </Toolbar>

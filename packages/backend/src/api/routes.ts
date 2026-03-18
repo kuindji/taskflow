@@ -504,21 +504,17 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         return jsonResponse({ inputValues: run.inputValues ?? {} });
     });
 
-    apiRouter.register(
-        "GET",
-        "/api/flow/input/:ownerId/:flowId/:inputId",
-        async (_req, params) => {
-            const run = await flowStore.getFlowRun(params.ownerId, params.flowId);
-            if (!run) return errorResponse("Flow run not found", 404);
-            const value = run.inputValues?.[params.inputId];
-            if (value === undefined) {
-                return errorResponse(`Input "${params.inputId}" not found`, 404);
-            }
-            // Return plain text for easy CLI consumption (no JSON parsing needed)
-            return new Response(value, {
-                status: 200,
-                headers: { "Content-Type": "text/plain" },
-            });
-        },
-    );
+    apiRouter.register("GET", "/api/flow/input/:ownerId/:flowId/:inputId", async (_req, params) => {
+        const run = await flowStore.getFlowRun(params.ownerId, params.flowId);
+        if (!run) return errorResponse("Flow run not found", 404);
+        const value = run.inputValues?.[params.inputId];
+        if (value === undefined) {
+            return errorResponse(`Input "${params.inputId}" not found`, 404);
+        }
+        // Return plain text for easy CLI consumption (no JSON parsing needed)
+        return new Response(value, {
+            status: 200,
+            headers: { "Content-Type": "text/plain" },
+        });
+    });
 }

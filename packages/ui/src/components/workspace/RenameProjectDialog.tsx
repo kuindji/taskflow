@@ -82,8 +82,7 @@ export function RenameProjectDialog({
                     <Button
                         onClick={handleSubmit}
                         disabled={!canSubmit}
-                        className="bg-accent text-accent-foreground hover:bg-accent/90"
-                    >
+                        className="bg-accent text-accent-foreground hover:bg-accent/90">
                         Rename
                     </Button>
                 </DialogFooter>

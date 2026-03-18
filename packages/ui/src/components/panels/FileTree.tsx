@@ -118,8 +118,7 @@ function FileTree({
                     draggable
                     onDragStart={handleDragStart}
                     className={cn(fileClasses, "flex min-w-0 items-center gap-1.5")}
-                    style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
-                >
+                    style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}>
                     <FileIcon name={node.name} isDirectory={false} />
                     <TruncatedText tooltipContent={node.path}>{node.name}</TruncatedText>
                 </div>
@@ -134,8 +133,7 @@ function FileTree({
                     draggable
                     onDragStart={handleDragStart}
                     className={directoryClasses}
-                    style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}
-                >
+                    style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}>
                     {open ? (
                         <ChevronDown className="mr-1.5 h-4 w-4 shrink-0" />
                     ) : (
@@ -149,8 +147,7 @@ function FileTree({
                 {isLoading ? (
                     <div
                         className="text-muted-foreground py-1 text-xs"
-                        style={{ paddingLeft: Math.min(depth + 1, 8) * 16 + 12 }}
-                    >
+                        style={{ paddingLeft: Math.min(depth + 1, 8) * 16 + 12 }}>
                         Loading...
                     </div>
                 ) : (

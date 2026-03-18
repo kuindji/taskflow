@@ -110,8 +110,7 @@ function RenameFileDialog({ open, onOpenChange, filePath, isDirectory }: RenameF
                     <Button
                         variant="outline"
                         onClick={() => onOpenChange(false)}
-                        disabled={submitting}
-                    >
+                        disabled={submitting}>
                         Cancel
                     </Button>
                     <Button onClick={() => void handleSubmit()} disabled={submitting}>

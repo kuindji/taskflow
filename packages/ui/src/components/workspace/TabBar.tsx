@@ -104,8 +104,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
                     onTabClick(tab.id);
                 }
             }}
-            className={classes}
-        >
+            className={classes}>
             {tab.sessionId && <StatusDot status={status} className="mr-1" />}
             {isEditing ? (
                 <input
@@ -135,8 +134,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
                         setEditValue(tab.label);
                         setIsEditing(true);
                         requestAnimationFrame(() => inputRef.current?.focus());
-                    }}
-                >
+                    }}>
                     {tab.label}
                 </span>
             )}
@@ -148,8 +146,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
                 onClick={(e) => {
                     e.stopPropagation();
                     onTabClose(tab.id);
-                }}
-            >
+                }}>
                 <X className="size-3" />
             </Button>
         </div>
@@ -255,8 +252,7 @@ export function TabBar({
                             size="icon-xs"
                             aria-label="Run"
                             tooltip="Run"
-                            tooltipSide="bottom"
-                        >
+                            tooltipSide="bottom">
                             <Play className="h-3.5 w-3.5" />
                         </Button>
                     </DropdownMenuTrigger>
@@ -271,8 +267,7 @@ export function TabBar({
                                     {scriptNames.map((name) => (
                                         <DropdownMenuItem
                                             key={name}
-                                            onClick={() => onRunScript(name)}
-                                        >
+                                            onClick={() => onRunScript(name)}>
                                             <SquareTerminal className="mr-2 h-4 w-4" />
                                             {name}
                                             <span className="text-muted-foreground ml-auto text-xs">
@@ -295,8 +290,7 @@ export function TabBar({
                                         {flows.map((f) => (
                                             <DropdownMenuItem
                                                 key={f.id}
-                                                onClick={() => onStartFlow(f.id)}
-                                            >
+                                                onClick={() => onStartFlow(f.id)}>
                                                 {f.name}
                                             </DropdownMenuItem>
                                         ))}
@@ -322,8 +316,7 @@ export function TabBar({
                                         {standaloneActions.map((a) => (
                                             <DropdownMenuItem
                                                 key={a.id}
-                                                onClick={() => onRunAction(a)}
-                                            >
+                                                onClick={() => onRunAction(a)}>
                                                 {a.name}
                                                 <span className="text-muted-foreground ml-auto text-xs">
                                                     {a.sessionType}
@@ -341,8 +334,7 @@ export function TabBar({
                                     standaloneActions.length > 0) && <DropdownMenuSeparator />}
                                 <DropdownMenuItem
                                     disabled={!claudeAvailable}
-                                    onClick={() => claudeAvailable && onRunTab("claude")}
-                                >
+                                    onClick={() => claudeAvailable && onRunTab("claude")}>
                                     <ClaudeIcon className="mr-2 h-4 w-4" />
                                     Claude Code{!claudeAvailable ? " (not installed)" : ""}
                                 </DropdownMenuItem>
@@ -362,8 +354,7 @@ export function TabBar({
                                 </DropdownMenuSub>
                                 <DropdownMenuItem
                                     disabled={!codexAvailable}
-                                    onClick={() => codexAvailable && onRunTab("codex")}
-                                >
+                                    onClick={() => codexAvailable && onRunTab("codex")}>
                                     <CodexIcon className="mr-2 h-4 w-4" />
                                     Codex{!codexAvailable ? " (not installed)" : ""}
                                 </DropdownMenuItem>
@@ -383,8 +374,7 @@ export function TabBar({
                                 </DropdownMenuSub>
                                 <DropdownMenuItem
                                     disabled={!opencodeAvailable}
-                                    onClick={() => opencodeAvailable && onRunTab("opencode")}
-                                >
+                                    onClick={() => opencodeAvailable && onRunTab("opencode")}>
                                     <OpenCodeIcon className="mr-2 h-4 w-4" />
                                     OpenCode{!opencodeAvailable ? " (not installed)" : ""}
                                 </DropdownMenuItem>
@@ -404,8 +394,7 @@ export function TabBar({
                                 </DropdownMenuSub>
                                 <DropdownMenuItem
                                     disabled={!geminiAvailable}
-                                    onClick={() => geminiAvailable && onRunTab("gemini")}
-                                >
+                                    onClick={() => geminiAvailable && onRunTab("gemini")}>
                                     <GeminiIcon className="mr-2 h-4 w-4" />
                                     Gemini{!geminiAvailable ? " (not installed)" : ""}
                                 </DropdownMenuItem>
@@ -425,8 +414,7 @@ export function TabBar({
                                 </DropdownMenuSub>
                                 <DropdownMenuItem
                                     disabled={!cursorAvailable}
-                                    onClick={() => cursorAvailable && onRunTab("cursor")}
-                                >
+                                    onClick={() => cursorAvailable && onRunTab("cursor")}>
                                     <CursorIcon className="mr-2 h-4 w-4" />
                                     Cursor{!cursorAvailable ? " (not installed)" : ""}
                                 </DropdownMenuItem>
@@ -473,8 +461,7 @@ export function TabBar({
                                         ? "New Claude session (Shift+click for options)"
                                         : "Claude CLI not installed"
                                 }
-                                tooltipSide="bottom"
-                            >
+                                tooltipSide="bottom">
                                 <ClaudeIcon className="h-3.5 w-3.5" />
                             </Button>
                         </PopoverTrigger>
@@ -510,8 +497,7 @@ export function TabBar({
                                         ? "New Codex session (Shift+click for options)"
                                         : "Codex CLI not installed"
                                 }
-                                tooltipSide="bottom"
-                            >
+                                tooltipSide="bottom">
                                 <CodexIcon className="h-3.5 w-3.5" />
                             </Button>
                         </PopoverTrigger>
@@ -547,8 +533,7 @@ export function TabBar({
                                         ? "New OpenCode session (Shift+click for options)"
                                         : "OpenCode CLI not installed"
                                 }
-                                tooltipSide="bottom"
-                            >
+                                tooltipSide="bottom">
                                 <OpenCodeIcon className="h-3.5 w-3.5" />
                             </Button>
                         </PopoverTrigger>
@@ -584,8 +569,7 @@ export function TabBar({
                                         ? "New Gemini session (Shift+click for options)"
                                         : "Gemini CLI not installed"
                                 }
-                                tooltipSide="bottom"
-                            >
+                                tooltipSide="bottom">
                                 <GeminiIcon className="h-3.5 w-3.5" />
                             </Button>
                         </PopoverTrigger>
@@ -621,8 +605,7 @@ export function TabBar({
                                         ? "New Cursor session (Shift+click for options)"
                                         : "Cursor CLI not installed"
                                 }
-                                tooltipSide="bottom"
-                            >
+                                tooltipSide="bottom">
                                 <CursorIcon className="h-3.5 w-3.5" />
                             </Button>
                         </PopoverTrigger>
@@ -649,8 +632,7 @@ export function TabBar({
                         disabled={!defaultShellPath}
                         onClick={() => {
                             if (defaultShellPath) onNewTab("shell", defaultShellPath);
-                        }}
-                    >
+                        }}>
                         <Terminal className="h-3.5 w-3.5" />
                     </Button>
                 </>
@@ -661,8 +643,7 @@ export function TabBar({
                 onClick={() => onNewTab("browser")}
                 aria-label="New browser tab"
                 tooltip="New browser tab"
-                tooltipSide="bottom"
-            >
+                tooltipSide="bottom">
                 <Globe className="h-3.5 w-3.5" />
             </Button>
             {shells.length > 1 && (
@@ -673,8 +654,7 @@ export function TabBar({
                             size="icon-xs"
                             aria-label="Choose terminal shell"
                             tooltip="Choose terminal shell"
-                            tooltipSide="bottom"
-                        >
+                            tooltipSide="bottom">
                             <ChevronDown className="h-3.5 w-3.5" />
                         </Button>
                     </DropdownMenuTrigger>
@@ -683,8 +663,7 @@ export function TabBar({
                             disabled={!defaultShellPath}
                             onClick={() => {
                                 if (defaultShellPath) onNewTab("shell", defaultShellPath);
-                            }}
-                        >
+                            }}>
                             <Terminal className="mr-2 h-4 w-4" />
                             Default Terminal
                             <span className="text-muted-foreground ml-auto text-xs">
@@ -699,8 +678,7 @@ export function TabBar({
                         {shells.map((shell) => (
                             <DropdownMenuItem
                                 key={shell.path}
-                                onClick={() => onNewTab("shell", shell.path)}
-                            >
+                                onClick={() => onNewTab("shell", shell.path)}>
                                 <Terminal className="mr-2 h-4 w-4" />
                                 {getShellDisplayName(shell)}
                             </DropdownMenuItem>

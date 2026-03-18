@@ -31,8 +31,7 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
                     className="text-muted-foreground hover:bg-destructive/20 hover:text-destructive focus-visible:ring-ring absolute top-1.5 right-1.5 z-10 rounded p-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2"
                     onClick={() => {
                         onDelete();
-                    }}
-                >
+                    }}>
                     <Trash2 className="h-3 w-3" />
                 </button>
             )}
@@ -43,24 +42,20 @@ function ThemeCard({ theme, isActive, onClick, onDelete }: ThemeCardProps) {
                     "flex w-full flex-col gap-2 rounded-lg border text-left transition-colors",
                     "hover:border-accent",
                     isActive ? "border-accent bg-accent/10" : "border-border",
-                )}
-            >
+                )}>
                 {/* Color preview */}
                 <div
                     className="flex h-16 items-end gap-0.5 overflow-hidden rounded-md p-2"
                     style={{ backgroundColor: colors.background }}
-                    aria-hidden="true"
-                >
+                    aria-hidden="true">
                     <span
                         className="truncate font-mono text-xs"
-                        style={{ color: colors.foreground }}
-                    >
+                        style={{ color: colors.foreground }}>
                         ~/project $
                     </span>
                     <span
                         className="shrink-0 font-mono text-xs"
-                        style={{ color: colors.ansi.green }}
-                    >
+                        style={{ color: colors.ansi.green }}>
                         {" "}
                         git status
                     </span>

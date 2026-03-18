@@ -42,8 +42,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => this.setState({ hasError: false, error: null })}
-                    >
+                        onClick={() => this.setState({ hasError: false, error: null })}>
                         Retry
                     </Button>
                 </div>

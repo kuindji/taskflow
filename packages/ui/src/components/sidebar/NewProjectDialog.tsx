@@ -71,8 +71,7 @@ export function NewProjectDialog({ open, onOpenChange, onSubmit, error }: NewPro
                             <Button
                                 variant="outline"
                                 onClick={handleBrowse}
-                                className="justify-start gap-2 font-normal"
-                            >
+                                className="justify-start gap-2 font-normal">
                                 <FolderOpen className="h-4 w-4 shrink-0" />
                                 <span className="truncate text-left">
                                     {path || "Select a directory..."}
@@ -98,8 +97,7 @@ export function NewProjectDialog({ open, onOpenChange, onSubmit, error }: NewPro
                     <Button
                         onClick={handleSubmit}
                         disabled={!canSubmit}
-                        className="bg-accent text-accent-foreground hover:bg-accent/90"
-                    >
+                        className="bg-accent text-accent-foreground hover:bg-accent/90">
                         Add Project
                     </Button>
                 </DialogFooter>

@@ -84,7 +84,11 @@ function ActionEditor({
 
                 <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="action-name" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Name</Label>
+                        <Label
+                            htmlFor="action-name"
+                            className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
+                            Name
+                        </Label>
                         <Input
                             id="action-name"
                             value={name}
@@ -93,11 +97,14 @@ function ActionEditor({
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="action-project" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Project</Label>
+                        <Label
+                            htmlFor="action-project"
+                            className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
+                            Project
+                        </Label>
                         <Select
                             value={projectId ?? "__global__"}
-                            onValueChange={(v) => setProjectId(v === "__global__" ? undefined : v)}
-                        >
+                            onValueChange={(v) => setProjectId(v === "__global__" ? undefined : v)}>
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
@@ -112,7 +119,11 @@ function ActionEditor({
                         </Select>
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="action-session-type" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Session Type</Label>
+                        <Label
+                            htmlFor="action-session-type"
+                            className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
+                            Session Type
+                        </Label>
                         <Select value={sessionType} onValueChange={handleSessionTypeChange}>
                             <SelectTrigger>
                                 <SelectValue />
@@ -138,7 +149,11 @@ function ActionEditor({
                         </span>
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="action-prompt" className="text-muted-foreground text-[11px] uppercase tracking-wider font-medium">Prompt</Label>
+                        <Label
+                            htmlFor="action-prompt"
+                            className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
+                            Prompt
+                        </Label>
                         <Textarea
                             id="action-prompt"
                             value={prompt}
@@ -169,15 +184,12 @@ function ActionEditor({
                         size="sm"
                         onClick={onDelete}
                         disabled={deleteDisabled}
-                        title={deleteDisabledReason}
-                    >
+                        title={deleteDisabledReason}>
                         Delete Action
                     </Button>
                 )}
                 {action && deleteDisabledReason && (
-                    <span className="text-muted-foreground text-xs">
-                        {deleteDisabledReason}
-                    </span>
+                    <span className="text-muted-foreground text-xs">{deleteDisabledReason}</span>
                 )}
                 <div className="flex-1" />
                 <Button variant="secondary" size="sm" onClick={onCancel}>

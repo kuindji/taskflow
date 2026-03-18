@@ -66,7 +66,11 @@ class FlowRunner {
         }
     }
 
-    async startFlow(owner: FlowOwner, flow: FlowDefinition, inputValues?: Record<string, string>): Promise<FlowRun> {
+    async startFlow(
+        owner: FlowOwner,
+        flow: FlowDefinition,
+        inputValues?: Record<string, string>,
+    ): Promise<FlowRun> {
         if (flow.actions.length === 0) {
             throw new Error(`Flow "${flow.id}" must define at least one action`);
         }

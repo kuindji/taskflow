@@ -343,10 +343,9 @@ function SettingsModal() {
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent
-                className="bg-dialog-shell gap-0 rounded-xl border-border p-1.5 w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-xl"
-                aria-describedby={undefined}
-            >
-                <DialogHeader className="px-4 py-3.5">
+                className="bg-dialog-shell border-border w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] gap-0 rounded-xl p-1.5 sm:max-w-xl"
+                aria-describedby={undefined}>
+                <DialogHeader className="px-2 py-2">
                     <DialogTitle className="text-[15px]">Settings</DialogTitle>
                 </DialogHeader>
 
@@ -361,8 +360,7 @@ function SettingsModal() {
                                         ? "bg-muted text-foreground font-medium"
                                         : "text-muted-foreground hover:text-secondary-foreground hover:bg-muted/50"
                                 }`}
-                                onClick={() => setSection(item.key)}
-                            >
+                                onClick={() => setSection(item.key)}>
                                 {item.label}
                             </button>
                         ))}
@@ -371,9 +369,11 @@ function SettingsModal() {
                     {/* Content */}
                     <div className="bg-background min-h-[360px] min-w-0 flex-1 rounded-[10px] py-1">
                         {section === "general" && (
-                            <div className="hover:bg-island-base mx-1 flex flex-col gap-2 rounded-md px-5 py-3 transition-colors">
+                            <div className="hover:bg-island-base mx-1 flex flex-col gap-2 rounded-md px-3 py-3 transition-colors">
                                 <div>
-                                    <div className="text-secondary-foreground text-[13px] font-medium">Data Folder</div>
+                                    <div className="text-secondary-foreground text-[13px] font-medium">
+                                        Data Folder
+                                    </div>
                                     <div className="text-muted-foreground text-[11px]">
                                         Location where projects, tasks, and session data are stored
                                     </div>
@@ -382,9 +382,8 @@ function SettingsModal() {
                                     as="code"
                                     tooltip
                                     tooltipSide="bottom"
-                                    className="bg-card border-border flex h-8 w-full min-w-0 items-center overflow-x-auto rounded-md border px-2.5 font-mono text-xs text-muted-foreground"
-                                    tooltipContent={dataDirInfo?.dataDir ?? "Loading..."}
-                                >
+                                    className="max-w-90 bg-card border-border text-muted-foreground flex h-8 w-full min-w-0 items-center overflow-x-auto rounded-md border px-2.5 font-mono text-xs"
+                                    tooltipContent={dataDirInfo?.dataDir ?? "Loading..."}>
                                     {dataDirInfo?.dataDir ?? "Loading..."}
                                 </TruncatedText>
                                 <div className="flex flex-wrap gap-1.5">
@@ -392,8 +391,7 @@ function SettingsModal() {
                                         variant="outline"
                                         size="sm"
                                         disabled={migrating}
-                                        onClick={() => void handleChangeDataDir()}
-                                    >
+                                        onClick={() => void handleChangeDataDir()}>
                                         {migrating ? "Moving..." : "Change..."}
                                     </Button>
                                     {dataDirInfo && !dataDirInfo.isDefault && (
@@ -401,8 +399,7 @@ function SettingsModal() {
                                             variant="outline"
                                             size="sm"
                                             disabled={migrating}
-                                            onClick={() => void handleResetDataDir()}
-                                        >
+                                            onClick={() => void handleResetDataDir()}>
                                             Reset
                                         </Button>
                                     )}
@@ -423,14 +420,12 @@ function SettingsModal() {
                             <>
                                 <SettingRow
                                     label="Internal Editor"
-                                    hint="Opens files when clicking paths in the terminal"
-                                >
+                                    hint="Opens files when clicking paths in the terminal">
                                     <Select
                                         value={settings.editor.internalEditor}
                                         onValueChange={(value) =>
                                             updateSettings({ editor: { internalEditor: value } })
-                                        }
-                                    >
+                                        }>
                                         <SelectTrigger className="h-8 w-[180px] text-[13px]">
                                             <SelectValue />
                                         </SelectTrigger>
@@ -448,12 +443,10 @@ function SettingsModal() {
                                 </SettingRow>
                                 <SettingRow
                                     label="External Editor"
-                                    hint="Opens files when Cmd+clicking paths in the terminal"
-                                >
+                                    hint="Opens files when Cmd+clicking paths in the terminal">
                                     <Select
                                         value={settings.editor.externalEditor}
-                                        onValueChange={handleExternalEditor}
-                                    >
+                                        onValueChange={handleExternalEditor}>
                                         <SelectTrigger className="h-8 w-[180px] text-[13px]">
                                             <SelectValue />
                                         </SelectTrigger>
@@ -471,12 +464,10 @@ function SettingsModal() {
                                 </SettingRow>
                                 <SettingRow
                                     label="Default Agent"
-                                    hint="Pre-selected for new tasks, titles, and commits"
-                                >
+                                    hint="Pre-selected for new tasks, titles, and commits">
                                     <Select
                                         value={settings.general.defaultAgent}
-                                        onValueChange={handleDefaultAgent}
-                                    >
+                                        onValueChange={handleDefaultAgent}>
                                         <SelectTrigger className="h-8 w-[180px] text-[13px]">
                                             <SelectValue />
                                         </SelectTrigger>
@@ -487,8 +478,11 @@ function SettingsModal() {
                                             <SelectItem value="codex" disabled={!codexAvailable}>
                                                 Codex{!codexAvailable ? " (not installed)" : ""}
                                             </SelectItem>
-                                            <SelectItem value="opencode" disabled={!opencodeAvailable}>
-                                                OpenCode{!opencodeAvailable ? " (not installed)" : ""}
+                                            <SelectItem
+                                                value="opencode"
+                                                disabled={!opencodeAvailable}>
+                                                OpenCode
+                                                {!opencodeAvailable ? " (not installed)" : ""}
                                             </SelectItem>
                                             <SelectItem value="gemini" disabled={!geminiAvailable}>
                                                 Gemini{!geminiAvailable ? " (not installed)" : ""}
@@ -501,16 +495,14 @@ function SettingsModal() {
                                 </SettingRow>
                                 <SettingRow
                                     label="Default Shell"
-                                    hint="Default shell for new terminal tabs"
-                                >
+                                    hint="Default shell for new terminal tabs">
                                     <Select
                                         value={
                                             configuredShellAvailable
                                                 ? settings.terminal.defaultShell
                                                 : "__missing__"
                                         }
-                                        onValueChange={handleDefaultShell}
-                                    >
+                                        onValueChange={handleDefaultShell}>
                                         <SelectTrigger className="h-8 w-[180px] text-[13px]">
                                             <SelectValue />
                                         </SelectTrigger>
@@ -541,8 +533,7 @@ function SettingsModal() {
                                 </SettingRow>
                                 <SettingRow
                                     label="Default Runtime"
-                                    hint="Runtime for executing scripts and commands"
-                                >
+                                    hint="Runtime for executing scripts and commands">
                                     <Select
                                         value={
                                             runtimes.some(
@@ -551,8 +542,7 @@ function SettingsModal() {
                                                 ? settings.general.defaultRuntime
                                                 : "__missing__"
                                         }
-                                        onValueChange={handleDefaultRuntime}
-                                    >
+                                        onValueChange={handleDefaultRuntime}>
                                         <SelectTrigger className="h-8 w-[180px] text-[13px]">
                                             <SelectValue />
                                         </SelectTrigger>
@@ -573,7 +563,8 @@ function SettingsModal() {
                                                         r.name === settings.general.defaultRuntime,
                                                 ) && (
                                                     <SelectItem value="__missing__" disabled>
-                                                        {settings.general.defaultRuntime} (not found)
+                                                        {settings.general.defaultRuntime} (not
+                                                        found)
                                                     </SelectItem>
                                                 )}
                                         </SelectContent>
@@ -584,8 +575,12 @@ function SettingsModal() {
 
                         {section === "claude" && (
                             <>
-                                <SettingRow label="Default Model" hint="Pre-selected model when running Claude sessions">
-                                    <Select value={settings.claude.defaultModel} onValueChange={handleClaudeModel}>
+                                <SettingRow
+                                    label="Default Model"
+                                    hint="Pre-selected model when running Claude sessions">
+                                    <Select
+                                        value={settings.claude.defaultModel}
+                                        onValueChange={handleClaudeModel}>
                                         <SelectTrigger className="h-8 w-[180px] text-[13px]">
                                             <SelectValue />
                                         </SelectTrigger>
@@ -597,10 +592,18 @@ function SettingsModal() {
                                         </SelectContent>
                                     </Select>
                                 </SettingRow>
-                                <SettingRow label="Full Access" hint="Skip permission prompts by default">
+                                <SettingRow
+                                    label="Full Access"
+                                    hint="Skip permission prompts by default">
                                     <div className="flex items-center gap-2.5">
-                                        <Switch id="claude-full-access" checked={settings.claude.fullAccess} onCheckedChange={handleClaudeFullAccess} />
-                                        <Label htmlFor="claude-full-access" className="cursor-pointer text-[13px] font-normal normal-case text-muted-foreground">
+                                        <Switch
+                                            id="claude-full-access"
+                                            checked={settings.claude.fullAccess}
+                                            onCheckedChange={handleClaudeFullAccess}
+                                        />
+                                        <Label
+                                            htmlFor="claude-full-access"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
                                             {settings.claude.fullAccess ? "Enabled" : "Disabled"}
                                         </Label>
                                     </div>
@@ -611,8 +614,14 @@ function SettingsModal() {
                         {section === "codex" && (
                             <SettingRow label="Full Access" hint="Run in full-auto mode by default">
                                 <div className="flex items-center gap-2.5">
-                                    <Switch id="codex-full-access" checked={settings.codex.fullAccess} onCheckedChange={handleCodexFullAccess} />
-                                    <Label htmlFor="codex-full-access" className="cursor-pointer text-[13px] font-normal normal-case text-muted-foreground">
+                                    <Switch
+                                        id="codex-full-access"
+                                        checked={settings.codex.fullAccess}
+                                        onCheckedChange={handleCodexFullAccess}
+                                    />
+                                    <Label
+                                        htmlFor="codex-full-access"
+                                        className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
                                         {settings.codex.fullAccess ? "Enabled" : "Disabled"}
                                     </Label>
                                 </div>
@@ -621,7 +630,9 @@ function SettingsModal() {
 
                         {section === "opencode" && (
                             <>
-                                <SettingRow label="Default Model" hint="Pre-selected model (provider/model format)">
+                                <SettingRow
+                                    label="Default Model"
+                                    hint="Pre-selected model (provider/model format)">
                                     <Input
                                         className="h-8 w-[180px] text-[13px]"
                                         placeholder="e.g. anthropic/claude-sonnet-4-20250514"
@@ -629,10 +640,18 @@ function SettingsModal() {
                                         onChange={handleOpencodeModel}
                                     />
                                 </SettingRow>
-                                <SettingRow label="Full Access" hint="Auto-approve all tool permissions by default">
+                                <SettingRow
+                                    label="Full Access"
+                                    hint="Auto-approve all tool permissions by default">
                                     <div className="flex items-center gap-2.5">
-                                        <Switch id="opencode-full-access" checked={settings.opencode.fullAccess} onCheckedChange={handleOpencodeFullAccess} />
-                                        <Label htmlFor="opencode-full-access" className="cursor-pointer text-[13px] font-normal normal-case text-muted-foreground">
+                                        <Switch
+                                            id="opencode-full-access"
+                                            checked={settings.opencode.fullAccess}
+                                            onCheckedChange={handleOpencodeFullAccess}
+                                        />
+                                        <Label
+                                            htmlFor="opencode-full-access"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
                                             {settings.opencode.fullAccess ? "Enabled" : "Disabled"}
                                         </Label>
                                     </div>
@@ -642,8 +661,12 @@ function SettingsModal() {
 
                         {section === "gemini" && (
                             <>
-                                <SettingRow label="Default Model" hint="Pre-selected model when running Gemini sessions">
-                                    <Select value={settings.gemini.defaultModel} onValueChange={handleGeminiModel}>
+                                <SettingRow
+                                    label="Default Model"
+                                    hint="Pre-selected model when running Gemini sessions">
+                                    <Select
+                                        value={settings.gemini.defaultModel}
+                                        onValueChange={handleGeminiModel}>
                                         <SelectTrigger className="h-8 w-[180px] text-[13px]">
                                             <SelectValue />
                                         </SelectTrigger>
@@ -656,10 +679,18 @@ function SettingsModal() {
                                         </SelectContent>
                                     </Select>
                                 </SettingRow>
-                                <SettingRow label="Full Access" hint="Auto-approve all actions by default">
+                                <SettingRow
+                                    label="Full Access"
+                                    hint="Auto-approve all actions by default">
                                     <div className="flex items-center gap-2.5">
-                                        <Switch id="gemini-full-access" checked={settings.gemini.fullAccess} onCheckedChange={handleGeminiFullAccess} />
-                                        <Label htmlFor="gemini-full-access" className="cursor-pointer text-[13px] font-normal normal-case text-muted-foreground">
+                                        <Switch
+                                            id="gemini-full-access"
+                                            checked={settings.gemini.fullAccess}
+                                            onCheckedChange={handleGeminiFullAccess}
+                                        />
+                                        <Label
+                                            htmlFor="gemini-full-access"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
                                             {settings.gemini.fullAccess ? "Enabled" : "Disabled"}
                                         </Label>
                                     </div>
@@ -669,18 +700,32 @@ function SettingsModal() {
 
                         {section === "cursor" && (
                             <>
-                                <SettingRow label="Default Model" hint="Pre-selected model when running Cursor sessions">
+                                <SettingRow
+                                    label="Default Model"
+                                    hint="Pre-selected model when running Cursor sessions">
                                     <Input
                                         className="h-8 w-[180px] text-[13px]"
-                                        value={settings.cursor.defaultModel === "default" ? "" : settings.cursor.defaultModel}
+                                        value={
+                                            settings.cursor.defaultModel === "default"
+                                                ? ""
+                                                : settings.cursor.defaultModel
+                                        }
                                         placeholder="default"
                                         onChange={(e) => handleCursorModel(e.target.value)}
                                     />
                                 </SettingRow>
-                                <SettingRow label="Full Access" hint="Run in yolo mode by default (auto-approve commands)">
+                                <SettingRow
+                                    label="Full Access"
+                                    hint="Run in yolo mode by default (auto-approve commands)">
                                     <div className="flex items-center gap-2.5">
-                                        <Switch id="cursor-full-access" checked={settings.cursor.fullAccess} onCheckedChange={handleCursorFullAccess} />
-                                        <Label htmlFor="cursor-full-access" className="cursor-pointer text-[13px] font-normal normal-case text-muted-foreground">
+                                        <Switch
+                                            id="cursor-full-access"
+                                            checked={settings.cursor.fullAccess}
+                                            onCheckedChange={handleCursorFullAccess}
+                                        />
+                                        <Label
+                                            htmlFor="cursor-full-access"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
                                             {settings.cursor.fullAccess ? "Enabled" : "Disabled"}
                                         </Label>
                                     </div>
@@ -694,8 +739,7 @@ function SettingsModal() {
                 open={conflictPath !== null}
                 onOpenChange={(open) => {
                     if (!open) setConflictPath(null);
-                }}
-            >
+                }}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Existing Data Found</AlertDialogTitle>
@@ -710,8 +754,7 @@ function SettingsModal() {
                         </Button>
                         <Button
                             variant="destructive"
-                            onClick={() => void handleConflictChoice("overwrite")}
-                        >
+                            onClick={() => void handleConflictChoice("overwrite")}>
                             Overwrite
                         </Button>
                         <Button onClick={() => void handleConflictChoice("adopt")}>

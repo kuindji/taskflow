@@ -45,8 +45,7 @@ function ImportTab() {
                     variant="outline"
                     size="sm"
                     onClick={handleFileImport}
-                    disabled={importing === "file"}
-                >
+                    disabled={importing === "file"}>
                     {importing === "file" ? "Importing..." : "From File..."}
                 </Button>
             </div>
@@ -72,8 +71,7 @@ function ImportTab() {
                             return (
                                 <div
                                     key={key}
-                                    className="border-border/50 flex items-center justify-between rounded-md border px-3 py-2"
-                                >
+                                    className="border-border/50 flex items-center justify-between rounded-md border px-3 py-2">
                                     <div className="flex items-center gap-3">
                                         <div className="flex gap-1">
                                             {[
@@ -98,8 +96,7 @@ function ImportTab() {
                                         variant="outline"
                                         size="sm"
                                         onClick={() => handleImportTheme(theme, key)}
-                                        disabled={importing === key}
-                                    >
+                                        disabled={importing === key}>
                                         {importing === key ? "Importing..." : "Import"}
                                     </Button>
                                 </div>

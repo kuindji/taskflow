@@ -130,10 +130,9 @@ function FlowManagementDialog() {
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent
-                className="bg-dialog-shell gap-0 rounded-xl border-border p-1.5 w-6xl max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]"
-                aria-describedby={undefined}
-            >
-                <DialogHeader className="px-4 py-3.5">
+                className="bg-dialog-shell border-border w-4xl max-w-[calc(100vw-2rem)] gap-0 rounded-xl p-1.5 sm:max-w-[calc(100vw-2rem)]"
+                aria-describedby={undefined}>
+                <DialogHeader className="px-2 py-2">
                     <DialogTitle className="text-[15px]">Flows & Actions</DialogTitle>
                 </DialogHeader>
 
@@ -146,8 +145,7 @@ function FlowManagementDialog() {
                                 tab === "flows"
                                     ? "bg-muted text-foreground font-medium"
                                     : "text-muted-foreground hover:text-secondary-foreground hover:bg-muted/50"
-                            }`}
-                        >
+                            }`}>
                             Flows
                         </button>
                         <button
@@ -156,14 +154,13 @@ function FlowManagementDialog() {
                                 tab === "actions"
                                     ? "bg-muted text-foreground font-medium"
                                     : "text-muted-foreground hover:text-secondary-foreground hover:bg-muted/50"
-                            }`}
-                        >
+                            }`}>
                             Actions
                         </button>
                     </nav>
 
                     {/* Middle list column */}
-                    <div className="bg-card w-[196px] shrink-0 rounded-[10px] flex flex-col">
+                    <div className="bg-card flex w-[196px] shrink-0 flex-col rounded-[10px]">
                         <div className="p-2">
                             <Select
                                 value={projectFilter}
@@ -171,9 +168,8 @@ function FlowManagementDialog() {
                                     setProjectFilter(v);
                                     setSelectedId(null);
                                     setCreating(false);
-                                }}
-                            >
-                                <SelectTrigger className="h-7 text-xs">
+                                }}>
+                                <SelectTrigger className="h-7 text-xs w-full">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -193,12 +189,11 @@ function FlowManagementDialog() {
                                     <button
                                         key={f.id}
                                         onClick={() => selectItem(f.id)}
-                                        className={`rounded-md px-2.5 py-2 text-left text-[13px] transition-colors mb-0.5 w-full ${
+                                        className={`mb-0.5 w-full rounded-md px-2.5 py-2 text-left text-[13px] transition-colors ${
                                             selectedId === f.id
                                                 ? "bg-muted text-foreground font-medium"
                                                 : "text-secondary-foreground hover:bg-muted/50"
-                                        }`}
-                                    >
+                                        }`}>
                                         <div className="font-medium">{f.name}</div>
                                         <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
                                             <span>
@@ -223,12 +218,11 @@ function FlowManagementDialog() {
                                     <button
                                         key={s.id}
                                         onClick={() => selectItem(s.id)}
-                                        className={`rounded-md px-2.5 py-2 text-left text-[13px] transition-colors mb-0.5 w-full ${
+                                        className={`mb-0.5 w-full rounded-md px-2.5 py-2 text-left text-[13px] transition-colors ${
                                             selectedId === s.id
                                                 ? "bg-muted text-foreground font-medium"
                                                 : "text-secondary-foreground hover:bg-muted/50"
-                                        }`}
-                                    >
+                                        }`}>
                                         <div className="font-medium">{s.name}</div>
                                         <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
                                             <span>{s.sessionType}</span>
@@ -246,21 +240,20 @@ function FlowManagementDialog() {
                                 </div>
                             )}
                         </div>
-                        <div className="p-1 flex justify-end">
+                        <div className="flex justify-end p-1">
                             <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7"
                                 onClick={startCreating}
-                                title={tab === "flows" ? "New flow" : "New action"}
-                            >
+                                title={tab === "flows" ? "New flow" : "New action"}>
                                 <Plus className="h-4 w-4" />
                             </Button>
                         </div>
                     </div>
 
                     {/* Right editor column */}
-                    <div className="bg-background flex-1 rounded-[10px] flex flex-col min-h-0 min-w-0">
+                    <div className="bg-background flex min-h-0 min-w-0 flex-1 flex-col rounded-[10px]">
                         {tab === "flows" && (creating || selectedFlow) && (
                             <FlowEditor
                                 key={

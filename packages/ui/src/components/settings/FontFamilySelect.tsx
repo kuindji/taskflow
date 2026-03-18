@@ -83,8 +83,7 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
                 <PopoverTrigger asChild>
                     <Button
                         variant="outline"
-                        className="h-8 w-full min-w-0 justify-between overflow-hidden text-sm font-normal"
-                    >
+                        className="h-8 w-full min-w-0 justify-between overflow-hidden text-sm font-normal">
                         <span className="min-w-0 flex-1 truncate text-left">
                             {value || "Select font..."}
                         </span>
@@ -94,8 +93,7 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
                 <PopoverContent
                     container={portalContainer ?? undefined}
                     className="w-[--radix-popover-trigger-width] min-w-72 p-0"
-                    align="start"
-                >
+                    align="start">
                     <div className="border-border border-b p-2">
                         <Input
                             ref={searchRef}
@@ -122,8 +120,7 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
                                     className={`hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-left text-sm outline-hidden ${
                                         family === value ? "bg-accent text-accent-foreground" : ""
                                     }`}
-                                    onClick={() => handleSelect(family)}
-                                >
+                                    onClick={() => handleSelect(family)}>
                                     <span className="truncate">{family}</span>
                                 </button>
                             ))

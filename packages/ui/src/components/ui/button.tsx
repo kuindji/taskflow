@@ -141,8 +141,7 @@ function InlineTooltip({
                 ...floatingStyles,
                 visibility: isPositioned ? "visible" : "hidden",
             }}
-            className="pointer-events-none z-50 w-fit"
-        >
+            className="pointer-events-none z-50 w-fit">
             <div
                 className={cn(
                     "bg-foreground text-background max-w-[300px] rounded-md px-3 py-1.5 text-xs text-balance",
@@ -151,8 +150,7 @@ function InlineTooltip({
                     actualSide === "left" && "slide-in-from-right-2",
                     actualSide === "right" && "slide-in-from-left-2",
                     actualSide === "top" && "slide-in-from-bottom-2",
-                )}
-            >
+                )}>
                 {children}
                 <div
                     ref={setArrowEl}
@@ -251,8 +249,7 @@ function Button({
                 open={tooltipOpen}
                 onClose={closeTooltip}
                 referenceEl={tooltipTarget}
-                side={tooltipSide}
-            >
+                side={tooltipSide}>
                 {tooltip}
             </InlineTooltip>
         ) : null;
@@ -287,8 +284,7 @@ function Button({
                     setTooltipTarget(e.currentTarget);
                     if (!isScrollSuppressed()) setTooltipOpen(true);
                 }}
-                onMouseLeave={() => setTooltipOpen(false)}
-            >
+                onMouseLeave={() => setTooltipOpen(false)}>
                 <button {...sharedProps} {...restProps} disabled>
                     {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                     {children}
