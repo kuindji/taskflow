@@ -43,6 +43,25 @@ function assertValidFlowDefinition(flow: FlowDefinition): void {
             }
         }
     }
+
+    if (flow.inputs) {
+        const inputIds = new Set<string>();
+        for (const input of flow.inputs) {
+            if (typeof input.id !== "string" || input.id.trim().length === 0) {
+                throw new Error(`Flow "${flow.id}" has an input with an empty id`);
+            }
+            if (inputIds.has(input.id)) {
+                throw new Error(`Flow "${flow.id}" has duplicate input id: "${input.id}"`);
+            }
+            inputIds.add(input.id);
+            if (typeof input.label !== "string" || input.label.trim().length === 0) {
+                throw new Error(`Flow input "${input.id}" must have a non-empty label`);
+            }
+            if (input.type !== "text" && input.type !== "filepath") {
+                throw new Error(`Flow input "${input.id}" has invalid type: "${input.type}"`);
+            }
+        }
+    }
 }
 
 class FlowStore {
