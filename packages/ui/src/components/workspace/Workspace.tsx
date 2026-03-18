@@ -671,6 +671,7 @@ export function Workspace() {
             </AlertDialog>
             {flowInputState && (
                 <FlowInputDialog
+                    key={flowInputState.flowId}
                     open
                     flowName={flowInputState.flowName}
                     inputs={flowInputState.inputs}

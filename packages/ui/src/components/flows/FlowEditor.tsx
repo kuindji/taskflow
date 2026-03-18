@@ -196,7 +196,12 @@ function FlowEditor({
                     entry.inline.agentOptions?.type === entry.inline.sessionType)
             );
         }) &&
-        inputs.every((input) => input.id.trim() !== "" && input.label.trim() !== "") &&
+        inputs.every(
+            (input) =>
+                input.id.trim() !== "" &&
+                /^[a-zA-Z0-9_-]+$/.test(input.id) &&
+                input.label.trim() !== "",
+        ) &&
         new Set(inputs.map((i) => i.id)).size === inputs.length;
 
     const getActionName = (entry: FlowActionEntry): string => {

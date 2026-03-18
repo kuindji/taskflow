@@ -50,6 +50,11 @@ function assertValidFlowDefinition(flow: FlowDefinition): void {
             if (typeof input.id !== "string" || input.id.trim().length === 0) {
                 throw new Error(`Flow "${flow.id}" has an input with an empty id`);
             }
+            if (!/^[a-zA-Z0-9_-]+$/.test(input.id)) {
+                throw new Error(
+                    `Flow input "${input.id}" has invalid id format (use only letters, numbers, hyphens, underscores)`,
+                );
+            }
             if (inputIds.has(input.id)) {
                 throw new Error(`Flow "${flow.id}" has duplicate input id: "${input.id}"`);
             }
