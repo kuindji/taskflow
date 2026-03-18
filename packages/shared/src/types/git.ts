@@ -24,3 +24,14 @@ export interface GitDiffFile {
     diff: string;
     staged: boolean;
 }
+
+export interface ChangeStats {
+    additions: number;
+    deletions: number;
+    fileCount: number;
+    branch: string | null;
+    ahead: number;
+    hasChanges: boolean;
+    diffDisabled: boolean;
+    commitDisabled: boolean;
+}
