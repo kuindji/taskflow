@@ -4,6 +4,7 @@ import type { PtyManager } from "./pty-manager";
 import type { TaskStore } from "./task-store";
 import { buildAgentLaunchSpec, ensureInternalAgentSkillFile } from "./internal-agent-skill";
 import { ensureCursorRulesFile } from "./cursor-rules";
+import { getEditorById } from "./editor-detector";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
 
@@ -14,11 +15,14 @@ interface SessionOwner {
 
 interface CreateSessionOpts {
     owner: SessionOwner;
-    type: "claude" | "codex" | "cursor" | "shell";
+    type: "claude" | "codex" | "cursor" | "shell" | "editor";
     label?: string;
     prompt?: string;
     systemPrompt?: string;
     shell?: string;
+    editorId?: string;
+    filePath?: string;
+    line?: number;
     agentOptions?: import("@taskflow/shared").AgentLaunchOptions;
     flow?: {
         flowId: string;
@@ -34,17 +38,19 @@ interface SessionLifecycleDeps {
     taskStore: TaskStore;
     broadcast: (event: WsEvent) => void;
     getPort: () => number;
+    detectedEditors: import("@taskflow/shared").EditorInfo[];
 }
 
 function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
     if (type === "cursor") return "Cursor";
+    if (type === "editor") return "Editor";
     return `${type} session`;
 }
 
 function createSessionLifecycle(deps: SessionLifecycleDeps) {
-    const { ptyManager, taskStore, broadcast, getPort } = deps;
+    const { ptyManager, taskStore, broadcast, getPort, detectedEditors } = deps;
 
     async function removeSessionFromOwner(sessionId: string, owner?: SessionOwner): Promise<void> {
         const targetTask = owner?.taskId ? await taskStore.getTask(owner.taskId) : null;
@@ -105,6 +111,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             prompt,
             systemPrompt,
             shell,
+            editorId,
+            filePath,
+            line,
             agentOptions,
             flow,
             cols,
@@ -132,7 +141,30 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
 
         let command: string;
         const args: string[] = [];
-        if (type === "shell") {
+        if (type === "editor") {
+            if (!editorId || !filePath) {
+                throw new Error("editorId and filePath are required for editor sessions");
+            }
+            const editor = getEditorById(detectedEditors, editorId);
+            if (!editor) throw new Error(`Editor not found: ${editorId}`);
+
+            command = editor.command;
+            if (editor.extraArgs) args.push(...editor.extraArgs);
+
+            if (line && editor.lineFlag) {
+                const resolvedFlag = editor.lineFlag
+                    .replace("{line}", String(line))
+                    .replace("{file}", filePath);
+
+                if (editor.lineFlag.includes("{file}")) {
+                    args.push(resolvedFlag);
+                } else {
+                    args.push(resolvedFlag, filePath);
+                }
+            } else {
+                args.push(filePath);
+            }
+        } else if (type === "shell") {
             if (!shell) throw new Error("shell path is required for shell sessions");
             command = shell;
         } else {
@@ -215,7 +247,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             }
         }
 
-        if (type !== "shell") {
+        if (type !== "shell" && type !== "editor") {
             broadcast({
                 type: MSG.SESSION_STATUS,
                 payload: { sessionId, status: "initializing" },

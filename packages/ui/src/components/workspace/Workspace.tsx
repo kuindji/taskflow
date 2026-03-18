@@ -7,7 +7,7 @@ import type {
     ShellListResponse,
 } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
-import { useSessionStore } from "@/stores/session-store";
+import { useSessionStore, isSessionExited } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useTaskStore } from "@/stores/task-store";
@@ -540,6 +540,22 @@ export function Workspace() {
                                     title: "Unsaved Changes",
                                     description: `"${tab.filePath.split("/").pop()}" has unsaved changes that will be lost.`,
                                     confirmLabel: "Close Without Saving",
+                                    cancelLabel: "Cancel",
+                                    variant: "destructive",
+                                    onConfirm: async () => doClose(),
+                                });
+                                return;
+                            }
+
+                            if (
+                                tab?.type === "editor" &&
+                                tab.sessionId &&
+                                !isSessionExited(tab.sessionId)
+                            ) {
+                                void confirm({
+                                    title: "Editor Still Running",
+                                    description: `"${tab.label}" is still running. Unsaved changes will be lost.`,
+                                    confirmLabel: "Close Editor",
                                     cancelLabel: "Cancel",
                                     variant: "destructive",
                                     onConfirm: async () => doClose(),

@@ -12,9 +12,10 @@ interface TabContentProps {
     activeTabId: string;
 }
 
-/** Tab types that stay mounted when inactive */
-function isAlwaysMounted(type: Tab["type"]): boolean {
-    return type === "browser";
+/** Tab types that stay mounted when inactive (never display:none) */
+function isAlwaysMounted(tab: Tab): boolean {
+    if (tab.type === "editor" && tab.sessionId) return true;
+    return tab.type === "claude" || tab.type === "codex" || tab.type === "shell" || tab.type === "browser";
 }
 
 function TabContent({ tabs, activeTabId }: TabContentProps) {
@@ -60,6 +61,19 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
 
                     case "editor":
                         label = tab.filePath?.split("/").pop() ?? "Editor";
+                        if (tab.sessionId) {
+                            // CLI editor running in terminal
+                            pane = (
+                                <TerminalPane
+                                    taskId={workspace.task?.id}
+                                    projectId={workspace.task ? undefined : workspace.project?.id}
+                                    sessionId={tab.sessionId}
+                                    visible={isActive}
+                                />
+                            );
+                            break;
+                        }
+                        // Monaco editor (no sessionId)
                         if (!isActive) return null;
                         pane = tab.filePath ? (
                             <EditorPane filePath={tab.filePath} />
@@ -89,10 +103,13 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                         return null;
                 }
 
-                // Always-mounted tabs (browser) use absolute positioning with offscreen
-                // placement. Terminal tabs now unmount when inactive to free GPU contexts
-                // and restore from backend snapshots on remount.
-                if (isAlwaysMounted(tab.type)) {
+                // Always-mounted tabs (terminals, browser) use absolute positioning
+                // with offscreen placement instead of visibility:hidden. Moving inactive
+                // tabs to left:-9999em lets xterm.js's internal IntersectionObserver
+                // correctly detect the terminal as not visible and pause rendering.
+                // When brought back (left:0), the ResizeObserver fires naturally and
+                // xterm resumes without stale viewport state.
+                if (isAlwaysMounted(tab)) {
                     return (
                         <ErrorBoundary key={tab.id} fallbackLabel={label}>
                             <div

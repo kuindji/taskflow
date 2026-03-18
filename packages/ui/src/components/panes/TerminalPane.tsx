@@ -63,6 +63,8 @@ interface TerminalViewportSnapshot {
     distanceFromBottom: number;
 }
 
+import { openFileInApp } from "@/lib/open-file";
+
 /** Module-level cache: keeps one xterm instance per mounted terminal tab. */
 const terminalCache = new Map<string, CachedTerminal>();
 const RESIZE_DEBOUNCE_MS = 250;
@@ -134,24 +136,6 @@ function openUrlInApp(url: string, workspaceKey: string | null) {
     });
 }
 
-function openFileInApp(filePath: string, workspaceKey: string | null) {
-    if (!workspaceKey) return;
-    const store = useSessionStore.getState();
-    const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
-    const existing = existingTabs.find((t) => t.type === "editor" && t.filePath === filePath);
-    if (existing) {
-        store.setActiveTab(workspaceKey, existing.id);
-        return;
-    }
-    const label = filePath.split("/").pop() ?? filePath;
-    store.addTab(workspaceKey, {
-        id: crypto.randomUUID(),
-        type: "editor",
-        label,
-        filePath,
-    });
-}
-
 function openExternalUrl(url: string) {
     if (window.taskflow) {
         void window.taskflow.openExternalUrl(url);
@@ -162,7 +146,7 @@ function openExternalUrl(url: string) {
 
 function openExternalFile(filePath: string, opts?: { line?: number; col?: number }) {
     if (window.taskflow) {
-        const editor = useSettingsStore.getState().settings?.general.externalEditor;
+        const editor = useSettingsStore.getState().settings?.editor.externalEditor;
         void window.taskflow.openExternalFile(filePath, { ...opts, editor });
     }
 }
@@ -188,6 +172,11 @@ const ABS_PATH_RE = /(?<![/\w.@+-])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\d+
 // because the file:stat check at click time gracefully handles non-existent paths.
 const REL_PATH_RE =
     /(?<![/\w.@+-])((?:\.\.?\/)?[\w.@+-]+\/[\w.@+\-/]*[\w.@+-](?::(\d+)(?::(\d+))?)?)/g;
+
+// Bare filenames: dotfiles (.gitignore, .env.local) or files with extensions (package.json, CLAUDE.md).
+// Bounded by whitespace or line edges to avoid false positives on embedded substrings.
+// Does NOT match extensionless names (src, LICENSE) — too many false positives.
+const BARE_NAME_RE = /(?<=^|\s)(\.[\w.@+-]+|[\w@+-][\w.@+-]*\.[\w@+-]{1,15})(?=\s|$)/g;
 
 /** Collapse `.` and `..` segments in an absolute path without filesystem I/O. */
 function normalizePath(absolute: string): string {
@@ -219,6 +208,36 @@ function resolvePath(raw: string, workingDir: string | null): string | null {
         return null;
     }
     return normalized;
+}
+
+// ─── File stat cache for bare-name link validation ──────────────────────────
+
+interface CachedStat {
+    exists: boolean;
+    isDirectory: boolean;
+    ts: number;
+}
+
+const fileStatCache = new Map<string, CachedStat>();
+const STAT_CACHE_TTL_MS = 10_000;
+
+async function cachedFileStat(
+    absolutePath: string,
+): Promise<{ exists: boolean; isDirectory: boolean }> {
+    const cached = fileStatCache.get(absolutePath);
+    if (cached && Date.now() - cached.ts < STAT_CACHE_TTL_MS) {
+        return cached;
+    }
+    try {
+        const result = await sendRequest<FileStatResponse>(MSG.FILE_STAT, {
+            path: absolutePath,
+        });
+        const entry: CachedStat = { ...result, ts: Date.now() };
+        fileStatCache.set(absolutePath, entry);
+        return result;
+    } catch {
+        return { exists: false, isDirectory: false };
+    }
 }
 
 /**
@@ -290,13 +309,67 @@ function createFilePathLinkProvider(
                         },
                         text: fullMatch,
                         activate(event: MouseEvent, text: string) {
-                            void handlePathActivation(text, workingDir, workspaceKey, event);
+                            void handlePathActivation(text, workingDir, workspaceKey, event, taskId, projectId);
                         },
                     });
                 }
             }
 
-            callback(links.length > 0 ? links : undefined);
+            // Bare filenames (dotfiles, files with extensions) — need async
+            // filesystem validation to avoid false-positive hover underlines.
+            if (!workingDir) {
+                callback(links.length > 0 ? links : undefined);
+                return;
+            }
+
+            const bareCandidates: Array<{ resolved: string; link: ILink }> = [];
+            BARE_NAME_RE.lastIndex = 0;
+            let bareMatch: RegExpExecArray | null;
+            while ((bareMatch = BARE_NAME_RE.exec(lineText)) !== null) {
+                const fullMatch = bareMatch[1];
+                const matchIndex = bareMatch.index + (bareMatch[0].length - fullMatch.length);
+
+                const key = `${matchIndex}:${fullMatch.length}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+
+                const resolved = normalizePath(workingDir + "/" + fullMatch);
+                // Reject paths that escape workingDir
+                if (resolved !== workingDir && !resolved.startsWith(workingDir + "/")) continue;
+
+                const startCol = (cellMap[matchIndex] ?? matchIndex) + 1;
+                const lastCharIdx = matchIndex + fullMatch.length - 1;
+                const endCol = (cellMap[lastCharIdx] ?? lastCharIdx) + 2;
+
+                bareCandidates.push({
+                    resolved,
+                    link: {
+                        range: {
+                            start: { x: startCol, y: bufferLineNumber },
+                            end: { x: endCol, y: bufferLineNumber },
+                        },
+                        text: fullMatch,
+                        activate(event: MouseEvent, text: string) {
+                            void handlePathActivation(text, workingDir, workspaceKey, event);
+                        },
+                    },
+                });
+            }
+
+            if (bareCandidates.length === 0) {
+                callback(links.length > 0 ? links : undefined);
+                return;
+            }
+
+            // Validate bare candidates against filesystem before exposing as links
+            void Promise.all(bareCandidates.map((c) => cachedFileStat(c.resolved))).then(
+                (results) => {
+                    for (let i = 0; i < results.length; i++) {
+                        if (results[i].exists) links.push(bareCandidates[i].link);
+                    }
+                    callback(links.length > 0 ? links : undefined);
+                },
+            );
         },
     };
 }
@@ -306,6 +379,8 @@ async function handlePathActivation(
     workingDir: string | null,
     workspaceKey: string | null,
     event: MouseEvent,
+    taskId?: string,
+    projectId?: string,
 ): Promise<void> {
     const resolved = resolvePath(text, workingDir);
     if (!resolved) return;
@@ -314,12 +389,7 @@ async function handlePathActivation(
     const line = lineMatch?.[1] ? Number(lineMatch[1]) : undefined;
     const col = lineMatch?.[2] ? Number(lineMatch[2]) : undefined;
 
-    let stat: FileStatResponse;
-    try {
-        stat = await sendRequest<FileStatResponse>(MSG.FILE_STAT, { path: resolved });
-    } catch {
-        return;
-    }
+    const stat = await cachedFileStat(resolved);
     if (!stat.exists) return;
 
     const isExternal = event.metaKey || event.ctrlKey;
@@ -337,7 +407,7 @@ async function handlePathActivation(
         if (isExternal) {
             openExternalFile(resolved, { line, col });
         } else {
-            openFileInApp(resolved, workspaceKey);
+            void openFileInApp(resolved, workspaceKey, { taskId, projectId }, line);
         }
     }
 }
