@@ -73,6 +73,16 @@ export const useDiffStore = create<DiffStore>((set, get) => ({
                 }),
                 { additions: 0, deletions: 0 },
             );
+
+            // Count new/untracked files so they appear in the pill even if empty
+            if (statusRes.status === "fulfilled") {
+                const { stagedFiles, unstagedFiles } = statusRes.value.status;
+                const newFileCount =
+                    stagedFiles.filter((f) => f.status === "new").length +
+                    unstagedFiles.filter((f) => f.status === "untracked").length;
+                totals.additions += newFileCount;
+            }
+
             stats = totals.additions === 0 && totals.deletions === 0 ? null : totals;
         }
 

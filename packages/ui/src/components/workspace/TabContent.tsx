@@ -12,9 +12,9 @@ interface TabContentProps {
     activeTabId: string;
 }
 
-/** Tab types that stay mounted when inactive (never display:none) */
+/** Tab types that stay mounted when inactive */
 function isAlwaysMounted(type: Tab["type"]): boolean {
-    return type === "claude" || type === "codex" || type === "shell" || type === "browser";
+    return type === "browser";
 }
 
 function TabContent({ tabs, activeTabId }: TabContentProps) {
@@ -43,9 +43,9 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                     case "codex":
                     case "shell":
                         label = `${tab.type} terminal`;
-                        // Terminal panes are always mounted and use visibility+absolute
-                        // positioning instead of display:none so xterm.js always has
-                        // valid DOM measurements for its scroll viewport.
+                        // Terminal panes unmount when inactive and restore from
+                        // backend snapshots on remount, freeing GPU contexts.
+                        if (!isActive) return null;
                         pane = tab.sessionId ? (
                             <TerminalPane
                                 taskId={workspace.task?.id}
@@ -89,16 +89,16 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                         return null;
                 }
 
-                // Always-mounted tabs (terminals, browser) use absolute positioning
-                // with visibility toggle instead of display:none. This ensures xterm's
-                // viewport always has valid DOM dimensions for scroll calculations.
+                // Always-mounted tabs (browser) use absolute positioning with offscreen
+                // placement. Terminal tabs now unmount when inactive to free GPU contexts
+                // and restore from backend snapshots on remount.
                 if (isAlwaysMounted(tab.type)) {
                     return (
                         <ErrorBoundary key={tab.id} fallbackLabel={label}>
                             <div
                                 className={cn(
                                     "absolute inset-0 flex",
-                                    isActive ? "visible z-10" : "pointer-events-none invisible z-0",
+                                    isActive ? "z-10" : "pointer-events-none z-0 -left-[9999em]",
                                 )}
                             >
                                 {pane}

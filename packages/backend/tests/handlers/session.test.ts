@@ -55,6 +55,15 @@ class FakePtyManager {
         this.sequenceBySession.delete(id);
         session?.onExit(0);
     }
+
+    getSnapshot(id: string): { snapshot: string | null; lastSequence: number } {
+        const session = this.sessions.get(id);
+        if (!session) return { snapshot: null, lastSequence: 0 };
+        return {
+            snapshot: `[snapshot:${id}]`,
+            lastSequence: this.sequenceBySession.get(id) ?? 0,
+        };
+    }
 }
 
 describe("session handlers", () => {
@@ -145,7 +154,7 @@ describe("session handlers", () => {
 
         expect(events).toContainEqual({
             type: MSG.SESSION_STATUS,
-            payload: { sessionId: created.sessionId, status: "working" },
+            payload: { sessionId: created.sessionId, status: "initializing" },
         });
     });
 
@@ -169,6 +178,7 @@ describe("session handlers", () => {
                 enabled: true,
                 path: join(tempDir, "project", ".worktrees", "task"),
                 branch: "task/task",
+                pr: null,
             },
         });
 
@@ -249,6 +259,25 @@ describe("session handlers", () => {
             }),
         ).toEqual({
             data: "",
+            lastSequence: 0,
+        });
+    });
+
+    it("returns snapshot for active session", async () => {
+        const task = (await router.handle(MSG.TASK_CREATE, {
+            projectId,
+            title: "Task",
+        })) as { id: string };
+        const created = (await router.handle(MSG.SESSION_CREATE, {
+            taskId: task.id,
+            type: "codex",
+        })) as { sessionId: string };
+
+        const result = await router.handle(MSG.SESSION_SNAPSHOT, {
+            sessionId: created.sessionId,
+        });
+        expect(result).toEqual({
+            snapshot: `[snapshot:${created.sessionId}]`,
             lastSequence: 0,
         });
     });

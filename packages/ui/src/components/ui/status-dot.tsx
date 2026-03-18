@@ -15,6 +15,7 @@ export function StatusDot({ status, className }: StatusDotProps) {
                 "inline-block h-2 w-2 shrink-0 rounded-full",
                 status === "working" && "bg-success",
                 status === "attention" && "bg-warning animate-pulse",
+                status === "initializing" && "bg-muted-foreground animate-pulse",
                 className,
             )}
         />

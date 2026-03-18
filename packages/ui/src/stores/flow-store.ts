@@ -2,6 +2,10 @@ import { create } from "zustand";
 import type { FlowDefinition, FlowRun, ActionDefinition } from "@taskflow/shared";
 import { MSG, getFlowRunOwnerId } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
+import { useSessionStore } from "./session-store";
+import { useTaskStore } from "./task-store";
+import { useUIStore } from "./ui-store";
+import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 
 /**
  * Returns global items (no projectId) when projectId is nullish,
@@ -183,8 +187,39 @@ const useFlowStore = create<FlowStore>((set) => ({
 // Singleton store — registered once on import.
 const _unsubFlowRunUpdated = onEvent(MSG.FLOW_RUN_UPDATED, (payload) => {
     if (payload && typeof payload === "object" && "flowId" in payload) {
-        useFlowStore.getState().applyRunUpdate(payload as FlowRun);
+        const run = payload as FlowRun;
+        useFlowStore.getState().applyRunUpdate(run);
+        focusRunningActionTab(run);
     }
 });
+
+/** If the flow's current action has a sessionId and its workspace is active, focus the tab. */
+function focusRunningActionTab(run: FlowRun): void {
+    if (run.status !== "running") return;
+    const action = run.actions[run.currentActionIndex];
+    if (!action?.sessionId || action.status !== "running") return;
+
+    const workspaceKey = run.taskId
+        ? getTaskWorkspaceKey(run.taskId)
+        : run.projectId
+          ? getProjectWorkspaceKey(run.projectId)
+          : null;
+    if (!workspaceKey) return;
+
+    // Only focus if the workspace owning this flow is currently active
+    const activeTaskId = useTaskStore.getState().activeTaskId;
+    const activeProjectId = useUIStore.getState().activeProjectId;
+    const isActive = run.taskId
+        ? activeTaskId === run.taskId
+        : activeProjectId === run.projectId && !activeTaskId;
+    if (!isActive) return;
+
+    const sessionStore = useSessionStore.getState();
+    const tabs = sessionStore.getTabs(workspaceKey);
+    const tab = tabs.find((t) => t.sessionId === action.sessionId);
+    if (tab) {
+        sessionStore.setActiveTab(workspaceKey, tab.id);
+    }
+}
 
 export { useFlowStore, filterByProject };

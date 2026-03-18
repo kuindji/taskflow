@@ -64,6 +64,7 @@ describe("git handlers", () => {
                 enabled: true,
                 path: worktreePath,
                 branch: "task/task-worktree",
+                pr: null,
             },
         });
 
@@ -73,6 +74,7 @@ describe("git handlers", () => {
             router,
             git: git as unknown as GitService,
             taskStore: store,
+            broadcast: () => {},
         });
     });
 

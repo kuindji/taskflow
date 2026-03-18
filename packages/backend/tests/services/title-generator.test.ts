@@ -76,7 +76,7 @@ describe("title generator", () => {
             projectId: project.id,
             title: "",
             description: "Investigate task worktree setup",
-            worktree: { enabled: true, path: null, branch: null },
+            worktree: { enabled: true, path: null, branch: null, pr: null },
         });
 
         const generator = createTitleGenerator({
@@ -95,6 +95,7 @@ describe("title generator", () => {
             enabled: true,
             path: join(projectPath, ".worktrees", "fix-flaky-worktree-detection"),
             branch: "task/fix-flaky-worktree-detection",
+            pr: null,
         });
         expect(gitService.createdWorktrees).toEqual([
             {
@@ -128,7 +129,7 @@ describe("title generator", () => {
 
         const updated = await store.getTask(task.id);
         expect(updated?.title).toBe("Refine task copy");
-        expect(updated?.worktree).toEqual({ enabled: false, path: null, branch: null });
+        expect(updated?.worktree).toEqual({ enabled: false, path: null, branch: null, pr: null });
         expect(gitService.createdWorktrees).toEqual([]);
         expect(events.map((event) => event.type)).toEqual([MSG.TASK_UPDATED]);
     });

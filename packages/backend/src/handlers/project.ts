@@ -11,6 +11,8 @@ import type { TaskStore } from "../services/task-store";
 import type { GitService } from "../services/git-service";
 import { stat, rm } from "fs/promises";
 import { dirname, join } from "path";
+import { filterProjectSessions } from "../services/instance-filter";
+import { config } from "../config";
 
 function slugify(branch: string): string {
     return branch
@@ -27,7 +29,7 @@ export function registerProjectHandlers(
 ): void {
     router.register(MSG.PROJECT_LIST, async () => {
         const projects = await store.listProjects();
-        return { projects };
+        return { projects: projects.map((p) => filterProjectSessions(p, config.instanceId)) };
     });
 
     router.register(MSG.PROJECT_ADD, async (payload) => {
@@ -58,14 +60,16 @@ export function registerProjectHandlers(
     });
 
     router.register(MSG.PROJECT_UPDATE, async (payload) => {
-        const { id, name, path } = payload as ProjectUpdatePayload;
-        if (!name && !path) {
-            throw new Error("At least one of name or path must be provided");
+        const { id, name, path, hidden } = payload as ProjectUpdatePayload;
+        if (!name && !path && hidden === undefined) {
+            throw new Error("At least one of name, path, or hidden must be provided");
         }
-        const updates: Partial<Pick<Project, "name" | "path">> = {};
+        const updates: Partial<Pick<Project, "name" | "path" | "hidden">> = {};
         if (name) updates.name = name;
         if (path) updates.path = path;
-        return store.updateProject(id, updates);
+        if (hidden !== undefined) updates.hidden = hidden;
+        const updated = await store.updateProject(id, updates);
+        return filterProjectSessions(updated, config.instanceId);
     });
 
     router.register(MSG.PROJECT_FORK, async (payload) => {
