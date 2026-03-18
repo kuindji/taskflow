@@ -28,7 +28,7 @@ export function deriveTheme(source: ThemeSource): ResolvedTheme {
         "--warning-foreground": colors.background,
         "--info": ansi.blue,
         "--info-foreground": colors.background,
-        "--cursor-agent": ansi.brightRed,
+        "--cursor-agent": "#f0f0f0",
         "--cursor-agent-foreground": colors.background,
         "--border": colors.selection,
         "--input": colors.selection,

@@ -81,7 +81,7 @@
     --warning-foreground: #1e1e2e;
     --info: #89b4fa;
     --info-foreground: #1e1e2e;
-    --cursor-agent: #F54E00;
+    --cursor-agent: #f0f0f0;
     --cursor-agent-foreground: #1e1e2e;
     --island-base: rgba(24, 24, 37, 0.5);
 }

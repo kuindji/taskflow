@@ -15,7 +15,7 @@ interface TabContentProps {
 /** Tab types that stay mounted when inactive (never display:none) */
 function isAlwaysMounted(tab: Tab): boolean {
     if (tab.type === "editor" && tab.sessionId) return true;
-    return tab.type === "claude" || tab.type === "codex" || tab.type === "shell" || tab.type === "browser";
+    return tab.type === "claude" || tab.type === "codex" || tab.type === "cursor" || tab.type === "shell" || tab.type === "browser";
 }
 
 function TabContent({ tabs, activeTabId }: TabContentProps) {
@@ -42,6 +42,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                 switch (tab.type) {
                     case "claude":
                     case "codex":
+                    case "cursor":
                     case "shell":
                         label = `${tab.type} terminal`;
                         // Terminal panes unmount when inactive and restore from
