@@ -380,6 +380,7 @@ export function TabBar({
                                     if (e.shiftKey) {
                                         setClaudePopoverOpen(true);
                                     } else {
+                                        e.preventDefault();
                                         onNewTab("claude");
                                     }
                                 }}
@@ -416,6 +417,7 @@ export function TabBar({
                                     if (e.shiftKey) {
                                         setCodexPopoverOpen(true);
                                     } else {
+                                        e.preventDefault();
                                         onNewTab("codex");
                                     }
                                 }}
