@@ -467,11 +467,23 @@ function scheduleActivityTimeout(sessionId: string): void {
 const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
     const { sessionId } = payload as TerminalOutputEvent;
+
+    const store = useSessionStore.getState();
+    const currentStatus = store.sessionStatus[sessionId];
+
+    // "initializing" is only set for claude/codex sessions, so terminal
+    // output is a reliable signal the agent has started — transition
+    // immediately without requiring the tab to exist in the store yet.
+    if (currentStatus === "initializing") {
+        store.setSessionStatus(sessionId, "working");
+        scheduleActivityTimeout(sessionId);
+        return;
+    }
+
     if (isUserInteracting(sessionId)) return;
     if (!usesTerminalActivityStatus(sessionId)) return;
 
-    const store = useSessionStore.getState();
-    if (store.sessionStatus[sessionId] !== "working") {
+    if (currentStatus !== "working") {
         store.setSessionStatus(sessionId, "working");
     }
 
