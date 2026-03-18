@@ -16,8 +16,6 @@ import type {
     SessionSnapshotResponse,
     FileStatResponse,
     XtermTheme,
-    EditorInfo,
-    SystemInfoResponse,
 } from "@taskflow/shared";
 import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -65,12 +63,7 @@ interface TerminalViewportSnapshot {
     distanceFromBottom: number;
 }
 
-/** Module-level cache of detected editors for synchronous availability checks. */
-let cachedEditors: EditorInfo[] = [];
-void sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {}).then(
-    (info) => { cachedEditors = info.editors; },
-    () => {},
-);
+import { openFileInApp } from "@/lib/open-file";
 
 /** Module-level cache: keeps one xterm instance per mounted terminal tab. */
 const terminalCache = new Map<string, CachedTerminal>();
@@ -141,53 +134,6 @@ function openUrlInApp(url: string, workspaceKey: string | null) {
         label,
         url,
     });
-}
-
-function openFileInApp(
-    filePath: string,
-    workspaceKey: string | null,
-    owner?: { taskId?: string; projectId?: string },
-    line?: number,
-) {
-    if (!workspaceKey) return;
-    const store = useSessionStore.getState();
-    const settings = useSettingsStore.getState().settings;
-    const internalEditor = settings?.editor.internalEditor ?? "monaco";
-    const editorAvailable = cachedEditors.some(
-        (e) => e.id === internalEditor && e.type === "internal",
-    );
-
-    if (internalEditor === "monaco" || !editorAvailable) {
-        // Existing Monaco behavior
-        const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
-        const existing = existingTabs.find(
-            (t) => t.type === "editor" && t.filePath === filePath && !t.sessionId,
-        );
-        if (existing) {
-            store.setActiveTab(workspaceKey, existing.id);
-            return;
-        }
-        const label = filePath.split("/").pop() ?? filePath;
-        store.addTab(workspaceKey, {
-            id: crypto.randomUUID(),
-            type: "editor",
-            label,
-            filePath,
-        });
-    } else if (owner) {
-        // CLI editor: spawn terminal session
-        const basename = filePath.split("/").pop() ?? filePath;
-        const label = `${internalEditor}: ${basename}`;
-        void store.createSession(
-            owner,
-            "editor",
-            label,
-            undefined,
-            undefined,
-            undefined,
-            { editorId: internalEditor, filePath, line },
-        );
-    }
 }
 
 function openExternalUrl(url: string) {
@@ -377,7 +323,7 @@ async function handlePathActivation(
         if (isExternal) {
             openExternalFile(resolved, { line, col });
         } else {
-            openFileInApp(resolved, workspaceKey, { taskId, projectId }, line);
+            void openFileInApp(resolved, workspaceKey, { taskId, projectId }, line);
         }
     }
 }

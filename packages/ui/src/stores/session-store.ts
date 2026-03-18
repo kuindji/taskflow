@@ -55,6 +55,7 @@ interface SessionStore {
 }
 
 export type { Tab };
+export { isSessionExited };
 
 function getDefaultSessionLabel(type: Tab["type"]): string {
     if (type === "claude") return "Claude";
@@ -112,6 +113,12 @@ function getSessionTab(sessionId: string): Tab | undefined {
 function usesTerminalActivityStatus(sessionId: string): boolean {
     const type = getSessionTab(sessionId)?.type;
     return type === "claude" || type === "codex";
+}
+
+const exitedSessions = new Set<string>();
+
+function isSessionExited(sessionId: string): boolean {
+    return exitedSessions.has(sessionId);
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -201,6 +208,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const tab = (get().tabsByWorkspace[workspaceKey] ?? []).find((entry) => entry.id === tabId);
         try {
             if (tab?.sessionId) {
+                exitedSessions.delete(tab.sessionId);
                 await get().closeSession(tab.sessionId);
             }
         } finally {
@@ -495,6 +503,7 @@ const _unsubSessionStatus = onEvent(MSG.SESSION_STATUS, (payload) => {
 const _unsubSessionExited = onEvent(MSG.SESSION_EXITED, (payload) => {
     if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
     const { sessionId } = payload as SessionExitedEvent;
+    exitedSessions.add(sessionId);
     clearActivityTimer(sessionId);
     clearInteraction(sessionId);
     const { [sessionId]: _, ...remaining } = useSessionStore.getState().sessionStatus;

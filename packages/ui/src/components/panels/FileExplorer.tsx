@@ -3,8 +3,8 @@ import type { FileNode } from "@taskflow/shared";
 import ignore from "ignore";
 import { X } from "lucide-react";
 import { useFileStore } from "@/stores/file-store";
-import { useSessionStore } from "@/stores/session-store";
 import { useUIStore } from "@/stores/ui-store";
+import { openFileInApp } from "@/lib/open-file";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
@@ -25,7 +25,6 @@ function FileExplorer() {
         clearExplorerState,
     } = useFileStore();
     const workspace = useActiveWorkspace();
-    const { addTab, getTabs, setActiveTab } = useSessionStore();
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
     const workingDir = workspace.workingDir;
     const isElectron = useIsElectron();
@@ -117,22 +116,12 @@ function FileExplorer() {
     }, [workingDir, tree, treePath, gitignorePatterns]);
 
     const handleFileClick = (path: string) => {
-        if (!workspace.workspaceKey) return;
-
-        const existingTab = getTabs(workspace.workspaceKey).find(
-            (tab) => tab.type === "editor" && tab.filePath === path,
-        );
-        if (existingTab) {
-            setActiveTab(workspace.workspaceKey, existingTab.id);
-            return;
-        }
-
-        addTab(workspace.workspaceKey, {
-            id: crypto.randomUUID(),
-            type: "editor",
-            label: path.split("/").pop() ?? path,
-            filePath: path,
-        });
+        const owner = workspace.task
+            ? { taskId: workspace.task.id }
+            : workspace.project
+              ? { projectId: workspace.project.id }
+              : undefined;
+        void openFileInApp(path, workspace.workspaceKey, owner);
     };
 
     return (
