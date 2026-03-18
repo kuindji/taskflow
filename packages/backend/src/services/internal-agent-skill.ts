@@ -39,7 +39,9 @@ When running as a flow action (TASKFLOW_FLOW_ID is set):
 - Save a file artifact: \`taskflow-cli artifact save <type> --path <path>\`
 - Save a text artifact: \`taskflow-cli artifact save <type> --text <text>\`
 - List all artifacts: \`taskflow-cli artifact list\`
-- Get artifact by type: \`taskflow-cli artifact get <type>\``;
+- Get artifact by type: \`taskflow-cli artifact get <type>\`
+- Get all flow inputs: \`taskflow-cli flow input\`
+- Get a specific flow input: \`taskflow-cli flow input <id>\``;
 
 export function buildSystemPrompt(isProjectScope: boolean): string {
     const scopeBlock = isProjectScope ? PROMPT_PROJECT_SCOPE : PROMPT_TASK_SCOPE;
@@ -140,6 +142,15 @@ Read artifacts from prior actions:
 \`\`\`
 taskflow-cli artifact list
 taskflow-cli artifact get plan
+\`\`\`
+
+## Flow inputs (available when TASKFLOW_FLOW_ID is set)
+
+Read input values provided by the user when the flow was started:
+
+\`\`\`
+taskflow-cli flow input
+taskflow-cli flow input <id>
 \`\`\`
 `;
 
@@ -437,6 +448,35 @@ case "$cmd" in
     esac
     ;;
 
+  flow)
+    if [ -z "$TASKFLOW_FLOW_ID" ]; then
+      echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
+      exit 1
+    fi
+    if [ -n "$TASKFLOW_TASK_ID" ]; then
+      flow_owner_id="$TASKFLOW_TASK_ID"
+    else
+      flow_owner_id="$TASKFLOW_PROJECT_ID"
+    fi
+    subcmd="\${1:-}"
+    shift 2>/dev/null || true
+    case "$subcmd" in
+      input)
+        input_id="\${1:-}"
+        if [ -z "$input_id" ]; then
+          curl -sf "$TASKFLOW_API_URL/api/flow/input/$flow_owner_id/$TASKFLOW_FLOW_ID"
+        else
+          # Endpoint returns plain text — output directly
+          curl -sf "$TASKFLOW_API_URL/api/flow/input/$flow_owner_id/$TASKFLOW_FLOW_ID/$input_id"
+        fi
+        ;;
+      *)
+        echo "Usage: taskflow-cli flow <input>" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+
   *)
     echo "Usage: taskflow-cli <command>" >&2
     echo "" >&2
@@ -449,6 +489,7 @@ case "$cmd" in
     echo "  browser <url> [--label l] [--project]         Open a browser tab" >&2
     echo "  action complete                               Signal flow action completion" >&2
     echo "  artifact <save|list|get>                      Manage flow artifacts" >&2
+    echo "  flow input [<id>]                             Get flow input values" >&2
     exit 1
     ;;
 esac
