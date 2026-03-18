@@ -21,6 +21,12 @@ interface ActionInline {
     agentOptions?: AgentLaunchOptions;
 }
 
+interface FlowInputDefinition {
+    id: string;
+    label: string;
+    type: "text" | "filepath";
+}
+
 interface FlowActionEntryBase {
     id: string;
     label?: string;
@@ -44,6 +50,7 @@ interface FlowDefinition {
     name: string;
     description: string;
     actions: FlowActionEntry[];
+    inputs?: FlowInputDefinition[];
     createdAt: string;
     updatedAt: string;
 }
@@ -77,6 +84,7 @@ type FlowRun = FlowOwner & {
     currentActionIndex: number;
     actions: FlowActionState[];
     artifacts: FlowArtifact[];
+    inputValues?: Record<string, string>;
     startedAt: string;
     completedAt?: string;
 };
@@ -102,6 +110,7 @@ interface FlowStartPayload {
     taskId?: string;
     projectId?: string;
     flowId: string;
+    inputValues?: Record<string, string>;
 }
 
 interface FlowOwnerFlowPayload {
@@ -123,6 +132,7 @@ export type {
     SessionType,
     ActionDefinition,
     ActionInline,
+    FlowInputDefinition,
     FlowActionEntry,
     FlowDefinition,
     FlowRunStatus,
