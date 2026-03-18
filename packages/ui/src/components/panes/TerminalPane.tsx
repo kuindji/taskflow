@@ -390,6 +390,16 @@ function createTerminalWriter(term: Terminal): {
     };
 }
 
+function removeCanvasCursorLayer(screenElement: HTMLElement): void {
+    // Remove the Canvas addon's cursor layer canvas from the DOM so it doesn't
+    // paint on top of the WebGL canvas. The Canvas cursor layer (z-index 3)
+    // sits above the WebGL canvas (z-index auto) and keeps its independent
+    // blink timer running, which causes a duplicate/missing cursor.
+    // Selection and link layers are kept — WebGL handles rendering but Canvas
+    // layers may still contribute to hover/selection visuals.
+    screenElement.querySelector("canvas.xterm-cursor-layer")?.remove();
+}
+
 function loadBestEffortRendererAddons(term: Terminal): () => void {
     const canvas = new CanvasAddon();
     term.loadAddon(canvas);
@@ -402,6 +412,14 @@ function loadBestEffortRendererAddons(term: Terminal): () => void {
             if (disposed) return;
             const addon = new WebglAddon();
             term.loadAddon(addon);
+
+            // Remove the Canvas cursor layer now that WebGL is rendering.
+            const screenElement = (term as unknown as { element: HTMLElement }).element
+                ?.querySelector(".xterm-screen") as HTMLElement | null;
+            if (screenElement) {
+                removeCanvasCursorLayer(screenElement);
+            }
+
             const contextLossDisposable = addon.onContextLoss(() => {
                 cleanupWebgl?.();
                 cleanupWebgl = null;
@@ -513,11 +531,19 @@ function getOrCreateTerminal(
     // Try snapshot first (pixel-perfect for active sessions),
     // fall back to JSONL history for exited sessions.
     sendRequest<SessionSnapshotResponse>(MSG.SESSION_SNAPSHOT, { sessionId })
-        .then(({ snapshot, lastSequence }) => {
+        .then(({ snapshot, lastSequence, cursorHidden }) => {
             if (snapshot !== null) {
                 writer.write(snapshot);
+                // SerializeAddon v0.13.0 doesn't serialize DECTCEM (cursor
+                // visibility). Restore it from the headless terminal state so
+                // TUIs that hide the cursor (e.g. Claude Code) don't show a
+                // ghost cursor after snapshot restore.
+                if (cursorHidden) {
+                    writer.write("\x1b[?25l");
+                }
                 historyLoaded = true;
                 flushPendingChunks(pendingData, lastSequence, writer);
+
                 return;
             }
             return replayFromHistory();

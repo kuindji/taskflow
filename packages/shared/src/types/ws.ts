@@ -183,6 +183,7 @@ export interface SessionSnapshotPayload {
 export interface SessionSnapshotResponse {
     snapshot: string | null;
     lastSequence: number;
+    cursorHidden: boolean;
 }
 
 // Shell detection
