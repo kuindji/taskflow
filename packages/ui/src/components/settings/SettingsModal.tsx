@@ -132,7 +132,9 @@ function SettingsModal() {
         (agent: AgentType, checked: boolean) => {
             const current = settings?.general.favoriteAgents ?? ALL_AGENT_TYPES;
             const next = checked
-                ? current.includes(agent) ? current : [...current, agent]
+                ? current.includes(agent)
+                    ? current
+                    : [...current, agent]
                 : current.filter((a) => a !== agent);
             void updateSettings({ general: { favoriteAgents: next } });
         },
@@ -391,7 +393,7 @@ function SettingsModal() {
                                     as="code"
                                     tooltip
                                     tooltipSide="bottom"
-                                    className="max-w-90 bg-card border-border text-muted-foreground flex h-8 w-full min-w-0 items-center overflow-x-auto rounded-md border px-2.5 font-mono text-xs"
+                                    className="bg-card border-border text-muted-foreground flex h-8 w-full max-w-90 min-w-0 items-center overflow-x-auto rounded-md border px-2.5 font-mono text-xs"
                                     tooltipContent={dataDirInfo?.dataDir ?? "Loading..."}>
                                     {dataDirInfo?.dataDir ?? "Loading..."}
                                 </TruncatedText>

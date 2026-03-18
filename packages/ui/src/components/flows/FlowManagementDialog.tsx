@@ -169,7 +169,7 @@ function FlowManagementDialog() {
                                     setSelectedId(null);
                                     setCreating(false);
                                 }}>
-                                <SelectTrigger className="h-7 text-xs w-full">
+                                <SelectTrigger className="h-7 w-full text-xs">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>

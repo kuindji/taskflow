@@ -186,10 +186,7 @@ interface TabBarProps {
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => void;
-    onRunTab: (
-        type: AgentType,
-        agentOptions?: AgentLaunchOptions,
-    ) => void;
+    onRunTab: (type: AgentType, agentOptions?: AgentLaunchOptions) => void;
     onRunScript: (scriptName: string) => void;
     onRunAction: (action: ActionDefinition) => void;
     onStartFlow: (flowId: string) => void;
@@ -240,8 +237,7 @@ export function TabBar({
         [favoriteAgents],
     );
     const hasAvailableNonFavorites = useMemo(
-        () =>
-            nonFavoriteAgents.some((agent) => isAgentAvailable(agents, agent)),
+        () => nonFavoriteAgents.some((agent) => isAgentAvailable(agents, agent)),
         [nonFavoriteAgents, agents],
     );
 
@@ -357,7 +353,9 @@ export function TabBar({
                                 {(scriptNames.length > 0 ||
                                     flows.length > 0 ||
                                     standaloneActions.length > 0) && <DropdownMenuSeparator />}
-                                <DropdownMenuLabel>Run agent with task description</DropdownMenuLabel>
+                                <DropdownMenuLabel>
+                                    Run agent with task description
+                                </DropdownMenuLabel>
                                 {ALL_AGENT_TYPES.map((agentType) => {
                                     const meta = AGENT_META[agentType];
                                     const available = isAgentAvailable(agents, agentType);
@@ -367,16 +365,13 @@ export function TabBar({
                                         <Fragment key={agentType}>
                                             <DropdownMenuItem
                                                 disabled={!available}
-                                                onClick={() =>
-                                                    available && onRunTab(agentType)
-                                                }>
+                                                onClick={() => available && onRunTab(agentType)}>
                                                 <Icon className="mr-2 h-4 w-4" />
                                                 {label}
                                                 {!available ? " (not installed)" : ""}
                                             </DropdownMenuItem>
                                             <DropdownMenuSub>
-                                                <DropdownMenuSubTrigger
-                                                    disabled={!available}>
+                                                <DropdownMenuSubTrigger disabled={!available}>
                                                     <Icon className="mr-2 h-4 w-4" />
                                                     {label} with options
                                                 </DropdownMenuSubTrigger>
@@ -385,10 +380,7 @@ export function TabBar({
                                                         <AgentOptionsPanel
                                                             agentType={agentType}
                                                             onRun={(options) =>
-                                                                onRunTab(
-                                                                    agentType,
-                                                                    options,
-                                                                )
+                                                                onRunTab(agentType, options)
                                                             }
                                                         />
                                                     </DropdownMenuSubContent>
@@ -480,8 +472,7 @@ export function TabBar({
                 tooltipSide="bottom">
                 <Globe className="h-3.5 w-3.5" />
             </Button>
-            {((hasAvailableNonFavorites && allowSessionTabs) ||
-                shells.length > 1) && (
+            {((hasAvailableNonFavorites && allowSessionTabs) || shells.length > 1) && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button
@@ -497,18 +488,14 @@ export function TabBar({
                         {allowSessionTabs &&
                             nonFavoriteAgents.map((agentType) => {
                                 const meta = AGENT_META[agentType];
-                                const available = isAgentAvailable(
-                                    agents,
-                                    agentType,
-                                );
+                                const available = isAgentAvailable(agents, agentType);
                                 const Icon = meta.icon;
                                 return (
                                     <DropdownMenuItem
                                         key={agentType}
                                         disabled={!available}
                                         onClick={() => {
-                                            if (available)
-                                                onNewTab(agentType);
+                                            if (available) onNewTab(agentType);
                                         }}>
                                         <Icon className="mr-2 h-4 w-4" />
                                         {AGENT_DISPLAY_NAMES[agentType]}
@@ -520,31 +507,22 @@ export function TabBar({
                                     </DropdownMenuItem>
                                 );
                             })}
-                        {nonFavoriteAgents.length > 0 &&
-                            allowSessionTabs &&
-                            shells.length > 1 && (
-                                <DropdownMenuSeparator />
-                            )}
+                        {nonFavoriteAgents.length > 0 && allowSessionTabs && shells.length > 1 && (
+                            <DropdownMenuSeparator />
+                        )}
                         {shells.length > 1 && (
                             <>
                                 <DropdownMenuItem
                                     disabled={!defaultShellPath}
                                     onClick={() => {
-                                        if (defaultShellPath)
-                                            onNewTab(
-                                                "shell",
-                                                defaultShellPath,
-                                            );
+                                        if (defaultShellPath) onNewTab("shell", defaultShellPath);
                                     }}>
                                     <Terminal className="mr-2 h-4 w-4" />
                                     Default Terminal
                                     <span className="text-muted-foreground ml-auto text-xs">
-                                        {configuredShell ===
-                                        DEFAULT_TERMINAL_SHELL
+                                        {configuredShell === DEFAULT_TERMINAL_SHELL
                                             ? getShellNameFromPath(
-                                                  defaultShellPath ??
-                                                      systemShellPath ??
-                                                      "",
+                                                  defaultShellPath ?? systemShellPath ?? "",
                                               )
                                             : defaultShellSummary}
                                     </span>
@@ -553,9 +531,7 @@ export function TabBar({
                                 {shells.map((shell) => (
                                     <DropdownMenuItem
                                         key={shell.path}
-                                        onClick={() =>
-                                            onNewTab("shell", shell.path)
-                                        }>
+                                        onClick={() => onNewTab("shell", shell.path)}>
                                         <Terminal className="mr-2 h-4 w-4" />
                                         {getShellDisplayName(shell)}
                                     </DropdownMenuItem>
