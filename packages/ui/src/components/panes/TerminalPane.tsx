@@ -485,7 +485,7 @@ function loadBestEffortRendererAddons(term: Terminal): () => void {
 
             // Remove the Canvas cursor layer now that WebGL is rendering.
             const screenElement = (term as unknown as { element: HTMLElement }).element
-                ?.querySelector(".xterm-screen");
+                ?.querySelector<HTMLElement>(".xterm-screen");
             if (screenElement) {
                 removeCanvasCursorLayer(screenElement);
             }

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { join } from "path";
-import { INTERNAL_AGENT_SYSTEM_PROMPT } from "./internal-agent-skill";
+import { buildSystemPrompt } from "./internal-agent-skill";
 
 const CURSOR_RULES_DIR = ".cursor/rules";
 const CURSOR_RULES_FILE = "taskflow.mdc";
@@ -11,7 +11,7 @@ description: Taskflow CLI integration — provides taskflow-cli for logging, bro
 alwaysApply: true
 ---
 
-${INTERNAL_AGENT_SYSTEM_PROMPT}
+${buildSystemPrompt(false)}
 `;
 
 export async function checkCursorRulesStatus(cwd: string): Promise<"missing" | "present"> {

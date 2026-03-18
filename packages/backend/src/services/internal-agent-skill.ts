@@ -528,8 +528,8 @@ export function buildAgentLaunchSpec(
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
         }
         const interactivePrompt = prompt
-            ? `${INTERNAL_AGENT_SYSTEM_PROMPT}\n\n---\n\n${prompt}`
-            : INTERNAL_AGENT_SYSTEM_PROMPT;
+            ? `${systemPrompt}\n\n---\n\n${prompt}`
+            : systemPrompt;
         return {
             command: "gemini",
             args: [
