@@ -88,14 +88,33 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
             const flows = await flowStore.getFlows();
             const flow = flows.find((f) => f.id === payload.flowId);
             if (!flow) throw new Error(`Flow not found: ${payload.flowId}`);
+
+            // Validate inputValues shape if present
+            let inputValues: Record<string, string> | undefined;
+            if (payload.inputValues !== undefined) {
+                if (
+                    typeof payload.inputValues !== "object" ||
+                    payload.inputValues === null ||
+                    Array.isArray(payload.inputValues)
+                ) {
+                    throw new Error("inputValues must be a plain object with string values");
+                }
+                for (const [key, value] of Object.entries(payload.inputValues)) {
+                    if (typeof value !== "string") {
+                        throw new Error(`inputValues["${key}"] must be a string`);
+                    }
+                }
+                inputValues = payload.inputValues;
+            }
+
             if (payload.taskId) {
-                return await flowRunner.startFlow({ taskId: payload.taskId }, flow);
+                return await flowRunner.startFlow({ taskId: payload.taskId }, flow, inputValues);
             }
             if (!payload.projectId) {
                 throw new Error("Flow start requires either taskId or projectId");
             }
             const owner: FlowOwner = { projectId: payload.projectId };
-            return await flowRunner.startFlow(owner, flow);
+            return await flowRunner.startFlow(owner, flow, inputValues);
         }),
     );
 
