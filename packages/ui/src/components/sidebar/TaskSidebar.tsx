@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
-import type { Task } from "@taskflow/shared";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import type { Task, TaskWorktreePr } from "@taskflow/shared";
+import { MSG } from "@taskflow/shared";
+import { sendRequest } from "@/hooks/useWebSocket";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -107,6 +109,47 @@ export function TaskSidebar() {
         if (!connected || diffTargets.length === 0) return;
         return startPolling(diffTargets);
     }, [connected, startPolling, diffTargets]);
+
+    // Poll for PRs on worktree tasks that don't have one yet
+    const updateTask = useTaskStore((s) => s.updateTask);
+    const prCheckTasks = useMemo(
+        () => tasks.filter((t) => t.worktree.enabled && t.worktree.branch && !t.worktree.pr && !t.parentId),
+        [tasks],
+    );
+    const prCheckTasksRef = useRef<Task[]>(prCheckTasks);
+    useEffect(() => {
+        prCheckTasksRef.current = prCheckTasks;
+    }, [prCheckTasks]);
+
+    useEffect(() => {
+        if (!connected) return;
+
+        async function checkPrs() {
+            const tasksToCheck = prCheckTasksRef.current;
+            if (tasksToCheck.length === 0) return;
+
+            for (const task of tasksToCheck) {
+                if (!task.worktree.path || !task.worktree.branch) continue;
+                try {
+                    const result = await sendRequest<{ pr: TaskWorktreePr | null }>(
+                        MSG.GIT_CHECK_PR,
+                        { path: task.worktree.path, branch: task.worktree.branch },
+                    );
+                    if (result.pr) {
+                        await updateTask(task.id, {
+                            worktree: { ...task.worktree, pr: result.pr },
+                        });
+                    }
+                } catch {
+                    // Silently skip — will retry next cycle
+                }
+            }
+        }
+
+        void checkPrs();
+        const interval = setInterval(() => void checkPrs(), 30_000);
+        return () => clearInterval(interval);
+    }, [connected, updateTask]);
 
     useEffect(() => {
         const cleanup = window.taskflow?.onToggleArchive(() => {

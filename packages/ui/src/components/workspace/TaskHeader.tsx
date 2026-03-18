@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import type { Task, Project } from "@taskflow/shared";
+import type { Task, Project, TaskWorktreePr } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -21,6 +21,7 @@ import {
     FolderTree,
     GitCommitHorizontal,
     GitFork,
+    GitPullRequestCreateArrow,
     NotebookText,
     Pencil,
     Trash2,
@@ -32,6 +33,30 @@ interface TaskHeaderProps {
     task?: Task;
     project?: Project;
     onDiff?: () => void;
+}
+
+function openUrl(url: string) {
+    if (window.taskflow) {
+        void window.taskflow.openExternalUrl(url);
+    } else {
+        window.open(url, "_blank");
+    }
+}
+
+function PrLink({ pr }: { pr: TaskWorktreePr }) {
+    return (
+        <span
+            role="link"
+            tabIndex={0}
+            className="text-accent hover:underline cursor-pointer text-xs font-medium"
+            onClick={() => openUrl(pr.url)}
+            onKeyDown={(e) => {
+                if (e.key === "Enter") openUrl(pr.url);
+            }}
+        >
+            #{pr.number}
+        </span>
+    );
 }
 
 export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
@@ -65,8 +90,14 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     );
 
     const showPush = !hasChanges && !commitDisabled;
-    const commitLabel = showPush ? "Push" : "Commit";
-    const CommitIcon = showPush ? ArrowUpFromLine : GitCommitHorizontal;
+    const showCreatePr =
+        commitDisabled && isWorktreeTask && !!task?.worktree.branch && !task?.worktree.pr;
+    const commitLabel = showCreatePr ? "Create PR" : showPush ? "Push" : "Commit";
+    const CommitIcon = showCreatePr
+        ? GitPullRequestCreateArrow
+        : showPush
+          ? ArrowUpFromLine
+          : GitCommitHorizontal;
 
     const showGitButtons = !!project && (!task || isWorktreeTask);
     const showDiffButton = !!onDiff && showGitButtons;
@@ -140,6 +171,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                 >
                                     {task.worktree.branch}
                                 </TruncatedText>
+                                {task.worktree.pr && (
+                                    <PrLink pr={task.worktree.pr} />
+                                )}
                                 <CopyButton
                                     value={task.worktree.branch}
                                     tooltip="Copy branch name"
@@ -165,7 +199,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             variant="ghost"
                             size="xs"
                             onClick={() => setCommitOpen(true)}
-                            disabled={commitDisabled}
+                            disabled={commitDisabled && !showCreatePr}
                             aria-label={commitLabel}
                             className="[-webkit-app-region:no-drag]"
                         >

@@ -15,6 +15,7 @@ export default tseslint.config(
             "!eslint.config.js",
             "**/vite.config.ts",
             "**/.worktrees/",
+            "electron/build.ts",
         ],
     },
 

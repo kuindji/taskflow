@@ -66,7 +66,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
 
         let resolvedProjectId = projectId;
         let resolvedWorktree: TaskWorktree | undefined = worktree
-            ? { enabled: true, path: null, branch: null }
+            ? { enabled: true, path: null, branch: null, pr: null }
             : undefined;
 
         if (parentId) {

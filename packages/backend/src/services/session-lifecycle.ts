@@ -140,7 +140,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             if (type === "cursor" && systemPrompt) {
                 await ensureCursorRulesFile(cwd, systemPrompt);
             }
-            const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions, systemPrompt);
+            const spec = buildAgentLaunchSpec(type, prompt, skillPath, agentOptions, systemPrompt, !task);
             command = spec.command;
             args.push(...spec.args);
         }

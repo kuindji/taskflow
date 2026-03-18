@@ -176,6 +176,16 @@ export interface SessionHistoryResponse {
     lastSequence: number;
 }
 
+export interface SessionSnapshotPayload {
+    sessionId: string;
+}
+
+export interface SessionSnapshotResponse {
+    snapshot: string | null;
+    lastSequence: number;
+    cursorHidden: boolean;
+}
+
 // Shell detection
 export interface ShellInfo {
     name: string;
@@ -209,6 +219,15 @@ export interface FileTreePayload {
 
 export interface FileTreeResponse {
     tree: FileNode;
+    gitignorePatterns: string[];
+}
+
+export interface FileListDirPayload {
+    path: string;
+}
+
+export interface FileListDirResponse {
+    entries: FileNode[];
     gitignorePatterns: string[];
 }
 
@@ -332,10 +351,17 @@ export interface GitCreatePrPayload {
     path: string;
     title: string;
     body?: string;
+    taskId?: string;
+}
+
+export interface GitCheckPrPayload {
+    path: string;
+    branch: string;
 }
 
 export interface GitCreatePrResult {
     url: string;
+    number: number;
 }
 
 // Scripts messages

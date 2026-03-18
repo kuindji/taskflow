@@ -5,6 +5,7 @@ import type {
     SessionRenamePayload,
     SessionInputPayload,
     SessionHistoryPayload,
+    SessionSnapshotPayload,
     TerminalResizePayload,
     SessionRef,
     CursorRulesCheckPayload,
@@ -95,6 +96,11 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             throw new Error("Exactly one of taskId or projectId is required");
         }
         return taskStore.getSessionHistory(ownerId, sessionId);
+    });
+
+    router.register(MSG.SESSION_SNAPSHOT, async (payload) => {
+        const { sessionId } = payload as SessionSnapshotPayload;
+        return ptyManager.getSnapshot(sessionId);
     });
 
     router.register(MSG.CURSOR_RULES_CHECK, async (payload) => {

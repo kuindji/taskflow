@@ -13,6 +13,7 @@ import type {
     TerminalOutputEvent,
     SessionExitedEvent,
     SessionHistoryResponse,
+    SessionSnapshotResponse,
     FileStatResponse,
     XtermTheme,
 } from "@taskflow/shared";
@@ -65,6 +66,13 @@ interface TerminalViewportSnapshot {
 /** Module-level cache: keeps one xterm instance per mounted terminal tab. */
 const terminalCache = new Map<string, CachedTerminal>();
 const RESIZE_DEBOUNCE_MS = 250;
+
+/** Pending delayed destructions — cancelled if terminal remounts within the grace period. */
+const pendingDetaches = new Map<string, ReturnType<typeof setTimeout>>();
+const DETACH_GRACE_MS = 50;
+
+/** Saved viewport positions for terminals pending detach or recently detached. */
+const viewportSnapshots = new Map<string, TerminalViewportSnapshot>();
 
 function applyThemeToCachedTerminal(cached: CachedTerminal, theme: XtermTheme): void {
     cached.term.options.theme = { ...theme };
@@ -320,7 +328,7 @@ async function handlePathActivation(
         if (isExternal) {
             window.taskflow?.showItemInFolder(resolved);
         } else {
-            useFileStore.getState().setExpandToPath(resolved);
+            void useFileStore.getState().expandToPathAndLoad(resolved);
             if (!useUIStore.getState().fileExplorerOpen) {
                 useUIStore.getState().toggleFileExplorer();
             }
@@ -382,6 +390,16 @@ function createTerminalWriter(term: Terminal): {
     };
 }
 
+function removeCanvasCursorLayer(screenElement: HTMLElement): void {
+    // Remove the Canvas addon's cursor layer canvas from the DOM so it doesn't
+    // paint on top of the WebGL canvas. The Canvas cursor layer (z-index 3)
+    // sits above the WebGL canvas (z-index auto) and keeps its independent
+    // blink timer running, which causes a duplicate/missing cursor.
+    // Selection and link layers are kept — WebGL handles rendering but Canvas
+    // layers may still contribute to hover/selection visuals.
+    screenElement.querySelector("canvas.xterm-cursor-layer")?.remove();
+}
+
 function loadBestEffortRendererAddons(term: Terminal): () => void {
     const canvas = new CanvasAddon();
     term.loadAddon(canvas);
@@ -394,6 +412,14 @@ function loadBestEffortRendererAddons(term: Terminal): () => void {
             if (disposed) return;
             const addon = new WebglAddon();
             term.loadAddon(addon);
+
+            // Remove the Canvas cursor layer now that WebGL is rendering.
+            const screenElement = (term as unknown as { element: HTMLElement }).element
+                ?.querySelector(".xterm-screen");
+            if (screenElement) {
+                removeCanvasCursorLayer(screenElement);
+            }
+
             const contextLossDisposable = addon.onContextLoss(() => {
                 cleanupWebgl?.();
                 cleanupWebgl = null;
@@ -419,6 +445,17 @@ function getTerminalTheme(): XtermTheme {
     return { ...useThemeStore.getState().resolved.xterm };
 }
 
+function flushPendingChunks(
+    pendingData: BufferedTerminalChunk[],
+    lastSequence: number,
+    writer: { write: (data: string) => void },
+): void {
+    for (const chunk of pendingData) {
+        if (chunk.sequence > lastSequence) writer.write(chunk.data);
+    }
+    pendingData.length = 0;
+}
+
 function getOrCreateTerminal(
     sessionId: string,
     taskId?: string,
@@ -428,7 +465,10 @@ function getOrCreateTerminal(
     if (existing) return existing;
 
     const terminalSettings = useSettingsStore.getState().settings?.terminal;
+    const lastTerminalSize = useSessionStore.getState().lastTerminalSize;
     const term = new Terminal({
+        cols: lastTerminalSize?.cols ?? undefined,
+        rows: lastTerminalSize?.rows ?? undefined,
         theme: getTerminalTheme(),
         fontFamily: terminalSettings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
         fontSize: terminalSettings?.fontSize ?? 13,
@@ -488,21 +528,45 @@ function getOrCreateTerminal(
         }
     });
 
-    // Replay scrollback then flush buffered live data
-    sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, { taskId, projectId, sessionId })
-        .then(({ data, lastSequence }) => {
-            if (data) writer.write(data);
-            historyLoaded = true;
-            for (const chunk of pendingData) {
-                if (chunk.sequence > lastSequence) writer.write(chunk.data);
+    // Try snapshot first (pixel-perfect for active sessions),
+    // fall back to JSONL history for exited sessions.
+    sendRequest<SessionSnapshotResponse>(MSG.SESSION_SNAPSHOT, { sessionId })
+        .then(({ snapshot, lastSequence, cursorHidden }) => {
+            if (snapshot !== null) {
+                writer.write(snapshot);
+                // SerializeAddon v0.13.0 doesn't serialize DECTCEM (cursor
+                // visibility). Restore it from the headless terminal state so
+                // TUIs that hide the cursor (e.g. Claude Code) don't show a
+                // ghost cursor after snapshot restore.
+                if (cursorHidden) {
+                    writer.write("\x1b[?25l");
+                }
+                historyLoaded = true;
+                flushPendingChunks(pendingData, lastSequence, writer);
+
+                return;
             }
-            pendingData.length = 0;
+            return replayFromHistory();
         })
-        .catch(() => {
-            historyLoaded = true;
-            for (const chunk of pendingData) writer.write(chunk.data);
-            pendingData.length = 0;
-        });
+        .catch(() => replayFromHistory());
+
+    function replayFromHistory() {
+        return sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, {
+            taskId,
+            projectId,
+            sessionId,
+        })
+            .then(({ data, lastSequence }) => {
+                if (data) writer.write(data);
+                historyLoaded = true;
+                flushPendingChunks(pendingData, lastSequence, writer);
+            })
+            .catch(() => {
+                historyLoaded = true;
+                for (const chunk of pendingData) writer.write(chunk.data);
+                pendingData.length = 0;
+            });
+    }
 
     const cached: CachedTerminal = {
         term,
@@ -522,6 +586,8 @@ function getOrCreateTerminal(
 
 /** Remove a terminal from cache and dispose all resources */
 function destroyTerminal(sessionId: string): void {
+    cancelDetach(sessionId);
+    viewportSnapshots.delete(sessionId);
     const cached = terminalCache.get(sessionId);
     if (!cached) return;
     terminalCache.delete(sessionId);
@@ -530,6 +596,30 @@ function destroyTerminal(sessionId: string): void {
     cached.disposeRuntime();
     cached.element.remove();
     cached.term.dispose();
+}
+
+/** Schedule terminal destruction after a grace period. */
+function scheduleDetach(sessionId: string): void {
+    if (pendingDetaches.has(sessionId)) return;
+    const cached = terminalCache.get(sessionId);
+    if (cached) {
+        viewportSnapshots.set(sessionId, captureViewport(cached.term));
+    }
+    const timer = setTimeout(() => {
+        pendingDetaches.delete(sessionId);
+        viewportSnapshots.delete(sessionId);
+        destroyTerminal(sessionId);
+    }, DETACH_GRACE_MS);
+    pendingDetaches.set(sessionId, timer);
+}
+
+/** Cancel a pending detach if the terminal is being remounted. Returns true if cancelled. */
+function cancelDetach(sessionId: string): boolean {
+    const timer = pendingDetaches.get(sessionId);
+    if (timer === undefined) return false;
+    clearTimeout(timer);
+    pendingDetaches.delete(sessionId);
+    return true;
 }
 
 function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPaneProps) {
@@ -541,6 +631,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     const isInitializing = sessionStatus === "initializing";
     const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const fitFrameRef = useRef<number | null>(null);
+    const fitRetryTimeoutRef = useRef<number | null>(null);
     const resizeDebounceTimeoutRef = useRef<number | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const dragCounterRef = useRef(0);
@@ -572,9 +663,13 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     );
 
     const scheduleFit = useCallback(
-        (forceResize = false, focus = false, scrollToBottom = false, retries = 2) => {
+        (forceResize = false, focus = false, scrollToBottom = false, retries = 5) => {
             if (fitFrameRef.current !== null) {
                 cancelAnimationFrame(fitFrameRef.current);
+            }
+            if (fitRetryTimeoutRef.current !== null) {
+                window.clearTimeout(fitRetryTimeoutRef.current);
+                fitRetryTimeoutRef.current = null;
             }
             fitFrameRef.current = requestAnimationFrame(() => {
                 fitFrameRef.current = null;
@@ -584,7 +679,15 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 const fitResult = fitTerminal(fitRef.current, termRef.current);
                 if (!fitResult.measured) {
                     if (retries > 0) {
-                        scheduleFit(forceResize, focus, scrollToBottom, retries - 1);
+                        // Use setTimeout with backoff instead of rAF for retries.
+                        // After off-screen→on-screen transitions the browser may
+                        // need several layout passes before the container reports
+                        // real dimensions to proposeDimensions().
+                        const delay = Math.min(50 * Math.pow(2, 5 - retries), 400);
+                        fitRetryTimeoutRef.current = window.setTimeout(() => {
+                            fitRetryTimeoutRef.current = null;
+                            scheduleFit(forceResize, focus, scrollToBottom, retries - 1);
+                        }, delay);
                     } else if (focus && termRef.current) {
                         termRef.current.focus();
                     }
@@ -618,6 +721,9 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     useEffect(() => {
         if (!containerRef.current) return;
 
+        // Cancel any pending detach from a previous unmount
+        const wasPending = cancelDetach(sessionId);
+
         const cached = getOrCreateTerminal(sessionId, taskId, projectId);
         const { term, fit, element } = cached;
 
@@ -628,7 +734,18 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         containerRef.current.appendChild(element);
 
         if (visible) {
-            scheduleFit(true, true, true);
+            const savedViewport = viewportSnapshots.get(sessionId);
+            if (wasPending && savedViewport) {
+                // Reusing cached terminal after cancelled detach — restore scroll position
+                scheduleFit(true, true, false);
+                requestAnimationFrame(() => {
+                    restoreViewport(term, savedViewport);
+                    viewportSnapshots.delete(sessionId);
+                });
+            } else {
+                viewportSnapshots.delete(sessionId);
+                scheduleFit(true, true, true);
+            }
         }
 
         // Shift+Enter → send the same escape sequence as Alt+Enter (\x1b\r)
@@ -662,14 +779,19 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 cancelAnimationFrame(fitFrameRef.current);
                 fitFrameRef.current = null;
             }
+            if (fitRetryTimeoutRef.current !== null) {
+                window.clearTimeout(fitRetryTimeoutRef.current);
+                fitRetryTimeoutRef.current = null;
+            }
             if (resizeDebounceTimeoutRef.current !== null) {
                 window.clearTimeout(resizeDebounceTimeoutRef.current);
                 resizeDebounceTimeoutRef.current = null;
             }
-            // Workspace switches unmount the pane completely. Rebuild the
-            // terminal UI from backend history on return instead of reusing a
-            // detached xterm viewport whose scroll state can go stale.
-            destroyTerminal(sessionId);
+            // Schedule delayed destruction instead of immediate teardown.
+            // If the terminal remounts within DETACH_GRACE_MS (e.g., rapid
+            // tab switch), the pending detach is cancelled and the cached
+            // instance is reused.
+            scheduleDetach(sessionId);
             termRef.current = null;
             fitRef.current = null;
         };
@@ -866,11 +988,11 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     }, [sessionId]);
 
     return (
-        <div className="relative flex-1 overflow-hidden">
+        <div className="relative flex-1 overflow-hidden p-1.5">
             <div
                 ref={containerRef}
                 className={cn(
-                    "m-1.5 h-full overflow-hidden",
+                    "h-full overflow-hidden",
                     dragOver && "ring-primary/50 ring-2 ring-inset",
                 )}
                 onClick={handleContainerClick}

@@ -37,9 +37,11 @@ export const MSG = {
     TERMINAL_OUTPUT: "terminal:output",
     TERMINAL_RESIZE: "terminal:resize",
     SESSION_HISTORY: "session:history",
+    SESSION_SNAPSHOT: "session:snapshot",
 
     // Files
     FILE_TREE: "file:tree",
+    FILE_LIST_DIR: "file:list-dir",
     FILE_READ: "file:read",
     FILE_WRITE: "file:write",
     FILE_CHANGED: "file:changed",
@@ -64,6 +66,7 @@ export const MSG = {
     GIT_PUSH: "git:push",
     GIT_GENERATE_COMMIT_MSG: "git:generate-commit-msg",
     GIT_CREATE_PR: "git:create-pr",
+    GIT_CHECK_PR: "git:check-pr",
 
     // Flow definitions
     FLOW_DEFINITIONS_LIST: "flow:definitions-list",
