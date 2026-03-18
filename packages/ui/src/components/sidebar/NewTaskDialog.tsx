@@ -277,7 +277,7 @@ export function NewTaskDialog({
 
                     {(startWith === "claude" || startWith === "codex" || startWith === "opencode" || startWith === "gemini" || startWith === "cursor") && (
                         <div className="border-border rounded-md border p-1">
-                            <AgentOptionsPanel agentType={startWith as "claude" | "codex" | "opencode" | "gemini" | "cursor"} onChange={setAgentOptions} />
+                            <AgentOptionsPanel agentType={startWith} onChange={setAgentOptions} />
                         </div>
                     )}
                 </div>
