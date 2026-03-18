@@ -58,7 +58,9 @@ function assertValidFlowDefinition(flow: FlowDefinition): void {
                 throw new Error(`Flow input "${input.id}" must have a non-empty label`);
             }
             if (input.type !== "text" && input.type !== "filepath") {
-                throw new Error(`Flow input "${input.id}" has invalid type: "${input.type}"`);
+                throw new Error(
+                    `Flow input "${input.id}" has invalid type: "${String(input.type)}"`,
+                );
             }
         }
     }

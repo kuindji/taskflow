@@ -507,17 +507,14 @@ export function Workspace() {
         void useFlowStore.getState().startFlow(owner);
     };
 
-    const handleFlowInputSubmit = useCallback(
-        (values: Record<string, string>) => {
-            if (!flowInputState) return;
-            void useFlowStore.getState().startFlow({
-                ...flowInputState.owner,
-                inputValues: values,
-            });
-            setFlowInputState(null);
-        },
-        [flowInputState],
-    );
+    const handleFlowInputSubmit = (values: Record<string, string>) => {
+        if (!flowInputState) return;
+        void useFlowStore.getState().startFlow({
+            ...flowInputState.owner,
+            inputValues: values,
+        });
+        setFlowInputState(null);
+    };
 
     const handleRunScript = async (scriptName: string) => {
         if (!workspace.workspaceKey) return;
