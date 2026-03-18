@@ -37,7 +37,7 @@ interface CreateSessionOpts {
 interface SessionLifecycleDeps {
     ptyManager: PtyManager;
     taskStore: TaskStore;
-    broadcast: (event: WsEvent) => void;
+    broadcast: (event: WsEvent, opts?: { dropOnBackpressure?: boolean }) => void;
     getPort: () => number;
     detectedEditors: import("@taskflow/shared").EditorInfo[];
 }
@@ -227,10 +227,13 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     sequence,
                     data,
                 );
-                broadcast({
-                    type: MSG.TERMINAL_OUTPUT,
-                    payload: { sessionId, data, sequence },
-                });
+                broadcast(
+                    {
+                        type: MSG.TERMINAL_OUTPUT,
+                        payload: { sessionId, data, sequence },
+                    },
+                    { dropOnBackpressure: true },
+                );
             },
             onExit: (exitCode) => {
                 broadcast({

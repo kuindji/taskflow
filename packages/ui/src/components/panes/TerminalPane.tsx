@@ -24,6 +24,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { useThemeStore } from "@/stores/theme-store";
 import type { IBufferLine, ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
+import { TimeBudgetedWriter } from "@/lib/time-budgeted-writer";
 import "@xterm/xterm/css/xterm.css";
 
 const SHELL_UNSAFE = /[^a-zA-Z0-9_./:@=+-]/;
@@ -454,19 +455,6 @@ function restoreViewport(term: Terminal, snapshot: TerminalViewportSnapshot): vo
     term.scrollToLine(targetLine);
 }
 
-function createTerminalWriter(term: Terminal): {
-    write: (data: string) => void;
-    dispose: () => void;
-} {
-    return {
-        write(data) {
-            if (!data) return;
-            term.write(data);
-        },
-        dispose() {},
-    };
-}
-
 function removeCanvasCursorLayer(screenElement: HTMLElement): void {
     // Remove the Canvas addon's cursor layer canvas from the DOM so it doesn't
     // paint on top of the WebGL canvas. The Canvas cursor layer (z-index 3)
@@ -579,7 +567,7 @@ function getOrCreateTerminal(
 
     // Unicode support loaded after renderer is ready (auto-activates '15-graphemes')
     term.loadAddon(new UnicodeGraphemesAddon());
-    const writer = createTerminalWriter(term);
+    const writer = new TimeBudgetedWriter(term);
 
     // Buffer live output until history is loaded, then write directly
     const pendingData: BufferedTerminalChunk[] = [];
@@ -609,7 +597,7 @@ function getOrCreateTerminal(
     // Try snapshot first (pixel-perfect for active sessions),
     // fall back to JSONL history for exited sessions.
     sendRequest<SessionSnapshotResponse>(MSG.SESSION_SNAPSHOT, { sessionId })
-        .then(({ snapshot, lastSequence, cursorHidden }) => {
+        .then(async ({ snapshot, lastSequence, cursorHidden }) => {
             if (snapshot !== null) {
                 writer.write(snapshot);
                 // SerializeAddon v0.13.0 doesn't serialize DECTCEM (cursor
@@ -619,6 +607,7 @@ function getOrCreateTerminal(
                 if (cursorHidden) {
                     writer.write("\x1b[?25l");
                 }
+                await writer.flush();
                 historyLoaded = true;
                 flushPendingChunks(pendingData, lastSequence, writer);
 
@@ -628,20 +617,22 @@ function getOrCreateTerminal(
         })
         .catch(() => replayFromHistory());
 
-    function replayFromHistory() {
+    async function replayFromHistory() {
         return sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, {
             taskId,
             projectId,
             sessionId,
         })
-            .then(({ data, lastSequence }) => {
+            .then(async ({ data, lastSequence }) => {
                 if (data) writer.write(data);
+                await writer.flush();
                 historyLoaded = true;
                 flushPendingChunks(pendingData, lastSequence, writer);
             })
-            .catch(() => {
-                historyLoaded = true;
+            .catch(async () => {
                 for (const chunk of pendingData) writer.write(chunk.data);
+                await writer.flush();
+                historyLoaded = true;
                 pendingData.length = 0;
             });
     }

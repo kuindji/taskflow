@@ -16,17 +16,21 @@ interface SpawnOptions {
 }
 
 const MAX_SCROLLBACK = 50_000;
-const BATCH_MAX_SIZE = 200 * 1024; // 200KB
-const BATCH_MAX_MS = 16; // ~1 frame at 60fps
+const BATCH_MAX_SIZE = 128 * 1024; // 128KB — smaller batches are easier for the frontend to time-budget
+const BATCH_CEILING_MS = 50; // Force-flush safety ceiling during sustained bursts
 
 /**
  * Batches PTY output chunks to reduce WebSocket message frequency.
- * Flushes when either the size threshold or time threshold is reached,
- * ensuring escape sequences stay intact within each batch.
+ *
+ * Uses setImmediate for low-latency coalescing: data arriving in the same
+ * I/O cycle is merged before the next event-loop turn.  A secondary
+ * setTimeout ceiling (50 ms) guarantees a flush even when data arrives
+ * continuously without pause.
  */
 class DataBatcher {
     private buffer = "";
-    private timer: ReturnType<typeof setTimeout> | null = null;
+    private immediateHandle: ReturnType<typeof setImmediate> | null = null;
+    private ceilingTimer: ReturnType<typeof setTimeout> | null = null;
     private onFlush: (data: string) => void;
 
     constructor(onFlush: (data: string) => void) {
@@ -39,15 +43,22 @@ class DataBatcher {
             this.flush();
             return;
         }
-        if (this.timer === null) {
-            this.timer = setTimeout(() => this.flush(), BATCH_MAX_MS);
+        if (this.immediateHandle === null) {
+            this.immediateHandle = setImmediate(() => this.flush());
+        }
+        if (this.ceilingTimer === null) {
+            this.ceilingTimer = setTimeout(() => this.flush(), BATCH_CEILING_MS);
         }
     }
 
     flush(): void {
-        if (this.timer !== null) {
-            clearTimeout(this.timer);
-            this.timer = null;
+        if (this.immediateHandle !== null) {
+            clearImmediate(this.immediateHandle);
+            this.immediateHandle = null;
+        }
+        if (this.ceilingTimer !== null) {
+            clearTimeout(this.ceilingTimer);
+            this.ceilingTimer = null;
         }
         if (this.buffer.length > 0) {
             const data = this.buffer;
@@ -57,9 +68,13 @@ class DataBatcher {
     }
 
     dispose(): void {
-        if (this.timer !== null) {
-            clearTimeout(this.timer);
-            this.timer = null;
+        if (this.immediateHandle !== null) {
+            clearImmediate(this.immediateHandle);
+            this.immediateHandle = null;
+        }
+        if (this.ceilingTimer !== null) {
+            clearTimeout(this.ceilingTimer);
+            this.ceilingTimer = null;
         }
         this.buffer = "";
     }
@@ -99,7 +114,7 @@ export class PtyManager {
         const headless = new HeadlessTerminal({
             cols,
             rows,
-            scrollback: 10_000,
+            scrollback: 5_000,
             allowProposedApi: true,
         });
         const serializer = new SerializeAddon();

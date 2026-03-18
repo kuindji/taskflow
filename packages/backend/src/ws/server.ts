@@ -3,13 +3,20 @@ import type { WsRequest, WsResponse, WsEvent } from "@taskflow/shared";
 import type { ApiRouter } from "../api/router";
 import { Router } from "./router";
 
+interface BroadcastOptions {
+    /** Skip clients whose outbound buffer exceeds the backpressure threshold. */
+    dropOnBackpressure?: boolean;
+}
+
+const BACKPRESSURE_THRESHOLD = 1_048_576; // 1 MB — skip terminal output for slow clients
+
 export function createServer(
     router: Router,
     port: number = 0,
     apiRouter?: ApiRouter,
 ): {
     start(): Promise<{ port: number; stop(): void }>;
-    broadcast(event: WsEvent): void;
+    broadcast(event: WsEvent, opts?: BroadcastOptions): void;
     onConnect(callback: () => void): void;
 } {
     let server: Server<unknown>;
@@ -20,9 +27,12 @@ export function createServer(
         connectCallback = callback;
     }
 
-    function broadcast(event: WsEvent): void {
+    function broadcast(event: WsEvent, opts?: BroadcastOptions): void {
         const data = JSON.stringify(event);
         for (const ws of clients) {
+            if (opts?.dropOnBackpressure && ws.getBufferedAmount() > BACKPRESSURE_THRESHOLD) {
+                continue; // Client will resync via snapshot on next terminal mount
+            }
             ws.send(data);
         }
     }
@@ -39,6 +49,7 @@ export function createServer(
                 return new Response("Taskflow backend", { status: 200 });
             },
             websocket: {
+                backpressureLimit: 2 * 1024 * 1024, // 2 MB
                 open(ws) {
                     clients.add(ws);
                     if (connectCallback) connectCallback();
