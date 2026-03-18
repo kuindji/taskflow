@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import {
+    ALL_AGENT_TYPES,
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
     DEFAULT_EDITOR_WORD_WRAP,
@@ -53,6 +54,7 @@ describe("SettingsStore", () => {
                 fontSize: 13,
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
+                favoriteAgents: [...ALL_AGENT_TYPES],
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -83,6 +85,7 @@ describe("SettingsStore", () => {
                 fontSize: 13,
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
+                favoriteAgents: [...ALL_AGENT_TYPES],
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -121,6 +124,7 @@ describe("SettingsStore", () => {
                 fontSize: 15,
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
+                favoriteAgents: [...ALL_AGENT_TYPES],
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -149,6 +153,7 @@ describe("SettingsStore", () => {
                 fontSize: 15,
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
+                favoriteAgents: [...ALL_AGENT_TYPES],
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,

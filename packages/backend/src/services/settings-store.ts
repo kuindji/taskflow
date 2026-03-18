@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "fs/promises";
 import {
+    ALL_AGENT_TYPES,
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
     DEFAULT_EDITOR_WORD_WRAP,
@@ -20,6 +21,7 @@ const DEFAULTS: AppSettings = {
         fontSize: 13,
         defaultAgent: "claude",
         defaultRuntime: "bun",
+        favoriteAgents: [...ALL_AGENT_TYPES],
     },
     terminal: {
         fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,

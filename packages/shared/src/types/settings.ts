@@ -5,6 +5,7 @@ export interface GeneralSettings {
     fontSize: number;
     defaultAgent: AgentType;
     defaultRuntime: string;
+    favoriteAgents: AgentType[];
 }
 
 export interface ClaudeSettings {
