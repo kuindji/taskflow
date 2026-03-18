@@ -1,5 +1,15 @@
 type AgentType = "claude" | "codex" | "opencode" | "gemini" | "cursor";
 
+const ALL_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor"];
+
+const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
+    claude: "Claude",
+    codex: "Codex",
+    opencode: "OpenCode",
+    gemini: "Gemini",
+    cursor: "Cursor",
+};
+
 interface ClaudeLaunchOptions {
     type: Extract<AgentType, "claude">;
     fullAccess?: boolean;
@@ -42,6 +52,8 @@ interface AgentAvailability {
     path: string;
     version: string;
 }
+
+export { ALL_AGENT_TYPES, AGENT_DISPLAY_NAMES };
 
 export type {
     AgentType,
