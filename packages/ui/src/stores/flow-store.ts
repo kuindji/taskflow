@@ -23,6 +23,7 @@ interface FlowStartParams {
     taskId?: string;
     projectId?: string;
     flowId: string;
+    inputValues?: Record<string, string>;
 }
 
 interface FlowStore {
