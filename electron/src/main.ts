@@ -1,9 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { spawn, execFile, type ChildProcess } from "child_process";
+
+declare const BUILD_GIT_BRANCH: string;
 import { constants } from "fs";
-import { access, readFile, rm } from "fs/promises";
-import { tmpdir } from "os";
+import { access, copyFile, readFile, rm, writeFile } from "fs/promises";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
 
 let mainWindow: BrowserWindow | null = null;
@@ -90,6 +92,7 @@ async function startBackend(): Promise<number> {
         env: {
             ...safeEnv,
             TASKFLOW_PORT_FILE: backendPortFile,
+            ...(devBranch ? { TASKFLOW_DEV_BRANCH: devBranch } : {}),
         },
     });
 
@@ -252,20 +255,13 @@ async function createWindow() {
 
 let manualCheckInProgress = false;
 let downloadedVersion: string | null = null;
+let downloadingVersion: string | null = null;
 let showArchiveChecked = false;
 let compactSidebarChecked = false;
 let fileExplorerChecked = false;
 let taskInfoChecked = false;
 let wordWrapChecked = true;
 
-function setUpdateMenuItem(label: string, enabled = true) {
-    const menu = Menu.getApplicationMenu();
-    const item = menu?.getMenuItemById("check-for-updates");
-    if (item) {
-        item.label = label;
-        item.enabled = enabled;
-    }
-}
 
 function buildAppMenu() {
     const template: Electron.MenuItemConstructorOptions[] = [
@@ -285,7 +281,12 @@ function buildAppMenu() {
                     id: "check-for-updates",
                     label: downloadedVersion
                         ? `Restart to Update to v${downloadedVersion}`
-                        : "Check for Updates…",
+                        : downloadingVersion
+                          ? `Downloading v${downloadingVersion}…`
+                          : manualCheckInProgress
+                            ? "Checking for Updates…"
+                            : "Check for Updates…",
+                    enabled: !downloadingVersion && !manualCheckInProgress,
                     click: () => {
                         if (downloadedVersion) {
                             autoUpdater.quitAndInstall();
@@ -293,7 +294,7 @@ function buildAppMenu() {
                         }
                         if (manualCheckInProgress) return;
                         manualCheckInProgress = true;
-                        setUpdateMenuItem("Checking for Updates…", false);
+                        buildAppMenu();
                         autoUpdater.checkForUpdates().catch((err: unknown) => {
                             console.error("[updater] Manual check failed:", err);
                         });
@@ -437,7 +438,8 @@ function setupAutoUpdater() {
 
     autoUpdater.on("update-available", (info) => {
         console.log(`[updater] Update available: v${info.version}`);
-        setUpdateMenuItem(`Downloading v${info.version}…`, false);
+        downloadingVersion = info.version;
+        buildAppMenu();
         mainWindow?.webContents.send("update-status", {
             status: "downloading",
             version: info.version,
@@ -458,23 +460,26 @@ function setupAutoUpdater() {
                 detail: `Taskflow ${app.getVersion()} is the latest version.`,
             });
         }
-        setUpdateMenuItem("Check for Updates…");
+        downloadingVersion = null;
+        buildAppMenu();
     });
 
     autoUpdater.on("update-downloaded", (info) => {
         console.log(`[updater] Update downloaded: v${info.version}`);
         manualCheckInProgress = false;
         downloadedVersion = info.version;
+        downloadingVersion = null;
         mainWindow?.webContents.send("update-status", {
             status: "ready",
             version: info.version,
         });
-        // Rebuild menu so the click handler switches to quitAndInstall
         buildAppMenu();
     });
 
     autoUpdater.on("error", (err) => {
-        console.error("[updater] Error:", err.message);
+        console.error("[updater] Error:", err.message, err.stack);
+        downloadedVersion = null;
+        downloadingVersion = null;
         mainWindow?.webContents.send("update-status", { status: "idle" });
         if (manualCheckInProgress) {
             manualCheckInProgress = false;
@@ -485,7 +490,7 @@ function setupAutoUpdater() {
                 detail: err.message,
             });
         }
-        setUpdateMenuItem("Check for Updates…");
+        buildAppMenu();
     });
 
     // Silent check on startup
@@ -494,16 +499,29 @@ function setupAutoUpdater() {
     });
 }
 
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-    app.quit();
+let devBranch: string | null = null;
+
+if (process.env.TASKFLOW_DEV) {
+    devBranch = BUILD_GIT_BRANCH;
+    app.setName(`Taskflow Dev (${devBranch})`);
+    app.setPath("userData", join(homedir(), ".config", `taskflow-dev-${devBranch}`));
+}
+
+if (devBranch) {
+    // Dev mode: skip single-instance lock to allow multiple dev instances
+    // from different branches. Each dev instance already has isolated userData.
 } else {
-    app.on("second-instance", () => {
-        if (mainWindow) {
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.focus();
-        }
-    });
+    const gotLock = app.requestSingleInstanceLock();
+    if (!gotLock) {
+        app.quit();
+    } else {
+        app.on("second-instance", () => {
+            if (mainWindow) {
+                if (mainWindow.isMinimized()) mainWindow.restore();
+                mainWindow.focus();
+            }
+        });
+    }
 }
 
 void app.whenReady().then(async () => {
@@ -611,6 +629,44 @@ ipcMain.on("show-item-in-folder", (_event, filePath: string) => {
     if (!filePath.startsWith("/") || filePath.includes("..")) return;
     shell.showItemInFolder(filePath);
 });
+ipcMain.handle(
+    "save-artifact",
+    async (
+        _event,
+        opts: { path?: string; text?: string; defaultName?: string },
+    ): Promise<{ success: boolean; error?: string }> => {
+        const defaultPath = opts.defaultName
+            ? join(app.getPath("downloads"), opts.defaultName)
+            : undefined;
+        const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+        const result = win
+            ? await dialog.showSaveDialog(win, { defaultPath })
+            : await dialog.showSaveDialog({ defaultPath });
+        if (result.canceled || !result.filePath)
+            return { success: false };
+        try {
+            if (typeof opts.path === "string") {
+                if (!opts.path.startsWith("/") || opts.path.includes(".."))
+                    return { success: false, error: "Invalid source path" };
+                await copyFile(opts.path, result.filePath);
+            } else if (typeof opts.text === "string") {
+                await writeFile(result.filePath, opts.text, "utf-8");
+            } else {
+                return { success: false, error: "No path or text provided" };
+            }
+            return { success: true };
+        } catch (err) {
+            const message =
+                err instanceof Error ? err.message : "Unknown error";
+            await dialog.showMessageBox({
+                type: "error",
+                title: "Download failed",
+                message: `Could not save the artifact:\n${message}`,
+            });
+            return { success: false, error: message };
+        }
+    },
+);
 ipcMain.handle(
     "open-external-file",
     (_event, filePath: string, opts?: { line?: number; col?: number; editor?: string }) => {

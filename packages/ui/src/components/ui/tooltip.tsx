@@ -31,6 +31,7 @@ interface TooltipContextValue {
     triggerEl: HTMLElement | null;
     setTriggerEl: RefCallback<HTMLElement>;
     contentRef: RefObject<HTMLElement | null>;
+    delayDuration: number;
 }
 
 const TooltipContext = createContext<TooltipContextValue | null>(null);
@@ -51,10 +52,12 @@ function Tooltip({
     children,
     open: controlledOpen,
     onOpenChange,
+    delayDuration = 0,
 }: {
     children: ReactNode;
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
+    delayDuration?: number;
 }) {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
     const isControlled = controlledOpen !== undefined;
@@ -76,7 +79,7 @@ function Tooltip({
     }, []);
 
     return (
-        <TooltipContext.Provider value={{ open, setOpen, triggerEl, setTriggerEl, contentRef }}>
+        <TooltipContext.Provider value={{ open, setOpen, triggerEl, setTriggerEl, contentRef, delayDuration }}>
             {children}
         </TooltipContext.Provider>
     );
@@ -90,15 +93,30 @@ function TooltipTrigger({
     children: ReactNode;
     asChild?: boolean;
 } & HTMLAttributes<HTMLElement>) {
-    const { setOpen, setTriggerEl } = useTooltipContext();
+    const { setOpen, setTriggerEl, delayDuration } = useTooltipContext();
+    const delayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const clearDelay = useCallback(() => {
+        if (delayRef.current !== null) {
+            clearTimeout(delayRef.current);
+            delayRef.current = null;
+        }
+    }, []);
 
     const eventHandlers = {
         onMouseEnter: (e: React.MouseEvent) => {
             props.onMouseEnter?.(e as React.MouseEvent<HTMLElement>);
-            if (!isScrollSuppressed()) setOpen(true);
+            if (isScrollSuppressed()) return;
+            if (delayDuration > 0) {
+                clearDelay();
+                delayRef.current = setTimeout(() => setOpen(true), delayDuration);
+            } else {
+                setOpen(true);
+            }
         },
         onMouseLeave: (e: React.MouseEvent) => {
             props.onMouseLeave?.(e as React.MouseEvent<HTMLElement>);
+            clearDelay();
             setOpen(false);
         },
         onFocus: (e: React.FocusEvent) => {
@@ -107,6 +125,7 @@ function TooltipTrigger({
         },
         onBlur: (e: React.FocusEvent) => {
             props.onBlur?.(e as React.FocusEvent<HTMLElement>);
+            clearDelay();
             setOpen(false);
         },
     };

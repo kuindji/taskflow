@@ -31,6 +31,8 @@ interface TruncatedTextProps extends React.HTMLAttributes<HTMLElement> {
     truncate?: boolean;
     tooltip?: boolean;
     tooltipSide?: React.ComponentProps<typeof TooltipContent>["side"];
+    tooltipDelay?: number;
+    tooltipClassName?: string;
 }
 
 function TruncatedText({
@@ -41,6 +43,8 @@ function TruncatedText({
     truncate = true,
     tooltip = false,
     tooltipSide,
+    tooltipDelay,
+    tooltipClassName,
     ...props
 }: TruncatedTextProps) {
     const ref = useRef<HTMLElement>(null);
@@ -72,7 +76,7 @@ function TruncatedText({
     }
 
     return (
-        <Tooltip open={tooltipOpen} onOpenChange={(open) => setTooltipOpen(open && isTruncated)}>
+        <Tooltip open={tooltipOpen} onOpenChange={(open) => setTooltipOpen(open && isTruncated)} delayDuration={tooltipDelay}>
             <TooltipTrigger asChild>
                 <Component
                     ref={ref}
@@ -83,7 +87,7 @@ function TruncatedText({
                     {children}
                 </Component>
             </TooltipTrigger>
-            <TooltipContent side={tooltipSide}>{tooltipContent ?? children}</TooltipContent>
+            <TooltipContent side={tooltipSide} className={tooltipClassName}>{tooltipContent ?? children}</TooltipContent>
         </Tooltip>
     );
 }

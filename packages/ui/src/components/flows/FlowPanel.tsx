@@ -14,7 +14,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Check, X, SkipForward, Pause, Play, Square, Loader2, RotateCcw } from "lucide-react";
+import { Check, X, SkipForward, Pause, Play, Square, Loader2, RotateCcw, Download } from "lucide-react";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 
@@ -259,9 +259,29 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                         <div key={`${a.actionEntryId}-${a.createdAt}`} className="flex items-center gap-2 text-xs">
                             <span className="text-blue-400">&bull;</span>
                             <span>{a.type}</span>
-                            <span className="text-muted-foreground truncate text-[10px]">
+                            <span className="text-muted-foreground min-w-0 flex-1 truncate text-[10px]">
                                 {a.path ?? a.text?.slice(0, 40)}
                             </span>
+                            {window.taskflow?.saveArtifact && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon-2xs"
+                                    tooltip="Download"
+                                    tooltipSide="left"
+                                    onClick={() => {
+                                        const defaultName = a.path
+                                            ? a.path.split("/").pop() ?? a.type
+                                            : `${a.type}.txt`;
+                                        void window.taskflow?.saveArtifact({
+                                            path: a.path,
+                                            text: a.text,
+                                            defaultName,
+                                        });
+                                    }}
+                                >
+                                    <Download className="h-2.5 w-2.5" />
+                                </Button>
+                            )}
                         </div>
                     ))}
                 </div>

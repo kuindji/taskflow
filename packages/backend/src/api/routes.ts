@@ -13,6 +13,8 @@ import type {
     SettingsUpdatePayload,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
+import { filterTaskSessions } from "../services/instance-filter";
+import { config } from "../config";
 
 interface ApiRouteDeps {
     apiRouter: ApiRouter;
@@ -49,7 +51,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         gitService,
         generateTitle,
     } = deps;
-    const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention"]);
+    const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention", "initializing"]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
         let body: Record<string, unknown>;
@@ -77,8 +79,9 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
         try {
             const updated = await taskStore.updateTask(params.taskId, updates);
-            broadcast({ type: MSG.TASK_UPDATED, payload: updated });
-            return jsonResponse(updated);
+            const filtered = filterTaskSessions(updated, config.instanceId);
+            broadcast({ type: MSG.TASK_UPDATED, payload: filtered });
+            return jsonResponse(filtered);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             if (message.includes("not found")) {
@@ -146,8 +149,9 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             const updated = await taskStore.updateTask(params.taskId, {
                 worktree: { ...task.worktree, enabled: body.enabled },
             });
-            broadcast({ type: MSG.TASK_UPDATED, payload: updated });
-            return jsonResponse(updated);
+            const filtered = filterTaskSessions(updated, config.instanceId);
+            broadcast({ type: MSG.TASK_UPDATED, payload: filtered });
+            return jsonResponse(filtered);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             return errorResponse(message, 500);
@@ -161,7 +165,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
                 return errorResponse(`Task not found: ${params.taskId}`, 404);
             }
             const log = await taskStore.getTaskLog(params.taskId);
-            return jsonResponse({ task, log });
+            return jsonResponse({ task: filterTaskSessions(task, config.instanceId), log });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             return errorResponse(message, 500);
@@ -278,7 +282,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
     apiRouter.register("GET", "/api/projects/:projectId/tasks", async (_req, params) => {
         try {
             const tasks = await taskStore.listTasks(params.projectId);
-            return jsonResponse({ tasks });
+            return jsonResponse({ tasks: tasks.map((t) => filterTaskSessions(t, config.instanceId)) });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             return errorResponse(message, 500);

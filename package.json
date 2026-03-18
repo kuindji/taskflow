@@ -7,9 +7,9 @@
         "electron"
     ],
     "scripts": {
-        "dev:backend": "cd packages/backend && bun run dev",
-        "dev:ui": "cd packages/ui && bun run dev",
-        "dev:electron": "cd electron && bun run dev",
+        "dev:backend": "TASKFLOW_DEV=1 cd packages/backend && bun run dev",
+        "dev:ui": "TASKFLOW_DEV=1 cd packages/ui && bun run dev",
+        "dev:electron": "TASKFLOW_DEV=1 cd electron && bun run dev",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "lint": "eslint .",
@@ -24,7 +24,7 @@
         "package": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run pack",
         "dist": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run dist",
         "release": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run publish",
-        "open": "open electron/release/mac-arm64/Taskflow.app",
+        "open": "open --env TASKFLOW_DEV=1 electron/release/mac-arm64/Taskflow.app",
         "open:dev": "bun run dev:electron",
         "rebuild:packaged": "bun run package"
     },

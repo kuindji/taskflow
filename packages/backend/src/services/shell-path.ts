@@ -1,3 +1,4 @@
+import { spawnSync } from "child_process";
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { config } from "../config";
@@ -44,10 +45,48 @@ function resolveFnmNodeBin(home: string): string | null {
     }
 }
 
+/**
+ * Resolve the user's login shell PATH by spawning their shell in login mode.
+ * This captures everything set in .zshrc, .bash_profile, etc.
+ * Falls back to process.env.PATH on failure.
+ */
+function resolveLoginShellPath(): string {
+    const shell = process.env.SHELL || "/bin/zsh";
+    try {
+        const result = spawnSync(shell, ["-l", "-c", "echo $PATH"], {
+            encoding: "utf8",
+            timeout: 5000,
+            env: {
+                ...process.env,
+                // Prevent shell from trying to update the terminal title etc.
+                TERM: "dumb",
+            },
+        });
+        const output = result.stdout?.trim();
+        if (output && !result.error && result.status === 0) {
+            return output;
+        }
+    } catch {
+        // Fall through to process.env.PATH
+    }
+    return process.env.PATH ?? "";
+}
+
+let cachedPath: string | null = null;
+
 export function buildShellPath(): string {
+    if (cachedPath) return cachedPath;
+
     const home = process.env.HOME ?? "";
-    const extraPaths = [
-        config.binDir,
+
+    // Start with the user's full login shell PATH (not the minimal Electron PATH)
+    const loginPath = resolveLoginShellPath();
+
+    // Paths to prepend — these take highest priority
+    const prependPaths = [config.binDir];
+
+    // Paths to ensure are present (appended if missing from login PATH)
+    const ensurePaths = [
         `${home}/.local/bin`,
         `${home}/.bun/bin`,
         `${home}/.cargo/bin`,
@@ -61,19 +100,32 @@ export function buildShellPath(): string {
     for (const resolve of nodeResolvers) {
         const binDir = resolve(home);
         if (binDir) {
-            extraPaths.push(binDir);
+            ensurePaths.push(binDir);
             break;
         }
     }
 
-    const currentPath = process.env.PATH ?? "";
-    const parts = currentPath.split(":");
-    const seen = new Set(parts);
-    for (const p of extraPaths) {
+    const loginParts = loginPath.split(":");
+    const seen = new Set(loginParts);
+
+    // Append any ensurePaths not already in the login PATH
+    for (const p of ensurePaths) {
         if (!seen.has(p)) {
-            parts.push(p);
+            loginParts.push(p);
             seen.add(p);
         }
     }
-    return parts.join(":");
+
+    // Prepend high-priority paths (config.binDir for taskflow-cli)
+    const finalParts: string[] = [];
+    for (const p of prependPaths) {
+        if (!seen.has(p)) {
+            finalParts.push(p);
+            seen.add(p);
+        }
+    }
+    finalParts.push(...loginParts);
+
+    cachedPath = finalParts.join(":");
+    return cachedPath;
 }

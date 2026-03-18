@@ -1,16 +1,23 @@
-export type SessionStatus = "working" | "attention";
+export type SessionStatus = "working" | "attention" | "initializing";
 
 export interface SessionRef {
     id: string;
     type: "claude" | "codex" | "gemini" | "shell";
     label: string;
     createdAt: string;
+    instance?: string;
+}
+
+export interface TaskWorktreePr {
+    number: number;
+    url: string;
 }
 
 export interface TaskWorktree {
     enabled: boolean;
     path: string | null;
     branch: string | null;
+    pr: TaskWorktreePr | null;
 }
 
 export interface Task {

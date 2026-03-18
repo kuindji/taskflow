@@ -6,29 +6,48 @@ import type { AgentLaunchOptions } from "@taskflow/shared";
 const SKILL_DIR_NAME = "taskflow-internal-api";
 const SKILL_FILE_NAME = "SKILL.md";
 
-export const INTERNAL_AGENT_SYSTEM_PROMPT = `You are running inside Taskflow.
+const PROMPT_BASE = `You are running inside Taskflow.
 
 Taskflow provides the \`taskflow-cli\` command (already on your PATH) for interacting with the host app.
-Environment variables TASKFLOW_API_URL, TASKFLOW_TASK_ID, TASKFLOW_PROJECT_ID, and TASKFLOW_SESSION_ID are set automatically.
+Environment variables TASKFLOW_API_URL, TASKFLOW_PROJECT_ID, and TASKFLOW_SESSION_ID are set automatically.
 
 Use taskflow-cli proactively:
-- At session start, read task context: \`taskflow-cli task\` (returns task info and log from prior sessions).
-- List all tasks in the project: \`taskflow-cli task list\`
-- Create a new task: \`taskflow-cli task create "description" [--title "title"]\`
 - Log significant findings: \`taskflow-cli log info "your message"\`
 - After committing, log the commit: \`taskflow-cli log commit "commit message" --hash <hash>\`
+- After doing code changes, with quick summary of changes: \`taskflow-cli log info "summary of changes"\`
 - Log types: info (findings/progress), commit (commits), warning (concerns), error (failures).
 - Open a browser tab: \`taskflow-cli browser "https://..." --label "Optional"\`
 - Open a project-scoped browser tab: \`taskflow-cli browser "https://..." --label "Optional" --project\`
-- After merging a worktree branch, disable the worktree: \`taskflow-cli task worktree --disable\`
-Session status is app-controlled, so do not post manual session status updates.
+Session status is app-controlled, so do not post manual session status updates.`;
 
+const PROMPT_TASK_SCOPE = `
+TASKFLOW_TASK_ID is also set — this session is scoped to a specific task.
+
+Use taskflow-cli proactively for task context:
+- At session start, read task context: \`taskflow-cli task\` (returns task info and log from prior sessions).
+- List all tasks in the project: \`taskflow-cli task list\`
+- Create a new task: \`taskflow-cli task create "description" [--title "title"]\`
+- After merging a worktree branch, disable the worktree: \`taskflow-cli task worktree --disable\``;
+
+const PROMPT_PROJECT_SCOPE = `
+This session is scoped to the project, not a specific task.
+Task-related commands (\`taskflow-cli task\`, \`taskflow-cli task list\`, \`taskflow-cli task create\`) are available but should only be used when the user explicitly asks for task operations.`;
+
+const PROMPT_FLOW = `
 When running as a flow action (TASKFLOW_FLOW_ID is set):
 - Signal action completion: \`taskflow-cli action complete\`
 - Save a file artifact: \`taskflow-cli artifact save <type> --path <path>\`
 - Save a text artifact: \`taskflow-cli artifact save <type> --text <text>\`
 - List all artifacts: \`taskflow-cli artifact list\`
 - Get artifact by type: \`taskflow-cli artifact get <type>\``;
+
+export function buildSystemPrompt(isProjectScope: boolean): string {
+    const scopeBlock = isProjectScope ? PROMPT_PROJECT_SCOPE : PROMPT_TASK_SCOPE;
+    return `${PROMPT_BASE}\n${scopeBlock}\n${PROMPT_FLOW}`;
+}
+
+/** @deprecated Use buildSystemPrompt() instead. Kept for tests that assert on common content. */
+export const INTERNAL_AGENT_SYSTEM_PROMPT = buildSystemPrompt(false);
 
 const INTERNAL_AGENT_SKILL_MARKDOWN = `---
 name: taskflow-internal-api
@@ -476,10 +495,12 @@ export function buildAgentLaunchSpec(
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
     additionalSystemPrompt?: string,
+    isProjectScope?: boolean,
 ): { command: string; args: string[] } {
+    const basePrompt = buildSystemPrompt(isProjectScope ?? false);
     const systemPrompt = additionalSystemPrompt
-        ? `${INTERNAL_AGENT_SYSTEM_PROMPT}\n\n${additionalSystemPrompt}`
-        : INTERNAL_AGENT_SYSTEM_PROMPT;
+        ? `${basePrompt}\n\n${additionalSystemPrompt}`
+        : basePrompt;
 
     if (type === "claude") {
         const optionArgs: string[] = [];
