@@ -1,3 +1,4 @@
+import { Activity } from "react";
 import type { Tab } from "@/stores/session-store";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { TerminalPane } from "@/components/panes/TerminalPane";
@@ -111,6 +112,22 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                 // When brought back (left:0), the ResizeObserver fires naturally and
                 // xterm resumes without stale viewport state.
                 if (isAlwaysMounted(tab)) {
+                    // Browser tabs use React <Activity> to hide via display:none,
+                    // preserving webview DOM and page state across tab switches.
+                    // Terminal tabs use off-screen positioning so xterm.js's
+                    // IntersectionObserver correctly detects visibility.
+                    if (tab.type === "browser") {
+                        return (
+                            <ErrorBoundary key={tab.id} fallbackLabel={label}>
+                                <Activity mode={isActive ? "visible" : "hidden"}>
+                                    <div className="absolute inset-0 flex z-10">
+                                        {pane}
+                                    </div>
+                                </Activity>
+                            </ErrorBoundary>
+                        );
+                    }
+
                     return (
                         <ErrorBoundary key={tab.id} fallbackLabel={label}>
                             <div
