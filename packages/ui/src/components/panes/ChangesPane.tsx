@@ -72,7 +72,7 @@ function FileStatusRow({
     const rowClasses = useMemo(
         () =>
             cn(
-                "flex justify-between items-center px-1 py-0.5 cursor-pointer rounded-md text-sm group",
+                "flex justify-between items-center px-1 py-0.5 cursor-pointer rounded-md text-sm group transition-colors hover:bg-muted/60",
                 isSelected && "bg-muted",
             ),
         [isSelected],

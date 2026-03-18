@@ -38,6 +38,8 @@ function getLanguage(path: string): string {
     return EXT_TO_LANGUAGE[ext] ?? "plaintext";
 }
 
+import { dirtyModels } from "./editor-dirty-state";
+
 const jsxCompilerOptions: monaco.languages.typescript.CompilerOptions = {
     jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
     target: monaco.languages.typescript.ScriptTarget.ESNext,
@@ -78,7 +80,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     const editorWordWrapRef = useRef(editorWordWrap);
     const { readFile, writeFile } = useFileStore();
     const [loading, setLoading] = useState(true);
-    const [dirty, setDirty] = useState(false);
+    const [dirty, setDirty] = useState(() => dirtyModels.get(filePath) ?? false);
 
     useEffect(() => {
         editorFontFamilyRef.current = editorFontFamily;
@@ -90,12 +92,14 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
         if (!containerRef.current) return;
         const loadRequestId = ++loadRequestIdRef.current;
         editorReadyRef.current = false;
-        setLoading(true);
-        setDirty(false);
 
         const uri = monaco.Uri.file(filePath);
         const existingModel = monaco.editor.getModel(uri);
         const model = existingModel ?? monaco.editor.createModel("", getLanguage(filePath), uri);
+        const isDirty = existingModel != null && (dirtyModels.get(filePath) ?? false);
+
+        setLoading(!isDirty);
+        setDirty(isDirty);
 
         const editor = monaco.editor.create(containerRef.current, {
             model,
@@ -111,23 +115,31 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
 
         editorRef.current = editor;
 
-        void readFile(filePath)
-            .then((content) => {
-                if (loadRequestId !== loadRequestIdRef.current) return;
-                editor.setValue(content);
-                editorReadyRef.current = true;
-                setDirty(false);
-                setLoading(false);
-            })
-            .catch((err: unknown) => {
-                if (loadRequestId !== loadRequestIdRef.current) return;
-                console.error("Failed to read file:", err);
-                editorReadyRef.current = true;
-                setLoading(false);
-            });
+        if (isDirty) {
+            // Model has unsaved edits from a previous mount — skip disk reload
+            editorReadyRef.current = true;
+            setDirty(true);
+            setLoading(false);
+        } else {
+            void readFile(filePath)
+                .then((content) => {
+                    if (loadRequestId !== loadRequestIdRef.current) return;
+                    editor.setValue(content);
+                    editorReadyRef.current = true;
+                    setDirty(false);
+                    setLoading(false);
+                })
+                .catch((err: unknown) => {
+                    if (loadRequestId !== loadRequestIdRef.current) return;
+                    console.error("Failed to read file:", err);
+                    editorReadyRef.current = true;
+                    setLoading(false);
+                });
+        }
 
         const changeDisposable = editor.onDidChangeModelContent(() => {
             if (!editorReadyRef.current) return;
+            dirtyModels.set(filePath, true);
             setDirty(true);
         });
 
@@ -135,6 +147,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             if (!editorReadyRef.current) return;
             void writeFile(filePath, editor.getValue())
                 .then(() => {
+                    dirtyModels.set(filePath, false);
                     setDirty(false);
                 })
                 .catch((err: unknown) => {
@@ -149,8 +162,9 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             }
             changeDisposable.dispose();
             editor.dispose();
-            if (!existingModel) {
+            if (!dirtyModels.get(filePath)) {
                 model.dispose();
+                dirtyModels.delete(filePath);
             }
         };
     }, [filePath, readFile, writeFile]);
@@ -179,6 +193,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                         if (!editorRef.current || !editorReadyRef.current) return;
                         try {
                             await writeFile(filePath, editorRef.current.getValue());
+                            dirtyModels.set(filePath, false);
                             setDirty(false);
                         } catch (err: unknown) {
                             console.error("Failed to save file:", err);
