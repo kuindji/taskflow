@@ -455,8 +455,11 @@ case "$cmd" in
     fi
     if [ -n "$TASKFLOW_TASK_ID" ]; then
       flow_owner_id="$TASKFLOW_TASK_ID"
-    else
+    elif [ -n "$TASKFLOW_PROJECT_ID" ]; then
       flow_owner_id="$TASKFLOW_PROJECT_ID"
+    else
+      echo "Error: neither TASKFLOW_TASK_ID nor TASKFLOW_PROJECT_ID is set" >&2
+      exit 1
     fi
     subcmd="\${1:-}"
     shift 2>/dev/null || true
