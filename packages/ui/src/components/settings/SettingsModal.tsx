@@ -20,6 +20,9 @@ import {
 import {
     DEFAULT_TERMINAL_SHELL,
     MSG,
+    ALL_AGENT_TYPES,
+    AGENT_DISPLAY_NAMES,
+    type AgentType,
     type ShellInfo,
     type ShellListResponse,
     type RuntimeInfo,
@@ -128,6 +131,17 @@ function SettingsModal() {
             }
         },
         [updateSettings],
+    );
+
+    const handleToggleFavoriteAgent = useCallback(
+        (agent: AgentType, checked: boolean) => {
+            const current = settings?.general.favoriteAgents ?? ALL_AGENT_TYPES;
+            const next = checked
+                ? [...current, agent]
+                : current.filter((a) => a !== agent);
+            void updateSettings({ general: { favoriteAgents: next } });
+        },
+        [settings?.general.favoriteAgents, updateSettings],
     );
 
     const handleDefaultRuntime = useCallback(
@@ -493,6 +507,40 @@ function SettingsModal() {
                                         </SelectContent>
                                     </Select>
                                 </SettingRow>
+                                <div className="hover:bg-island-base mx-1 flex flex-col gap-1 rounded-md px-5 py-3 transition-colors">
+                                    <div>
+                                        <div className="text-secondary-foreground text-[13px] font-medium">
+                                            Toolbar Agents
+                                        </div>
+                                        <div className="text-muted-foreground text-[11px] leading-snug">
+                                            Favorited agents appear as buttons in the workspace
+                                            toolbar
+                                        </div>
+                                    </div>
+                                    {ALL_AGENT_TYPES.filter((agent) =>
+                                        isAgentAvailable(agents, agent),
+                                    ).map((agent) => (
+                                        <div
+                                            key={agent}
+                                            className="flex items-center justify-between py-0.5">
+                                            <Label
+                                                htmlFor={`toolbar-agent-${agent}`}
+                                                className="text-secondary-foreground cursor-pointer text-[13px] font-normal normal-case">
+                                                {AGENT_DISPLAY_NAMES[agent]}
+                                            </Label>
+                                            <Switch
+                                                id={`toolbar-agent-${agent}`}
+                                                checked={(
+                                                    settings.general.favoriteAgents ??
+                                                    ALL_AGENT_TYPES
+                                                ).includes(agent)}
+                                                onCheckedChange={(checked) =>
+                                                    handleToggleFavoriteAgent(agent, checked)
+                                                }
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
                                 <SettingRow
                                     label="Default Shell"
                                     hint="Default shell for new terminal tabs">
