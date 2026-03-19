@@ -38,7 +38,7 @@ function getLanguage(path: string): string {
     return EXT_TO_LANGUAGE[ext] ?? "plaintext";
 }
 
-import { dirtyModels } from "./editor-dirty-state";
+import { dirtyModels, viewStates } from "./editor-dirty-state";
 
 const jsxCompilerOptions: monaco.languages.typescript.CompilerOptions = {
     jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
@@ -115,9 +115,17 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
 
         editorRef.current = editor;
 
+        const restoreViewState = () => {
+            const savedViewState = viewStates.get(filePath);
+            if (savedViewState) {
+                editor.restoreViewState(savedViewState);
+            }
+        };
+
         if (isDirty) {
             // Model has unsaved edits from a previous mount — skip disk reload
             editorReadyRef.current = true;
+            restoreViewState();
             setDirty(true);
             setLoading(false);
         } else {
@@ -126,6 +134,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                     if (loadRequestId !== loadRequestIdRef.current) return;
                     editor.setValue(content);
                     editorReadyRef.current = true;
+                    restoreViewState();
                     setDirty(false);
                     setLoading(false);
                 })
@@ -157,6 +166,10 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
 
         return () => {
             editorReadyRef.current = false;
+            const state = editor.saveViewState();
+            if (state) {
+                viewStates.set(filePath, state);
+            }
             if (editorRef.current === editor) {
                 editorRef.current = null;
             }
@@ -165,6 +178,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             if (!dirtyModels.get(filePath)) {
                 model.dispose();
                 dirtyModels.delete(filePath);
+                viewStates.delete(filePath);
             }
         };
     }, [filePath, readFile, writeFile]);
