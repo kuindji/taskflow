@@ -191,6 +191,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 agentOptions,
                 systemPrompt,
                 !task,
+                !!flow,
             );
             command = spec.command;
             args.push(...spec.args);

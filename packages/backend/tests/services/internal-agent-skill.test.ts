@@ -30,33 +30,30 @@ afterEach(async () => {
 });
 
 describe("internal agent skill", () => {
-    it("leaves session status under app control", () => {
+    it("prompts do not reference TASKFLOW env vars", () => {
         const taskPrompt = buildSystemPrompt(false);
         const projectPrompt = buildSystemPrompt(true);
         for (const prompt of [taskPrompt, projectPrompt]) {
-            expect(prompt).toContain("TASKFLOW_PROJECT_ID");
-            expect(prompt).toContain("--project");
-            expect(prompt).toContain(
-                "Session status is app-controlled, so do not post manual session status updates.",
-            );
-            expect(prompt).not.toContain("/api/sessions/");
-            expect(prompt).not.toContain('{"status":"working"}');
-            expect(prompt).not.toContain('{"status":"attention"}');
+            expect(prompt).not.toContain("TASKFLOW_");
         }
     });
 
-    it("task-scoped prompt includes proactive task commands", () => {
+    it("task-scoped prompt includes task context", () => {
         const prompt = buildSystemPrompt(false);
-        expect(prompt).toContain("TASKFLOW_TASK_ID is also set");
-        expect(prompt).toContain("taskflow-cli task`");
-        expect(prompt).toContain("taskflow-cli task worktree --disable");
+        expect(prompt).toContain("scoped to a specific task");
+        expect(prompt).toContain("taskflow-cli");
     });
 
-    it("project-scoped prompt does not encourage proactive task usage", () => {
+    it("project-scoped prompt indicates project scope", () => {
         const prompt = buildSystemPrompt(true);
-        expect(prompt).toContain("scoped to the project, not a specific task");
-        expect(prompt).toContain("only be used when the user explicitly asks");
-        expect(prompt).not.toContain("TASKFLOW_TASK_ID is also set");
+        expect(prompt).toContain("scoped to a project, not a specific task");
+    });
+
+    it("flow block is only included when isFlowScope is true", () => {
+        const withoutFlow = buildSystemPrompt(false);
+        const withFlow = buildSystemPrompt(false, true);
+        expect(withoutFlow).not.toContain("flow step");
+        expect(withFlow).toContain("flow step");
     });
 
     it("configures Codex to load the Taskflow internal skill", () => {
