@@ -454,7 +454,7 @@ export function TabBar({
                         variant="ghost"
                         size="icon-xs"
                         aria-label="New terminal"
-                        tooltip="New terminal"
+                        tooltip="New terminal (Cmd+T)"
                         tooltipSide="bottom"
                         disabled={!defaultShellPath}
                         onClick={() => {

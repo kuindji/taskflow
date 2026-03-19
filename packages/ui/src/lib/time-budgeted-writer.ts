@@ -6,6 +6,9 @@ const HIGH_WATER_BUDGET_MS = 8;
 const MAX_CHUNK_SIZE = 64 * 1024; // 64KB per term.write() call
 const HIGH_WATER_MARK = 512 * 1024; // 512KB triggers catch-up mode
 
+/** Threshold for "at bottom" check — within 1 row counts as following. */
+const FOLLOW_THRESHOLD = 1;
+
 /**
  * Buffers incoming data and flushes to xterm.js within a per-frame time budget.
  *
@@ -13,6 +16,10 @@ const HIGH_WATER_MARK = 512 * 1024; // 512KB triggers catch-up mode
  * data is accumulated and written in controlled chunks each animation frame.
  * This prevents xterm's internal parser queue from growing unbounded during
  * output bursts, eliminating frame drops and visual tearing.
+ *
+ * Explicitly manages scroll-to-bottom after each frame of writes rather than
+ * relying on xterm.js's built-in auto-scroll, which can permanently break
+ * during multi-frame write sequences (especially after scrollback trimming).
  */
 class TimeBudgetedWriter {
     private buffer = "";
@@ -87,6 +94,13 @@ class TimeBudgetedWriter {
 
         const start = performance.now();
 
+        // Check if the viewport is following the bottom before we write.
+        // xterm.js's built-in auto-scroll can permanently break during
+        // multi-frame writes (especially after scrollback buffer trimming),
+        // so we manage scroll-to-bottom explicitly.
+        const buf = this.term.buffer.active;
+        const wasFollowing = buf.baseY - buf.viewportY <= FOLLOW_THRESHOLD;
+
         while (this.buffer.length > 0 && performance.now() - start < budget) {
             const chunkSize = Math.min(this.buffer.length, MAX_CHUNK_SIZE);
             let end = chunkSize;
@@ -102,6 +116,10 @@ class TimeBudgetedWriter {
             const chunk = this.buffer.slice(0, end);
             this.buffer = this.buffer.slice(end);
             this.term.write(chunk);
+        }
+
+        if (wasFollowing) {
+            this.term.scrollToBottom();
         }
 
         if (this.buffer.length > 0) {
