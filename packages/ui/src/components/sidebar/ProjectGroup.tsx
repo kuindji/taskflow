@@ -183,13 +183,13 @@ export function ProjectGroup({
                                 className={cn(
                                     "block min-w-0 truncate text-xs font-medium tracking-wide",
                                     locationInvalid
-                                        ? "text-muted-foreground/60"
-                                        : "text-muted-foreground",
+                                        ? "text-foreground/40"
+                                        : "text-foreground/60",
                                 )}>
                                 {project.name}
                             </span>
                             {!locationInvalid && branch && (
-                                <span className="text-muted-foreground/40 shrink-0 truncate text-[10px]">
+                                <span className="text-foreground/40 shrink-0 truncate text-[10px]">
                                     ({branch})
                                 </span>
                             )}
@@ -217,7 +217,7 @@ export function ProjectGroup({
                     </div>
                 </div>
                 {!locationInvalid && (
-                    <CollapsibleContent>
+                    <CollapsibleContent className={cn(topLevelTasks.length > 0 ? "pb-1.5 border-b border-border/40 mb-1.5" : "")}>
                         {topLevelTasks.map((task, index) => {
                             const subtasks = subtaskMap.get(task.id);
                             const hasSubtasks = !!subtasks && subtasks.length > 0;
