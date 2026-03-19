@@ -64,7 +64,7 @@ const AGENT_META: Record<
 };
 
 const tabVariants = cva(
-    "px-1.5 h-6 rounded-md cursor-pointer flex items-center gap-1 text-sm transition-colors",
+    "px-1.5 h-6 shrink-0 rounded-md cursor-pointer flex items-center gap-1 text-sm whitespace-nowrap transition-colors",
     {
         variants: {
             type: {
@@ -265,6 +265,7 @@ export function TabBar({
 
     return (
         <div className="bg-card border-border flex min-h-9 items-center gap-1 border-b px-1.5 py-1.5">
+            <div className="flex shrink-0 items-center gap-1">
             {showRunButton && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -541,6 +542,8 @@ export function TabBar({
                     </DropdownMenuContent>
                 </DropdownMenu>
             )}
+            </div>
+            <div className="flex min-w-0 items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
             {tabs.map((tab) => (
                 <TabItem
                     key={tab.id}
@@ -551,6 +554,7 @@ export function TabBar({
                     onTabRename={onTabRename}
                 />
             ))}
+            </div>
         </div>
     );
 }

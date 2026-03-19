@@ -8,9 +8,10 @@ import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { MissingLocationDialog } from "./MissingLocationDialog";
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, GitBranch } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
+import { useDiffStore } from "@/stores/diff-store";
 
 interface ProjectGroupProps {
     project: Project;
@@ -111,6 +112,8 @@ export function ProjectGroup({
         return undefined;
     });
 
+    const branch = useDiffStore((s) => s.branchByProject[project.id] ?? null);
+
     const hasAgents = project.sessions.length > 0 || tasks.some((t) => t.sessions.length > 0);
 
     const locationInvalid = project.locationValid === false;
@@ -186,6 +189,12 @@ export function ProjectGroup({
                                 {project.name}
                             </span>
                         </div>
+                        {!locationInvalid && branch && (
+                            <div className="text-muted-foreground/60 mt-0.5 flex min-w-0 items-center gap-1">
+                                <GitBranch className="h-3 w-3 shrink-0" />
+                                <span className="truncate text-[10px]">{branch}</span>
+                            </div>
+                        )}
                         {open && !locationInvalid && project.sessions.length > 0 && (
                             <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
                                 {project.sessions.map((session) => (
