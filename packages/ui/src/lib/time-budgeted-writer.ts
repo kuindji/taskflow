@@ -6,9 +6,6 @@ const HIGH_WATER_BUDGET_MS = 8;
 const MAX_CHUNK_SIZE = 64 * 1024; // 64KB per term.write() call
 const HIGH_WATER_MARK = 512 * 1024; // 512KB triggers catch-up mode
 
-/** Threshold for "at bottom" check — within 1 row counts as following. */
-const FOLLOW_THRESHOLD = 1;
-
 /**
  * Buffers incoming data and flushes to xterm.js within a per-frame time budget.
  *
@@ -17,9 +14,8 @@ const FOLLOW_THRESHOLD = 1;
  * This prevents xterm's internal parser queue from growing unbounded during
  * output bursts, eliminating frame drops and visual tearing.
  *
- * Explicitly manages scroll-to-bottom after each frame of writes rather than
- * relying on xterm.js's built-in auto-scroll, which can permanently break
- * during multi-frame write sequences (especially after scrollback trimming).
+ * This is a pure write-buffering concern — scroll management is handled
+ * externally by the consumer (TerminalPane).
  */
 class TimeBudgetedWriter {
     private buffer = "";
@@ -28,6 +24,9 @@ class TimeBudgetedWriter {
     private _visible = true;
     private disposed = false;
     private flushResolvers: Array<() => void> = [];
+
+    /** Called after each frame's writes are flushed to xterm (via sentinel callback). */
+    onDidWrite: (() => void) | null = null;
 
     constructor(term: Terminal) {
         this.term = term;
@@ -45,8 +44,9 @@ class TimeBudgetedWriter {
 
     /**
      * Returns a promise that resolves when all currently buffered data
-     * has been written to the terminal. Used before marking history as
-     * loaded to ensure snapshot data is fully rendered.
+     * has been written to the terminal AND processed by xterm.js.
+     * Used before marking history as loaded to ensure snapshot data
+     * is fully rendered.
      */
     flush(): Promise<void> {
         if (this.buffer.length === 0) return Promise.resolve();
@@ -94,13 +94,6 @@ class TimeBudgetedWriter {
 
         const start = performance.now();
 
-        // Check if the viewport is following the bottom before we write.
-        // xterm.js's built-in auto-scroll can permanently break during
-        // multi-frame writes (especially after scrollback buffer trimming),
-        // so we manage scroll-to-bottom explicitly.
-        const buf = this.term.buffer.active;
-        const wasFollowing = buf.baseY - buf.viewportY <= FOLLOW_THRESHOLD;
-
         while (this.buffer.length > 0 && performance.now() - start < budget) {
             const chunkSize = Math.min(this.buffer.length, MAX_CHUNK_SIZE);
             let end = chunkSize;
@@ -118,14 +111,21 @@ class TimeBudgetedWriter {
             this.term.write(chunk);
         }
 
-        if (wasFollowing) {
-            this.term.scrollToBottom();
-        }
+        // Use a sentinel write with callback to ensure flush resolution and
+        // onDidWrite happen after xterm has actually processed all the data
+        // written above.
+        const bufferDrained = this.buffer.length === 0;
 
-        if (this.buffer.length > 0) {
+        this.term.write("", () => {
+            if (this.disposed) return;
+            this.onDidWrite?.();
+            if (bufferDrained) {
+                this.resolveFlushWaiters();
+            }
+        });
+
+        if (!bufferDrained) {
             this.scheduleFlush();
-        } else {
-            this.resolveFlushWaiters();
         }
     }
 

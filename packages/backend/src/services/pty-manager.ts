@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import type { Subprocess, Terminal } from "bun";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
+import { TERMINAL_SCROLLBACK } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 
 interface SpawnOptions {
@@ -114,7 +115,7 @@ export class PtyManager {
         const headless = new HeadlessTerminal({
             cols,
             rows,
-            scrollback: 5_000,
+            scrollback: TERMINAL_SCROLLBACK,
             allowProposedApi: true,
         });
         const serializer = new SerializeAddon();

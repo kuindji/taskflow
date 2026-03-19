@@ -126,6 +126,9 @@ export const DEFAULT_EDITOR_FONT_FAMILY = '"JetBrains Mono", Menlo, Monaco, mono
 export const DEFAULT_EDITOR_FONT_SIZE = 13;
 export const DEFAULT_EDITOR_WORD_WRAP = true;
 
+/** Shared scrollback line count — must match between frontend xterm and backend headless xterm. */
+export const TERMINAL_SCROLLBACK = 50_000;
+
 // NOTE: Config paths (CONFIG_DIR, PROJECTS_FILE, etc.) live in
 // packages/backend/src/config.ts — not here, because process.env.HOME
 // is unavailable in the browser renderer.

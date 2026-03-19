@@ -56,9 +56,6 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                     case "cursor":
                     case "shell":
                         label = `${tab.type} terminal`;
-                        // Terminal panes unmount when inactive and restore from
-                        // backend snapshots on remount, freeing GPU contexts.
-                        if (!isActive) return null;
                         pane = tab.sessionId ? (
                             <TerminalPane
                                 taskId={workspace.task?.id}

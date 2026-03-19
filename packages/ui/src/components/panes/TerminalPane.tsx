@@ -8,7 +8,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { onEvent, sendRequest } from "@/hooks/useWebSocket";
-import { DEFAULT_TERMINAL_FONT_FAMILY, MSG } from "@taskflow/shared";
+import { DEFAULT_TERMINAL_FONT_FAMILY, MSG, TERMINAL_SCROLLBACK } from "@taskflow/shared";
 import type {
     TerminalOutputEvent,
     SessionExitedEvent,
@@ -44,6 +44,7 @@ interface TerminalPaneProps {
 interface CachedTerminal {
     term: Terminal;
     fit: FitAddon;
+    writer: TimeBudgetedWriter;
     element: HTMLDivElement;
     unsubOutput: () => void;
     unsubExit: () => void;
@@ -60,10 +61,6 @@ interface FitResult {
     resized: boolean;
 }
 
-interface TerminalViewportSnapshot {
-    distanceFromBottom: number;
-}
-
 import { openFileInApp } from "@/lib/open-file";
 
 /** Module-level cache: keeps one xterm instance per mounted terminal tab. */
@@ -74,8 +71,15 @@ const RESIZE_DEBOUNCE_MS = 250;
 const pendingDetaches = new Map<string, ReturnType<typeof setTimeout>>();
 const DETACH_GRACE_MS = 50;
 
-/** Saved viewport positions for terminals pending detach or recently detached. */
-const viewportSnapshots = new Map<string, TerminalViewportSnapshot>();
+/**
+ * Per-terminal scroll-follow state. Tracks whether the terminal should
+ * auto-scroll to bottom when new output arrives.
+ * Stored at module level so it persists across React re-renders.
+ */
+const scrollFollowState = new Map<string, boolean>();
+
+/** Threshold for "at bottom" check — within 2 rows counts as following. */
+const FOLLOW_THRESHOLD = 2;
 
 function applyThemeToCachedTerminal(cached: CachedTerminal, theme: XtermTheme): void {
     cached.term.options.theme = { ...theme };
@@ -442,17 +446,9 @@ function refreshTerminal(term: Terminal): void {
     term.refresh(0, term.rows - 1);
 }
 
-function captureViewport(term: Terminal): TerminalViewportSnapshot {
-    const buffer = term.buffer.active;
-    return {
-        distanceFromBottom: Math.max(0, buffer.baseY - buffer.viewportY),
-    };
-}
-
-function restoreViewport(term: Terminal, snapshot: TerminalViewportSnapshot): void {
-    const buffer = term.buffer.active;
-    const targetLine = Math.max(0, buffer.baseY - snapshot.distanceFromBottom);
-    term.scrollToLine(targetLine);
+function isAtBottom(term: Terminal): boolean {
+    const buf = term.buffer.active;
+    return buf.baseY - buf.viewportY <= FOLLOW_THRESHOLD;
 }
 
 function removeCanvasCursorLayer(screenElement: HTMLElement): void {
@@ -542,7 +538,7 @@ function getOrCreateTerminal(
         fontWeightBold: "bold",
         lineHeight: 1.0,
         letterSpacing: 0,
-        scrollback: 10000,
+        scrollback: TERMINAL_SCROLLBACK,
         cursorBlink: true,
         allowProposedApi: true,
     });
@@ -569,6 +565,22 @@ function getOrCreateTerminal(
     term.loadAddon(new UnicodeGraphemesAddon());
     const writer = new TimeBudgetedWriter(term);
 
+    // Initialize scroll-follow state: default to following (at bottom)
+    scrollFollowState.set(sessionId, true);
+
+    // When the writer finishes a frame, scroll to bottom if following
+    writer.onDidWrite = () => {
+        if (scrollFollowState.get(sessionId)) {
+            term.scrollToBottom();
+        }
+    };
+
+    // Track user scroll: if user scrolls away from bottom, stop following.
+    // If user scrolls back to bottom, resume following.
+    const scrollDisposable = term.onScroll(() => {
+        scrollFollowState.set(sessionId, isAtBottom(term));
+    });
+
     // Buffer live output until history is loaded, then write directly
     const pendingData: BufferedTerminalChunk[] = [];
     let historyLoaded = false;
@@ -588,9 +600,6 @@ function getOrCreateTerminal(
         const event = payload as SessionExitedEvent;
         if (event.sessionId === sessionId) {
             writer.write(`\r\n\x1b[90m[Process exited with code ${event.exitCode}]\x1b[0m\r\n`);
-            // Don't destroy immediately — user may still want to scroll through output.
-            // The cache entry will be cleaned up when the tab is closed (component unmounts
-            // for the last time and closeTab calls destroyTerminal).
         }
     });
 
@@ -600,15 +609,12 @@ function getOrCreateTerminal(
         .then(async ({ snapshot, lastSequence, cursorHidden }) => {
             if (snapshot !== null) {
                 writer.write(snapshot);
-                // SerializeAddon v0.13.0 doesn't serialize DECTCEM (cursor
-                // visibility). Restore it from the headless terminal state so
-                // TUIs that hide the cursor (e.g. Claude Code) don't show a
-                // ghost cursor after snapshot restore.
                 if (cursorHidden) {
                     writer.write("\x1b[?25l");
                 }
                 await writer.flush();
                 term.scrollToBottom();
+                scrollFollowState.set(sessionId, true);
                 historyLoaded = true;
                 flushPendingChunks(pendingData, lastSequence, writer);
 
@@ -628,6 +634,7 @@ function getOrCreateTerminal(
                 if (data) writer.write(data);
                 await writer.flush();
                 term.scrollToBottom();
+                scrollFollowState.set(sessionId, true);
                 historyLoaded = true;
                 flushPendingChunks(pendingData, lastSequence, writer);
             })
@@ -635,6 +642,7 @@ function getOrCreateTerminal(
                 for (const chunk of pendingData) writer.write(chunk.data);
                 await writer.flush();
                 term.scrollToBottom();
+                scrollFollowState.set(sessionId, true);
                 historyLoaded = true;
                 pendingData.length = 0;
             });
@@ -643,10 +651,12 @@ function getOrCreateTerminal(
     const cached: CachedTerminal = {
         term,
         fit,
+        writer,
         element,
         unsubOutput,
         unsubExit,
         disposeRuntime: () => {
+            scrollDisposable.dispose();
             filePathLinkDisposable.dispose();
             disposeRendererAddons();
             writer.dispose();
@@ -659,7 +669,7 @@ function getOrCreateTerminal(
 /** Remove a terminal from cache and dispose all resources */
 function destroyTerminal(sessionId: string): void {
     cancelDetach(sessionId);
-    viewportSnapshots.delete(sessionId);
+    scrollFollowState.delete(sessionId);
     const cached = terminalCache.get(sessionId);
     if (!cached) return;
     terminalCache.delete(sessionId);
@@ -673,13 +683,8 @@ function destroyTerminal(sessionId: string): void {
 /** Schedule terminal destruction after a grace period. */
 function scheduleDetach(sessionId: string): void {
     if (pendingDetaches.has(sessionId)) return;
-    const cached = terminalCache.get(sessionId);
-    if (cached) {
-        viewportSnapshots.set(sessionId, captureViewport(cached.term));
-    }
     const timer = setTimeout(() => {
         pendingDetaches.delete(sessionId);
-        viewportSnapshots.delete(sessionId);
         destroyTerminal(sessionId);
     }, DETACH_GRACE_MS);
     pendingDetaches.set(sessionId, timer);
@@ -747,7 +752,6 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 fitFrameRef.current = null;
                 if (!visibleRef.current || !fitRef.current || !termRef.current) return;
 
-                const viewportSnapshot = scrollToBottom ? null : captureViewport(termRef.current);
                 const fitResult = fitTerminal(fitRef.current, termRef.current);
                 if (!fitResult.measured) {
                     if (retries > 0) {
@@ -770,8 +774,6 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
 
                 if (scrollToBottom) {
                     termRef.current.scrollToBottom();
-                } else if (viewportSnapshot && fitResult.resized) {
-                    restoreViewport(termRef.current, viewportSnapshot);
                 }
                 refreshTerminal(termRef.current);
                 if (focus) termRef.current.focus();
@@ -806,18 +808,10 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         containerRef.current.appendChild(element);
 
         if (visible) {
-            const savedViewport = viewportSnapshots.get(sessionId);
-            if (wasPending && savedViewport) {
-                // Reusing cached terminal after cancelled detach — restore scroll position
-                scheduleFit(true, true, false);
-                requestAnimationFrame(() => {
-                    restoreViewport(term, savedViewport);
-                    viewportSnapshots.delete(sessionId);
-                });
-            } else {
-                viewportSnapshots.delete(sessionId);
-                scheduleFit(true, true, true);
-            }
+            // The cached DOM element preserves scroll position naturally.
+            // Only scroll to bottom on fresh creation (not cancelled detach reuse).
+            const shouldScrollToBottom = !wasPending;
+            scheduleFit(true, true, shouldScrollToBottom);
         }
 
         // Shift+Enter → send the same escape sequence as Alt+Enter (\x1b\r)
@@ -872,10 +866,11 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
 
     useEffect(() => {
         if (!visible || !termRef.current || !fitRef.current) return;
-        // Force viewport recalculation: after display:none toggle or DOM
-        // detach/reattach, xterm's scroll height is stale even if dimensions
-        // haven't changed.
-        scheduleFit(true, true, true);
+        // Force viewport recalculation when becoming visible.
+        // Don't force scrollToBottom — preserve the user's scroll position.
+        // The fit will restore viewport via captureViewport/restoreViewport
+        // if a resize occurred.
+        scheduleFit(true, true, false);
     }, [visible, sessionId, scheduleFit]);
 
     // Dedicated focus effect — independent of fit/resize logic.
