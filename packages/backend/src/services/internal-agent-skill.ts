@@ -9,7 +9,7 @@ const SKILL_DIR_NAME = "taskflow-internal-api";
 const SKILL_FILE_NAME = "SKILL.md";
 
 const PROMPT_BASE = `
-You are running inside Taskflow application that orchestrates ai agent and terminal sessions based on tasks and projects. Use taskflow-cli to interact with host app data layer when needed.`;
+You are running inside Taskflow application that orchestrates ai agent and terminal sessions based on tasks and projects. Use taskflow-cli to interact with host app data layer when needed. Any user mention of tasks, projects and flows is more likely to refer to taskflow cli than to your internal tools.`;
 
 const PROMPT_TASK_SCOPE = `
 This session is scoped to a specific task.
@@ -26,7 +26,7 @@ This session is scoped to a flow step. Expect instructions that imply or specify
 export function buildSystemPrompt(isProjectScope: boolean, isFlowScope?: boolean): string {
     const scopeBlock = isProjectScope ? PROMPT_PROJECT_SCOPE : PROMPT_TASK_SCOPE;
     const flowBlock = isFlowScope ? `\n${PROMPT_FLOW}` : "";
-    return `${PROMPT_BASE}\n${scopeBlock}${flowBlock}`;
+    return `${PROMPT_BASE}\n${skillMarkdown}\n${scopeBlock}${flowBlock}`;
 }
 
 /** @deprecated Use buildSystemPrompt() instead. Kept for tests that assert on common content. */

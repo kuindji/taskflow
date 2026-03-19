@@ -52,8 +52,8 @@ describe("internal agent skill", () => {
     it("flow block is only included when isFlowScope is true", () => {
         const withoutFlow = buildSystemPrompt(false);
         const withFlow = buildSystemPrompt(false, true);
-        expect(withoutFlow).not.toContain("flow step");
-        expect(withFlow).toContain("flow step");
+        expect(withoutFlow).not.toContain("scoped to a flow step");
+        expect(withFlow).toContain("scoped to a flow step");
     });
 
     it("configures Codex to load the Taskflow internal skill", () => {

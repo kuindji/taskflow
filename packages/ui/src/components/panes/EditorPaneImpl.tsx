@@ -178,7 +178,6 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             if (!dirtyModels.get(filePath)) {
                 model.dispose();
                 dirtyModels.delete(filePath);
-                viewStates.delete(filePath);
             }
         };
     }, [filePath, readFile, writeFile]);

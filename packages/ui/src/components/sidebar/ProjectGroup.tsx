@@ -8,7 +8,7 @@ import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { MissingLocationDialog } from "./MissingLocationDialog";
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, GitBranch } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
 import { useDiffStore } from "@/stores/diff-store";
@@ -181,20 +181,19 @@ export function ProjectGroup({
                                 ))}
                             <span
                                 className={cn(
-                                    "block w-full min-w-0 truncate text-xs font-medium tracking-wide",
+                                    "block min-w-0 truncate text-xs font-medium tracking-wide",
                                     locationInvalid
                                         ? "text-muted-foreground/60"
                                         : "text-muted-foreground",
                                 )}>
                                 {project.name}
                             </span>
+                            {!locationInvalid && branch && (
+                                <span className="text-muted-foreground/40 shrink-0 truncate text-[10px]">
+                                    ({branch})
+                                </span>
+                            )}
                         </div>
-                        {!locationInvalid && branch && (
-                            <div className="text-muted-foreground/60 mt-0.5 flex min-w-0 items-center gap-1">
-                                <GitBranch className="h-3 w-3 shrink-0" />
-                                <span className="truncate text-[10px]">{branch}</span>
-                            </div>
-                        )}
                         {open && !locationInvalid && project.sessions.length > 0 && (
                             <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
                                 {project.sessions.map((session) => (

@@ -608,6 +608,7 @@ function getOrCreateTerminal(
                     writer.write("\x1b[?25l");
                 }
                 await writer.flush();
+                term.scrollToBottom();
                 historyLoaded = true;
                 flushPendingChunks(pendingData, lastSequence, writer);
 
@@ -626,12 +627,14 @@ function getOrCreateTerminal(
             .then(async ({ data, lastSequence }) => {
                 if (data) writer.write(data);
                 await writer.flush();
+                term.scrollToBottom();
                 historyLoaded = true;
                 flushPendingChunks(pendingData, lastSequence, writer);
             })
             .catch(async () => {
                 for (const chunk of pendingData) writer.write(chunk.data);
                 await writer.flush();
+                term.scrollToBottom();
                 historyLoaded = true;
                 pendingData.length = 0;
             });
@@ -767,7 +770,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
 
                 if (scrollToBottom) {
                     termRef.current.scrollToBottom();
-                } else if (viewportSnapshot) {
+                } else if (viewportSnapshot && fitResult.resized) {
                     restoreViewport(termRef.current, viewportSnapshot);
                 }
                 refreshTerminal(termRef.current);
@@ -1064,6 +1067,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                     "h-full overflow-hidden",
                     dragOver && "ring-primary/50 ring-2 ring-inset",
                 )}
+                style={{ overflowAnchor: "none" }}
                 onClick={handleContainerClick}
             />
             {isInitializing && (
