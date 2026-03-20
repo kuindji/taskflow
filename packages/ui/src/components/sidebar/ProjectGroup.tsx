@@ -9,6 +9,7 @@ import { TaskCard } from "./TaskCard";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { MissingLocationDialog } from "./MissingLocationDialog";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
+import { KeyBadge } from "@/components/ui/key-badge";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
 import { useDiffStore } from "@/stores/diff-store";
@@ -20,6 +21,7 @@ interface ProjectGroupProps {
     isActive: boolean;
     diffStats?: { additions: number; deletions: number } | null;
     diffStatsByTask?: Record<string, { additions: number; deletions: number } | null>;
+    keyBadgeNumber?: number;
     onProjectClick: (projectId: string) => void;
     onTaskClick: (taskId: string) => void;
     archived?: boolean;
@@ -35,6 +37,7 @@ export function ProjectGroup({
     isActive,
     diffStats,
     diffStatsByTask,
+    keyBadgeNumber,
     onProjectClick,
     onTaskClick,
     archived,
@@ -211,8 +214,12 @@ export function ProjectGroup({
                                 <span className="text-destructive">-{diffStats.deletions}</span>
                             </Badge>
                         )}
-                        {!locationInvalid && (
-                            <ArrowRight className="text-accent absolute right-0 h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+                        {keyBadgeNumber != null ? (
+                            <KeyBadge number={keyBadgeNumber} />
+                        ) : (
+                            !locationInvalid && (
+                                <ArrowRight className="text-accent absolute right-0 h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+                            )
                         )}
                     </div>
                 </div>

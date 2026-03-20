@@ -22,6 +22,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { KeyBadge } from "@/components/ui/key-badge";
 import { SessionBadge } from "./SessionBadge";
 
 const taskCardVariants = cva("px-2.5 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-colors", {
@@ -44,6 +45,7 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     archived?: boolean;
     compact?: boolean;
     diffStats?: { additions: number; deletions: number } | null;
+    keyBadgeNumber?: number;
     isSubtask?: boolean;
     isExpanded?: boolean;
 }
@@ -56,6 +58,7 @@ export function TaskCard({
     archived,
     compact,
     diffStats,
+    keyBadgeNumber,
     isSubtask,
     isExpanded,
 }: TaskCardProps) {
@@ -165,6 +168,11 @@ export function TaskCard({
                         {title}
                     </TruncatedText>
                 </div>
+                {keyBadgeNumber != null && (
+                    <div className="absolute right-2 top-2">
+                        <KeyBadge number={keyBadgeNumber} />
+                    </div>
+                )}
                 {!compact && description && (
                     <div className="min-w-0 flex-1">
                         <TruncatedText
