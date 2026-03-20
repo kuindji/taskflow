@@ -11,6 +11,7 @@ import { useFlowStore } from "@/stores/flow-store";
 import { useDiffStore } from "@/stores/diff-store";
 import { useThemeStore } from "@/stores/theme-store";
 import { useWsStatus } from "@/providers/ws-context";
+import { useCmdHeld } from "@/hooks/useCmdHeld";
 import { ProjectGroup } from "./ProjectGroup";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { NewProjectDialog } from "./NewProjectDialog";
@@ -60,6 +61,11 @@ export function TaskSidebar() {
     }>({ status: "idle" });
     const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
     const diffStatsByProject = useDiffStore((s) => s.statsByProject);
+
+    const cmdHeld = useCmdHeld();
+    const focusedPanel = useUIStore((s) => s.focusedPanel);
+    const sidebarFocusedItem = useUIStore((s) => s.sidebarFocusedItem);
+    const showBadges = cmdHeld && focusedPanel === 'sidebar';
 
     useEffect(() => {
         if (!connected) return;
@@ -293,6 +299,30 @@ export function TaskSidebar() {
                 {visibleProjects.map((project, index) => {
                     const projectTasks = tasksByProject.get(project.id) ?? [];
                     const projectOpen = !collapsedProjectIds.includes(project.id);
+
+                    let taskKeyBadges: Record<string, number> | undefined;
+                    let projectBadgeNumber: number | undefined;
+
+                    if (showBadges && sidebarFocusedItem) {
+                        if (sidebarFocusedItem.type === 'project') {
+                            projectBadgeNumber = index < 9 ? index + 1 : undefined;
+                        } else if (sidebarFocusedItem.type === 'task') {
+                            const focusedTask = displayTasks.find(t => t.id === sidebarFocusedItem.id);
+                            if (focusedTask && focusedTask.projectId === project.id) {
+                                taskKeyBadges = {};
+                                let badgeIndex = 0;
+                                for (const task of projectTasks) {
+                                    if (!task.parentId) {
+                                        if (badgeIndex < 9) {
+                                            taskKeyBadges[task.id] = badgeIndex + 1;
+                                        }
+                                        badgeIndex++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     return (
                         <div key={project.id}>
                             {index > 0 && <NoDragSpacer />}
@@ -303,6 +333,8 @@ export function TaskSidebar() {
                                 isActive={!activeTaskId && activeProjectId === project.id}
                                 diffStats={diffStatsByProject[project.id]}
                                 diffStatsByTask={diffStatsByProject}
+                                keyBadgeNumber={projectBadgeNumber}
+                                taskKeyBadges={taskKeyBadges}
                                 onProjectClick={handleProjectClick}
                                 onTaskClick={handleTaskClick}
                                 archived={showArchive}

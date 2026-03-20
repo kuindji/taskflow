@@ -22,6 +22,7 @@ interface ProjectGroupProps {
     diffStats?: { additions: number; deletions: number } | null;
     diffStatsByTask?: Record<string, { additions: number; deletions: number } | null>;
     keyBadgeNumber?: number;
+    taskKeyBadges?: Record<string, number>;
     onProjectClick: (projectId: string) => void;
     onTaskClick: (taskId: string) => void;
     archived?: boolean;
@@ -38,6 +39,7 @@ export function ProjectGroup({
     diffStats,
     diffStatsByTask,
     keyBadgeNumber,
+    taskKeyBadges,
     onProjectClick,
     onTaskClick,
     archived,
@@ -247,6 +249,7 @@ export function ProjectGroup({
                                         diffStats={diffStatsByTask?.[task.id]}
                                         isSubtask={false}
                                         isExpanded={hasSubtasks && isExpanded}
+                                        keyBadgeNumber={taskKeyBadges?.[task.id]}
                                     />
                                     {hasSubtasks && isExpanded && (
                                         <div className="pl-4">
