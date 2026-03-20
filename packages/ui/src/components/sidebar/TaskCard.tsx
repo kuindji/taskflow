@@ -141,7 +141,10 @@ export function TaskCard({
             <div
                 role="button"
                 tabIndex={0}
-                onClick={onClick}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onClick();
+                }}
                 onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();

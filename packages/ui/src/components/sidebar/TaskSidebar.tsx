@@ -49,6 +49,7 @@ export function TaskSidebar() {
     const setShowArchive = useTaskStore((s) => s.setShowArchive);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
+    const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
     const collapsedProjectIds = useUIStore((s) => s.collapsedProjectIds);
     const setProjectCollapsed = useUIStore((s) => s.setProjectCollapsed);
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
@@ -233,19 +234,21 @@ export function TaskSidebar() {
 
     const handleProjectClick = useCallback(
         (projectId: string) => {
+            setFocusedPanel("workspace");
             setActiveProject(projectId);
             setActiveTask(null);
         },
-        [setActiveProject, setActiveTask],
+        [setActiveProject, setActiveTask, setFocusedPanel],
     );
 
     const handleTaskClick = useCallback(
         (taskId: string) => {
             const task = tasks.find((entry) => entry.id === taskId);
+            setFocusedPanel("workspace");
             setActiveTask(taskId);
             setActiveProject(task?.projectId ?? null);
         },
-        [setActiveProject, setActiveTask, tasks],
+        [setActiveProject, setActiveTask, setFocusedPanel, tasks],
     );
 
     const handleProjectOpenChange = useCallback(

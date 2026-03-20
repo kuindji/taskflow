@@ -161,7 +161,10 @@ export function ProjectGroup({
                         </TooltipContent>
                     </Tooltip>
                     <button
-                        onClick={handleProjectClick}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleProjectClick();
+                        }}
                         className="flex w-0 min-w-0 flex-1 cursor-pointer flex-col overflow-hidden py-1.5 pr-1.5 text-left"
                         title={project.name}>
                         <div className="flex min-w-0 items-center gap-1.5">

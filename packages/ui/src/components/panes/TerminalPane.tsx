@@ -73,8 +73,6 @@ const RESIZE_DEBOUNCE_MS = 250;
 /** Pending delayed destructions — cancelled if terminal remounts within the grace period. */
 const pendingDetaches = new Map<string, ReturnType<typeof setTimeout>>();
 const DETACH_GRACE_MS = 50;
-const followOutputState = new Map<string, boolean>();
-
 const SHELL_TITLE_MAX_LEN = 30;
 
 function findTabForSession(sessionId: string): { workspaceKey: string; tab: Tab } | undefined {
@@ -468,11 +466,6 @@ function restoreViewport(term: Terminal, snapshot: TerminalViewportSnapshot): vo
     term.scrollToLine(targetLine);
 }
 
-function isAtBottom(term: Terminal): boolean {
-    const buffer = term.buffer.active;
-    return buffer.baseY - buffer.viewportY <= 1;
-}
-
 function removeCanvasCursorLayer(screenElement: HTMLElement): void {
     // Remove the Canvas addon's cursor layer canvas from the DOM so it doesn't
     // paint on top of the WebGL canvas. The Canvas cursor layer (z-index 3)
@@ -586,35 +579,6 @@ function getOrCreateTerminal(
     // Unicode support loaded after renderer is ready (auto-activates '15-graphemes')
     term.loadAddon(new UnicodeGraphemesAddon());
     const writer = new TimeBudgetedWriter(term);
-    followOutputState.set(sessionId, true);
-    let pendingViewportRestore: TerminalViewportSnapshot | null = null;
-    let outputFrameActive = false;
-    let internalViewportChange = false;
-
-    writer.onBeforeWrite = () => {
-        outputFrameActive = true;
-        pendingViewportRestore = followOutputState.get(sessionId) ? null : captureViewport(term);
-    };
-
-    writer.onDidWrite = () => {
-        try {
-            internalViewportChange = true;
-            if (followOutputState.get(sessionId)) {
-                term.scrollToBottom();
-            } else if (pendingViewportRestore) {
-                restoreViewport(term, pendingViewportRestore);
-            }
-        } finally {
-            pendingViewportRestore = null;
-            outputFrameActive = false;
-            internalViewportChange = false;
-        }
-    };
-
-    const scrollDisposable = term.onScroll(() => {
-        if (outputFrameActive || internalViewportChange) return;
-        followOutputState.set(sessionId, isAtBottom(term));
-    });
 
     const titleDisposable = term.onTitleChange((newTitle) => {
         if (!newTitle) return;
@@ -701,7 +665,6 @@ function getOrCreateTerminal(
         unsubExit,
         ensureHistoryLoaded,
         disposeRuntime: () => {
-            scrollDisposable.dispose();
             titleDisposable.dispose();
             filePathLinkDisposable.dispose();
             disposeRendererAddons();
@@ -715,7 +678,6 @@ function getOrCreateTerminal(
 /** Remove a terminal from cache and dispose all resources */
 function destroyTerminal(sessionId: string): void {
     cancelDetach(sessionId);
-    followOutputState.delete(sessionId);
     const cached = terminalCache.get(sessionId);
     if (!cached) return;
     terminalCache.delete(sessionId);
