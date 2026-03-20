@@ -6,6 +6,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 
 type PanelId = ReturnType<typeof useUIStore.getState>["focusedPanel"];
+const PANEL_FOCUS_DEDUPE_MS = 150;
 
 function getPanelOrder(): PanelId[] {
     const panels: PanelId[] = ["sidebar", "workspace"];
@@ -29,6 +30,7 @@ function cycleFocus(direction: "left" | "right") {
     }
 
     // When focusing sidebar, set sidebarFocusedItem based on active task/project
+    // (falls back to first project so badges always appear)
     if (next === "sidebar") {
         const { activeTaskId } = useTaskStore.getState();
         const { activeProjectId } = useUIStore.getState();
@@ -36,16 +38,14 @@ function cycleFocus(direction: "left" | "right") {
             useUIStore.getState().setSidebarFocusedItem({ type: "task", id: activeTaskId });
         } else if (activeProjectId) {
             useUIStore.getState().setSidebarFocusedItem({ type: "project", id: activeProjectId });
+        } else {
+            const { projects } = useProjectStore.getState();
+            if (projects.length > 0) {
+                useUIStore
+                    .getState()
+                    .setSidebarFocusedItem({ type: "project", id: projects[0].id });
+            }
         }
-    }
-
-    // When focusing taskinfo, focus first input
-    if (next === "taskinfo") {
-        requestAnimationFrame(() => {
-            const panel = document.querySelector('[data-panel="taskinfo"]');
-            const input = panel?.querySelector("input, textarea, select") as HTMLElement | null;
-            input?.focus();
-        });
     }
 }
 
@@ -100,12 +100,14 @@ function handleSidebarArrow(key: string) {
     if (key === "ArrowLeft") {
         if (!sidebarFocusedItem) return;
         if (sidebarFocusedItem.type === "task") {
-            // Move focus to parent project
+            // Move focus to parent project and select it
             const task = tasks.find((t) => t.id === sidebarFocusedItem.id);
             if (task) {
                 useUIStore
                     .getState()
                     .setSidebarFocusedItem({ type: "project", id: task.projectId });
+                useUIStore.getState().setActiveProject(task.projectId);
+                useTaskStore.getState().setActiveTask(null);
             }
         } else {
             // Collapse project
@@ -126,9 +128,7 @@ function handleSidebarArrow(key: string) {
     for (const project of projects) {
         visibleItems.push({ type: "project", id: project.id });
         if (!collapsedProjectIds.includes(project.id)) {
-            const projectTasks = tasks.filter(
-                (t) => t.projectId === project.id && !t.parentId,
-            );
+            const projectTasks = tasks.filter((t) => t.projectId === project.id && !t.parentId);
             for (const task of projectTasks) {
                 visibleItems.push({ type: "task", id: task.id });
             }
@@ -178,16 +178,24 @@ const ARROW_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 export function useKeyboardNavigation() {
     useEffect(() => {
         const cleanupFns: Array<() => void> = [];
+        let lastPanelFocusAt = 0;
+
+        const triggerPanelFocus = (direction: "left" | "right") => {
+            const now = Date.now();
+            if (now - lastPanelFocusAt < PANEL_FOCUS_DEDUPE_MS) return;
+            lastPanelFocusAt = now;
+            cycleFocus(direction);
+        };
 
         // Register Electron IPC listeners for panel focus cycling
         const onFocusPanelLeft = window.taskflow?.onFocusPanelLeft;
         const onFocusPanelRight = window.taskflow?.onFocusPanelRight;
 
         if (onFocusPanelLeft) {
-            cleanupFns.push(onFocusPanelLeft(() => cycleFocus("left")));
+            cleanupFns.push(onFocusPanelLeft(() => triggerPanelFocus("left")));
         }
         if (onFocusPanelRight) {
-            cleanupFns.push(onFocusPanelRight(() => cycleFocus("right")));
+            cleanupFns.push(onFocusPanelRight(() => triggerPanelFocus("right")));
         }
 
         const onKeyDown = (e: KeyboardEvent) => {
@@ -195,17 +203,12 @@ export function useKeyboardNavigation() {
 
             // Cmd+Shift+Left/Right: panel focus cycling
             if (e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-                // Skip if Electron IPC handles this (avoid double-firing)
-                if (window.taskflow && "onFocusPanelLeft" in window.taskflow) return;
                 const active = document.activeElement;
-                if (
-                    active &&
-                    (active.tagName === "INPUT" || active.tagName === "TEXTAREA")
-                ) {
+                if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
                     return;
                 }
                 e.preventDefault();
-                cycleFocus(e.key === "ArrowLeft" ? "left" : "right");
+                triggerPanelFocus(e.key === "ArrowLeft" ? "left" : "right");
                 return;
             }
 
@@ -222,16 +225,17 @@ export function useKeyboardNavigation() {
                 return;
             }
 
+            // Cmd+/: toggle keyboard shortcuts dialog
+            if (e.key === "/" && !e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                useUIStore.getState().toggleShortcutsDialog();
+                return;
+            }
+
             // Cmd+Arrow: sidebar navigation (only when sidebar focused)
-            if (
-                useUIStore.getState().focusedPanel === "sidebar" &&
-                ARROW_KEYS.includes(e.key)
-            ) {
+            if (useUIStore.getState().focusedPanel === "sidebar" && ARROW_KEYS.includes(e.key)) {
                 const active = document.activeElement;
-                if (
-                    active &&
-                    (active.tagName === "INPUT" || active.tagName === "TEXTAREA")
-                ) {
+                if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
                     return;
                 }
                 e.preventDefault();
@@ -240,10 +244,26 @@ export function useKeyboardNavigation() {
             }
         };
 
+        // When Meta is released while taskinfo is focused, focus the first input field.
+        // This is deferred so that Cmd+Shift cycling can continue uninterrupted.
+        const onKeyUp = (e: KeyboardEvent) => {
+            if (e.key === "Meta" && useUIStore.getState().focusedPanel === "taskinfo") {
+                requestAnimationFrame(() => {
+                    const panel = document.querySelector('[data-panel="taskinfo"]');
+                    const input = panel?.querySelector(
+                        "input, textarea, select",
+                    ) as HTMLElement | null;
+                    input?.focus();
+                });
+            }
+        };
+
         window.addEventListener("keydown", onKeyDown);
+        window.addEventListener("keyup", onKeyUp);
 
         return () => {
             window.removeEventListener("keydown", onKeyDown);
+            window.removeEventListener("keyup", onKeyUp);
             cleanupFns.forEach((fn) => fn());
         };
     }, []);

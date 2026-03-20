@@ -47,9 +47,7 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
         if (!workspaceKey) return;
         const store = useSessionStore.getState();
         const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
-        const existing = existingTabs.find(
-            (t) => t.type === "markdown" && t.filePath === filePath,
-        );
+        const existing = existingTabs.find((t) => t.type === "markdown" && t.filePath === filePath);
         if (existing) {
             store.setActiveTab(workspaceKey, existing.id);
             return;

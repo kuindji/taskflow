@@ -16,7 +16,16 @@ import { ProjectGroup } from "./ProjectGroup";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
-import { ArrowDownToLine, Loader2, Palette, Plus, Settings2, Workflow } from "lucide-react";
+import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
+import {
+    ArrowDownToLine,
+    Keyboard,
+    Loader2,
+    Palette,
+    Plus,
+    Settings2,
+    Workflow,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
 import { Separator } from "@/components/ui/separator";
@@ -52,6 +61,7 @@ export function TaskSidebar() {
     const openSettings = useUIStore((s) => s.openSettings);
     const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
+    const toggleShortcutsDialog = useUIStore((s) => s.toggleShortcutsDialog);
     const fetchThemes = useThemeStore((s) => s.fetchThemes);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
@@ -62,10 +72,10 @@ export function TaskSidebar() {
     const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
     const diffStatsByProject = useDiffStore((s) => s.statsByProject);
 
-    const cmdHeld = useCmdHeld();
+    const { cmdHeld } = useCmdHeld();
     const focusedPanel = useUIStore((s) => s.focusedPanel);
     const sidebarFocusedItem = useUIStore((s) => s.sidebarFocusedItem);
-    const showBadges = cmdHeld && focusedPanel === 'sidebar';
+    const showBadges = cmdHeld && focusedPanel === "sidebar";
 
     useEffect(() => {
         if (!connected) return;
@@ -303,11 +313,13 @@ export function TaskSidebar() {
                     let taskKeyBadges: Record<string, number> | undefined;
                     let projectBadgeNumber: number | undefined;
 
-                    if (showBadges && sidebarFocusedItem) {
-                        if (sidebarFocusedItem.type === 'project') {
+                    if (showBadges) {
+                        if (!sidebarFocusedItem || sidebarFocusedItem.type === "project") {
                             projectBadgeNumber = index < 9 ? index + 1 : undefined;
-                        } else if (sidebarFocusedItem.type === 'task') {
-                            const focusedTask = displayTasks.find(t => t.id === sidebarFocusedItem.id);
+                        } else if (sidebarFocusedItem.type === "task") {
+                            const focusedTask = displayTasks.find(
+                                (t) => t.id === sidebarFocusedItem.id,
+                            );
                             if (focusedTask && focusedTask.projectId === project.id) {
                                 taskKeyBadges = {};
                                 let badgeIndex = 0;
@@ -417,6 +429,16 @@ export function TaskSidebar() {
                         className="text-muted-foreground [-webkit-app-region:no-drag]">
                         <Settings2 className="h-3.5 w-3.5" />
                     </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={toggleShortcutsDialog}
+                        aria-label="Keyboard Shortcuts"
+                        tooltip="Keyboard Shortcuts"
+                        tooltipSide="bottom"
+                        className="text-muted-foreground [-webkit-app-region:no-drag]">
+                        <Keyboard className="h-3.5 w-3.5" />
+                    </Button>
                 </div>
             </Toolbar>
             <NewProjectDialog
@@ -444,6 +466,7 @@ export function TaskSidebar() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+            <KeyboardShortcutsDialog />
         </>
     );
 }

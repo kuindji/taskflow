@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { Children, useEffect, useState, useCallback, useRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -7,11 +7,7 @@ import type { Components } from "react-markdown";
 import { useFileStore } from "@/stores/file-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { onEvent } from "@/hooks/useWebSocket";
-import {
-    MSG,
-    DEFAULT_EDITOR_FONT_SIZE,
-    DEFAULT_EDITOR_FONT_FAMILY,
-} from "@taskflow/shared";
+import { MSG, DEFAULT_EDITOR_FONT_SIZE, DEFAULT_EDITOR_FONT_FAMILY } from "@taskflow/shared";
 import type { FileChangeEvent } from "@taskflow/shared";
 
 interface MarkdownPaneImplProps {
@@ -70,7 +66,16 @@ function MarkdownPaneImpl({ filePath }: MarkdownPaneImplProps) {
     const components: Components = {
         code({ className, children, ...rest }) {
             const match = /language-(\w+)/.exec(className ?? "");
-            const codeString = String(children).replace(/\n$/, "");
+            const codeString = Children.toArray(children)
+                .map((child) => {
+                    if (typeof child === "string" || typeof child === "number") {
+                        return String(child);
+                    }
+
+                    return "";
+                })
+                .join("")
+                .replace(/\n$/, "");
 
             if (match) {
                 return (
@@ -82,8 +87,7 @@ function MarkdownPaneImpl({ filePath }: MarkdownPaneImplProps) {
                             margin: 0,
                             borderRadius: "0.375rem",
                             fontSize: editorFontSize,
-                        }}
-                    >
+                        }}>
                         {codeString}
                     </SyntaxHighlighter>
                 );
@@ -107,9 +111,7 @@ function MarkdownPaneImpl({ filePath }: MarkdownPaneImplProps) {
 
     if (error) {
         return (
-            <div className="text-destructive flex flex-1 items-center justify-center">
-                {error}
-            </div>
+            <div className="text-destructive flex flex-1 items-center justify-center">{error}</div>
         );
     }
 
@@ -117,8 +119,7 @@ function MarkdownPaneImpl({ filePath }: MarkdownPaneImplProps) {
         <div className="flex-1 overflow-auto p-6">
             <div
                 className="markdown-preview prose prose-invert max-w-none"
-                style={{ fontSize: editorFontSize, fontFamily: editorFontFamily }}
-            >
+                style={{ fontSize: editorFontSize, fontFamily: editorFontFamily }}>
                 <Markdown remarkPlugins={remarkPlugins} components={components}>
                     {content}
                 </Markdown>

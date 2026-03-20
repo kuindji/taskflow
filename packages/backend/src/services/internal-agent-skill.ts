@@ -32,8 +32,6 @@ export function buildSystemPrompt(isProjectScope: boolean, isFlowScope?: boolean
 /** @deprecated Use buildSystemPrompt() instead. Kept for tests that assert on common content. */
 export const INTERNAL_AGENT_SYSTEM_PROMPT = buildSystemPrompt(false);
 
-
-
 function escapeTomlBasicString(value: string): string {
     return value
         .replaceAll("\\", "\\\\")

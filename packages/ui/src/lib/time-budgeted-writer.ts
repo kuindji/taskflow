@@ -26,6 +26,9 @@ class TimeBudgetedWriter {
     private flushResolvers: Array<() => void> = [];
 
     /** Called after each frame's writes are flushed to xterm (via sentinel callback). */
+    onBeforeWrite: (() => void) | null = null;
+
+    /** Called after each frame's writes are flushed to xterm (via sentinel callback). */
     onDidWrite: (() => void) | null = null;
 
     constructor(term: Terminal) {
@@ -93,6 +96,7 @@ class TimeBudgetedWriter {
         }
 
         const start = performance.now();
+        this.onBeforeWrite?.();
 
         while (this.buffer.length > 0 && performance.now() - start < budget) {
             const chunkSize = Math.min(this.buffer.length, MAX_CHUNK_SIZE);

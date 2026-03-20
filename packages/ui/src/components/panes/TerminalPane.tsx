@@ -50,6 +50,7 @@ interface CachedTerminal {
     element: HTMLDivElement;
     unsubOutput: () => void;
     unsubExit: () => void;
+    ensureHistoryLoaded: () => Promise<void>;
     disposeRuntime: () => void;
 }
 
@@ -72,13 +73,7 @@ const RESIZE_DEBOUNCE_MS = 250;
 /** Pending delayed destructions — cancelled if terminal remounts within the grace period. */
 const pendingDetaches = new Map<string, ReturnType<typeof setTimeout>>();
 const DETACH_GRACE_MS = 50;
-
-/**
- * Per-terminal scroll-follow state. Tracks whether the terminal should
- * auto-scroll to bottom when new output arrives.
- * Stored at module level so it persists across React re-renders.
- */
-const scrollFollowState = new Map<string, boolean>();
+const followOutputState = new Map<string, boolean>();
 
 const SHELL_TITLE_MAX_LEN = 30;
 
@@ -90,9 +85,6 @@ function findTabForSession(sessionId: string): { workspaceKey: string; tab: Tab 
     }
     return undefined;
 }
-
-/** Threshold for "at bottom" check — within 2 rows counts as following. */
-const FOLLOW_THRESHOLD = 2;
 
 function applyThemeToCachedTerminal(cached: CachedTerminal, theme: XtermTheme): void {
     cached.term.options.theme = { ...theme };
@@ -459,9 +451,26 @@ function refreshTerminal(term: Terminal): void {
     term.refresh(0, term.rows - 1);
 }
 
+interface TerminalViewportSnapshot {
+    distanceFromBottom: number;
+}
+
+function captureViewport(term: Terminal): TerminalViewportSnapshot {
+    const buffer = term.buffer.active;
+    return {
+        distanceFromBottom: Math.max(0, buffer.baseY - buffer.viewportY),
+    };
+}
+
+function restoreViewport(term: Terminal, snapshot: TerminalViewportSnapshot): void {
+    const buffer = term.buffer.active;
+    const targetLine = Math.max(0, buffer.baseY - snapshot.distanceFromBottom);
+    term.scrollToLine(targetLine);
+}
+
 function isAtBottom(term: Terminal): boolean {
-    const buf = term.buffer.active;
-    return buf.baseY - buf.viewportY <= FOLLOW_THRESHOLD;
+    const buffer = term.buffer.active;
+    return buffer.baseY - buffer.viewportY <= 1;
 }
 
 function removeCanvasCursorLayer(screenElement: HTMLElement): void {
@@ -577,21 +586,34 @@ function getOrCreateTerminal(
     // Unicode support loaded after renderer is ready (auto-activates '15-graphemes')
     term.loadAddon(new UnicodeGraphemesAddon());
     const writer = new TimeBudgetedWriter(term);
+    followOutputState.set(sessionId, true);
+    let pendingViewportRestore: TerminalViewportSnapshot | null = null;
+    let outputFrameActive = false;
+    let internalViewportChange = false;
 
-    // Initialize scroll-follow state: default to following (at bottom)
-    scrollFollowState.set(sessionId, true);
+    writer.onBeforeWrite = () => {
+        outputFrameActive = true;
+        pendingViewportRestore = followOutputState.get(sessionId) ? null : captureViewport(term);
+    };
 
-    // When the writer finishes a frame, scroll to bottom if following
     writer.onDidWrite = () => {
-        if (scrollFollowState.get(sessionId)) {
-            term.scrollToBottom();
+        try {
+            internalViewportChange = true;
+            if (followOutputState.get(sessionId)) {
+                term.scrollToBottom();
+            } else if (pendingViewportRestore) {
+                restoreViewport(term, pendingViewportRestore);
+            }
+        } finally {
+            pendingViewportRestore = null;
+            outputFrameActive = false;
+            internalViewportChange = false;
         }
     };
 
-    // Track user scroll: if user scrolls away from bottom, stop following.
-    // If user scrolls back to bottom, resume following.
     const scrollDisposable = term.onScroll(() => {
-        scrollFollowState.set(sessionId, isAtBottom(term));
+        if (outputFrameActive || internalViewportChange) return;
+        followOutputState.set(sessionId, isAtBottom(term));
     });
 
     const titleDisposable = term.onTitleChange((newTitle) => {
@@ -605,6 +627,7 @@ function getOrCreateTerminal(
     // Buffer live output until history is loaded, then write directly
     const pendingData: BufferedTerminalChunk[] = [];
     let historyLoaded = false;
+    let historyLoadPromise: Promise<void> | null = null;
 
     const unsubOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
         const event = payload as TerminalOutputEvent;
@@ -624,26 +647,28 @@ function getOrCreateTerminal(
         }
     });
 
-    // Try snapshot first (pixel-perfect for active sessions),
-    // fall back to JSONL history for exited sessions.
-    sendRequest<SessionSnapshotResponse>(MSG.SESSION_SNAPSHOT, { sessionId })
-        .then(async ({ snapshot, lastSequence, cursorHidden }) => {
-            if (snapshot !== null) {
-                writer.write(snapshot);
-                if (cursorHidden) {
-                    writer.write("\x1b[?25l");
-                }
-                await writer.flush();
-                term.scrollToBottom();
-                scrollFollowState.set(sessionId, true);
-                historyLoaded = true;
-                flushPendingChunks(pendingData, lastSequence, writer);
-
-                return;
-            }
-            return replayFromHistory();
+    function ensureHistoryLoaded(): Promise<void> {
+        if (historyLoadPromise) return historyLoadPromise;
+        historyLoadPromise = sendRequest<SessionSnapshotResponse>(MSG.SESSION_SNAPSHOT, {
+            sessionId,
         })
-        .catch(() => replayFromHistory());
+            .then(async ({ snapshot, lastSequence, cursorHidden }) => {
+                if (snapshot !== null) {
+                    writer.write(snapshot);
+                    if (cursorHidden) {
+                        writer.write("\x1b[?25l");
+                    }
+                    await writer.flush();
+                    term.scrollToBottom();
+                    historyLoaded = true;
+                    flushPendingChunks(pendingData, lastSequence, writer);
+                    return;
+                }
+                return replayFromHistory();
+            })
+            .catch(() => replayFromHistory());
+        return historyLoadPromise;
+    }
 
     async function replayFromHistory() {
         return sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, {
@@ -655,7 +680,6 @@ function getOrCreateTerminal(
                 if (data) writer.write(data);
                 await writer.flush();
                 term.scrollToBottom();
-                scrollFollowState.set(sessionId, true);
                 historyLoaded = true;
                 flushPendingChunks(pendingData, lastSequence, writer);
             })
@@ -663,7 +687,6 @@ function getOrCreateTerminal(
                 for (const chunk of pendingData) writer.write(chunk.data);
                 await writer.flush();
                 term.scrollToBottom();
-                scrollFollowState.set(sessionId, true);
                 historyLoaded = true;
                 pendingData.length = 0;
             });
@@ -676,6 +699,7 @@ function getOrCreateTerminal(
         element,
         unsubOutput,
         unsubExit,
+        ensureHistoryLoaded,
         disposeRuntime: () => {
             scrollDisposable.dispose();
             titleDisposable.dispose();
@@ -691,7 +715,7 @@ function getOrCreateTerminal(
 /** Remove a terminal from cache and dispose all resources */
 function destroyTerminal(sessionId: string): void {
     cancelDetach(sessionId);
-    scrollFollowState.delete(sessionId);
+    followOutputState.delete(sessionId);
     const cached = terminalCache.get(sessionId);
     if (!cached) return;
     terminalCache.delete(sessionId);
@@ -732,10 +756,12 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
     const fitFrameRef = useRef<number | null>(null);
     const fitRetryTimeoutRef = useRef<number | null>(null);
     const resizeDebounceTimeoutRef = useRef<number | null>(null);
+    const restoreFocusAfterModifierRef = useRef(false);
     const [dragOver, setDragOver] = useState(false);
     const dragCounterRef = useRef(0);
     const sendInput = useSessionStore((s) => s.sendInput);
     const resizeTerminal = useSessionStore((s) => s.resizeTerminal);
+    const focusedPanel = useUIStore((s) => s.focusedPanel);
 
     useEffect(() => {
         visibleRef.current = visible;
@@ -774,6 +800,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 fitFrameRef.current = null;
                 if (!visibleRef.current || !fitRef.current || !termRef.current) return;
 
+                const viewportSnapshot = scrollToBottom ? null : captureViewport(termRef.current);
                 const fitResult = fitTerminal(fitRef.current, termRef.current);
                 if (!fitResult.measured) {
                     if (retries > 0) {
@@ -796,6 +823,8 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
 
                 if (scrollToBottom) {
                     termRef.current.scrollToBottom();
+                } else if (viewportSnapshot && fitResult.resized) {
+                    restoreViewport(termRef.current, viewportSnapshot);
                 }
                 refreshTerminal(termRef.current);
                 if (focus) termRef.current.focus();
@@ -818,7 +847,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         if (!containerRef.current) return;
 
         // Cancel any pending detach from a previous unmount
-        const wasPending = cancelDetach(sessionId);
+        cancelDetach(sessionId);
 
         const cached = getOrCreateTerminal(sessionId, taskId, projectId);
         const { term, fit, element } = cached;
@@ -829,11 +858,14 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         // Attach the cached element into the container
         containerRef.current.appendChild(element);
 
+        // Start restoring snapshot/history as soon as the terminal is attached.
+        // Viewport preservation during subsequent fits handles reflow safely.
+        void cached.ensureHistoryLoaded();
+
         if (visible) {
-            // The cached DOM element preserves scroll position naturally.
-            // Only scroll to bottom on fresh creation (not cancelled detach reuse).
-            const shouldScrollToBottom = !wasPending;
-            scheduleFit(true, true, shouldScrollToBottom);
+            // Preserve viewport on tab restore; initial history restore owns
+            // its bottom position instead of fit forcing it.
+            scheduleFit(true, focusedPanel === "workspace", false);
         }
 
         // Shift+Enter → send the same escape sequence as Alt+Enter (\x1b\r)
@@ -845,6 +877,20 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
                 }
                 return false; // prevent xterm default handling for all event phases
             }
+
+            // Let modifier keys bubble so useCmdHeld can track Cmd/Shift state
+            if (event.key === "Meta" || event.key === "Shift") return false;
+
+            // Let Cmd+digit bubble for number navigation (tab/sidebar switching)
+            if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) return false;
+
+            // Let Cmd+Arrow bubble for sidebar/panel navigation
+            if ((event.metaKey || event.ctrlKey) && /^Arrow(Up|Down|Left|Right)$/.test(event.key))
+                return false;
+
+            // Let Cmd+/ bubble for keyboard shortcuts dialog
+            if ((event.metaKey || event.ctrlKey) && event.key === "/") return false;
+
             return true;
         });
 
@@ -884,22 +930,20 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
             fitRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- terminal setup should not re-run on visibility change
-    }, [projectId, scheduleFit, scheduleResizeObserverFit, sessionId, taskId]);
+    }, [focusedPanel, projectId, scheduleFit, scheduleResizeObserverFit, sessionId, taskId]);
 
     useEffect(() => {
         if (!visible || !termRef.current || !fitRef.current) return;
         // Force viewport recalculation when becoming visible.
         // Don't force scrollToBottom — preserve the user's scroll position.
-        // The fit will restore viewport via captureViewport/restoreViewport
-        // if a resize occurred.
-        scheduleFit(true, true, false);
-    }, [visible, sessionId, scheduleFit]);
+        scheduleFit(true, focusedPanel === "workspace", false);
+    }, [focusedPanel, visible, sessionId, scheduleFit]);
 
     // Dedicated focus effect — independent of fit/resize logic.
     // Uses rAF for fast path + bounded retry loop as fallback for cases
     // where the terminal element isn't ready yet (freshly mounted, layout pending).
     useEffect(() => {
-        if (!visible) return;
+        if (!visible || focusedPanel !== "workspace") return;
 
         let cancelled = false;
         let attempts = 0;
@@ -924,6 +968,53 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         return () => {
             cancelled = true;
             cancelAnimationFrame(rafId);
+        };
+    }, [focusedPanel, visible, sessionId]);
+
+    useEffect(() => {
+        if (!visible) return;
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) return;
+            const container = containerRef.current;
+            const active = document.activeElement;
+            if (!container || !(active instanceof HTMLElement) || !container.contains(active)) {
+                return;
+            }
+
+            restoreFocusAfterModifierRef.current = true;
+            active.blur();
+        };
+
+        const handleKeyUp = (event: KeyboardEvent) => {
+            if (!restoreFocusAfterModifierRef.current) return;
+
+            if (event.key === "Shift") {
+                if (useUIStore.getState().focusedPanel === "workspace") {
+                    restoreFocusAfterModifierRef.current = false;
+                    termRef.current?.focus();
+                }
+                return;
+            }
+
+            if (event.key === "Meta" || event.key === "Control") {
+                restoreFocusAfterModifierRef.current = false;
+                termRef.current?.focus();
+            }
+        };
+
+        const handleBlur = () => {
+            restoreFocusAfterModifierRef.current = false;
+        };
+
+        window.addEventListener("keydown", handleKeyDown, true);
+        window.addEventListener("keyup", handleKeyUp, true);
+        window.addEventListener("blur", handleBlur);
+
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown, true);
+            window.removeEventListener("keyup", handleKeyUp, true);
+            window.removeEventListener("blur", handleBlur);
         };
     }, [visible, sessionId]);
 

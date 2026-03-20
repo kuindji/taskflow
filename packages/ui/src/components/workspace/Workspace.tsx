@@ -67,6 +67,7 @@ export function Workspace() {
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
     const openSettings = useUIStore((s) => s.openSettings);
+    const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
@@ -267,11 +268,13 @@ export function Workspace() {
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
                 : { projectId: workspace.project.id };
+        setFocusedPanel("workspace");
         await createSession(owner, "shell", getShellSessionLabel(shell), undefined, shell);
     }, [
         configuredShell,
         createSession,
         defaultShellPath,
+        setFocusedPanel,
         workspace.project,
         workspace.scope,
         workspace.task,
@@ -417,6 +420,7 @@ export function Workspace() {
             }
         }
         if (type === "browser") {
+            setFocusedPanel("workspace");
             addTab(workspace.workspaceKey, {
                 id: crypto.randomUUID(),
                 type: "browser",
@@ -424,6 +428,7 @@ export function Workspace() {
                 url: "about:blank",
             });
         } else if (type === "shell" && shellPath) {
+            setFocusedPanel("workspace");
             await createSession(
                 workspace.scope === "task"
                     ? { taskId: workspace.task.id }
@@ -434,6 +439,7 @@ export function Workspace() {
                 shellPath,
             );
         } else {
+            setFocusedPanel("workspace");
             await createSession(
                 workspace.scope === "task"
                     ? { taskId: workspace.task.id }
@@ -462,6 +468,7 @@ export function Workspace() {
                 return;
             }
         }
+        setFocusedPanel("workspace");
         await createSession(
             { taskId: workspace.task.id },
             type,
@@ -477,6 +484,7 @@ export function Workspace() {
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
                 : { projectId: workspace.project.id };
+        setFocusedPanel("workspace");
         await createSession(
             owner,
             action.sessionType,
@@ -530,6 +538,7 @@ export function Workspace() {
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
                 : { projectId: workspace.project.id };
+        setFocusedPanel("workspace");
         const sessionId = await createSession(owner, "shell", scriptName, undefined, shell);
         sendInput(sessionId, `${defaultRuntime} run ${scriptName}\r`);
     };

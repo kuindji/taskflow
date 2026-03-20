@@ -187,9 +187,7 @@ export function ProjectGroup({
                             <span
                                 className={cn(
                                     "block min-w-0 truncate text-xs font-medium tracking-wide",
-                                    locationInvalid
-                                        ? "text-foreground/40"
-                                        : "text-foreground/60",
+                                    locationInvalid ? "text-foreground/40" : "text-foreground/60",
                                 )}>
                                 {project.name}
                             </span>
@@ -208,7 +206,7 @@ export function ProjectGroup({
                         )}
                     </button>
                     <div className="relative mr-1.5 flex shrink-0 items-center">
-                        {!locationInvalid && diffStats && (
+                        {keyBadgeNumber == null && !locationInvalid && diffStats && (
                             <Badge
                                 variant="outline"
                                 className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0">
@@ -226,7 +224,10 @@ export function ProjectGroup({
                     </div>
                 </div>
                 {!locationInvalid && (
-                    <CollapsibleContent className={cn(topLevelTasks.length > 0 ? "pb-1.5 border-b border-border/40 mb-1.5" : "")}>
+                    <CollapsibleContent
+                        className={cn(
+                            topLevelTasks.length > 0 ? "border-border/40 mb-1 border-b pb-1.5" : "",
+                        )}>
                         {topLevelTasks.map((task, index) => {
                             const subtasks = subtaskMap.get(task.id);
                             const hasSubtasks = !!subtasks && subtasks.length > 0;

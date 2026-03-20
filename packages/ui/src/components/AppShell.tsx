@@ -3,6 +3,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import useIsElectron from "@/hooks/useIsElectron";
+import { useCmdHeld } from "@/hooks/useCmdHeld";
 import { cn } from "@/lib/utils";
 
 interface AppShellProps {
@@ -87,16 +88,34 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
     const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
     const [showOutline, setShowOutline] = useState(false);
     const prevPanel = useRef(focusedPanel);
+    const suppressNextOutlineRef = useRef(false);
+
+    const handlePanelPointerDown = useCallback(() => {
+        suppressNextOutlineRef.current = true;
+    }, []);
+
+    const handlePanelClick = useCallback(
+        (panel: "sidebar" | "workspace" | "taskinfo") => {
+            setFocusedPanel(panel);
+        },
+        [setFocusedPanel],
+    );
 
     useEffect(() => {
         if (focusedPanel !== prevPanel.current) {
-            setShowOutline(true);
+            if (suppressNextOutlineRef.current) {
+                suppressNextOutlineRef.current = false;
+                setShowOutline(false);
+            } else {
+                setShowOutline(true);
+            }
             prevPanel.current = focusedPanel;
             const timer = setTimeout(() => setShowOutline(false), 1500);
             return () => clearTimeout(timer);
         }
     }, [focusedPanel]);
 
+    const { cmdShiftHeld } = useCmdHeld();
     const isElectron = useIsElectron();
 
     return (
@@ -105,10 +124,13 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                 <div
                     className={cn(
                         "bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
-                        showOutline && focusedPanel === 'sidebar' && "ring-1 ring-accent/50 transition-[box-shadow] duration-500"
+                        (showOutline || cmdShiftHeld) &&
+                            focusedPanel === "sidebar" &&
+                            "ring-accent/50 ring-1 transition-[box-shadow] duration-500",
                     )}
                     data-panel="sidebar"
-                    onClick={() => setFocusedPanel('sidebar')}
+                    onPointerDown={handlePanelPointerDown}
+                    onClick={() => handlePanelClick("sidebar")}
                     style={{
                         width: sidebarWidth,
                         ...(isElectron ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : {}),
@@ -157,10 +179,13 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                 <div
                     className={cn(
                         "bg-card border-border/50 flex flex-1 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
-                        showOutline && focusedPanel === 'workspace' && "ring-1 ring-accent/50 transition-[box-shadow] duration-500"
+                        (showOutline || cmdShiftHeld) &&
+                            focusedPanel === "workspace" &&
+                            "ring-accent/50 ring-1 transition-[box-shadow] duration-500",
                     )}
                     data-panel="workspace"
-                    onClick={() => setFocusedPanel('workspace')}>
+                    onPointerDown={handlePanelPointerDown}
+                    onClick={() => handlePanelClick("workspace")}>
                     {workspace}
                 </div>
 
@@ -176,10 +201,13 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                     <div
                         className={cn(
                             "bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
-                            showOutline && focusedPanel === 'taskinfo' && "ring-1 ring-accent/50 transition-[box-shadow] duration-500"
+                            (showOutline || cmdShiftHeld) &&
+                                focusedPanel === "taskinfo" &&
+                                "ring-accent/50 ring-1 transition-[box-shadow] duration-500",
                         )}
                         data-panel="taskinfo"
-                        onClick={() => setFocusedPanel('taskinfo')}
+                        onPointerDown={handlePanelPointerDown}
+                        onClick={() => handlePanelClick("taskinfo")}
                         style={{ width: taskInfoWidth }}>
                         {taskInfo}
                     </div>

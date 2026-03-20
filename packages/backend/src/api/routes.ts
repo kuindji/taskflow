@@ -533,9 +533,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
     // --- Sessions ---
 
-    const availableAgentTypes = new Set(
-        agents.filter((a) => a.available).map((a) => a.type),
-    );
+    const availableAgentTypes = new Set(agents.filter((a) => a.available).map((a) => a.type));
 
     apiRouter.register("POST", "/api/sessions", async (req) => {
         let body: Record<string, unknown>;
@@ -548,7 +546,10 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         const { projectId, type, taskId, prompt, label } = body;
 
         if (typeof projectId !== "string" || !projectId.trim()) {
-            return errorResponse('Field "projectId" is required and must be a non-empty string', 400);
+            return errorResponse(
+                'Field "projectId" is required and must be a non-empty string',
+                400,
+            );
         }
 
         // Resolve agent type: use provided value or fall back to defaultAgent setting
@@ -565,10 +566,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             const settings = await settingsStore.get();
             resolvedType = settings.general.defaultAgent;
             if (!availableAgentTypes.has(resolvedType)) {
-                return errorResponse(
-                    `Default agent "${resolvedType}" is not available`,
-                    400,
-                );
+                return errorResponse(`Default agent "${resolvedType}" is not available`, 400);
             }
         }
 

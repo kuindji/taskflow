@@ -10,8 +10,8 @@ function KeyBadge({ number, className }: KeyBadgeProps) {
         <span
             className={cn(
                 "flex h-[18px] min-w-[18px] items-center justify-center rounded px-1",
-                "border border-border border-b-2 bg-muted",
-                "text-[10px] font-semibold leading-none text-foreground",
+                "border-border bg-muted border border-b-2",
+                "text-foreground text-[10px] leading-none font-semibold",
                 className,
             )}>
             {number}
