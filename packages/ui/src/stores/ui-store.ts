@@ -34,6 +34,8 @@ interface UIStore {
     flowPanelOpen: boolean;
     flowManagementOpen: boolean;
     appearanceOpen: boolean;
+    focusedPanel: 'sidebar' | 'workspace' | 'taskinfo';
+    sidebarFocusedItem: { type: 'project' | 'task'; id: string } | null;
     sidebarWidth: number;
     fileExplorerWidth: number;
     taskInfoWidth: number;
@@ -47,6 +49,8 @@ interface UIStore {
     toggleFlowManagement(): void;
     setAppearanceOpen(open: boolean): void;
     toggleAppearance(): void;
+    setFocusedPanel(panel: 'sidebar' | 'workspace' | 'taskinfo'): void;
+    setSidebarFocusedItem(item: { type: 'project' | 'task'; id: string } | null): void;
     setFlowPanelOpen(open: boolean): void;
     setActiveProject(id: string | null): void;
     setSidebarWidth(width: number): void;
@@ -72,6 +76,8 @@ export const useUIStore = create<UIStore>((set) => ({
     flowPanelOpen: false,
     flowManagementOpen: false,
     appearanceOpen: false,
+    focusedPanel: 'workspace' as const,
+    sidebarFocusedItem: null,
     sidebarWidth: 220,
     fileExplorerWidth: 220,
     taskInfoWidth: 220,
@@ -98,6 +104,12 @@ export const useUIStore = create<UIStore>((set) => ({
     },
     toggleAppearance() {
         set((s) => ({ appearanceOpen: !s.appearanceOpen }));
+    },
+    setFocusedPanel(panel) {
+        set({ focusedPanel: panel });
+    },
+    setSidebarFocusedItem(item) {
+        set({ sidebarFocusedItem: item });
     },
     setFlowPanelOpen(open) {
         set({ flowPanelOpen: open });
