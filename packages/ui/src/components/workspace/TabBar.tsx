@@ -48,6 +48,9 @@ import {
     getTerminalShellSummary,
     resolveTerminalShellPath,
 } from "@/lib/terminal-shells";
+import { useCmdHeld } from "@/hooks/useCmdHeld";
+import { useUIStore } from "@/stores/ui-store";
+import { KeyBadge } from "@/components/ui/key-badge";
 
 const AGENT_META: Record<
     AgentType,
@@ -88,12 +91,14 @@ const tabVariants = cva(
 interface TabItemProps {
     tab: Tab;
     isActive: boolean;
+    index: number;
+    cmdHeld: boolean;
     onTabClick: (tabId: string) => void;
     onTabClose: (tabId: string) => void;
     onTabRename: (tabId: string, newLabel: string) => void;
 }
 
-function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItemProps) {
+function TabItem({ tab, isActive, index, cmdHeld, onTabClick, onTabClose, onTabRename }: TabItemProps) {
     const classes = useMemo(
         () => cn(tabVariants({ type: tab.type, active: isActive })),
         [tab.type, isActive],
@@ -161,17 +166,23 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
                     {tab.label}
                 </span>
             )}
-            <Button
-                variant="ghost"
-                size="icon-sm"
-                className="ml-0.5 h-4 w-4 p-0"
-                aria-label="Close tab"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onTabClose(tab.id);
-                }}>
-                <X className="size-3" />
-            </Button>
+            {cmdHeld && index < 9 ? (
+                <div className="ml-0.5">
+                    <KeyBadge number={index + 1} />
+                </div>
+            ) : (
+                <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="ml-0.5 h-4 w-4 p-0"
+                    aria-label="Close tab"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onTabClose(tab.id);
+                    }}>
+                    <X className="size-3" />
+                </Button>
+            )}
         </div>
     );
 }
@@ -227,6 +238,9 @@ export function TabBar({
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [openAgentPopover, setOpenAgentPopover] = useState<AgentType | null>(null);
     const agents = useAgentAvailability();
+    const cmdHeld = useCmdHeld();
+    const focusedPanel = useUIStore((s) => s.focusedPanel);
+    const showBadges = cmdHeld && focusedPanel === 'workspace';
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
@@ -545,11 +559,13 @@ export function TabBar({
             )}
             </div>
             <div className="flex min-w-0 items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-            {tabs.map((tab) => (
+            {tabs.map((tab, index) => (
                 <TabItem
                     key={tab.id}
                     tab={tab}
                     isActive={tab.id === activeTabId}
+                    index={index}
+                    cmdHeld={showBadges}
                     onTabClick={onTabClick}
                     onTabClose={onTabClose}
                     onTabRename={onTabRename}
