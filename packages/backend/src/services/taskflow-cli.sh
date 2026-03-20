@@ -344,12 +344,15 @@ case "$cmd" in
           echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
           exit 1
         fi
-        agent_type="${1:-}"
-        if [ -z "$agent_type" ]; then
-          echo "Usage: taskflow-cli agent run <type> [--prompt <prompt>] [--task <id>] [--label <label>]" >&2
-          exit 1
+
+        # First positional arg is agent type (optional — if it starts with --, it's a flag)
+        agent_type=""
+        if [ $# -gt 0 ]; then
+          case "$1" in
+            --*) ;;  # not a type, leave for flag parsing
+            *) agent_type="$1"; shift ;;
+          esac
         fi
-        shift
 
         agent_prompt=""
         agent_task_id=""
@@ -363,9 +366,10 @@ case "$cmd" in
           esac
         done
 
-        payload=$(printf '"projectId":%s,"type":%s' \
-          "$(json_string "$TASKFLOW_PROJECT_ID")" \
-          "$(json_string "$agent_type")")
+        payload=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
+        if [ -n "$agent_type" ]; then
+          payload=$(printf '%s,"type":%s' "$payload" "$(json_string "$agent_type")")
+        fi
         if [ -n "$agent_task_id" ]; then
           payload=$(printf '%s,"taskId":%s' "$payload" "$(json_string "$agent_task_id")")
         fi
@@ -404,7 +408,7 @@ case "$cmd" in
     echo "  artifact <save|list|get>                      Manage flow artifacts" >&2
     echo "  flow input [<id>]                             Get flow input values" >&2
     echo "  agent list                                    List available agents" >&2
-    echo "  agent run <type> [--prompt p] [--task id]     Start a new agent session" >&2
+    echo "  agent run [type] [--prompt p] [--task id]     Start a new agent session" >&2
     exit 1
     ;;
 esac

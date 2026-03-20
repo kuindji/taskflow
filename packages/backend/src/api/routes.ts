@@ -550,12 +550,28 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         if (typeof projectId !== "string" || !projectId.trim()) {
             return errorResponse('Field "projectId" is required and must be a non-empty string', 400);
         }
-        if (typeof type !== "string" || !availableAgentTypes.has(type as AgentType)) {
-            return errorResponse(
-                `Field "type" must be one of the available agent types: ${[...availableAgentTypes].join(", ")}`,
-                400,
-            );
+
+        // Resolve agent type: use provided value or fall back to defaultAgent setting
+        let resolvedType: AgentType;
+        if (type !== undefined) {
+            if (typeof type !== "string" || !availableAgentTypes.has(type as AgentType)) {
+                return errorResponse(
+                    `Field "type" must be one of the available agent types: ${[...availableAgentTypes].join(", ")}`,
+                    400,
+                );
+            }
+            resolvedType = type as AgentType;
+        } else {
+            const settings = await settingsStore.get();
+            resolvedType = settings.general.defaultAgent;
+            if (!availableAgentTypes.has(resolvedType)) {
+                return errorResponse(
+                    `Default agent "${resolvedType}" is not available`,
+                    400,
+                );
+            }
         }
+
         if (taskId !== undefined && typeof taskId !== "string") {
             return errorResponse('Field "taskId" must be a string', 400);
         }
@@ -584,7 +600,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
             const sessionId = await sessionLifecycle.createSession({
                 owner: typeof taskId === "string" ? { taskId } : { projectId },
-                type: type as CreateSessionOpts["type"],
+                type: resolvedType,
                 prompt: resolvedPrompt,
                 label: typeof label === "string" ? label : undefined,
             });

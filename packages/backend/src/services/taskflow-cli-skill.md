@@ -22,10 +22,11 @@ When running in task context, the following commands work as is. When running in
 
 ## Agent commands
 `taskflow-cli agent list` List available agents (type, availability, version)
+`taskflow-cli agent run --prompt "Review the auth module"` Start default agent with prompt
 `taskflow-cli agent run claude --prompt "Review the auth module"` Start a Claude session with prompt
 `taskflow-cli agent run gemini --task <id>` Start a Gemini session on a specific task (uses task description)
 `taskflow-cli agent run codex --task <id> --prompt "Fix the tests"` Start a Codex session on a task with custom prompt
-`taskflow-cli agent run claude --label "Code Review"` Start with custom tab label
+`taskflow-cli agent run --label "Code Review"` Start default agent with custom tab label
 
 ## Flow commands (available when working in flow context)
 `taskflow-cli action complete` Mark flow step/action complete
