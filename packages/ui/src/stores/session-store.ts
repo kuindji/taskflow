@@ -32,6 +32,7 @@ interface Tab {
     sessionId?: string;
     filePath?: string;
     url?: string;
+    autoTitle?: boolean;
 }
 
 interface SessionStore {
@@ -57,6 +58,7 @@ interface SessionStore {
     setSessionStatus(sessionId: string, status?: SessionStatus): void;
     getTaskStatus(taskId: string): SessionStatus | undefined;
     renameTab(workspaceKey: string, tabId: string, newLabel: string): void;
+    updateAutoTitle(workspaceKey: string, tabId: string, title: string): void;
     getTabs(workspaceKey: string): Tab[];
     getActiveTab(workspaceKey: string): Tab | undefined;
     syncWithTasks(tasks: Task[]): void;
@@ -89,6 +91,7 @@ function createSessionTab(session: SessionRef): Tab {
         type: session.type,
         label: normalizeSessionLabel(session.type, session.label),
         sessionId: session.id,
+        ...(session.type === "shell" && { autoTitle: true }),
     };
 }
 
@@ -168,6 +171,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             type,
             label: normalizeSessionLabel(type, label),
             sessionId,
+            ...(type === "shell" && { autoTitle: true }),
             ...(editorOpts && { filePath: editorOpts.filePath }),
         };
         const workspaceKey = owner.taskId
@@ -296,23 +300,44 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     renameTab(workspaceKey, tabId, newLabel) {
         const tabs = get().tabsByWorkspace[workspaceKey] ?? [];
         const tab = tabs.find((t) => t.id === tabId);
-        if (!tab || tab.label === newLabel) return;
+        if (!tab) return;
+
+        // Always lock autoTitle on manual rename, even if label is unchanged
+        const labelChanged = tab.label !== newLabel;
+        const autoTitleChanged = tab.autoTitle !== false;
+
+        if (!labelChanged && !autoTitleChanged) return;
 
         set((s) => ({
             tabsByWorkspace: {
                 ...s.tabsByWorkspace,
                 [workspaceKey]: (s.tabsByWorkspace[workspaceKey] ?? []).map((t) =>
-                    t.id === tabId ? { ...t, label: newLabel } : t,
+                    t.id === tabId ? { ...t, label: newLabel, autoTitle: false } : t,
                 ),
             },
         }));
 
-        if (tab.sessionId) {
+        if (labelChanged && tab.sessionId) {
             sendFireAndForget(MSG.SESSION_RENAME, {
                 sessionId: tab.sessionId,
                 label: newLabel,
             });
         }
+    },
+    updateAutoTitle(workspaceKey, tabId, title) {
+        const tabs = get().tabsByWorkspace[workspaceKey] ?? [];
+        const tab = tabs.find((t) => t.id === tabId);
+        if (!tab || tab.type !== "shell" || tab.autoTitle === false) return;
+        if (tab.label === title) return;
+
+        set((s) => ({
+            tabsByWorkspace: {
+                ...s.tabsByWorkspace,
+                [workspaceKey]: (s.tabsByWorkspace[workspaceKey] ?? []).map((t) =>
+                    t.id === tabId ? { ...t, label: title, autoTitle: true } : t,
+                ),
+            },
+        }));
     },
     getTabs(workspaceKey) {
         return get().tabsByWorkspace[workspaceKey] ?? [];
@@ -341,13 +366,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                     .map((tab) => {
                         if (!tab.sessionId) return tab;
                         const session = sessionsById.get(tab.sessionId);
-                        return session
-                            ? {
-                                  ...tab,
-                                  type: session.type,
-                                  label: normalizeSessionLabel(session.type, session.label),
-                              }
-                            : tab;
+                        if (!session) return tab;
+                        return {
+                            ...tab,
+                            type: session.type,
+                            ...(tab.autoTitle !== true && {
+                                label: normalizeSessionLabel(session.type, session.label),
+                            }),
+                        };
                     });
 
                 for (const session of task.sessions) {
@@ -399,13 +425,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                     .map((tab) => {
                         if (!tab.sessionId) return tab;
                         const session = sessionsById.get(tab.sessionId);
-                        return session
-                            ? {
-                                  ...tab,
-                                  type: session.type,
-                                  label: normalizeSessionLabel(session.type, session.label),
-                              }
-                            : tab;
+                        if (!session) return tab;
+                        return {
+                            ...tab,
+                            type: session.type,
+                            ...(tab.autoTitle !== true && {
+                                label: normalizeSessionLabel(session.type, session.label),
+                            }),
+                        };
                     });
 
                 for (const session of project.sessions) {
