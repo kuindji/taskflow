@@ -108,7 +108,7 @@ function TabItem({ tab, isActive, onTabClick, onTabClose, onTabRename }: TabItem
     const commitRename = useCallback(() => {
         const trimmed = editValue.trim();
         setIsEditing(false);
-        if (trimmed && trimmed !== tab.label) {
+        if (trimmed) {
             onTabRename(tab.id, trimmed);
         } else {
             setEditValue(tab.label);
