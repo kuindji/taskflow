@@ -1,6 +1,17 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from "electron";
+import {
+    app,
+    BrowserWindow,
+    dialog,
+    ipcMain,
+    Menu,
+    nativeImage,
+    screen,
+    shell,
+    Tray,
+} from "electron";
 import { autoUpdater } from "electron-updater";
 import { spawn, execFile, type ChildProcess } from "child_process";
+import { deflateSync } from "zlib";
 
 declare const BUILD_GIT_BRANCH: string;
 import { constants } from "fs";
@@ -9,6 +20,7 @@ import { homedir, tmpdir } from "os";
 import { join } from "path";
 
 let mainWindow: BrowserWindow | null = null;
+let menuBarTray: Tray | null = null;
 let backendProcess: ChildProcess | null = null;
 let backendPort: number | null = null;
 let backendPortFile: string | null = null;
@@ -16,7 +28,197 @@ let windowSavePromise: Promise<Response | undefined> | null = null;
 let quitting = false;
 let backendStderrBuffer = "";
 
+const MENU_BAR_ICON_POINT_SIZE = 18;
+const MENU_BAR_ICON_DESIGN_SIZE = 36;
+
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
+
+function makeCrcTable(): Uint32Array {
+    const table = new Uint32Array(256);
+
+    for (let i = 0; i < 256; i += 1) {
+        let c = i;
+        for (let j = 0; j < 8; j += 1) {
+            c = (c & 1) !== 0 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        }
+        table[i] = c >>> 0;
+    }
+
+    return table;
+}
+
+const CRC_TABLE = makeCrcTable();
+
+function crc32(buffer: Buffer): number {
+    let crc = 0xffffffff;
+
+    for (const byte of buffer) {
+        crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+    }
+
+    return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+    const typeBuffer = Buffer.from(type, "ascii");
+    const lengthBuffer = Buffer.alloc(4);
+    lengthBuffer.writeUInt32BE(data.length, 0);
+
+    const crcBuffer = Buffer.alloc(4);
+    crcBuffer.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 0);
+
+    return Buffer.concat([lengthBuffer, typeBuffer, data, crcBuffer]);
+}
+
+function encodePng(width: number, height: number, rgba: Uint8Array): Buffer {
+    const stride = width * 4;
+    const raw = Buffer.alloc(height * (stride + 1));
+
+    for (let y = 0; y < height; y += 1) {
+        const rowOffset = y * (stride + 1);
+        raw[rowOffset] = 0;
+        Buffer.from(rgba.buffer, rgba.byteOffset + y * stride, stride).copy(raw, rowOffset + 1);
+    }
+
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(width, 0);
+    ihdr.writeUInt32BE(height, 4);
+    ihdr[8] = 8;
+    ihdr[9] = 6;
+    ihdr[10] = 0;
+    ihdr[11] = 0;
+    ihdr[12] = 0;
+
+    return Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        pngChunk("IHDR", ihdr),
+        pngChunk("IDAT", deflateSync(raw)),
+        pngChunk("IEND", Buffer.alloc(0)),
+    ]);
+}
+
+function paintPixel(
+    rgba: Uint8Array,
+    width: number,
+    x: number,
+    y: number,
+    alpha: number,
+) {
+    if (alpha <= 0) return;
+
+    const idx = (y * width + x) * 4;
+    const nextAlpha = Math.max(rgba[idx + 3], Math.min(255, Math.round(alpha)));
+
+    rgba[idx] = 255;
+    rgba[idx + 1] = 255;
+    rgba[idx + 2] = 255;
+    rgba[idx + 3] = nextAlpha;
+}
+
+function drawLineSegment(
+    rgba: Uint8Array,
+    width: number,
+    height: number,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    thickness: number,
+    alpha: number = 255,
+) {
+    const radius = thickness / 2;
+    const minX = Math.max(0, Math.floor(Math.min(x1, x2) - radius - 1));
+    const maxX = Math.min(width - 1, Math.ceil(Math.max(x1, x2) + radius + 1));
+    const minY = Math.max(0, Math.floor(Math.min(y1, y2) - radius - 1));
+    const maxY = Math.min(height - 1, Math.ceil(Math.max(y1, y2) + radius + 1));
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lengthSquared = dx * dx + dy * dy;
+
+    for (let y = minY; y <= maxY; y += 1) {
+        for (let x = minX; x <= maxX; x += 1) {
+            const px = x + 0.5;
+            const py = y + 0.5;
+            const t =
+                lengthSquared === 0
+                    ? 0
+                    : Math.max(
+                          0,
+                          Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSquared),
+                      );
+            const nearestX = x1 + t * dx;
+            const nearestY = y1 + t * dy;
+            const distance = Math.hypot(px - nearestX, py - nearestY);
+            const coverage = radius + 0.75 - distance;
+
+            if (coverage > 0) {
+                paintPixel(rgba, width, x, y, alpha * Math.min(1, coverage));
+            }
+        }
+    }
+}
+
+function createMenuBarIconPng(scaleFactor: 1 | 2): Buffer {
+    const size = MENU_BAR_ICON_POINT_SIZE * scaleFactor;
+    const rgba = new Uint8Array(size * size * 4);
+    const artScale = size / MENU_BAR_ICON_DESIGN_SIZE;
+
+    drawLineSegment(
+        rgba,
+        size,
+        size,
+        4.5 * artScale,
+        13.5 * artScale,
+        11.5 * artScale,
+        13.5 * artScale,
+        2.6 * artScale,
+        190,
+    );
+    drawLineSegment(
+        rgba,
+        size,
+        size,
+        3 * artScale,
+        18 * artScale,
+        8.5 * artScale,
+        18 * artScale,
+        2.6 * artScale,
+        128,
+    );
+    drawLineSegment(
+        rgba,
+        size,
+        size,
+        4.5 * artScale,
+        22.5 * artScale,
+        10 * artScale,
+        22.5 * artScale,
+        2.6 * artScale,
+        76,
+    );
+    drawLineSegment(
+        rgba,
+        size,
+        size,
+        13 * artScale,
+        18 * artScale,
+        17.5 * artScale,
+        23 * artScale,
+        3.4 * artScale,
+    );
+    drawLineSegment(
+        rgba,
+        size,
+        size,
+        17.5 * artScale,
+        23 * artScale,
+        29 * artScale,
+        10 * artScale,
+        3.4 * artScale,
+    );
+
+    return encodePng(size, size, rgba);
+}
 
 function getBackendPath(): { binary: string; args: string[] } {
     if (UI_DEV_SERVER_URL) {
@@ -251,6 +453,80 @@ async function createWindow() {
     mainWindow.on("closed", () => {
         mainWindow = null;
     });
+}
+
+function createMenuBarIcon(): Electron.NativeImage {
+    const image = nativeImage.createEmpty();
+
+    image.addRepresentation({
+        scaleFactor: 1,
+        width: MENU_BAR_ICON_POINT_SIZE,
+        height: MENU_BAR_ICON_POINT_SIZE,
+        dataURL: `data:image/png;base64,${createMenuBarIconPng(1).toString("base64")}`,
+    });
+    image.addRepresentation({
+        scaleFactor: 2,
+        width: MENU_BAR_ICON_POINT_SIZE,
+        height: MENU_BAR_ICON_POINT_SIZE,
+        dataURL: `data:image/png;base64,${createMenuBarIconPng(2).toString("base64")}`,
+    });
+    image.setTemplateImage(true);
+
+    return image;
+}
+
+function showDockIcon() {
+    if (process.platform === "darwin") {
+        void app.dock.show();
+    }
+}
+
+function hideDockIcon() {
+    if (process.platform === "darwin") {
+        app.dock.hide();
+    }
+}
+
+async function showMainWindow() {
+    showDockIcon();
+
+    if (!mainWindow) {
+        await createWindow();
+    }
+
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+}
+
+function getMenuBarTooltip() {
+    return devBranch ? `Taskflow Dev (${devBranch})` : "Taskflow";
+}
+
+function setupMenuBarTray() {
+    if (process.platform !== "darwin" || menuBarTray) return;
+
+    const contextMenu = Menu.buildFromTemplate([
+        {
+            label: "Show Taskflow",
+            click: () => {
+                void showMainWindow();
+            },
+        },
+        {
+            label: "Exit",
+            click: () => {
+                app.quit();
+            },
+        },
+    ]);
+
+    menuBarTray = new Tray(createMenuBarIcon());
+    menuBarTray.setToolTip(getMenuBarTooltip());
+    menuBarTray.setContextMenu(contextMenu);
 }
 
 let manualCheckInProgress = false;
@@ -529,10 +805,7 @@ if (devBranch) {
         app.quit();
     } else {
         app.on("second-instance", () => {
-            if (mainWindow) {
-                if (mainWindow.isMinimized()) mainWindow.restore();
-                mainWindow.focus();
-            }
+            void showMainWindow();
         });
     }
 }
@@ -543,6 +816,7 @@ void app.whenReady().then(async () => {
         console.log(`Backend started on port ${backendPort}`);
         await createWindow();
         buildAppMenu();
+        setupMenuBarTray();
         setupAutoUpdater();
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -556,7 +830,16 @@ void app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-    app.quit();
+    if (process.platform !== "darwin") {
+        app.quit();
+        return;
+    }
+
+    hideDockIcon();
+});
+
+app.on("activate", () => {
+    void showMainWindow();
 });
 
 app.on("before-quit", (e) => {
