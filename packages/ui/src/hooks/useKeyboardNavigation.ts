@@ -5,7 +5,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 
-type PanelId = "sidebar" | "workspace" | "taskinfo";
+type PanelId = ReturnType<typeof useUIStore.getState>["focusedPanel"];
 
 function getPanelOrder(): PanelId[] {
     const panels: PanelId[] = ["sidebar", "workspace"];
@@ -22,6 +22,11 @@ function cycleFocus(direction: "left" | "right") {
             ? panels[(idx + 1) % panels.length]
             : panels[(idx - 1 + panels.length) % panels.length];
     useUIStore.getState().setFocusedPanel(next);
+
+    // Clear sidebarFocusedItem when leaving sidebar
+    if (current === "sidebar" && next !== "sidebar") {
+        useUIStore.getState().setSidebarFocusedItem(null);
+    }
 
     // When focusing sidebar, set sidebarFocusedItem based on active task/project
     if (next === "sidebar") {
@@ -74,6 +79,8 @@ function handleSidebarNumber(n: number) {
     } else {
         const task = useTaskStore.getState().tasks.find((t) => t.id === sidebarFocusedItem.id);
         if (!task) return;
+        // Bail if task's project is collapsed (no visible badges)
+        if (useUIStore.getState().collapsedProjectIds.includes(task.projectId)) return;
         const projectTasks = useTaskStore
             .getState()
             .tasks.filter((t) => t.projectId === task.projectId && !t.parentId);
@@ -220,6 +227,13 @@ export function useKeyboardNavigation() {
                 useUIStore.getState().focusedPanel === "sidebar" &&
                 ARROW_KEYS.includes(e.key)
             ) {
+                const active = document.activeElement;
+                if (
+                    active &&
+                    (active.tagName === "INPUT" || active.tagName === "TEXTAREA")
+                ) {
+                    return;
+                }
                 e.preventDefault();
                 handleSidebarArrow(e.key);
                 return;

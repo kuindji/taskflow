@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { Project, SessionStatus, Task } from "@taskflow/shared";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
@@ -254,10 +254,9 @@ export function ProjectGroup({
                                     {hasSubtasks && isExpanded && (
                                         <div className="pl-4">
                                             {subtasks.map((subtask) => (
-                                                <>
+                                                <Fragment key={subtask.id}>
                                                     <NoDragSpacer />
                                                     <TaskCard
-                                                        key={subtask.id}
                                                         task={subtask}
                                                         isActive={subtask.id === activeTaskId}
                                                         onClick={() => onTaskClick(subtask.id)}
@@ -266,7 +265,7 @@ export function ProjectGroup({
                                                         diffStats={diffStatsByTask?.[subtask.id]}
                                                         isSubtask={true}
                                                     />
-                                                </>
+                                                </Fragment>
                                             ))}
                                         </div>
                                     )}
