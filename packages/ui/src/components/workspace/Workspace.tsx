@@ -28,6 +28,7 @@ import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-s
 import { useFlowStore, filterByProject } from "@/stores/flow-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import useIsElectron from "@/hooks/useIsElectron";
+import { isDialogOpen } from "@/lib/global-shortcuts";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -287,17 +288,24 @@ export function Workspace() {
         const onNewTerminal = isElectron ? window.taskflow?.onNewTerminal : undefined;
         const onOpenSettings = isElectron ? window.taskflow?.onOpenSettings : undefined;
 
+        const runIfNoDialogOpen = (action: () => void) => () => {
+            if (isDialogOpen()) return;
+            action();
+        };
+
         if (onCloseTab) {
-            cleanupFns.push(onCloseTab(handleCloseActiveTab));
+            cleanupFns.push(onCloseTab(runIfNoDialogOpen(handleCloseActiveTab)));
         }
         if (onNewTask) {
-            cleanupFns.push(onNewTask(handleOpenNewTask));
+            cleanupFns.push(onNewTask(runIfNoDialogOpen(handleOpenNewTask)));
         }
         if (onNewTerminal) {
-            cleanupFns.push(onNewTerminal(() => void handleOpenDefaultTerminal()));
+            cleanupFns.push(
+                onNewTerminal(runIfNoDialogOpen(() => void handleOpenDefaultTerminal())),
+            );
         }
         if (onOpenSettings) {
-            cleanupFns.push(onOpenSettings(openSettings));
+            cleanupFns.push(onOpenSettings(runIfNoDialogOpen(openSettings)));
         }
 
         const needsCloseTabFallback = !onCloseTab;
@@ -308,6 +316,7 @@ export function Workspace() {
 
         const onKeyDown = (e: KeyboardEvent) => {
             if (!(e.metaKey || e.ctrlKey)) return;
+            if (isDialogOpen()) return;
 
             if (needsCloseTabFallback && e.key.toLowerCase() === "w") {
                 e.preventDefault();

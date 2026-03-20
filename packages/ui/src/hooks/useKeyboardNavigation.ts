@@ -4,6 +4,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
+import { isDialogOpen, isEditableElement } from "@/lib/global-shortcuts";
 
 type PanelId = ReturnType<typeof useUIStore.getState>["focusedPanel"];
 const PANEL_FOCUS_DEDUPE_MS = 150;
@@ -181,6 +182,7 @@ export function useKeyboardNavigation() {
         let lastPanelFocusAt = 0;
 
         const triggerPanelFocus = (direction: "left" | "right") => {
+            if (isDialogOpen()) return;
             const now = Date.now();
             if (now - lastPanelFocusAt < PANEL_FOCUS_DEDUPE_MS) return;
             lastPanelFocusAt = now;
@@ -200,13 +202,11 @@ export function useKeyboardNavigation() {
 
         const onKeyDown = (e: KeyboardEvent) => {
             if (!(e.metaKey || e.ctrlKey)) return;
+            if (isDialogOpen()) return;
 
             // Cmd+Shift+Left/Right: panel focus cycling
             if (e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-                const active = document.activeElement;
-                if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
-                    return;
-                }
+                if (isEditableElement(document.activeElement)) return;
                 e.preventDefault();
                 triggerPanelFocus(e.key === "ArrowLeft" ? "left" : "right");
                 return;
@@ -234,10 +234,7 @@ export function useKeyboardNavigation() {
 
             // Cmd+Arrow: sidebar navigation (only when sidebar focused)
             if (useUIStore.getState().focusedPanel === "sidebar" && ARROW_KEYS.includes(e.key)) {
-                const active = document.activeElement;
-                if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
-                    return;
-                }
+                if (isEditableElement(document.activeElement)) return;
                 e.preventDefault();
                 handleSidebarArrow(e.key);
                 return;
@@ -247,6 +244,7 @@ export function useKeyboardNavigation() {
         // When Meta is released while taskinfo is focused, focus the first input field.
         // This is deferred so that Cmd+Shift cycling can continue uninterrupted.
         const onKeyUp = (e: KeyboardEvent) => {
+            if (isDialogOpen()) return;
             if (e.key === "Meta" && useUIStore.getState().focusedPanel === "taskinfo") {
                 requestAnimationFrame(() => {
                     const panel = document.querySelector('[data-panel="taskinfo"]');
