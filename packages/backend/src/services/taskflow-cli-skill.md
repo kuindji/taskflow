@@ -20,6 +20,13 @@ When running in task context, the following commands work as is. When running in
 `taskflow-cli log commit "fix: resolve race condition" --hash abc123` Log commit
 `taskflow-cli task worktree --disable` Disable worktree mode for a task. (removes the worktree from disk, and deletes the local branch)
 
+## Agent commands
+`taskflow-cli agent list` List available agents (type, availability, version)
+`taskflow-cli agent run claude --prompt "Review the auth module"` Start a Claude session with prompt
+`taskflow-cli agent run gemini --task <id>` Start a Gemini session on a specific task (uses task description)
+`taskflow-cli agent run codex --task <id> --prompt "Fix the tests"` Start a Codex session on a task with custom prompt
+`taskflow-cli agent run claude --label "Code Review"` Start with custom tab label
+
 ## Flow commands (available when working in flow context)
 `taskflow-cli action complete` Mark flow step/action complete
 `taskflow-cli artifact list` List flow artifacts
