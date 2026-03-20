@@ -332,6 +332,61 @@ case "$cmd" in
     esac
     ;;
 
+  agent)
+    subcmd="${1:-}"
+    shift 2>/dev/null || true
+    case "$subcmd" in
+      list)
+        curl -sf "$TASKFLOW_API_URL/api/agents"
+        ;;
+      run)
+        if [ -z "$TASKFLOW_PROJECT_ID" ]; then
+          echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
+          exit 1
+        fi
+        agent_type="${1:-}"
+        if [ -z "$agent_type" ]; then
+          echo "Usage: taskflow-cli agent run <type> [--prompt <prompt>] [--task <id>] [--label <label>]" >&2
+          exit 1
+        fi
+        shift
+
+        agent_prompt=""
+        agent_task_id=""
+        agent_label=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --prompt) agent_prompt="${2:-}"; shift 2 ;;
+            --task) agent_task_id="${2:-}"; shift 2 ;;
+            --label) agent_label="${2:-}"; shift 2 ;;
+            *) shift ;;
+          esac
+        done
+
+        payload=$(printf '"projectId":%s,"type":%s' \
+          "$(json_string "$TASKFLOW_PROJECT_ID")" \
+          "$(json_string "$agent_type")")
+        if [ -n "$agent_task_id" ]; then
+          payload=$(printf '%s,"taskId":%s' "$payload" "$(json_string "$agent_task_id")")
+        fi
+        if [ -n "$agent_prompt" ]; then
+          payload=$(printf '%s,"prompt":%s' "$payload" "$(json_string "$agent_prompt")")
+        fi
+        if [ -n "$agent_label" ]; then
+          payload=$(printf '%s,"label":%s' "$payload" "$(json_string "$agent_label")")
+        fi
+
+        curl -sf -X POST "$TASKFLOW_API_URL/api/sessions" \
+          -H "Content-Type: application/json" \
+          -d "{$payload}"
+        ;;
+      *)
+        echo "Usage: taskflow-cli agent <list|run>" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+
   *)
     echo "Usage: taskflow-cli [--task <id>] <command>" >&2
     echo "" >&2
@@ -348,6 +403,8 @@ case "$cmd" in
     echo "  action complete                               Signal flow action completion" >&2
     echo "  artifact <save|list|get>                      Manage flow artifacts" >&2
     echo "  flow input [<id>]                             Get flow input values" >&2
+    echo "  agent list                                    List available agents" >&2
+    echo "  agent run <type> [--prompt p] [--task id]     Start a new agent session" >&2
     exit 1
     ;;
 esac
