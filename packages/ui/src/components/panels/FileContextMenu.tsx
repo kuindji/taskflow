@@ -15,8 +15,11 @@ import {
     ExternalLink,
     FilePlus,
     FolderPlus,
+    Eye,
 } from "lucide-react";
 import { useFileStore } from "@/stores/file-store";
+import { useSessionStore } from "@/stores/session-store";
+import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { RenameFileDialog } from "./RenameFileDialog";
 import { DeleteFileDialog } from "./DeleteFileDialog";
 import { CreateFileDialog } from "./CreateFileDialog";
@@ -35,6 +38,30 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
     const [createFolderOpen, setCreateFolderOpen] = useState(false);
     const openExternal = useFileStore((s) => s.openExternal);
     const revealInFinder = useFileStore((s) => s.revealInFinder);
+    const workspace = useActiveWorkspace();
+
+    const isMarkdown = !isDirectory && filePath.endsWith(".md");
+
+    const handlePreviewMarkdown = useCallback(() => {
+        const workspaceKey = workspace.workspaceKey;
+        if (!workspaceKey) return;
+        const store = useSessionStore.getState();
+        const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
+        const existing = existingTabs.find(
+            (t) => t.type === "markdown" && t.filePath === filePath,
+        );
+        if (existing) {
+            store.setActiveTab(workspaceKey, existing.id);
+            return;
+        }
+        const label = filePath.split("/").pop() ?? filePath;
+        store.addTab(workspaceKey, {
+            id: crypto.randomUUID(),
+            type: "markdown",
+            label,
+            filePath,
+        });
+    }, [filePath, workspace.workspaceKey]);
 
     const handleCopyPath = useCallback(() => {
         void navigator.clipboard.writeText(filePath);
@@ -91,6 +118,12 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
                         Copy Relative Path
                     </ContextMenuItem>
                     <ContextMenuSeparator />
+                    {isMarkdown && (
+                        <ContextMenuItem onSelect={handlePreviewMarkdown}>
+                            <Eye />
+                            Preview Markdown
+                        </ContextMenuItem>
+                    )}
                     {!isDirectory && (
                         <ContextMenuItem onSelect={handleOpenExternal}>
                             <ExternalLink />

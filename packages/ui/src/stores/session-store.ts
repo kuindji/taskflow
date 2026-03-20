@@ -27,7 +27,8 @@ interface Tab {
         | "shell"
         | "editor"
         | "changes"
-        | "browser";
+        | "browser"
+        | "markdown";
     label: string;
     sessionId?: string;
     filePath?: string;

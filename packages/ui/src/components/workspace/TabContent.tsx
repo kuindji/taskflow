@@ -5,6 +5,7 @@ import { TerminalPane } from "@/components/panes/TerminalPane";
 import { EditorPane } from "@/components/panes/EditorPane";
 import { ChangesPane } from "@/components/panes/ChangesPane";
 import { BrowserPane } from "@/components/panes/BrowserPane";
+import { MarkdownPane } from "@/components/panes/MarkdownPane";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -100,6 +101,16 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                             <div className="text-muted-foreground p-3">
                                 Repository not available
                             </div>
+                        );
+                        break;
+
+                    case "markdown":
+                        label = tab.filePath?.split("/").pop() ?? "Preview";
+                        if (!isActive) return null;
+                        pane = tab.filePath ? (
+                            <MarkdownPane filePath={tab.filePath} />
+                        ) : (
+                            <div className="text-muted-foreground p-3">No file specified</div>
                         );
                         break;
 

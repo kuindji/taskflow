@@ -77,6 +77,7 @@ const tabVariants = cva(
                 editor: "text-muted-foreground",
                 changes: "text-muted-foreground",
                 browser: "text-muted-foreground",
+                markdown: "text-muted-foreground",
             },
             active: { true: "bg-muted", false: "bg-transparent hover:bg-muted/50" },
         },
