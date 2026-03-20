@@ -5,6 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useSessionStore } from "@/stores/session-store";
+import type { Tab } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { onEvent, sendRequest } from "@/hooks/useWebSocket";
@@ -24,6 +25,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { useThemeStore } from "@/stores/theme-store";
 import type { IBufferLine, ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
+import { middleTruncate } from "@/lib/middle-truncate";
 import { TimeBudgetedWriter } from "@/lib/time-budgeted-writer";
 import "@xterm/xterm/css/xterm.css";
 
@@ -77,6 +79,17 @@ const DETACH_GRACE_MS = 50;
  * Stored at module level so it persists across React re-renders.
  */
 const scrollFollowState = new Map<string, boolean>();
+
+const SHELL_TITLE_MAX_LEN = 30;
+
+function findTabForSession(sessionId: string): { workspaceKey: string; tab: Tab } | undefined {
+    const store = useSessionStore.getState();
+    for (const [workspaceKey, tabs] of Object.entries(store.tabsByWorkspace)) {
+        const tab = tabs.find((t) => t.sessionId === sessionId);
+        if (tab) return { workspaceKey, tab };
+    }
+    return undefined;
+}
 
 /** Threshold for "at bottom" check — within 2 rows counts as following. */
 const FOLLOW_THRESHOLD = 2;
@@ -581,6 +594,14 @@ function getOrCreateTerminal(
         scrollFollowState.set(sessionId, isAtBottom(term));
     });
 
+    const titleDisposable = term.onTitleChange((newTitle) => {
+        if (!newTitle) return;
+        const found = findTabForSession(sessionId);
+        if (!found || found.tab.type !== "shell") return;
+        const truncated = middleTruncate(newTitle, SHELL_TITLE_MAX_LEN);
+        useSessionStore.getState().updateAutoTitle(found.workspaceKey, found.tab.id, truncated);
+    });
+
     // Buffer live output until history is loaded, then write directly
     const pendingData: BufferedTerminalChunk[] = [];
     let historyLoaded = false;
@@ -657,6 +678,7 @@ function getOrCreateTerminal(
         unsubExit,
         disposeRuntime: () => {
             scrollDisposable.dispose();
+            titleDisposable.dispose();
             filePathLinkDisposable.dispose();
             disposeRendererAddons();
             writer.dispose();
