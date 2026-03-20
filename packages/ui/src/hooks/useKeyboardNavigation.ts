@@ -170,6 +170,19 @@ const ARROW_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 
 export function useKeyboardNavigation() {
     useEffect(() => {
+        const cleanupFns: Array<() => void> = [];
+
+        // Register Electron IPC listeners for panel focus cycling
+        const onFocusPanelLeft = window.taskflow?.onFocusPanelLeft;
+        const onFocusPanelRight = window.taskflow?.onFocusPanelRight;
+
+        if (onFocusPanelLeft) {
+            cleanupFns.push(onFocusPanelLeft(() => cycleFocus("left")));
+        }
+        if (onFocusPanelRight) {
+            cleanupFns.push(onFocusPanelRight(() => cycleFocus("right")));
+        }
+
         const onKeyDown = (e: KeyboardEvent) => {
             if (!(e.metaKey || e.ctrlKey)) return;
 
@@ -214,6 +227,10 @@ export function useKeyboardNavigation() {
         };
 
         window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
+
+        return () => {
+            window.removeEventListener("keydown", onKeyDown);
+            cleanupFns.forEach((fn) => fn());
+        };
     }, []);
 }

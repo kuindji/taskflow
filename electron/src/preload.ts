@@ -108,6 +108,20 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("window-focus-changed", listener);
         };
     },
+    onFocusPanelLeft: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("focus-panel-left", listener);
+        return () => {
+            ipcRenderer.removeListener("focus-panel-left", listener);
+        };
+    },
+    onFocusPanelRight: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("focus-panel-right", listener);
+        return () => {
+            ipcRenderer.removeListener("focus-panel-right", listener);
+        };
+    },
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
     saveArtifact: (opts: { path?: string; text?: string; defaultName?: string }) =>
         ipcRenderer.invoke("save-artifact", opts) as Promise<{ success: boolean; error?: string }>,

@@ -413,6 +413,20 @@ function buildAppMenu() {
                         mainWindow?.webContents.send("close-tab");
                     },
                 },
+                {
+                    label: "Focus Panel Left",
+                    accelerator: "CmdOrCtrl+Shift+Left",
+                    click: () => {
+                        mainWindow?.webContents.send("focus-panel-left");
+                    },
+                },
+                {
+                    label: "Focus Panel Right",
+                    accelerator: "CmdOrCtrl+Shift+Right",
+                    click: () => {
+                        mainWindow?.webContents.send("focus-panel-right");
+                    },
+                },
                 { type: "separator" },
                 { role: "minimize" },
                 { role: "zoom" },

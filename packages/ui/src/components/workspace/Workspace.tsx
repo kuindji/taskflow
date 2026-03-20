@@ -20,6 +20,7 @@ import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
 import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
 
+import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { isEditorDirty, clearEditorDirty } from "@/components/panes/editor-dirty-state";
 import { confirm } from "@/stores/dialog-store";
@@ -43,6 +44,7 @@ const emptyTabs: Tab[] = [];
 const emptyScripts: Record<string, string> = {};
 
 export function Workspace() {
+    useKeyboardNavigation();
     const isElectron = useIsElectron();
     const workspace = useActiveWorkspace();
     const tabs = useSessionStore((s) =>

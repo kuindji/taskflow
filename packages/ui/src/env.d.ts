@@ -25,6 +25,8 @@ interface TaskflowBridge {
     sendTaskInfoState(open: boolean): void;
     onToggleWordWrap(callback: () => void): () => void;
     sendWordWrapState(enabled: boolean): void;
+    onFocusPanelLeft(callback: () => void): () => void;
+    onFocusPanelRight(callback: () => void): () => void;
     onWindowFocusChanged(callback: (focused: boolean) => void): () => void;
     onUpdateStatus(callback: (payload: { status: string; version?: string }) => void): () => void;
     quitAndInstallUpdate(): void;
