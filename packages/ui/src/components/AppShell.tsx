@@ -1,8 +1,9 @@
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useUIStore } from "@/stores/ui-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import useIsElectron from "@/hooks/useIsElectron";
+import { cn } from "@/lib/utils";
 
 interface AppShellProps {
     sidebar: ReactNode;
@@ -82,13 +83,32 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
         });
     }, [updateSettings]);
 
+    const focusedPanel = useUIStore((s) => s.focusedPanel);
+    const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
+    const [showOutline, setShowOutline] = useState(false);
+    const prevPanel = useRef(focusedPanel);
+
+    useEffect(() => {
+        if (focusedPanel !== prevPanel.current) {
+            setShowOutline(true);
+            prevPanel.current = focusedPanel;
+            const timer = setTimeout(() => setShowOutline(false), 1500);
+            return () => clearTimeout(timer);
+        }
+    }, [focusedPanel]);
+
     const isElectron = useIsElectron();
 
     return (
         <div className="bg-island-base flex h-screen flex-col overflow-hidden">
             <div className="flex flex-1 overflow-hidden" style={{ padding: panelGap }}>
                 <div
-                    className="bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20"
+                    className={cn(
+                        "bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
+                        showOutline && focusedPanel === 'sidebar' && "ring-1 ring-accent/50 transition-[box-shadow] duration-500"
+                    )}
+                    data-panel="sidebar"
+                    onClick={() => setFocusedPanel('sidebar')}
                     style={{
                         width: sidebarWidth,
                         ...(isElectron ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : {}),
@@ -134,7 +154,13 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                     />
                 )}
 
-                <div className="bg-card border-border/50 flex flex-1 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20">
+                <div
+                    className={cn(
+                        "bg-card border-border/50 flex flex-1 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
+                        showOutline && focusedPanel === 'workspace' && "ring-1 ring-accent/50 transition-[box-shadow] duration-500"
+                    )}
+                    data-panel="workspace"
+                    onClick={() => setFocusedPanel('workspace')}>
                     {workspace}
                 </div>
 
@@ -148,7 +174,12 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
 
                 {taskInfoOpen && (
                     <div
-                        className="bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20"
+                        className={cn(
+                            "bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
+                            showOutline && focusedPanel === 'taskinfo' && "ring-1 ring-accent/50 transition-[box-shadow] duration-500"
+                        )}
+                        data-panel="taskinfo"
+                        onClick={() => setFocusedPanel('taskinfo')}
                         style={{ width: taskInfoWidth }}>
                         {taskInfo}
                     </div>
