@@ -7,6 +7,8 @@ import type { FlowRunner } from "../services/flow-runner";
 import type { GitService } from "../services/git-service";
 import type { ChangeTracker } from "../services/change-tracker";
 import type {
+    AgentAvailability,
+    AgentType,
     SessionStatus,
     Task,
     TaskLogEntryType,
@@ -14,6 +16,7 @@ import type {
     SettingsUpdatePayload,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
+import type { CreateSessionOpts } from "../services/session-lifecycle";
 import { filterTaskSessions } from "../services/instance-filter";
 import { config } from "../config";
 
@@ -28,6 +31,8 @@ interface ApiRouteDeps {
     gitService: GitService;
     generateTitle?: (taskId: string, description: string) => void;
     changeTracker?: ChangeTracker;
+    agents: AgentAvailability[];
+    sessionLifecycle: { createSession: (opts: CreateSessionOpts) => Promise<string> };
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -53,6 +58,8 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         gitService,
         generateTitle,
         changeTracker,
+        agents,
+        sessionLifecycle,
     } = deps;
     const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention", "initializing"]);
 
@@ -516,5 +523,76 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             status: 200,
             headers: { "Content-Type": "text/plain" },
         });
+    });
+
+    // --- Agents ---
+
+    apiRouter.register("GET", "/api/agents", async () => {
+        return jsonResponse({ agents });
+    });
+
+    // --- Sessions ---
+
+    const availableAgentTypes = new Set(
+        agents.filter((a) => a.available).map((a) => a.type),
+    );
+
+    apiRouter.register("POST", "/api/sessions", async (req) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const { projectId, type, taskId, prompt, label } = body;
+
+        if (typeof projectId !== "string" || !projectId.trim()) {
+            return errorResponse('Field "projectId" is required and must be a non-empty string', 400);
+        }
+        if (typeof type !== "string" || !availableAgentTypes.has(type as AgentType)) {
+            return errorResponse(
+                `Field "type" must be one of the available agent types: ${[...availableAgentTypes].join(", ")}`,
+                400,
+            );
+        }
+        if (taskId !== undefined && typeof taskId !== "string") {
+            return errorResponse('Field "taskId" must be a string', 400);
+        }
+        if (prompt !== undefined && typeof prompt !== "string") {
+            return errorResponse('Field "prompt" must be a string', 400);
+        }
+        if (label !== undefined && typeof label !== "string") {
+            return errorResponse('Field "label" must be a string', 400);
+        }
+
+        try {
+            let resolvedPrompt = typeof prompt === "string" ? prompt : undefined;
+
+            if (typeof taskId === "string") {
+                const task = await taskStore.getTask(taskId);
+                if (!task) {
+                    return errorResponse(`Task not found: ${taskId}`, 404);
+                }
+                if (task.projectId !== projectId) {
+                    return errorResponse("Task does not belong to the specified project", 400);
+                }
+                if (!resolvedPrompt && task.description) {
+                    resolvedPrompt = task.description;
+                }
+            }
+
+            const sessionId = await sessionLifecycle.createSession({
+                owner: typeof taskId === "string" ? { taskId } : { projectId },
+                type: type as CreateSessionOpts["type"],
+                prompt: resolvedPrompt,
+                label: typeof label === "string" ? label : undefined,
+            });
+
+            return jsonResponse({ sessionId }, 201);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, 500);
+        }
     });
 }

@@ -205,6 +205,8 @@ async function main() {
                 void titleGenerator.generate(taskId, description);
             },
             changeTracker,
+            agents,
+            sessionLifecycle,
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {

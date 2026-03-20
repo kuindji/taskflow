@@ -37,6 +37,8 @@ describe("api routes", () => {
             flowStore: {} as never,
             flowRunner: {} as never,
             gitService: {} as never,
+            agents: [],
+            sessionLifecycle: { createSession: async () => "" },
         });
     });
 
@@ -112,6 +114,8 @@ describe("settings routes", () => {
             flowStore: {} as never,
             flowRunner: {} as never,
             gitService: {} as never,
+            agents: [],
+            sessionLifecycle: { createSession: async () => "" },
         });
     });
 
@@ -178,6 +182,8 @@ describe("flow artifact routes", () => {
             flowStore: {} as never,
             flowRunner: flowRunner as never,
             gitService: {} as never,
+            agents: [],
+            sessionLifecycle: { createSession: async () => "" },
         });
     });
 
