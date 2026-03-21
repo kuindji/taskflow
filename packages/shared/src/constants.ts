@@ -88,6 +88,14 @@ export const MSG = {
     FLOW_RUNS_LIST: "flow:runs-list",
     FLOW_RUN_UPDATED: "flow:run-updated",
 
+    // Schedules
+    SCHEDULE_LIST: "schedule:list",
+    SCHEDULE_CREATE: "schedule:create",
+    SCHEDULE_UPDATE: "schedule:update",
+    SCHEDULE_DELETE: "schedule:delete",
+    SCHEDULE_TRIGGER: "schedule:trigger",
+    SCHEDULE_UPDATED: "schedule:updated",
+
     // Cursor
     CURSOR_RULES_CHECK: "cursor:rules-check",
     CURSOR_RULES_ENSURE: "cursor:rules-ensure",
