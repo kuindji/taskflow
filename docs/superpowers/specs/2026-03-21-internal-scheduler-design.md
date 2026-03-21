@@ -12,7 +12,7 @@ A cron-like scheduler for running agents on a timer. Schedules are project-bound
 interface Schedule {
   id: string;                        // UUID
   projectId: string;                 // Project-bound
-  name: string;                      // Display name (optional at creation, auto-generated from prompt)
+  name: string;                      // Display name — always materialized before persisting
   prompt: string;                    // The prompt to run
   agentType?: AgentType;             // Optional — uses system default if omitted
   agentOptions?: AgentLaunchOptions; // Model, fullAccess, etc.
@@ -34,6 +34,10 @@ interface Schedule {
 }
 ```
 
+### Name Auto-Generation
+
+`name` is optional at creation time. If omitted, the backend generates it at create time using the same `TitleGenerator` service used for tasks (Gemini API). The `name` field is always `string` (never null) — it is materialized before the record is persisted.
+
 ### Expression Formats
 
 **Cron:** Standard 5-field (`minute hour day month weekday`). Parsed with a cron parser library.
@@ -42,7 +46,7 @@ interface Schedule {
 
 ### Storage
 
-`schedules.json` in the data directory (respects `data-location.json`, same as `projects.json`). Array of Schedule records. Uses the same mutation-queue pattern as TaskStore to prevent concurrent write corruption.
+`schedules.json` in the data directory (respects `data-location.json`, same as `projects.json`). A `schedulesFile` path must be added to `config.ts` via `buildDataPaths()`, and ensured in `ensureDirectories()`. Array of Schedule records. Uses a single-file mutation queue (same pattern as `FlowStore`'s `withMutation()`) to prevent concurrent write corruption.
 
 ## Scheduler Service
 
@@ -54,14 +58,19 @@ interface Schedule {
 
 Uses `setTimeout` for each schedule, set to fire at `nextRunAt`. No `setInterval` — always computed from the expression after each execution or skip. This ensures correct behavior after app restarts and expression changes.
 
+### Session Visibility
+
+Scheduled sessions are created via `createSession({ projectId })`, which adds them to the project's `sessions` array and broadcasts `PROJECT_UPDATED`. These sessions will appear in the UI as project-level session tabs. This is acceptable — the user can see the scheduled agent's terminal output. When the session exits (via completion, timeout, or crash), the normal `removeSessionFromOwner` cleanup runs.
+
 ### Execution Flow
 
 1. Timer fires
 2. Check `runningSessionId` — if set, skip this run (log "skipped, previous run still active")
-3. If idle, call `SessionLifecycle.createSession()` with:
-   - Project-level context (project's working directory)
+3. If idle, call `createSession()` with:
+   - `projectId` — project-level context (project's working directory)
    - The schedule's prompt, wrapped with system instructions
    - Agent type and options from the schedule
+   - `onSessionExited` callback — to handle unexpected exits (see below)
 4. Set `runningSessionId` on the schedule, update `lastRunAt`
 5. Start a timeout timer for the configured timeout duration
 
@@ -85,11 +94,11 @@ Uses existing env vars `TASKFLOW_SESSION_ID` and `TASKFLOW_API_URL` already inje
 
 ### Completion
 
-`taskflow-cli schedule complete` → `POST /api/schedule/complete`
+`taskflow-cli schedule complete` → `POST /api/schedules/complete`
 
 1. Reads `TASKFLOW_SESSION_ID` from env
 2. Backend matches session ID to a schedule's `runningSessionId`
-3. Kills PTY process
+3. Kills PTY process via `ptyManager.close(sessionId)`
 4. Clears `runningSessionId` and `lastError`
 5. Recalculates `nextRunAt`, sets next timer
 6. Persists state and broadcasts `SCHEDULE_UPDATED`
@@ -97,23 +106,24 @@ Uses existing env vars `TASKFLOW_SESSION_ID` and `TASKFLOW_API_URL` already inje
 ### Timeout
 
 If timeout fires before completion:
-- Kill PTY process
+- Kill PTY process via `ptyManager.close(sessionId)`
 - Set `lastError` to "Timed out after N minutes"
 - Clear `runningSessionId`
 - Recalculate `nextRunAt`, set next timer
 
 ### Unexpected Session Exit
 
-If a running session dies without calling `schedule complete` (crash, OOM, etc.):
+Detected via the `onSessionExited` callback passed to `createSession()` (same pattern as `FlowRunner.handleSessionExit`). If a running session dies without calling `schedule complete` (crash, OOM, etc.):
 - Set `lastError` to exit reason
 - Clear `runningSessionId`
+- Cancel timeout timer
 - Recalculate next timer
 
 ## Startup Behavior
 
 1. Load all schedules from `schedules.json`
 2. For each enabled schedule, compute `nextRunAt` from expression
-3. If `nextRunAt` is in the past (app was offline) → run immediately
+3. If `nextRunAt` is in the past (app was offline) → run immediately. Multiple missed schedules may fire simultaneously on startup; this is acceptable since each runs in its own session
 4. If `runningSessionId` is set but no matching PTY exists (stale from crash) → clear it, treat as missed run
 5. Set timers for all enabled schedules
 
@@ -129,17 +139,17 @@ If a running session dies without calling `schedule complete` (crash, OOM, etc.)
 
 | Message | Direction | Purpose |
 |---------|-----------|---------|
-| `SCHEDULE_LIST` | request/response | List schedules, optionally filtered by projectId |
-| `SCHEDULE_CREATE` | request/response | Create a new schedule |
-| `SCHEDULE_UPDATE` | request/response | Update schedule fields |
-| `SCHEDULE_DELETE` | request/response | Delete a schedule |
-| `SCHEDULE_UPDATED` | broadcast | Notify clients of schedule state changes |
+| `SCHEDULE_LIST` (`"schedule:list"`) | request/response | List schedules, optionally filtered by projectId |
+| `SCHEDULE_CREATE` (`"schedule:create"`) | request/response | Create a new schedule |
+| `SCHEDULE_UPDATE` (`"schedule:update"`) | request/response | Update schedule fields |
+| `SCHEDULE_DELETE` (`"schedule:delete"`) | request/response | Delete a schedule |
+| `SCHEDULE_UPDATED` (`"schedule:updated"`) | broadcast | Notify clients of schedule state changes |
 
 ### REST Endpoint
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/schedule/complete` | Called by `taskflow-cli` to signal agent completion |
+| `POST /api/schedules/complete` | Called by `taskflow-cli` to signal agent completion |
 
 ### CLI Command
 
@@ -191,7 +201,7 @@ Same form is used for both create and edit (pre-populated in edit mode).
 - Update `packages/shared/src/index.ts` — export schedule types
 
 ### UI
-- `packages/ui/src/stores/schedule-store.ts` — Zustand store for schedule state
+- `packages/ui/src/stores/schedule-store.ts` — Zustand store for schedule state. Registers a module-level `onEvent` listener for `SCHEDULE_UPDATED` broadcasts (same pattern as `flow-store.ts`)
 - `packages/ui/src/components/ScheduleDialog.tsx` — management dialog (list + form)
 
 ### CLI
