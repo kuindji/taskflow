@@ -122,4 +122,3 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
 }
 
 export { registerScheduleHandlers };
-export type { ScheduleHandlerDeps };

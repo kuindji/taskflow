@@ -105,7 +105,7 @@ class SchedulerService {
         }
     }
 
-    async execute(scheduleId: string): Promise<void> {
+    private async execute(scheduleId: string): Promise<void> {
         this.clearTimer(scheduleId);
 
         const schedule = await this.deps.scheduleStore.getById(scheduleId);
@@ -191,7 +191,7 @@ class SchedulerService {
         await this.scheduleNext(schedule.id);
     }
 
-    async handleTimeout(scheduleId: string): Promise<void> {
+    private async handleTimeout(scheduleId: string): Promise<void> {
         this.clearTimeoutTimer(scheduleId);
 
         const sessionId = this.runningSessions.get(scheduleId);
@@ -305,5 +305,4 @@ class SchedulerService {
     }
 }
 
-export { SchedulerService, SYSTEM_PROMPT_ADDON, computeNextRun, parseRateExpression };
-export type { SchedulerDeps };
+export { SchedulerService, SYSTEM_PROMPT_ADDON };

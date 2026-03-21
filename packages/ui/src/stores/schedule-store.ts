@@ -57,9 +57,13 @@ const useScheduleStore = create<ScheduleStore>((set) => ({
     },
 
     applyUpdate(schedule) {
-        set((s) => ({
-            schedules: s.schedules.map((sc) => (sc.id === schedule.id ? schedule : sc)),
-        }));
+        set((s) => {
+            const exists = s.schedules.some((sc) => sc.id === schedule.id);
+            if (exists) {
+                return { schedules: s.schedules.map((sc) => (sc.id === schedule.id ? schedule : sc)) };
+            }
+            return { schedules: [...s.schedules, schedule] };
+        });
     },
 }));
 

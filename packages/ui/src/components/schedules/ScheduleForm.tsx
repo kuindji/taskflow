@@ -272,4 +272,3 @@ function ScheduleForm({
 }
 
 export { ScheduleForm };
-export type { ScheduleFormProps };
