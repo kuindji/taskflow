@@ -32,6 +32,8 @@ interface CreateSessionOpts {
     cols?: number;
     rows?: number;
     onSessionExited?: (sessionId: string, exitCode: number) => void;
+    /** When true, the session is not registered as a tab in the UI. */
+    internal?: boolean;
 }
 
 interface SessionLifecycleDeps {
@@ -237,54 +239,58 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 );
             },
             onExit: (exitCode) => {
-                broadcast({
-                    type: MSG.SESSION_EXITED,
-                    payload: { sessionId, exitCode },
-                });
-                void removeSessionFromOwner(sessionId, {
-                    taskId: task?.id,
-                    projectId: project.id,
-                });
+                if (!opts.internal) {
+                    broadcast({
+                        type: MSG.SESSION_EXITED,
+                        payload: { sessionId, exitCode },
+                    });
+                    void removeSessionFromOwner(sessionId, {
+                        taskId: task?.id,
+                        projectId: project.id,
+                    });
+                }
                 onSessionExited?.(sessionId, exitCode);
             },
         });
 
-        const sessionRef: SessionRef = {
-            id: sessionId,
-            type,
-            label: opts.label ?? getDefaultSessionLabel(type),
-            createdAt: new Date().toISOString(),
-            instance: config.instanceId,
-        };
-        if (task) {
-            await taskStore.updateTask(task.id, (currentTask) => ({
-                sessions: [...currentTask.sessions, sessionRef],
-            }));
-            const updatedTask = await taskStore.getTask(task.id);
-            if (updatedTask) {
-                broadcast({
-                    type: MSG.TASK_UPDATED,
-                    payload: filterTaskSessions(updatedTask, config.instanceId),
-                });
+        if (!opts.internal) {
+            const sessionRef: SessionRef = {
+                id: sessionId,
+                type,
+                label: opts.label ?? getDefaultSessionLabel(type),
+                createdAt: new Date().toISOString(),
+                instance: config.instanceId,
+            };
+            if (task) {
+                await taskStore.updateTask(task.id, (currentTask) => ({
+                    sessions: [...currentTask.sessions, sessionRef],
+                }));
+                const updatedTask = await taskStore.getTask(task.id);
+                if (updatedTask) {
+                    broadcast({
+                        type: MSG.TASK_UPDATED,
+                        payload: filterTaskSessions(updatedTask, config.instanceId),
+                    });
+                }
+            } else {
+                await taskStore.updateProject(project.id, (currentProject) => ({
+                    sessions: [...currentProject.sessions, sessionRef],
+                }));
+                const updatedProject = await taskStore.getProject(project.id);
+                if (updatedProject) {
+                    broadcast({
+                        type: MSG.PROJECT_UPDATED,
+                        payload: filterProjectSessions(updatedProject, config.instanceId),
+                    });
+                }
             }
-        } else {
-            await taskStore.updateProject(project.id, (currentProject) => ({
-                sessions: [...currentProject.sessions, sessionRef],
-            }));
-            const updatedProject = await taskStore.getProject(project.id);
-            if (updatedProject) {
-                broadcast({
-                    type: MSG.PROJECT_UPDATED,
-                    payload: filterProjectSessions(updatedProject, config.instanceId),
-                });
-            }
-        }
 
-        if (type !== "shell" && type !== "editor") {
-            broadcast({
-                type: MSG.SESSION_STATUS,
-                payload: { sessionId, status: "initializing" },
-            });
+            if (type !== "shell" && type !== "editor") {
+                broadcast({
+                    type: MSG.SESSION_STATUS,
+                    payload: { sessionId, status: "initializing" },
+                });
+            }
         }
 
         return sessionId;

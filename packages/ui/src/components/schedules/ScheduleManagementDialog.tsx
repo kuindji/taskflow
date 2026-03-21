@@ -281,7 +281,7 @@ function ScheduleManagementDialog() {
                                 schedule={creating ? null : selectedSchedule}
                                 projects={projects}
                                 defaultProjectId={defaultProjectId}
-                                onSave={(payload) => void handleSave(payload)}
+                                onSave={handleSave}
                                 onCancel={clearSelection}
                                 onDelete={
                                     selectedSchedule

@@ -35,7 +35,13 @@ const useScheduleStore = create<ScheduleStore>((set) => ({
 
     async createSchedule(payload) {
         const schedule = await sendRequest<Schedule>(MSG.SCHEDULE_CREATE, payload);
-        set((s) => ({ schedules: [...s.schedules, schedule] }));
+        set((s) => {
+            const exists = s.schedules.some((sc) => sc.id === schedule.id);
+            if (exists) {
+                return { schedules: s.schedules.map((sc) => (sc.id === schedule.id ? schedule : sc)) };
+            }
+            return { schedules: [...s.schedules, schedule] };
+        });
         return schedule;
     },
 

@@ -11,6 +11,7 @@ import type {
 import type { Router } from "../ws/router";
 import type { ScheduleStore } from "../services/schedule-store";
 import type { SchedulerService } from "../services/scheduler-service";
+import { validateExpression } from "../services/scheduler-service";
 
 interface ScheduleHandlerDeps {
     router: Router;
@@ -45,6 +46,9 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
     router.register(
         MSG.SCHEDULE_CREATE,
         typed<ScheduleCreatePayload>(async (payload) => {
+            // Validate expression before persisting
+            validateExpression(payload.expression, payload.expressionType);
+
             const now = new Date().toISOString();
             let name = payload.name?.trim() || "";
             if (!name) {
@@ -79,6 +83,14 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
     router.register(
         MSG.SCHEDULE_UPDATE,
         typed<ScheduleUpdatePayload>(async (payload) => {
+            // Validate new expression if provided
+            if (payload.expression !== undefined) {
+                const type = payload.expressionType
+                    ?? (await scheduleStore.getById(payload.id))?.expressionType
+                    ?? "rate";
+                validateExpression(payload.expression, type);
+            }
+
             const updated = await scheduleStore.update(payload.id, (existing) => {
                 const next: Schedule = {
                     ...existing,

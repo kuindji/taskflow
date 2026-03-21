@@ -91,6 +91,7 @@ async function main() {
                     prompt: schedule.prompt,
                     systemPrompt: SYSTEM_PROMPT_ADDON,
                     agentOptions: schedule.agentOptions,
+                    internal: true,
                     onSessionExited: (sessionId, exitCode) => {
                         void schedulerService.handleSessionExit(sessionId, exitCode);
                     },

@@ -10,9 +10,9 @@ interface SchedulerDeps {
     broadcast: (event: WsEvent) => void;
 }
 
-const SYSTEM_PROMPT_ADDON = `You are running as a scheduled task. When you have completed your work, you MUST call the following command to signal completion:
+const SYSTEM_PROMPT_ADDON = `You are running as a scheduled job. When you have completed your work, you MUST call the following command to signal completion:
 
-taskflow-cli schedule complete
+\`taskflow-cli schedule complete\`
 
 Do not exit without calling this command. If you encounter an error that prevents you from completing the task, still call this command — your error output will be captured.`;
 
@@ -40,6 +40,14 @@ function computeNextRun(schedule: Schedule): Date {
     const intervalMs = parseRateExpression(schedule.expression);
     const base = schedule.lastRunAt ? new Date(schedule.lastRunAt).getTime() : Date.now();
     return new Date(base + intervalMs);
+}
+
+function validateExpression(expression: string, expressionType: "cron" | "rate"): void {
+    if (expressionType === "cron") {
+        CronExpressionParser.parse(expression);
+    } else {
+        parseRateExpression(expression);
+    }
 }
 
 class SchedulerService {
@@ -70,7 +78,16 @@ class SchedulerService {
         // Schedule all enabled schedules
         for (const schedule of schedules) {
             if (schedule.enabled) {
-                await this.scheduleNext(schedule.id);
+                try {
+                    await this.scheduleNext(schedule.id);
+                } catch (err) {
+                    console.error(`Failed to schedule "${schedule.name}" (${schedule.id}):`, err);
+                    await this.deps.scheduleStore.update(schedule.id, (s) => ({
+                        ...s,
+                        lastError: `Failed to schedule: ${err instanceof Error ? err.message : String(err)}`,
+                        updatedAt: new Date().toISOString(),
+                    }));
+                }
             }
         }
     }
@@ -305,4 +322,4 @@ class SchedulerService {
     }
 }
 
-export { SchedulerService, SYSTEM_PROMPT_ADDON };
+export { SchedulerService, SYSTEM_PROMPT_ADDON, validateExpression };
