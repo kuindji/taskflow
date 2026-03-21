@@ -660,6 +660,32 @@ if (window.taskflow?.onWindowFocusChanged) {
     });
 }
 
+// --- Tray icon state aggregation ---
+
+let lastTrayState: string | null = null;
+
+const _unsubTrayState = useSessionStore.subscribe((state, prevState) => {
+    if (state.sessionStatus === prevState.sessionStatus) return;
+
+    let aggregate: string | null = null;
+    let hasWorking = false;
+
+    for (const status of Object.values(state.sessionStatus)) {
+        if (status === "attention") {
+            aggregate = "attention";
+            break;
+        }
+        if (status === "working") hasWorking = true;
+    }
+
+    if (!aggregate && hasWorking) aggregate = "working";
+
+    if (aggregate !== lastTrayState) {
+        lastTrayState = aggregate;
+        window.taskflow?.sendTrayState(aggregate);
+    }
+});
+
 if (import.meta.hot) {
     import.meta.hot.dispose(() => {
         _unsubTerminalOutput();
@@ -668,5 +694,6 @@ if (import.meta.hot) {
         _unsubBrowserOpen();
         _unsubActiveTask();
         _unsubActiveProject();
+        _unsubTrayState();
     });
 }

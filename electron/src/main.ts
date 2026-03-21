@@ -7,6 +7,7 @@ import {
     nativeImage,
     screen,
     shell,
+    nativeTheme,
     Tray,
 } from "electron";
 import { autoUpdater } from "electron-updater";
@@ -26,6 +27,7 @@ let backendPortFile: string | null = null;
 let windowSavePromise: Promise<Response | undefined> | null = null;
 let quitting = false;
 let backendStderrBuffer = "";
+let currentTrayState: string | null = null;
 
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
 
@@ -346,6 +348,72 @@ function setupMenuBarTray() {
     menuBarTray = new Tray(icon);
     menuBarTray.setToolTip(getMenuBarTooltip());
     menuBarTray.setContextMenu(contextMenu);
+}
+
+function getMenuBarIcon2xPath(): string {
+    const p = join(__dirname, "..", "dist", "menubar-icon@2x.png");
+    return p.replace("app.asar", "app.asar.unpacked");
+}
+
+function createIconWithDot(color: [number, number, number]): Electron.NativeImage {
+    const image = nativeImage.createFromPath(getMenuBarIcon2xPath());
+    if (image.isEmpty()) return createMenuBarIcon();
+
+    const bitmap = image.toBitmap();
+    // getSize() returns logical size; derive actual pixel dimensions from buffer
+    const totalPixels = bitmap.length / 4;
+    const pixelWidth = Math.round(Math.sqrt(totalPixels));
+    const pixelHeight = pixelWidth;
+    const isDark = nativeTheme.shouldUseDarkColors;
+
+    // For dark menu bar, invert icon pixels (black → white)
+    if (isDark) {
+        for (let i = 0; i < bitmap.length; i += 4) {
+            if (bitmap[i + 3] > 0) {
+                bitmap[i] = 255 - bitmap[i]; // R
+                bitmap[i + 1] = 255 - bitmap[i + 1]; // G
+                bitmap[i + 2] = 255 - bitmap[i + 2]; // B
+            }
+        }
+    }
+
+    // Draw filled circle near the checkmark's end (bottom-right)
+    const dotRadius = 3;
+    const cx = pixelWidth - dotRadius - 1;
+    const cy = 27;
+
+    for (let y = cy - dotRadius; y <= cy + dotRadius; y++) {
+        for (let x = cx - dotRadius; x <= cx + dotRadius; x++) {
+            if (x < 0 || x >= pixelWidth || y < 0 || y >= pixelHeight) continue;
+            const dx = x - cx;
+            const dy = y - cy;
+            if (dx * dx + dy * dy <= dotRadius * dotRadius) {
+                const idx = (y * pixelWidth + x) * 4;
+                // Bitmap is in BGRA byte order
+                bitmap[idx] = color[2];     // B
+                bitmap[idx + 1] = color[1]; // G
+                bitmap[idx + 2] = color[0]; // R
+                bitmap[idx + 3] = 255;      // A
+            }
+        }
+    }
+
+    return nativeImage.createFromBitmap(bitmap, { width: pixelWidth, height: pixelHeight, scaleFactor: 2 });
+}
+
+const TRAY_DOT_ATTENTION: [number, number, number] = [255, 183, 3];
+const TRAY_DOT_WORKING: [number, number, number] = [59, 130, 246];
+
+function updateTrayIcon() {
+    if (!menuBarTray) return;
+
+    if (!currentTrayState) {
+        menuBarTray.setImage(createMenuBarIcon());
+        return;
+    }
+
+    const color = currentTrayState === "attention" ? TRAY_DOT_ATTENTION : TRAY_DOT_WORKING;
+    menuBarTray.setImage(createIconWithDot(color));
 }
 
 let manualCheckInProgress = false;
@@ -768,6 +836,15 @@ ipcMain.handle("open-external-url", (_event, url: string) => {
     if (!url.startsWith("https://") && !url.startsWith("http://")) return;
     return shell.openExternal(url);
 });
+ipcMain.on("tray-state-changed", (_event, status: string | null) => {
+    currentTrayState = status;
+    updateTrayIcon();
+});
+
+nativeTheme.on("updated", () => {
+    if (currentTrayState) updateTrayIcon();
+});
+
 ipcMain.on("show-item-in-folder", (_event, filePath: string) => {
     if (!filePath.startsWith("/") || filePath.includes("..")) return;
     shell.showItemInFolder(filePath);

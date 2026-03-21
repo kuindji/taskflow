@@ -32,6 +32,7 @@ interface TaskflowBridge {
     onWindowFocusChanged(callback: (focused: boolean) => void): () => void;
     onUpdateStatus(callback: (payload: { status: string; version?: string }) => void): () => void;
     quitAndInstallUpdate(): void;
+    sendTrayState(status: string | null): void;
     getPathForFile(file: File): string;
     saveArtifact(opts: {
         path?: string;
