@@ -33,6 +33,7 @@ interface UIStore {
     settingsOpen: boolean;
     flowPanelOpen: boolean;
     flowManagementOpen: boolean;
+    scheduleManagementOpen: boolean;
     appearanceOpen: boolean;
     shortcutsDialogOpen: boolean;
     focusedPanel: "sidebar" | "workspace" | "taskinfo";
@@ -48,6 +49,7 @@ interface UIStore {
     openSettings(): void;
     toggleSettings(): void;
     toggleFlowManagement(): void;
+    toggleScheduleManagement(): void;
     setAppearanceOpen(open: boolean): void;
     toggleAppearance(): void;
     toggleShortcutsDialog(): void;
@@ -77,6 +79,7 @@ export const useUIStore = create<UIStore>((set) => ({
     settingsOpen: false,
     flowPanelOpen: false,
     flowManagementOpen: false,
+    scheduleManagementOpen: false,
     appearanceOpen: false,
     shortcutsDialogOpen: false,
     focusedPanel: "workspace" as const,
@@ -101,6 +104,9 @@ export const useUIStore = create<UIStore>((set) => ({
     },
     toggleFlowManagement() {
         set((s) => ({ flowManagementOpen: !s.flowManagementOpen }));
+    },
+    toggleScheduleManagement() {
+        set((s) => ({ scheduleManagementOpen: !s.scheduleManagementOpen }));
     },
     setAppearanceOpen(open) {
         set({ appearanceOpen: open });
