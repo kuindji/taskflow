@@ -1,9 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type {
-    Schedule,
-    ScheduleCreatePayload,
-    ScheduleUpdatePayload,
-} from "@taskflow/shared";
+import type { Schedule, ScheduleCreatePayload, ScheduleUpdatePayload } from "@taskflow/shared";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +21,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { useScheduleStore } from "@/stores/schedule-store";
 import { useProjectStore } from "@/stores/project-store";
 import { ScheduleForm } from "./ScheduleForm";
+import { cn } from "@/lib/utils";
 
 function formatRelativeTime(dateStr: string | null): string {
     if (!dateStr) return "Never";
@@ -71,18 +68,14 @@ function ScheduleManagementDialog() {
         void useScheduleStore.getState().fetchSchedules();
     }, [open]);
 
-    const projectMap = useMemo(
-        () => new Map(projects.map((p) => [p.id, p.name])),
-        [projects],
-    );
+    const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
 
     const filteredSchedules = useMemo(() => {
         if (projectFilter === "all") return schedules;
         return schedules.filter((s) => s.projectId === projectFilter);
     }, [schedules, projectFilter]);
 
-    const defaultProjectId =
-        projectFilter !== "all" ? projectFilter : undefined;
+    const defaultProjectId = projectFilter !== "all" ? projectFilter : undefined;
 
     const selectedSchedule = filteredSchedules.find((s) => s.id === selectedId) ?? null;
 
@@ -113,15 +106,12 @@ function ScheduleManagementDialog() {
         setCreating(false);
     }, []);
 
-    const handleToggleEnabled = useCallback(
-        async (schedule: Schedule) => {
-            await useScheduleStore.getState().updateSchedule({
-                id: schedule.id,
-                enabled: !schedule.enabled,
-            });
-        },
-        [],
-    );
+    const handleToggleEnabled = useCallback(async (schedule: Schedule) => {
+        await useScheduleStore.getState().updateSchedule({
+            id: schedule.id,
+            enabled: !schedule.enabled,
+        });
+    }, []);
 
     const handleTrigger = useCallback(async (id: string) => {
         await useScheduleStore.getState().triggerSchedule(id);
@@ -183,11 +173,12 @@ function ScheduleManagementDialog() {
                                     <button
                                         key={s.id}
                                         onClick={() => selectItem(s.id)}
-                                        className={`mb-0.5 w-full rounded-md px-2.5 py-2 text-left text-[13px] transition-colors ${
+                                        className={cn(
+                                            `mb-0.5 w-full rounded-md px-2.5 py-2 text-left text-[13px] transition-colors`,
                                             selectedId === s.id
                                                 ? "bg-muted text-foreground font-medium"
-                                                : "text-secondary-foreground hover:bg-muted/50"
-                                        }`}>
+                                                : "text-secondary-foreground hover:bg-muted/50",
+                                        )}>
                                         <div className="flex items-center gap-2">
                                             <span
                                                 className={`h-2 w-2 shrink-0 rounded-full ${statusColors[status]}`}
@@ -216,9 +207,7 @@ function ScheduleManagementDialog() {
                                             onClick={(e) => e.stopPropagation()}>
                                             <Switch
                                                 checked={s.enabled}
-                                                onCheckedChange={() =>
-                                                    void handleToggleEnabled(s)
-                                                }
+                                                onCheckedChange={() => void handleToggleEnabled(s)}
                                                 className="scale-75"
                                             />
                                             <DropdownMenu>
@@ -231,17 +220,13 @@ function ScheduleManagementDialog() {
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="start">
                                                     <DropdownMenuItem
-                                                        onClick={() =>
-                                                            void handleTrigger(s.id)
-                                                        }>
+                                                        onClick={() => void handleTrigger(s.id)}>
                                                         <Play className="mr-2 h-3.5 w-3.5" />
                                                         Run now
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem
                                                         className="text-destructive"
-                                                        onClick={() =>
-                                                            void handleDelete(s.id)
-                                                        }>
+                                                        onClick={() => void handleDelete(s.id)}>
                                                         Delete
                                                     </DropdownMenuItem>
                                                 </DropdownMenuContent>
@@ -271,7 +256,7 @@ function ScheduleManagementDialog() {
 
                     {/* Right form column */}
                     <div className="bg-background flex min-h-0 min-w-0 flex-1 flex-col rounded-[10px]">
-                        {(creating || selectedSchedule) ? (
+                        {creating || selectedSchedule ? (
                             <ScheduleForm
                                 key={
                                     creating

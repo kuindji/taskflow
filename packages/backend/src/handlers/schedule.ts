@@ -85,9 +85,10 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
         typed<ScheduleUpdatePayload>(async (payload) => {
             // Validate new expression if provided
             if (payload.expression !== undefined) {
-                const type = payload.expressionType
-                    ?? (await scheduleStore.getById(payload.id))?.expressionType
-                    ?? "rate";
+                const type =
+                    payload.expressionType ??
+                    (await scheduleStore.getById(payload.id))?.expressionType ??
+                    "rate";
                 validateExpression(payload.expression, type);
             }
 

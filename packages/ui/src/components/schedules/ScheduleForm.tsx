@@ -20,15 +20,10 @@ import {
 } from "@/components/ui/select";
 import { Trash2 } from "lucide-react";
 
-function computeNextRunPreview(
-    expression: string,
-    expressionType: "cron" | "rate",
-): string | null {
+function computeNextRunPreview(expression: string, expressionType: "cron" | "rate"): string | null {
     try {
         if (expressionType === "rate") {
-            const match = expression.match(
-                /^rate\((\d+)\s+(minutes?|hours?|days?)\)$/i,
-            );
+            const match = expression.match(/^rate\((\d+)\s+(minutes?|hours?|days?)\)$/i);
             if (!match) return null;
             const value = parseInt(match[1], 10);
             const unit = match[2].toLowerCase().replace(/s$/, "");
@@ -51,9 +46,7 @@ interface ScheduleFormProps {
     schedule: Schedule | null;
     projects: Project[];
     defaultProjectId?: string;
-    onSave: (
-        payload: ScheduleCreatePayload | ScheduleUpdatePayload,
-    ) => Promise<void>;
+    onSave: (payload: ScheduleCreatePayload | ScheduleUpdatePayload) => Promise<void>;
     onCancel: () => void;
     onDelete?: () => void;
 }
@@ -77,22 +70,18 @@ function ScheduleForm({
     const [expressionType, setExpressionType] = useState<"cron" | "rate">(
         schedule?.expressionType ?? "rate",
     );
-    const [expression, setExpression] = useState(
-        schedule?.expression ?? "rate(30 minutes)",
-    );
-    const [agentType, setAgentType] = useState<AgentType | "">(
-        schedule?.agentType ?? "",
-    );
-    const [timeout, setTimeout] = useState(
-        String(schedule?.timeout ?? 30),
-    );
+    const [expression, setExpression] = useState(schedule?.expression ?? "rate(30 minutes)");
+    const [agentType, setAgentType] = useState<AgentType | "">(schedule?.agentType ?? "");
+    const [timeout, setTimeout] = useState(String(schedule?.timeout ?? 30));
 
     const nextRunPreview = useMemo(
         () => computeNextRunPreview(expression, expressionType),
         [expression, expressionType],
     );
 
-    const canSave = prompt.trim().length > 0 && expression.trim().length > 0 &&
+    const canSave =
+        prompt.trim().length > 0 &&
+        expression.trim().length > 0 &&
         (isEditing || projectId.length > 0);
 
     const handleSave = useCallback(async () => {
@@ -130,13 +119,23 @@ function ScheduleForm({
             setSaving(false);
         }
     }, [
-        canSave, saving, isEditing, schedule, name, prompt, expression,
-        expressionType, agentType, timeout, projectId, onSave,
+        canSave,
+        saving,
+        isEditing,
+        schedule,
+        name,
+        prompt,
+        expression,
+        expressionType,
+        agentType,
+        timeout,
+        projectId,
+        onSave,
     ]);
 
     return (
         <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b border-border px-4 py-2">
+            <div className="border-border flex items-center justify-between border-b px-4 py-2">
                 <h3 className="text-sm font-medium">
                     {isEditing ? "Edit Schedule" : "New Schedule"}
                 </h3>
@@ -222,9 +221,7 @@ function ScheduleForm({
                             value={expression}
                             onChange={(e) => setExpression(e.target.value)}
                             placeholder={
-                                expressionType === "rate"
-                                    ? "rate(30 minutes)"
-                                    : "0 */6 * * *"
+                                expressionType === "rate" ? "rate(30 minutes)" : "0 */6 * * *"
                             }
                         />
                     </div>
@@ -261,7 +258,7 @@ function ScheduleForm({
                 <div className="space-y-1.5">
                     <Label className="text-xs">Timeout (minutes)</Label>
                     <Input
-                        className="w-24 text-xs block"
+                        className="block w-24 text-xs"
                         type="number"
                         min={1}
                         value={timeout}
@@ -271,12 +268,12 @@ function ScheduleForm({
             </div>
 
             {/* Footer */}
-            <div className="flex justify-end gap-2 border-t border-border px-4 py-2">
+            <div className="border-border flex justify-end gap-2 border-t px-4 py-2">
                 <Button variant="ghost" size="sm" onClick={onCancel}>
                     Cancel
                 </Button>
                 <Button size="sm" disabled={!canSave || saving} onClick={() => void handleSave()}>
-                    {saving ? (isEditing ? "Saving…" : "Creating…") : (isEditing ? "Save" : "Create")}
+                    {saving ? (isEditing ? "Saving…" : "Creating…") : isEditing ? "Save" : "Create"}
                 </Button>
             </div>
         </div>

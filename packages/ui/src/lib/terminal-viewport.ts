@@ -29,9 +29,5 @@ function getRestoreViewportLine(
     return Math.max(0, Math.min(snapshot.viewportY, state.baseY));
 }
 
-export {
-    captureTerminalViewport,
-    getRestoreViewportLine,
-    isTerminalViewportAtBottom,
-};
+export { captureTerminalViewport, getRestoreViewportLine, isTerminalViewportAtBottom };
 export type { TerminalViewportSnapshot, TerminalViewportState };

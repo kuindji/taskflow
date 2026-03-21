@@ -23,10 +23,9 @@ const useScheduleStore = create<ScheduleStore>((set) => ({
     async fetchSchedules(projectId) {
         set({ loading: true });
         try {
-            const { schedules } = await sendRequest<{ schedules: Schedule[] }>(
-                MSG.SCHEDULE_LIST,
-                { projectId },
-            );
+            const { schedules } = await sendRequest<{ schedules: Schedule[] }>(MSG.SCHEDULE_LIST, {
+                projectId,
+            });
             set({ schedules });
         } finally {
             set({ loading: false });
@@ -38,7 +37,9 @@ const useScheduleStore = create<ScheduleStore>((set) => ({
         set((s) => {
             const exists = s.schedules.some((sc) => sc.id === schedule.id);
             if (exists) {
-                return { schedules: s.schedules.map((sc) => (sc.id === schedule.id ? schedule : sc)) };
+                return {
+                    schedules: s.schedules.map((sc) => (sc.id === schedule.id ? schedule : sc)),
+                };
             }
             return { schedules: [...s.schedules, schedule] };
         });
@@ -66,7 +67,9 @@ const useScheduleStore = create<ScheduleStore>((set) => ({
         set((s) => {
             const exists = s.schedules.some((sc) => sc.id === schedule.id);
             if (exists) {
-                return { schedules: s.schedules.map((sc) => (sc.id === schedule.id ? schedule : sc)) };
+                return {
+                    schedules: s.schedules.map((sc) => (sc.id === schedule.id ? schedule : sc)),
+                };
             }
             return { schedules: [...s.schedules, schedule] };
         });

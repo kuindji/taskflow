@@ -390,15 +390,19 @@ function createIconWithDot(color: [number, number, number]): Electron.NativeImag
             if (dx * dx + dy * dy <= dotRadius * dotRadius) {
                 const idx = (y * pixelWidth + x) * 4;
                 // Bitmap is in BGRA byte order
-                bitmap[idx] = color[2];     // B
+                bitmap[idx] = color[2]; // B
                 bitmap[idx + 1] = color[1]; // G
                 bitmap[idx + 2] = color[0]; // R
-                bitmap[idx + 3] = 255;      // A
+                bitmap[idx + 3] = 255; // A
             }
         }
     }
 
-    return nativeImage.createFromBitmap(bitmap, { width: pixelWidth, height: pixelHeight, scaleFactor: 2 });
+    return nativeImage.createFromBitmap(bitmap, {
+        width: pixelWidth,
+        height: pixelHeight,
+        scaleFactor: 2,
+    });
 }
 
 const TRAY_DOT_ATTENTION: [number, number, number] = [255, 183, 3];
@@ -622,12 +626,7 @@ function buildAppMenu() {
 
 async function clearUpdaterCache() {
     try {
-        const cachePath = join(
-            app.getPath("userData"),
-            "..",
-            "Caches",
-            `${app.getName()}-updater`,
-        );
+        const cachePath = join(app.getPath("userData"), "..", "Caches", `${app.getName()}-updater`);
         await rm(cachePath, { recursive: true, force: true });
         console.log("[updater] Cleared update cache");
     } catch (err) {

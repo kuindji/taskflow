@@ -163,9 +163,12 @@ class SchedulerService {
         if (schedule.timeout > 0) {
             this.timeoutTimers.set(
                 scheduleId,
-                setTimeout(() => {
-                    void this.handleTimeout(scheduleId);
-                }, schedule.timeout * 60 * 1000),
+                setTimeout(
+                    () => {
+                        void this.handleTimeout(scheduleId);
+                    },
+                    schedule.timeout * 60 * 1000,
+                ),
             );
         }
     }
