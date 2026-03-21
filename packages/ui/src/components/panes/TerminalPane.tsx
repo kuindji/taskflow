@@ -27,6 +27,7 @@ import type { IBufferLine, ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import { middleTruncate } from "@/lib/middle-truncate";
 import { TimeBudgetedWriter } from "@/lib/time-budgeted-writer";
+import { captureTerminalViewport, getRestoreViewportLine } from "@/lib/terminal-viewport";
 import "@xterm/xterm/css/xterm.css";
 
 const SHELL_UNSAFE = /[^a-zA-Z0-9_./:@=+-]/;
@@ -450,20 +451,16 @@ function refreshTerminal(term: Terminal): void {
 }
 
 interface TerminalViewportSnapshot {
-    distanceFromBottom: number;
+    isAtBottom: boolean;
+    viewportY: number;
 }
 
 function captureViewport(term: Terminal): TerminalViewportSnapshot {
-    const buffer = term.buffer.active;
-    return {
-        distanceFromBottom: Math.max(0, buffer.baseY - buffer.viewportY),
-    };
+    return captureTerminalViewport(term.buffer.active);
 }
 
 function restoreViewport(term: Terminal, snapshot: TerminalViewportSnapshot): void {
-    const buffer = term.buffer.active;
-    const targetLine = Math.max(0, buffer.baseY - snapshot.distanceFromBottom);
-    term.scrollToLine(targetLine);
+    term.scrollToLine(getRestoreViewportLine(term.buffer.active, snapshot));
 }
 
 function removeCanvasCursorLayer(screenElement: HTMLElement): void {
