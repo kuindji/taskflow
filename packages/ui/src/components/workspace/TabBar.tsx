@@ -5,6 +5,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import type {
     ActionDefinition,
+    AgentCommand,
     AgentLaunchOptions,
     FlowDefinition,
     FlowRun,
@@ -209,12 +210,14 @@ interface TabBarProps {
     onRunTab: (type: AgentType, agentOptions?: AgentLaunchOptions) => void;
     onRunScript: (scriptName: string) => void;
     onRunAction: (action: ActionDefinition) => void;
+    onRunAgentCommand: (command: AgentCommand) => void;
     onStartFlow: (flowId: string) => void;
     onManageFlows: () => void;
     scripts: Record<string, string>;
     defaultRuntime: string;
     flows: FlowDefinition[];
     standaloneActions: ActionDefinition[];
+    agentCommands: AgentCommand[];
     activeFlowRun: FlowRun | null;
     showRunButton: boolean;
     showAgentOptions: boolean;
@@ -231,12 +234,14 @@ export function TabBar({
     onRunTab,
     onRunScript,
     onRunAction,
+    onRunAgentCommand,
     onStartFlow,
     onManageFlows,
     scripts,
     defaultRuntime,
     flows,
     standaloneActions,
+    agentCommands,
     activeFlowRun,
     showRunButton,
     showAgentOptions,
@@ -323,9 +328,32 @@ export function TabBar({
                                     </DropdownMenuSubContent>
                                 </DropdownMenuSub>
                             )}
+                            {agentCommands.length > 0 && isAgentAvailable(agents, "claude") && (
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger>
+                                        <ClaudeIcon className="mr-2 h-4 w-4" />
+                                        .claude
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent>
+                                        {agentCommands.map((cmd) => (
+                                            <DropdownMenuItem
+                                                key={`${cmd.source}:${cmd.name}`}
+                                                onClick={() => onRunAgentCommand(cmd)}>
+                                                <ClaudeIcon className="mr-2 h-4 w-4" />
+                                                {cmd.name}
+                                                <span className="text-muted-foreground ml-auto text-xs">
+                                                    {cmd.source}
+                                                </span>
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            )}
                             {flows.length > 0 && !activeFlowRun && (
                                 <>
-                                    {scriptNames.length > 0 && <DropdownMenuSeparator />}
+                                    {(scriptNames.length > 0 || agentCommands.length > 0) && (
+                                        <DropdownMenuSeparator />
+                                    )}
                                     <DropdownMenuSub>
                                         <DropdownMenuSubTrigger>
                                             <Workflow className="mr-2 h-4 w-4" />
@@ -349,9 +377,8 @@ export function TabBar({
                             )}
                             {standaloneActions.length > 0 && (
                                 <>
-                                    {scriptNames.length > 0 && flows.length === 0 && (
-                                        <DropdownMenuSeparator />
-                                    )}
+                                    {(scriptNames.length > 0 || agentCommands.length > 0) &&
+                                        flows.length === 0 && <DropdownMenuSeparator />}
                                     <DropdownMenuSub>
                                         <DropdownMenuSubTrigger>
                                             <Zap className="mr-2 h-4 w-4" />
@@ -376,7 +403,8 @@ export function TabBar({
                                 <>
                                     {(scriptNames.length > 0 ||
                                         flows.length > 0 ||
-                                        standaloneActions.length > 0) && <DropdownMenuSeparator />}
+                                        standaloneActions.length > 0 ||
+                                        agentCommands.length > 0) && <DropdownMenuSeparator />}
                                     <DropdownMenuLabel>
                                         Run agent with task description
                                     </DropdownMenuLabel>

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
     ActionDefinition,
+    AgentCommand,
     AgentLaunchOptions,
+    AgentCommandsListResponse,
     CursorRulesCheckResponse,
     FlowInputDefinition,
     ScriptsListResponse,
@@ -43,6 +45,7 @@ import { Loader2 } from "lucide-react";
 
 const emptyTabs: Tab[] = [];
 const emptyScripts: Record<string, string> = {};
+const emptyAgentCommands: AgentCommand[] = [];
 
 export function Workspace() {
     useKeyboardNavigation();
@@ -78,6 +81,7 @@ export function Workspace() {
         agentOptions?: AgentLaunchOptions;
     } | null>(null);
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
+    const [agentCommands, setAgentCommands] = useState<AgentCommand[]>(emptyAgentCommands);
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
     const [flowRunsHydratedOwnerId, setFlowRunsHydratedOwnerId] = useState<string | null>(null);
     const [flowInputState, setFlowInputState] = useState<{
@@ -191,6 +195,27 @@ export function Workspace() {
             })
             .catch(() => {
                 if (!cancelled) setScripts(emptyScripts);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [workspace.workingDir]);
+
+    useEffect(() => {
+        if (!workspace.workingDir) {
+            setAgentCommands(emptyAgentCommands);
+            return;
+        }
+        let cancelled = false;
+        sendRequest<AgentCommandsListResponse>(MSG.AGENT_COMMANDS_LIST, {
+            path: workspace.workingDir,
+        })
+            .then((res) => {
+                if (cancelled) return;
+                setAgentCommands(res.commands);
+            })
+            .catch(() => {
+                if (!cancelled) setAgentCommands(emptyAgentCommands);
             });
         return () => {
             cancelled = true;
@@ -505,6 +530,15 @@ export function Workspace() {
         );
     };
 
+    const handleRunAgentCommand = async (command: AgentCommand) => {
+        const owner =
+            workspace.scope === "task"
+                ? { taskId: workspace.task.id }
+                : { projectId: workspace.project.id };
+        setFocusedPanel("workspace");
+        await createSession(owner, "claude", command.name, `/${command.name}`);
+    };
+
     const handleRunAction = async (action: ActionDefinition) => {
         const owner =
             workspace.scope === "task"
@@ -642,17 +676,20 @@ export function Workspace() {
                         onRunTab={handleRunTab}
                         onRunScript={handleRunScript}
                         onRunAction={handleRunAction}
+                        onRunAgentCommand={handleRunAgentCommand}
                         onStartFlow={handleStartFlow}
                         onManageFlows={toggleFlowManagement}
                         scripts={scripts}
                         defaultRuntime={defaultRuntime}
                         flows={flowRunsReady ? flowDefinitions : []}
                         standaloneActions={standaloneActions}
+                        agentCommands={agentCommands}
                         activeFlowRun={activeFlowRun ?? null}
                         showRunButton={
                             workspace.scope === "task" ||
                             hasScripts ||
                             standaloneActions.length > 0 ||
+                            agentCommands.length > 0 ||
                             (flowRunsReady && flowDefinitions.length > 0)
                         }
                         showAgentOptions={workspace.scope === "task"}

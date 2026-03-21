@@ -17,6 +17,7 @@ import { registerFileHandlers } from "./handlers/file";
 import { registerGitHandlers } from "./handlers/git";
 import { registerSettingsHandlers } from "./handlers/settings";
 import { registerScriptsHandlers } from "./handlers/scripts";
+import { registerAgentCommandsHandlers } from "./handlers/agent-commands";
 import { registerThemeHandlers } from "./handlers/theme";
 import { SettingsStore } from "./services/settings-store";
 import { ThemeService } from "./services/theme-service";
@@ -218,6 +219,7 @@ async function main() {
         registerSettingsHandlers({ router, settingsStore, taskStore: store });
         registerThemeHandlers(router, themeService);
         registerScriptsHandlers(router);
+        registerAgentCommandsHandlers(router);
         registerFlowHandlers({ router, flowStore, flowRunner });
         registerScheduleHandlers({
             router,

@@ -384,6 +384,20 @@ export interface ScriptsListResponse {
     packageManager: PackageManager;
 }
 
+// Agent commands messages
+export interface AgentCommandsListPayload {
+    path: string;
+}
+
+export interface AgentCommand {
+    name: string;
+    source: "project" | "user";
+}
+
+export interface AgentCommandsListResponse {
+    commands: AgentCommand[];
+}
+
 // Browser messages
 export interface BrowserOpenPayload {
     taskId?: string;
