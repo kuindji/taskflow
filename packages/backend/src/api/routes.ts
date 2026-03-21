@@ -33,6 +33,7 @@ interface ApiRouteDeps {
     changeTracker?: ChangeTracker;
     agents: AgentAvailability[];
     sessionLifecycle: { createSession: (opts: CreateSessionOpts) => Promise<string> };
+    schedulerService: { handleComplete: (sessionId: string) => Promise<void> };
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -60,6 +61,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         changeTracker,
         agents,
         sessionLifecycle,
+        schedulerService,
     } = deps;
     const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention", "initializing"]);
 
@@ -421,6 +423,30 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
         try {
             await flowRunner.handleActionComplete(ownerId, flowId, sessionId);
+            return jsonResponse({ success: true });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, 500);
+        }
+    });
+
+    // --- Schedule completion ---
+
+    apiRouter.register("POST", "/api/schedules/complete", async (req) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const { sessionId } = body;
+        if (typeof sessionId !== "string") {
+            return errorResponse("sessionId is required as a string", 400);
+        }
+
+        try {
+            await schedulerService.handleComplete(sessionId);
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";

@@ -39,6 +39,7 @@ describe("api routes", () => {
             gitService: {} as never,
             agents: [],
             sessionLifecycle: { createSession: async () => "" },
+            schedulerService: { handleComplete: async () => {} },
         });
     });
 
@@ -116,6 +117,7 @@ describe("settings routes", () => {
             gitService: {} as never,
             agents: [],
             sessionLifecycle: { createSession: async () => "" },
+            schedulerService: { handleComplete: async () => {} },
         });
     });
 
@@ -184,6 +186,7 @@ describe("flow artifact routes", () => {
             gitService: {} as never,
             agents: [],
             sessionLifecycle: { createSession: async () => "" },
+            schedulerService: { handleComplete: async () => {} },
         });
     });
 

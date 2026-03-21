@@ -29,6 +29,8 @@ import { FlowStore } from "./services/flow-store";
 import { FlowRunner } from "./services/flow-runner";
 import { createSessionLifecycle } from "./services/session-lifecycle";
 import { registerFlowHandlers } from "./handlers/flow";
+import { ScheduleStore } from "./services/schedule-store";
+import { SchedulerService } from "./services/scheduler-service";
 import { writeFile } from "fs/promises";
 
 async function main() {
@@ -75,6 +77,25 @@ async function main() {
             getPort: () => serverPort,
             detectedEditors: editors,
         });
+
+        const scheduleStore = new ScheduleStore(config.schedulesFile);
+        const schedulerService = new SchedulerService({
+            scheduleStore,
+            spawnSession: async (schedule) => {
+                const settings = await settingsStore.get();
+                return sessionLifecycle.createSession({
+                    owner: { projectId: schedule.projectId },
+                    type: schedule.agentType ?? settings.general.defaultAgent,
+                    prompt: schedule.prompt,
+                    agentOptions: schedule.agentOptions,
+                });
+            },
+            closeSession: (sessionId) => {
+                ptyManager.close(sessionId);
+            },
+            broadcast: server.broadcast,
+        });
+        await schedulerService.init();
 
         const titleGenerator = createTitleGenerator({
             taskStore: store,
@@ -207,6 +228,7 @@ async function main() {
             changeTracker,
             agents,
             sessionLifecycle,
+            schedulerService,
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {
