@@ -19,6 +19,7 @@ import { NewTaskControl } from "./NewTaskControl";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import {
     ArrowDownToLine,
+    CalendarClock,
     Keyboard,
     Loader2,
     Palette,
@@ -61,6 +62,7 @@ export function TaskSidebar() {
     );
     const openSettings = useUIStore((s) => s.openSettings);
     const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
+    const toggleScheduleManagement = useUIStore((s) => s.toggleScheduleManagement);
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const toggleShortcutsDialog = useUIStore((s) => s.toggleShortcutsDialog);
     const fetchThemes = useThemeStore((s) => s.fetchThemes);
@@ -411,6 +413,16 @@ export function TaskSidebar() {
                         tooltipSide="bottom"
                         className="text-muted-foreground [-webkit-app-region:no-drag]">
                         <Workflow className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={toggleScheduleManagement}
+                        aria-label="Schedules"
+                        tooltip="Schedules"
+                        tooltipSide="bottom"
+                        className="text-muted-foreground [-webkit-app-region:no-drag]">
+                        <CalendarClock className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                         variant="ghost"

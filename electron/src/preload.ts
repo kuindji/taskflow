@@ -51,6 +51,13 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("open-flows", listener);
         };
     },
+    onOpenSchedules: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("open-schedules", listener);
+        return () => {
+            ipcRenderer.removeListener("open-schedules", listener);
+        };
+    },
     onToggleArchive: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("toggle-archive", listener);

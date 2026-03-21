@@ -91,6 +91,7 @@ export function Workspace() {
     );
     const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
     const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
+    const toggleScheduleManagement = useUIStore((s) => s.toggleScheduleManagement);
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
     const ownerId = taskId ?? workspace.project?.id;
@@ -290,6 +291,7 @@ export function Workspace() {
         const onOpenSettings = isElectron ? window.taskflow?.onOpenSettings : undefined;
         const onOpenAppearance = isElectron ? window.taskflow?.onOpenAppearance : undefined;
         const onOpenFlows = isElectron ? window.taskflow?.onOpenFlows : undefined;
+        const onOpenSchedules = isElectron ? window.taskflow?.onOpenSchedules : undefined;
 
         const runIfNoDialogOpen = (action: () => void) => () => {
             if (isDialogOpen()) return;
@@ -315,6 +317,9 @@ export function Workspace() {
         }
         if (onOpenFlows) {
             cleanupFns.push(onOpenFlows(runIfNoDialogOpen(toggleFlowManagement)));
+        }
+        if (onOpenSchedules) {
+            cleanupFns.push(onOpenSchedules(runIfNoDialogOpen(toggleScheduleManagement)));
         }
 
         const needsCloseTabFallback = !onCloseTab;
@@ -387,6 +392,7 @@ export function Workspace() {
         openSettings,
         toggleAppearance,
         toggleFlowManagement,
+        toggleScheduleManagement,
         toggleFileExplorer,
         toggleTaskInfo,
     ]);

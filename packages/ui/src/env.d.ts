@@ -17,6 +17,7 @@ interface TaskflowBridge {
     onOpenSettings(callback: () => void): () => void;
     onOpenAppearance(callback: () => void): () => void;
     onOpenFlows(callback: () => void): () => void;
+    onOpenSchedules(callback: () => void): () => void;
     onToggleArchive(callback: () => void): () => void;
     sendArchiveState(showArchive: boolean): void;
     onToggleCompactSidebar(callback: () => void): () => void;

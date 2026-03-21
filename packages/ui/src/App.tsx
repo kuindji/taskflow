@@ -9,6 +9,7 @@ import { AppShell } from "@/components/AppShell";
 import { DialogHost } from "@/components/DialogHost";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { FlowManagementDialog } from "@/components/flows/FlowManagementDialog";
+import { ScheduleManagementDialog } from "@/components/schedules/ScheduleManagementDialog";
 import { AppearanceDialog } from "@/components/appearance/AppearanceDialog";
 import { TaskCreationDialogHost } from "@/components/sidebar/TaskCreationDialogHost";
 import { TaskSidebar } from "@/components/sidebar/TaskSidebar";
@@ -130,6 +131,7 @@ export function App() {
                 <DialogHost />
                 <SettingsModal />
                 <FlowManagementDialog />
+                <ScheduleManagementDialog />
                 <AppearanceDialog />
                 <TaskCreationDialogHost />
                 <TooltipProvider>

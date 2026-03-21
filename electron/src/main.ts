@@ -452,6 +452,12 @@ function buildAppMenu() {
                     },
                 },
                 {
+                    label: "Schedules",
+                    click: () => {
+                        mainWindow?.webContents.send("open-schedules");
+                    },
+                },
+                {
                     id: "check-for-updates",
                     label: downloadedVersion
                         ? `Restart to Update to v${downloadedVersion}`
