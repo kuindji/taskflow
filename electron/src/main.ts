@@ -380,7 +380,7 @@ function createIconWithDot(color: [number, number, number]): Electron.NativeImag
     // Draw filled circle near the checkmark's end (bottom-right)
     const dotRadius = 3;
     const cx = pixelWidth - dotRadius - 1;
-    const cy = 27;
+    const cy = 26;
 
     for (let y = cy - dotRadius; y <= cy + dotRadius; y++) {
         for (let x = cx - dotRadius; x <= cx + dotRadius; x++) {

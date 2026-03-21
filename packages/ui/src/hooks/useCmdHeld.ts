@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { isDialogOpen } from "@/lib/global-shortcuts";
+import { isDialogOpen, isEditableElement } from "@/lib/global-shortcuts";
 
 export function useCmdHeld() {
     const [cmdHeld, setCmdHeld] = useState(false);
@@ -48,6 +48,7 @@ export function useCmdHeld() {
 
     return {
         cmdHeld: cmdHeld && !dialogOpen,
-        cmdShiftHeld: cmdHeld && shiftHeld && !dialogOpen,
+        cmdShiftHeld:
+            cmdHeld && shiftHeld && !dialogOpen && !isEditableElement(document.activeElement),
     };
 }

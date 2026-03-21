@@ -180,13 +180,22 @@ export function useKeyboardNavigation() {
     useEffect(() => {
         const cleanupFns: Array<() => void> = [];
         let lastPanelFocusAt = 0;
+        let pendingTaskInfoAutofocus = false;
 
         const triggerPanelFocus = (direction: "left" | "right") => {
             if (isDialogOpen()) return;
+            if (isEditableElement(document.activeElement)) {
+                pendingTaskInfoAutofocus = false;
+                return;
+            }
             const now = Date.now();
-            if (now - lastPanelFocusAt < PANEL_FOCUS_DEDUPE_MS) return;
+            if (now - lastPanelFocusAt < PANEL_FOCUS_DEDUPE_MS) {
+                pendingTaskInfoAutofocus = false;
+                return;
+            }
             lastPanelFocusAt = now;
             cycleFocus(direction);
+            pendingTaskInfoAutofocus = useUIStore.getState().focusedPanel === "taskinfo";
         };
 
         // Register Electron IPC listeners for panel focus cycling
@@ -241,11 +250,16 @@ export function useKeyboardNavigation() {
             }
         };
 
-        // When Meta is released while taskinfo is focused, focus the first input field.
-        // This is deferred so that Cmd+Shift cycling can continue uninterrupted.
+        // After keyboard focus cycling lands in taskinfo, focus the first field once
+        // when the modifier key is released.
         const onKeyUp = (e: KeyboardEvent) => {
             if (isDialogOpen()) return;
-            if (e.key === "Meta" && useUIStore.getState().focusedPanel === "taskinfo") {
+            if (
+                pendingTaskInfoAutofocus &&
+                e.key === "Meta" &&
+                useUIStore.getState().focusedPanel === "taskinfo"
+            ) {
+                pendingTaskInfoAutofocus = false;
                 requestAnimationFrame(() => {
                     const panel = document.querySelector('[data-panel="taskinfo"]');
                     const input = panel?.querySelector(
