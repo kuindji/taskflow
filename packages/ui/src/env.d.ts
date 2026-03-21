@@ -15,6 +15,8 @@ interface TaskflowBridge {
     onNewTerminal(callback: () => void): () => void;
     onCloseTab(callback: () => void): () => void;
     onOpenSettings(callback: () => void): () => void;
+    onOpenAppearance(callback: () => void): () => void;
+    onOpenFlows(callback: () => void): () => void;
     onToggleArchive(callback: () => void): () => void;
     sendArchiveState(showArchive: boolean): void;
     onToggleCompactSidebar(callback: () => void): () => void;

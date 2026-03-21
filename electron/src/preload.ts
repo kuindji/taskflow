@@ -37,6 +37,20 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("open-settings", listener);
         };
     },
+    onOpenAppearance: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("open-appearance", listener);
+        return () => {
+            ipcRenderer.removeListener("open-appearance", listener);
+        };
+    },
+    onOpenFlows: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("open-flows", listener);
+        return () => {
+            ipcRenderer.removeListener("open-flows", listener);
+        };
+    },
     onToggleArchive: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("toggle-archive", listener);

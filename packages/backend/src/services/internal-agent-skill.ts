@@ -13,9 +13,9 @@ You are running inside Taskflow application that orchestrates ai agent and termi
 
 const PROMPT_TASK_SCOPE = `
 This session is scoped to a specific task.
-- At session start, read task info
-- Log your findings and progress
-- Log your commits`;
+- At session start, read task info.
+- Log your findings and progress.
+- Log every commit hash when inside task context.`;
 
 const PROMPT_PROJECT_SCOPE = `
 This session is scoped to a project, not a specific task.`;

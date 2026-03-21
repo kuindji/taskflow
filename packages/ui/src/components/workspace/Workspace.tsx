@@ -91,6 +91,7 @@ export function Workspace() {
     );
     const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
     const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
+    const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
     const ownerId = taskId ?? workspace.project?.id;
     const activeFlowRun = useFlowStore((s) => (ownerId ? s.activeRuns[ownerId] : undefined));
@@ -287,6 +288,8 @@ export function Workspace() {
         const onNewTask = isElectron ? window.taskflow?.onNewTask : undefined;
         const onNewTerminal = isElectron ? window.taskflow?.onNewTerminal : undefined;
         const onOpenSettings = isElectron ? window.taskflow?.onOpenSettings : undefined;
+        const onOpenAppearance = isElectron ? window.taskflow?.onOpenAppearance : undefined;
+        const onOpenFlows = isElectron ? window.taskflow?.onOpenFlows : undefined;
 
         const runIfNoDialogOpen = (action: () => void) => () => {
             if (isDialogOpen()) return;
@@ -306,6 +309,12 @@ export function Workspace() {
         }
         if (onOpenSettings) {
             cleanupFns.push(onOpenSettings(runIfNoDialogOpen(openSettings)));
+        }
+        if (onOpenAppearance) {
+            cleanupFns.push(onOpenAppearance(runIfNoDialogOpen(toggleAppearance)));
+        }
+        if (onOpenFlows) {
+            cleanupFns.push(onOpenFlows(runIfNoDialogOpen(toggleFlowManagement)));
         }
 
         const needsCloseTabFallback = !onCloseTab;
@@ -376,6 +385,8 @@ export function Workspace() {
         handleOpenDefaultTerminal,
         handleOpenNewTask,
         openSettings,
+        toggleAppearance,
+        toggleFlowManagement,
         toggleFileExplorer,
         toggleTaskInfo,
     ]);

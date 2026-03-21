@@ -127,6 +127,9 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                 // with offscreen placement instead of visibility:hidden. Moving inactive
                 // tabs to left:-9999em lets xterm.js's internal IntersectionObserver
                 // correctly detect the terminal as not visible and pause rendering.
+                // Keep width fixed instead of using inset-0 while hidden, otherwise
+                // left:-9999em plus right:0 creates an enormous layer that can still
+                // paint over the visible pane.
                 // When brought back (left:0), the ResizeObserver fires naturally and
                 // xterm resumes without stale viewport state.
                 if (isAlwaysMounted(tab)) {
@@ -148,8 +151,10 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                         <ErrorBoundary key={tab.id} fallbackLabel={label}>
                             <div
                                 className={cn(
-                                    "absolute inset-0 flex",
-                                    isActive ? "z-10" : "pointer-events-none -left-[9999em] z-0",
+                                    "absolute top-0 bottom-0 flex w-full",
+                                    isActive
+                                        ? "left-0 z-10"
+                                        : "pointer-events-none -left-[9999em] z-0",
                                 )}>
                                 {pane}
                             </div>
