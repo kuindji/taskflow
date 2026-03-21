@@ -30,7 +30,9 @@ import { FlowRunner } from "./services/flow-runner";
 import { createSessionLifecycle } from "./services/session-lifecycle";
 import { registerFlowHandlers } from "./handlers/flow";
 import { ScheduleStore } from "./services/schedule-store";
-import { SchedulerService } from "./services/scheduler-service";
+import { SchedulerService, SYSTEM_PROMPT_ADDON } from "./services/scheduler-service";
+import { registerScheduleHandlers } from "./handlers/schedule";
+import { buildShellPath } from "./services/shell-path";
 import { writeFile } from "fs/promises";
 
 async function main() {
@@ -82,12 +84,16 @@ async function main() {
         const schedulerService = new SchedulerService({
             scheduleStore,
             spawnSession: async (schedule) => {
-                const settings = await settingsStore.get();
                 return sessionLifecycle.createSession({
                     owner: { projectId: schedule.projectId },
-                    type: schedule.agentType ?? settings.general.defaultAgent,
+                    type: schedule.agentType ?? "claude",
+                    label: `[Scheduled] ${schedule.name}`,
                     prompt: schedule.prompt,
+                    systemPrompt: SYSTEM_PROMPT_ADDON,
                     agentOptions: schedule.agentOptions,
+                    onSessionExited: (sessionId, exitCode) => {
+                        void schedulerService.handleSessionExit(sessionId, exitCode);
+                    },
                 });
             },
             closeSession: (sessionId) => {
@@ -95,7 +101,6 @@ async function main() {
             },
             broadcast: server.broadcast,
         });
-        await schedulerService.init();
 
         const titleGenerator = createTitleGenerator({
             taskStore: store,
@@ -213,6 +218,33 @@ async function main() {
         registerThemeHandlers(router, themeService);
         registerScriptsHandlers(router);
         registerFlowHandlers({ router, flowStore, flowRunner });
+        registerScheduleHandlers({
+            router,
+            scheduleStore,
+            schedulerService,
+            generateName: async (prompt) => {
+                try {
+                    const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = process.env;
+                    const aiPrompt = `Generate a concise schedule name (3-7 words) for this scheduled task prompt. Output ONLY the name, nothing else. No quotes, no punctuation at the end.\n\nPrompt: ${prompt}`;
+                    const proc = Bun.spawn(["claude", "-p", "--model", "haiku"], {
+                        stdin: "pipe",
+                        stdout: "pipe",
+                        stderr: "pipe",
+                        env: { ...cleanEnv, PATH: buildShellPath() },
+                    });
+                    void proc.stdin.write(aiPrompt);
+                    void proc.stdin.end();
+                    const output = await new Response(proc.stdout).text();
+                    const exitCode = await proc.exited;
+                    if (exitCode === 0 && output.trim()) {
+                        return output.trim().replace(/^["']|["']$/g, "");
+                    }
+                } catch {
+                    // Fall through to fallback
+                }
+                return prompt.slice(0, 50).trim() || "Unnamed schedule";
+            },
+        });
         registerApiRoutes({
             apiRouter,
             taskStore: store,
@@ -266,6 +298,9 @@ async function main() {
         console.log(`Taskflow backend running on port ${startedServer.port}`);
         console.log(`Detected editors: ${editors.map((e) => e.name).join(", ") || "none"}`);
 
+        // Initialize scheduler after server is running
+        await schedulerService.init();
+
         // Register projects for change tracking
         const initialProjects = await store.listProjects();
         for (const project of initialProjects) {
@@ -283,6 +318,7 @@ async function main() {
         }
 
         const shutdown = () => {
+            schedulerService.shutdown();
             changeTracker.dispose();
             ptyManager.closeAll();
             fileWatcher.stopAll();
