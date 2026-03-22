@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -154,12 +154,13 @@ function ActionEditor({
                             className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
                             Prompt
                         </Label>
-                        <Textarea
+                        <ExpandableTextarea
                             id="action-prompt"
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
                             placeholder="Instructions for the agent..."
                             className="min-h-[200px] font-mono text-sm"
+                            dialogTitle="Action Prompt"
                         />
                     </div>
                     {(sessionType === "claude" || sessionType === "codex") && (

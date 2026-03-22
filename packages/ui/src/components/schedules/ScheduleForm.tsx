@@ -12,7 +12,7 @@ import { ALL_AGENT_TYPES, AGENT_DISPLAY_NAMES } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import {
     Select,
     SelectContent,
@@ -269,8 +269,9 @@ function ScheduleForm({
                 {!useAction && (
                     <div className="space-y-1.5">
                         <Label className="text-xs">Prompt</Label>
-                        <Textarea
+                        <ExpandableTextarea
                             className="min-h-[80px] text-xs"
+                            dialogTitle="Schedule Prompt"
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
                             placeholder="What should the agent do?"

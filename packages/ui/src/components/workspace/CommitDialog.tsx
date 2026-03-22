@@ -10,7 +10,7 @@ import {
     DialogTitle,
     DialogFooter,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
+import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -235,12 +235,13 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                     (optional — defaults to branch name)
                                 </span>
                             </Label>
-                            <Textarea
+                            <ExpandableTextarea
                                 id="pr-title"
                                 placeholder="Leave empty to use branch name..."
                                 value={message}
                                 onChange={(e) => setMessage(e.target.value)}
                                 className="max-h-40 min-h-20"
+                                dialogTitle="PR Title"
                             />
                         </div>
                     )}
@@ -254,12 +255,13 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                         (optional — auto-generated if empty)
                                     </span>
                                 </Label>
-                                <Textarea
+                                <ExpandableTextarea
                                     id="commit-message"
                                     placeholder="Leave empty to auto-generate..."
                                     value={message}
                                     onChange={(e) => setMessage(e.target.value)}
                                     className="max-h-40 min-h-20"
+                                    dialogTitle="Commit Message"
                                 />
                             </div>
 

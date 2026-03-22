@@ -5,7 +5,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
@@ -232,8 +232,9 @@ function TaskInfoPanel() {
                             className="text-muted-foreground text-xs font-medium">
                             Description
                         </label>
-                        <Textarea
+                        <ExpandableTextarea
                             id="task-info-description"
+                            dialogTitle="Description"
                             value={descriptionDraft}
                             onChange={(e) => setDescriptionDraft(e.target.value)}
                             rows={4}
@@ -297,8 +298,9 @@ function TaskInfoPanel() {
                             className="text-muted-foreground text-xs font-medium">
                             Notes
                         </label>
-                        <Textarea
+                        <ExpandableTextarea
                             id="task-info-notes"
+                            dialogTitle="Notes"
                             value={notesDraft}
                             onChange={(e) => setNotesDraft(e.target.value)}
                             rows={6}

@@ -16,7 +16,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -194,13 +194,14 @@ export function NewTaskDialog({
 
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="new-task-description">Description</Label>
-                        <Textarea
+                        <ExpandableTextarea
                             id="new-task-description"
                             ref={descriptionRef}
                             placeholder="Describe what this task should accomplish..."
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
                             className="max-h-40 min-h-20"
+                            dialogTitle="Task Description"
                         />
                     </div>
 
