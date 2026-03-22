@@ -35,6 +35,8 @@ import { SchedulerService, SYSTEM_PROMPT_ADDON } from "./services/scheduler-serv
 import { registerScheduleHandlers } from "./handlers/schedule";
 import { buildShellPath } from "./services/shell-path";
 import { TrayStateTracker } from "./services/tray-state-tracker";
+import { NotificationStore } from "./services/notification-store";
+import { registerNotificationHandlers } from "./handlers/notification";
 import { writeFile } from "fs/promises";
 
 async function main() {
@@ -57,6 +59,8 @@ async function main() {
 
         const flowStore = new FlowStore(config.flowsDir, config.flowRunsDir);
         await flowStore.init();
+
+        const notificationStore = new NotificationStore(config.notificationsFile);
 
         const ptyManager = new PtyManager();
         const gitService = new GitService();
@@ -244,6 +248,11 @@ async function main() {
         registerScriptsHandlers(router);
         registerAgentCommandsHandlers(router);
         registerFlowHandlers({ router, flowStore, flowRunner });
+        registerNotificationHandlers({
+            router,
+            notificationStore,
+            broadcast: server.broadcast,
+        });
         registerScheduleHandlers({
             router,
             scheduleStore,
