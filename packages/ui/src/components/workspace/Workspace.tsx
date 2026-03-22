@@ -509,6 +509,7 @@ export function Workspace() {
         return (
             <>
                 <TabBar
+                    className={isElectron ? "[-webkit-app-region:drag]" : undefined}
                     tabs={visibleTabs}
                     activeTabId={activeTab?.id ?? ""}
                     onTabClick={(id) =>

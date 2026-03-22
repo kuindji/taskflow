@@ -222,6 +222,7 @@ interface TabBarProps {
     showRunButton: boolean;
     showAgentOptions: boolean;
     allowSessionTabs: boolean;
+    className?: string;
 }
 
 export function TabBar({
@@ -246,6 +247,7 @@ export function TabBar({
     showRunButton,
     showAgentOptions,
     allowSessionTabs,
+    className,
 }: TabBarProps) {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
@@ -292,8 +294,8 @@ export function TabBar({
     const scriptNames = useMemo(() => Object.keys(scripts), [scripts]);
 
     return (
-        <div className="bg-card border-border flex min-h-9 items-center gap-1 border-b px-1.5 py-1.5">
-            <div className="flex shrink-0 items-center gap-1">
+        <div className={cn("bg-card border-border flex min-h-9 items-center gap-1 border-b px-1.5 py-1.5", className)}>
+            <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
                 {showRunButton && (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -598,7 +600,7 @@ export function TabBar({
                 )}
             </div>
             <div
-                className="flex min-w-0 items-center gap-1 overflow-x-auto"
+                className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag]"
                 style={{ scrollbarWidth: "none" }}>
                 {tabs.map((tab, index) => (
                     <TabItem
