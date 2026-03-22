@@ -99,7 +99,9 @@ export function Workspace() {
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
     const ownerId =
-        taskId ?? workspace.project?.id ?? (workspace.scope === "master" ? MASTER_OWNER_ID : undefined);
+        taskId ??
+        workspace.project?.id ??
+        (workspace.scope === "master" ? MASTER_OWNER_ID : undefined);
     const activeFlowRun = useFlowStore((s) => (ownerId ? s.activeRuns[ownerId] : undefined));
     const allFlows = useFlowStore((s) => s.flows);
     const allActions = useFlowStore((s) => s.actions);
@@ -448,7 +450,12 @@ export function Workspace() {
         skipCursorRulesCheck?: boolean,
     ) => {
         if (!workspace.workspaceKey) return;
-        if (type === "cursor" && workspace.scope !== "master" && workspace.workingDir && !skipCursorRulesCheck) {
+        if (
+            type === "cursor" &&
+            workspace.scope !== "master" &&
+            workspace.workingDir &&
+            !skipCursorRulesCheck
+        ) {
             const { status } = await sendRequest<CursorRulesCheckResponse>(MSG.CURSOR_RULES_CHECK, {
                 cwd: workspace.workingDir,
             });

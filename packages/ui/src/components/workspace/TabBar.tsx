@@ -294,7 +294,11 @@ export function TabBar({
     const scriptNames = useMemo(() => Object.keys(scripts), [scripts]);
 
     return (
-        <div className={cn("bg-card border-border flex min-h-9 items-center gap-1 border-b px-1.5 py-1.5", className)}>
+        <div
+            className={cn(
+                "bg-card border-border flex min-h-9 items-center gap-1 border-b px-1.5 py-1.5",
+                className,
+            )}>
             <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
                 {showRunButton && (
                     <DropdownMenu>

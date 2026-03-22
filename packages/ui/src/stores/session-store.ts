@@ -155,7 +155,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     lastTerminalSize: null,
     async createSession(owner, type, label, prompt, shell, agentOptions, editorOpts) {
         const ownerId = owner.taskId ?? owner.projectId;
-        if (!ownerId && !owner.master) throw new Error("Either taskId, projectId, or master is required");
+        if (!ownerId && !owner.master)
+            throw new Error("Either taskId, projectId, or master is required");
         const lastTerminalSize = get().lastTerminalSize;
         const { sessionId } = await sendRequest<{ sessionId: string }>(MSG.SESSION_CREATE, {
             ...owner,

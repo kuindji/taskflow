@@ -48,7 +48,10 @@ interface ApiRouteDeps {
     agents: AgentAvailability[];
     sessionLifecycle: {
         createSession: (opts: CreateSessionOpts) => Promise<string>;
-        removeSessionFromOwner: (sessionId: string, owner?: { taskId?: string; projectId?: string }) => Promise<void>;
+        removeSessionFromOwner: (
+            sessionId: string,
+            owner?: { taskId?: string; projectId?: string },
+        ) => Promise<void>;
     };
     schedulerService: SchedulerService;
     trayStateTracker: TrayStateTracker;
@@ -403,7 +406,10 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
         const status = body.status;
         if (typeof status !== "string" || !allowedSessionStatuses.has(status as SessionStatus)) {
-            return errorResponse(`Field "status" must be one of: ${[...allowedSessionStatuses].join(", ")}`, 400);
+            return errorResponse(
+                `Field "status" must be one of: ${[...allowedSessionStatuses].join(", ")}`,
+                400,
+            );
         }
 
         if (!ptyManager.has(params.sessionId)) {
@@ -585,7 +591,10 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         const taskId = req.headers.get("x-taskflow-task-id") || undefined;
 
         if (!projectId || !sessionId) {
-            return errorResponse("Missing required headers: x-taskflow-project-id, x-taskflow-session-id", 400);
+            return errorResponse(
+                "Missing required headers: x-taskflow-project-id, x-taskflow-session-id",
+                400,
+            );
         }
 
         let body: { message?: unknown };
@@ -599,7 +608,12 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse("Field 'message' is required and must be a non-empty string", 400);
         }
 
-        const notification = await notificationStore.create(projectId, sessionId, body.message.trim(), taskId);
+        const notification = await notificationStore.create(
+            projectId,
+            sessionId,
+            body.message.trim(),
+            taskId,
+        );
         broadcast({ type: MSG.NOTIFICATION_CREATED, payload: { notification } });
         return jsonResponse(notification, 201);
     });
@@ -881,7 +895,10 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
                 changeTracker?.untrack(params.id);
                 changeTracker?.track(params.id, updates.path);
             }
-            broadcast({ type: MSG.PROJECT_UPDATED, payload: filterProjectSessions(updated, config.instanceId) });
+            broadcast({
+                type: MSG.PROJECT_UPDATED,
+                payload: filterProjectSessions(updated, config.instanceId),
+            });
             return jsonResponse(filterProjectSessions(updated, config.instanceId));
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
@@ -911,15 +928,24 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             const { stat, rm } = await import("fs/promises");
 
             const slugify = (b: string) =>
-                b.toLowerCase().replace(/[/ ]/g, "-").replace(/[^a-z0-9\-.]/g, "");
+                b
+                    .toLowerCase()
+                    .replace(/[/ ]/g, "-")
+                    .replace(/[^a-z0-9\-.]/g, "");
 
             const derivedFolder =
-                typeof folderName === "string" && folderName.trim() ? folderName.trim() : slugify(branch);
-            if (!derivedFolder) return errorResponse("Could not derive folder name from branch", 400);
+                typeof folderName === "string" && folderName.trim()
+                    ? folderName.trim()
+                    : slugify(branch);
+            if (!derivedFolder)
+                return errorResponse("Could not derive folder name from branch", 400);
 
             const targetPath = join(dirname(project.path), derivedFolder);
 
-            const exists = await stat(targetPath).then(() => true, () => false);
+            const exists = await stat(targetPath).then(
+                () => true,
+                () => false,
+            );
             if (exists) return errorResponse(`Folder already exists: ${targetPath}`, 409);
 
             const currentBranch = await gitService.getBranch(project.path);
@@ -1030,7 +1056,9 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         const deleteWorktree = body.deleteWorktree === true;
 
         try {
-            const task = (await taskStore.getTask(params.taskId)) ?? (await taskStore.getArchived(params.taskId));
+            const task =
+                (await taskStore.getTask(params.taskId)) ??
+                (await taskStore.getArchived(params.taskId));
             if (!task) return errorResponse(`Task not found: ${params.taskId}`, 404);
 
             // Cascade: delete subtasks
@@ -1077,7 +1105,10 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
                         await gitService.removeWorktree(project.path, task.worktree.path);
                         await gitService.deleteBranch(project.path, task.worktree.branch);
                     } catch (error) {
-                        console.error(`Failed to clean up worktree for task ${params.taskId}:`, error);
+                        console.error(
+                            `Failed to clean up worktree for task ${params.taskId}:`,
+                            error,
+                        );
                     }
                 }
             }
@@ -1183,8 +1214,15 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
             let validatedInputValues: Record<string, string> | undefined;
             if (inputValues !== undefined) {
-                if (typeof inputValues !== "object" || inputValues === null || Array.isArray(inputValues)) {
-                    return errorResponse("inputValues must be a plain object with string values", 400);
+                if (
+                    typeof inputValues !== "object" ||
+                    inputValues === null ||
+                    Array.isArray(inputValues)
+                ) {
+                    return errorResponse(
+                        "inputValues must be a plain object with string values",
+                        400,
+                    );
                 }
                 for (const [key, value] of Object.entries(inputValues as Record<string, unknown>)) {
                     if (typeof value !== "string") {
@@ -1194,9 +1232,8 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
                 validatedInputValues = inputValues as Record<string, string>;
             }
 
-            const owner = typeof taskId === "string"
-                ? { taskId }
-                : { projectId: projectId as string }; // safe: validated above
+            const owner =
+                typeof taskId === "string" ? { taskId } : { projectId: projectId as string }; // safe: validated above
             const run = await flowRunner.startFlow(owner, flow, validatedInputValues);
             return jsonResponse(run, 201);
         } catch (err) {
@@ -1334,7 +1371,8 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             name,
             prompt: typeof body.prompt === "string" ? body.prompt : "",
             actionId: typeof body.actionId === "string" ? body.actionId : undefined,
-            agentType: typeof body.agentType === "string" ? (body.agentType as AgentType) : undefined,
+            agentType:
+                typeof body.agentType === "string" ? (body.agentType as AgentType) : undefined,
             agentOptions: body.agentOptions as Schedule["agentOptions"],
             expression,
             expressionType,
@@ -1388,7 +1426,10 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
                 if (typeof body.timeout === "number") next.timeout = body.timeout;
                 if (typeof body.enabled === "boolean") next.enabled = body.enabled;
                 if ("agentType" in body)
-                    next.agentType = typeof body.agentType === "string" ? (body.agentType as AgentType) : undefined;
+                    next.agentType =
+                        typeof body.agentType === "string"
+                            ? (body.agentType as AgentType)
+                            : undefined;
                 if ("agentOptions" in body)
                     next.agentOptions = body.agentOptions as Schedule["agentOptions"];
                 return next;

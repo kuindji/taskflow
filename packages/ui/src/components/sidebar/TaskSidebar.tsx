@@ -451,8 +451,7 @@ export function TaskSidebar() {
                         className={cn(
                             "[-webkit-app-region:no-drag]",
                             masterWorkspaceActive ? "text-accent" : "text-muted-foreground",
-                        )}
-                    >
+                        )}>
                         <Monitor className="h-3.5 w-3.5" />
                     </Button>
                     {notifications.length > 0 && (

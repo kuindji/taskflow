@@ -255,12 +255,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             cols,
             rows,
             onData: (data, sequence) => {
-                void taskStore.appendSessionOutput(
-                    ownerId,
-                    sessionId,
-                    sequence,
-                    data,
-                );
+                void taskStore.appendSessionOutput(ownerId, sessionId, sequence, data);
                 trayStateTracker.markSessionActivity(sessionId);
                 broadcast(
                     {
@@ -277,10 +272,15 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                         type: MSG.SESSION_EXITED,
                         payload: { sessionId, exitCode },
                     });
-                    void removeSessionFromOwner(sessionId, master ? { master: true } : {
-                        taskId: task?.id,
-                        projectId: resolvedProjectId,
-                    });
+                    void removeSessionFromOwner(
+                        sessionId,
+                        master
+                            ? { master: true }
+                            : {
+                                  taskId: task?.id,
+                                  projectId: resolvedProjectId,
+                              },
+                    );
                 }
                 onSessionExited?.(sessionId, exitCode);
             },

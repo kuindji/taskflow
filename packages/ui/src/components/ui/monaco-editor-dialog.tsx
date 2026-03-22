@@ -1,17 +1,9 @@
 import { useRef, useCallback, useEffect } from "react";
 import * as monaco from "monaco-editor";
-import {
-    DEFAULT_EDITOR_FONT_FAMILY,
-    DEFAULT_EDITOR_FONT_SIZE,
-} from "@taskflow/shared";
+import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_EDITOR_FONT_SIZE } from "@taskflow/shared";
 import { MONACO_THEME_NAME } from "@/lib/monaco-theme";
 import { useSettingsStore } from "@/stores/settings-store";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface MonacoEditorDialogProps {
     open: boolean;

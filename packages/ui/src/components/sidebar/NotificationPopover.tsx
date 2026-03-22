@@ -65,12 +65,8 @@ function NotificationPopover({
     return (
         <Popover open={open} onOpenChange={onOpenChange}>
             <PopoverTrigger asChild>{children}</PopoverTrigger>
-            <PopoverContent
-                side="right"
-                align="end"
-                sideOffset={8}
-                className="w-80 p-0">
-                <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <PopoverContent side="right" align="end" sideOffset={8} className="w-80 p-0">
+                <div className="border-border flex items-center justify-between border-b px-3 py-2">
                     <span className="text-sm font-medium">Notifications</span>
                     <Button
                         variant="ghost"
@@ -95,9 +91,7 @@ function NotificationPopover({
                                 <span
                                     className={cn(
                                         "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
-                                        notification.read
-                                            ? "bg-transparent"
-                                            : "bg-accent",
+                                        notification.read ? "bg-transparent" : "bg-accent",
                                     )}
                                 />
                                 <div className="min-w-0 flex-1">

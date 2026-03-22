@@ -1,4 +1,11 @@
-import type { Project, SessionRef, Task, TaskLogEntry, TaskLogEntryType, TaskWorktree } from "@taskflow/shared";
+import type {
+    Project,
+    SessionRef,
+    Task,
+    TaskLogEntry,
+    TaskLogEntryType,
+    TaskWorktree,
+} from "@taskflow/shared";
 import { ARCHIVE_EXPIRY_DAYS } from "@taskflow/shared";
 import {
     appendFile,
