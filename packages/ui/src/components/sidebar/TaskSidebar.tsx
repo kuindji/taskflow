@@ -408,8 +408,8 @@ export function TaskSidebar() {
                         variant="ghost"
                         size="icon-xs"
                         onClick={toggleFlowManagement}
-                        aria-label="Flows"
-                        tooltip="Flows"
+                        aria-label="Actions and Flows"
+                        tooltip="Actions and Flows"
                         tooltipSide="bottom"
                         className="text-muted-foreground [-webkit-app-region:no-drag]">
                         <Workflow className="h-3.5 w-3.5" />

@@ -25,7 +25,7 @@ function FlowManagementDialog() {
     const projects = useProjectStore((s) => s.projects);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
 
-    const [tab, setTab] = useState<"flows" | "actions">("flows");
+    const [tab, setTab] = useState<"flows" | "actions">("actions");
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
     // "all" = show everything, "global" = only global, otherwise a projectId
@@ -133,21 +133,12 @@ function FlowManagementDialog() {
                 className="bg-dialog-shell border-border w-4xl max-w-[calc(100vw-2rem)] gap-0 rounded-xl p-1.5 sm:max-w-[calc(100vw-2rem)]"
                 aria-describedby={undefined}>
                 <DialogHeader className="px-2 py-2">
-                    <DialogTitle className="text-[15px]">Flows & Actions</DialogTitle>
+                    <DialogTitle className="text-[15px]">Actions and Flows</DialogTitle>
                 </DialogHeader>
 
                 <div className="flex h-[60vh] gap-1.5">
                     {/* Left sidebar nav */}
                     <nav className="bg-card w-[148px] shrink-0 rounded-[10px] p-1.5">
-                        <button
-                            onClick={() => switchTab("flows")}
-                            className={`mb-px block w-full rounded-md px-3 py-[7px] text-left text-[13px] transition-colors ${
-                                tab === "flows"
-                                    ? "bg-muted text-foreground font-medium"
-                                    : "text-muted-foreground hover:text-secondary-foreground hover:bg-muted/50"
-                            }`}>
-                            Flows
-                        </button>
                         <button
                             onClick={() => switchTab("actions")}
                             className={`mb-px block w-full rounded-md px-3 py-[7px] text-left text-[13px] transition-colors ${
@@ -156,6 +147,15 @@ function FlowManagementDialog() {
                                     : "text-muted-foreground hover:text-secondary-foreground hover:bg-muted/50"
                             }`}>
                             Actions
+                        </button>
+                        <button
+                            onClick={() => switchTab("flows")}
+                            className={`mb-px block w-full rounded-md px-3 py-[7px] text-left text-[13px] transition-colors ${
+                                tab === "flows"
+                                    ? "bg-muted text-foreground font-medium"
+                                    : "text-muted-foreground hover:text-secondary-foreground hover:bg-muted/50"
+                            }`}>
+                            Flows
                         </button>
                     </nav>
 

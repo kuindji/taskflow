@@ -357,7 +357,7 @@ export function TabBar({
                                     <DropdownMenuSub>
                                         <DropdownMenuSubTrigger>
                                             <Workflow className="mr-2 h-4 w-4" />
-                                            Flows
+                                            Actions and Flows
                                         </DropdownMenuSubTrigger>
                                         <DropdownMenuSubContent>
                                             {flows.map((f) => (
@@ -369,7 +369,7 @@ export function TabBar({
                                             ))}
                                             <DropdownMenuSeparator />
                                             <DropdownMenuItem onClick={onManageFlows}>
-                                                Manage Flows...
+                                                Manage Actions and Flows...
                                             </DropdownMenuItem>
                                         </DropdownMenuSubContent>
                                     </DropdownMenuSub>
