@@ -429,7 +429,7 @@ export function TaskSidebar() {
                                 className="relative text-muted-foreground [-webkit-app-region:no-drag]">
                                 <Bell className="h-3.5 w-3.5" />
                                 {unreadCount > 0 && (
-                                    <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-0.5 text-[10px] font-medium text-accent-foreground">
+                                    <span className="absolute -top-0.5 -right-0.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-accent px-0.5 text-[8px] font-medium text-accent-foreground">
                                         {unreadCount}
                                     </span>
                                 )}
