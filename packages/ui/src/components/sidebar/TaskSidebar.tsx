@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import type { Task, TaskWorktreePr } from "@taskflow/shared";
+import type { Notification, Task, TaskWorktreePr } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
+import { getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -17,8 +18,11 @@ import { NoDragSpacer } from "./NoDragSpacer";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
+import { useNotificationStore } from "../../stores/notification-store";
+import NotificationPopover from "./NotificationPopover";
 import {
     ArrowDownToLine,
+    Bell,
     CalendarClock,
     Keyboard,
     Loader2,
@@ -74,6 +78,10 @@ export function TaskSidebar() {
     }>({ status: "idle" });
     const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
     const diffStatsByProject = useDiffStore((s) => s.statsByProject);
+    const notifications = useNotificationStore((s) => s.notifications);
+    const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
+    const [notificationPopoverOpen, setNotificationPopoverOpen] = useState(false);
+    const unreadCount = notifications.filter((n) => !n.read).length;
 
     const { cmdHeld } = useCmdHeld();
     const focusedPanel = useUIStore((s) => s.focusedPanel);
@@ -180,6 +188,10 @@ export function TaskSidebar() {
     }, []);
 
     useEffect(() => {
+        void fetchNotifications();
+    }, [fetchNotifications]);
+
+    useEffect(() => {
         const cleanup = window.taskflow?.onUpdateStatus((payload) => {
             setUpdateStatus({
                 status: payload.status as "idle" | "checking" | "downloading" | "ready",
@@ -270,6 +282,35 @@ export function TaskSidebar() {
             });
         },
         [setProjectCollapsed, updateSettings],
+    );
+
+    const handleNotificationNavigate = useCallback(
+        (notification: Notification) => {
+            const project = projects.find((p) => p.id === notification.projectId);
+            if (!project) return;
+
+            setFocusedPanel("workspace");
+            setActiveProject(notification.projectId);
+
+            if (notification.taskId) {
+                const task = tasks.find((t) => t.id === notification.taskId);
+                if (!task) return;
+                setActiveTask(task.id);
+
+                if (notification.sessionId) {
+                    const sessionExists = task.sessions.some(
+                        (s) => s.id === notification.sessionId,
+                    );
+                    if (sessionExists) {
+                        const workspaceKey = getTaskWorkspaceKey(task.id);
+                        useSessionStore.getState().setActiveTab(workspaceKey, notification.sessionId);
+                    }
+                }
+            } else {
+                setActiveTask(null);
+            }
+        },
+        [projects, tasks, setFocusedPanel, setActiveProject, setActiveTask],
     );
 
     return (
@@ -366,6 +407,27 @@ export function TaskSidebar() {
             <Separator />
             <Toolbar noBorder className="justify-between">
                 <div className="flex items-center">
+                    {notifications.length > 0 && (
+                        <NotificationPopover
+                            open={notificationPopoverOpen}
+                            onOpenChange={setNotificationPopoverOpen}
+                            onNavigate={handleNotificationNavigate}>
+                            <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label="Notifications"
+                                tooltip="Notifications"
+                                tooltipSide="right"
+                                className="relative text-muted-foreground [-webkit-app-region:no-drag]">
+                                <Bell className="h-3.5 w-3.5" />
+                                {unreadCount > 0 && (
+                                    <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-0.5 text-[10px] font-medium text-accent-foreground">
+                                        {unreadCount}
+                                    </span>
+                                )}
+                            </Button>
+                        </NotificationPopover>
+                    )}
                     {updateStatus.status === "checking" && (
                         <Button
                             variant="ghost"
