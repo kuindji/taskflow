@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import type { Notification, Task, TaskWorktreePr } from "@taskflow/shared";
+import type { Notification, SessionRef, Task, TaskWorktreePr } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
-import { getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
+import { getTaskWorkspaceKey, prefetchHomedir } from "@/hooks/useActiveWorkspace";
+import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -26,6 +27,7 @@ import {
     CalendarClock,
     Keyboard,
     Loader2,
+    Monitor,
     Palette,
     Plus,
     Settings2,
@@ -59,6 +61,9 @@ export function TaskSidebar() {
     const setProjectCollapsed = useUIStore((s) => s.setProjectCollapsed);
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
     const syncWithProjects = useSessionStore((s) => s.syncWithProjects);
+    const syncWithMasterSessions = useSessionStore((s) => s.syncWithMasterSessions);
+    const masterWorkspaceActive = useUIStore((s) => s.masterWorkspaceActive);
+    const setMasterWorkspaceActive = useUIStore((s) => s.setMasterWorkspaceActive);
     const fetchSettings = useSettingsStore((s) => s.fetchSettings);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
     const compactSidebar = useSettingsStore(
@@ -94,6 +99,7 @@ export function TaskSidebar() {
         void fetchTasks();
         void useFlowStore.getState().fetchFlows();
         void useFlowStore.getState().fetchActions();
+        prefetchHomedir();
 
         void (async () => {
             try {
@@ -117,6 +123,13 @@ export function TaskSidebar() {
     useEffect(() => {
         syncWithProjects(projects);
     }, [projects, syncWithProjects]);
+
+    useEffect(() => {
+        if (!connected) return;
+        sendRequest<{ sessions: SessionRef[] }>(MSG.MASTER_SESSIONS_LIST, {})
+            .then((res) => syncWithMasterSessions(res.sessions))
+            .catch(() => {});
+    }, [connected, syncWithMasterSessions]);
 
     // Poll for PRs on worktree tasks that don't have one yet
     const updateTask = useTaskStore((s) => s.updateTask);
@@ -247,13 +260,20 @@ export function TaskSidebar() {
         setNewProjectOpen(open);
     }, []);
 
+    const handleMasterWorkspace = useCallback(() => {
+        setActiveTask(null);
+        setActiveProject(null);
+        setMasterWorkspaceActive(true);
+    }, [setActiveTask, setActiveProject, setMasterWorkspaceActive]);
+
     const handleProjectClick = useCallback(
         (projectId: string) => {
             setFocusedPanel("workspace");
             setActiveProject(projectId);
             setActiveTask(null);
+            setMasterWorkspaceActive(false);
         },
-        [setActiveProject, setActiveTask, setFocusedPanel],
+        [setActiveProject, setActiveTask, setFocusedPanel, setMasterWorkspaceActive],
     );
 
     const handleTaskClick = useCallback(
@@ -262,8 +282,9 @@ export function TaskSidebar() {
             setFocusedPanel("workspace");
             setActiveTask(taskId);
             setActiveProject(task?.projectId ?? null);
+            setMasterWorkspaceActive(false);
         },
-        [setActiveProject, setActiveTask, setFocusedPanel, tasks],
+        [setActiveProject, setActiveTask, setFocusedPanel, setMasterWorkspaceActive, tasks],
     );
 
     const handleProjectOpenChange = useCallback(
@@ -415,6 +436,20 @@ export function TaskSidebar() {
             <Separator />
             <Toolbar noBorder className="justify-between">
                 <div className="flex items-center">
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={handleMasterWorkspace}
+                        aria-label="Master Workspace"
+                        tooltip="Master Workspace"
+                        tooltipSide="right"
+                        className={cn(
+                            "[-webkit-app-region:no-drag]",
+                            masterWorkspaceActive ? "text-accent" : "text-muted-foreground",
+                        )}
+                    >
+                        <Monitor className="h-3.5 w-3.5" />
+                    </Button>
                     {notifications.length > 0 && (
                         <NotificationPopover
                             open={notificationPopoverOpen}
