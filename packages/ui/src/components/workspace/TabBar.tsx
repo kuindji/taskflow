@@ -175,23 +175,23 @@ function TabItem({
                     {tab.label}
                 </span>
             )}
-            {cmdHeld && index < 9 ? (
-                <div className="ml-0.5">
+            <div className="ml-0.5 flex h-[18px] w-[18px] items-center justify-center">
+                {cmdHeld && index < 9 ? (
                     <KeyBadge number={index + 1} />
-                </div>
-            ) : (
-                <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="ml-0.5 h-4 w-4 p-0"
-                    aria-label="Close tab"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onTabClose(tab.id);
-                    }}>
-                    <X className="size-3" />
-                </Button>
-            )}
+                ) : (
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="h-4 w-4 p-0"
+                        aria-label="Close tab"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onTabClose(tab.id);
+                        }}>
+                        <X className="size-3" />
+                    </Button>
+                )}
+            </div>
         </div>
     );
 }
