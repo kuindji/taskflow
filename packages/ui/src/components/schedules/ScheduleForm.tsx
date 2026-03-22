@@ -129,8 +129,8 @@ function ScheduleForm({
                     prompt: useAction ? undefined : prompt,
                     expression,
                     expressionType,
-                    agentType: useAction ? null : (agentType || null),
-                    agentOptions: useAction ? null : (agentType ? agentOptions : null),
+                    agentType: useAction ? null : agentType || null,
+                    agentOptions: useAction ? null : agentType ? agentOptions : null,
                     timeout: effectiveTimeout,
                 };
                 await onSave(payload);
@@ -142,8 +142,8 @@ function ScheduleForm({
                     prompt: useAction ? undefined : prompt,
                     expression,
                     expressionType,
-                    agentType: useAction ? undefined : (agentType || undefined),
-                    agentOptions: useAction ? undefined : (agentType ? agentOptions : undefined),
+                    agentType: useAction ? undefined : agentType || undefined,
+                    agentOptions: useAction ? undefined : agentType ? agentOptions : undefined,
                     timeout: effectiveTimeout,
                 };
                 await onSave(payload);
@@ -240,7 +240,7 @@ function ScheduleForm({
                 {/* Action summary when action is selected */}
                 {useAction && selectedAction && (
                     <div className="border-border bg-muted/30 rounded-md border p-3">
-                        <p className="text-muted-foreground text-[11px] uppercase tracking-wide">
+                        <p className="text-muted-foreground text-[11px] tracking-wide uppercase">
                             Action: {selectedAction.name}
                         </p>
                         <p className="text-muted-foreground mt-1 text-xs">

@@ -104,7 +104,13 @@ async function main() {
 
                 return sessionLifecycle.createSession({
                     owner: { projectId: schedule.projectId },
-                    type: agentType as "claude" | "codex" | "opencode" | "gemini" | "cursor" | "shell",
+                    type: agentType as
+                        | "claude"
+                        | "codex"
+                        | "opencode"
+                        | "gemini"
+                        | "cursor"
+                        | "shell",
                     label: `[Scheduled] ${schedule.name}`,
                     prompt,
                     systemPrompt: SYSTEM_PROMPT_ADDON,

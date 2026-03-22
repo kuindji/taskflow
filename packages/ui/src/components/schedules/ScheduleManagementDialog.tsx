@@ -208,7 +208,8 @@ function ScheduleManagementDialog() {
                                         {s.actionId && (
                                             <div className="text-muted-foreground mt-0.5 text-[11px]">
                                                 <span className="bg-muted truncate rounded px-1">
-                                                    {actionMap.get(s.actionId)?.name ?? "Unknown action"}
+                                                    {actionMap.get(s.actionId)?.name ??
+                                                        "Unknown action"}
                                                 </span>
                                             </div>
                                         )}
