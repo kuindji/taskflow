@@ -57,6 +57,7 @@ describe("api routes", () => {
             sessionLifecycle: { createSession: async () => "" },
             schedulerService: { handleComplete: async () => {} },
             trayStateTracker: trayStateTracker as never,
+            notificationStore: {} as never,
         });
     });
 
@@ -148,6 +149,7 @@ describe("settings routes", () => {
             sessionLifecycle: { createSession: async () => "" },
             schedulerService: { handleComplete: async () => {} },
             trayStateTracker: new FakeTrayStateTracker() as never,
+            notificationStore: {} as never,
         });
     });
 
@@ -218,6 +220,7 @@ describe("flow artifact routes", () => {
             sessionLifecycle: { createSession: async () => "" },
             schedulerService: { handleComplete: async () => {} },
             trayStateTracker: new FakeTrayStateTracker() as never,
+            notificationStore: {} as never,
         });
     });
 

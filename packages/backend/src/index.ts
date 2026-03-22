@@ -298,6 +298,7 @@ async function main() {
             sessionLifecycle,
             schedulerService,
             trayStateTracker,
+            notificationStore,
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {
