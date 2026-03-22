@@ -124,6 +124,9 @@ export const MSG = {
     NOTIFICATION_UPDATED: "notification:updated",
     NOTIFICATION_DELETED: "notification:deleted",
 
+    // Master workspace
+    MASTER_SESSIONS_LIST: "master:sessions-list",
+
     // System
     SYSTEM_INFO: "system:info",
 } as const;

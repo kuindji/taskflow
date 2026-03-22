@@ -1,6 +1,6 @@
 import type { Notification } from "./notification";
 import type { Project } from "./project";
-import type { SessionStatus, Task, TaskLogEntry, TaskWorktree } from "./task";
+import type { SessionRef, SessionStatus, Task, TaskLogEntry, TaskWorktree } from "./task";
 import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus, ChangeStats } from "./git";
 import type { SystemInfo } from "./system";
@@ -116,6 +116,7 @@ export interface TaskLogAddedEvent {
 export interface SessionCreatePayload {
     taskId?: string;
     projectId?: string;
+    master?: boolean;
     type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "shell" | "editor";
     label?: string;
     prompt?: string;
@@ -172,6 +173,7 @@ export interface TerminalResizePayload {
 export interface SessionHistoryPayload {
     taskId?: string;
     projectId?: string;
+    master?: boolean;
     sessionId: string;
 }
 
@@ -403,8 +405,13 @@ export interface AgentCommandsListResponse {
 export interface BrowserOpenPayload {
     taskId?: string;
     projectId?: string;
+    master?: boolean;
     url: string;
     label?: string;
+}
+
+export interface MasterSessionsListResponse {
+    sessions: SessionRef[];
 }
 
 // Theme messages
