@@ -440,6 +440,71 @@ export function Workspace() {
         );
     }
 
+    const handleNewTab = async (
+        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "browser" | "shell",
+        shellPath?: string,
+        agentOptions?: AgentLaunchOptions,
+        skipCursorRulesCheck?: boolean,
+    ) => {
+        if (!workspace.workspaceKey) return;
+        if (type === "cursor" && workspace.scope !== "master" && workspace.workingDir && !skipCursorRulesCheck) {
+            const { status } = await sendRequest<CursorRulesCheckResponse>(MSG.CURSOR_RULES_CHECK, {
+                cwd: workspace.workingDir,
+            });
+            if (status === "missing") {
+                setCursorRulesDialog({ pending: true, type: "new", agentOptions });
+                return;
+            }
+        }
+        if (type === "browser") {
+            setFocusedPanel("workspace");
+            addTab(workspace.workspaceKey, {
+                id: crypto.randomUUID(),
+                type: "browser",
+                label: "New Tab",
+                url: "about:blank",
+            });
+        } else if (type === "shell" && shellPath) {
+            setFocusedPanel("workspace");
+            await createSession(
+                workspace.scope === "task"
+                    ? { taskId: workspace.task.id }
+                    : workspace.scope === "project"
+                      ? { projectId: workspace.project.id }
+                      : { master: true as const },
+                "shell",
+                getShellSessionLabel(shellPath),
+                undefined,
+                shellPath,
+            );
+        } else {
+            setFocusedPanel("workspace");
+            await createSession(
+                workspace.scope === "task"
+                    ? { taskId: workspace.task.id }
+                    : workspace.scope === "project"
+                      ? { projectId: workspace.project.id }
+                      : { master: true as const },
+                type,
+                undefined,
+                undefined,
+                undefined,
+                agentOptions,
+            );
+        }
+    };
+
+    const handleRunAgentCommand = async (command: AgentCommand) => {
+        const owner =
+            workspace.scope === "task"
+                ? { taskId: workspace.task.id }
+                : workspace.scope === "project"
+                  ? { projectId: workspace.project.id }
+                  : { master: true as const };
+        setFocusedPanel("workspace");
+        await createSession(owner, "claude", command.name, `/${command.name}`);
+    };
+
     if (workspace.scope === "master") {
         return (
             <>
@@ -499,60 +564,6 @@ export function Workspace() {
         });
     };
 
-    const handleNewTab = async (
-        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "browser" | "shell",
-        shellPath?: string,
-        agentOptions?: AgentLaunchOptions,
-        skipCursorRulesCheck?: boolean,
-    ) => {
-        if (!workspace.workspaceKey) return;
-        if (type === "cursor" && workspace.scope !== "master" && workspace.workingDir && !skipCursorRulesCheck) {
-            const { status } = await sendRequest<CursorRulesCheckResponse>(MSG.CURSOR_RULES_CHECK, {
-                cwd: workspace.workingDir,
-            });
-            if (status === "missing") {
-                setCursorRulesDialog({ pending: true, type: "new", agentOptions });
-                return;
-            }
-        }
-        if (type === "browser") {
-            setFocusedPanel("workspace");
-            addTab(workspace.workspaceKey, {
-                id: crypto.randomUUID(),
-                type: "browser",
-                label: "New Tab",
-                url: "about:blank",
-            });
-        } else if (type === "shell" && shellPath) {
-            setFocusedPanel("workspace");
-            await createSession(
-                workspace.scope === "task"
-                    ? { taskId: workspace.task.id }
-                    : workspace.scope === "project"
-                      ? { projectId: workspace.project.id }
-                      : { master: true as const },
-                "shell",
-                getShellSessionLabel(shellPath),
-                undefined,
-                shellPath,
-            );
-        } else {
-            setFocusedPanel("workspace");
-            await createSession(
-                workspace.scope === "task"
-                    ? { taskId: workspace.task.id }
-                    : workspace.scope === "project"
-                      ? { projectId: workspace.project.id }
-                      : { master: true as const },
-                type,
-                undefined,
-                undefined,
-                undefined,
-                agentOptions,
-            );
-        }
-    };
-
     const handleRunTab = async (
         type: "claude" | "codex" | "opencode" | "gemini" | "cursor",
         agentOptions?: AgentLaunchOptions,
@@ -577,17 +588,6 @@ export function Workspace() {
             undefined,
             agentOptions,
         );
-    };
-
-    const handleRunAgentCommand = async (command: AgentCommand) => {
-        const owner =
-            workspace.scope === "task"
-                ? { taskId: workspace.task.id }
-                : workspace.scope === "project"
-                  ? { projectId: workspace.project.id }
-                  : { master: true as const };
-        setFocusedPanel("workspace");
-        await createSession(owner, "claude", command.name, `/${command.name}`);
     };
 
     const handleRunAction = async (action: ActionDefinition) => {
