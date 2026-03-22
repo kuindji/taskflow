@@ -32,6 +32,7 @@ function buildDataPaths(dataDir: string) {
         flowsDir: join(dataDir, "flows"),
         flowRunsDir: join(dataDir, "flow-runs"),
         schedulesFile: join(dataDir, "schedules.json"),
+        notificationsFile: join(dataDir, "notifications.json"),
     };
 }
 
