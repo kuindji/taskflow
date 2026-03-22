@@ -93,7 +93,7 @@ export function buildAgentLaunchSpec(
                 "Bash(taskflow-cli*)",
                 "--append-system-prompt",
                 systemPrompt,
-                ...(prompt ? [prompt] : []),
+                ...(prompt ? ["--", prompt] : []),
             ],
         };
     }
@@ -140,7 +140,7 @@ export function buildAgentLaunchSpec(
         }
         return {
             command: "cursor",
-            args: ["agent", ...optionArgs, ...(prompt ? [prompt] : [])],
+            args: ["agent", ...optionArgs, ...(prompt ? ["--", prompt] : [])],
         };
     }
 
@@ -156,7 +156,7 @@ export function buildAgentLaunchSpec(
             `developer_instructions="${escapeTomlBasicString(systemPrompt)}"`,
             "-c",
             `skills.config=[{path="${escapeTomlBasicString(skillPath)}", enabled=true}]`,
-            ...(prompt ? [prompt] : []),
+            ...(prompt ? ["--", prompt] : []),
         ],
     };
 }

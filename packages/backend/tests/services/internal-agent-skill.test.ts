@@ -70,6 +70,7 @@ describe("internal agent skill", () => {
             `developer_instructions="${escapeTomlBasicString(taskPrompt)}"`,
             "-c",
             'skills.config=[{path="/tmp/taskflow-internal-api/SKILL.md", enabled=true}]',
+            "--",
             "Investigate the failing build",
         ]);
     });
