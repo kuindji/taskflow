@@ -40,6 +40,14 @@ interface TaskflowBridge {
         text?: string;
         defaultName?: string;
     }): Promise<{ success: boolean; error?: string }>;
+    onNotificationClicked(
+        callback: (payload: {
+            id: string;
+            projectId: string;
+            sessionId: string;
+            taskId?: string;
+        }) => void,
+    ): () => void;
 }
 
 declare global {

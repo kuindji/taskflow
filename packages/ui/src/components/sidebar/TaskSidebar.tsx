@@ -192,6 +192,13 @@ export function TaskSidebar() {
     }, [fetchNotifications]);
 
     useEffect(() => {
+        const cleanup = window.taskflow?.onNotificationClicked?.((payload) => {
+            handleNotificationNavigate(payload);
+        });
+        return cleanup;
+    }, []);
+
+    useEffect(() => {
         const cleanup = window.taskflow?.onUpdateStatus((payload) => {
             setUpdateStatus({
                 status: payload.status as "idle" | "checking" | "downloading" | "ready",
@@ -285,7 +292,7 @@ export function TaskSidebar() {
     );
 
     const handleNotificationNavigate = useCallback(
-        (notification: Notification) => {
+        (notification: Pick<Notification, "projectId" | "taskId" | "sessionId">) => {
             const project = projects.find((p) => p.id === notification.projectId);
             if (!project) return;
 

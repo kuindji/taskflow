@@ -5,6 +5,7 @@ import {
     ipcMain,
     Menu,
     nativeImage,
+    Notification,
     screen,
     shell,
     nativeTheme,
@@ -33,6 +34,8 @@ let rendererTrayState: TrayState = null;
 let rendererTrayStateSynced = false;
 let backgroundTrayState: TrayState = null;
 let trayStatePollTimer: ReturnType<typeof setInterval> | null = null;
+let lastNotificationCheck: string | null = null;
+let notificationPollTimer: ReturnType<typeof setInterval> | null = null;
 
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
 
@@ -106,6 +109,77 @@ function stopTrayStatePolling(): void {
     if (!trayStatePollTimer) return;
     clearInterval(trayStatePollTimer);
     trayStatePollTimer = null;
+}
+
+async function checkNewNotifications(): Promise<void> {
+    if (!backendPort) return;
+
+    try {
+        const response = await fetch(`http://127.0.0.1:${backendPort}/api/notifications`, {
+            signal: AbortSignal.timeout(2000),
+        });
+        if (!response.ok) return;
+
+        const { notifications } = (await response.json()) as {
+            notifications: Array<{
+                id: string;
+                projectId: string;
+                sessionId: string;
+                taskId?: string;
+                message: string;
+                read: boolean;
+                createdAt: string;
+            }>;
+        };
+
+        let newestShown = lastNotificationCheck;
+
+        for (const n of notifications) {
+            if (!n.read && (!lastNotificationCheck || n.createdAt > lastNotificationCheck)) {
+                const desktopNotification = new Notification({
+                    title: "Taskflow",
+                    body: n.message,
+                });
+                desktopNotification.on("click", () => {
+                    if (mainWindow) {
+                        if (!mainWindow.isVisible()) mainWindow.show();
+                        mainWindow.focus();
+                        mainWindow.webContents.send("notification-clicked", {
+                            id: n.id,
+                            projectId: n.projectId,
+                            sessionId: n.sessionId,
+                            taskId: n.taskId,
+                        });
+                    }
+                });
+                desktopNotification.show();
+
+                if (!newestShown || n.createdAt > newestShown) {
+                    newestShown = n.createdAt;
+                }
+            }
+        }
+
+        if (newestShown) {
+            lastNotificationCheck = newestShown;
+        }
+    } catch {
+        // Ignore transient failures
+    }
+}
+
+function startNotificationPolling(): void {
+    if (notificationPollTimer) return;
+    lastNotificationCheck = new Date().toISOString();
+    notificationPollTimer = setInterval(() => {
+        void checkNewNotifications();
+    }, 3000);
+}
+
+function stopNotificationPolling(): void {
+    if (!notificationPollTimer) return;
+    clearInterval(notificationPollTimer);
+    notificationPollTimer = null;
 }
 
 async function waitForBackendPort(portFile: string, timeoutMs: number = 10000): Promise<number> {
@@ -784,6 +858,7 @@ void app.whenReady().then(async () => {
         backendPort = await startBackend();
         console.log(`Backend started on port ${backendPort}`);
         startTrayStatePolling();
+        startNotificationPolling();
         await createWindow();
         buildAppMenu();
         setupMenuBarTray();
@@ -816,6 +891,7 @@ app.on("activate", () => {
 app.on("before-quit", (e) => {
     if (quitting) return;
     stopTrayStatePolling();
+    stopNotificationPolling();
     if (windowSavePromise) {
         quitting = true;
         e.preventDefault();

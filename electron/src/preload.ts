@@ -149,4 +149,21 @@ contextBridge.exposeInMainWorld("taskflow", {
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
     saveArtifact: (opts: { path?: string; text?: string; defaultName?: string }) =>
         ipcRenderer.invoke("save-artifact", opts) as Promise<{ success: boolean; error?: string }>,
+    onNotificationClicked: (
+        callback: (payload: {
+            id: string;
+            projectId: string;
+            sessionId: string;
+            taskId?: string;
+        }) => void,
+    ) => {
+        const listener = (
+            _event: Electron.IpcRendererEvent,
+            payload: { id: string; projectId: string; sessionId: string; taskId?: string },
+        ) => callback(payload);
+        ipcRenderer.on("notification-clicked", listener);
+        return () => {
+            ipcRenderer.removeListener("notification-clicked", listener);
+        };
+    },
 });
