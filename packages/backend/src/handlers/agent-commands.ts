@@ -39,6 +39,13 @@ export function registerAgentCommandsHandlers(router: Router): void {
         const projectDir = join(path, ".claude", "commands");
         const userDir = join(homedir(), ".claude", "commands");
 
+        // When projectDir and userDir are the same (e.g. master workspace where
+        // path is $HOME), skip the project scan to avoid duplicate entries.
+        if (projectDir === userDir) {
+            const userCommands = await scanCommands(userDir, "user");
+            return { commands: userCommands };
+        }
+
         const [projectCommands, userCommands] = await Promise.all([
             scanCommands(projectDir, "project"),
             scanCommands(userDir, "user"),
