@@ -1,4 +1,4 @@
-import type { Project, Task, TaskLogEntry, TaskLogEntryType, TaskWorktree } from "@taskflow/shared";
+import type { Project, SessionRef, Task, TaskLogEntry, TaskLogEntryType, TaskWorktree } from "@taskflow/shared";
 import { ARCHIVE_EXPIRY_DAYS } from "@taskflow/shared";
 import {
     appendFile,
@@ -54,6 +54,7 @@ export class TaskStore {
     private config: TaskStoreConfig;
     private taskMutations = new Map<string, Promise<void>>();
     private sessionLogMutations = new Map<string, Promise<void>>();
+    private masterSessions: SessionRef[] = [];
 
     constructor(config: TaskStoreConfig) {
         this.config = config;
@@ -98,6 +99,20 @@ export class TaskStore {
     async cleanupAllSessionLogs(): Promise<void> {
         await rm(this.config.sessionLogsDir, { recursive: true, force: true });
         await mkdir(this.config.sessionLogsDir, { recursive: true });
+    }
+
+    // --- Master Sessions ---
+
+    addMasterSession(session: SessionRef): void {
+        this.masterSessions.push(session);
+    }
+
+    removeMasterSession(sessionId: string): void {
+        this.masterSessions = this.masterSessions.filter((s) => s.id !== sessionId);
+    }
+
+    getMasterSessions(): SessionRef[] {
+        return [...this.masterSessions];
     }
 
     // --- Projects ---
