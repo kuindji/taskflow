@@ -150,6 +150,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         let task: Awaited<ReturnType<typeof taskStore.getTask>> | null = null;
         let project: Awaited<ReturnType<typeof taskStore.getProject>> | null = null;
         let cwd: string;
+        let resolvedProjectId = "";
 
         if (master) {
             cwd = homedir();
@@ -164,6 +165,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                   : null;
             if (!project) throw new Error(`Project not found: ${task?.projectId ?? projectId}`);
 
+            resolvedProjectId = project.id;
             cwd = task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path;
         }
 
@@ -242,7 +244,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             trayStateTracker.registerSession(sessionId, type);
         }
 
-        const ownerId = master ? "master" : (task?.id ?? project!.id);
+        const ownerId = master ? "master" : (task?.id ?? resolvedProjectId);
 
         ptyManager.spawn({
             id: sessionId,
@@ -277,7 +279,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     });
                     void removeSessionFromOwner(sessionId, master ? { master: true } : {
                         taskId: task?.id,
-                        projectId: project!.id,
+                        projectId: resolvedProjectId,
                     });
                 }
                 onSessionExited?.(sessionId, exitCode);
@@ -310,10 +312,10 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     });
                 }
             } else {
-                await taskStore.updateProject(project!.id, (currentProject) => ({
+                await taskStore.updateProject(resolvedProjectId, (currentProject) => ({
                     sessions: [...currentProject.sessions, sessionRef],
                 }));
-                const updatedProject = await taskStore.getProject(project!.id);
+                const updatedProject = await taskStore.getProject(resolvedProjectId);
                 if (updatedProject) {
                     broadcast({
                         type: MSG.PROJECT_UPDATED,

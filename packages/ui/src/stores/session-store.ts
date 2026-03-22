@@ -81,7 +81,7 @@ function getDefaultSessionLabel(type: Tab["type"]): string {
     return `${type} session`;
 }
 
-function normalizeSessionLabel(type: SessionRef["type"], label?: string): string {
+function normalizeSessionLabel(type: Tab["type"], label?: string): string {
     if (!label || label === `${type} session` || (type === "editor" && label === "Editor")) {
         return getDefaultSessionLabel(type);
     }
