@@ -188,15 +188,9 @@ export function TaskSidebar() {
     }, []);
 
     useEffect(() => {
+        if (!connected) return;
         void fetchNotifications();
-    }, [fetchNotifications]);
-
-    useEffect(() => {
-        const cleanup = window.taskflow?.onNotificationClicked?.((payload) => {
-            handleNotificationNavigate(payload);
-        });
-        return cleanup;
-    }, []);
+    }, [connected, fetchNotifications]);
 
     useEffect(() => {
         const cleanup = window.taskflow?.onUpdateStatus((payload) => {
@@ -319,6 +313,13 @@ export function TaskSidebar() {
         },
         [projects, tasks, setFocusedPanel, setActiveProject, setActiveTask],
     );
+
+    useEffect(() => {
+        const cleanup = window.taskflow?.onNotificationClicked?.((payload) => {
+            handleNotificationNavigate(payload);
+        });
+        return cleanup;
+    }, [handleNotificationNavigate]);
 
     return (
         <>
