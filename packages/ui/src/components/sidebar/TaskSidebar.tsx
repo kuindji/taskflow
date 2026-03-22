@@ -78,6 +78,7 @@ export function TaskSidebar() {
     }>({ status: "idle" });
     const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
     const diffStatsByProject = useDiffStore((s) => s.statsByProject);
+    const behindByProject = useDiffStore((s) => s.behindByProject);
     const notifications = useNotificationStore((s) => s.notifications);
     const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
     const [notificationPopoverOpen, setNotificationPopoverOpen] = useState(false);
@@ -304,7 +305,9 @@ export function TaskSidebar() {
                     );
                     if (sessionExists) {
                         const workspaceKey = getTaskWorkspaceKey(task.id);
-                        useSessionStore.getState().setActiveTab(workspaceKey, notification.sessionId);
+                        useSessionStore
+                            .getState()
+                            .setActiveTab(workspaceKey, notification.sessionId);
                     }
                 }
             } else {
@@ -399,6 +402,8 @@ export function TaskSidebar() {
                                 isActive={!activeTaskId && activeProjectId === project.id}
                                 diffStats={diffStatsByProject[project.id]}
                                 diffStatsByTask={diffStatsByProject}
+                                behind={behindByProject[project.id] ?? 0}
+                                behindByTask={behindByProject}
                                 keyBadgeNumber={projectBadgeNumber}
                                 taskKeyBadges={taskKeyBadges}
                                 onProjectClick={handleProjectClick}
@@ -426,10 +431,10 @@ export function TaskSidebar() {
                                 aria-label="Notifications"
                                 tooltip="Notifications"
                                 tooltipSide="right"
-                                className="relative text-muted-foreground [-webkit-app-region:no-drag]">
+                                className="text-muted-foreground relative [-webkit-app-region:no-drag]">
                                 <Bell className="h-3.5 w-3.5" />
                                 {unreadCount > 0 && (
-                                    <span className="absolute -top-0.5 -right-0.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-accent px-0.5 text-[8px] font-medium text-accent-foreground">
+                                    <span className="bg-accent text-accent-foreground absolute -top-0.5 -right-0.5 flex h-3 min-w-3 items-center justify-center rounded-full px-0.5 text-[8px] font-medium">
                                         {unreadCount}
                                     </span>
                                 )}

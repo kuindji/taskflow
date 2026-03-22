@@ -35,6 +35,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const [hasStagedChanges, setHasStagedChanges] = useState(false);
     const [includeUnstaged, setIncludeUnstaged] = useState(true);
     const [ahead, setAhead] = useState<number | null>(null);
+    const [behind, setBehind] = useState(0);
 
     const createSession = useSessionStore((s) => s.createSession);
 
@@ -49,6 +50,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         setHasStagedChanges(false);
         setIncludeUnstaged(true);
         setAhead(null);
+        setBehind(0);
     }, []);
 
     const handleOpenChange = useCallback(
@@ -69,6 +71,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                 setHasChanges(changed);
                 setHasStagedChanges(res.status.stagedFiles.length > 0);
                 setAhead(res.status.ahead);
+                setBehind(res.status.behind);
                 // In push-only mode, push is always on
                 if (!changed) setPush(true);
                 // In PR-only mode, enable create PR by default
@@ -322,6 +325,13 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                 Create PR
                             </Label>
                         </div>
+                    )}
+
+                    {behind > 0 && (
+                        <p className="text-info text-sm">
+                            There {behind === 1 ? "is" : "are"} {behind} remote{" "}
+                            {behind === 1 ? "commit" : "commits"}. Pull before committing.
+                        </p>
                     )}
 
                     {error && <p className="text-destructive text-sm">{error}</p>}

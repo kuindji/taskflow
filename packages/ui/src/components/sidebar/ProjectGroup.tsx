@@ -21,6 +21,8 @@ interface ProjectGroupProps {
     isActive: boolean;
     diffStats?: { additions: number; deletions: number } | null;
     diffStatsByTask?: Record<string, { additions: number; deletions: number } | null>;
+    behind?: number;
+    behindByTask?: Record<string, number>;
     keyBadgeNumber?: number;
     taskKeyBadges?: Record<string, number>;
     onProjectClick: (projectId: string) => void;
@@ -38,6 +40,8 @@ export function ProjectGroup({
     isActive,
     diffStats,
     diffStatsByTask,
+    behind = 0,
+    behindByTask,
     keyBadgeNumber,
     taskKeyBadges,
     onProjectClick,
@@ -209,14 +213,25 @@ export function ProjectGroup({
                         )}
                     </button>
                     <div className="relative mr-1.5 flex shrink-0 items-center">
-                        {keyBadgeNumber == null && !locationInvalid && diffStats && (
-                            <Badge
-                                variant="outline"
-                                className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0">
-                                <span className="text-success">+{diffStats.additions}</span>
-                                <span className="text-destructive">-{diffStats.deletions}</span>
-                            </Badge>
-                        )}
+                        {keyBadgeNumber == null &&
+                            !locationInvalid &&
+                            (diffStats || behind > 0) && (
+                                <Badge
+                                    variant="outline"
+                                    className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0">
+                                    {behind > 0 && <span className="text-info">↓{behind}</span>}
+                                    {diffStats && (
+                                        <>
+                                            <span className="text-success">
+                                                +{diffStats.additions}
+                                            </span>
+                                            <span className="text-destructive">
+                                                -{diffStats.deletions}
+                                            </span>
+                                        </>
+                                    )}
+                                </Badge>
+                            )}
                         {keyBadgeNumber != null ? (
                             <KeyBadge number={keyBadgeNumber} />
                         ) : (
@@ -251,6 +266,7 @@ export function ProjectGroup({
                                         archived={archived}
                                         compact={compact}
                                         diffStats={diffStatsByTask?.[task.id]}
+                                        behind={behindByTask?.[task.id] ?? 0}
                                         isSubtask={false}
                                         isExpanded={hasSubtasks && isExpanded}
                                         keyBadgeNumber={taskKeyBadges?.[task.id]}
@@ -267,6 +283,7 @@ export function ProjectGroup({
                                                         archived={archived}
                                                         compact={compact}
                                                         diffStats={diffStatsByTask?.[subtask.id]}
+                                                        behind={behindByTask?.[subtask.id] ?? 0}
                                                         isSubtask={true}
                                                     />
                                                 </Fragment>

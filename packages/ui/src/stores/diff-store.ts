@@ -14,6 +14,8 @@ interface DiffStore {
     commitDisabledByProject: Record<string, boolean>;
     hasChangesByProject: Record<string, boolean>;
     branchByProject: Record<string, string | null>;
+    aheadByProject: Record<string, number>;
+    behindByProject: Record<string, number>;
 }
 
 export const useDiffStore = create<DiffStore>(() => ({
@@ -22,6 +24,8 @@ export const useDiffStore = create<DiffStore>(() => ({
     commitDisabledByProject: {},
     hasChangesByProject: {},
     branchByProject: {},
+    aheadByProject: {},
+    behindByProject: {},
 }));
 
 // Module-level listener — runs once when the module is imported
@@ -36,12 +40,16 @@ const _unsubChangeStats = onEvent(MSG.GIT_CHANGE_STATS, (payload) => {
             const { [targetId]: _c, ...restCommit } = state.commitDisabledByProject;
             const { [targetId]: _h, ...restChanges } = state.hasChangesByProject;
             const { [targetId]: _b, ...restBranch } = state.branchByProject;
+            const { [targetId]: _a, ...restAhead } = state.aheadByProject;
+            const { [targetId]: _bh, ...restBehind } = state.behindByProject;
             return {
                 statsByProject: restStats,
                 diffDisabledByProject: restDiff,
                 commitDisabledByProject: restCommit,
                 hasChangesByProject: restChanges,
                 branchByProject: restBranch,
+                aheadByProject: restAhead,
+                behindByProject: restBehind,
             };
         });
         return;
@@ -64,6 +72,8 @@ const _unsubChangeStats = onEvent(MSG.GIT_CHANGE_STATS, (payload) => {
         },
         hasChangesByProject: { ...state.hasChangesByProject, [targetId]: stats.hasChanges },
         branchByProject: { ...state.branchByProject, [targetId]: stats.branch },
+        aheadByProject: { ...state.aheadByProject, [targetId]: stats.ahead },
+        behindByProject: { ...state.behindByProject, [targetId]: stats.behind },
     }));
 });
 

@@ -45,6 +45,7 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     archived?: boolean;
     compact?: boolean;
     diffStats?: { additions: number; deletions: number } | null;
+    behind?: number;
     keyBadgeNumber?: number;
     isSubtask?: boolean;
     isExpanded?: boolean;
@@ -58,6 +59,7 @@ export function TaskCard({
     archived,
     compact,
     diffStats,
+    behind = 0,
     keyBadgeNumber,
     isSubtask,
     isExpanded,
@@ -203,6 +205,7 @@ export function TaskCard({
                                                 #{task.worktree.pr.number}
                                             </span>
                                         )}
+                                        {behind > 0 && <span className="text-info">↓{behind}</span>}
                                         {diffStats && (
                                             <>
                                                 <span className="text-success">

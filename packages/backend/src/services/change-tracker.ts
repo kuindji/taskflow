@@ -6,6 +6,7 @@ import { join } from "path";
 
 const POLL_INTERVAL_NORMAL = 3_000;
 const POLL_INTERVAL_LARGE = 10_000;
+const FETCH_INTERVAL = 60_000;
 const LARGE_CHANGESET_THRESHOLD = 200;
 const MAX_UNTRACKED_FILE_SIZE = 1_048_576; // 1MB
 const FILE_CHANGE_DEBOUNCE = 300;
@@ -26,6 +27,7 @@ function statsEqual(a: ChangeStats | null, b: ChangeStats | null): boolean {
         a.deletions === b.deletions &&
         a.fileCount === b.fileCount &&
         a.ahead === b.ahead &&
+        a.behind === b.behind &&
         a.hasChanges === b.hasChanges &&
         a.branch === b.branch &&
         a.diffDisabled === b.diffDisabled &&
@@ -36,7 +38,9 @@ function statsEqual(a: ChangeStats | null, b: ChangeStats | null): boolean {
 export class ChangeTracker {
     private targets = new Map<string, TrackedTarget>();
     private pollTimer: ReturnType<typeof setTimeout> | null = null;
+    private fetchTimer: ReturnType<typeof setTimeout> | null = null;
     private polling = false;
+    private fetching = false;
     private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     constructor(
@@ -107,12 +111,17 @@ export class ChangeTracker {
     private startPolling(): void {
         if (this.pollTimer) return;
         this.schedulePoll();
+        this.scheduleFetch();
     }
 
     private stopPolling(): void {
         if (this.pollTimer) {
             clearTimeout(this.pollTimer);
             this.pollTimer = null;
+        }
+        if (this.fetchTimer) {
+            clearTimeout(this.fetchTimer);
+            this.fetchTimer = null;
         }
         for (const timer of this.debounceTimers.values()) {
             clearTimeout(timer);
@@ -147,6 +156,31 @@ export class ChangeTracker {
             }
         } finally {
             this.polling = false;
+        }
+    }
+
+    private scheduleFetch(): void {
+        if (this.fetchTimer) return;
+        this.fetchTimer = setTimeout(() => {
+            this.fetchTimer = null;
+            void this.fetchAll().finally(() => {
+                if (this.targets.size > 0) this.scheduleFetch();
+            });
+        }, FETCH_INTERVAL);
+    }
+
+    private async fetchAll(): Promise<void> {
+        if (this.fetching) return;
+        this.fetching = true;
+        try {
+            for (const target of this.targets.values()) {
+                await this.git.fetch(target.path);
+                target.invalidated = true;
+            }
+            // Re-poll all targets after fetch to pick up behind count changes
+            await this.pollAll();
+        } finally {
+            this.fetching = false;
         }
     }
 
@@ -204,6 +238,7 @@ export class ChangeTracker {
             fileCount,
             branch: status.branch,
             ahead: status.ahead,
+            behind: status.behind,
             hasChanges,
             diffDisabled: !hasChanges,
             commitDisabled: !hasChanges && status.ahead === 0,
