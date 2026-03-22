@@ -91,10 +91,7 @@ function NotificationPopover({
                                 key={notification.id}
                                 type="button"
                                 onClick={() => handleItemClick(notification)}
-                                className={cn(
-                                    "hover:bg-accent/50 flex w-full items-start gap-2 px-3 py-2 text-left transition-colors [-webkit-app-region:no-drag]",
-                                    !notification.read && "bg-accent/20",
-                                )}>
+                                className="flex w-full items-start gap-2 px-3 py-2 text-left [-webkit-app-region:no-drag]">
                                 <span
                                     className={cn(
                                         "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
