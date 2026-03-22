@@ -147,7 +147,9 @@ async function main() {
             spawnSession: async (opts) => {
                 const owner = opts.owner.taskId
                     ? { taskId: opts.owner.taskId }
-                    : { projectId: opts.owner.projectId };
+                    : opts.owner.master
+                      ? { master: true as const }
+                      : { projectId: opts.owner.projectId };
                 return sessionLifecycle.createSession({
                     owner,
                     type: opts.sessionType,
@@ -175,7 +177,7 @@ async function main() {
                     const task = await store.getTask(owner.taskId);
                     return task?.description ?? "";
                 }
-                // If not task-scoped, must be project-scoped (FlowOwner is a discriminated union)
+                if (owner.master) return "Master workspace";
                 const projectId = owner.projectId;
                 if (!projectId) return "";
                 const project = await store.getProject(projectId);
