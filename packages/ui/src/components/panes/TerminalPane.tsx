@@ -27,7 +27,11 @@ import type { IBufferLine, ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import { middleTruncate } from "@/lib/middle-truncate";
 import { TimeBudgetedWriter } from "@/lib/time-budgeted-writer";
-import { captureTerminalViewport, getRestoreViewportLine } from "@/lib/terminal-viewport";
+import {
+    captureTerminalViewport,
+    getRestoreViewportLine,
+    isTerminalViewportAtBottom,
+} from "@/lib/terminal-viewport";
 import "@xterm/xterm/css/xterm.css";
 
 const SHELL_UNSAFE = /[^a-zA-Z0-9_./:@=+-]/;
@@ -583,6 +587,41 @@ function getOrCreateTerminal(
     // Unicode support loaded after renderer is ready (auto-activates '15-graphemes')
     term.loadAddon(new UnicodeGraphemesAddon());
     const writer = new TimeBudgetedWriter(term);
+    let shouldRestoreBottomAfterWrite = false;
+
+    writer.onBeforeWrite = () => {
+        // Only capture on the first frame of a burst — don't overwrite if already true.
+        // Intermediate frames may see a corrupted viewport state due to xterm's deferred
+        // syncScrollArea, so we preserve the initial "was at bottom" decision.
+        if (!shouldRestoreBottomAfterWrite) {
+            shouldRestoreBottomAfterWrite =
+                writer.visible &&
+                element.isConnected &&
+                isTerminalViewportAtBottom(term.buffer.active);
+        }
+    };
+
+    writer.onDidWrite = (bufferDrained: boolean) => {
+        // Intermediate frames: do nothing — scrollToBottom() would just get undone
+        // by xterm's deferred syncScrollArea → _innerRefresh chain anyway.
+        if (!bufferDrained) return;
+
+        const shouldRestore = shouldRestoreBottomAfterWrite;
+        shouldRestoreBottomAfterWrite = false;
+        if (!shouldRestore || !writer.visible || !element.isConnected) return;
+
+        term.scrollToBottom();
+
+        // Backup: xterm's deferred syncScrollArea (rAF) → _innerRefresh (rAF) chain
+        // can re-set isUserScrolling=true after our scrollToBottom(). Double-rAF ensures
+        // we fire after that chain settles.
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (!writer.visible || !element.isConnected) return;
+                term.scrollToBottom();
+            });
+        });
+    };
 
     const titleDisposable = term.onTitleChange((newTitle) => {
         if (!newTitle) return;
@@ -730,10 +769,6 @@ function TerminalPane({ taskId, projectId, master, sessionId, visible }: Termina
     const resizeTerminal = useSessionStore((s) => s.resizeTerminal);
     const focusedPanel = useUIStore((s) => s.focusedPanel);
 
-    useEffect(() => {
-        visibleRef.current = visible;
-    }, [visible]);
-
     // Stable callback for sendInput so we can use it in the data handler
     const sendInputRef = useRef(sendInput);
     sendInputRef.current = sendInput;
@@ -818,6 +853,7 @@ function TerminalPane({ taskId, projectId, master, sessionId, visible }: Termina
 
         const cached = getOrCreateTerminal(sessionId, taskId, projectId, master);
         const { term, fit, element } = cached;
+        cached.writer.visible = visible;
 
         termRef.current = term;
         fitRef.current = fit;
@@ -898,6 +934,14 @@ function TerminalPane({ taskId, projectId, master, sessionId, visible }: Termina
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- terminal setup should not re-run on visibility change
     }, [focusedPanel, projectId, scheduleFit, scheduleResizeObserverFit, sessionId, taskId]);
+
+    useEffect(() => {
+        visibleRef.current = visible;
+        const cached = terminalCache.get(sessionId);
+        if (cached) {
+            cached.writer.visible = visible;
+        }
+    }, [sessionId, visible]);
 
     useEffect(() => {
         if (!visible || !termRef.current || !fitRef.current) return;

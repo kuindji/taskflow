@@ -254,34 +254,39 @@ async function main() {
             notificationStore,
             broadcast: server.broadcast,
         });
+        const generateScheduleName = async (prompt: string): Promise<string> => {
+            try {
+                const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = process.env;
+                const aiPrompt = `Generate a concise schedule name (3-7 words) for this scheduled task prompt. Output ONLY the name, nothing else. No quotes, no punctuation at the end.\n\nPrompt: ${prompt}`;
+                const proc = Bun.spawn(["claude", "-p", "--model", "haiku"], {
+                    stdin: "pipe",
+                    stdout: "pipe",
+                    stderr: "pipe",
+                    env: { ...cleanEnv, PATH: buildShellPath() },
+                });
+                void proc.stdin.write(aiPrompt);
+                void proc.stdin.end();
+                const output = await new Response(proc.stdout).text();
+                const exitCode = await proc.exited;
+                if (exitCode === 0 && output.trim()) {
+                    return output.trim().replace(/^["']|["']$/g, "");
+                }
+            } catch {
+                // Fall through to fallback
+            }
+            return prompt.slice(0, 50).trim() || "Unnamed schedule";
+        };
+
         registerScheduleHandlers({
             router,
             scheduleStore,
             schedulerService,
             flowStore,
-            generateName: async (prompt) => {
-                try {
-                    const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = process.env;
-                    const aiPrompt = `Generate a concise schedule name (3-7 words) for this scheduled task prompt. Output ONLY the name, nothing else. No quotes, no punctuation at the end.\n\nPrompt: ${prompt}`;
-                    const proc = Bun.spawn(["claude", "-p", "--model", "haiku"], {
-                        stdin: "pipe",
-                        stdout: "pipe",
-                        stderr: "pipe",
-                        env: { ...cleanEnv, PATH: buildShellPath() },
-                    });
-                    void proc.stdin.write(aiPrompt);
-                    void proc.stdin.end();
-                    const output = await new Response(proc.stdout).text();
-                    const exitCode = await proc.exited;
-                    if (exitCode === 0 && output.trim()) {
-                        return output.trim().replace(/^["']|["']$/g, "");
-                    }
-                } catch {
-                    // Fall through to fallback
-                }
-                return prompt.slice(0, 50).trim() || "Unnamed schedule";
-            },
+            generateName: generateScheduleName,
         });
+
+        const runtimes = await detectRuntimes();
+
         registerApiRoutes({
             apiRouter,
             taskStore: store,
@@ -300,6 +305,12 @@ async function main() {
             schedulerService,
             trayStateTracker,
             notificationStore,
+            scheduleStore,
+            shells,
+            systemShellPath,
+            runtimes,
+            editors,
+            generateScheduleName,
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {
@@ -308,7 +319,6 @@ async function main() {
             return { success: true };
         });
 
-        const runtimes = await detectRuntimes();
         router.register(MSG.SYSTEM_INFO, async () => ({ editors, homedir: homedir() }));
         router.register(MSG.SHELLS_LIST, async () => ({
             shells,
