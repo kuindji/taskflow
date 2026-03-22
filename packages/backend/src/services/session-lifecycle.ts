@@ -7,12 +7,14 @@ import { ensureCursorRulesFile } from "./cursor-rules";
 import { ensureGeminiSystemFile } from "./gemini-system";
 import { getEditorById } from "./editor-detector";
 import type { TrayStateTracker } from "./tray-state-tracker";
+import { homedir } from "os";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
 
 interface SessionOwner {
     taskId?: string;
     projectId?: string;
+    master?: boolean;
 }
 
 interface CreateSessionOpts {
@@ -103,12 +105,24 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         const archivedOwner = (await taskStore.listArchived()).find((task) =>
             task.sessions.some((session) => session.id === sessionId),
         );
-        if (!archivedOwner) return;
+        if (archivedOwner) {
+            await taskStore.updateArchived(archivedOwner.id, (task) => ({
+                sessions: task.sessions.filter((session) => session.id !== sessionId),
+            }));
+            await taskStore.deleteSessionHistory(archivedOwner.id, sessionId);
+            return;
+        }
 
-        await taskStore.updateArchived(archivedOwner.id, (task) => ({
-            sessions: task.sessions.filter((session) => session.id !== sessionId),
-        }));
-        await taskStore.deleteSessionHistory(archivedOwner.id, sessionId);
+        // Check master sessions
+        const masterSessions = taskStore.getMasterSessions();
+        if (masterSessions.some((s) => s.id === sessionId)) {
+            taskStore.removeMasterSession(sessionId);
+            await taskStore.deleteSessionHistory("master", sessionId);
+            broadcast({
+                type: MSG.MASTER_SESSIONS_LIST,
+                payload: { sessions: taskStore.getMasterSessions() },
+            });
+        }
     }
 
     async function createSession(opts: CreateSessionOpts): Promise<string> {
@@ -127,24 +141,31 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             rows,
             onSessionExited,
         } = opts;
-        const { taskId, projectId } = owner;
+        const { taskId, projectId, master } = owner;
 
-        if ((taskId ? 1 : 0) + (projectId ? 1 : 0) !== 1) {
-            throw new Error("Exactly one of taskId or projectId is required");
+        if ((taskId ? 1 : 0) + (projectId ? 1 : 0) + (master ? 1 : 0) !== 1) {
+            throw new Error("Exactly one of taskId, projectId, or master is required");
         }
 
-        const task = taskId ? await taskStore.getTask(taskId) : null;
-        if (taskId && !task) throw new Error(`Task not found: ${taskId}`);
+        let task: Awaited<ReturnType<typeof taskStore.getTask>> | null = null;
+        let project: Awaited<ReturnType<typeof taskStore.getProject>> | null = null;
+        let cwd: string;
 
-        const project = task
-            ? await taskStore.getProject(task.projectId)
-            : projectId
-              ? await taskStore.getProject(projectId)
-              : null;
-        if (!project) throw new Error(`Project not found: ${task?.projectId ?? projectId}`);
+        if (master) {
+            cwd = homedir();
+        } else {
+            task = taskId ? await taskStore.getTask(taskId) : null;
+            if (taskId && !task) throw new Error(`Task not found: ${taskId}`);
 
-        const cwd =
-            task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path;
+            project = task
+                ? await taskStore.getProject(task.projectId)
+                : projectId
+                  ? await taskStore.getProject(projectId)
+                  : null;
+            if (!project) throw new Error(`Project not found: ${task?.projectId ?? projectId}`);
+
+            cwd = task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path;
+        }
 
         let command: string;
         const args: string[] = [];
@@ -178,7 +199,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             command = shell;
         } else {
             const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
-            if (type === "cursor" && systemPrompt) {
+            if (type === "cursor" && !master && systemPrompt) {
                 await ensureCursorRulesFile(cwd, systemPrompt);
             }
             if (type === "gemini") {
@@ -221,6 +242,8 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             trayStateTracker.registerSession(sessionId, type);
         }
 
+        const ownerId = master ? "master" : (task?.id ?? project!.id);
+
         ptyManager.spawn({
             id: sessionId,
             command,
@@ -231,7 +254,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             rows,
             onData: (data, sequence) => {
                 void taskStore.appendSessionOutput(
-                    task?.id ?? project.id,
+                    ownerId,
                     sessionId,
                     sequence,
                     data,
@@ -252,9 +275,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                         type: MSG.SESSION_EXITED,
                         payload: { sessionId, exitCode },
                     });
-                    void removeSessionFromOwner(sessionId, {
+                    void removeSessionFromOwner(sessionId, master ? { master: true } : {
                         taskId: task?.id,
-                        projectId: project.id,
+                        projectId: project!.id,
                     });
                 }
                 onSessionExited?.(sessionId, exitCode);
@@ -269,7 +292,13 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 createdAt: new Date().toISOString(),
                 instance: config.instanceId,
             };
-            if (task) {
+            if (master) {
+                taskStore.addMasterSession(sessionRef);
+                broadcast({
+                    type: MSG.MASTER_SESSIONS_LIST,
+                    payload: { sessions: taskStore.getMasterSessions() },
+                });
+            } else if (task) {
                 await taskStore.updateTask(task.id, (currentTask) => ({
                     sessions: [...currentTask.sessions, sessionRef],
                 }));
@@ -281,10 +310,10 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     });
                 }
             } else {
-                await taskStore.updateProject(project.id, (currentProject) => ({
+                await taskStore.updateProject(project!.id, (currentProject) => ({
                     sessions: [...currentProject.sessions, sessionRef],
                 }));
-                const updatedProject = await taskStore.getProject(project.id);
+                const updatedProject = await taskStore.getProject(project!.id);
                 if (updatedProject) {
                     broadcast({
                         type: MSG.PROJECT_UPDATED,
