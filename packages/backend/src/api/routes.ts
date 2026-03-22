@@ -6,6 +6,7 @@ import type { FlowStore } from "../services/flow-store";
 import type { FlowRunner } from "../services/flow-runner";
 import type { GitService } from "../services/git-service";
 import type { ChangeTracker } from "../services/change-tracker";
+import type { TrayStateTracker } from "../services/tray-state-tracker";
 import type {
     AgentAvailability,
     AgentType,
@@ -34,6 +35,7 @@ interface ApiRouteDeps {
     agents: AgentAvailability[];
     sessionLifecycle: { createSession: (opts: CreateSessionOpts) => Promise<string> };
     schedulerService: { handleComplete: (sessionId: string) => Promise<void> };
+    trayStateTracker: TrayStateTracker;
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -62,6 +64,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         agents,
         sessionLifecycle,
         schedulerService,
+        trayStateTracker,
     } = deps;
     const allowedSessionStatuses = new Set<SessionStatus>(["working", "attention", "initializing"]);
 
@@ -364,9 +367,11 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse(`Session not found: ${params.sessionId}`, 404);
         }
 
+        const nextStatus = status as SessionStatus;
+        trayStateTracker.setSessionStatus(params.sessionId, nextStatus);
         broadcast({
             type: MSG.SESSION_STATUS,
-            payload: { sessionId: params.sessionId, status },
+            payload: { sessionId: params.sessionId, status: nextStatus },
         });
 
         return jsonResponse({ success: true });
@@ -385,6 +390,10 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
     apiRouter.register("GET", "/api/settings", async () => {
         return jsonResponse(await settingsStore.get());
+    });
+
+    apiRouter.register("GET", "/api/tray-state", async () => {
+        return jsonResponse({ status: trayStateTracker.getAggregateState() });
     });
 
     apiRouter.register("PATCH", "/api/settings", async (req) => {

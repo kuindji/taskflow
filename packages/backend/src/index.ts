@@ -34,6 +34,7 @@ import { ScheduleStore } from "./services/schedule-store";
 import { SchedulerService, SYSTEM_PROMPT_ADDON } from "./services/scheduler-service";
 import { registerScheduleHandlers } from "./handlers/schedule";
 import { buildShellPath } from "./services/shell-path";
+import { TrayStateTracker } from "./services/tray-state-tracker";
 import { writeFile } from "fs/promises";
 
 async function main() {
@@ -61,6 +62,7 @@ async function main() {
         const gitService = new GitService();
         const fileWatcher = new FileWatcher();
         const settingsStore = new SettingsStore(config.settingsFile);
+        const trayStateTracker = new TrayStateTracker();
 
         const shells = await detectShells();
         const systemShellPath = resolveSystemShellPath(shells);
@@ -79,6 +81,7 @@ async function main() {
             broadcast: server.broadcast,
             getPort: () => serverPort,
             detectedEditors: editors,
+            trayStateTracker,
         });
 
         const scheduleStore = new ScheduleStore(config.schedulesFile);
@@ -264,6 +267,7 @@ async function main() {
             agents,
             sessionLifecycle,
             schedulerService,
+            trayStateTracker,
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {

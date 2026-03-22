@@ -662,11 +662,9 @@ if (window.taskflow?.onWindowFocusChanged) {
 
 // --- Tray icon state aggregation ---
 
-let lastTrayState: string | null = null;
+let lastTrayState: string | null | undefined = undefined;
 
-const _unsubTrayState = useSessionStore.subscribe((state, prevState) => {
-    if (state.sessionStatus === prevState.sessionStatus) return;
-
+function syncTrayState(state: Pick<SessionStore, "sessionStatus">): void {
     let aggregate: string | null = null;
     let hasWorking = false;
 
@@ -684,7 +682,14 @@ const _unsubTrayState = useSessionStore.subscribe((state, prevState) => {
         lastTrayState = aggregate;
         window.taskflow?.sendTrayState(aggregate);
     }
+}
+
+const _unsubTrayState = useSessionStore.subscribe((state, prevState) => {
+    if (state.sessionStatus === prevState.sessionStatus) return;
+    syncTrayState(state);
 });
+
+syncTrayState(useSessionStore.getState());
 
 if (import.meta.hot) {
     import.meta.hot.dispose(() => {

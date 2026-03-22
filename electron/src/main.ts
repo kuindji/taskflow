@@ -19,6 +19,8 @@ import { access, copyFile, readFile, rm, writeFile } from "fs/promises";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 
+type TrayState = "working" | "attention" | null;
+
 let mainWindow: BrowserWindow | null = null;
 let menuBarTray: Tray | null = null;
 let backendProcess: ChildProcess | null = null;
@@ -27,7 +29,10 @@ let backendPortFile: string | null = null;
 let windowSavePromise: Promise<Response | undefined> | null = null;
 let quitting = false;
 let backendStderrBuffer = "";
-let currentTrayState: string | null = null;
+let rendererTrayState: TrayState = null;
+let rendererTrayStateSynced = false;
+let backgroundTrayState: TrayState = null;
+let trayStatePollTimer: ReturnType<typeof setInterval> | null = null;
 
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
 
@@ -64,6 +69,43 @@ function getMenuBarIconPath(): string {
 
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function refreshBackgroundTrayState(): Promise<void> {
+    if (!backendPort) return;
+
+    try {
+        const response = await fetch(`http://127.0.0.1:${backendPort}/api/tray-state`, {
+            signal: AbortSignal.timeout(1000),
+        });
+        if (!response.ok) return;
+
+        const payload = (await response.json()) as { status?: unknown };
+        const nextState: TrayState =
+            payload.status === "working" || payload.status === "attention" ? payload.status : null;
+        if (nextState === backgroundTrayState) return;
+
+        backgroundTrayState = nextState;
+        if (!mainWindow || !rendererTrayStateSynced) {
+            updateTrayIcon();
+        }
+    } catch {
+        // Ignore transient backend polling failures; the next poll will resync.
+    }
+}
+
+function startTrayStatePolling(): void {
+    if (trayStatePollTimer || !backendPort) return;
+    void refreshBackgroundTrayState();
+    trayStatePollTimer = setInterval(() => {
+        void refreshBackgroundTrayState();
+    }, 1000);
+}
+
+function stopTrayStatePolling(): void {
+    if (!trayStatePollTimer) return;
+    clearInterval(trayStatePollTimer);
+    trayStatePollTimer = null;
 }
 
 async function waitForBackendPort(portFile: string, timeoutMs: number = 10000): Promise<number> {
@@ -199,6 +241,7 @@ async function createWindow() {
     };
 
     mainWindow = new BrowserWindow(windowOptions);
+    rendererTrayStateSynced = false;
 
     mainWindow.webContents.on("will-attach-webview", (_event, webPreferences) => {
         webPreferences.nodeIntegration = false;
@@ -269,6 +312,9 @@ async function createWindow() {
 
     mainWindow.on("closed", () => {
         mainWindow = null;
+        rendererTrayStateSynced = false;
+        void refreshBackgroundTrayState();
+        updateTrayIcon();
     });
 }
 
@@ -348,6 +394,7 @@ function setupMenuBarTray() {
     menuBarTray = new Tray(icon);
     menuBarTray.setToolTip(getMenuBarTooltip());
     menuBarTray.setContextMenu(contextMenu);
+    updateTrayIcon();
 }
 
 function getMenuBarIcon2xPath(): string {
@@ -411,12 +458,15 @@ const TRAY_DOT_WORKING: [number, number, number] = [59, 130, 246];
 function updateTrayIcon() {
     if (!menuBarTray) return;
 
-    if (!currentTrayState) {
+    const effectiveTrayState =
+        mainWindow && rendererTrayStateSynced ? rendererTrayState : backgroundTrayState;
+
+    if (!effectiveTrayState) {
         menuBarTray.setImage(createMenuBarIcon());
         return;
     }
 
-    const color = currentTrayState === "attention" ? TRAY_DOT_ATTENTION : TRAY_DOT_WORKING;
+    const color = effectiveTrayState === "attention" ? TRAY_DOT_ATTENTION : TRAY_DOT_WORKING;
     menuBarTray.setImage(createIconWithDot(color));
 }
 
@@ -450,7 +500,7 @@ function buildAppMenu() {
                     },
                 },
                 {
-                    label: "Flows",
+                    label: "Actions and Flows",
                     click: () => {
                         mainWindow?.webContents.send("open-flows");
                     },
@@ -733,6 +783,7 @@ void app.whenReady().then(async () => {
     try {
         backendPort = await startBackend();
         console.log(`Backend started on port ${backendPort}`);
+        startTrayStatePolling();
         await createWindow();
         buildAppMenu();
         setupMenuBarTray();
@@ -764,6 +815,7 @@ app.on("activate", () => {
 
 app.on("before-quit", (e) => {
     if (quitting) return;
+    stopTrayStatePolling();
     if (windowSavePromise) {
         quitting = true;
         e.preventDefault();
@@ -841,13 +893,14 @@ ipcMain.handle("open-external-url", (_event, url: string) => {
     if (!url.startsWith("https://") && !url.startsWith("http://")) return;
     return shell.openExternal(url);
 });
-ipcMain.on("tray-state-changed", (_event, status: string | null) => {
-    currentTrayState = status;
+ipcMain.on("tray-state-changed", (_event, status: TrayState) => {
+    rendererTrayState = status;
+    rendererTrayStateSynced = true;
     updateTrayIcon();
 });
 
 nativeTheme.on("updated", () => {
-    if (currentTrayState) updateTrayIcon();
+    updateTrayIcon();
 });
 
 ipcMain.on("show-item-in-folder", (_event, filePath: string) => {

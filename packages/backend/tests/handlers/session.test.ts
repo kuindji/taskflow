@@ -10,6 +10,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 import { GitService } from "../../src/services/git-service";
+import { TrayStateTracker } from "../../src/services/tray-state-tracker";
 
 class FakePtyManager {
     private nextId = 0;
@@ -106,6 +107,7 @@ describe("session handlers", () => {
             },
             getPort: () => 0,
             detectedEditors: [],
+            trayStateTracker: new TrayStateTracker(),
         });
         registerSessionHandlers({
             router,

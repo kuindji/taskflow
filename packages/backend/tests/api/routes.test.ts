@@ -17,15 +17,31 @@ class FakePtyManager {
     close(): void {}
 }
 
+class FakeTrayStateTracker {
+    status: "working" | "attention" | null = null;
+    updates: Array<{ sessionId: string; status: "working" | "attention" | "initializing" }> = [];
+
+    setSessionStatus(sessionId: string, status: "working" | "attention" | "initializing"): void {
+        this.updates.push({ sessionId, status });
+        this.status = status === "initializing" ? this.status : status;
+    }
+
+    getAggregateState(): "working" | "attention" | null {
+        return this.status;
+    }
+}
+
 describe("api routes", () => {
     let apiRouter: ApiRouter;
     let events: WsEvent[];
     let tempDir: string;
+    let trayStateTracker: FakeTrayStateTracker;
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-routes-"));
         apiRouter = new ApiRouter();
         events = [];
+        trayStateTracker = new FakeTrayStateTracker();
         registerApiRoutes({
             apiRouter,
             taskStore: {} as never,
@@ -40,6 +56,7 @@ describe("api routes", () => {
             agents: [],
             sessionLifecycle: { createSession: async () => "" },
             schedulerService: { handleComplete: async () => {} },
+            trayStateTracker: trayStateTracker as never,
         });
     });
 
@@ -63,6 +80,7 @@ describe("api routes", () => {
                 payload: { sessionId: "session-1", status: "working" },
             },
         ]);
+        expect(trayStateTracker.updates).toEqual([{ sessionId: "session-1", status: "working" }]);
     });
 
     it("rejects invalid session statuses", async () => {
@@ -76,6 +94,17 @@ describe("api routes", () => {
 
         expect(response?.status).toBe(400);
         expect(events).toHaveLength(0);
+    });
+
+    it("returns the current tray aggregate state", async () => {
+        trayStateTracker.status = "attention";
+
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/tray-state", { method: "GET" }),
+        );
+
+        expect(response?.status).toBe(200);
+        expect(await response?.json()).toEqual({ status: "attention" });
     });
 
     it("broadcasts project-scoped browser tabs", async () => {
@@ -118,6 +147,7 @@ describe("settings routes", () => {
             agents: [],
             sessionLifecycle: { createSession: async () => "" },
             schedulerService: { handleComplete: async () => {} },
+            trayStateTracker: new FakeTrayStateTracker() as never,
         });
     });
 
@@ -187,6 +217,7 @@ describe("flow artifact routes", () => {
             agents: [],
             sessionLifecycle: { createSession: async () => "" },
             schedulerService: { handleComplete: async () => {} },
+            trayStateTracker: new FakeTrayStateTracker() as never,
         });
     });
 

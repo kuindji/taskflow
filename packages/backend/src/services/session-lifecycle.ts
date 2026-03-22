@@ -6,6 +6,7 @@ import { buildAgentLaunchSpec, ensureInternalAgentSkillFile } from "./internal-a
 import { ensureCursorRulesFile } from "./cursor-rules";
 import { ensureGeminiSystemFile } from "./gemini-system";
 import { getEditorById } from "./editor-detector";
+import type { TrayStateTracker } from "./tray-state-tracker";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
 
@@ -42,6 +43,7 @@ interface SessionLifecycleDeps {
     broadcast: (event: WsEvent, opts?: { dropOnBackpressure?: boolean }) => void;
     getPort: () => number;
     detectedEditors: import("@taskflow/shared").EditorInfo[];
+    trayStateTracker: TrayStateTracker;
 }
 
 function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
@@ -55,7 +57,7 @@ function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
 }
 
 function createSessionLifecycle(deps: SessionLifecycleDeps) {
-    const { ptyManager, taskStore, broadcast, getPort, detectedEditors } = deps;
+    const { ptyManager, taskStore, broadcast, getPort, detectedEditors, trayStateTracker } = deps;
 
     async function removeSessionFromOwner(sessionId: string, owner?: SessionOwner): Promise<void> {
         const targetTask = owner?.taskId ? await taskStore.getTask(owner.taskId) : null;
@@ -215,6 +217,10 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             taskflowEnv.GEMINI_SYSTEM_MD = geminiSystemPath;
         }
 
+        if (!opts.internal) {
+            trayStateTracker.registerSession(sessionId, type);
+        }
+
         ptyManager.spawn({
             id: sessionId,
             command,
@@ -230,6 +236,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     sequence,
                     data,
                 );
+                trayStateTracker.markSessionActivity(sessionId);
                 broadcast(
                     {
                         type: MSG.TERMINAL_OUTPUT,
@@ -240,6 +247,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             },
             onExit: (exitCode) => {
                 if (!opts.internal) {
+                    trayStateTracker.clearSession(sessionId);
                     broadcast({
                         type: MSG.SESSION_EXITED,
                         payload: { sessionId, exitCode },
