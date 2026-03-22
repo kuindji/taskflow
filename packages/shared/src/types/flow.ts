@@ -75,8 +75,11 @@ interface FlowArtifact {
     createdAt: string;
 }
 
-// Exactly one of taskId or projectId must be set
-type FlowOwner = { taskId: string; projectId?: never } | { projectId: string; taskId?: never };
+// Exactly one of taskId, projectId, or master must be set
+type FlowOwner =
+    | { taskId: string; projectId?: never; master?: never }
+    | { projectId: string; taskId?: never; master?: never }
+    | { master: true; taskId?: never; projectId?: never };
 
 type FlowRun = FlowOwner & {
     flowId: string;
@@ -90,9 +93,10 @@ type FlowRun = FlowOwner & {
 };
 
 function getFlowRunOwnerId(run: FlowRun): string {
-    const id = run.taskId ?? run.projectId;
-    if (!id) throw new Error("FlowRun must have either taskId or projectId");
-    return id;
+    if (run.taskId) return run.taskId;
+    if (run.projectId) return run.projectId;
+    if (run.master) return "__master__";
+    throw new Error("FlowRun must have taskId, projectId, or master");
 }
 
 // --- Handler payload types ---
@@ -109,6 +113,7 @@ interface FlowActionDeletePayload {
 interface FlowStartPayload {
     taskId?: string;
     projectId?: string;
+    master?: true;
     flowId: string;
     inputValues?: Record<string, string>;
 }
