@@ -40,6 +40,7 @@ function shellQuote(path: string): string {
 interface TerminalPaneProps {
     taskId?: string;
     projectId?: string;
+    master?: boolean;
     sessionId: string;
     visible: boolean;
 }
@@ -100,13 +101,14 @@ useThemeStore.subscribe((state, prevState) => {
 
 // ─── Link handling ───────────────────────────────────────────────────────────
 
-function getWorkspaceKey(taskId?: string, projectId?: string): string | null {
+function getWorkspaceKey(taskId?: string, projectId?: string, master?: boolean): string | null {
     if (taskId) return getTaskWorkspaceKey(taskId);
     if (projectId) return getProjectWorkspaceKey(projectId);
+    if (master) return "master";
     return null;
 }
 
-function getWorkingDir(taskId?: string, projectId?: string): string | null {
+function getWorkingDir(taskId?: string, projectId?: string, master?: boolean): string | null {
     if (taskId) {
         const task = useTaskStore.getState().tasks.find((t) => t.id === taskId);
         if (!task) return null;
@@ -117,6 +119,9 @@ function getWorkingDir(taskId?: string, projectId?: string): string | null {
     if (projectId) {
         const project = useProjectStore.getState().projects.find((p) => p.id === projectId);
         return project?.path ?? null;
+    }
+    if (master) {
+        return null;
     }
     return null;
 }
@@ -160,8 +165,8 @@ function openExternalFile(filePath: string, opts?: { line?: number; col?: number
     }
 }
 
-function createWebLinkHandler(taskId?: string, projectId?: string) {
-    const workspaceKey = getWorkspaceKey(taskId, projectId);
+function createWebLinkHandler(taskId?: string, projectId?: string, master?: boolean) {
+    const workspaceKey = getWorkspaceKey(taskId, projectId, master);
     return (event: MouseEvent, uri: string) => {
         if (event.metaKey || event.ctrlKey) {
             openExternalUrl(uri);
@@ -274,8 +279,9 @@ function createFilePathLinkProvider(
     term: Terminal,
     taskId?: string,
     projectId?: string,
+    master?: boolean,
 ): ILinkProvider {
-    const workspaceKey = getWorkspaceKey(taskId, projectId);
+    const workspaceKey = getWorkspaceKey(taskId, projectId, master);
 
     return {
         provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) {
@@ -285,7 +291,7 @@ function createFilePathLinkProvider(
                 return;
             }
 
-            const workingDir = getWorkingDir(taskId, projectId);
+            const workingDir = getWorkingDir(taskId, projectId, master);
             const lineText = line.translateToString(true);
             const cellMap = buildCellMapping(line);
             const links: ILink[] = [];
@@ -534,6 +540,7 @@ function getOrCreateTerminal(
     sessionId: string,
     taskId?: string,
     projectId?: string,
+    master?: boolean,
 ): CachedTerminal {
     const existing = terminalCache.get(sessionId);
     if (existing) return existing;
@@ -557,7 +564,7 @@ function getOrCreateTerminal(
 
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon(createWebLinkHandler(taskId, projectId)));
+    term.loadAddon(new WebLinksAddon(createWebLinkHandler(taskId, projectId, master)));
 
     // Create a dedicated wrapper div that persists across mounts
     const element = document.createElement("div");
@@ -567,7 +574,7 @@ function getOrCreateTerminal(
 
     // File path link provider (registered after open so buffer is available)
     const filePathLinkDisposable = term.registerLinkProvider(
-        createFilePathLinkProvider(term, taskId, projectId),
+        createFilePathLinkProvider(term, taskId, projectId, master),
     );
 
     // Renderer addons must load before Unicode (renderer initialization first)
@@ -635,6 +642,7 @@ function getOrCreateTerminal(
         return sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, {
             taskId,
             projectId,
+            master,
             sessionId,
         })
             .then(async ({ data, lastSequence }) => {
@@ -704,7 +712,7 @@ function cancelDetach(sessionId: string): boolean {
     return true;
 }
 
-function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPaneProps) {
+function TerminalPane({ taskId, projectId, master, sessionId, visible }: TerminalPaneProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
@@ -808,7 +816,7 @@ function TerminalPane({ taskId, projectId, sessionId, visible }: TerminalPanePro
         // Cancel any pending detach from a previous unmount
         cancelDetach(sessionId);
 
-        const cached = getOrCreateTerminal(sessionId, taskId, projectId);
+        const cached = getOrCreateTerminal(sessionId, taskId, projectId, master);
         const { term, fit, element } = cached;
 
         termRef.current = term;

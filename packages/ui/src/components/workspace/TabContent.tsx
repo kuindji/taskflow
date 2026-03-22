@@ -61,6 +61,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                             <TerminalPane
                                 taskId={workspace.task?.id}
                                 projectId={workspace.task ? undefined : workspace.project?.id}
+                                master={workspace.scope === "master" ? true : undefined}
                                 sessionId={tab.sessionId}
                                 visible={isActive}
                             />
@@ -77,6 +78,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                                 <TerminalPane
                                     taskId={workspace.task?.id}
                                     projectId={workspace.task ? undefined : workspace.project?.id}
+                                    master={workspace.scope === "master" ? true : undefined}
                                     sessionId={tab.sessionId}
                                     visible={isActive}
                                 />
