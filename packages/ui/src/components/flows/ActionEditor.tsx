@@ -3,6 +3,7 @@ import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflo
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Label } from "@/components/ui/label";
 import {
     Select,
@@ -43,6 +44,7 @@ function ActionEditor({
     const [sessionType, setSessionType] = useState<SessionType>(action?.sessionType ?? "claude");
     const [agentOptions, setAgentOptions] = useState(action?.agentOptions);
     const [standalone, setStandalone] = useState(action?.standalone ?? false);
+    const [confirmDelete, setConfirmDelete] = useState(false);
 
     const handleSessionTypeChange = useCallback((value: string) => {
         const nextSessionType = value as SessionType;
@@ -180,14 +182,22 @@ function ActionEditor({
             {/* Sticky footer outside scroll */}
             <div className="flex shrink-0 items-center gap-2 px-6 py-3">
                 {action && onDelete && (
-                    <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={onDelete}
-                        disabled={deleteDisabled}
-                        title={deleteDisabledReason}>
-                        Delete Action
-                    </Button>
+                    <>
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => setConfirmDelete(true)}
+                            disabled={deleteDisabled}
+                            title={deleteDisabledReason}>
+                            Delete Action
+                        </Button>
+                        <ConfirmDeleteDialog
+                            open={confirmDelete}
+                            onOpenChange={setConfirmDelete}
+                            onConfirm={onDelete}
+                            title="Delete this action?"
+                        />
+                    </>
                 )}
                 {action && deleteDisabledReason && (
                     <span className="text-muted-foreground text-xs">{deleteDisabledReason}</span>

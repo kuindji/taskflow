@@ -9,6 +9,7 @@ import type {
 } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -53,6 +54,7 @@ function FlowEditor({
     );
     const [actions, setActions] = useState<FlowActionEntry[]>(flow?.actions ?? []);
     const [inputs, setInputs] = useState<FlowInputDefinition[]>(flow?.inputs ?? []);
+    const [confirmDelete, setConfirmDelete] = useState(false);
 
     const libraryActions = useMemo(
         () => globalActions.filter((a) => !a.projectId || a.projectId === projectId),
@@ -499,9 +501,21 @@ function FlowEditor({
             {/* Sticky footer outside scroll */}
             <div className="flex shrink-0 items-center gap-2 px-6 py-3">
                 {flow && onDelete && (
-                    <Button variant="destructive" size="sm" onClick={onDelete} className="mr-auto">
-                        Delete Flow
-                    </Button>
+                    <>
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => setConfirmDelete(true)}
+                            className="mr-auto">
+                            Delete Flow
+                        </Button>
+                        <ConfirmDeleteDialog
+                            open={confirmDelete}
+                            onOpenChange={setConfirmDelete}
+                            onConfirm={onDelete}
+                            title="Delete this flow?"
+                        />
+                    </>
                 )}
                 <Button variant="secondary" size="sm" onClick={onCancel}>
                     Cancel

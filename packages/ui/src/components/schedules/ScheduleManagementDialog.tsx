@@ -16,6 +16,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Plus, Play, MoreHorizontal, CalendarClock } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
 import { useScheduleStore } from "@/stores/schedule-store";
@@ -64,6 +65,7 @@ function ScheduleManagementDialog() {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
     const [projectFilter, setProjectFilter] = useState<string>(activeProjectId ?? "all");
+    const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
     useEffect(() => {
         if (!open) return;
@@ -244,7 +246,7 @@ function ScheduleManagementDialog() {
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem
                                                         className="text-destructive"
-                                                        onClick={() => void handleDelete(s.id)}>
+                                                        onClick={() => setPendingDeleteId(s.id)}>
                                                         Delete
                                                     </DropdownMenuItem>
                                                 </DropdownMenuContent>
@@ -305,6 +307,19 @@ function ScheduleManagementDialog() {
                     </div>
                 </div>
             </DialogContent>
+            <ConfirmDeleteDialog
+                open={pendingDeleteId !== null}
+                onOpenChange={(open) => {
+                    if (!open) setPendingDeleteId(null);
+                }}
+                onConfirm={() => {
+                    if (pendingDeleteId) {
+                        void handleDelete(pendingDeleteId);
+                        setPendingDeleteId(null);
+                    }
+                }}
+                title="Delete this schedule?"
+            />
         </Dialog>
     );
 }

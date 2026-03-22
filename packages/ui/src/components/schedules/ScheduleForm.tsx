@@ -11,6 +11,7 @@ import type {
 import { ALL_AGENT_TYPES, AGENT_DISPLAY_NAMES } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Label } from "@/components/ui/label";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import {
@@ -82,6 +83,7 @@ function ScheduleForm({
         schedule?.agentOptions,
     );
     const [timeout, setTimeout] = useState(String(schedule?.timeout ?? 30));
+    const [confirmDelete, setConfirmDelete] = useState(false);
 
     const selectedAction = useMemo(
         () => (actionId ? actions.find((a) => a.id === actionId) : undefined),
@@ -177,14 +179,22 @@ function ScheduleForm({
                 </h3>
                 <div className="flex items-center gap-1.5">
                     {onDelete && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive h-7 w-7"
-                            onClick={onDelete}
-                            title="Delete schedule">
-                            <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-destructive hover:text-destructive h-7 w-7"
+                                onClick={() => setConfirmDelete(true)}
+                                title="Delete schedule">
+                                <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                            <ConfirmDeleteDialog
+                                open={confirmDelete}
+                                onOpenChange={setConfirmDelete}
+                                onConfirm={onDelete}
+                                title="Delete this schedule?"
+                            />
+                        </>
                     )}
                 </div>
             </div>
