@@ -5,6 +5,7 @@ import type {
     ScheduleUpdatePayload,
     Project,
     AgentType,
+    AgentLaunchOptions,
 } from "@taskflow/shared";
 import { ALL_AGENT_TYPES, AGENT_DISPLAY_NAMES } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Trash2 } from "lucide-react";
+import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 
 function computeNextRunPreview(expression: string, expressionType: "cron" | "rate"): string | null {
     try {
@@ -72,7 +74,23 @@ function ScheduleForm({
     );
     const [expression, setExpression] = useState(schedule?.expression ?? "rate(30 minutes)");
     const [agentType, setAgentType] = useState<AgentType | "">(schedule?.agentType ?? "");
+    const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(
+        schedule?.agentOptions,
+    );
     const [timeout, setTimeout] = useState(String(schedule?.timeout ?? 30));
+
+    const handleAgentTypeChange = useCallback((value: string) => {
+        const next = value === "__default__" ? "" : (value as AgentType);
+        setAgentType(next);
+        setAgentOptions((current) => {
+            if (!next) return undefined;
+            return current?.type === next ? current : undefined;
+        });
+    }, []);
+
+    const handleAgentOptionsChange = useCallback((options: AgentLaunchOptions) => {
+        setAgentOptions(options);
+    }, []);
 
     const nextRunPreview = useMemo(
         () => computeNextRunPreview(expression, expressionType),
@@ -100,6 +118,7 @@ function ScheduleForm({
                     expression,
                     expressionType,
                     agentType: agentType || null,
+                    agentOptions: agentType ? agentOptions : null,
                     timeout: effectiveTimeout,
                 };
                 await onSave(payload);
@@ -111,6 +130,7 @@ function ScheduleForm({
                     expression,
                     expressionType,
                     agentType: agentType || undefined,
+                    agentOptions: agentType ? agentOptions : undefined,
                     timeout: effectiveTimeout,
                 };
                 await onSave(payload);
@@ -128,6 +148,7 @@ function ScheduleForm({
         expression,
         expressionType,
         agentType,
+        agentOptions,
         timeout,
         projectId,
         onSave,
@@ -237,9 +258,7 @@ function ScheduleForm({
                     <Label className="text-xs">Agent Type</Label>
                     <Select
                         value={agentType || "__default__"}
-                        onValueChange={(v) =>
-                            setAgentType(v === "__default__" ? "" : (v as AgentType))
-                        }>
+                        onValueChange={handleAgentTypeChange}>
                         <SelectTrigger className="text-xs">
                             <SelectValue />
                         </SelectTrigger>
@@ -253,6 +272,19 @@ function ScheduleForm({
                         </SelectContent>
                     </Select>
                 </div>
+
+                {/* Agent options */}
+                {agentType && (
+                    <div className="border-border rounded-md border">
+                        <AgentOptionsPanel
+                            key={`${schedule?.id ?? "new"}-${agentType}`}
+                            agentType={agentType}
+                            value={agentOptions}
+                            emitOnMount
+                            onChange={handleAgentOptionsChange}
+                        />
+                    </div>
+                )}
 
                 {/* Timeout */}
                 <div className="space-y-1.5">
