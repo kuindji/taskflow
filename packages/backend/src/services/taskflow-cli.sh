@@ -332,6 +332,29 @@ case "$cmd" in
     esac
     ;;
 
+  notify)
+    message="${1:-}"
+    if [ -z "$message" ]; then
+      echo "Usage: taskflow-cli notify <message>" >&2
+      exit 1
+    fi
+    if [ -z "$TASKFLOW_PROJECT_ID" ]; then
+      echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
+      exit 1
+    fi
+    if [ -z "$TASKFLOW_SESSION_ID" ]; then
+      echo "Error: TASKFLOW_SESSION_ID is not set" >&2
+      exit 1
+    fi
+    payload=$(printf '{"message":%s}' "$(json_string "$message")")
+    curl -sf -X POST "$TASKFLOW_API_URL/api/notifications" \
+      -H "Content-Type: application/json" \
+      -H "X-Taskflow-Project-Id: $TASKFLOW_PROJECT_ID" \
+      -H "X-Taskflow-Session-Id: $TASKFLOW_SESSION_ID" \
+      ${TASKFLOW_TASK_ID:+-H "X-Taskflow-Task-Id: $TASKFLOW_TASK_ID"} \
+      -d "$payload"
+    ;;
+
   schedule)
     if [ "${1:-}" = "complete" ]; then
       if [ -z "$TASKFLOW_SESSION_ID" ]; then
@@ -423,6 +446,7 @@ case "$cmd" in
     echo "  action complete                               Signal flow action completion" >&2
     echo "  artifact <save|list|get>                      Manage flow artifacts" >&2
     echo "  flow input [<id>]                             Get flow input values" >&2
+    echo "  notify <message>                               Send a desktop notification" >&2
     echo "  schedule complete                               Signal scheduled task completion" >&2
     echo "  agent list                                    List available agents" >&2
     echo "  agent run [type] [--prompt p] [--task id]     Start a new agent session" >&2

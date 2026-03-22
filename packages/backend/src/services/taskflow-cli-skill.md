@@ -20,6 +20,9 @@ When running in task context, the following commands work as is. When running in
 `taskflow-cli log commit "fix: resolve race condition" --hash abc123` Log commit
 `taskflow-cli task worktree --disable` Disable worktree mode for a task. (removes the worktree from disk, and deletes the local branch)
 
+## Notification commands
+`taskflow-cli notify "Build completed successfully"` Send a desktop notification
+
 ## Agent commands (Use these commands only if asked by the user. These commands open a new tab visible to the user.)
 `taskflow-cli agent list` List available agents (type, availability, version)
 `taskflow-cli agent run --prompt "<prompt>"` Start default agent with prompt
