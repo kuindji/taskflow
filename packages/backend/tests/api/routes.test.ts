@@ -31,6 +31,17 @@ class FakeTrayStateTracker {
     }
 }
 
+const sharedTestDeps = {
+    sessionLifecycle: { createSession: async () => "", removeSessionFromOwner: async () => {} },
+    schedulerService: {} as never,
+    scheduleStore: {} as never,
+    shells: [],
+    systemShellPath: null,
+    runtimes: [],
+    editors: [],
+    generateScheduleName: async (prompt: string) => prompt.slice(0, 50),
+};
+
 describe("api routes", () => {
     let apiRouter: ApiRouter;
     let events: WsEvent[];
@@ -54,8 +65,7 @@ describe("api routes", () => {
             flowRunner: {} as never,
             gitService: {} as never,
             agents: [],
-            sessionLifecycle: { createSession: async () => "" },
-            schedulerService: { handleComplete: async () => {} },
+            ...sharedTestDeps,
             trayStateTracker: trayStateTracker as never,
             notificationStore: {} as never,
         });
@@ -146,8 +156,7 @@ describe("settings routes", () => {
             flowRunner: {} as never,
             gitService: {} as never,
             agents: [],
-            sessionLifecycle: { createSession: async () => "" },
-            schedulerService: { handleComplete: async () => {} },
+            ...sharedTestDeps,
             trayStateTracker: new FakeTrayStateTracker() as never,
             notificationStore: {} as never,
         });
@@ -217,8 +226,7 @@ describe("flow artifact routes", () => {
             flowRunner: flowRunner as never,
             gitService: {} as never,
             agents: [],
-            sessionLifecycle: { createSession: async () => "" },
-            schedulerService: { handleComplete: async () => {} },
+            ...sharedTestDeps,
             trayStateTracker: new FakeTrayStateTracker() as never,
             notificationStore: {} as never,
         });

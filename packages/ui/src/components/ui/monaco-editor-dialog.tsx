@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect } from "react";
 import * as monaco from "monaco-editor";
 import {
     DEFAULT_EDITOR_FONT_FAMILY,
@@ -30,7 +30,6 @@ function MonacoEditorDialog({
 }: MonacoEditorDialogProps) {
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     const valueRef = useRef(value);
-    valueRef.current = value;
     const fontFamily = useSettingsStore(
         (s) => s.settings?.editor?.fontFamily ?? DEFAULT_EDITOR_FONT_FAMILY,
     );
@@ -39,8 +38,15 @@ function MonacoEditorDialog({
     );
     const fontFamilyRef = useRef(fontFamily);
     const fontSizeRef = useRef(fontSize);
-    fontFamilyRef.current = fontFamily;
-    fontSizeRef.current = fontSize;
+
+    useEffect(() => {
+        valueRef.current = value;
+    }, [value]);
+
+    useEffect(() => {
+        fontFamilyRef.current = fontFamily;
+        fontSizeRef.current = fontSize;
+    }, [fontFamily, fontSize]);
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
