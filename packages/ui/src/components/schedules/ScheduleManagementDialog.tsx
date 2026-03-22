@@ -20,6 +20,7 @@ import { Plus, Play, MoreHorizontal, CalendarClock } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
 import { useScheduleStore } from "@/stores/schedule-store";
 import { useProjectStore } from "@/stores/project-store";
+import { useFlowStore, filterByProject } from "@/stores/flow-store";
 import { ScheduleForm } from "./ScheduleForm";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +58,7 @@ function ScheduleManagementDialog() {
 
     const schedules = useScheduleStore((s) => s.schedules);
     const projects = useProjectStore((s) => s.projects);
+    const allActions = useFlowStore((s) => s.actions);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -66,9 +68,11 @@ function ScheduleManagementDialog() {
     useEffect(() => {
         if (!open) return;
         void useScheduleStore.getState().fetchSchedules();
+        void useFlowStore.getState().fetchActions();
     }, [open]);
 
     const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
+    const actionMap = useMemo(() => new Map(allActions.map((a) => [a.id, a])), [allActions]);
 
     const filteredSchedules = useMemo(() => {
         if (projectFilter === "all") return schedules;
@@ -78,6 +82,12 @@ function ScheduleManagementDialog() {
     const defaultProjectId = projectFilter !== "all" ? projectFilter : undefined;
 
     const selectedSchedule = filteredSchedules.find((s) => s.id === selectedId) ?? null;
+
+    const formProjectId = selectedSchedule?.projectId ?? defaultProjectId;
+    const formActions = useMemo(
+        () => filterByProject(allActions, formProjectId).filter((a) => a.standalone),
+        [allActions, formProjectId],
+    );
 
     const handleOpenChange = useCallback(
         (value: boolean) => {
@@ -195,6 +205,13 @@ function ScheduleManagementDialog() {
                                                 {formatRelativeTime(s.lastRunAt)}
                                             </span>
                                         </div>
+                                        {s.actionId && (
+                                            <div className="text-muted-foreground mt-0.5 text-[11px]">
+                                                <span className="bg-muted truncate rounded px-1">
+                                                    {actionMap.get(s.actionId)?.name ?? "Unknown action"}
+                                                </span>
+                                            </div>
+                                        )}
                                         {projectFilter === "all" && (
                                             <div className="text-muted-foreground mt-0.5 text-[11px]">
                                                 <span className="bg-muted truncate rounded px-1">
@@ -265,6 +282,7 @@ function ScheduleManagementDialog() {
                                 }
                                 schedule={creating ? null : selectedSchedule}
                                 projects={projects}
+                                actions={formActions}
                                 defaultProjectId={defaultProjectId}
                                 onSave={handleSave}
                                 onCancel={clearSelection}

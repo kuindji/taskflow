@@ -122,10 +122,29 @@ describe("file handlers", () => {
             await expectRejects(() => stat(dirPath));
         });
 
+        it("deletes a hidden directory recursively", async () => {
+            const dirPath = join(projectDir, ".playwrite-mcp");
+            await mkdir(dirPath);
+            await writeFile(join(dirPath, "debug.log"), "data");
+
+            const result = await router.handle(MSG.FILE_DELETE_FILE, { path: dirPath });
+
+            expect(result).toEqual({ success: true });
+            await expectRejects(() => stat(dirPath));
+        });
+
         it("rejects delete of workspace root", async () => {
             await expectRejects(
                 () => router.handle(MSG.FILE_DELETE_FILE, { path: projectDir }),
                 "Cannot modify workspace root",
+            );
+        });
+
+        it("rejects delete outside workspace", async () => {
+            const outsidePath = join(tmpdir(), "outside-delete.txt");
+            await expectRejects(
+                () => router.handle(MSG.FILE_DELETE_FILE, { path: outsidePath }),
+                "outside",
             );
         });
     });

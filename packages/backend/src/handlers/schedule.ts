@@ -11,12 +11,14 @@ import type {
 import type { Router } from "../ws/router";
 import type { ScheduleStore } from "../services/schedule-store";
 import type { SchedulerService } from "../services/scheduler-service";
+import type { FlowStore } from "../services/flow-store";
 import { validateExpression } from "../services/scheduler-service";
 
 interface ScheduleHandlerDeps {
     router: Router;
     scheduleStore: ScheduleStore;
     schedulerService: SchedulerService;
+    flowStore: FlowStore;
     generateName: (prompt: string) => Promise<string>;
 }
 
@@ -30,7 +32,7 @@ function typed<T>(
 }
 
 function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
-    const { router, scheduleStore, schedulerService, generateName } = deps;
+    const { router, scheduleStore, schedulerService, flowStore, generateName } = deps;
 
     router.register(
         MSG.SCHEDULE_LIST,
@@ -52,14 +54,21 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
             const now = new Date().toISOString();
             let name = payload.name?.trim() || "";
             if (!name) {
-                name = await generateName(payload.prompt);
+                if (payload.actionId) {
+                    const actions = await flowStore.getActions();
+                    const action = actions.find((a) => a.id === payload.actionId);
+                    name = action?.name ?? "Scheduled action";
+                } else if (payload.prompt) {
+                    name = await generateName(payload.prompt);
+                }
             }
 
             const schedule: Schedule = {
                 id: randomUUID(),
                 projectId: payload.projectId,
                 name,
-                prompt: payload.prompt,
+                prompt: payload.prompt ?? "",
+                actionId: payload.actionId,
                 agentType: payload.agentType,
                 agentOptions: payload.agentOptions,
                 expression: payload.expression,
@@ -99,6 +108,7 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
                 };
                 if (payload.name !== undefined) next.name = payload.name;
                 if (payload.prompt !== undefined) next.prompt = payload.prompt;
+                if ("actionId" in payload) next.actionId = payload.actionId ?? undefined;
                 if (payload.expression !== undefined) next.expression = payload.expression;
                 if (payload.expressionType !== undefined)
                     next.expressionType = payload.expressionType;

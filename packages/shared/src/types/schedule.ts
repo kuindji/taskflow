@@ -5,6 +5,7 @@ interface Schedule {
     projectId: string;
     name: string;
     prompt: string;
+    actionId?: string;
     agentType?: AgentType;
     agentOptions?: AgentLaunchOptions;
 
@@ -25,7 +26,8 @@ interface Schedule {
 interface ScheduleCreatePayload {
     projectId: string;
     name?: string;
-    prompt: string;
+    prompt?: string;
+    actionId?: string;
     agentType?: AgentType;
     agentOptions?: AgentLaunchOptions;
     expression: string;
@@ -38,6 +40,7 @@ interface ScheduleUpdatePayload {
     id: string;
     name?: string;
     prompt?: string;
+    actionId?: string | null;
     agentType?: AgentType | null;
     agentOptions?: AgentLaunchOptions | null;
     expression?: string;

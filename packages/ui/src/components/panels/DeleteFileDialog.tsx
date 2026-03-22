@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
     AlertDialog,
     AlertDialogContent,
@@ -20,17 +20,26 @@ interface DeleteFileDialogProps {
 
 function DeleteFileDialog({ open, onOpenChange, filePath, isDirectory }: DeleteFileDialogProps) {
     const fileName = filePath.split("/").pop() ?? filePath;
+    const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const deleteFile = useFileStore((s) => s.deleteFile);
 
+    useEffect(() => {
+        if (open) {
+            setError(null);
+            setSubmitting(false);
+        }
+    }, [open]);
+
     const handleDelete = async () => {
         setSubmitting(true);
+        setError(null);
         try {
             await deleteFile(filePath);
             onOpenChange(false);
         } catch (e) {
             console.error("Delete failed:", e);
-            onOpenChange(false);
+            setError(e instanceof Error ? e.message : "Delete failed");
         } finally {
             setSubmitting(false);
         }
@@ -44,6 +53,7 @@ function DeleteFileDialog({ open, onOpenChange, filePath, isDirectory }: DeleteF
                         Delete &ldquo;{fileName}&rdquo;{isDirectory ? " and all its contents" : ""}?
                     </AlertDialogTitle>
                     <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+                    {error && <p className="text-destructive text-sm">{error}</p>}
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>

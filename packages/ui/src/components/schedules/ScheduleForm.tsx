@@ -6,6 +6,7 @@ import type {
     Project,
     AgentType,
     AgentLaunchOptions,
+    ActionDefinition,
 } from "@taskflow/shared";
 import { ALL_AGENT_TYPES, AGENT_DISPLAY_NAMES } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,7 @@ function computeNextRunPreview(expression: string, expressionType: "cron" | "rat
 interface ScheduleFormProps {
     schedule: Schedule | null;
     projects: Project[];
+    actions: ActionDefinition[];
     defaultProjectId?: string;
     onSave: (payload: ScheduleCreatePayload | ScheduleUpdatePayload) => Promise<void>;
     onCancel: () => void;
@@ -56,6 +58,7 @@ interface ScheduleFormProps {
 function ScheduleForm({
     schedule,
     projects,
+    actions,
     defaultProjectId,
     onSave,
     onCancel,
@@ -67,6 +70,7 @@ function ScheduleForm({
     const [projectId, setProjectId] = useState<string>(
         schedule?.projectId ?? defaultProjectId ?? "",
     );
+    const [actionId, setActionId] = useState<string>(schedule?.actionId ?? "");
     const [name, setName] = useState(schedule?.name ?? "");
     const [prompt, setPrompt] = useState(schedule?.prompt ?? "");
     const [expressionType, setExpressionType] = useState<"cron" | "rate">(
@@ -78,6 +82,13 @@ function ScheduleForm({
         schedule?.agentOptions,
     );
     const [timeout, setTimeout] = useState(String(schedule?.timeout ?? 30));
+
+    const selectedAction = useMemo(
+        () => (actionId ? actions.find((a) => a.id === actionId) : undefined),
+        [actionId, actions],
+    );
+
+    const useAction = !!selectedAction;
 
     const handleAgentTypeChange = useCallback((value: string) => {
         const next = value === "__default__" ? "" : (value as AgentType);
@@ -98,7 +109,7 @@ function ScheduleForm({
     );
 
     const canSave =
-        prompt.trim().length > 0 &&
+        (useAction || prompt.trim().length > 0) &&
         expression.trim().length > 0 &&
         (isEditing || projectId.length > 0);
 
@@ -114,11 +125,12 @@ function ScheduleForm({
                 const payload: ScheduleUpdatePayload = {
                     id: schedule.id,
                     name: name || undefined,
-                    prompt,
+                    actionId: actionId || null,
+                    prompt: useAction ? undefined : prompt,
                     expression,
                     expressionType,
-                    agentType: agentType || null,
-                    agentOptions: agentType ? agentOptions : null,
+                    agentType: useAction ? null : (agentType || null),
+                    agentOptions: useAction ? null : (agentType ? agentOptions : null),
                     timeout: effectiveTimeout,
                 };
                 await onSave(payload);
@@ -126,11 +138,12 @@ function ScheduleForm({
                 const payload: ScheduleCreatePayload = {
                     projectId,
                     name: name || undefined,
-                    prompt,
+                    actionId: actionId || undefined,
+                    prompt: useAction ? undefined : prompt,
                     expression,
                     expressionType,
-                    agentType: agentType || undefined,
-                    agentOptions: agentType ? agentOptions : undefined,
+                    agentType: useAction ? undefined : (agentType || undefined),
+                    agentOptions: useAction ? undefined : (agentType ? agentOptions : undefined),
                     timeout: effectiveTimeout,
                 };
                 await onSave(payload);
@@ -144,6 +157,8 @@ function ScheduleForm({
         isEditing,
         schedule,
         name,
+        actionId,
+        useAction,
         prompt,
         expression,
         expressionType,
@@ -200,27 +215,68 @@ function ScheduleForm({
                     </div>
                 )}
 
-                {/* Name */}
-                <div className="space-y-1.5">
-                    <Label className="text-xs">Name (optional)</Label>
-                    <Input
-                        className="text-xs"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="Auto-generated from prompt"
-                    />
-                </div>
+                {/* Action selector */}
+                {actions.length > 0 && (
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Action</Label>
+                        <Select
+                            value={actionId || "__none__"}
+                            onValueChange={(v) => setActionId(v === "__none__" ? "" : v)}>
+                            <SelectTrigger className="text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="__none__">None (custom prompt)</SelectItem>
+                                {actions.map((a) => (
+                                    <SelectItem key={a.id} value={a.id}>
+                                        {a.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
 
-                {/* Prompt */}
-                <div className="space-y-1.5">
-                    <Label className="text-xs">Prompt</Label>
-                    <Textarea
-                        className="min-h-[80px] text-xs"
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="What should the agent do?"
-                    />
-                </div>
+                {/* Action summary when action is selected */}
+                {useAction && selectedAction && (
+                    <div className="border-border bg-muted/30 rounded-md border p-3">
+                        <p className="text-muted-foreground text-[11px] uppercase tracking-wide">
+                            Action: {selectedAction.name}
+                        </p>
+                        <p className="text-muted-foreground mt-1 text-xs">
+                            Agent: {selectedAction.sessionType}
+                        </p>
+                        <p className="text-muted-foreground mt-1 line-clamp-3 text-xs">
+                            {selectedAction.prompt}
+                        </p>
+                    </div>
+                )}
+
+                {/* Name — hidden when action selected */}
+                {!useAction && (
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Name (optional)</Label>
+                        <Input
+                            className="text-xs"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="Auto-generated from prompt"
+                        />
+                    </div>
+                )}
+
+                {/* Prompt — hidden when action selected */}
+                {!useAction && (
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Prompt</Label>
+                        <Textarea
+                            className="min-h-[80px] text-xs"
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            placeholder="What should the agent do?"
+                        />
+                    </div>
+                )}
 
                 {/* Schedule expression */}
                 <div className="space-y-1.5">
@@ -253,28 +309,30 @@ function ScheduleForm({
                     )}
                 </div>
 
-                {/* Agent type */}
-                <div className="space-y-1.5">
-                    <Label className="text-xs">Agent Type</Label>
-                    <Select
-                        value={agentType || "__default__"}
-                        onValueChange={handleAgentTypeChange}>
-                        <SelectTrigger className="text-xs">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="__default__">Default</SelectItem>
-                            {ALL_AGENT_TYPES.map((t) => (
-                                <SelectItem key={t} value={t}>
-                                    {AGENT_DISPLAY_NAMES[t]}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
+                {/* Agent type — hidden when action selected */}
+                {!useAction && (
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Agent Type</Label>
+                        <Select
+                            value={agentType || "__default__"}
+                            onValueChange={handleAgentTypeChange}>
+                            <SelectTrigger className="text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="__default__">Default</SelectItem>
+                                {ALL_AGENT_TYPES.map((t) => (
+                                    <SelectItem key={t} value={t}>
+                                        {AGENT_DISPLAY_NAMES[t]}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
 
-                {/* Agent options */}
-                {agentType && (
+                {/* Agent options — hidden when action selected */}
+                {!useAction && agentType && (
                     <div className="border-border rounded-md border">
                         <AgentOptionsPanel
                             key={`${schedule?.id ?? "new"}-${agentType}`}

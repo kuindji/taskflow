@@ -88,13 +88,27 @@ async function main() {
         const schedulerService = new SchedulerService({
             scheduleStore,
             spawnSession: async (schedule) => {
+                let prompt = schedule.prompt;
+                let agentType: string = schedule.agentType ?? "claude";
+                let agentOptions = schedule.agentOptions;
+
+                if (schedule.actionId) {
+                    const actions = await flowStore.getActions();
+                    const action = actions.find((a) => a.id === schedule.actionId);
+                    if (action) {
+                        prompt = action.prompt;
+                        agentType = action.sessionType;
+                        agentOptions = action.agentOptions;
+                    }
+                }
+
                 return sessionLifecycle.createSession({
                     owner: { projectId: schedule.projectId },
-                    type: schedule.agentType ?? "claude",
+                    type: agentType as "claude" | "codex" | "opencode" | "gemini" | "cursor" | "shell",
                     label: `[Scheduled] ${schedule.name}`,
-                    prompt: schedule.prompt,
+                    prompt,
                     systemPrompt: SYSTEM_PROMPT_ADDON,
-                    agentOptions: schedule.agentOptions,
+                    agentOptions,
                     internal: true,
                     onSessionExited: (sessionId, exitCode) => {
                         void schedulerService.handleSessionExit(sessionId, exitCode);
@@ -228,6 +242,7 @@ async function main() {
             router,
             scheduleStore,
             schedulerService,
+            flowStore,
             generateName: async (prompt) => {
                 try {
                     const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = process.env;
