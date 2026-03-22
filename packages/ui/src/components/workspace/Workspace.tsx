@@ -98,7 +98,8 @@ export function Workspace() {
     const toggleScheduleManagement = useUIStore((s) => s.toggleScheduleManagement);
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
-    const ownerId = taskId ?? workspace.project?.id;
+    const ownerId =
+        taskId ?? workspace.project?.id ?? (workspace.scope === "master" ? "__master__" : undefined);
     const activeFlowRun = useFlowStore((s) => (ownerId ? s.activeRuns[ownerId] : undefined));
     const allFlows = useFlowStore((s) => s.flows);
     const allActions = useFlowStore((s) => s.actions);
@@ -202,7 +203,7 @@ export function Workspace() {
     }, [workspace.workingDir, workspace.scope]);
 
     useEffect(() => {
-        if (!workspace.workingDir || workspace.scope === "master") {
+        if (!workspace.workingDir) {
             setAgentCommands(emptyAgentCommands);
             return;
         }
@@ -505,6 +506,48 @@ export function Workspace() {
         await createSession(owner, "claude", command.name, `/${command.name}`);
     };
 
+    const handleRunAction = async (action: ActionDefinition) => {
+        const owner =
+            workspace.scope === "task"
+                ? { taskId: workspace.task.id }
+                : workspace.scope === "project"
+                  ? { projectId: workspace.project.id }
+                  : { master: true as const };
+        setFocusedPanel("workspace");
+        await createSession(
+            owner,
+            action.sessionType,
+            action.name,
+            action.prompt,
+            undefined,
+            action.sessionType !== "shell" ? action.agentOptions : undefined,
+        );
+    };
+
+    const handleStartFlow = (flowId: string) => {
+        const owner = taskId
+            ? { taskId, flowId }
+            : workspace.project
+              ? { projectId: workspace.project.id, flowId }
+              : workspace.scope === "master"
+                ? { master: true as const, flowId }
+                : null;
+        if (!owner) return;
+
+        const flow = useFlowStore.getState().flows.find((f) => f.id === flowId);
+        if (flow?.inputs && flow.inputs.length > 0) {
+            setFlowInputState({
+                flowId,
+                flowName: flow.name,
+                inputs: flow.inputs,
+                owner,
+            });
+            return;
+        }
+
+        void useFlowStore.getState().startFlow(owner);
+    };
+
     if (workspace.scope === "master") {
         return (
             <>
@@ -532,17 +575,21 @@ export function Workspace() {
                     onNewTab={handleNewTab}
                     onRunTab={() => {}}
                     onRunScript={() => {}}
-                    onRunAction={() => {}}
+                    onRunAction={handleRunAction}
                     onRunAgentCommand={handleRunAgentCommand}
-                    onStartFlow={() => {}}
+                    onStartFlow={handleStartFlow}
                     onManageFlows={toggleFlowManagement}
                     scripts={{}}
                     defaultRuntime={defaultRuntime}
-                    flows={[]}
-                    standaloneActions={[]}
-                    agentCommands={[]}
-                    activeFlowRun={null}
-                    showRunButton={false}
+                    flows={flowRunsReady ? flowDefinitions : []}
+                    standaloneActions={standaloneActions}
+                    agentCommands={agentCommands}
+                    activeFlowRun={activeFlowRun ?? null}
+                    showRunButton={
+                        agentCommands.length > 0 ||
+                        standaloneActions.length > 0 ||
+                        (flowRunsReady && flowDefinitions.length > 0)
+                    }
                     showAgentOptions={false}
                     allowSessionTabs={true}
                 />
@@ -589,46 +636,6 @@ export function Workspace() {
             undefined,
             agentOptions,
         );
-    };
-
-    const handleRunAction = async (action: ActionDefinition) => {
-        const owner =
-            workspace.scope === "task"
-                ? { taskId: workspace.task.id }
-                : workspace.scope === "project"
-                  ? { projectId: workspace.project.id }
-                  : { master: true as const };
-        setFocusedPanel("workspace");
-        await createSession(
-            owner,
-            action.sessionType,
-            action.name,
-            action.prompt,
-            undefined,
-            action.sessionType !== "shell" ? action.agentOptions : undefined,
-        );
-    };
-
-    const handleStartFlow = (flowId: string) => {
-        const owner = taskId
-            ? { taskId, flowId }
-            : workspace.project
-              ? { projectId: workspace.project.id, flowId }
-              : null;
-        if (!owner) return;
-
-        const flow = useFlowStore.getState().flows.find((f) => f.id === flowId);
-        if (flow?.inputs && flow.inputs.length > 0) {
-            setFlowInputState({
-                flowId,
-                flowName: flow.name,
-                inputs: flow.inputs,
-                owner,
-            });
-            return;
-        }
-
-        void useFlowStore.getState().startFlow(owner);
     };
 
     const handleFlowInputSubmit = (values: Record<string, string>) => {
