@@ -9,7 +9,7 @@ import type {
     ScriptsListResponse,
     ShellListResponse,
 } from "@taskflow/shared";
-import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
+import { DEFAULT_TERMINAL_SHELL, MASTER_OWNER_ID, MSG } from "@taskflow/shared";
 import { useSessionStore, isSessionExited } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
@@ -99,7 +99,7 @@ export function Workspace() {
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
     const ownerId =
-        taskId ?? workspace.project?.id ?? (workspace.scope === "master" ? "__master__" : undefined);
+        taskId ?? workspace.project?.id ?? (workspace.scope === "master" ? MASTER_OWNER_ID : undefined);
     const activeFlowRun = useFlowStore((s) => (ownerId ? s.activeRuns[ownerId] : undefined));
     const allFlows = useFlowStore((s) => s.flows);
     const allActions = useFlowStore((s) => s.actions);

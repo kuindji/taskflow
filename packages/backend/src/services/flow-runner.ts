@@ -7,7 +7,7 @@ import type {
     FlowArtifact,
     SessionType,
 } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import { MASTER_OWNER_ID, MSG } from "@taskflow/shared";
 import type { FlowStore } from "./flow-store";
 
 interface SpawnSessionOpts {
@@ -348,7 +348,7 @@ class FlowRunner {
     private getOwnerId(owner: FlowOwner): string {
         if (owner.taskId) return owner.taskId;
         if (owner.projectId) return owner.projectId;
-        if (owner.master) return "__master__";
+        if (owner.master) return MASTER_OWNER_ID;
         throw new Error("FlowOwner must have taskId, projectId, or master");
     }
 

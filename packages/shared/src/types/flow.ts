@@ -75,6 +75,8 @@ interface FlowArtifact {
     createdAt: string;
 }
 
+const MASTER_OWNER_ID = "__master__";
+
 // Exactly one of taskId, projectId, or master must be set
 type FlowOwner =
     | { taskId: string; projectId?: never; master?: never }
@@ -95,7 +97,7 @@ type FlowRun = FlowOwner & {
 function getFlowRunOwnerId(run: FlowRun): string {
     if (run.taskId) return run.taskId;
     if (run.projectId) return run.projectId;
-    if (run.master) return "__master__";
+    if (run.master) return MASTER_OWNER_ID;
     throw new Error("FlowRun must have taskId, projectId, or master");
 }
 
@@ -153,4 +155,4 @@ export type {
     FlowJumpToActionPayload,
     FlowOwnerPayload,
 };
-export { getFlowRunOwnerId };
+export { MASTER_OWNER_ID, getFlowRunOwnerId };

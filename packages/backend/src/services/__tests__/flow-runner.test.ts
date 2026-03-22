@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { FlowRunner } from "../flow-runner";
 import type { FlowStore } from "../flow-store";
 import type { FlowDefinition, FlowRun, ActionDefinition, FlowOwner } from "@taskflow/shared";
-import { getFlowRunOwnerId } from "@taskflow/shared";
+import { MASTER_OWNER_ID, getFlowRunOwnerId } from "@taskflow/shared";
 
 function createMockFlowStore(): FlowStore {
     const runs = new Map<string, FlowRun>();
@@ -331,7 +331,7 @@ describe("getFlowRunOwnerId", () => {
             artifacts: [],
             startedAt: new Date().toISOString(),
         };
-        expect(getFlowRunOwnerId(run as FlowRun)).toBe("__master__");
+        expect(getFlowRunOwnerId(run as FlowRun)).toBe(MASTER_OWNER_ID);
     });
 });
 
