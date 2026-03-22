@@ -183,7 +183,7 @@ export function Workspace() {
     ]);
 
     useEffect(() => {
-        if (!workspace.workingDir) {
+        if (!workspace.workingDir || workspace.scope === "master") {
             setScripts(emptyScripts);
             return;
         }
@@ -199,10 +199,10 @@ export function Workspace() {
         return () => {
             cancelled = true;
         };
-    }, [workspace.workingDir]);
+    }, [workspace.workingDir, workspace.scope]);
 
     useEffect(() => {
-        if (!workspace.workingDir) {
+        if (!workspace.workingDir || workspace.scope === "master") {
             setAgentCommands(emptyAgentCommands);
             return;
         }
@@ -220,7 +220,7 @@ export function Workspace() {
         return () => {
             cancelled = true;
         };
-    }, [workspace.workingDir]);
+    }, [workspace.workingDir, workspace.scope]);
 
     useEffect(() => {
         sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {}).then(
@@ -281,9 +281,7 @@ export function Workspace() {
     }, [requestNewTask]);
 
     const handleOpenDefaultTerminal = useCallback(async () => {
-        if (workspace.scope !== "task" && workspace.scope !== "project") {
-            return;
-        }
+        if (!workspace.scope) return;
 
         let shell = defaultShellPath;
         if (!shell) {
@@ -295,7 +293,9 @@ export function Workspace() {
         const owner =
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
-                : { projectId: workspace.project.id };
+                : workspace.scope === "project"
+                  ? { projectId: workspace.project.id }
+                  : { master: true as const };
         setFocusedPanel("workspace");
         await createSession(owner, "shell", getShellSessionLabel(shell), undefined, shell);
     }, [
@@ -429,13 +429,58 @@ export function Workspace() {
         setActiveTab(workspace.workspaceKey, activeTab.id);
     }, [activeTab, activeTabId, setActiveTab, workspace.workspaceKey]);
 
-    if (!workspace.scope || !workspace.project) {
+    if (!workspace.scope) {
         return (
             <>
                 {isElectron && <TaskHeader />}
                 <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
                     Select a task or project from the sidebar
                 </div>
+            </>
+        );
+    }
+
+    if (workspace.scope === "master") {
+        return (
+            <>
+                <TabBar
+                    tabs={visibleTabs}
+                    activeTabId={activeTab?.id ?? ""}
+                    onTabClick={(id) =>
+                        workspace.workspaceKey && setActiveTab(workspace.workspaceKey, id)
+                    }
+                    onTabClose={(id) => {
+                        if (!workspace.workspaceKey) return;
+                        const tab = visibleTabs.find((t) => t.id === id);
+                        const doClose = () => {
+                            if (tab?.sessionId) destroyTerminal(tab.sessionId);
+                            void closeTab(workspace.workspaceKey, id);
+                        };
+                        doClose();
+                    }}
+                    onTabRename={(id, newLabel) => {
+                        if (workspace.workspaceKey) {
+                            renameTab(workspace.workspaceKey, id, newLabel);
+                        }
+                    }}
+                    onNewTab={handleNewTab}
+                    onRunTab={() => {}}
+                    onRunScript={() => {}}
+                    onRunAction={() => {}}
+                    onRunAgentCommand={handleRunAgentCommand}
+                    onStartFlow={() => {}}
+                    onManageFlows={toggleFlowManagement}
+                    scripts={{}}
+                    defaultRuntime={defaultRuntime}
+                    flows={[]}
+                    standaloneActions={[]}
+                    agentCommands={[]}
+                    activeFlowRun={null}
+                    showRunButton={false}
+                    showAgentOptions={false}
+                    allowSessionTabs={true}
+                />
+                <TabContent tabs={visibleTabs} activeTabId={activeTab?.id ?? ""} />
             </>
         );
     }
@@ -461,7 +506,7 @@ export function Workspace() {
         skipCursorRulesCheck?: boolean,
     ) => {
         if (!workspace.workspaceKey) return;
-        if (type === "cursor" && workspace.workingDir && !skipCursorRulesCheck) {
+        if (type === "cursor" && workspace.scope !== "master" && workspace.workingDir && !skipCursorRulesCheck) {
             const { status } = await sendRequest<CursorRulesCheckResponse>(MSG.CURSOR_RULES_CHECK, {
                 cwd: workspace.workingDir,
             });
@@ -483,7 +528,9 @@ export function Workspace() {
             await createSession(
                 workspace.scope === "task"
                     ? { taskId: workspace.task.id }
-                    : { projectId: workspace.project.id },
+                    : workspace.scope === "project"
+                      ? { projectId: workspace.project.id }
+                      : { master: true as const },
                 "shell",
                 getShellSessionLabel(shellPath),
                 undefined,
@@ -494,7 +541,9 @@ export function Workspace() {
             await createSession(
                 workspace.scope === "task"
                     ? { taskId: workspace.task.id }
-                    : { projectId: workspace.project.id },
+                    : workspace.scope === "project"
+                      ? { projectId: workspace.project.id }
+                      : { master: true as const },
                 type,
                 undefined,
                 undefined,
@@ -534,7 +583,9 @@ export function Workspace() {
         const owner =
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
-                : { projectId: workspace.project.id };
+                : workspace.scope === "project"
+                  ? { projectId: workspace.project.id }
+                  : { master: true as const };
         setFocusedPanel("workspace");
         await createSession(owner, "claude", command.name, `/${command.name}`);
     };
@@ -543,7 +594,9 @@ export function Workspace() {
         const owner =
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
-                : { projectId: workspace.project.id };
+                : workspace.scope === "project"
+                  ? { projectId: workspace.project.id }
+                  : { master: true as const };
         setFocusedPanel("workspace");
         await createSession(
             owner,
