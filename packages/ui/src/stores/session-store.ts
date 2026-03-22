@@ -4,6 +4,7 @@ import type {
     SessionRef,
     Task,
     BrowserOpenPayload,
+    MasterSessionsListResponse,
     SessionStatus,
     SessionStatusEvent,
     TerminalOutputEvent,
@@ -42,8 +43,8 @@ interface SessionStore {
     sessionStatus: Partial<Record<string, SessionStatus>>;
     lastTerminalSize: { cols: number; rows: number } | null;
     createSession(
-        owner: { taskId?: string; projectId?: string },
-        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "shell" | "editor",
+        owner: { taskId?: string; projectId?: string; master?: boolean },
+        type: Tab["type"],
         label?: string,
         prompt?: string,
         shell?: string,
@@ -64,6 +65,7 @@ interface SessionStore {
     getActiveTab(workspaceKey: string): Tab | undefined;
     syncWithTasks(tasks: Task[]): void;
     syncWithProjects(projects: { id: string; sessions: SessionRef[] }[]): void;
+    syncWithMasterSessions(sessions: SessionRef[]): void;
 }
 
 export type { Tab };
@@ -104,11 +106,14 @@ function isSessionFocused(sessionId: string): boolean {
     if (!windowFocused) return false;
     const activeTaskId = useTaskStore.getState().activeTaskId;
     const activeProjectId = useUIStore.getState().activeProjectId;
+    const masterWorkspaceActive = useUIStore.getState().masterWorkspaceActive;
     const workspaceKey = activeTaskId
         ? getTaskWorkspaceKey(activeTaskId)
         : activeProjectId
           ? getProjectWorkspaceKey(activeProjectId)
-          : null;
+          : masterWorkspaceActive
+            ? "master"
+            : null;
     if (!workspaceKey) return false;
     const store = useSessionStore.getState();
     const activeTabId = store.activeTabByWorkspace[workspaceKey];
@@ -150,7 +155,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     lastTerminalSize: null,
     async createSession(owner, type, label, prompt, shell, agentOptions, editorOpts) {
         const ownerId = owner.taskId ?? owner.projectId;
-        if (!ownerId) throw new Error("Either taskId or projectId is required");
+        if (!ownerId && !owner.master) throw new Error("Either taskId, projectId, or master is required");
         const lastTerminalSize = get().lastTerminalSize;
         const { sessionId } = await sendRequest<{ sessionId: string }>(MSG.SESSION_CREATE, {
             ...owner,
@@ -177,7 +182,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         };
         const workspaceKey = owner.taskId
             ? getTaskWorkspaceKey(owner.taskId)
-            : getProjectWorkspaceKey(ownerId);
+            : ownerId
+              ? getProjectWorkspaceKey(ownerId)
+              : "master";
         get().addTab(workspaceKey, tab);
         await Promise.all([
             owner.taskId ? useTaskStore.getState().fetchTasks() : Promise.resolve(),
@@ -461,6 +468,56 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             };
         });
     },
+    syncWithMasterSessions(sessions) {
+        set((state) => {
+            const workspaceKey = "master";
+            const existingTabs = state.tabsByWorkspace[workspaceKey] ?? [];
+            const sessionsById = new Map(sessions.map((s) => [s.id, s]));
+            const tabs = existingTabs
+                .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
+                .map((tab) => {
+                    if (!tab.sessionId) return tab;
+                    const session = sessionsById.get(tab.sessionId);
+                    if (!session) return tab;
+                    return {
+                        ...tab,
+                        type: session.type,
+                        ...(tab.autoTitle !== true && {
+                            label: normalizeSessionLabel(session.type, session.label),
+                        }),
+                    };
+                });
+
+            for (const session of sessions) {
+                if (!tabs.some((tab) => tab.sessionId === session.id)) {
+                    tabs.push(createSessionTab(session));
+                }
+            }
+
+            if (tabs.length === 0) {
+                const { [workspaceKey]: _, ...restTabs } = state.tabsByWorkspace;
+                const { [workspaceKey]: __, ...restActive } = state.activeTabByWorkspace;
+                return {
+                    tabsByWorkspace: restTabs,
+                    activeTabByWorkspace: restActive,
+                };
+            }
+
+            const currentActiveId = state.activeTabByWorkspace[workspaceKey];
+            return {
+                tabsByWorkspace: {
+                    ...state.tabsByWorkspace,
+                    [workspaceKey]: tabs,
+                },
+                activeTabByWorkspace: {
+                    ...state.activeTabByWorkspace,
+                    [workspaceKey]: tabs.some((tab) => tab.id === currentActiveId)
+                        ? currentActiveId
+                        : tabs[0].id,
+                },
+            };
+        });
+    },
 }));
 
 // --- Module-level event listeners (singleton, registered once) ---
@@ -576,7 +633,9 @@ const _unsubBrowserOpen = onEvent(MSG.BROWSER_OPEN, (payload) => {
         ? getTaskWorkspaceKey(taskId)
         : projectId
           ? getProjectWorkspaceKey(projectId)
-          : null;
+          : (payload as BrowserOpenPayload).master
+            ? "master"
+            : null;
     if (!workspaceKey) return;
     useSessionStore.getState().addTab(workspaceKey, {
         id: crypto.randomUUID(),
@@ -584,6 +643,12 @@ const _unsubBrowserOpen = onEvent(MSG.BROWSER_OPEN, (payload) => {
         label: label ?? "Browser",
         url,
     });
+});
+
+const _unsubMasterSessions = onEvent(MSG.MASTER_SESSIONS_LIST, (payload) => {
+    if (!payload || typeof payload !== "object" || !("sessions" in payload)) return;
+    const { sessions } = payload as MasterSessionsListResponse;
+    useSessionStore.getState().syncWithMasterSessions(sessions);
 });
 
 const _unsubActiveTask = useTaskStore.subscribe((state, prevState) => {
@@ -697,6 +762,7 @@ if (import.meta.hot) {
         _unsubSessionStatus();
         _unsubSessionExited();
         _unsubBrowserOpen();
+        _unsubMasterSessions();
         _unsubActiveTask();
         _unsubActiveProject();
         _unsubTrayState();

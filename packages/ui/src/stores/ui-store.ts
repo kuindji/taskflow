@@ -28,6 +28,7 @@ export function updateCollapsedProjectIds(
 
 interface UIStore {
     activeProjectId: string | null;
+    masterWorkspaceActive: boolean;
     fileExplorerOpen: boolean;
     taskInfoOpen: boolean;
     settingsOpen: boolean;
@@ -56,6 +57,7 @@ interface UIStore {
     setFocusedPanel(panel: "sidebar" | "workspace" | "taskinfo"): void;
     setSidebarFocusedItem(item: { type: "project" | "task"; id: string } | null): void;
     setFlowPanelOpen(open: boolean): void;
+    setMasterWorkspaceActive(active: boolean): void;
     setActiveProject(id: string | null): void;
     setSidebarWidth(width: number): void;
     setFileExplorerWidth(width: number): void;
@@ -74,6 +76,7 @@ interface UIStore {
 
 export const useUIStore = create<UIStore>((set) => ({
     activeProjectId: null,
+    masterWorkspaceActive: false,
     fileExplorerOpen: false,
     taskInfoOpen: false,
     settingsOpen: false,
@@ -126,8 +129,11 @@ export const useUIStore = create<UIStore>((set) => ({
     setFlowPanelOpen(open) {
         set({ flowPanelOpen: open });
     },
+    setMasterWorkspaceActive(active) {
+        set({ masterWorkspaceActive: active });
+    },
     setActiveProject(id) {
-        set({ activeProjectId: id });
+        set({ activeProjectId: id, ...(id ? { masterWorkspaceActive: false } : {}) });
     },
     setSidebarWidth(width) {
         set({ sidebarWidth: width });
