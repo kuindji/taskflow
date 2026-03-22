@@ -111,7 +111,10 @@ export class ChangeTracker {
     private startPolling(): void {
         if (this.pollTimer) return;
         this.schedulePoll();
-        this.scheduleFetch();
+        // Run an immediate non-blocking fetch so remote changes are detected on startup
+        void this.fetchAll().finally(() => {
+            if (this.targets.size > 0) this.scheduleFetch();
+        });
     }
 
     private stopPolling(): void {
