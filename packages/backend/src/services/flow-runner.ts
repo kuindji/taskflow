@@ -84,7 +84,7 @@ class FlowRunner {
             }
         }
 
-        const ownerId = owner.taskId ?? owner.projectId;
+        const ownerId = this.getOwnerId(owner);
 
         return this.withOwnerLock(ownerId, async () => {
             const existingRuns = await this.deps.flowStore.getFlowRunsForOwner(ownerId);
@@ -345,10 +345,18 @@ class FlowRunner {
 
     // --- Private helpers ---
 
+    private getOwnerId(owner: FlowOwner): string {
+        if (owner.taskId) return owner.taskId;
+        if (owner.projectId) return owner.projectId;
+        if (owner.master) return "__master__";
+        throw new Error("FlowOwner must have taskId, projectId, or master");
+    }
+
     private ownerFromRun(run: FlowRun): FlowOwner {
         if (run.taskId) return { taskId: run.taskId };
         if (run.projectId) return { projectId: run.projectId };
-        throw new Error("FlowRun must have either taskId or projectId");
+        if (run.master) return { master: true };
+        throw new Error("FlowRun must have taskId, projectId, or master");
     }
 
     private async failFlow(run: FlowRun): Promise<void> {
@@ -407,7 +415,7 @@ class FlowRunner {
             !!owner.projectId,
         );
 
-        const ownerId = owner.taskId ?? owner.projectId;
+        const ownerId = this.getOwnerId(owner);
         const sessionId = await this.deps.spawnSession({
             owner,
             sessionType: resolved.sessionType,
