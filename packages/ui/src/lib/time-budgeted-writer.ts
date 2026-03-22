@@ -28,8 +28,9 @@ class TimeBudgetedWriter {
     /** Called after each frame's writes are flushed to xterm (via sentinel callback). */
     onBeforeWrite: (() => void) | null = null;
 
-    /** Called after each frame's writes are flushed to xterm (via sentinel callback). */
-    onDidWrite: (() => void) | null = null;
+    /** Called after each frame's writes are flushed to xterm (via sentinel callback).
+     *  Receives `bufferDrained`: true when all buffered data has been written (final frame). */
+    onDidWrite: ((bufferDrained: boolean) => void) | null = null;
 
     constructor(term: Terminal) {
         this.term = term;
@@ -37,6 +38,10 @@ class TimeBudgetedWriter {
 
     set visible(value: boolean) {
         this._visible = value;
+    }
+
+    get visible(): boolean {
+        return this._visible;
     }
 
     write(data: string): void {
@@ -122,7 +127,7 @@ class TimeBudgetedWriter {
 
         this.term.write("", () => {
             if (this.disposed) return;
-            this.onDidWrite?.();
+            this.onDidWrite?.(bufferDrained);
             if (bufferDrained) {
                 this.resolveFlushWaiters();
             }
