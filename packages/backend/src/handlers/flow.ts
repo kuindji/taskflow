@@ -110,8 +110,11 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
             if (payload.taskId) {
                 return await flowRunner.startFlow({ taskId: payload.taskId }, flow, inputValues);
             }
+            if (payload.master) {
+                return await flowRunner.startFlow({ master: true }, flow, inputValues);
+            }
             if (!payload.projectId) {
-                throw new Error("Flow start requires either taskId or projectId");
+                throw new Error("Flow start requires taskId, projectId, or master");
             }
             const owner: FlowOwner = { projectId: payload.projectId };
             return await flowRunner.startFlow(owner, flow, inputValues);
