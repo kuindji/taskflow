@@ -100,6 +100,15 @@ function KeyboardShortcutsDialog() {
                             keys={
                                 <>
                                     <Kbd>&#8984;</Kbd>
+                                    <Kbd className="text-xs">0</Kbd>
+                                </>
+                            }
+                            description="Switch to master workspace"
+                        />
+                        <ShortcutRow
+                            keys={
+                                <>
+                                    <Kbd>&#8984;</Kbd>
                                     <Kbd>&#8593;</Kbd>
                                     <Kbd>&#8595;</Kbd>
                                 </>
