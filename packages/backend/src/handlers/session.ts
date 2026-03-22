@@ -98,10 +98,8 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
 
         // Check master sessions
         const masterSessions = taskStore.getMasterSessions();
-        const masterSession = masterSessions.find((s) => s.id === sessionId);
-        if (masterSession) {
-            taskStore.removeMasterSession(sessionId);
-            taskStore.addMasterSession({ ...masterSession, label });
+        if (masterSessions.some((s) => s.id === sessionId)) {
+            taskStore.updateMasterSession(sessionId, { label });
             return { success: true };
         }
 

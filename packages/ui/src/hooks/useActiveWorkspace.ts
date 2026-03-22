@@ -3,6 +3,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { MSG } from "@taskflow/shared";
+import type { SystemInfoResponse } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 
 export function getTaskWorkspaceKey(taskId: string): string {
@@ -21,7 +22,7 @@ let cachedHomedir: string | null = null;
 // Called once when the module loads; subsequent calls to useHomedir() return the cached value instantly.
 export function prefetchHomedir(): void {
     if (cachedHomedir) return;
-    sendRequest<{ editors: unknown[]; homedir: string }>(MSG.SYSTEM_INFO, {})
+    sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {})
         .then((res) => {
             cachedHomedir = res.homedir;
         })
@@ -36,7 +37,7 @@ export function useHomedir(): string | null {
             setHomedir(cachedHomedir);
             return;
         }
-        sendRequest<{ editors: unknown[]; homedir: string }>(MSG.SYSTEM_INFO, {})
+        sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {})
             .then((res) => {
                 cachedHomedir = res.homedir;
                 setHomedir(res.homedir);
@@ -56,12 +57,12 @@ export function useActiveWorkspace() {
     const homedir = useHomedir();
 
     return useMemo(() => {
-        if (masterWorkspaceActive && homedir) {
+        if (masterWorkspaceActive) {
             return {
                 scope: "master" as const,
                 task: null,
                 project: null,
-                workingDir: homedir,
+                workingDir: homedir ?? null,
                 workspaceKey: MASTER_WORKSPACE_KEY,
             };
         }

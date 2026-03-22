@@ -14,4 +14,5 @@ export interface EditorInfo {
 
 export interface SystemInfo {
     editors: EditorInfo[];
+    homedir: string;
 }

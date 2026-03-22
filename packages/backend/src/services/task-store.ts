@@ -115,6 +115,12 @@ export class TaskStore {
         return [...this.masterSessions];
     }
 
+    updateMasterSession(sessionId: string, updates: Partial<SessionRef>): void {
+        this.masterSessions = this.masterSessions.map((s) =>
+            s.id === sessionId ? { ...s, ...updates } : s,
+        );
+    }
+
     // --- Projects ---
 
     private stripEphemeralFields(projects: Project[]): Omit<Project, "locationValid">[] {
