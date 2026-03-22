@@ -22,6 +22,7 @@ function filterByProject<T extends { projectId?: string }>(
 interface FlowStartParams {
     taskId?: string;
     projectId?: string;
+    master?: true;
     flowId: string;
     inputValues?: Record<string, string>;
 }
