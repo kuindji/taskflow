@@ -221,6 +221,19 @@ export function useKeyboardNavigation() {
                 return;
             }
 
+            // Cmd+0: master workspace (sidebar only)
+            if (e.key === "0" && !e.shiftKey && !e.altKey) {
+                const { focusedPanel } = useUIStore.getState();
+                if (focusedPanel === "sidebar") {
+                    e.preventDefault();
+                    useTaskStore.getState().setActiveTask(null);
+                    useUIStore.getState().setActiveProject(null);
+                    useUIStore.getState().setMasterWorkspaceActive(true);
+                    useUIStore.getState().setSidebarFocusedItem(null);
+                }
+                return;
+            }
+
             // Cmd+1..9: context-sensitive number navigation
             const digit = parseInt(e.key, 10);
             if (digit >= 1 && digit <= 9 && !e.shiftKey && !e.altKey) {
