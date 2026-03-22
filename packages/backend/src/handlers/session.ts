@@ -31,6 +31,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
         const {
             taskId,
             projectId,
+            master,
             type,
             label,
             prompt,
@@ -43,7 +44,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             line,
         } = payload as SessionCreatePayload;
         const sessionId = await sessionLifecycle.createSession({
-            owner: { taskId, projectId },
+            owner: { taskId, projectId, master },
             type,
             label,
             prompt,
@@ -95,6 +96,15 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
             return { success: true };
         }
 
+        // Check master sessions
+        const masterSessions = taskStore.getMasterSessions();
+        const masterSession = masterSessions.find((s) => s.id === sessionId);
+        if (masterSession) {
+            taskStore.removeMasterSession(sessionId);
+            taskStore.addMasterSession({ ...masterSession, label });
+            return { success: true };
+        }
+
         throw new Error(`Session not found: ${sessionId}`);
     });
 
@@ -105,10 +115,10 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     });
 
     router.register(MSG.SESSION_HISTORY, async (payload) => {
-        const { taskId, projectId, sessionId } = payload as SessionHistoryPayload;
-        const ownerId = taskId ?? projectId;
-        if (!ownerId || (taskId && projectId)) {
-            throw new Error("Exactly one of taskId or projectId is required");
+        const { taskId, projectId, master, sessionId } = payload as SessionHistoryPayload;
+        const ownerId = master ? "master" : (taskId ?? projectId);
+        if (!ownerId || (!master && taskId && projectId)) {
+            throw new Error("Exactly one of taskId, projectId, or master is required");
         }
         return taskStore.getSessionHistory(ownerId, sessionId);
     });
@@ -116,6 +126,10 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     router.register(MSG.SESSION_SNAPSHOT, async (payload) => {
         const { sessionId } = payload as SessionSnapshotPayload;
         return ptyManager.getSnapshot(sessionId);
+    });
+
+    router.register(MSG.MASTER_SESSIONS_LIST, async () => {
+        return { sessions: taskStore.getMasterSessions() };
     });
 
     router.register(MSG.CURSOR_RULES_CHECK, async (payload) => {

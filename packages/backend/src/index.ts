@@ -38,6 +38,7 @@ import { TrayStateTracker } from "./services/tray-state-tracker";
 import { NotificationStore } from "./services/notification-store";
 import { registerNotificationHandlers } from "./handlers/notification";
 import { writeFile } from "fs/promises";
+import { homedir } from "os";
 
 async function main() {
     await ensureDirectories();
@@ -308,7 +309,7 @@ async function main() {
         });
 
         const runtimes = await detectRuntimes();
-        router.register(MSG.SYSTEM_INFO, async () => ({ editors }));
+        router.register(MSG.SYSTEM_INFO, async () => ({ editors, homedir: homedir() }));
         router.register(MSG.SHELLS_LIST, async () => ({
             shells,
             systemShellPath,
