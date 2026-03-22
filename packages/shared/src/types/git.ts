@@ -11,6 +11,7 @@ export interface GitStatusResult {
     stagedFiles: GitFileStatus[];
     unstagedFiles: GitFileStatus[];
     ahead: number;
+    behind: number;
 }
 
 export interface GitDiffResult {
@@ -31,6 +32,7 @@ export interface ChangeStats {
     fileCount: number;
     branch: string | null;
     ahead: number;
+    behind: number;
     hasChanges: boolean;
     diffDisabled: boolean;
     commitDisabled: boolean;

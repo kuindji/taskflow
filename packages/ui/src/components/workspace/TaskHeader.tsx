@@ -1,5 +1,7 @@
 import { useState, useCallback } from "react";
 import type { Task, Project, TaskWorktreePr } from "@taskflow/shared";
+import { MSG } from "@taskflow/shared";
+import { sendRequest } from "@/hooks/useWebSocket";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -16,6 +18,7 @@ import { ForkProjectDialog } from "./ForkProjectDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import {
     Archive,
+    ArrowDownToLine,
     ArrowUpFromLine,
     Diff,
     FolderTree,
@@ -87,6 +90,21 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const hasChanges = useDiffStore((s) =>
         diffKey ? (s.hasChangesByProject[diffKey] ?? false) : false,
     );
+    const behind = useDiffStore((s) => (diffKey ? (s.behindByProject[diffKey] ?? 0) : 0));
+
+    const [pulling, setPulling] = useState(false);
+
+    const handlePull = useCallback(async () => {
+        if (pulling || !gitRepoPath) return;
+        setPulling(true);
+        try {
+            await sendRequest(MSG.GIT_PULL, { path: gitRepoPath });
+        } catch {
+            // Pull failed — user will see the error via git output
+        } finally {
+            setPulling(false);
+        }
+    }, [pulling, gitRepoPath]);
 
     const showPush = !hasChanges && !commitDisabled;
     const showCreatePr =
@@ -188,6 +206,18 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
             <div className="flex-1" />
             {(task || project) && (
                 <>
+                    {showGitButtons && behind > 0 && (
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => void handlePull()}
+                            loading={pulling}
+                            aria-label="Pull"
+                            className="[-webkit-app-region:no-drag]">
+                            <ArrowDownToLine className="h-3 w-3" />
+                            <span className="text-xs">Pull</span>
+                        </Button>
+                    )}
                     {showCommitButton && (
                         <Button
                             variant="ghost"
@@ -210,10 +240,22 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             className="[-webkit-app-region:no-drag]">
                             <Diff className="h-3 w-3" />
                             <span className="text-xs">Diff</span>
-                            {diffStats && (diffStats.additions > 0 || diffStats.deletions > 0) && (
+                            {(behind > 0 ||
+                                (diffStats &&
+                                    (diffStats.additions > 0 || diffStats.deletions > 0))) && (
                                 <span className="flex gap-0.5 text-xs">
-                                    <span className="text-success">+{diffStats.additions}</span>
-                                    <span className="text-destructive">-{diffStats.deletions}</span>
+                                    {behind > 0 && <span className="text-info">↓{behind}</span>}
+                                    {diffStats &&
+                                        (diffStats.additions > 0 || diffStats.deletions > 0) && (
+                                            <>
+                                                <span className="text-success">
+                                                    +{diffStats.additions}
+                                                </span>
+                                                <span className="text-destructive">
+                                                    -{diffStats.deletions}
+                                                </span>
+                                            </>
+                                        )}
                                 </span>
                             )}
                         </Button>

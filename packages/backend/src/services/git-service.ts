@@ -117,14 +117,19 @@ export class GitService {
         }
 
         let ahead = 0;
+        let behind = 0;
         try {
-            const revList = await git(["rev-list", "--count", "@{u}..HEAD"], repoPath);
-            ahead = parseInt(revList.trim(), 10) || 0;
+            const [aheadOut, behindOut] = await Promise.all([
+                git(["rev-list", "--count", "@{u}..HEAD"], repoPath),
+                git(["rev-list", "--count", "HEAD..@{u}"], repoPath),
+            ]);
+            ahead = parseInt(aheadOut.trim(), 10) || 0;
+            behind = parseInt(behindOut.trim(), 10) || 0;
         } catch {
             // No upstream configured — treat as 0
         }
 
-        return { branch: branchOutput.trim() || null, stagedFiles, unstagedFiles, ahead };
+        return { branch: branchOutput.trim() || null, stagedFiles, unstagedFiles, ahead, behind };
     }
 
     private parseStatusChar(char: string): GitFileStatus["status"] {
@@ -333,6 +338,18 @@ export class GitService {
 
     async deleteBranch(repoPath: string, branch: string): Promise<void> {
         await git(["branch", "-D", branch], repoPath);
+    }
+
+    async fetch(repoPath: string): Promise<void> {
+        try {
+            await git(["fetch"], repoPath);
+        } catch {
+            // Network failure or no remote — silently skip
+        }
+    }
+
+    async pull(repoPath: string): Promise<void> {
+        await git(["pull"], repoPath);
     }
 
     async push(repoPath: string): Promise<void> {

@@ -6,6 +6,8 @@ import type {
     GitRevertFilePayload,
     GitWorktreeCreatePayload,
     GitCommitPayload,
+    GitPullPayload,
+    GitFetchPayload,
     GitPushPayload,
     GitCreatePrPayload,
     GitCheckPrPayload,
@@ -95,6 +97,22 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
         const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
         const worktreePath = assertWorktreePath(repoPath, path);
         await git.createWorktree(repoPath, branch, worktreePath);
+        return { success: true };
+    });
+
+    router.register(MSG.GIT_PULL, async (payload) => {
+        const { path } = payload as GitPullPayload;
+        const repoPath = await assertWorkspaceRepo(taskStore, path);
+        await git.pull(repoPath);
+        changeTracker?.invalidate(repoPath);
+        return { success: true };
+    });
+
+    router.register(MSG.GIT_FETCH, async (payload) => {
+        const { path } = payload as GitFetchPayload;
+        const repoPath = await assertWorkspaceRepo(taskStore, path);
+        await git.fetch(repoPath);
+        changeTracker?.invalidate(repoPath);
         return { success: true };
     });
 

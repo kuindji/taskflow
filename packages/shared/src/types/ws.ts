@@ -349,6 +349,14 @@ export interface GitGenerateCommitMsgPayload {
     includeUnstaged?: boolean;
 }
 
+export interface GitPullPayload {
+    path: string;
+}
+
+export interface GitFetchPayload {
+    path: string;
+}
+
 export interface GitPushPayload {
     path: string;
 }
