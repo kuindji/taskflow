@@ -160,6 +160,14 @@ describe("startFlow", () => {
         expect(run?.projectId).toBe("project-1");
         expect(run?.taskId).toBeUndefined();
     });
+
+    test("starts flow with master owner", async () => {
+        const masterOwner: FlowOwner = { master: true };
+        await runner.startFlow(masterOwner, testFlow);
+        expect(flowStore.saveFlowRun).toHaveBeenCalled();
+        expect(spawnedSessions.length).toBe(1);
+        expect(spawnedSessions[0].owner).toEqual({ master: true });
+    });
 });
 
 describe("handleActionComplete", () => {
@@ -309,6 +317,21 @@ describe("handleSessionExit", () => {
         expect(run?.currentActionIndex).toBe(1);
         expect(run?.actions[1].status).toBe("running");
         expect(spawnedSessions).toHaveLength(2);
+    });
+});
+
+describe("getFlowRunOwnerId", () => {
+    test("returns __master__ for master owner", () => {
+        const run = {
+            master: true,
+            flowId: "flow-1",
+            status: "running" as const,
+            currentActionIndex: 0,
+            actions: [],
+            artifacts: [],
+            startedAt: new Date().toISOString(),
+        };
+        expect(getFlowRunOwnerId(run as FlowRun)).toBe("__master__");
     });
 });
 
