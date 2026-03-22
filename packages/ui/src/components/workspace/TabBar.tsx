@@ -357,7 +357,7 @@ export function TabBar({
                                     <DropdownMenuSub>
                                         <DropdownMenuSubTrigger>
                                             <Workflow className="mr-2 h-4 w-4" />
-                                            Actions and Flows
+                                            Flows
                                         </DropdownMenuSubTrigger>
                                         <DropdownMenuSubContent>
                                             {flows.map((f) => (
