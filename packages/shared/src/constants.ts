@@ -118,6 +118,12 @@ export const MSG = {
 
     THEME_DELETE: "theme:delete",
 
+    // Notifications
+    NOTIFICATION_LIST: "notification:list",
+    NOTIFICATION_CREATED: "notification:created",
+    NOTIFICATION_UPDATED: "notification:updated",
+    NOTIFICATION_DELETED: "notification:deleted",
+
     // System
     SYSTEM_INFO: "system:info",
 } as const;

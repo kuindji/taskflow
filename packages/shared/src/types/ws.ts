@@ -1,3 +1,4 @@
+import type { Notification } from "./notification";
 import type { Project } from "./project";
 import type { SessionStatus, Task, TaskLogEntry, TaskWorktree } from "./task";
 import type { FileNode, FileChangeEvent } from "./file";
@@ -447,3 +448,31 @@ export interface CursorRulesEnsurePayload {
 
 // System messages
 export type SystemInfoResponse = SystemInfo;
+
+// Notification messages — request payloads
+export interface NotificationMarkReadPayload {
+    id: string;
+}
+
+export interface NotificationDeletePayload {
+    id?: string;
+    all?: boolean;
+}
+
+// Notification messages — response/event types
+export interface NotificationListResponse {
+    notifications: Notification[];
+}
+
+export interface NotificationCreatedEvent {
+    notification: Notification;
+}
+
+export interface NotificationUpdatedEvent {
+    notification: Notification;
+}
+
+export interface NotificationDeletedEvent {
+    id?: string;
+    all?: boolean;
+}

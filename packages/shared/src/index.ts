@@ -1,3 +1,4 @@
+export * from "./types/notification";
 export * from "./types/project";
 export * from "./types/task";
 export * from "./types/ws";
