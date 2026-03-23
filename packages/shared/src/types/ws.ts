@@ -121,6 +121,7 @@ export interface SessionCreatePayload {
     label?: string;
     prompt?: string;
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
+    cwd?: string; // override working directory for the session
     cols?: number;
     rows?: number;
     agentOptions?: AgentLaunchOptions;

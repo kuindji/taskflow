@@ -50,6 +50,7 @@ interface FileStore {
     loadingDirs: Set<string>;
     expandedDirs: Set<string>;
     focusedPath: string | null;
+    contextMenuPath: string | null;
     onOpenFile: ((path: string) => void) | null;
     fetchTree(path: string): Promise<void>;
     fetchDir(dirPath: string): Promise<void>;
@@ -70,6 +71,7 @@ interface FileStore {
     expandDir(path: string): Promise<void>;
     collapseDir(path: string): void;
     setFocusedPath(path: string | null): void;
+    setContextMenuPath(path: string | null): void;
     setOnOpenFile(callback: ((path: string) => void) | null): void;
 }
 
@@ -93,6 +95,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
     loadingDirs: emptyLoadingDirs,
     expandedDirs: new Set<string>(),
     focusedPath: null,
+    contextMenuPath: null,
     onOpenFile: null,
     async fetchTree(path) {
         const requestId = ++treeRequestId;
@@ -220,6 +223,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
             loadingDirs: emptyLoadingDirs,
             expandedDirs: new Set<string>(),
             focusedPath: null,
+            contextMenuPath: null,
         });
     },
     async expandToPathAndLoad(targetPath) {
@@ -315,6 +319,9 @@ export const useFileStore = create<FileStore>((set, get) => ({
     },
     setFocusedPath(path) {
         set({ focusedPath: path });
+    },
+    setContextMenuPath(path) {
+        set({ contextMenuPath: path });
     },
     setOnOpenFile(callback) {
         set({ onOpenFile: callback });

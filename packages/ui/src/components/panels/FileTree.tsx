@@ -58,6 +58,7 @@ function FileTree({
     const toggleDir = useFileStore((s) => s.toggleDir);
     const loadingDirs = useFileStore((s) => s.loadingDirs);
     const isFocused = useFileStore((s) => s.focusedPath === node.path);
+    const isContextMenuActive = useFileStore((s) => s.contextMenuPath === node.path);
     const setFocusedPath = useFileStore((s) => s.setFocusedPath);
     const isLoading = node.type === "directory" && loadingDirs.has(node.path);
 
@@ -119,7 +120,7 @@ function FileTree({
                     className={cn(
                         fileClasses,
                         "flex min-w-0 items-center gap-1.5",
-                        isFocused && "bg-accent/20 ring-accent/40 ring-1",
+                        (isFocused || isContextMenuActive) && "bg-accent/20 ring-accent/40 ring-1",
                     )}
                     style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}>
                     <FileIcon name={node.name} isDirectory={false} />
@@ -138,7 +139,7 @@ function FileTree({
                     onClick={() => setFocusedPath(node.path)}
                     className={cn(
                         directoryClasses,
-                        isFocused && "bg-accent/20 ring-accent/40 ring-1",
+                        (isFocused || isContextMenuActive) && "bg-accent/20 ring-accent/40 ring-1",
                     )}
                     style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}>
                     {open ? (

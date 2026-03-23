@@ -16,10 +16,17 @@ import {
     FilePlus,
     FolderPlus,
     Eye,
+    Terminal,
 } from "lucide-react";
+import { MSG } from "@taskflow/shared";
+import type { ShellListResponse } from "@taskflow/shared";
 import { useFileStore } from "@/stores/file-store";
 import { useSessionStore } from "@/stores/session-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { sendRequest } from "@/hooks/useWebSocket";
+import { DEFAULT_TERMINAL_SHELL } from "@taskflow/shared";
+import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import { RenameFileDialog } from "./RenameFileDialog";
 import { DeleteFileDialog } from "./DeleteFileDialog";
 import { CreateFileDialog } from "./CreateFileDialog";
@@ -38,6 +45,18 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
     const [createFolderOpen, setCreateFolderOpen] = useState(false);
     const openExternal = useFileStore((s) => s.openExternal);
     const revealInFinder = useFileStore((s) => s.revealInFinder);
+    const setContextMenuPath = useFileStore((s) => s.setContextMenuPath);
+    const createSession = useSessionStore((s) => s.createSession);
+    const configuredShell = useSettingsStore(
+        (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
+    );
+
+    const handleOpenChange = useCallback(
+        (open: boolean) => {
+            setContextMenuPath(open ? filePath : null);
+        },
+        [setContextMenuPath, filePath],
+    );
     const workspace = useActiveWorkspace();
 
     const isMarkdown = !isDirectory && filePath.endsWith(".md");
@@ -76,13 +95,37 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
         void openExternal(filePath);
     }, [filePath, openExternal]);
 
+    const handleOpenInTerminal = useCallback(async () => {
+        if (!workspace.scope) return;
+        const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
+        const shell = resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell);
+        if (!shell) return;
+        const targetDir = isDirectory ? filePath : filePath.substring(0, filePath.lastIndexOf("/"));
+        const owner =
+            workspace.scope === "task"
+                ? { taskId: workspace.task!.id }
+                : workspace.scope === "project"
+                  ? { projectId: workspace.project!.id }
+                  : { master: true as const };
+        await createSession(
+            owner,
+            "shell",
+            getShellSessionLabel(shell),
+            undefined,
+            shell,
+            undefined,
+            undefined,
+            targetDir,
+        );
+    }, [filePath, isDirectory, workspace, configuredShell, createSession]);
+
     const handleReveal = useCallback(() => {
         void revealInFinder(filePath);
     }, [filePath, revealInFinder]);
 
     return (
         <>
-            <ContextMenu>
+            <ContextMenu onOpenChange={handleOpenChange}>
                 <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
                 <ContextMenuContent>
                     {isDirectory && (
@@ -131,6 +174,10 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
                     <ContextMenuItem onSelect={handleReveal}>
                         <FolderOpen />
                         Reveal in Finder
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={handleOpenInTerminal}>
+                        <Terminal />
+                        Open in Terminal
                     </ContextMenuItem>
                 </ContextMenuContent>
             </ContextMenu>

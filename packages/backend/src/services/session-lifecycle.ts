@@ -24,6 +24,7 @@ interface CreateSessionOpts {
     prompt?: string;
     systemPrompt?: string;
     shell?: string;
+    cwd?: string;
     editorId?: string;
     filePath?: string;
     line?: number;
@@ -132,6 +133,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             prompt,
             systemPrompt,
             shell,
+            cwd: cwdOverride,
             editorId,
             filePath,
             line,
@@ -153,7 +155,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         let resolvedProjectId = "";
 
         if (master) {
-            cwd = homedir();
+            cwd = cwdOverride ?? homedir();
         } else {
             task = taskId ? await taskStore.getTask(taskId) : null;
             if (taskId && !task) throw new Error(`Task not found: ${taskId}`);
@@ -166,7 +168,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             if (!project) throw new Error(`Project not found: ${task?.projectId ?? projectId}`);
 
             resolvedProjectId = project.id;
-            cwd = task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path;
+            cwd = cwdOverride ?? (task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path);
         }
 
         let command: string;
