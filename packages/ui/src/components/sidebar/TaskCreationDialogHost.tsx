@@ -103,6 +103,7 @@ export function TaskCreationDialogHost() {
             startWith?: "claude" | "codex" | "opencode" | "gemini" | "cursor";
             agentOptions?: AgentLaunchOptions;
             startWithFlowId?: string;
+            initCommand?: string;
         }) => {
             try {
                 const task = await createTask(data);

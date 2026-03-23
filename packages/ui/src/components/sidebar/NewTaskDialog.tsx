@@ -39,6 +39,7 @@ interface NewTaskDialogProps {
         startWith?: "claude" | "codex" | "opencode" | "gemini" | "cursor";
         agentOptions?: AgentLaunchOptions;
         startWithFlowId?: string;
+        initCommand?: string;
     }) => void;
 }
 
@@ -55,6 +56,7 @@ export function NewTaskDialog({
     const [description, setDescription] = useState("");
     const [title, setTitle] = useState("");
     const [worktree, setWorktree] = useState(false);
+    const [initCommand, setInitCommand] = useState("");
     const [startWith, setStartWith] = useState("none");
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
     const [startWithFlowId, setStartWithFlowId] = useState("");
@@ -72,6 +74,7 @@ export function NewTaskDialog({
         setDescription("");
         setTitle("");
         setWorktree(false);
+        setInitCommand("");
         setStartWith("none");
         setAgentOptions(undefined);
         setStartWithFlowId("");
@@ -129,6 +132,7 @@ export function NewTaskDialog({
                     : undefined,
             agentOptions,
             startWithFlowId: startWith === "flow" && startWithFlowId ? startWithFlowId : undefined,
+            initCommand: worktree && initCommand.trim() ? initCommand.trim() : undefined,
         });
         resetForm();
         onOpenChange(false);
@@ -143,6 +147,7 @@ export function NewTaskDialog({
         startWith,
         agentOptions,
         startWithFlowId,
+        initCommand,
         onSubmit,
         resetForm,
         onOpenChange,
@@ -232,6 +237,23 @@ export function NewTaskDialog({
                                 className="cursor-pointer tracking-normal normal-case">
                                 Use git worktree
                             </Label>
+                        </div>
+                    )}
+
+                    {!isSubtask && worktree && (
+                        <div className="flex flex-col gap-1.5">
+                            <Label htmlFor="new-task-init-command">
+                                Init command{" "}
+                                <span className="text-muted-foreground/60 text-xs tracking-normal normal-case">
+                                    (optional — runs in worktree before agent starts)
+                                </span>
+                            </Label>
+                            <Input
+                                id="new-task-init-command"
+                                placeholder="bun install"
+                                value={initCommand}
+                                onChange={(e) => setInitCommand(e.target.value)}
+                            />
                         </div>
                     )}
 

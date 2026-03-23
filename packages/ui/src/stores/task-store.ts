@@ -19,6 +19,7 @@ interface TaskStore {
         description: string;
         worktree?: boolean;
         parentId?: string;
+        initCommand?: string;
     }): Promise<Task>;
     applyTaskUpdate(task: Task): void;
     updateTask(id: string, updates: Partial<Task>): Promise<void>;
