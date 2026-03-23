@@ -14,7 +14,11 @@ interface TitleGeneratorDeps {
 export function createTitleGenerator(deps: TitleGeneratorDeps) {
     const { taskStore, broadcast, createWorktree } = deps;
 
-    async function generate(taskId: string, description: string, initCommand?: string): Promise<void> {
+    async function generate(
+        taskId: string,
+        description: string,
+        initCommand?: string,
+    ): Promise<void> {
         const prompt = `Generate a concise task title (3-7 words) for this task description. Output ONLY the title, nothing else. No quotes, no punctuation at the end.\n\nDescription: ${description}`;
 
         try {

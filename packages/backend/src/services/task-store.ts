@@ -237,7 +237,11 @@ export class TaskStore {
         return tasks.sort(compareTasksByCreatedAtDesc);
     }
 
-    async addProject(input: { name?: string; path: string; defaultInitCommand?: string }): Promise<Project> {
+    async addProject(input: {
+        name?: string;
+        path: string;
+        defaultInitCommand?: string;
+    }): Promise<Project> {
         const resolvedPath = await realpath(input.path).catch(() => input.path);
         const info = await stat(resolvedPath);
         if (!info.isDirectory()) {
@@ -281,7 +285,9 @@ export class TaskStore {
             | Partial<Pick<Project, "name" | "path" | "sessions" | "hidden" | "defaultInitCommand">>
             | ((
                   project: Project,
-              ) => Partial<Pick<Project, "name" | "path" | "sessions" | "hidden" | "defaultInitCommand">>),
+              ) => Partial<
+                  Pick<Project, "name" | "path" | "sessions" | "hidden" | "defaultInitCommand">
+              >),
     ): Promise<Project> {
         const projects = await this.listProjects();
         const index = projects.findIndex((p) => p.id === id);

@@ -290,9 +290,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         aria-label={
                             taskInfoOpen ? `Hide ${infoLabel} info` : `Show ${infoLabel} info`
                         }
-                        tooltip={
-                            taskInfoOpen ? `Hide ${infoLabel} info` : `Show ${infoLabel} info`
-                        }
+                        tooltip={taskInfoOpen ? `Hide ${infoLabel} info` : `Show ${infoLabel} info`}
                         tooltipSide="bottom"
                         className="[-webkit-app-region:no-drag]">
                         <NotebookText className="h-4 w-4" />

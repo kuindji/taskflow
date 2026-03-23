@@ -75,7 +75,8 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
     });
 
     router.register(MSG.TASK_CREATE, async (payload) => {
-        const { projectId, parentId, title, description, worktree, initCommand } = payload as TaskCreatePayload;
+        const { projectId, parentId, title, description, worktree, initCommand } =
+            payload as TaskCreatePayload;
         const hasInitCommand = Object.prototype.hasOwnProperty.call(payload, "initCommand");
 
         let resolvedProjectId = projectId;
