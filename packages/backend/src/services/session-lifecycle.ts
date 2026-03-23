@@ -2,7 +2,7 @@ import { MSG } from "@taskflow/shared";
 import type { SessionRef, WsEvent } from "@taskflow/shared";
 import type { PtyManager } from "./pty-manager";
 import type { TaskStore } from "./task-store";
-import { buildAgentLaunchSpec, ensureInternalAgentSkillFile } from "./internal-agent-skill";
+import { buildAgentLaunchSpec, ensureInternalAgentSkillFile, PROMPT_AUTONOMOUS } from "./internal-agent-skill";
 import { ensureCursorRulesFile } from "./cursor-rules";
 import { ensureGeminiSystemFile } from "./gemini-system";
 import { getEditorById } from "./editor-detector";
@@ -200,15 +200,21 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             if (!shell) throw new Error("shell path is required for shell sessions");
             command = shell;
         } else {
+            let effectiveSystemPrompt = systemPrompt;
+            if (agentOptions?.dontAskQuestions) {
+                effectiveSystemPrompt = effectiveSystemPrompt
+                    ? `${effectiveSystemPrompt}\n\n${PROMPT_AUTONOMOUS}`
+                    : PROMPT_AUTONOMOUS;
+            }
             const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
-            if (type === "cursor" && !master && systemPrompt) {
-                await ensureCursorRulesFile(cwd, systemPrompt);
+            if (type === "cursor" && !master && effectiveSystemPrompt) {
+                await ensureCursorRulesFile(cwd, effectiveSystemPrompt);
             }
             if (type === "gemini") {
                 geminiSystemPath = await ensureGeminiSystemFile(
                     config.agentSkillsDir,
                     !task,
-                    systemPrompt,
+                    effectiveSystemPrompt,
                 );
             }
             const spec = buildAgentLaunchSpec(
@@ -216,7 +222,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 prompt,
                 skillPath,
                 agentOptions,
-                systemPrompt,
+                effectiveSystemPrompt,
                 !task,
                 !!flow,
             );
