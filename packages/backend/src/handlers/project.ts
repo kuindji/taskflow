@@ -65,14 +65,25 @@ export function registerProjectHandlers(
     });
 
     router.register(MSG.PROJECT_UPDATE, async (payload) => {
-        const { id, name, path, hidden } = payload as ProjectUpdatePayload;
-        if (!name && !path && hidden === undefined) {
-            throw new Error("At least one of name, path, or hidden must be provided");
+        const { id, name, path, hidden, defaultInitCommand } = payload as ProjectUpdatePayload;
+        const hasDefaultInitCommand = Object.prototype.hasOwnProperty.call(
+            payload,
+            "defaultInitCommand",
+        );
+        if (!name && !path && hidden === undefined && !hasDefaultInitCommand) {
+            throw new Error(
+                "At least one of name, path, hidden, or defaultInitCommand must be provided",
+            );
         }
-        const updates: Partial<Pick<Project, "name" | "path" | "hidden">> = {};
+        const updates: Partial<Pick<Project, "name" | "path" | "hidden" | "defaultInitCommand">> =
+            {};
         if (name) updates.name = name;
         if (path) updates.path = path;
         if (hidden !== undefined) updates.hidden = hidden;
+        if (hasDefaultInitCommand) {
+            updates.defaultInitCommand =
+                typeof defaultInitCommand === "string" ? defaultInitCommand : undefined;
+        }
         const updated = await store.updateProject(id, updates);
         if (path) {
             changeTracker?.untrack(id);

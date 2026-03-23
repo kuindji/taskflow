@@ -56,7 +56,9 @@ export function NewTaskDialog({
     const [description, setDescription] = useState("");
     const [title, setTitle] = useState("");
     const [worktree, setWorktree] = useState(false);
-    const [initCommand, setInitCommand] = useState("");
+    const [initCommand, setInitCommand] = useState(
+        () => projects.find((project) => project.id === defaultProjectId)?.defaultInitCommand ?? "",
+    );
     const [startWith, setStartWith] = useState("none");
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
     const [startWithFlowId, setStartWithFlowId] = useState("");
@@ -70,6 +72,12 @@ export function NewTaskDialog({
     const geminiAvailable = isAgentAvailable(agents, "gemini");
     const cursorAvailable = isAgentAvailable(agents, "cursor");
 
+    const getProjectDefaultInitCommand = useCallback(
+        (targetProjectId: string) =>
+            projects.find((project) => project.id === targetProjectId)?.defaultInitCommand ?? "",
+        [projects],
+    );
+
     const resetForm = useCallback(() => {
         setDescription("");
         setTitle("");
@@ -79,6 +87,14 @@ export function NewTaskDialog({
         setAgentOptions(undefined);
         setStartWithFlowId("");
     }, []);
+
+    const handleProjectChange = useCallback(
+        (nextProjectId: string) => {
+            setProjectId(nextProjectId);
+            setInitCommand(getProjectDefaultInitCommand(nextProjectId));
+        },
+        [getProjectDefaultInitCommand],
+    );
 
     const handleStartWithChange = useCallback(
         (value: string) => {
@@ -104,10 +120,14 @@ export function NewTaskDialog({
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
             if (!nextOpen) resetForm();
-            if (nextOpen) setProjectId(defaultProjectId ?? "");
+            if (nextOpen) {
+                const nextProjectId = defaultProjectId ?? "";
+                setProjectId(nextProjectId);
+                setInitCommand(getProjectDefaultInitCommand(nextProjectId));
+            }
             onOpenChange(nextOpen);
         },
-        [onOpenChange, resetForm, defaultProjectId],
+        [defaultProjectId, getProjectDefaultInitCommand, onOpenChange, resetForm],
     );
 
     const hasFlowSelection = startWith !== "flow" || startWithFlowId !== "";
@@ -132,7 +152,7 @@ export function NewTaskDialog({
                     : undefined,
             agentOptions,
             startWithFlowId: startWith === "flow" && startWithFlowId ? startWithFlowId : undefined,
-            initCommand: worktree && initCommand.trim() ? initCommand.trim() : undefined,
+            initCommand: worktree ? initCommand.trim() : undefined,
         });
         resetForm();
         onOpenChange(false);
@@ -182,7 +202,7 @@ export function NewTaskDialog({
                     {!isSubtask && (
                         <div className="flex flex-col gap-1.5">
                             <Label htmlFor="new-task-project">Project</Label>
-                            <Select value={projectId} onValueChange={setProjectId}>
+                            <Select value={projectId} onValueChange={handleProjectChange}>
                                 <SelectTrigger id="new-task-project" className="w-full">
                                     <SelectValue placeholder="Select a project" />
                                 </SelectTrigger>

@@ -44,7 +44,7 @@ interface ApiRouteDeps {
     flowStore: FlowStore;
     flowRunner: FlowRunner;
     gitService: GitService;
-    generateTitle?: (taskId: string, description: string) => void;
+    generateTitle?: (taskId: string, description: string, initCommand?: string) => void;
     createWorktree?: (taskId: string, nameSource: string, initCommand?: string) => Promise<void>;
     changeTracker?: ChangeTracker;
     agents: AgentAvailability[];
@@ -385,18 +385,24 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             ? { enabled: true, path: null, branch: null, pr: null }
             : undefined;
 
-        const initCommand =
+        const hasInitCommand = Object.prototype.hasOwnProperty.call(body, "initCommand");
+        const requestedInitCommand =
             typeof body.initCommand === "string" && body.initCommand.trim()
                 ? body.initCommand.trim()
                 : undefined;
 
         try {
+            const resolvedInitCommand = worktree
+                ? hasInitCommand
+                    ? requestedInitCommand
+                    : (await taskStore.getProject(params.projectId))?.defaultInitCommand
+                : undefined;
             let task = await taskStore.createTask({
                 projectId: params.projectId,
                 title: title ?? "",
                 description: description.trim(),
                 worktree,
-                initCommand: worktree ? initCommand : undefined,
+                initCommand: resolvedInitCommand,
             });
 
             if (worktree && createWorktree) {
@@ -407,7 +413,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             }
 
             if (!title && generateTitle) {
-                generateTitle(task.id, description.trim());
+                generateTitle(task.id, description.trim(), task.initCommand);
             }
 
             broadcast({ type: MSG.TASK_CREATED, payload: task });
@@ -955,13 +961,21 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const updates: Partial<Pick<Project, "name" | "path" | "hidden">> = {};
+        const updates: Partial<Pick<Project, "name" | "path" | "hidden" | "defaultInitCommand">> =
+            {};
         if (typeof body.name === "string") updates.name = body.name;
         if (typeof body.path === "string") updates.path = body.path;
         if (typeof body.hidden === "boolean") updates.hidden = body.hidden;
+        if (Object.prototype.hasOwnProperty.call(body, "defaultInitCommand")) {
+            updates.defaultInitCommand =
+                typeof body.defaultInitCommand === "string" ? body.defaultInitCommand : undefined;
+        }
 
         if (Object.keys(updates).length === 0) {
-            return errorResponse("At least one of name, path, or hidden must be provided", 400);
+            return errorResponse(
+                "At least one of name, path, hidden, or defaultInitCommand must be provided",
+                400,
+            );
         }
 
         try {

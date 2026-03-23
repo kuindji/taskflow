@@ -84,6 +84,33 @@ describe("task handlers", () => {
         expect(task.worktree).toEqual({ enabled: true, path: null, branch: null, pr: null });
     });
 
+    it("defaults worktree init commands from the project unless explicitly overridden", async () => {
+        await store.updateProject(projectId, { defaultInitCommand: "bun install" });
+
+        const defaultedTask = (await router.handle(MSG.TASK_CREATE, {
+            projectId,
+            title: "Defaulted init",
+            worktree: true,
+        })) as Task;
+        expect(defaultedTask.initCommand).toBe("bun install");
+
+        const clearedTask = (await router.handle(MSG.TASK_CREATE, {
+            projectId,
+            title: "No init",
+            worktree: true,
+            initCommand: "",
+        })) as Task;
+        expect(clearedTask.initCommand).toBeUndefined();
+
+        const overriddenTask = (await router.handle(MSG.TASK_CREATE, {
+            projectId,
+            title: "Custom init",
+            worktree: true,
+            initCommand: "pnpm install",
+        })) as Task;
+        expect(overriddenTask.initCommand).toBe("pnpm install");
+    });
+
     it("requests generated titles when creating untitled tasks", async () => {
         const task = (await router.handle(MSG.TASK_CREATE, {
             projectId,

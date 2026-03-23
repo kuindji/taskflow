@@ -116,6 +116,28 @@ describe("TaskStore", () => {
 
             expect(unreadableStore.listProjects()).rejects.toThrow();
         });
+
+        it("persists and clears the default workspace init command", async () => {
+            const projectDir = await createProjectDir("test");
+            const project = await store.addProject({
+                name: "test",
+                path: projectDir,
+                defaultInitCommand: "bun install",
+            });
+
+            expect(project.defaultInitCommand).toBe("bun install");
+
+            const updated = await store.updateProject(project.id, {
+                defaultInitCommand: "pnpm install",
+            });
+            expect(updated.defaultInitCommand).toBe("pnpm install");
+
+            const cleared = await store.updateProject(project.id, {
+                defaultInitCommand: "",
+            });
+            expect(cleared.defaultInitCommand).toBeUndefined();
+            expect((await store.getProject(project.id))?.defaultInitCommand).toBeUndefined();
+        });
     });
 
     describe("tasks", () => {

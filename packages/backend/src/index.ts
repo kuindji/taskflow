@@ -335,8 +335,8 @@ async function main() {
             flowStore,
             flowRunner,
             gitService,
-            generateTitle: (taskId, description) => {
-                void titleGenerator.generate(taskId, description);
+            generateTitle: (taskId, description, initCommand) => {
+                void titleGenerator.generate(taskId, description, initCommand);
             },
             createWorktree: worktreeSetup.createWorktreeForTask,
             changeTracker,

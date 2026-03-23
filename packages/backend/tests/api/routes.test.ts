@@ -3,9 +3,10 @@ import { MSG, type AppSettings, type WsEvent } from "@taskflow/shared";
 import { ApiRouter } from "../../src/api/router";
 import { registerApiRoutes } from "../../src/api/routes";
 import { SettingsStore } from "../../src/services/settings-store";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, mkdir, realpath, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
+import { TaskStore } from "../../src/services/task-store";
 
 class FakePtyManager {
     constructor(private readonly activeSessionIds = new Set<string>()) {}
@@ -285,5 +286,74 @@ describe("flow artifact routes", () => {
                 text: 'line "one"\nline two',
             },
         );
+    });
+});
+
+describe("task creation routes", () => {
+    let apiRouter: ApiRouter;
+    let tempDir: string;
+    let taskStore: TaskStore;
+    let projectId: string;
+
+    beforeEach(async () => {
+        tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-task-create-"));
+        apiRouter = new ApiRouter();
+        taskStore = new TaskStore({
+            projectsFile: join(tempDir, "projects.json"),
+            tasksDir: join(tempDir, "tasks"),
+            archiveDir: join(tempDir, "archive"),
+            sessionLogsDir: join(tempDir, "session-logs"),
+            taskLogsDir: join(tempDir, "task-logs"),
+        });
+        await taskStore.init();
+
+        const projectPath = await realpath(
+            await mkdir(join(tempDir, "project"), { recursive: true }).then(() =>
+                join(tempDir, "project"),
+            ),
+        );
+        const project = await taskStore.addProject({
+            name: "project",
+            path: projectPath,
+            defaultInitCommand: "bun install",
+        });
+        projectId = project.id;
+
+        registerApiRoutes({
+            apiRouter,
+            taskStore,
+            ptyManager: new FakePtyManager() as never,
+            broadcast: () => {},
+            settingsStore: new SettingsStore(join(tempDir, "settings.json")),
+            flowStore: {} as never,
+            flowRunner: {} as never,
+            gitService: {} as never,
+            agents: [],
+            ...sharedTestDeps,
+            trayStateTracker: new FakeTrayStateTracker() as never,
+            notificationStore: {} as never,
+        });
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("uses the project default init command for worktree task creation when none is provided", async () => {
+        const response = await apiRouter.handle(
+            new Request(`http://localhost/api/projects/${projectId}/tasks`, {
+                method: "POST",
+                body: JSON.stringify({
+                    title: "Feature work",
+                    description: "Investigate build issue",
+                    worktree: true,
+                }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+
+        expect(response?.status).toBe(201);
+        const body = (await response?.json()) as { initCommand?: string };
+        expect(body.initCommand).toBe("bun install");
     });
 });

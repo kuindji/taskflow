@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TaskLogEntryType } from "@taskflow/shared";
 import { X } from "lucide-react";
+import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
@@ -32,15 +33,22 @@ function formatLogTime(timestamp: string): string {
 function TaskInfoPanel() {
     const workspace = useActiveWorkspace();
     const task = workspace.task;
+    const project = workspace.project;
     const { updateTask, fetchTaskLog } = useTaskStore();
+    const updateProject = useProjectStore((s) => s.updateProject);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const taskLogs = useTaskStore((s) => (task ? s.taskLogs[task.id] : undefined));
     const [titleDraft, setTitleDraft] = useState("");
     const [descriptionDraft, setDescriptionDraft] = useState("");
     const [notesDraft, setNotesDraft] = useState("");
+    const [projectTitleDraft, setProjectTitleDraft] = useState("");
+    const [projectInitCommandDraft, setProjectInitCommandDraft] = useState("");
     const lastSavedRef = useRef({ title: "", description: "", notes: "" });
     const draftRef = useRef({ title: "", description: "", notes: "" });
+    const lastSavedProjectRef = useRef({ name: "", defaultInitCommand: "" });
+    const projectDraftRef = useRef({ name: "", defaultInitCommand: "" });
     const taskId = task?.id ?? null;
+    const projectId = workspace.scope === "project" ? (project?.id ?? null) : null;
 
     useEffect(() => {
         draftRef.current = {
@@ -48,7 +56,14 @@ function TaskInfoPanel() {
             description: descriptionDraft,
             notes: notesDraft,
         };
-    });
+    }, [descriptionDraft, notesDraft, titleDraft]);
+
+    useEffect(() => {
+        projectDraftRef.current = {
+            name: projectTitleDraft,
+            defaultInitCommand: projectInitCommandDraft,
+        };
+    }, [projectInitCommandDraft, projectTitleDraft]);
 
     const persistDrafts = useCallback(
         (targetTaskId: string, title: string, description: string, notes: string) => {
@@ -73,6 +88,26 @@ function TaskInfoPanel() {
         [updateTask],
     );
 
+    const persistProjectDrafts = useCallback(
+        (targetProjectId: string, name: string, defaultInitCommand: string) => {
+            const updates: { name?: string; defaultInitCommand?: string } = {};
+            if (name !== lastSavedProjectRef.current.name) {
+                updates.name = name;
+            }
+            if (defaultInitCommand !== lastSavedProjectRef.current.defaultInitCommand) {
+                updates.defaultInitCommand = defaultInitCommand;
+            }
+            if (Object.keys(updates).length === 0) return;
+
+            lastSavedProjectRef.current = { name, defaultInitCommand };
+
+            void updateProject(targetProjectId, updates).catch((err: unknown) => {
+                console.error("Failed to update project:", err);
+            });
+        },
+        [updateProject],
+    );
+
     useEffect(() => {
         if (!task) {
             setTitleDraft("");
@@ -92,6 +127,23 @@ function TaskInfoPanel() {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally sync only when task identity changes, not on every task object update
     }, [taskId]);
+
+    useEffect(() => {
+        if (workspace.scope !== "project" || !project) {
+            setProjectTitleDraft("");
+            setProjectInitCommandDraft("");
+            lastSavedProjectRef.current = { name: "", defaultInitCommand: "" };
+            return;
+        }
+
+        setProjectTitleDraft(project.name);
+        setProjectInitCommandDraft(project.defaultInitCommand ?? "");
+        lastSavedProjectRef.current = {
+            name: project.name,
+            defaultInitCommand: project.defaultInitCommand ?? "",
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally sync only when project identity changes, not on every project object update
+    }, [projectId]);
 
     // Auto-save on debounce
     useEffect(() => {
@@ -115,6 +167,25 @@ function TaskInfoPanel() {
         return () => window.clearTimeout(timeoutId);
     }, [descriptionDraft, notesDraft, persistDrafts, taskId, titleDraft]);
 
+    useEffect(() => {
+        if (!projectId) return;
+        if (
+            projectTitleDraft === lastSavedProjectRef.current.name &&
+            projectInitCommandDraft === lastSavedProjectRef.current.defaultInitCommand
+        ) {
+            return;
+        }
+
+        const timeoutId = window.setTimeout(() => {
+            persistProjectDrafts(
+                projectId,
+                projectDraftRef.current.name,
+                projectDraftRef.current.defaultInitCommand,
+            );
+        }, 400);
+        return () => window.clearTimeout(timeoutId);
+    }, [persistProjectDrafts, projectId, projectInitCommandDraft, projectTitleDraft]);
+
     // Flush unsaved changes before switching tasks and on unmount.
     useEffect(() => {
         return () => {
@@ -128,13 +199,24 @@ function TaskInfoPanel() {
         };
     }, [persistDrafts, taskId]);
 
+    useEffect(() => {
+        return () => {
+            if (!projectId) return;
+            persistProjectDrafts(
+                projectId,
+                projectDraftRef.current.name,
+                projectDraftRef.current.defaultInitCommand,
+            );
+        };
+    }, [persistProjectDrafts, projectId]);
+
     // Fetch task log when task changes
     useEffect(() => {
         if (!taskId) return;
         void fetchTaskLog(taskId);
     }, [taskId, fetchTaskLog]);
 
-    if (workspace.scope === "project" && workspace.project) {
+    if (workspace.scope === "project" && project) {
         return (
             <div className="flex h-full flex-col">
                 <Toolbar className="gap-2">
@@ -146,8 +228,8 @@ function TaskInfoPanel() {
                         variant="ghost"
                         size="icon-xs"
                         onClick={toggleTaskInfo}
-                        aria-label="Hide task info"
-                        tooltip="Hide task info"
+                        aria-label="Hide project info"
+                        tooltip="Hide project info"
                         tooltipSide="bottom">
                         <X className="h-3 w-3" />
                     </Button>
@@ -155,10 +237,38 @@ function TaskInfoPanel() {
                 <div className="flex-1 overflow-y-auto p-3">
                     <div className="space-y-4">
                         <div>
-                            <span className="text-muted-foreground text-xs font-medium">Name</span>
-                            <div className="text-secondary-foreground mt-1 text-sm">
-                                {workspace.project.name}
-                            </div>
+                            <label
+                                htmlFor="project-info-title"
+                                className="text-muted-foreground text-xs font-medium">
+                                Title
+                            </label>
+                            <Input
+                                id="project-info-title"
+                                value={projectTitleDraft}
+                                onChange={(e) => setProjectTitleDraft(e.target.value)}
+                                placeholder="Short project name..."
+                                className="mt-1 text-sm"
+                            />
+                        </div>
+
+                        <Separator className="my-4" />
+
+                        <div>
+                            <label
+                                htmlFor="project-info-default-init-command"
+                                className="text-muted-foreground text-xs font-medium">
+                                Default Workspace Init Command
+                            </label>
+                            <Input
+                                id="project-info-default-init-command"
+                                value={projectInitCommandDraft}
+                                onChange={(e) => setProjectInitCommandDraft(e.target.value)}
+                                placeholder="bun install"
+                                className="mt-1 text-sm"
+                            />
+                            <p className="text-muted-foreground mt-1 text-xs">
+                                Used as the default init command when creating worktree tasks.
+                            </p>
                         </div>
 
                         <Separator className="my-4" />
@@ -166,7 +276,7 @@ function TaskInfoPanel() {
                         <div>
                             <span className="text-muted-foreground text-xs font-medium">Path</span>
                             <div className="text-secondary-foreground mt-1 text-sm break-all">
-                                {workspace.project.path}
+                                {project.path}
                             </div>
                         </div>
 
@@ -177,7 +287,7 @@ function TaskInfoPanel() {
                                 Created
                             </span>
                             <div className="text-secondary-foreground mt-1 text-sm">
-                                {new Date(workspace.project.createdAt).toLocaleString()}
+                                {new Date(project.createdAt).toLocaleString()}
                             </div>
                         </div>
                     </div>

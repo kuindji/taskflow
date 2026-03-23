@@ -6,6 +6,7 @@ export interface Project {
     path: string;
     sessions: SessionRef[];
     createdAt: string;
+    defaultInitCommand?: string;
     hidden?: boolean;
     locationValid?: boolean;
 }

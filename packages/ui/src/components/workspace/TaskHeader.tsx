@@ -12,7 +12,6 @@ import { confirm } from "@/stores/dialog-store";
 import { TruncatedText } from "@/components/ui/truncated-text";
 
 import { CopyButton } from "@/components/ui/copy-button";
-import { RenameProjectDialog } from "./RenameProjectDialog";
 import { CommitDialog } from "./CommitDialog";
 import { ForkProjectDialog } from "./ForkProjectDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -26,7 +25,6 @@ import {
     GitFork,
     GitPullRequestCreateArrow,
     NotebookText,
-    Pencil,
     Trash2,
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
@@ -68,13 +66,11 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const archiveTask = useTaskStore((s) => s.archiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
-    const updateProject = useProjectStore((s) => s.updateProject);
     const hideProject = useProjectStore((s) => s.hideProject);
     const removeProject = useProjectStore((s) => s.removeProject);
     const [removeOpen, setRemoveOpen] = useState(false);
 
     const isElectron = useIsElectron();
-    const [renameOpen, setRenameOpen] = useState(false);
     const [commitOpen, setCommitOpen] = useState(false);
     const [forkOpen, setForkOpen] = useState(false);
     const isWorktreeTask = !!task?.worktree.enabled && !!task.worktree.path;
@@ -93,6 +89,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const behind = useDiffStore((s) => (diffKey ? (s.behindByProject[diffKey] ?? 0) : 0));
 
     const [pulling, setPulling] = useState(false);
+    const infoLabel = task ? "task" : "project";
 
     const handlePull = useCallback(async () => {
         if (pulling || !gitRepoPath) return;
@@ -119,14 +116,6 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const showGitButtons = !!project && (!task || isWorktreeTask);
     const showDiffButton = !!onDiff && showGitButtons;
     const showCommitButton = showGitButtons;
-
-    const handleRename = useCallback(
-        (name: string) => {
-            if (!project) return;
-            void updateProject(project.id, { name });
-        },
-        [project, updateProject],
-    );
 
     const handleArchive = useCallback(() => {
         if (!task) return;
@@ -283,18 +272,6 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             <Archive className="h-4 w-4" />
                         </Button>
                     )}
-                    {!task && project && (
-                        <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => setRenameOpen(true)}
-                            aria-label="Rename project"
-                            tooltip="Rename project"
-                            tooltipSide="bottom"
-                            className="[-webkit-app-region:no-drag]">
-                            <Pencil className="h-4 w-4" />
-                        </Button>
-                    )}
                     <Button
                         variant="ghost"
                         size="icon-xs"
@@ -310,21 +287,17 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         size="icon-xs"
                         onClick={toggleTaskInfo}
                         aria-pressed={taskInfoOpen}
-                        aria-label={taskInfoOpen ? "Hide task info" : "Show task info"}
-                        tooltip={taskInfoOpen ? "Hide task info" : "Show task info"}
+                        aria-label={
+                            taskInfoOpen ? `Hide ${infoLabel} info` : `Show ${infoLabel} info`
+                        }
+                        tooltip={
+                            taskInfoOpen ? `Hide ${infoLabel} info` : `Show ${infoLabel} info`
+                        }
                         tooltipSide="bottom"
                         className="[-webkit-app-region:no-drag]">
                         <NotebookText className="h-4 w-4" />
                     </Button>
                 </>
-            )}
-            {project && (
-                <RenameProjectDialog
-                    open={renameOpen}
-                    currentName={project.name}
-                    onOpenChange={setRenameOpen}
-                    onSubmit={handleRename}
-                />
             )}
             {showCommitButton && (
                 <CommitDialog

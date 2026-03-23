@@ -76,6 +76,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
 
     router.register(MSG.TASK_CREATE, async (payload) => {
         const { projectId, parentId, title, description, worktree, initCommand } = payload as TaskCreatePayload;
+        const hasInitCommand = Object.prototype.hasOwnProperty.call(payload, "initCommand");
 
         let resolvedProjectId = projectId;
         let resolvedWorktree: TaskWorktree | undefined = worktree
@@ -95,13 +96,26 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             resolvedWorktree = { ...parent.worktree };
         }
 
+        let resolvedInitCommand: string | undefined;
+        if (worktree && !parentId) {
+            if (hasInitCommand) {
+                resolvedInitCommand =
+                    typeof initCommand === "string" && initCommand.trim()
+                        ? initCommand.trim()
+                        : undefined;
+            } else {
+                resolvedInitCommand = (await store.getProject(resolvedProjectId))
+                    ?.defaultInitCommand;
+            }
+        }
+
         const task = await store.createTask({
             projectId: resolvedProjectId,
             parentId,
             title: title ?? "",
             description,
             worktree: resolvedWorktree,
-            initCommand: worktree && !parentId ? initCommand : undefined,
+            initCommand: resolvedInitCommand,
         });
         if (task.worktree.enabled && task.worktree.path && !task.parentId) {
             changeTracker?.track(task.id, task.worktree.path);

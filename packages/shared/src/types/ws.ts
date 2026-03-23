@@ -44,6 +44,7 @@ export interface ProjectUpdatePayload {
     id: string;
     name?: string;
     path?: string;
+    defaultInitCommand?: string;
     hidden?: boolean;
 }
 

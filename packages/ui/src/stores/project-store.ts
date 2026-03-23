@@ -12,7 +12,7 @@ interface ProjectStore {
     addProject(path: string): Promise<Project>;
     updateProject(
         id: string,
-        updates: { name?: string; path?: string; hidden?: boolean },
+        updates: { name?: string; path?: string; hidden?: boolean; defaultInitCommand?: string },
     ): Promise<Project>;
     hideProject(id: string): Promise<void>;
     removeProject(id: string): Promise<void>;

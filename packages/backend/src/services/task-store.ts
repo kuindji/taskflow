@@ -237,7 +237,7 @@ export class TaskStore {
         return tasks.sort(compareTasksByCreatedAtDesc);
     }
 
-    async addProject(input: { name?: string; path: string }): Promise<Project> {
+    async addProject(input: { name?: string; path: string; defaultInitCommand?: string }): Promise<Project> {
         const resolvedPath = await realpath(input.path).catch(() => input.path);
         const info = await stat(resolvedPath);
         if (!info.isDirectory()) {
@@ -258,6 +258,9 @@ export class TaskStore {
             path: resolvedPath,
             sessions: [],
             createdAt: new Date().toISOString(),
+            ...(input.defaultInitCommand?.trim()
+                ? { defaultInitCommand: input.defaultInitCommand.trim() }
+                : {}),
         };
         projects.push(project);
         await writeFile(
@@ -275,10 +278,10 @@ export class TaskStore {
     async updateProject(
         id: string,
         updates:
-            | Partial<Pick<Project, "name" | "path" | "sessions" | "hidden">>
+            | Partial<Pick<Project, "name" | "path" | "sessions" | "hidden" | "defaultInitCommand">>
             | ((
                   project: Project,
-              ) => Partial<Pick<Project, "name" | "path" | "sessions" | "hidden">>),
+              ) => Partial<Pick<Project, "name" | "path" | "sessions" | "hidden" | "defaultInitCommand">>),
     ): Promise<Project> {
         const projects = await this.listProjects();
         const index = projects.findIndex((p) => p.id === id);
@@ -307,6 +310,10 @@ export class TaskStore {
             name: resolvedUpdates.name ? resolvedUpdates.name.trim() : projects[index].name,
             path: resolvedPath,
             sessions: resolvedUpdates.sessions ?? projects[index].sessions,
+            defaultInitCommand:
+                "defaultInitCommand" in resolvedUpdates
+                    ? resolvedUpdates.defaultInitCommand?.trim() || undefined
+                    : projects[index].defaultInitCommand,
         };
         await writeFile(
             this.config.projectsFile,
