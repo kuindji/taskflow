@@ -45,6 +45,7 @@ interface ApiRouteDeps {
     flowRunner: FlowRunner;
     gitService: GitService;
     generateTitle?: (taskId: string, description: string) => void;
+    createWorktree?: (taskId: string, nameSource: string, initCommand?: string) => Promise<void>;
     changeTracker?: ChangeTracker;
     agents: AgentAvailability[];
     sessionLifecycle: {
@@ -88,6 +89,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         flowRunner,
         gitService,
         generateTitle,
+        createWorktree,
         changeTracker,
         agents,
         sessionLifecycle,
@@ -383,13 +385,26 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             ? { enabled: true, path: null, branch: null, pr: null }
             : undefined;
 
+        const initCommand =
+            typeof body.initCommand === "string" && body.initCommand.trim()
+                ? body.initCommand.trim()
+                : undefined;
+
         try {
-            const task = await taskStore.createTask({
+            let task = await taskStore.createTask({
                 projectId: params.projectId,
                 title: title ?? "",
                 description: description.trim(),
                 worktree,
+                initCommand: worktree ? initCommand : undefined,
             });
+
+            if (worktree && createWorktree) {
+                // Await worktree creation so the CLI blocks until the worktree is ready.
+                // This ensures `agent run --task <id>` starts in the correct directory.
+                await createWorktree(task.id, title ?? description.trim(), task.initCommand);
+                task = (await taskStore.getTask(task.id)) ?? task;
+            }
 
             if (!title && generateTitle) {
                 generateTitle(task.id, description.trim());
