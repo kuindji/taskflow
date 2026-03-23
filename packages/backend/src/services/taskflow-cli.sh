@@ -90,17 +90,19 @@ case "$cmd" in
       fi
       description="${1:-}"
       if [ -z "$description" ]; then
-        echo "Usage: taskflow-cli task create <description> [--title <title>] [--worktree]" >&2
+        echo "Usage: taskflow-cli task create <description> [--title <title>] [--worktree] [--init <command>]" >&2
         exit 1
       fi
       shift
 
       title=""
       worktree=""
+      init_command=""
       while [ $# -gt 0 ]; do
         case "$1" in
           --title) title="${2:-}"; shift 2 ;;
           --worktree) worktree="true"; shift ;;
+          --init) init_command="${2:-}"; shift 2 ;;
           *) shift ;;
         esac
       done
@@ -111,6 +113,9 @@ case "$cmd" in
       fi
       if [ -n "$worktree" ]; then
         json_body="$json_body,\"worktree\":true"
+      fi
+      if [ -n "$init_command" ]; then
+        json_body="$(printf '%s,"initCommand":%s' "$json_body" "$(json_string "$init_command")")"
       fi
 
       curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \
@@ -1246,7 +1251,7 @@ case "$cmd" in
     echo "  task                                          Get task context and log" >&2
     echo "  task list                                     List all tasks in the project" >&2
     echo "  task list-archived                            List archived tasks" >&2
-    echo "  task create <desc> [--title t]                Create a new task" >&2
+    echo "  task create <desc> [--title t] [--worktree] [--init cmd]  Create a new task" >&2
     echo "  task update [--title t] [--pin] [--unpin]     Update task fields" >&2
     echo "  task archive                                  Archive the current task" >&2
     echo "  task unarchive                                Unarchive the current task" >&2
