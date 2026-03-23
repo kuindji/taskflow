@@ -71,11 +71,13 @@ export function createWorktreeSetup(deps: WorktreeSetupDeps) {
         });
 
         const TIMEOUT_MS = 30_000;
-        const timeoutPromise = new Promise<"timeout">((resolve) =>
-            setTimeout(() => resolve("timeout"), TIMEOUT_MS),
-        );
+        let timer: ReturnType<typeof setTimeout>;
+        const timeoutPromise = new Promise<"timeout">((resolve) => {
+            timer = setTimeout(() => resolve("timeout"), TIMEOUT_MS);
+        });
 
         const result = await Promise.race([exitPromise, timeoutPromise]);
+        clearTimeout(timer!);
 
         if (result === "timeout") {
             await logToTask?.(taskId, "warning", `Init command timed out after 30s: ${initCommand}`);
