@@ -12,6 +12,7 @@ Taskflow puts `taskflow-cli` on your PATH, pre-configured for this session.
 `taskflow-cli task create "Fix login timeout bug"` Create task
 `taskflow-cli task create "Investigate memory leak" --title "Memory leak in auth service"`
 `taskflow-cli task create "Feature branch work" --worktree` Create task with worktree enabled
+`taskflow-cli task create "Feature branch work" --worktree --init "bun install"` Create task with worktree and run init command
 
 When running in task context, the following commands work as is. When running in project context, the following commands require `--task <id>` before any command: `taskflow-cli --task <id> command`
 
