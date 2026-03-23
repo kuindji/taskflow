@@ -189,12 +189,14 @@ printf '{}'
         });
     });
 
-    it("dontAskQuestions forces --dangerously-skip-permissions for Claude", () => {
+    it("dontAskQuestions forces --dangerously-skip-permissions and --permission-mode dontAsk for Claude", () => {
         const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
             type: "claude",
             dontAskQuestions: true,
         });
         expect(spec.args).toContain("--dangerously-skip-permissions");
+        expect(spec.args).toContain("--permission-mode");
+        expect(spec.args).toContain("dontAsk");
     });
 
     it("dontAskQuestions forces --full-auto for Codex", () => {
