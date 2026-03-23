@@ -560,6 +560,7 @@ export class TaskStore {
         title: string;
         description: string;
         worktree?: TaskWorktree;
+        initCommand?: string;
     }): Promise<Task> {
         const task: Task = {
             id: randomUUID(),
@@ -574,6 +575,7 @@ export class TaskStore {
             status: "active",
             archivedAt: null,
             pinned: false,
+            ...(input.initCommand && { initCommand: input.initCommand }),
         };
         await this.writeTask(this.taskPath(task.id), task);
         return task;

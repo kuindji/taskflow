@@ -24,7 +24,8 @@ interface TaskHandlerDeps {
     store: TaskStore;
     gitService: GitService;
     closeSession?: (sessionId: string) => void;
-    generateTitle?: (taskId: string, description: string) => void;
+    generateTitle?: (taskId: string, description: string, initCommand?: string) => void;
+    createWorktree?: (taskId: string, nameSource: string, initCommand?: string) => void;
     flowStore?: FlowStore;
     flowRunner?: FlowRunner;
     changeTracker?: ChangeTracker;
@@ -37,6 +38,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         gitService,
         closeSession,
         generateTitle,
+        createWorktree,
         flowStore,
         flowRunner,
         changeTracker,
@@ -73,7 +75,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
     });
 
     router.register(MSG.TASK_CREATE, async (payload) => {
-        const { projectId, parentId, title, description, worktree } = payload as TaskCreatePayload;
+        const { projectId, parentId, title, description, worktree, initCommand } = payload as TaskCreatePayload;
 
         let resolvedProjectId = projectId;
         let resolvedWorktree: TaskWorktree | undefined = worktree
@@ -99,12 +101,16 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             title: title ?? "",
             description,
             worktree: resolvedWorktree,
+            initCommand: worktree && !parentId ? initCommand : undefined,
         });
         if (task.worktree.enabled && task.worktree.path && !task.parentId) {
             changeTracker?.track(task.id, task.worktree.path);
         }
         if (!title && description && generateTitle) {
-            generateTitle(task.id, description);
+            generateTitle(task.id, description, task.initCommand);
+        } else if (title && task.worktree.enabled && !task.worktree.path && !task.parentId) {
+            // Title was provided so generateTitle won't run — trigger worktree creation directly
+            createWorktree?.(task.id, title, task.initCommand);
         }
         return task;
     });
