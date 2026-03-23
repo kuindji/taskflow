@@ -135,6 +135,64 @@ function KeyboardShortcutsDialog() {
                         />
                     </ShortcutGroup>
 
+                    <ShortcutGroup title="File Explorer (when focused)">
+                        <ShortcutRow
+                            keys={
+                                <>
+                                    <Kbd>&#8984;</Kbd>
+                                    <Kbd>&#8593;</Kbd>
+                                    <Kbd>&#8595;</Kbd>
+                                </>
+                            }
+                            description="Navigate through files and folders"
+                        />
+                        <ShortcutRow
+                            keys={
+                                <>
+                                    <Kbd>&#8984;</Kbd>
+                                    <Kbd>&#8594;</Kbd>
+                                </>
+                            }
+                            description="Expand folder or enter first child"
+                        />
+                        <ShortcutRow
+                            keys={
+                                <>
+                                    <Kbd>&#8984;</Kbd>
+                                    <Kbd>&#8592;</Kbd>
+                                </>
+                            }
+                            description="Collapse folder or go to parent"
+                        />
+                        <ShortcutRow
+                            keys={
+                                <>
+                                    <Kbd>&#8984;</Kbd>
+                                    <Kbd>&#8629;</Kbd>
+                                </>
+                            }
+                            description="Open file or toggle folder"
+                        />
+                        <ShortcutRow
+                            keys={
+                                <>
+                                    <Kbd>&#8984;</Kbd>
+                                    <Kbd className="text-xs">Home</Kbd>
+                                </>
+                            }
+                            description="Jump to first item"
+                        />
+                        <ShortcutRow
+                            keys={
+                                <>
+                                    <Kbd>&#8984;</Kbd>
+                                    <Kbd className="text-xs">End</Kbd>
+                                </>
+                            }
+                            description="Jump to last item"
+                        />
+                    </ShortcutGroup>
+
                     <ShortcutGroup title="General">
                         <ShortcutRow
                             keys={
