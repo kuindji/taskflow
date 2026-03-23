@@ -167,10 +167,10 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                 // Unmount-on-hide tabs (editor, changes) use normal flex layout
                 return (
                     <ErrorBoundary key={tab.id} fallbackLabel={label}>
-                        <div className="flex flex-1">{pane}</div>
-                    </ErrorBoundary>
-                );
-            })}
+                    <div className="flex min-h-0 min-w-0 flex-1">{pane}</div>
+                </ErrorBoundary>
+            );
+        })}
         </div>
     );
 }
