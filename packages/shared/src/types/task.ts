@@ -34,6 +34,7 @@ export interface Task {
     status: "active" | "archived";
     archivedAt: string | null;
     pinned: boolean;
+    initCommand?: string;
 }
 
 export type TaskLogEntryType = "info" | "commit" | "warning" | "error";

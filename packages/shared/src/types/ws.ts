@@ -74,6 +74,7 @@ export interface TaskCreatePayload {
     title?: string;
     description: string;
     worktree?: boolean;
+    initCommand?: string;
 }
 
 export interface TaskUpdatePayload {
