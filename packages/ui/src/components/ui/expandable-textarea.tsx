@@ -38,7 +38,7 @@ const ExpandableTextarea = React.forwardRef<HTMLTextAreaElement, ExpandableTexta
                     />
                     <button
                         type="button"
-                        className="text-muted-foreground hover:text-foreground absolute top-1.5 right-7 rounded-sm p-0.5 opacity-60 transition-opacity hover:opacity-100"
+                        className="text-muted-foreground hover:text-foreground absolute -top-5.5 right-7 rounded-sm p-0.5 opacity-60 transition-opacity hover:opacity-100"
                         onClick={openAgentOperationsHelp}
                         tabIndex={-1}
                         aria-label="What agents can do">
@@ -46,7 +46,7 @@ const ExpandableTextarea = React.forwardRef<HTMLTextAreaElement, ExpandableTexta
                     </button>
                     <button
                         type="button"
-                        className="text-muted-foreground hover:text-foreground absolute top-1.5 right-1.5 rounded-sm p-0.5 opacity-60 transition-opacity hover:opacity-100"
+                        className="text-muted-foreground hover:text-foreground absolute -top-5.5 right-1.5 rounded-sm p-0.5 opacity-60 transition-opacity hover:opacity-100"
                         onClick={() => setEditorOpen(true)}
                         tabIndex={-1}
                         aria-label="Expand editor">
