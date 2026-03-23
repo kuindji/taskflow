@@ -844,6 +844,22 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         return jsonResponse(ptyManager.getSnapshot(params.sessionId));
     });
 
+    // ── Session tail ──────────────────────────────────────────────
+
+    apiRouter.register("GET", "/api/sessions/:sessionId/tail", async (req, params) => {
+        if (!ptyManager.has(params.sessionId)) {
+            return errorResponse(`Session not found: ${params.sessionId}`, 404);
+        }
+        const url = new URL(req.url);
+        const lines = Math.max(1, parseInt(url.searchParams.get("lines") ?? "100", 10) || 100);
+        const { data } = ptyManager.getScrollback(params.sessionId);
+        const allLines = data.split("\n");
+        const tail = allLines.slice(-lines).join("\n");
+        return new Response(tail, {
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
+    });
+
     // ── Projects ───────────────────────────────────────────────────
 
     apiRouter.register("GET", "/api/projects", async () => {

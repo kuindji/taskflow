@@ -1153,8 +1153,31 @@ case "$cmd" in
           -H "Content-Type: application/json" \
           -d "$(printf '{"data":%s,"raw":%s}' "$(json_string "$sess_msg")" "$raw_flag")"
         ;;
+      tail)
+        sess_id="${1:-}"
+        shift 2>/dev/null || true
+        tail_lines=100
+        for arg in "$@"; do
+          case "$arg" in
+            --lines) tail_lines="__next__" ;;
+            *)
+              if [ "$tail_lines" = "__next__" ]; then
+                tail_lines="$arg"
+              fi
+              ;;
+          esac
+        done
+        if [ "$tail_lines" = "__next__" ]; then
+          tail_lines=100
+        fi
+        if [ -z "$sess_id" ]; then
+          echo "Usage: taskflow-cli session tail <sessionId> [--lines N]" >&2
+          exit 1
+        fi
+        curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/tail?lines=$tail_lines"
+        ;;
       *)
-        echo "Usage: taskflow-cli session <rename|snapshot|close|input>" >&2
+        echo "Usage: taskflow-cli session <rename|snapshot|close|input|tail>" >&2
         exit 1
         ;;
     esac
