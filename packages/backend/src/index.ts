@@ -24,6 +24,7 @@ import { ThemeService } from "./services/theme-service";
 import { ApiRouter } from "./api/router";
 import { registerApiRoutes } from "./api/routes";
 import { createTitleGenerator } from "./services/title-generator";
+import { createWorktreeSetup } from "./services/worktree-setup";
 import { ChangeTracker } from "./services/change-tracker";
 import { ensureCliScript } from "./services/internal-agent-skill";
 import { FlowStore } from "./services/flow-store";
@@ -134,11 +135,33 @@ async function main() {
             broadcast: server.broadcast,
         });
 
-        const titleGenerator = createTitleGenerator({
+        async function logToTask(
+            taskId: string,
+            type: "info" | "warning",
+            message: string,
+        ): Promise<void> {
+            try {
+                await store.appendTaskLog(taskId, "system", type, message);
+            } catch {
+                // Best-effort logging
+            }
+        }
+
+        const worktreeSetup = createWorktreeSetup({
             taskStore: store,
             gitService,
             broadcast: server.broadcast,
             changeTracker,
+            createSession: (opts) => sessionLifecycle.createSession(opts),
+            ptyManager,
+            systemShellPath,
+            logToTask,
+        });
+
+        const titleGenerator = createTitleGenerator({
+            taskStore: store,
+            broadcast: server.broadcast,
+            createWorktree: worktreeSetup.createWorktreeForTask,
         });
 
         // FlowRunner is referenced inside its own spawnSession callback (for
@@ -218,8 +241,11 @@ async function main() {
             closeSession: (sessionId) => {
                 ptyManager.close(sessionId);
             },
-            generateTitle: (taskId, description) => {
-                void titleGenerator.generate(taskId, description);
+            generateTitle: (taskId, description, initCommand) => {
+                void titleGenerator.generate(taskId, description, initCommand);
+            },
+            createWorktree: (taskId, nameSource, initCommand) => {
+                void worktreeSetup.createWorktreeForTask(taskId, nameSource, initCommand);
             },
             flowStore,
             flowRunner,
@@ -312,6 +338,7 @@ async function main() {
             generateTitle: (taskId, description) => {
                 void titleGenerator.generate(taskId, description);
             },
+            createWorktree: worktreeSetup.createWorktreeForTask,
             changeTracker,
             agents,
             sessionLifecycle,
