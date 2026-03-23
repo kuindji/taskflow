@@ -56,9 +56,7 @@ export function NewTaskDialog({
     const [description, setDescription] = useState("");
     const [title, setTitle] = useState("");
     const [worktree, setWorktree] = useState(false);
-    const [initCommand, setInitCommand] = useState(
-        () => projects.find((project) => project.id === defaultProjectId)?.defaultInitCommand ?? "",
-    );
+    const [initCommand, setInitCommand] = useState("");
     const [startWith, setStartWith] = useState("none");
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
     const [startWithFlowId, setStartWithFlowId] = useState("");
@@ -91,9 +89,9 @@ export function NewTaskDialog({
     const handleProjectChange = useCallback(
         (nextProjectId: string) => {
             setProjectId(nextProjectId);
-            setInitCommand(getProjectDefaultInitCommand(nextProjectId));
+            setInitCommand("");
         },
-        [getProjectDefaultInitCommand],
+        [],
     );
 
     const handleStartWithChange = useCallback(
@@ -123,16 +121,17 @@ export function NewTaskDialog({
             if (nextOpen) {
                 const nextProjectId = defaultProjectId ?? "";
                 setProjectId(nextProjectId);
-                setInitCommand(getProjectDefaultInitCommand(nextProjectId));
+                setInitCommand("");
             }
             onOpenChange(nextOpen);
         },
-        [defaultProjectId, getProjectDefaultInitCommand, onOpenChange, resetForm],
+        [defaultProjectId, onOpenChange, resetForm],
     );
 
     const hasFlowSelection = startWith !== "flow" || startWithFlowId !== "";
     const canSubmit =
         (isSubtask || projectId !== "") && description.trim() !== "" && hasFlowSelection;
+    const defaultInitCommandPlaceholder = getProjectDefaultInitCommand(projectId) || "bun install";
 
     const handleSubmit = useCallback(() => {
         if (!canSubmit) return;
@@ -265,12 +264,12 @@ export function NewTaskDialog({
                             <Label htmlFor="new-task-init-command">
                                 Init command{" "}
                                 <span className="text-muted-foreground/60 text-xs tracking-normal normal-case">
-                                    (optional — runs in worktree before agent starts)
+                                    (optional — project default runs when empty)
                                 </span>
                             </Label>
                             <Input
                                 id="new-task-init-command"
-                                placeholder="bun install"
+                                placeholder={defaultInitCommandPlaceholder}
                                 value={initCommand}
                                 onChange={(e) => setInitCommand(e.target.value)}
                             />

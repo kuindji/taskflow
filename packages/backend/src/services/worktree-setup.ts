@@ -122,7 +122,10 @@ export function createWorktreeSetup(deps: WorktreeSetupDeps) {
             // with the path set, causing the UI to start the agent prematurely.
             // Instead, run the init command first using explicit `cwd`, then
             // persist the path and broadcast in one step.
-            const cmd = initCommand ?? task.initCommand;
+            const cmd =
+                typeof initCommand === "string" && initCommand.trim()
+                    ? initCommand.trim()
+                    : task.initCommand;
             if (cmd) {
                 await runInitCommand(taskId, worktreePath, cmd);
             }

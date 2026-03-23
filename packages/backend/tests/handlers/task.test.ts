@@ -100,7 +100,7 @@ describe("task handlers", () => {
             worktree: true,
             initCommand: "",
         })) as Task;
-        expect(clearedTask.initCommand).toBeUndefined();
+        expect(clearedTask.initCommand).toBe("bun install");
 
         const overriddenTask = (await router.handle(MSG.TASK_CREATE, {
             projectId,

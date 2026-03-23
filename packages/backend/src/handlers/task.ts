@@ -77,7 +77,6 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
     router.register(MSG.TASK_CREATE, async (payload) => {
         const { projectId, parentId, title, description, worktree, initCommand } =
             payload as TaskCreatePayload;
-        const hasInitCommand = Object.prototype.hasOwnProperty.call(payload, "initCommand");
 
         let resolvedProjectId = projectId;
         let resolvedWorktree: TaskWorktree | undefined = worktree
@@ -99,11 +98,12 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
 
         let resolvedInitCommand: string | undefined;
         if (worktree && !parentId) {
-            if (hasInitCommand) {
-                resolvedInitCommand =
-                    typeof initCommand === "string" && initCommand.trim()
-                        ? initCommand.trim()
-                        : undefined;
+            const requestedInitCommand =
+                typeof initCommand === "string" && initCommand.trim()
+                    ? initCommand.trim()
+                    : undefined;
+            if (requestedInitCommand) {
+                resolvedInitCommand = requestedInitCommand;
             } else {
                 resolvedInitCommand = (await store.getProject(resolvedProjectId))
                     ?.defaultInitCommand;

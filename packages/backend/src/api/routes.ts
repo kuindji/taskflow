@@ -386,7 +386,6 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
                 ? { enabled: true, path: null, branch: null, pr: null }
                 : undefined;
 
-        const hasInitCommand = Object.prototype.hasOwnProperty.call(body, "initCommand");
         const requestedInitCommand =
             typeof body.initCommand === "string" && body.initCommand.trim()
                 ? body.initCommand.trim()
@@ -394,7 +393,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
         try {
             const resolvedInitCommand = worktree
-                ? hasInitCommand
+                ? requestedInitCommand
                     ? requestedInitCommand
                     : (await taskStore.getProject(params.projectId))?.defaultInitCommand
                 : undefined;

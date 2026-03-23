@@ -355,5 +355,22 @@ describe("task creation routes", () => {
         expect(response?.status).toBe(201);
         const body = (await response?.json()) as { initCommand?: string };
         expect(body.initCommand).toBe("bun install");
+
+        const emptyResponse = await apiRouter.handle(
+            new Request(`http://localhost/api/projects/${projectId}/tasks`, {
+                method: "POST",
+                body: JSON.stringify({
+                    title: "Feature work 2",
+                    description: "Investigate another build issue",
+                    worktree: true,
+                    initCommand: "",
+                }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+
+        expect(emptyResponse?.status).toBe(201);
+        const emptyBody = (await emptyResponse?.json()) as { initCommand?: string };
+        expect(emptyBody.initCommand).toBe("bun install");
     });
 });
