@@ -58,6 +58,12 @@ export class TrayStateTracker {
         this.sessions.delete(sessionId);
     }
 
+    getSessionStatus(sessionId: string): "working" | "attention" | "idle" {
+        const session = this.sessions.get(sessionId);
+        if (!session) return "idle";
+        return session.status ?? "idle";
+    }
+
     getAggregateState(): TrayState {
         let hasWorking = false;
         for (const session of this.sessions.values()) {

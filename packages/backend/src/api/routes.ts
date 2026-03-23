@@ -398,6 +398,11 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         }
     });
 
+    apiRouter.register("GET", "/api/sessions/:sessionId/status", async (_req, params) => {
+        const status = trayStateTracker.getSessionStatus(params.sessionId);
+        return jsonResponse({ status });
+    });
+
     apiRouter.register("POST", "/api/sessions/:sessionId/status", async (req, params) => {
         let body: Record<string, unknown>;
         try {

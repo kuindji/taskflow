@@ -46,6 +46,7 @@ When running in task context, the following commands work as is. When running in
 `taskflow-cli session snapshot <sessionId>` Get terminal snapshot of a session
 `taskflow-cli session tail <sessionId>` Get last 100 lines of session output
 `taskflow-cli session tail <sessionId> --lines 50` Get last N lines of session output
+`taskflow-cli session status <sessionId>` Get session status (working, attention, idle)
 `taskflow-cli session close <sessionId>` Close/terminate a session
 `taskflow-cli session input <sessionId> "message"` Send a message to a running session
 `taskflow-cli session input <sessionId> "message" --raw` Send without auto-appending newline

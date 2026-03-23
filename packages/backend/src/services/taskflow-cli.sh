@@ -1132,6 +1132,14 @@ case "$cmd" in
         fi
         curl -sf -X POST "$TASKFLOW_API_URL/api/sessions/$sess_id/done"
         ;;
+      status)
+        sess_id="${1:-}"
+        if [ -z "$sess_id" ]; then
+          echo "Usage: taskflow-cli session status <sessionId>" >&2
+          exit 1
+        fi
+        curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/status"
+        ;;
       input)
         sess_id="${1:-}"
         shift 2>/dev/null || true
@@ -1177,7 +1185,7 @@ case "$cmd" in
         curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/tail?lines=$tail_lines"
         ;;
       *)
-        echo "Usage: taskflow-cli session <rename|snapshot|close|input|tail>" >&2
+        echo "Usage: taskflow-cli session <rename|snapshot|close|status|input|tail>" >&2
         exit 1
         ;;
     esac
