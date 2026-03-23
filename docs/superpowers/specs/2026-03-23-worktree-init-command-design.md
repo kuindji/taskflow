@@ -44,8 +44,9 @@ After `gitService.createWorktree()` succeeds:
       - `type: "shell"`
       - `cwd: worktreePath`
       - `label: "Init"`
-      - The command is written to stdin after spawn
-   b. Wait for the session to exit, with a 30-second timeout (`Promise.race` between PTY exit and timer).
+      - `shell: systemShellPath` (resolved via `resolveSystemShellPath`, threaded through deps)
+      - After spawn, write `<initCommand>; exit $?\r` to stdin. The `; exit $?` ensures the shell exits after the command completes, propagating the exit code. A small delay (~100ms) before writing avoids a race with PTY readiness.
+   b. Wait for the session to exit using the `onSessionExited` callback from `CreateSessionOpts`, wrapped in a Promise. Race against a 30-second timer via `Promise.race`.
    c. On success: log info to task log.
    d. On failure (non-zero exit): log warning to task log, proceed anyway.
    e. On timeout: stop waiting, log warning. The session tab stays open (not killed).
@@ -57,8 +58,9 @@ After `gitService.createWorktree()` succeeds:
 
 `worktree-setup` currently depends on `taskStore`, `gitService`, `broadcast`, and `changeTracker`. Add:
 
-- `createSession` from session-lifecycle — to spawn the init shell session
-- A mechanism to await session exit — either a callback/promise from `createSession`, or listening on `ptyManager` for the session's exit event.
+- `createSession` from session-lifecycle — to spawn the init shell session. Note: `createSession` will broadcast an intermediate `TASK_UPDATED` when adding the init session to the task. This is benign — the UI watcher checks for `task.worktree.path` being set, which won't be in the broadcast yet since we save the worktree path first but defer the path-setting broadcast.
+- `systemShellPath` — resolved via `resolveSystemShellPath`, needed for shell session type.
+- Session exit is awaited via the existing `onSessionExited` callback on `CreateSessionOpts`, wrapped in a Promise.
 
 These are wired in `packages/backend/src/index.ts`.
 
@@ -72,7 +74,7 @@ No other UI changes. The init session tab appears automatically via normal sessi
 
 ### Session Visibility
 
-The init session is a regular session tab on the task. It appears in the UI like any other shell session, labeled "Init". The user can watch the output in real time. It persists after completion.
+The init session is a regular session tab on the task. It appears in the UI like any other shell session, labeled "Init". The user can watch the output in real time. Note: when the shell exits, the existing `onExit` handler in `createSession` removes the session from the task's session list — the tab will disappear. This is consistent with how all shell sessions behave.
 
 ## Files Changed
 
@@ -81,6 +83,7 @@ The init session is a regular session tab on the task. It appears in the UI like
 | `packages/shared/src/types/task.ts` | Add `initCommand?: string` to Task type |
 | `packages/shared/src/types/messages.ts` | Add `initCommand` to `TASK_CREATE` payload |
 | `packages/backend/src/handlers/task.ts` | Pass `initCommand` through to store and worktree setup |
+| `packages/backend/src/routes.ts` | Extract `initCommand` from REST body, pass to worktree setup |
 | `packages/backend/src/services/worktree-setup.ts` | Accept `createSession` dep; spawn init shell, wait up to 30s, then broadcast |
 | `packages/backend/src/services/title-generator.ts` | Pass `initCommand` through to `createWorktree` |
 | `packages/backend/src/index.ts` | Wire `createSession` into worktree setup deps |
@@ -95,3 +98,5 @@ The init session is a regular session tab on the task. It appears in the UI like
 - On init command failure: log warning, proceed with agent start anyway.
 - `--init` is only meaningful with `--worktree`. If specified without `--worktree`, it is ignored.
 - Shell commands only (no action references or prompts) for the initial implementation.
+- `initCommand` is only relevant for top-level tasks. Subtasks inherit their parent's worktree config but do not get their own worktree creation, so `initCommand` is ignored for subtasks.
+- `initCommand` is persisted on the task for visibility (viewable in task info) but is only executed once during worktree creation.
