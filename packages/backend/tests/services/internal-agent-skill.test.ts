@@ -3,6 +3,7 @@ import {
     buildSystemPrompt,
     ensureCliScript,
     buildAgentLaunchSpec,
+    PROMPT_AUTONOMOUS,
 } from "../../src/services/internal-agent-skill";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { join } from "path";
@@ -186,5 +187,51 @@ printf '{}'
             type: "summary",
             text: 'line "one"\nline two',
         });
+    });
+
+    it("dontAskQuestions forces --dangerously-skip-permissions for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            dontAskQuestions: true,
+        });
+        expect(spec.args).toContain("--dangerously-skip-permissions");
+    });
+
+    it("dontAskQuestions forces --full-auto for Codex", () => {
+        const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "codex",
+            dontAskQuestions: true,
+        });
+        expect(spec.args).toContain("--full-auto");
+    });
+
+    it("dontAskQuestions forces --yolo for Gemini", () => {
+        const spec = buildAgentLaunchSpec("gemini", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "gemini",
+            dontAskQuestions: true,
+        });
+        expect(spec.args).toContain("--yolo");
+    });
+
+    it("dontAskQuestions forces --yolo for Cursor", () => {
+        const spec = buildAgentLaunchSpec("cursor", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "cursor",
+            dontAskQuestions: true,
+        });
+        expect(spec.args).toContain("--yolo");
+    });
+
+    it("dontAskQuestions forces permission allow for OpenCode", () => {
+        const spec = buildAgentLaunchSpec("opencode", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "opencode",
+            dontAskQuestions: true,
+        });
+        const config = JSON.parse(spec.env!.OPENCODE_CONFIG_CONTENT);
+        expect(config.permission).toEqual({ edit: "allow", bash: "allow", write: "allow" });
+    });
+
+    it("PROMPT_AUTONOMOUS is exported and contains expected content", () => {
+        expect(PROMPT_AUTONOMOUS).toContain("Do not ask clarifying questions");
+        expect(PROMPT_AUTONOMOUS).toContain("proceed autonomously");
     });
 });

@@ -11,25 +11,30 @@ export interface GeneralSettings {
 export interface ClaudeSettings {
     defaultModel: "default" | "opus" | "sonnet" | "haiku";
     fullAccess: boolean;
+    dontAskQuestions: boolean;
 }
 
 export interface CodexSettings {
     fullAccess: boolean;
+    dontAskQuestions: boolean;
 }
 
 export interface OpenCodeSettings {
     defaultModel: string;
     fullAccess: boolean;
+    dontAskQuestions: boolean;
 }
 
 export interface GeminiSettings {
     defaultModel: "default" | "auto" | "pro" | "flash" | "flash-lite";
     fullAccess: boolean;
+    dontAskQuestions: boolean;
 }
 
 export interface CursorSettings {
     defaultModel: string;
     fullAccess: boolean;
+    dontAskQuestions: boolean;
 }
 
 export interface TerminalSettings {

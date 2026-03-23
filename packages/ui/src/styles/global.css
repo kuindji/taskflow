@@ -146,6 +146,20 @@ body {
 }
 
 /* Markdown preview — GFM tables, task lists, inline code */
+.markdown-preview {
+    min-width: 0;
+}
+
+.markdown-preview p,
+.markdown-preview li,
+.markdown-preview blockquote,
+.markdown-preview td,
+.markdown-preview th,
+.markdown-preview figcaption {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
 .markdown-preview table {
     border-collapse: collapse;
     width: 100%;
@@ -171,6 +185,14 @@ body {
     padding: 0.15em 0.35em;
     border-radius: 0.25rem;
     font-size: 0.9em;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: break-spaces;
+}
+
+.markdown-preview pre {
+    max-width: 100%;
+    overflow-x: auto;
 }
 
 .markdown-preview ul.contains-task-list {

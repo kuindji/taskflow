@@ -437,6 +437,29 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
         return jsonResponse({ success: true });
     });
 
+    apiRouter.register("POST", "/api/sessions/:sessionId/input", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const data = body.data;
+        if (typeof data !== "string" || data.length === 0) {
+            return errorResponse('Field "data" must be a non-empty string', 400);
+        }
+
+        const { sessionId } = params;
+        if (!ptyManager.has(sessionId)) {
+            return errorResponse(`Session not found: ${sessionId}`, 404);
+        }
+
+        const raw = body.raw === true;
+        ptyManager.write(sessionId, raw ? data : data + "\r");
+        return jsonResponse({ success: true });
+    });
+
     apiRouter.register("GET", "/api/settings", async () => {
         return jsonResponse(await settingsStore.get());
     });
@@ -688,7 +711,7 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const { projectId, type, taskId, prompt, label } = body;
+        const { projectId, type, taskId, prompt, label, agentOptions } = body;
 
         if (typeof projectId !== "string" || !projectId.trim()) {
             return errorResponse(
@@ -746,6 +769,10 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
                 type: resolvedType,
                 prompt: resolvedPrompt,
                 label: typeof label === "string" ? label : undefined,
+                agentOptions:
+                    agentOptions && typeof agentOptions === "object" && !Array.isArray(agentOptions)
+                        ? (agentOptions as import("@taskflow/shared").AgentLaunchOptions)
+                        : undefined,
             });
 
             return jsonResponse({ sessionId }, 201);
@@ -1183,6 +1210,72 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
             }
             await flowStore.deleteAction(params.id);
             return jsonResponse({ success: true });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, 500);
+        }
+    });
+
+    // ── Run standalone action ───────────────────────────────────────
+
+    apiRouter.register("POST", "/api/flow-actions/:id/run", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const { taskId, projectId, prompt, label } = body;
+        if (typeof taskId !== "string" && typeof projectId !== "string") {
+            return errorResponse("Either taskId or projectId must be a string", 400);
+        }
+        if (prompt !== undefined && typeof prompt !== "string") {
+            return errorResponse('Field "prompt" must be a string', 400);
+        }
+        if (label !== undefined && typeof label !== "string") {
+            return errorResponse('Field "label" must be a string', 400);
+        }
+
+        try {
+            const actions = await flowStore.getActions();
+            const action = actions.find((a) => a.id === params.id);
+            if (!action) {
+                return errorResponse(`Action not found: ${params.id}`, 404);
+            }
+
+            // Resolve projectId when running in task context
+            let resolvedProjectId = typeof projectId === "string" ? projectId : undefined;
+            if (typeof taskId === "string" && !resolvedProjectId) {
+                const task = await taskStore.getTask(taskId);
+                if (!task) {
+                    return errorResponse(`Task not found: ${taskId}`, 404);
+                }
+                resolvedProjectId = task.projectId;
+            }
+
+            // Validate agent type availability (shell sessions don't need agent checks)
+            if (
+                action.sessionType !== "shell" &&
+                !availableAgentTypes.has(action.sessionType as AgentType)
+            ) {
+                return errorResponse(
+                    `Agent type "${action.sessionType}" required by action is not available`,
+                    400,
+                );
+            }
+
+            const owner =
+                typeof taskId === "string" ? { taskId } : { projectId: projectId as string };
+            const sessionId = await sessionLifecycle.createSession({
+                owner,
+                type: action.sessionType,
+                prompt: typeof prompt === "string" ? prompt : action.prompt,
+                label: typeof label === "string" ? label : action.name,
+                agentOptions: action.agentOptions,
+            });
+
+            return jsonResponse({ sessionId, actionId: action.id }, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             return errorResponse(message, 500);

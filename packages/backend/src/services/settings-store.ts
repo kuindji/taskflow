@@ -49,21 +49,26 @@ const DEFAULTS: AppSettings = {
     claude: {
         defaultModel: "default",
         fullAccess: false,
+        dontAskQuestions: false,
     },
     codex: {
         fullAccess: false,
+        dontAskQuestions: false,
     },
     opencode: {
         defaultModel: "",
         fullAccess: false,
+        dontAskQuestions: false,
     },
     gemini: {
         defaultModel: "default",
         fullAccess: false,
+        dontAskQuestions: false,
     },
     cursor: {
         defaultModel: "default",
         fullAccess: false,
+        dontAskQuestions: false,
     },
     appearance: {
         theme: DEFAULT_THEME_ID,

@@ -13,29 +13,34 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
 interface ClaudeLaunchOptions {
     type: Extract<AgentType, "claude">;
     fullAccess?: boolean;
+    dontAskQuestions?: boolean;
     model?: "opus" | "sonnet" | "haiku";
 }
 
 interface CodexLaunchOptions {
     type: Extract<AgentType, "codex">;
     fullAccess?: boolean;
+    dontAskQuestions?: boolean;
 }
 
 interface OpenCodeLaunchOptions {
     type: Extract<AgentType, "opencode">;
     fullAccess?: boolean;
+    dontAskQuestions?: boolean;
     model?: string;
 }
 
 interface GeminiLaunchOptions {
     type: Extract<AgentType, "gemini">;
     fullAccess?: boolean;
+    dontAskQuestions?: boolean;
     model?: "auto" | "pro" | "flash" | "flash-lite";
 }
 
 interface CursorLaunchOptions {
     type: Extract<AgentType, "cursor">;
     fullAccess?: boolean;
+    dontAskQuestions?: boolean;
     model?: string;
 }
 

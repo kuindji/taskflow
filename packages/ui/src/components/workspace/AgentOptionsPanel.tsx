@@ -47,6 +47,17 @@ function AgentOptionsPanel({
                 : agentType === "cursor"
                   ? (cursorSettings?.fullAccess ?? false)
                   : (codexSettings?.fullAccess ?? false));
+    const defaultDontAskQuestions =
+        matchingValue?.dontAskQuestions ??
+        (agentType === "claude"
+            ? (claudeSettings?.dontAskQuestions ?? false)
+            : agentType === "opencode"
+              ? (opencodeSettings?.dontAskQuestions ?? false)
+              : agentType === "gemini"
+                ? (geminiSettings?.dontAskQuestions ?? false)
+                : agentType === "cursor"
+                  ? (cursorSettings?.dontAskQuestions ?? false)
+                  : (codexSettings?.dontAskQuestions ?? false));
     const defaultModel =
         agentType === "claude" && matchingValue?.type === "claude"
             ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
@@ -67,6 +78,7 @@ function AgentOptionsPanel({
                           : "default";
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
+    const [dontAskQuestions, setDontAskQuestions] = useState(defaultDontAskQuestions);
     const [model, setModel] = useState<string>(defaultModel);
 
     const isFirstRender = useRef(true);
@@ -78,6 +90,7 @@ function AgentOptionsPanel({
 
     useEffect(() => {
         setFullAccess(defaultFullAccess);
+        setDontAskQuestions(defaultDontAskQuestions);
         if (
             agentType === "claude" ||
             agentType === "opencode" ||
@@ -86,7 +99,7 @@ function AgentOptionsPanel({
         ) {
             setModel(defaultModel);
         }
-    }, [agentType, defaultFullAccess, defaultModel]);
+    }, [agentType, defaultFullAccess, defaultDontAskQuestions, defaultModel]);
 
     const emitChange = useCallback(() => {
         const cb = onChangeRef.current;
@@ -95,18 +108,21 @@ function AgentOptionsPanel({
             cb({
                 type: "claude",
                 fullAccess: fullAccess || undefined,
+                dontAskQuestions: dontAskQuestions || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
             });
         } else if (agentType === "opencode") {
             cb({
                 type: "opencode",
                 fullAccess: fullAccess || undefined,
+                dontAskQuestions: dontAskQuestions || undefined,
                 model: model || undefined,
             });
         } else if (agentType === "gemini") {
             cb({
                 type: "gemini",
                 fullAccess: fullAccess || undefined,
+                dontAskQuestions: dontAskQuestions || undefined,
                 model:
                     model === "default"
                         ? undefined
@@ -116,15 +132,17 @@ function AgentOptionsPanel({
             cb({
                 type: "cursor",
                 fullAccess: fullAccess || undefined,
+                dontAskQuestions: dontAskQuestions || undefined,
                 model: model === "default" ? undefined : model,
             });
         } else {
             cb({
                 type: "codex",
                 fullAccess: fullAccess || undefined,
+                dontAskQuestions: dontAskQuestions || undefined,
             });
         }
-    }, [agentType, fullAccess, model]);
+    }, [agentType, fullAccess, dontAskQuestions, model]);
 
     useEffect(() => {
         if (isFirstRender.current) {
@@ -134,24 +152,27 @@ function AgentOptionsPanel({
         emitChange();
     }, [emitOnMount, emitChange]);
 
-    const handleRun = () => {
+    const handleRun = useCallback(() => {
         if (!onRun) return;
         if (agentType === "claude") {
             onRun({
                 type: "claude",
                 fullAccess: fullAccess || undefined,
+                dontAskQuestions: dontAskQuestions || undefined,
                 model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
             });
         } else if (agentType === "opencode") {
             onRun({
                 type: "opencode",
                 fullAccess: fullAccess || undefined,
+                dontAskQuestions: dontAskQuestions || undefined,
                 model: model || undefined,
             });
         } else if (agentType === "gemini") {
             onRun({
                 type: "gemini",
                 fullAccess: fullAccess || undefined,
+                dontAskQuestions: dontAskQuestions || undefined,
                 model:
                     model === "default"
                         ? undefined
@@ -161,26 +182,39 @@ function AgentOptionsPanel({
             onRun({
                 type: "cursor",
                 fullAccess: fullAccess || undefined,
+                dontAskQuestions: dontAskQuestions || undefined,
                 model: model === "default" ? undefined : model,
             });
         } else {
             onRun({
                 type: "codex",
                 fullAccess: fullAccess || undefined,
+                dontAskQuestions: dontAskQuestions || undefined,
             });
         }
-    };
+    }, [agentType, fullAccess, dontAskQuestions, model, onRun]);
 
     return (
         <div className="flex flex-col gap-3 p-3">
             <div className="flex items-center gap-2">
                 <Switch
                     id="agent-full-access"
-                    checked={fullAccess}
+                    checked={fullAccess || dontAskQuestions}
                     onCheckedChange={setFullAccess}
+                    disabled={dontAskQuestions}
                 />
                 <Label htmlFor="agent-full-access" className="cursor-pointer text-xs">
                     Full access
+                </Label>
+            </div>
+            <div className="flex items-center gap-2">
+                <Switch
+                    id="agent-dont-ask"
+                    checked={dontAskQuestions}
+                    onCheckedChange={setDontAskQuestions}
+                />
+                <Label htmlFor="agent-dont-ask" className="cursor-pointer text-xs">
+                    Don&apos;t ask questions
                 </Label>
             </div>
 
