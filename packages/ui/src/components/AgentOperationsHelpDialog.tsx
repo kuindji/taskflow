@@ -1,4 +1,11 @@
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { useUIStore } from "@/stores/ui-store";
 
 const CAPABILITY_SECTIONS = [
@@ -53,8 +60,8 @@ function AgentOperationsHelpDialog() {
                 <DialogHeader>
                     <DialogTitle>What Agents Can Do</DialogTitle>
                     <DialogDescription>
-                        This explains the kinds of Taskflow operations you can ask an agent to perform.
-                        It describes capabilities, not terminal commands.
+                        This explains the kinds of Taskflow operations you can ask an agent to
+                        perform. It describes capabilities, not terminal commands.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="mt-2 max-h-[70vh] space-y-4 overflow-y-auto pr-1">

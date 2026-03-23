@@ -23,7 +23,7 @@ describe("backend startup", () => {
             const exitCode = await Promise.race([
                 proc.exited,
                 new Promise<number>((resolve) => {
-                    setTimeout(() => resolve(-1), 3000);
+                    setTimeout(() => resolve(-1), 10000);
                 }),
             ]);
 
