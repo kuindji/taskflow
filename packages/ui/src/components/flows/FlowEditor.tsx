@@ -447,7 +447,7 @@ function FlowEditor({
                                                     })
                                                 }
                                                 placeholder="Inline action prompt"
-                                                className="min-h-[120px] font-mono text-sm"
+                                                className="min-h-[120px] font-mono text-sm break-all"
                                                 dialogTitle="Inline Action Prompt"
                                             />
                                             {(entry.inline.sessionType === "claude" ||
