@@ -268,27 +268,181 @@ case "$cmd" in
     ;;
 
   action)
-    if [ "${1:-}" = "complete" ]; then
-      if [ -z "$TASKFLOW_FLOW_ID" ]; then
-        echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
+    subcmd="${1:-}"
+    shift 2>/dev/null || true
+    case "$subcmd" in
+      complete)
+        if [ -z "$TASKFLOW_FLOW_ID" ]; then
+          echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
+          exit 1
+        fi
+        if [ -n "$TASKFLOW_TASK_ID" ]; then
+          owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
+        else
+          owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
+        fi
+        payload=$(printf '{%s,"flowId":%s,"sessionId":%s}' \
+          "$owner_field" \
+          "$(json_string "$TASKFLOW_FLOW_ID")" \
+          "$(json_string "$TASKFLOW_SESSION_ID")")
+        curl -sf -X POST "$TASKFLOW_API_URL/api/flow/action-complete" \
+          -H "Content-Type: application/json" \
+          -d "$payload"
+        ;;
+      list)
+        curl -sf "$TASKFLOW_API_URL/api/flow-actions"
+        ;;
+      get)
+        action_id="${1:-}"
+        if [ -z "$action_id" ]; then
+          echo "Usage: taskflow-cli action get <id>" >&2
+          exit 1
+        fi
+        # Fetch all actions and filter by id
+        all_actions=$(curl -sf "$TASKFLOW_API_URL/api/flow-actions")
+        # Use awk to extract the matching action object from the JSON array
+        printf '%s' "$all_actions" | awk -v id="$action_id" '
+          BEGIN { RS="{"; FS="}" }
+          NR > 1 {
+            obj = "{" $1 "}"
+            if (index(obj, "\"id\":\"" id "\"") > 0) {
+              print obj
+              found = 1
+              exit
+            }
+          }
+          END { if (!found) { print "{\"error\":\"Action not found: " id "\"}" > "/dev/stderr"; exit 1 } }
+        '
+        ;;
+      create)
+        action_name=""
+        action_prompt=""
+        action_session_type="claude"
+        action_standalone=false
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --name) action_name="${2:-}"; shift 2 ;;
+            --prompt) action_prompt="${2:-}"; shift 2 ;;
+            --session-type) action_session_type="${2:-}"; shift 2 ;;
+            --standalone) action_standalone=true; shift ;;
+            *) shift ;;
+          esac
+        done
+        if [ -z "$action_name" ] || [ -z "$action_prompt" ]; then
+          echo "Usage: taskflow-cli action create --name <name> --prompt <prompt> [--session-type claude] [--standalone]" >&2
+          exit 1
+        fi
+        action_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
+        now=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+        payload=$(printf '{"id":%s,"name":%s,"prompt":%s,"sessionType":%s,"standalone":%s,"createdAt":%s,"updatedAt":%s}' \
+          "$(json_string "$action_id")" \
+          "$(json_string "$action_name")" \
+          "$(json_string "$action_prompt")" \
+          "$(json_string "$action_session_type")" \
+          "$action_standalone" \
+          "$(json_string "$now")" \
+          "$(json_string "$now")")
+        if [ -n "$TASKFLOW_PROJECT_ID" ]; then
+          payload=$(printf '%s' "$payload" | sed "s/}$/,\"projectId\":$(json_string "$TASKFLOW_PROJECT_ID")}/")
+        fi
+        curl -sf -X POST "$TASKFLOW_API_URL/api/flow-actions" \
+          -H "Content-Type: application/json" \
+          -d "$payload"
+        ;;
+      update)
+        action_id="${1:-}"
+        if [ -z "$action_id" ]; then
+          echo "Usage: taskflow-cli action update <id> [--name n] [--prompt p] [--session-type t] [--standalone] [--no-standalone]" >&2
+          exit 1
+        fi
+        shift
+        # Fetch current action
+        current=$(curl -sf "$TASKFLOW_API_URL/api/flow-actions")
+        # Extract the action JSON (simple grep-based approach)
+        action_json=$(printf '%s' "$current" | awk -v id="$action_id" '
+          BEGIN { RS="{"; FS="}" }
+          NR > 1 {
+            obj = "{" $1 "}"
+            if (index(obj, "\"id\":\"" id "\"") > 0) { print obj; exit }
+          }
+        ')
+        if [ -z "$action_json" ]; then
+          echo "Error: Action not found: $action_id" >&2
+          exit 1
+        fi
+        # Parse update flags and build overlay fields
+        overlay=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --name) overlay=$(printf '%s"name":%s,' "$overlay" "$(json_string "${2:-}")"); shift 2 ;;
+            --prompt) overlay=$(printf '%s"prompt":%s,' "$overlay" "$(json_string "${2:-}")"); shift 2 ;;
+            --session-type) overlay=$(printf '%s"sessionType":%s,' "$overlay" "$(json_string "${2:-}")"); shift 2 ;;
+            --standalone) overlay=$(printf '%s"standalone":true,' "$overlay"); shift ;;
+            --no-standalone) overlay=$(printf '%s"standalone":false,' "$overlay"); shift ;;
+            *) shift ;;
+          esac
+        done
+        if [ -z "$overlay" ]; then
+          echo "No update fields provided" >&2
+          exit 1
+        fi
+        now=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+        overlay=$(printf '%s"updatedAt":%s,' "$overlay" "$(json_string "$now")")
+        overlay=$(printf '%s' "$overlay" | sed 's/,$//')
+        # Merge: start with existing action JSON, replace closing brace with overlay fields
+        merged=$(printf '%s' "$action_json" | sed "s/}$/,$overlay}/")
+        curl -sf -X POST "$TASKFLOW_API_URL/api/flow-actions" \
+          -H "Content-Type: application/json" \
+          -d "$merged"
+        ;;
+      delete)
+        action_id="${1:-}"
+        if [ -z "$action_id" ]; then
+          echo "Usage: taskflow-cli action delete <id>" >&2
+          exit 1
+        fi
+        curl -sf -X DELETE "$TASKFLOW_API_URL/api/flow-actions/$action_id"
+        ;;
+      run)
+        action_id="${1:-}"
+        if [ -z "$action_id" ]; then
+          echo "Usage: taskflow-cli action run <id> [--prompt <prompt>] [--label <label>]" >&2
+          exit 1
+        fi
+        shift
+        run_prompt=""
+        run_label=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --prompt) run_prompt="${2:-}"; shift 2 ;;
+            --label) run_label="${2:-}"; shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        payload=""
+        if [ -n "$TASKFLOW_TASK_ID" ]; then
+          payload=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
+        elif [ -n "$TASKFLOW_PROJECT_ID" ]; then
+          payload=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
+        else
+          echo "Error: neither TASKFLOW_TASK_ID nor TASKFLOW_PROJECT_ID is set" >&2
+          exit 1
+        fi
+        if [ -n "$run_prompt" ]; then
+          payload=$(printf '%s,"prompt":%s' "$payload" "$(json_string "$run_prompt")")
+        fi
+        if [ -n "$run_label" ]; then
+          payload=$(printf '%s,"label":%s' "$payload" "$(json_string "$run_label")")
+        fi
+        curl -sf -X POST "$TASKFLOW_API_URL/api/flow-actions/$action_id/run" \
+          -H "Content-Type: application/json" \
+          -d "{$payload}"
+        ;;
+      *)
+        echo "Usage: taskflow-cli action <complete|list|get|create|update|delete|run>" >&2
         exit 1
-      fi
-      if [ -n "$TASKFLOW_TASK_ID" ]; then
-        owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
-      else
-        owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
-      fi
-      payload=$(printf '{%s,"flowId":%s,"sessionId":%s}' \
-        "$owner_field" \
-        "$(json_string "$TASKFLOW_FLOW_ID")" \
-        "$(json_string "$TASKFLOW_SESSION_ID")")
-      curl -sf -X POST "$TASKFLOW_API_URL/api/flow/action-complete" \
-        -H "Content-Type: application/json" \
-        -d "$payload"
-    else
-      echo "Usage: taskflow-cli action complete" >&2
-      exit 1
-    fi
+        ;;
+    esac
     ;;
 
   artifact)
@@ -500,8 +654,121 @@ case "$cmd" in
         owner_id=$(resolve_owner_id) || exit 1
         curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id"
         ;;
+      get)
+        flow_id="${1:-}"
+        if [ -z "$flow_id" ]; then
+          echo "Usage: taskflow-cli flow get <id>" >&2
+          exit 1
+        fi
+        all_flows=$(curl -sf "$TASKFLOW_API_URL/api/flows")
+        printf '%s' "$all_flows" | awk -v id="$flow_id" '
+          BEGIN { RS="{"; FS="}" }
+          NR > 1 {
+            obj = "{" $1 "}"
+            if (index(obj, "\"id\":\"" id "\"") > 0) {
+              print obj
+              found = 1
+              exit
+            }
+          }
+          END { if (!found) { print "{\"error\":\"Flow not found: " id "\"}" > "/dev/stderr"; exit 1 } }
+        '
+        ;;
+      create)
+        flow_name=""
+        flow_description=""
+        flow_action_ids=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --name) flow_name="${2:-}"; shift 2 ;;
+            --description) flow_description="${2:-}"; shift 2 ;;
+            --action) flow_action_ids="$flow_action_ids ${2:-}"; shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        if [ -z "$flow_name" ]; then
+          echo "Usage: taskflow-cli flow create --name <name> --description <desc> [--action <actionId> ...]" >&2
+          exit 1
+        fi
+        flow_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
+        now=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+        # Build actions array from --action flags
+        actions_json="["
+        first_action=true
+        for aid in $flow_action_ids; do
+          entry_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
+          if [ "$first_action" = true ]; then
+            first_action=false
+          else
+            actions_json="$actions_json,"
+          fi
+          actions_json=$(printf '%s{"id":%s,"actionId":%s}' "$actions_json" "$(json_string "$entry_id")" "$(json_string "$aid")")
+        done
+        actions_json="$actions_json]"
+        payload=$(printf '{"id":%s,"name":%s,"description":%s,"actions":%s,"createdAt":%s,"updatedAt":%s}' \
+          "$(json_string "$flow_id")" \
+          "$(json_string "$flow_name")" \
+          "$(json_string "$flow_description")" \
+          "$actions_json" \
+          "$(json_string "$now")" \
+          "$(json_string "$now")")
+        if [ -n "$TASKFLOW_PROJECT_ID" ]; then
+          payload=$(printf '%s' "$payload" | sed "s/}$/,\"projectId\":$(json_string "$TASKFLOW_PROJECT_ID")}/")
+        fi
+        curl -sf -X POST "$TASKFLOW_API_URL/api/flows" \
+          -H "Content-Type: application/json" \
+          -d "$payload"
+        ;;
+      update)
+        flow_id="${1:-}"
+        if [ -z "$flow_id" ]; then
+          echo "Usage: taskflow-cli flow update <id> [--name n] [--description d]" >&2
+          exit 1
+        fi
+        shift
+        # Fetch current flow
+        current=$(curl -sf "$TASKFLOW_API_URL/api/flows")
+        flow_json=$(printf '%s' "$current" | awk -v id="$flow_id" '
+          BEGIN { RS="{"; FS="}" }
+          NR > 1 {
+            obj = "{" $1 "}"
+            if (index(obj, "\"id\":\"" id "\"") > 0) { print obj; exit }
+          }
+        ')
+        if [ -z "$flow_json" ]; then
+          echo "Error: Flow not found: $flow_id" >&2
+          exit 1
+        fi
+        overlay=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --name) overlay=$(printf '%s"name":%s,' "$overlay" "$(json_string "${2:-}")"); shift 2 ;;
+            --description) overlay=$(printf '%s"description":%s,' "$overlay" "$(json_string "${2:-}")"); shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        if [ -z "$overlay" ]; then
+          echo "No update fields provided" >&2
+          exit 1
+        fi
+        now=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+        overlay=$(printf '%s"updatedAt":%s,' "$overlay" "$(json_string "$now")")
+        overlay=$(printf '%s' "$overlay" | sed 's/,$//')
+        merged=$(printf '%s' "$flow_json" | sed "s/}$/,$overlay}/")
+        curl -sf -X POST "$TASKFLOW_API_URL/api/flows" \
+          -H "Content-Type: application/json" \
+          -d "$merged"
+        ;;
+      delete)
+        flow_id="${1:-}"
+        if [ -z "$flow_id" ]; then
+          echo "Usage: taskflow-cli flow delete <id>" >&2
+          exit 1
+        fi
+        curl -sf -X DELETE "$TASKFLOW_API_URL/api/flows/$flow_id"
+        ;;
       *)
-        echo "Usage: taskflow-cli flow <list|actions|start|stop|pause|resume|skip|jump|run|runs|input>" >&2
+        echo "Usage: taskflow-cli flow <list|get|actions|create|update|delete|start|stop|pause|resume|skip|jump|run|runs|input>" >&2
         exit 1
         ;;
     esac
@@ -774,11 +1041,15 @@ case "$cmd" in
         agent_prompt=""
         agent_task_id=""
         agent_label=""
+        agent_full_access=""
+        agent_model=""
         while [ $# -gt 0 ]; do
           case "$1" in
             --prompt) agent_prompt="${2:-}"; shift 2 ;;
             --task) agent_task_id="${2:-}"; shift 2 ;;
             --label) agent_label="${2:-}"; shift 2 ;;
+            --full-access) agent_full_access="true"; shift ;;
+            --model) agent_model="${2:-}"; shift 2 ;;
             *) shift ;;
           esac
         done
@@ -795,6 +1066,28 @@ case "$cmd" in
         fi
         if [ -n "$agent_label" ]; then
           payload=$(printf '%s,"label":%s' "$payload" "$(json_string "$agent_label")")
+        fi
+        # Build agentOptions if --full-access or --model was provided
+        if [ -n "$agent_full_access" ] || [ -n "$agent_model" ]; then
+          agent_opts=""
+          if [ -n "$agent_type" ]; then
+            agent_opts=$(printf '"type":%s' "$(json_string "$agent_type")")
+          fi
+          if [ -n "$agent_full_access" ]; then
+            if [ -n "$agent_opts" ]; then
+              agent_opts=$(printf '%s,"fullAccess":true' "$agent_opts")
+            else
+              agent_opts='"fullAccess":true'
+            fi
+          fi
+          if [ -n "$agent_model" ]; then
+            if [ -n "$agent_opts" ]; then
+              agent_opts=$(printf '%s,"model":%s' "$agent_opts" "$(json_string "$agent_model")")
+            else
+              agent_opts=$(printf '"model":%s' "$(json_string "$agent_model")")
+            fi
+          fi
+          payload=$(printf '%s,"agentOptions":{%s}' "$payload" "$agent_opts")
         fi
 
         curl -sf -X POST "$TASKFLOW_API_URL/api/sessions" \
@@ -839,8 +1132,29 @@ case "$cmd" in
         fi
         curl -sf -X POST "$TASKFLOW_API_URL/api/sessions/$sess_id/done"
         ;;
+      input)
+        sess_id="${1:-}"
+        shift 2>/dev/null || true
+        raw_flag=false
+        msg_parts=""
+        for arg in "$@"; do
+          if [ "$arg" = "--raw" ]; then
+            raw_flag=true
+          else
+            msg_parts="$msg_parts $arg"
+          fi
+        done
+        sess_msg="${msg_parts# }"
+        if [ -z "$sess_id" ] || [ -z "$sess_msg" ]; then
+          echo "Usage: taskflow-cli session input <sessionId> <message> [--raw]" >&2
+          exit 1
+        fi
+        curl -sf -X POST "$TASKFLOW_API_URL/api/sessions/$sess_id/input" \
+          -H "Content-Type: application/json" \
+          -d "$(printf '{"data":%s,"raw":%s}' "$(json_string "$sess_msg")" "$raw_flag")"
+        ;;
       *)
-        echo "Usage: taskflow-cli session <rename|snapshot|close>" >&2
+        echo "Usage: taskflow-cli session <rename|snapshot|close|input>" >&2
         exit 1
         ;;
     esac
@@ -894,14 +1208,15 @@ case "$cmd" in
     echo "  browser <url> [--label l] [--project]         Open a browser tab" >&2
     echo "  project <list|add|remove|update|fork>         Manage projects" >&2
     echo "  session <rename|snapshot|close>               Manage sessions" >&2
-    echo "  flow <list|actions|start|stop|pause|...>      Manage flows" >&2
+    echo "  action <list|get|create|update|delete|run>     Manage and run actions" >&2
+    echo "  action complete                               Signal flow action completion" >&2
+    echo "  flow <list|get|create|update|delete|...>      Manage and run flows" >&2
+    echo "  artifact <save|list|get>                      Manage flow artifacts" >&2
     echo "  schedule <list|create|update|delete|trigger>  Manage schedules" >&2
     echo "  agent <list|run>                              Manage agents" >&2
     echo "  notify <message>                              Send a desktop notification" >&2
     echo "  settings get                                  Get current settings" >&2
     echo "  system <info|shells|runtimes>                 System information" >&2
-    echo "  action complete                               Signal flow action completion" >&2
-    echo "  artifact <save|list|get>                      Manage flow artifacts" >&2
     exit 1
     ;;
 esac

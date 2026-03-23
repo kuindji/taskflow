@@ -45,6 +45,8 @@ When running in task context, the following commands work as is. When running in
 `taskflow-cli session rename <sessionId> "New Label"` Rename a session tab
 `taskflow-cli session snapshot <sessionId>` Get terminal snapshot of a session
 `taskflow-cli session close <sessionId>` Close/terminate a session
+`taskflow-cli session input <sessionId> "message"` Send a message to a running session
+`taskflow-cli session input <sessionId> "message" --raw` Send without auto-appending newline
 
 ## Notification commands
 `taskflow-cli notify "Build completed successfully"` Send a desktop notification
@@ -55,12 +57,35 @@ When running in task context, the following commands work as is. When running in
 `taskflow-cli agent run --task <id>` Start default agent session on a specific task (uses task description)
 `taskflow-cli agent run --task <id> --prompt "<prompt>"` Start default agent session on a task with custom prompt
 `taskflow-cli agent run <agent> --task? --prompt?` Start a specific agent session
-All run commands also accept --label "<label>" argument that specifies tab title.
+All run commands also accept --label "<label>", --full-access, and --model "<model>" arguments.
+--full-access enables full access (dangerously skip permissions) for the agent session.
+--model sets the model (e.g. "opus", "sonnet", "haiku" for Claude; "pro", "flash" for Gemini).
 Without --task agent will be started on project level. Within task context by default pass --task.
+
+## Action commands
+`taskflow-cli action list` List all action definitions
+`taskflow-cli action get <id>` Get a specific action definition
+`taskflow-cli action create --name "Code Review" --prompt "Review the code" --session-type claude` Create an action
+`taskflow-cli action create --name "Deploy" --prompt "Deploy to staging" --session-type shell --standalone` Create a standalone action
+`taskflow-cli action update <id> --name "New name"` Update action name
+`taskflow-cli action update <id> --prompt "New prompt"` Update action prompt
+`taskflow-cli action update <id> --session-type codex` Update action session type
+`taskflow-cli action update <id> --standalone` Mark action as standalone
+`taskflow-cli action update <id> --no-standalone` Unmark action as standalone
+`taskflow-cli action delete <id>` Delete an action (fails if referenced by flows)
+`taskflow-cli action run <id>` Run an action (spawns a new agent session with the action's config)
+`taskflow-cli action run <id> --prompt "Override prompt"` Run action with a custom prompt
+`taskflow-cli action run <id> --label "My Tab"` Run action with a custom tab label
 
 ## Flow commands
 `taskflow-cli flow list` List all flow definitions
-`taskflow-cli flow actions` List all action definitions
+`taskflow-cli flow get <id>` Get a specific flow definition
+`taskflow-cli flow create --name "My Flow" --description "Does things" --action <actionId>` Create a flow with action references
+`taskflow-cli flow create --name "Pipeline" --description "CI" --action <id1> --action <id2>` Create a flow with multiple actions
+`taskflow-cli flow update <id> --name "New name"` Update flow name
+`taskflow-cli flow update <id> --description "New desc"` Update flow description
+`taskflow-cli flow delete <id>` Delete a flow
+`taskflow-cli flow actions` List all action definitions (alias for action list)
 `taskflow-cli flow start <flowId>` Start a flow
 `taskflow-cli flow start <flowId> --input key=value` Start a flow with input values
 `taskflow-cli flow stop <flowId>` Stop a running flow
@@ -71,7 +96,7 @@ Without --task agent will be started on project level. Within task context by de
 `taskflow-cli flow run <flowId>` Get current flow run state
 `taskflow-cli flow runs` List all flow runs for current owner
 
-### Flow commands (when working in flow context)
+### Flow context commands (when working inside a flow action)
 `taskflow-cli action complete` Mark flow step/action complete
 `taskflow-cli artifact list` List flow artifacts
 `taskflow-cli artifact get <id>` Get artifact
