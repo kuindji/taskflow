@@ -34,6 +34,20 @@ function cycleFocus(direction: "left" | "right") {
         useUIStore.getState().setSidebarFocusedItem(null);
     }
 
+    // Clear focusedPath when leaving file explorer
+    if (current === "fileexplorer" && next !== "fileexplorer") {
+        useFileStore.getState().setFocusedPath(null);
+    }
+
+    // When entering file explorer via panel cycling, set focus to first item
+    if (next === "fileexplorer") {
+        const { tree, focusedPath, setFocusedPath } = useFileStore.getState();
+        if (tree && !focusedPath) {
+            const first = getFirstItem(tree);
+            if (first) setFocusedPath(first);
+        }
+    }
+
     // When focusing sidebar, set sidebarFocusedItem based on active task/project
     // (falls back to first project so badges always appear)
     if (next === "sidebar") {

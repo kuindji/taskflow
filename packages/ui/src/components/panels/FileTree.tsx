@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { cva } from "class-variance-authority";
 import type { FileNode } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -57,12 +57,23 @@ function FileTree({
     const expandedDirs = useFileStore((s) => s.expandedDirs);
     const toggleDir = useFileStore((s) => s.toggleDir);
     const loadingDirs = useFileStore((s) => s.loadingDirs);
+    const focusedPath = useFileStore((s) => s.focusedPath);
+    const setFocusedPath = useFileStore((s) => s.setFocusedPath);
+    const isFocused = focusedPath === node.path;
     const open = node.type === "directory" && expandedDirs.has(node.path);
     const isLoading = node.type === "directory" && loadingDirs.has(node.path);
 
     const handleOpenChange = useCallback(() => {
         toggleDir(node.path);
     }, [toggleDir, node.path]);
+
+    const itemRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (isFocused && itemRef.current) {
+            itemRef.current.scrollIntoView({ block: "nearest" });
+        }
+    }, [isFocused]);
 
     const rawStatus = gitFiles?.get(node.path);
     const isIgnored = !rawStatus && ignoredFiles?.has(node.path);
@@ -100,10 +111,18 @@ function FileTree({
         return (
             <FileContextMenu filePath={node.path} isDirectory={false} rootPath={rootPath ?? ""}>
                 <div
-                    onClick={() => onFileClick(node.path)}
+                    ref={itemRef}
+                    onClick={() => {
+                        setFocusedPath(node.path);
+                        onFileClick(node.path);
+                    }}
                     draggable
                     onDragStart={handleDragStart}
-                    className={cn(fileClasses, "flex min-w-0 items-center gap-1.5")}
+                    className={cn(
+                        fileClasses,
+                        "flex min-w-0 items-center gap-1.5",
+                        isFocused && "bg-accent/20 ring-accent/40 ring-1",
+                    )}
                     style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}>
                     <FileIcon name={node.name} isDirectory={false} />
                     <TruncatedText tooltipContent={node.path}>{node.name}</TruncatedText>
@@ -113,12 +132,16 @@ function FileTree({
     }
 
     return (
-        <Collapsible open={open} onOpenChange={handleOpenChange}>
+        <Collapsible ref={itemRef} open={open} onOpenChange={handleOpenChange}>
             <FileContextMenu filePath={node.path} isDirectory={true} rootPath={rootPath ?? ""}>
                 <CollapsibleTrigger
                     draggable
                     onDragStart={handleDragStart}
-                    className={directoryClasses}
+                    onClick={() => setFocusedPath(node.path)}
+                    className={cn(
+                        directoryClasses,
+                        isFocused && "bg-accent/20 ring-accent/40 ring-1",
+                    )}
                     style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}>
                     {open ? (
                         <ChevronDown className="mr-1.5 h-4 w-4 shrink-0" />

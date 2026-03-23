@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import type { FileNode } from "@taskflow/shared";
 import ignore from "ignore";
 import { X } from "lucide-react";
@@ -91,14 +91,24 @@ function FileExplorer() {
         return result;
     }, [workingDir, tree, treePath, gitignorePatterns]);
 
-    const handleFileClick = (path: string) => {
-        const owner = workspace.task
-            ? { taskId: workspace.task.id }
-            : workspace.project
-              ? { projectId: workspace.project.id }
-              : undefined;
-        void openFileInApp(path, workspace.workspaceKey, owner);
-    };
+    const handleFileClick = useCallback(
+        (path: string) => {
+            const owner = workspace.task
+                ? { taskId: workspace.task.id }
+                : workspace.project
+                  ? { projectId: workspace.project.id }
+                  : undefined;
+            void openFileInApp(path, workspace.workspaceKey, owner);
+        },
+        [workspace],
+    );
+
+    const setOnOpenFile = useFileStore((s) => s.setOnOpenFile);
+
+    useEffect(() => {
+        setOnOpenFile(handleFileClick);
+        return () => setOnOpenFile(null);
+    }, [handleFileClick, setOnOpenFile]);
 
     return (
         <div className="flex h-full flex-col">
