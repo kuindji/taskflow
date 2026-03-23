@@ -743,6 +743,17 @@ function buildAppMenu() {
                 { role: "front" },
             ],
         },
+        {
+            role: "help",
+            submenu: [
+                {
+                    label: "What Agents Can Do",
+                    click: () => {
+                        mainWindow?.webContents.send("open-agent-operations-help");
+                    },
+                },
+            ],
+        },
     ];
 
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));

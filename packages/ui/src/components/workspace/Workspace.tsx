@@ -71,6 +71,7 @@ export function Workspace() {
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
     const openSettings = useUIStore((s) => s.openSettings);
+    const openAgentOperationsHelp = useUIStore((s) => s.openAgentOperationsHelp);
     const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
@@ -317,6 +318,9 @@ export function Workspace() {
         const onNewTask = isElectron ? window.taskflow?.onNewTask : undefined;
         const onNewTerminal = isElectron ? window.taskflow?.onNewTerminal : undefined;
         const onOpenSettings = isElectron ? window.taskflow?.onOpenSettings : undefined;
+        const onOpenAgentOperationsHelp = isElectron
+            ? window.taskflow?.onOpenAgentOperationsHelp
+            : undefined;
         const onOpenAppearance = isElectron ? window.taskflow?.onOpenAppearance : undefined;
         const onOpenFlows = isElectron ? window.taskflow?.onOpenFlows : undefined;
         const onOpenSchedules = isElectron ? window.taskflow?.onOpenSchedules : undefined;
@@ -339,6 +343,9 @@ export function Workspace() {
         }
         if (onOpenSettings) {
             cleanupFns.push(onOpenSettings(runIfNoDialogOpen(openSettings)));
+        }
+        if (onOpenAgentOperationsHelp) {
+            cleanupFns.push(onOpenAgentOperationsHelp(runIfNoDialogOpen(openAgentOperationsHelp)));
         }
         if (onOpenAppearance) {
             cleanupFns.push(onOpenAppearance(runIfNoDialogOpen(toggleAppearance)));
@@ -418,6 +425,7 @@ export function Workspace() {
         handleOpenDefaultTerminal,
         handleOpenNewTask,
         openSettings,
+        openAgentOperationsHelp,
         toggleAppearance,
         toggleFlowManagement,
         toggleScheduleManagement,

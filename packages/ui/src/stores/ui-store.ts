@@ -40,6 +40,7 @@ interface UIStore {
     scheduleManagementOpen: boolean;
     appearanceOpen: boolean;
     shortcutsDialogOpen: boolean;
+    agentOperationsHelpOpen: boolean;
     focusedPanel: PanelId;
     sidebarFocusedItem: { type: "project" | "task"; id: string } | null;
     sidebarWidth: number;
@@ -57,6 +58,8 @@ interface UIStore {
     setAppearanceOpen(open: boolean): void;
     toggleAppearance(): void;
     toggleShortcutsDialog(): void;
+    openAgentOperationsHelp(): void;
+    setAgentOperationsHelpOpen(open: boolean): void;
     setFocusedPanel(panel: PanelId): void;
     setSidebarFocusedItem(item: { type: "project" | "task"; id: string } | null): void;
     setFlowPanelOpen(open: boolean): void;
@@ -88,6 +91,7 @@ export const useUIStore = create<UIStore>((set) => ({
     scheduleManagementOpen: false,
     appearanceOpen: false,
     shortcutsDialogOpen: false,
+    agentOperationsHelpOpen: false,
     focusedPanel: "workspace" as const,
     sidebarFocusedItem: null,
     sidebarWidth: 220,
@@ -122,6 +126,12 @@ export const useUIStore = create<UIStore>((set) => ({
     },
     toggleShortcutsDialog() {
         set((s) => ({ shortcutsDialogOpen: !s.shortcutsDialogOpen }));
+    },
+    openAgentOperationsHelp() {
+        set({ agentOperationsHelpOpen: true });
+    },
+    setAgentOperationsHelpOpen(open) {
+        set({ agentOperationsHelpOpen: open });
     },
     setFocusedPanel(panel) {
         set({ focusedPanel: panel });

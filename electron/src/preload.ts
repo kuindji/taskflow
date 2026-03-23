@@ -37,6 +37,13 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("open-settings", listener);
         };
     },
+    onOpenAgentOperationsHelp: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("open-agent-operations-help", listener);
+        return () => {
+            ipcRenderer.removeListener("open-agent-operations-help", listener);
+        };
+    },
     onOpenAppearance: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("open-appearance", listener);

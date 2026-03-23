@@ -6,6 +6,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useUIStore } from "@/stores/ui-store";
 import "@/lib/monaco-theme"; // Ensure module-level defineTheme runs
 import { AppShell } from "@/components/AppShell";
+import { AgentOperationsHelpDialog } from "@/components/AgentOperationsHelpDialog";
 import { DialogHost } from "@/components/DialogHost";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { FlowManagementDialog } from "@/components/flows/FlowManagementDialog";
@@ -129,6 +130,7 @@ export function App() {
             <div style={rootStyle} className="contents">
                 <ConnectionOverlay />
                 <DialogHost />
+                <AgentOperationsHelpDialog />
                 <SettingsModal />
                 <FlowManagementDialog />
                 <ScheduleManagementDialog />

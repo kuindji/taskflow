@@ -15,6 +15,7 @@ interface TaskflowBridge {
     onNewTerminal(callback: () => void): () => void;
     onCloseTab(callback: () => void): () => void;
     onOpenSettings(callback: () => void): () => void;
+    onOpenAgentOperationsHelp(callback: () => void): () => void;
     onOpenAppearance(callback: () => void): () => void;
     onOpenFlows(callback: () => void): () => void;
     onOpenSchedules(callback: () => void): () => void;

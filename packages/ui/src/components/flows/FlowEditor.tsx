@@ -10,8 +10,8 @@ import type {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
+import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
     Select,
     SelectContent,
@@ -439,7 +439,7 @@ function FlowEditor({
                                                     <SelectItem value="shell">Shell</SelectItem>
                                                 </SelectContent>
                                             </Select>
-                                            <Textarea
+                                            <ExpandableTextarea
                                                 value={entry.inline.prompt}
                                                 onChange={(e) =>
                                                     updateInlineAction(entry.id, {
@@ -448,6 +448,7 @@ function FlowEditor({
                                                 }
                                                 placeholder="Inline action prompt"
                                                 className="min-h-[120px] font-mono text-sm"
+                                                dialogTitle="Inline Action Prompt"
                                             />
                                             {(entry.inline.sessionType === "claude" ||
                                                 entry.inline.sessionType === "codex") && (
