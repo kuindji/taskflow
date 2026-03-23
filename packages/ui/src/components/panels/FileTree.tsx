@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { cva } from "class-variance-authority";
 import type { FileNode } from "@taskflow/shared";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -43,7 +43,6 @@ interface FileTreeProps {
     gitFiles?: Map<string, string>;
     ignoredFiles?: Set<string>;
     onFileClick: (path: string) => void;
-    expandedPaths?: Set<string> | null;
     rootPath?: string;
 }
 
@@ -53,30 +52,17 @@ function FileTree({
     gitFiles,
     ignoredFiles,
     onFileClick,
-    expandedPaths,
     rootPath,
 }: FileTreeProps) {
-    const [open, setOpen] = useState(depth < 1);
-    const fetchDir = useFileStore((s) => s.fetchDir);
+    const expandedDirs = useFileStore((s) => s.expandedDirs);
+    const toggleDir = useFileStore((s) => s.toggleDir);
     const loadingDirs = useFileStore((s) => s.loadingDirs);
+    const open = node.type === "directory" && expandedDirs.has(node.path);
     const isLoading = node.type === "directory" && loadingDirs.has(node.path);
 
-    // Latch: when expandedPaths includes this node, permanently open it
-    useEffect(() => {
-        if (expandedPaths?.has(node.path)) {
-            setOpen(true);
-        }
-    }, [expandedPaths, node.path]);
-
-    const handleOpenChange = useCallback(
-        (nextOpen: boolean) => {
-            setOpen(nextOpen);
-            if (nextOpen && node.type === "directory" && !node.loaded) {
-                void fetchDir(node.path);
-            }
-        },
-        [node.path, node.type, node.loaded, fetchDir],
-    );
+    const handleOpenChange = useCallback(() => {
+        toggleDir(node.path);
+    }, [toggleDir, node.path]);
 
     const rawStatus = gitFiles?.get(node.path);
     const isIgnored = !rawStatus && ignoredFiles?.has(node.path);
@@ -159,7 +145,6 @@ function FileTree({
                             gitFiles={gitFiles}
                             ignoredFiles={ignoredFiles}
                             onFileClick={onFileClick}
-                            expandedPaths={expandedPaths}
                             rootPath={rootPath}
                         />
                     ))

@@ -49,6 +49,7 @@ interface FileStore {
     loading: boolean;
     loadingDirs: Set<string>;
     expandToPath: string | null;
+    expandedDirs: Set<string>;
     fetchTree(path: string): Promise<void>;
     fetchDir(dirPath: string): Promise<void>;
     fetchGitStatus(path: string): Promise<void>;
@@ -65,6 +66,9 @@ interface FileStore {
     revealInFinder(path: string): Promise<void>;
     setExpandToPath(path: string | null): void;
     expandToPathAndLoad(targetPath: string): Promise<void>;
+    toggleDir(path: string): void;
+    expandDir(path: string): Promise<void>;
+    collapseDir(path: string): void;
 }
 
 let fileChangeSubscriptionReady = false;
@@ -86,6 +90,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
     loading: false,
     loadingDirs: emptyLoadingDirs,
     expandToPath: null,
+    expandedDirs: new Set<string>(),
     setExpandToPath(path) {
         set({ expandToPath: path });
     },
@@ -110,7 +115,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
             children: entries,
             loaded: true,
         };
-        set({ tree: rootNode, treePath: path, gitignorePatterns, loading: false });
+        set({ tree: rootNode, treePath: path, gitignorePatterns, loading: false, expandedDirs: new Set([path]) });
     },
     async fetchDir(dirPath) {
         if (get().loadingDirs.has(dirPath)) return;
@@ -213,6 +218,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
             gitStatusPath: null,
             loading: false,
             loadingDirs: emptyLoadingDirs,
+            expandedDirs: new Set<string>(),
         });
     },
     async expandToPathAndLoad(targetPath) {
@@ -239,8 +245,12 @@ export const useFileStore = create<FileStore>((set, get) => ({
             }
         }
 
-        // Set expandToPath after all directories are loaded so the UI can latch them open
-        set({ expandToPath: targetPath });
+        // After loading dirs, expand all ancestors + target
+        const expandedDirs = new Set(get().expandedDirs);
+        for (const dir of dirsToLoad) {
+            expandedDirs.add(dir);
+        }
+        set({ expandToPath: targetPath, expandedDirs });
     },
     async readFile(path) {
         const { content } = await sendRequest<{ content: string }>(MSG.FILE_READ, { path });
@@ -268,5 +278,38 @@ export const useFileStore = create<FileStore>((set, get) => ({
     },
     async revealInFinder(path) {
         await sendRequest(MSG.FILE_REVEAL, { path });
+    },
+    toggleDir(path) {
+        const { expandedDirs } = get();
+        const next = new Set(expandedDirs);
+        if (next.has(path)) {
+            next.delete(path);
+        } else {
+            next.add(path);
+        }
+        set({ expandedDirs: next });
+        // If we just expanded and children aren't loaded, fetch them
+        const tree = get().tree;
+        if (next.has(path) && tree && !isDirLoaded(tree, path)) {
+            void get().fetchDir(path);
+        }
+    },
+    async expandDir(path) {
+        const { expandedDirs } = get();
+        if (expandedDirs.has(path)) return;
+        const next = new Set(expandedDirs);
+        next.add(path);
+        set({ expandedDirs: next });
+        const tree = get().tree;
+        if (tree && !isDirLoaded(tree, path)) {
+            await get().fetchDir(path);
+        }
+    },
+    collapseDir(path) {
+        const { expandedDirs } = get();
+        if (!expandedDirs.has(path)) return;
+        const next = new Set(expandedDirs);
+        next.delete(path);
+        set({ expandedDirs: next });
     },
 }));
