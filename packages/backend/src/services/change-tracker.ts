@@ -71,30 +71,24 @@ export class ChangeTracker {
     }
 
     invalidate(path: string): void {
-        for (const target of this.targets.values()) {
-            if (target.path === path || path.startsWith(target.path + "/")) {
-                target.invalidated = true;
-                void this.pollTarget(target);
-                return;
-            }
+        for (const target of this.getTargetsForPath(path)) {
+            target.invalidated = true;
+            void this.pollTarget(target);
         }
     }
 
     /** Called when a file changes in a watched directory */
     onFileChanged(filePath: string): void {
-        for (const target of this.targets.values()) {
-            if (filePath === target.path || filePath.startsWith(target.path + "/")) {
-                const existing = this.debounceTimers.get(target.id);
-                if (existing) clearTimeout(existing);
-                this.debounceTimers.set(
-                    target.id,
-                    setTimeout(() => {
-                        this.debounceTimers.delete(target.id);
-                        void this.pollTarget(target);
-                    }, FILE_CHANGE_DEBOUNCE),
-                );
-                return;
-            }
+        for (const target of this.getTargetsForPath(filePath)) {
+            const existing = this.debounceTimers.get(target.id);
+            if (existing) clearTimeout(existing);
+            this.debounceTimers.set(
+                target.id,
+                setTimeout(() => {
+                    this.debounceTimers.delete(target.id);
+                    void this.pollTarget(target);
+                }, FILE_CHANGE_DEBOUNCE),
+            );
         }
     }
 
@@ -106,6 +100,16 @@ export class ChangeTracker {
                 payload: { targetId: target.id, stats: target.stats },
             });
         }
+    }
+
+    private getTargetsForPath(path: string): TrackedTarget[] {
+        const matches: TrackedTarget[] = [];
+        for (const target of this.targets.values()) {
+            if (target.path === path || path.startsWith(target.path + "/")) {
+                matches.push(target);
+            }
+        }
+        return matches;
     }
 
     private startPolling(): void {
