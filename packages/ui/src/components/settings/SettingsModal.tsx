@@ -45,6 +45,7 @@ import { Button } from "@/components/ui/button";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { alert, confirm } from "@/stores/dialog-store";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
+import { useRemoteAgentStatus } from "@/hooks/useRemoteAgentStatus";
 
 function SettingsModal() {
     const open = useUIStore((s) => s.settingsOpen);
@@ -59,9 +60,11 @@ function SettingsModal() {
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
     const [systemEditors, setSystemEditors] = useState<EditorInfo[]>([]);
     const [section, setSection] = useState<
-        "general" | "defaults" | "claude" | "codex" | "opencode" | "gemini" | "cursor"
+        "general" | "defaults" | "claude" | "codex" | "opencode" | "gemini" | "cursor" | "remote-agent"
     >("general");
     const agents = useAgentAvailability();
+    const claudeAvailable = isAgentAvailable(agents, "claude");
+    const remoteAgent = useRemoteAgentStatus();
     const [migrating, setMigrating] = useState(false);
     const [migrationError, setMigrationError] = useState<string | null>(null);
     const [conflictPath, setConflictPath] = useState<string | null>(null);
@@ -409,6 +412,7 @@ function SettingsModal() {
         { key: "opencode", label: "OpenCode" },
         { key: "gemini", label: "Gemini" },
         { key: "cursor", label: "Cursor" },
+        ...(claudeAvailable ? [{ key: "remote-agent" as const, label: "Remote Agent" }] : []),
     ];
 
     return (
@@ -916,6 +920,88 @@ function SettingsModal() {
                                         </Label>
                                     </div>
                                 </SettingRow>
+                            </>
+                        )}
+
+                        {section === "remote-agent" && (
+                            <>
+                                <SettingRow
+                                    label="Auto Start"
+                                    hint="Start remote agent when Taskflow launches">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch
+                                            id="remote-auto-start"
+                                            checked={settings.remoteAgent.autoStart}
+                                            onCheckedChange={(autoStart: boolean) =>
+                                                updateSettings({ remoteAgent: { autoStart } })
+                                            }
+                                        />
+                                        <Label
+                                            htmlFor="remote-auto-start"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
+                                            {settings.remoteAgent.autoStart ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
+                                <SettingRow
+                                    label="App Name"
+                                    hint="Display name for this instance on remote apps">
+                                    <Input
+                                        className="h-8 w-[180px] text-[13px]"
+                                        placeholder="Auto-generated"
+                                        value={settings.remoteAgent.appName}
+                                        onChange={(e) =>
+                                            updateSettings({
+                                                remoteAgent: { appName: e.target.value },
+                                            })
+                                        }
+                                    />
+                                </SettingRow>
+                                <SettingRow
+                                    label="Headless"
+                                    hint="Run without showing a session tab">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch
+                                            id="remote-headless"
+                                            checked={settings.remoteAgent.headless}
+                                            onCheckedChange={(headless: boolean) =>
+                                                updateSettings({ remoteAgent: { headless } })
+                                            }
+                                        />
+                                        <Label
+                                            htmlFor="remote-headless"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
+                                            {settings.remoteAgent.headless ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
+                                <div className="hover:bg-island-base mx-1 flex items-center justify-between rounded-md px-5 py-3 transition-colors">
+                                    <div className="min-w-0 flex-1 pr-6">
+                                        <div className="text-secondary-foreground text-[13px] font-medium">
+                                            Status
+                                        </div>
+                                        <div className="text-muted-foreground text-[11px] leading-snug">
+                                            {remoteAgent.running
+                                                ? "Remote agent is running"
+                                                : "Remote agent is stopped"}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2.5">
+                                        {remoteAgent.running && (
+                                            <span className="bg-green-500 inline-block h-2 w-2 rounded-full" />
+                                        )}
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() =>
+                                                void (remoteAgent.running
+                                                    ? remoteAgent.stop()
+                                                    : remoteAgent.start())
+                                            }>
+                                            {remoteAgent.running ? "Stop" : "Start"}
+                                        </Button>
+                                    </div>
+                                </div>
                             </>
                         )}
                     </div>

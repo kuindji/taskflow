@@ -492,3 +492,9 @@ export interface NotificationDeletedEvent {
     id?: string;
     all?: boolean;
 }
+
+// Remote Agent messages
+export interface RemoteAgentStatusPayload {
+    running: boolean;
+    sessionId?: string;
+}

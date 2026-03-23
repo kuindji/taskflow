@@ -73,6 +73,12 @@ export interface LayoutSettings {
     panels: PanelSettings;
 }
 
+export interface RemoteAgentSettings {
+    autoStart: boolean;
+    appName: string;
+    headless: boolean;
+}
+
 export interface AppearanceSettings {
     theme: string;
 }
@@ -88,6 +94,7 @@ export interface AppSettings {
     gemini: GeminiSettings;
     cursor: CursorSettings;
     appearance: AppearanceSettings;
+    remoteAgent: RemoteAgentSettings;
 }
 
 export interface SettingsUpdatePayload {
@@ -104,4 +111,5 @@ export interface SettingsUpdatePayload {
     gemini?: Partial<GeminiSettings>;
     cursor?: Partial<CursorSettings>;
     appearance?: Partial<AppearanceSettings>;
+    remoteAgent?: Partial<RemoteAgentSettings>;
 }

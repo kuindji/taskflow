@@ -9,6 +9,7 @@ import type { ChangeTracker } from "../services/change-tracker";
 import type { TrayStateTracker } from "../services/tray-state-tracker";
 import type { NotificationStore } from "../services/notification-store";
 import type { ScheduleStore } from "../services/schedule-store";
+import type { RemoteAgentService } from "../services/remote-agent-service";
 import type { SchedulerService } from "../services/scheduler-service";
 import { validateExpression } from "../services/scheduler-service";
 import type { NotificationDeletedEvent } from "@taskflow/shared";
@@ -62,6 +63,7 @@ interface ApiRouteDeps {
     runtimes: RuntimeInfo[];
     editors: EditorInfo[];
     generateScheduleName: (prompt: string) => Promise<string>;
+    remoteAgentService: RemoteAgentService;
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -462,6 +464,11 @@ export function registerApiRoutes(deps: ApiRouteDeps): void {
 
     apiRouter.register("GET", "/api/settings", async () => {
         return jsonResponse(await settingsStore.get());
+    });
+
+    apiRouter.register("GET", "/api/app-name", async () => {
+        const name = await deps.remoteAgentService.getAppName();
+        return jsonResponse({ name });
     });
 
     apiRouter.register("GET", "/api/tray-state", async () => {

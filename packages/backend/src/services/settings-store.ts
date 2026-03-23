@@ -73,6 +73,11 @@ const DEFAULTS: AppSettings = {
     appearance: {
         theme: DEFAULT_THEME_ID,
     },
+    remoteAgent: {
+        autoStart: false,
+        appName: "",
+        headless: false,
+    },
 };
 
 function createDefaultSettings(): AppSettings {
@@ -90,6 +95,7 @@ function createDefaultSettings(): AppSettings {
         gemini: { ...DEFAULTS.gemini },
         cursor: { ...DEFAULTS.cursor },
         appearance: { ...DEFAULTS.appearance },
+        remoteAgent: { ...DEFAULTS.remoteAgent },
     };
 }
 
@@ -130,6 +136,7 @@ export class SettingsStore {
                 gemini: { ...defaults.gemini, ...parsed.gemini },
                 cursor: { ...defaults.cursor, ...parsed.cursor },
                 appearance: { ...defaults.appearance, ...parsed.appearance },
+                remoteAgent: { ...defaults.remoteAgent, ...parsed.remoteAgent },
             };
 
             // Persist migration so it only runs once
@@ -177,6 +184,9 @@ export class SettingsStore {
         }
         if (partial.appearance) {
             Object.assign(current.appearance, partial.appearance);
+        }
+        if (partial.remoteAgent) {
+            Object.assign(current.remoteAgent, partial.remoteAgent);
         }
         await writeFile(this.filePath, JSON.stringify(current, null, 2));
         return current;

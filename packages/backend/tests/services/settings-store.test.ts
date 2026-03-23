@@ -30,6 +30,7 @@ const DEFAULT_OPENCODE = { defaultModel: "", fullAccess: false, dontAskQuestions
 const DEFAULT_GEMINI = { defaultModel: "default" as const, fullAccess: false, dontAskQuestions: false };
 const DEFAULT_CURSOR = { defaultModel: "default", fullAccess: false, dontAskQuestions: false };
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
+const DEFAULT_REMOTE_AGENT = { autoStart: false, appName: "", headless: false };
 
 describe("SettingsStore", () => {
     let tempDir: string;
@@ -75,6 +76,7 @@ describe("SettingsStore", () => {
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
             appearance: DEFAULT_APPEARANCE,
+            remoteAgent: DEFAULT_REMOTE_AGENT,
         });
 
         first.editor.fontSize = 20;
@@ -106,6 +108,7 @@ describe("SettingsStore", () => {
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
             appearance: DEFAULT_APPEARANCE,
+            remoteAgent: DEFAULT_REMOTE_AGENT,
         });
     });
 
@@ -145,6 +148,7 @@ describe("SettingsStore", () => {
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
             appearance: DEFAULT_APPEARANCE,
+            remoteAgent: DEFAULT_REMOTE_AGENT,
         });
 
         expect(await store.update({ editor: { fontSize: 16 } })).toEqual({
@@ -174,6 +178,7 @@ describe("SettingsStore", () => {
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
             appearance: DEFAULT_APPEARANCE,
+            remoteAgent: DEFAULT_REMOTE_AGENT,
         });
     });
 

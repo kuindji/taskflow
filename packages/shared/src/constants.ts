@@ -129,6 +129,12 @@ export const MSG = {
     // Master workspace
     MASTER_SESSIONS_LIST: "master:sessions-list",
 
+    // Remote Agent
+    REMOTE_AGENT_START: "remote-agent:start",
+    REMOTE_AGENT_STOP: "remote-agent:stop",
+    REMOTE_AGENT_STATUS: "remote-agent:status",
+    REMOTE_AGENT_STATUS_CHANGED: "remote-agent:status-changed",
+
     // System
     SYSTEM_INFO: "system:info",
 } as const;

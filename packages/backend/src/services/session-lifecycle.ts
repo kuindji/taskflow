@@ -8,6 +8,8 @@ import { ensureGeminiSystemFile } from "./gemini-system";
 import { getEditorById } from "./editor-detector";
 import type { TrayStateTracker } from "./tray-state-tracker";
 import { homedir } from "os";
+import { join } from "path";
+import { mkdirSync } from "fs";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
 
@@ -38,6 +40,8 @@ interface CreateSessionOpts {
     onSessionExited?: (sessionId: string, exitCode: number) => void;
     /** When true, the session is not registered as a tab in the UI. */
     internal?: boolean;
+    /** Display name passed to the agent CLI (e.g. Claude's --name flag). */
+    sessionName?: string;
 }
 
 interface SessionLifecycleDeps {
@@ -155,7 +159,8 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         let resolvedProjectId = "";
 
         if (master) {
-            cwd = cwdOverride ?? homedir();
+            cwd = cwdOverride ?? join(homedir(), ".config", "taskflow");
+            mkdirSync(cwd, { recursive: true });
         } else {
             task = taskId ? await taskStore.getTask(taskId) : null;
             if (taskId && !task) throw new Error(`Task not found: ${taskId}`);
@@ -229,6 +234,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 !!flow,
             );
             command = spec.command;
+            if (opts.sessionName && type === "claude") {
+                args.push("--name", opts.sessionName);
+            }
             args.push(...spec.args);
             specEnv = spec.env;
         }

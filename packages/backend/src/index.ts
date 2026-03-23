@@ -37,6 +37,8 @@ import { buildShellPath } from "./services/shell-path";
 import { TrayStateTracker } from "./services/tray-state-tracker";
 import { NotificationStore } from "./services/notification-store";
 import { registerNotificationHandlers } from "./handlers/notification";
+import { RemoteAgentService } from "./services/remote-agent-service";
+import { registerRemoteAgentHandlers } from "./handlers/remote-agent";
 import { writeFile } from "fs/promises";
 import { homedir } from "os";
 
@@ -287,6 +289,15 @@ async function main() {
             generateName: generateScheduleName,
         });
 
+        const remoteAgentService = new RemoteAgentService({
+            settingsStore,
+            ptyManager,
+            sessionLifecycle,
+            broadcast: server.broadcast,
+            agents,
+        });
+        registerRemoteAgentHandlers({ router, remoteAgentService });
+
         const runtimes = await detectRuntimes();
 
         registerApiRoutes({
@@ -313,6 +324,7 @@ async function main() {
             runtimes,
             editors,
             generateScheduleName,
+            remoteAgentService,
         });
 
         router.register(MSG.BROWSER_OPEN, async (payload) => {
@@ -351,6 +363,9 @@ async function main() {
 
         // Initialize scheduler after server is running
         await schedulerService.init();
+
+        // Auto-start remote agent if enabled
+        void remoteAgentService.autoStartIfEnabled();
 
         // Register projects for change tracking
         const initialProjects = await store.listProjects();

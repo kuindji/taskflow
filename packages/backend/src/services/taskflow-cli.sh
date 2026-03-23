@@ -1187,6 +1187,10 @@ case "$cmd" in
     esac
     ;;
 
+  app-name)
+    curl -sf "$TASKFLOW_API_URL/api/app-name"
+    ;;
+
   *)
     echo "Usage: taskflow-cli [--task <id>] [--project-id <id>] <command>" >&2
     echo "" >&2
@@ -1216,6 +1220,7 @@ case "$cmd" in
     echo "  agent <list|run>                              Manage agents" >&2
     echo "  notify <message>                              Send a desktop notification" >&2
     echo "  settings get                                  Get current settings" >&2
+    echo "  app-name                                     Get the application display name" >&2
     echo "  system <info|shells|runtimes>                 System information" >&2
     exit 1
     ;;
