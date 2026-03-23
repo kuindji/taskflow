@@ -13,11 +13,27 @@ Add a `dontAskQuestions` boolean to all agent launch options and settings. When 
 
 ## Autonomous Prompt
 
-Appended to the system prompt when `dontAskQuestions` is true:
+Defined as a constant `PROMPT_AUTONOMOUS` in `internal-agent-skill.ts` alongside the other `PROMPT_*` constants:
 
 > "Do not ask clarifying questions. Do not ask for confirmation. Make reasonable assumptions and proceed autonomously. If something is ambiguous, choose the most likely interpretation and act on it."
 
 This prompt is agent-agnostic — the same text is used for all agent types.
+
+## System Prompt Delivery
+
+Agents receive system prompts through different mechanisms:
+
+| Agent | Delivery mechanism |
+|-|-|
+| **Claude** | `--append-system-prompt` flag in `buildAgentLaunchSpec` |
+| **Codex** | `developer_instructions` config in `buildAgentLaunchSpec` |
+| **OpenCode** | `config.instructions` file array in `buildAgentLaunchSpec` |
+| **Gemini** | File written by `ensureGeminiSystemFile()` in `session-lifecycle.ts`, passed via `GEMINI_SYSTEM_MD` env var |
+| **Cursor** | File written by `ensureCursorRulesFile()` in `session-lifecycle.ts` |
+
+Since Gemini and Cursor receive their system prompt via `additionalPrompt`/`systemPrompt` parameter in `session-lifecycle.ts` (before `buildAgentLaunchSpec` is called), the autonomous prompt must be appended at the `session-lifecycle.ts` level, not inside `buildAgentLaunchSpec`.
+
+**Strategy:** In `session-lifecycle.ts`, when `agentOptions.dontAskQuestions` is true, append `PROMPT_AUTONOMOUS` to the `systemPrompt` variable before it is passed to `ensureGeminiSystemFile()`, `ensureCursorRulesFile()`, and `buildAgentLaunchSpec()`. This ensures all agents receive it through their native channels.
 
 ## Changes
 
@@ -47,10 +63,18 @@ Add `dontAskQuestions: false` to each agent's defaults in `DEFAULTS`.
 
 ### Launch Spec — `packages/backend/src/services/internal-agent-skill.ts`
 
-In `buildAgentLaunchSpec`, when `agentOptions.dontAskQuestions` is true:
+- Define `PROMPT_AUTONOMOUS` constant alongside other `PROMPT_*` constants
+- Export `PROMPT_AUTONOMOUS` so `session-lifecycle.ts` can import it
+- In `buildAgentLaunchSpec`, when `agentOptions.dontAskQuestions` is true, apply the same CLI flags as `fullAccess` (e.g., `--dangerously-skip-permissions` for Claude, `--full-auto` for Codex, `--yolo` for Gemini/Cursor, permission JSON for OpenCode)
 
-- Apply the same CLI flags as `fullAccess` (e.g., `--dangerously-skip-permissions` for Claude, `--full-auto` for Codex, `--yolo` for Gemini/Cursor, permission JSON for OpenCode)
-- Append the autonomous prompt constant to the system prompt
+### Session Lifecycle — `packages/backend/src/services/session-lifecycle.ts`
+
+When `agentOptions.dontAskQuestions` is true, append `PROMPT_AUTONOMOUS` to the `systemPrompt` variable before passing it to:
+- `ensureCursorRulesFile(cwd, systemPrompt)`
+- `ensureGeminiSystemFile(config.agentSkillsDir, !task, systemPrompt)`
+- `buildAgentLaunchSpec(..., systemPrompt, ...)`
+
+This ensures all agents receive the autonomous prompt through their native delivery mechanism.
 
 ### UI — `packages/ui/src/components/workspace/AgentOptionsPanel.tsx`
 
