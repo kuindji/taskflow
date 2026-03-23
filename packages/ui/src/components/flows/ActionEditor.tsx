@@ -161,7 +161,7 @@ function ActionEditor({
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
                             placeholder="Instructions for the agent..."
-                            className="min-h-[200px] font-mono text-sm"
+                            className="min-h-[200px] text-sm"
                             dialogTitle="Action Prompt"
                         />
                     </div>

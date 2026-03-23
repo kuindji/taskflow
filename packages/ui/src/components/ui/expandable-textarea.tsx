@@ -1,7 +1,6 @@
 import * as React from "react";
 import { useState, useCallback } from "react";
 import { CircleHelp, Maximize2 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { MonacoEditorDialog } from "@/components/ui/monaco-editor-dialog";
 import { useUIStore } from "@/stores/ui-store";
@@ -32,7 +31,7 @@ const ExpandableTextarea = React.forwardRef<HTMLTextAreaElement, ExpandableTexta
                 <div className="relative">
                     <Textarea
                         ref={ref}
-                        className={cn("pr-14", className)}
+                        className={className}
                         value={value}
                         onChange={onChange}
                         {...props}

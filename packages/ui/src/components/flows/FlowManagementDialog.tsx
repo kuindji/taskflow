@@ -136,7 +136,7 @@ function FlowManagementDialog() {
                     <DialogTitle className="text-[15px]">Actions and Flows</DialogTitle>
                 </DialogHeader>
 
-                <div className="flex h-[60vh] gap-1.5">
+                <div className="flex h-[60vh] min-w-0 gap-1.5">
                     {/* Left sidebar nav */}
                     <nav className="bg-card w-[148px] shrink-0 rounded-[10px] p-1.5">
                         <button

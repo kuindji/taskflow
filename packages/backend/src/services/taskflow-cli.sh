@@ -1043,12 +1043,14 @@ case "$cmd" in
         agent_label=""
         agent_full_access=""
         agent_model=""
+        agent_no_questions=""
         while [ $# -gt 0 ]; do
           case "$1" in
             --prompt) agent_prompt="${2:-}"; shift 2 ;;
             --task) agent_task_id="${2:-}"; shift 2 ;;
             --label) agent_label="${2:-}"; shift 2 ;;
             --full-access) agent_full_access="true"; shift ;;
+            --no-questions) agent_no_questions="true"; shift ;;
             --model) agent_model="${2:-}"; shift 2 ;;
             *) shift ;;
           esac
@@ -1067,8 +1069,8 @@ case "$cmd" in
         if [ -n "$agent_label" ]; then
           payload=$(printf '%s,"label":%s' "$payload" "$(json_string "$agent_label")")
         fi
-        # Build agentOptions if --full-access or --model was provided
-        if [ -n "$agent_full_access" ] || [ -n "$agent_model" ]; then
+        # Build agentOptions if --full-access, --no-questions, or --model was provided
+        if [ -n "$agent_full_access" ] || [ -n "$agent_no_questions" ] || [ -n "$agent_model" ]; then
           agent_opts=""
           if [ -n "$agent_type" ]; then
             agent_opts=$(printf '"type":%s' "$(json_string "$agent_type")")
@@ -1078,6 +1080,13 @@ case "$cmd" in
               agent_opts=$(printf '%s,"fullAccess":true' "$agent_opts")
             else
               agent_opts='"fullAccess":true'
+            fi
+          fi
+          if [ -n "$agent_no_questions" ]; then
+            if [ -n "$agent_opts" ]; then
+              agent_opts=$(printf '%s,"dontAskQuestions":true' "$agent_opts")
+            else
+              agent_opts='"dontAskQuestions":true'
             fi
           fi
           if [ -n "$agent_model" ]; then

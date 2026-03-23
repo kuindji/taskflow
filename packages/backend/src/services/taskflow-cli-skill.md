@@ -60,8 +60,9 @@ When running in task context, the following commands work as is. When running in
 `taskflow-cli agent run --task <id>` Start default agent session on a specific task (uses task description)
 `taskflow-cli agent run --task <id> --prompt "<prompt>"` Start default agent session on a task with custom prompt
 `taskflow-cli agent run <agent> --task? --prompt?` Start a specific agent session
-All run commands also accept --label "<label>", --full-access, and --model "<model>" arguments.
+All run commands also accept --label "<label>", --full-access, --no-questions, and --model "<model>" arguments.
 --full-access enables full access (dangerously skip permissions) for the agent session.
+--no-questions enables autonomous mode (agent won't ask permission questions, auto-accepts all).
 --model sets the model (e.g. "opus", "sonnet", "haiku" for Claude; "pro", "flash" for Gemini).
 Without --task agent will be started on project level. Within task context by default pass --task.
 
