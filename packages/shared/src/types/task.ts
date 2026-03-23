@@ -6,6 +6,7 @@ export interface SessionRef {
     label: string;
     createdAt: string;
     instance?: string;
+    trayExclude?: boolean;
 }
 
 export interface TaskWorktreePr {

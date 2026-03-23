@@ -35,6 +35,7 @@ interface Tab {
     filePath?: string;
     url?: string;
     autoTitle?: boolean;
+    trayExclude?: boolean;
 }
 
 interface SessionStore {
@@ -96,6 +97,7 @@ function createSessionTab(session: SessionRef): Tab {
         label: normalizeSessionLabel(session.type, session.label),
         sessionId: session.id,
         ...(session.type === "shell" && { autoTitle: true }),
+        ...(session.trayExclude && { trayExclude: true }),
     };
 }
 
@@ -736,7 +738,8 @@ function syncTrayState(state: Pick<SessionStore, "sessionStatus">): void {
     let aggregate: string | null = null;
     let hasWorking = false;
 
-    for (const status of Object.values(state.sessionStatus)) {
+    for (const [sessionId, status] of Object.entries(state.sessionStatus)) {
+        if (getSessionTab(sessionId)?.trayExclude) continue;
         if (status === "attention") {
             aggregate = "attention";
             break;

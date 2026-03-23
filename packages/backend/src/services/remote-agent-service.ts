@@ -86,6 +86,7 @@ class RemoteAgentService {
             systemPrompt: REMOTE_AGENT_SYSTEM_PROMPT,
             prompt: "/remote-control",
             internal: settings.remoteAgent.headless,
+            trayExclude: true,
             onSessionExited: (_sessionId, _exitCode) => {
                 this.handleSessionExit();
             },

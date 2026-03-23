@@ -90,28 +90,32 @@ case "$cmd" in
       fi
       description="${1:-}"
       if [ -z "$description" ]; then
-        echo "Usage: taskflow-cli task create <description> [--title <title>]" >&2
+        echo "Usage: taskflow-cli task create <description> [--title <title>] [--worktree]" >&2
         exit 1
       fi
       shift
 
       title=""
+      worktree=""
       while [ $# -gt 0 ]; do
         case "$1" in
           --title) title="${2:-}"; shift 2 ;;
+          --worktree) worktree="true"; shift ;;
           *) shift ;;
         esac
       done
 
+      json_body="$(printf '"description":%s' "$(json_string "$description")")"
       if [ -n "$title" ]; then
-        curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \
-          -H "Content-Type: application/json" \
-          -d "$(printf '{"description":%s,"title":%s}' "$(json_string "$description")" "$(json_string "$title")")"
-      else
-        curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \
-          -H "Content-Type: application/json" \
-          -d "$(printf '{"description":%s}' "$(json_string "$description")")"
+        json_body="$(printf '%s,"title":%s' "$json_body" "$(json_string "$title")")"
       fi
+      if [ -n "$worktree" ]; then
+        json_body="$json_body,\"worktree\":true"
+      fi
+
+      curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \
+        -H "Content-Type: application/json" \
+        -d "{$json_body}"
     elif [ "$subcmd" = "update" ]; then
       shift
       if [ -z "$TASKFLOW_TASK_ID" ]; then

@@ -48,6 +48,8 @@ interface CreateSessionOpts {
     internal?: boolean;
     /** Display name passed to the agent CLI (e.g. Claude's --name flag). */
     sessionName?: string;
+    /** When true, the session does not contribute to the system tray status dot. */
+    trayExclude?: boolean;
 }
 
 interface SessionLifecycleDeps {
@@ -264,7 +266,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             taskflowEnv.GEMINI_SYSTEM_MD = geminiSystemPath;
         }
 
-        if (!opts.internal) {
+        if (!opts.internal && !opts.trayExclude) {
             trayStateTracker.registerSession(sessionId, type);
         }
 
@@ -318,6 +320,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 label: opts.label ?? getDefaultSessionLabel(type),
                 createdAt: new Date().toISOString(),
                 instance: config.instanceId,
+                ...(opts.trayExclude && { trayExclude: true }),
             };
             if (master) {
                 taskStore.addMasterSession(sessionRef);
