@@ -23,6 +23,9 @@ This session is scoped to a project, not a specific task.`;
 const PROMPT_FLOW = `
 This session is scoped to a flow step. Expect instructions that imply or specify taskflow-cli usage.`;
 
+export const PROMPT_AUTONOMOUS =
+    "Do not ask clarifying questions. Do not ask for confirmation. Make reasonable assumptions and proceed autonomously. If something is ambiguous, choose the most likely interpretation and act on it.";
+
 export function buildSystemPrompt(isProjectScope: boolean, isFlowScope?: boolean): string {
     const scopeBlock = isProjectScope ? PROMPT_PROJECT_SCOPE : PROMPT_TASK_SCOPE;
     const flowBlock = isFlowScope ? `\n${PROMPT_FLOW}` : "";
@@ -82,7 +85,7 @@ export function buildAgentLaunchSpec(
     if (type === "claude") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "claude") {
-            if (agentOptions.fullAccess) optionArgs.push("--dangerously-skip-permissions");
+            if (agentOptions.fullAccess || agentOptions.dontAskQuestions) optionArgs.push("--dangerously-skip-permissions");
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
         }
         return {
@@ -102,7 +105,7 @@ export function buildAgentLaunchSpec(
         const config: Record<string, unknown> = {
             instructions: [skillPath],
         };
-        if (agentOptions?.type === "opencode" && agentOptions.fullAccess) {
+        if (agentOptions?.type === "opencode" && (agentOptions.fullAccess || agentOptions.dontAskQuestions)) {
             config.permission = { edit: "allow", bash: "allow", write: "allow" };
         }
 
@@ -122,7 +125,7 @@ export function buildAgentLaunchSpec(
     if (type === "gemini") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "gemini") {
-            if (agentOptions.fullAccess) optionArgs.push("--yolo");
+            if (agentOptions.fullAccess || agentOptions.dontAskQuestions) optionArgs.push("--yolo");
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
         }
         return {
@@ -134,7 +137,7 @@ export function buildAgentLaunchSpec(
     if (type === "cursor") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "cursor") {
-            if (agentOptions.fullAccess) optionArgs.push("--yolo");
+            if (agentOptions.fullAccess || agentOptions.dontAskQuestions) optionArgs.push("--yolo");
             if (agentOptions.model && agentOptions.model !== "default")
                 optionArgs.push("--model", agentOptions.model);
         }
@@ -146,7 +149,7 @@ export function buildAgentLaunchSpec(
 
     const optionArgs: string[] = [];
     if (agentOptions?.type === "codex") {
-        if (agentOptions.fullAccess) optionArgs.push("--full-auto");
+        if (agentOptions.fullAccess || agentOptions.dontAskQuestions) optionArgs.push("--full-auto");
     }
     return {
         command: "codex",
