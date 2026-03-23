@@ -6,6 +6,8 @@ import type { PtyManager } from "./pty-manager";
 import type { CreateSessionOpts } from "./session-lifecycle";
 
 const RESTART_DELAY_MS = 2000;
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
+const INACTIVITY_CHECK_INTERVAL_MS = 60 * 1000;
 
 const REMOTE_AGENT_SYSTEM_PROMPT = `
 You are a remote control agent for the Taskflow application. Your role is to receive instructions from a remote operator and execute them using the taskflow-cli tool.`;
@@ -24,6 +26,8 @@ class RemoteAgentService {
     private currentSessionId: string | null = null;
     private explicitlyStopped = false;
     private restartTimer: ReturnType<typeof setTimeout> | null = null;
+    private lastActivityAt = 0;
+    private inactivityCheckTimer: ReturnType<typeof setInterval> | null = null;
 
     private readonly deps: RemoteAgentServiceDeps;
 
@@ -67,6 +71,8 @@ class RemoteAgentService {
         const settings = await this.deps.settingsStore.get();
         const appName = await this.getAppName();
 
+        this.lastActivityAt = Date.now();
+
         const sessionId = await this.deps.sessionLifecycle.createSession({
             owner: { master: true },
             type: "claude",
@@ -83,9 +89,13 @@ class RemoteAgentService {
             onSessionExited: (_sessionId, _exitCode) => {
                 this.handleSessionExit();
             },
+            onSessionData: () => {
+                this.lastActivityAt = Date.now();
+            },
         });
 
         this.currentSessionId = sessionId;
+        this.startInactivityMonitor();
         this.broadcastStatus();
         return this.getStatus();
     }
@@ -93,6 +103,7 @@ class RemoteAgentService {
     async stop(): Promise<RemoteAgentStatusPayload> {
         this.explicitlyStopped = true;
         this.clearRestartTimer();
+        this.stopInactivityMonitor();
 
         if (this.currentSessionId) {
             try {
@@ -126,6 +137,7 @@ class RemoteAgentService {
 
     private handleSessionExit(): void {
         this.currentSessionId = null;
+        this.stopInactivityMonitor();
         this.broadcastStatus();
 
         if (this.explicitlyStopped) return;
@@ -136,6 +148,32 @@ class RemoteAgentService {
                 this.scheduleRestart();
             }
         });
+    }
+
+    private startInactivityMonitor(): void {
+        this.stopInactivityMonitor();
+        this.inactivityCheckTimer = setInterval(() => {
+            if (!this.currentSessionId) return;
+
+            const idleMs = Date.now() - this.lastActivityAt;
+            if (idleMs >= INACTIVITY_TIMEOUT_MS) {
+                console.log(
+                    `[remote-agent] Inactive for ${Math.round(idleMs / 1000)}s, sending /exit to restart`,
+                );
+                try {
+                    this.deps.ptyManager.write(this.currentSessionId, "/exit\n");
+                } catch {
+                    // Session may already be gone — handleSessionExit will fire
+                }
+            }
+        }, INACTIVITY_CHECK_INTERVAL_MS);
+    }
+
+    private stopInactivityMonitor(): void {
+        if (this.inactivityCheckTimer) {
+            clearInterval(this.inactivityCheckTimer);
+            this.inactivityCheckTimer = null;
+        }
     }
 
     private scheduleRestart(): void {

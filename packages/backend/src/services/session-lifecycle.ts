@@ -42,6 +42,8 @@ interface CreateSessionOpts {
     cols?: number;
     rows?: number;
     onSessionExited?: (sessionId: string, exitCode: number) => void;
+    /** Called on every PTY data event for this session. */
+    onSessionData?: (sessionId: string) => void;
     /** When true, the session is not registered as a tab in the UI. */
     internal?: boolean;
     /** Display name passed to the agent CLI (e.g. Claude's --name flag). */
@@ -279,6 +281,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             onData: (data, sequence) => {
                 void taskStore.appendSessionOutput(ownerId, sessionId, sequence, data);
                 trayStateTracker.markSessionActivity(sessionId);
+                opts.onSessionData?.(sessionId);
                 broadcast(
                     {
                         type: MSG.TERMINAL_OUTPUT,
