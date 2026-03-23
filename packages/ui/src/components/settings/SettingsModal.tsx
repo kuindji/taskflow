@@ -164,9 +164,33 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleClaudeDontAsk = useCallback(
+        (dontAskQuestions: boolean) => {
+            void updateSettings({
+                claude: {
+                    dontAskQuestions,
+                    ...(dontAskQuestions ? { fullAccess: true } : {}),
+                },
+            });
+        },
+        [updateSettings],
+    );
+
     const handleCodexFullAccess = useCallback(
         (fullAccess: boolean) => {
             void updateSettings({ codex: { fullAccess } });
+        },
+        [updateSettings],
+    );
+
+    const handleCodexDontAsk = useCallback(
+        (dontAskQuestions: boolean) => {
+            void updateSettings({
+                codex: {
+                    dontAskQuestions,
+                    ...(dontAskQuestions ? { fullAccess: true } : {}),
+                },
+            });
         },
         [updateSettings],
     );
@@ -181,6 +205,18 @@ function SettingsModal() {
     const handleOpencodeFullAccess = useCallback(
         (fullAccess: boolean) => {
             void updateSettings({ opencode: { fullAccess } });
+        },
+        [updateSettings],
+    );
+
+    const handleOpencodeDontAsk = useCallback(
+        (dontAskQuestions: boolean) => {
+            void updateSettings({
+                opencode: {
+                    dontAskQuestions,
+                    ...(dontAskQuestions ? { fullAccess: true } : {}),
+                },
+            });
         },
         [updateSettings],
     );
@@ -208,9 +244,33 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleGeminiDontAsk = useCallback(
+        (dontAskQuestions: boolean) => {
+            void updateSettings({
+                gemini: {
+                    dontAskQuestions,
+                    ...(dontAskQuestions ? { fullAccess: true } : {}),
+                },
+            });
+        },
+        [updateSettings],
+    );
+
     const handleCursorFullAccess = useCallback(
         (fullAccess: boolean) => {
             void updateSettings({ cursor: { fullAccess } });
+        },
+        [updateSettings],
+    );
+
+    const handleCursorDontAsk = useCallback(
+        (dontAskQuestions: boolean) => {
+            void updateSettings({
+                cursor: {
+                    dontAskQuestions,
+                    ...(dontAskQuestions ? { fullAccess: true } : {}),
+                },
+            });
         },
         [updateSettings],
     );
@@ -639,6 +699,7 @@ function SettingsModal() {
                                             id="claude-full-access"
                                             checked={settings.claude.fullAccess}
                                             onCheckedChange={handleClaudeFullAccess}
+                                            disabled={settings.claude.dontAskQuestions}
                                         />
                                         <Label
                                             htmlFor="claude-full-access"
@@ -647,24 +708,59 @@ function SettingsModal() {
                                         </Label>
                                     </div>
                                 </SettingRow>
+                                <SettingRow
+                                    label="Don't Ask Questions"
+                                    hint="Make agent fully autonomous (implies full access)">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch
+                                            id="claude-dont-ask"
+                                            checked={settings.claude.dontAskQuestions}
+                                            onCheckedChange={handleClaudeDontAsk}
+                                        />
+                                        <Label
+                                            htmlFor="claude-dont-ask"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
+                                            {settings.claude.dontAskQuestions ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
                             </>
                         )}
 
                         {section === "codex" && (
-                            <SettingRow label="Full Access" hint="Run in full-auto mode by default">
-                                <div className="flex items-center gap-2.5">
-                                    <Switch
-                                        id="codex-full-access"
-                                        checked={settings.codex.fullAccess}
-                                        onCheckedChange={handleCodexFullAccess}
-                                    />
-                                    <Label
-                                        htmlFor="codex-full-access"
-                                        className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
-                                        {settings.codex.fullAccess ? "Enabled" : "Disabled"}
-                                    </Label>
-                                </div>
-                            </SettingRow>
+                            <>
+                                <SettingRow label="Full Access" hint="Run in full-auto mode by default">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch
+                                            id="codex-full-access"
+                                            checked={settings.codex.fullAccess}
+                                            onCheckedChange={handleCodexFullAccess}
+                                            disabled={settings.codex.dontAskQuestions}
+                                        />
+                                        <Label
+                                            htmlFor="codex-full-access"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
+                                            {settings.codex.fullAccess ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
+                                <SettingRow
+                                    label="Don't Ask Questions"
+                                    hint="Make agent fully autonomous (implies full access)">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch
+                                            id="codex-dont-ask"
+                                            checked={settings.codex.dontAskQuestions}
+                                            onCheckedChange={handleCodexDontAsk}
+                                        />
+                                        <Label
+                                            htmlFor="codex-dont-ask"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
+                                            {settings.codex.dontAskQuestions ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
+                            </>
                         )}
 
                         {section === "opencode" && (
@@ -687,11 +783,28 @@ function SettingsModal() {
                                             id="opencode-full-access"
                                             checked={settings.opencode.fullAccess}
                                             onCheckedChange={handleOpencodeFullAccess}
+                                            disabled={settings.opencode.dontAskQuestions}
                                         />
                                         <Label
                                             htmlFor="opencode-full-access"
                                             className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
                                             {settings.opencode.fullAccess ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
+                                <SettingRow
+                                    label="Don't Ask Questions"
+                                    hint="Make agent fully autonomous (implies full access)">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch
+                                            id="opencode-dont-ask"
+                                            checked={settings.opencode.dontAskQuestions}
+                                            onCheckedChange={handleOpencodeDontAsk}
+                                        />
+                                        <Label
+                                            htmlFor="opencode-dont-ask"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
+                                            {settings.opencode.dontAskQuestions ? "Enabled" : "Disabled"}
                                         </Label>
                                     </div>
                                 </SettingRow>
@@ -726,11 +839,28 @@ function SettingsModal() {
                                             id="gemini-full-access"
                                             checked={settings.gemini.fullAccess}
                                             onCheckedChange={handleGeminiFullAccess}
+                                            disabled={settings.gemini.dontAskQuestions}
                                         />
                                         <Label
                                             htmlFor="gemini-full-access"
                                             className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
                                             {settings.gemini.fullAccess ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
+                                <SettingRow
+                                    label="Don't Ask Questions"
+                                    hint="Make agent fully autonomous (implies full access)">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch
+                                            id="gemini-dont-ask"
+                                            checked={settings.gemini.dontAskQuestions}
+                                            onCheckedChange={handleGeminiDontAsk}
+                                        />
+                                        <Label
+                                            htmlFor="gemini-dont-ask"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
+                                            {settings.gemini.dontAskQuestions ? "Enabled" : "Disabled"}
                                         </Label>
                                     </div>
                                 </SettingRow>
@@ -761,11 +891,28 @@ function SettingsModal() {
                                             id="cursor-full-access"
                                             checked={settings.cursor.fullAccess}
                                             onCheckedChange={handleCursorFullAccess}
+                                            disabled={settings.cursor.dontAskQuestions}
                                         />
                                         <Label
                                             htmlFor="cursor-full-access"
                                             className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
                                             {settings.cursor.fullAccess ? "Enabled" : "Disabled"}
+                                        </Label>
+                                    </div>
+                                </SettingRow>
+                                <SettingRow
+                                    label="Don't Ask Questions"
+                                    hint="Make agent fully autonomous (implies full access)">
+                                    <div className="flex items-center gap-2.5">
+                                        <Switch
+                                            id="cursor-dont-ask"
+                                            checked={settings.cursor.dontAskQuestions}
+                                            onCheckedChange={handleCursorDontAsk}
+                                        />
+                                        <Label
+                                            htmlFor="cursor-dont-ask"
+                                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
+                                            {settings.cursor.dontAskQuestions ? "Enabled" : "Disabled"}
                                         </Label>
                                     </div>
                                 </SettingRow>
