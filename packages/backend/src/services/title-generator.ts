@@ -1,53 +1,20 @@
-import { join } from "path";
 import type { TaskStore } from "./task-store";
-import type { GitService } from "./git-service";
 import type { WsEvent } from "@taskflow/shared";
-import type { ChangeTracker } from "./change-tracker";
 import { MSG } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
-import { slugify } from "../utils/slugify";
 import { filterTaskSessions } from "./instance-filter";
 import { config } from "../config";
 
 interface TitleGeneratorDeps {
     taskStore: TaskStore;
-    gitService: GitService;
     broadcast: (event: WsEvent) => void;
-    changeTracker?: ChangeTracker;
+    createWorktree?: (taskId: string, nameSource: string, initCommand?: string) => Promise<void>;
 }
 
 export function createTitleGenerator(deps: TitleGeneratorDeps) {
-    const { taskStore, gitService, broadcast, changeTracker } = deps;
+    const { taskStore, broadcast, createWorktree } = deps;
 
-    async function createWorktreeForTask(taskId: string, title: string): Promise<void> {
-        const task = await taskStore.getTask(taskId);
-        if (!task || !task.worktree.enabled || task.worktree.path) return;
-
-        const project = await taskStore.getProject(task.projectId);
-        if (!project) return;
-
-        const slug = slugify(title);
-        if (!slug) return;
-
-        const branch = `task/${slug}`;
-        const worktreePath = join(project.path, ".worktrees", slug);
-
-        try {
-            await gitService.createWorktree(project.path, branch, worktreePath);
-            const updated = await taskStore.updateTask(taskId, {
-                worktree: { enabled: true, path: worktreePath, branch, pr: null },
-            });
-            changeTracker?.track(taskId, worktreePath);
-            broadcast({
-                type: MSG.TASK_UPDATED,
-                payload: filterTaskSessions(updated, config.instanceId),
-            });
-        } catch (error) {
-            console.error(`Failed to create worktree for task ${taskId}:`, error);
-        }
-    }
-
-    async function generate(taskId: string, description: string): Promise<void> {
+    async function generate(taskId: string, description: string, initCommand?: string): Promise<void> {
         const prompt = `Generate a concise task title (3-7 words) for this task description. Output ONLY the title, nothing else. No quotes, no punctuation at the end.\n\nDescription: ${description}`;
 
         try {
@@ -67,11 +34,16 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
             const exitCode = await proc.exited;
 
             if (exitCode !== 0 || !output.trim()) {
+                // Title generation failed — still create worktree using description
+                await createWorktree?.(taskId, description, initCommand);
                 return;
             }
 
             const title = output.trim().replace(/^["']|["']$/g, "");
-            if (!title) return;
+            if (!title) {
+                await createWorktree?.(taskId, description, initCommand);
+                return;
+            }
 
             const updated = await taskStore.updateTask(taskId, { title });
             broadcast({
@@ -79,9 +51,10 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
                 payload: filterTaskSessions(updated, config.instanceId),
             });
 
-            await createWorktreeForTask(taskId, title);
+            await createWorktree?.(taskId, title, initCommand);
         } catch {
-            // Silently fail — the description is shown as fallback
+            // Title generation failed — still try to create worktree
+            await createWorktree?.(taskId, description, initCommand).catch(() => {});
         }
     }
 
