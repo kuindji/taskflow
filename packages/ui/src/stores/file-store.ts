@@ -118,7 +118,13 @@ export const useFileStore = create<FileStore>((set, get) => ({
             children: entries,
             loaded: true,
         };
-        set({ tree: rootNode, treePath: path, gitignorePatterns, loading: false, expandedDirs: new Set([path]) });
+        set({
+            tree: rootNode,
+            treePath: path,
+            gitignorePatterns,
+            loading: false,
+            expandedDirs: new Set([path]),
+        });
     },
     async fetchDir(dirPath) {
         if (get().loadingDirs.has(dirPath)) return;

@@ -97,11 +97,7 @@ function FileExplorer() {
 
     const handleFileClick = useCallback(
         (path: string) => {
-            const owner = taskId
-                ? { taskId }
-                : projectId
-                  ? { projectId }
-                  : undefined;
+            const owner = taskId ? { taskId } : projectId ? { projectId } : undefined;
             void openFileInApp(path, workspaceKey, owner);
         },
         [taskId, projectId, workspaceKey],

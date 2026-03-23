@@ -5,7 +5,14 @@ import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { isDialogOpen, isEditableElement } from "@/lib/global-shortcuts";
-import { getNextItem, getPreviousItem, getFirstItem, getLastItem, getParentPath, findNode } from "@/lib/tree-walker";
+import {
+    getNextItem,
+    getPreviousItem,
+    getFirstItem,
+    getLastItem,
+    getParentPath,
+    findNode,
+} from "@/lib/tree-walker";
 import { useFileStore } from "@/stores/file-store";
 
 type PanelId = ReturnType<typeof useUIStore.getState>["focusedPanel"];
@@ -193,7 +200,8 @@ function handleSidebarArrow(key: string) {
 }
 
 function handleFileExplorerArrow(key: string) {
-    const { tree, expandedDirs, focusedPath, setFocusedPath, expandDir, collapseDir } = useFileStore.getState();
+    const { tree, expandedDirs, focusedPath, setFocusedPath, expandDir, collapseDir } =
+        useFileStore.getState();
     if (!tree) return;
 
     if (key === "ArrowDown") {
@@ -356,18 +364,25 @@ export function useKeyboardNavigation() {
             }
 
             // Cmd+Home/End: jump to first/last item in file explorer
-            if ((e.key === "Home" || e.key === "End") && useUIStore.getState().focusedPanel === "fileexplorer") {
+            if (
+                (e.key === "Home" || e.key === "End") &&
+                useUIStore.getState().focusedPanel === "fileexplorer"
+            ) {
                 if (isEditableElement(document.activeElement)) return;
                 e.preventDefault();
                 const { tree, expandedDirs, setFocusedPath } = useFileStore.getState();
                 if (!tree) return;
-                const target = e.key === "Home" ? getFirstItem(tree) : getLastItem(tree, expandedDirs);
+                const target =
+                    e.key === "Home" ? getFirstItem(tree) : getLastItem(tree, expandedDirs);
                 if (target) setFocusedPath(target);
                 return;
             }
 
             // Cmd+Arrow: file explorer navigation (only when file explorer focused)
-            if (useUIStore.getState().focusedPanel === "fileexplorer" && ARROW_KEYS.includes(e.key)) {
+            if (
+                useUIStore.getState().focusedPanel === "fileexplorer" &&
+                ARROW_KEYS.includes(e.key)
+            ) {
                 if (isEditableElement(document.activeElement)) return;
                 e.preventDefault();
                 handleFileExplorerArrow(e.key);

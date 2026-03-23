@@ -60,7 +60,14 @@ function SettingsModal() {
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
     const [systemEditors, setSystemEditors] = useState<EditorInfo[]>([]);
     const [section, setSection] = useState<
-        "general" | "defaults" | "claude" | "codex" | "opencode" | "gemini" | "cursor" | "remote-agent"
+        | "general"
+        | "defaults"
+        | "claude"
+        | "codex"
+        | "opencode"
+        | "gemini"
+        | "cursor"
+        | "remote-agent"
     >("general");
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
@@ -724,7 +731,9 @@ function SettingsModal() {
                                         <Label
                                             htmlFor="claude-dont-ask"
                                             className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
-                                            {settings.claude.dontAskQuestions ? "Enabled" : "Disabled"}
+                                            {settings.claude.dontAskQuestions
+                                                ? "Enabled"
+                                                : "Disabled"}
                                         </Label>
                                     </div>
                                 </SettingRow>
@@ -733,7 +742,9 @@ function SettingsModal() {
 
                         {section === "codex" && (
                             <>
-                                <SettingRow label="Full Access" hint="Run in full-auto mode by default">
+                                <SettingRow
+                                    label="Full Access"
+                                    hint="Run in full-auto mode by default">
                                     <div className="flex items-center gap-2.5">
                                         <Switch
                                             id="codex-full-access"
@@ -760,7 +771,9 @@ function SettingsModal() {
                                         <Label
                                             htmlFor="codex-dont-ask"
                                             className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
-                                            {settings.codex.dontAskQuestions ? "Enabled" : "Disabled"}
+                                            {settings.codex.dontAskQuestions
+                                                ? "Enabled"
+                                                : "Disabled"}
                                         </Label>
                                     </div>
                                 </SettingRow>
@@ -808,7 +821,9 @@ function SettingsModal() {
                                         <Label
                                             htmlFor="opencode-dont-ask"
                                             className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
-                                            {settings.opencode.dontAskQuestions ? "Enabled" : "Disabled"}
+                                            {settings.opencode.dontAskQuestions
+                                                ? "Enabled"
+                                                : "Disabled"}
                                         </Label>
                                     </div>
                                 </SettingRow>
@@ -864,7 +879,9 @@ function SettingsModal() {
                                         <Label
                                             htmlFor="gemini-dont-ask"
                                             className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
-                                            {settings.gemini.dontAskQuestions ? "Enabled" : "Disabled"}
+                                            {settings.gemini.dontAskQuestions
+                                                ? "Enabled"
+                                                : "Disabled"}
                                         </Label>
                                     </div>
                                 </SettingRow>
@@ -916,7 +933,9 @@ function SettingsModal() {
                                         <Label
                                             htmlFor="cursor-dont-ask"
                                             className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
-                                            {settings.cursor.dontAskQuestions ? "Enabled" : "Disabled"}
+                                            {settings.cursor.dontAskQuestions
+                                                ? "Enabled"
+                                                : "Disabled"}
                                         </Label>
                                     </div>
                                 </SettingRow>
@@ -939,7 +958,9 @@ function SettingsModal() {
                                         <Label
                                             htmlFor="remote-auto-start"
                                             className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
-                                            {settings.remoteAgent.autoStart ? "Enabled" : "Disabled"}
+                                            {settings.remoteAgent.autoStart
+                                                ? "Enabled"
+                                                : "Disabled"}
                                         </Label>
                                     </div>
                                 </SettingRow>
@@ -988,7 +1009,7 @@ function SettingsModal() {
                                     </div>
                                     <div className="flex items-center gap-2.5">
                                         {remoteAgent.running && (
-                                            <span className="bg-green-500 inline-block h-2 w-2 rounded-full" />
+                                            <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
                                         )}
                                         <Button
                                             variant="outline"

@@ -40,7 +40,12 @@ const sharedTestDeps = {
     runtimes: [],
     editors: [],
     generateScheduleName: async (prompt: string) => prompt.slice(0, 50),
-    remoteAgentService: { getAppName: async () => "Test", getStatus: () => ({ running: false }), start: async () => ({ running: true }), stop: async () => ({ running: false }) } as never,
+    remoteAgentService: {
+        getAppName: async () => "Test",
+        getStatus: () => ({ running: false }),
+        start: async () => ({ running: true }),
+        stop: async () => ({ running: false }),
+    } as never,
 };
 
 describe("api routes", () => {

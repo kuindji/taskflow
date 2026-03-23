@@ -2,7 +2,11 @@ import { MSG } from "@taskflow/shared";
 import type { SessionRef, WsEvent } from "@taskflow/shared";
 import type { PtyManager } from "./pty-manager";
 import type { TaskStore } from "./task-store";
-import { buildAgentLaunchSpec, ensureInternalAgentSkillFile, PROMPT_AUTONOMOUS } from "./internal-agent-skill";
+import {
+    buildAgentLaunchSpec,
+    ensureInternalAgentSkillFile,
+    PROMPT_AUTONOMOUS,
+} from "./internal-agent-skill";
 import { ensureCursorRulesFile } from "./cursor-rules";
 import { ensureGeminiSystemFile } from "./gemini-system";
 import { getEditorById } from "./editor-detector";
@@ -173,7 +177,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             if (!project) throw new Error(`Project not found: ${task?.projectId ?? projectId}`);
 
             resolvedProjectId = project.id;
-            cwd = cwdOverride ?? (task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path);
+            cwd =
+                cwdOverride ??
+                (task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path);
         }
 
         let command: string;

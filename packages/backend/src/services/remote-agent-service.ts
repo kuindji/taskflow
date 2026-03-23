@@ -142,7 +142,7 @@ class RemoteAgentService {
         this.clearRestartTimer();
         this.restartTimer = setTimeout(() => {
             this.restartTimer = null;
-            void this.start().catch((err) => {
+            void this.start().catch((err: unknown) => {
                 console.error("[remote-agent] Restart failed:", err);
             });
         }, RESTART_DELAY_MS);

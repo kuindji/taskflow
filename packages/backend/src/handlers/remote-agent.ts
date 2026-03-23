@@ -10,7 +10,7 @@ interface RemoteAgentHandlerDeps {
 function registerRemoteAgentHandlers(deps: RemoteAgentHandlerDeps): void {
     const { router, remoteAgentService } = deps;
 
-    router.register(MSG.REMOTE_AGENT_STATUS, () => {
+    router.register(MSG.REMOTE_AGENT_STATUS, async () => {
         return remoteAgentService.getStatus();
     });
 

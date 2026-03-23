@@ -118,7 +118,7 @@ function MarkdownPaneImpl({ filePath }: MarkdownPaneImplProps) {
     return (
         <div className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
             <div
-                className="markdown-preview prose prose-invert min-w-0 max-w-none"
+                className="markdown-preview prose prose-invert max-w-none min-w-0"
                 style={{ fontSize: editorFontSize, fontFamily: editorFontFamily }}>
                 <Markdown remarkPlugins={remarkPlugins} components={components}>
                     {content}

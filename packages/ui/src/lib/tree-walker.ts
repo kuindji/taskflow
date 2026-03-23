@@ -26,14 +26,22 @@ function getVisibleItems(root: FileNode, expandedDirs: Set<string>): string[] {
     return result;
 }
 
-function getNextItem(root: FileNode, expandedDirs: Set<string>, currentPath: string): string | null {
+function getNextItem(
+    root: FileNode,
+    expandedDirs: Set<string>,
+    currentPath: string,
+): string | null {
     const items = getVisibleItems(root, expandedDirs);
     const idx = items.indexOf(currentPath);
     if (idx === -1 || idx === items.length - 1) return null;
     return items[idx + 1];
 }
 
-function getPreviousItem(root: FileNode, expandedDirs: Set<string>, currentPath: string): string | null {
+function getPreviousItem(
+    root: FileNode,
+    expandedDirs: Set<string>,
+    currentPath: string,
+): string | null {
     const items = getVisibleItems(root, expandedDirs);
     const idx = items.indexOf(currentPath);
     if (idx <= 0) return null;

@@ -85,7 +85,8 @@ export function buildAgentLaunchSpec(
     if (type === "claude") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "claude") {
-            if (agentOptions.fullAccess || agentOptions.dontAskQuestions) optionArgs.push("--dangerously-skip-permissions");
+            if (agentOptions.fullAccess || agentOptions.dontAskQuestions)
+                optionArgs.push("--dangerously-skip-permissions");
             if (agentOptions.dontAskQuestions) optionArgs.push("--permission-mode", "dontAsk");
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
         }
@@ -106,7 +107,10 @@ export function buildAgentLaunchSpec(
         const config: Record<string, unknown> = {
             instructions: [skillPath],
         };
-        if (agentOptions?.type === "opencode" && (agentOptions.fullAccess || agentOptions.dontAskQuestions)) {
+        if (
+            agentOptions?.type === "opencode" &&
+            (agentOptions.fullAccess || agentOptions.dontAskQuestions)
+        ) {
             config.permission = { edit: "allow", bash: "allow", write: "allow" };
         }
 
@@ -150,7 +154,8 @@ export function buildAgentLaunchSpec(
 
     const optionArgs: string[] = [];
     if (agentOptions?.type === "codex") {
-        if (agentOptions.fullAccess || agentOptions.dontAskQuestions) optionArgs.push("--full-auto");
+        if (agentOptions.fullAccess || agentOptions.dontAskQuestions)
+            optionArgs.push("--full-auto");
     }
     return {
         command: "codex",

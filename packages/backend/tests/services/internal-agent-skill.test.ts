@@ -228,7 +228,9 @@ printf '{}'
             type: "opencode",
             dontAskQuestions: true,
         });
-        const config = JSON.parse(spec.env!.OPENCODE_CONFIG_CONTENT);
+        const config = JSON.parse(spec.env!.OPENCODE_CONFIG_CONTENT) as {
+            permission: Record<string, string>;
+        };
         expect(config.permission).toEqual({ edit: "allow", bash: "allow", write: "allow" });
     });
 

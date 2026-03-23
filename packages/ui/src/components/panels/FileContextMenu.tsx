@@ -103,9 +103,9 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
         const targetDir = isDirectory ? filePath : filePath.substring(0, filePath.lastIndexOf("/"));
         const owner =
             workspace.scope === "task"
-                ? { taskId: workspace.task!.id }
+                ? { taskId: workspace.task.id }
                 : workspace.scope === "project"
-                  ? { projectId: workspace.project!.id }
+                  ? { projectId: workspace.project.id }
                   : { master: true as const };
         await createSession(
             owner,
