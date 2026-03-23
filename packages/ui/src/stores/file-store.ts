@@ -48,7 +48,6 @@ interface FileStore {
     watchedPath: string | null;
     loading: boolean;
     loadingDirs: Set<string>;
-    expandToPath: string | null;
     expandedDirs: Set<string>;
     focusedPath: string | null;
     onOpenFile: ((path: string) => void) | null;
@@ -66,7 +65,6 @@ interface FileStore {
     createDirectory(path: string): Promise<void>;
     openExternal(path: string): Promise<void>;
     revealInFinder(path: string): Promise<void>;
-    setExpandToPath(path: string | null): void;
     expandToPathAndLoad(targetPath: string): Promise<void>;
     toggleDir(path: string): void;
     expandDir(path: string): Promise<void>;
@@ -93,13 +91,9 @@ export const useFileStore = create<FileStore>((set, get) => ({
     watchedPath: null,
     loading: false,
     loadingDirs: emptyLoadingDirs,
-    expandToPath: null,
     expandedDirs: new Set<string>(),
     focusedPath: null,
     onOpenFile: null,
-    setExpandToPath(path) {
-        set({ expandToPath: path });
-    },
     async fetchTree(path) {
         const requestId = ++treeRequestId;
         set((state) => ({
@@ -257,7 +251,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
         for (const dir of dirsToLoad) {
             expandedDirs.add(dir);
         }
-        set({ expandToPath: targetPath, expandedDirs });
+        set({ expandedDirs });
     },
     async readFile(path) {
         const { content } = await sendRequest<{ content: string }>(MSG.FILE_READ, { path });

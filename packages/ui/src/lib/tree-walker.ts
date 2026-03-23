@@ -82,4 +82,4 @@ function findNode(root: FileNode, path: string): FileNode | null {
     return null;
 }
 
-export { getVisibleItems, getNextItem, getPreviousItem, getFirstItem, getLastItem, getParentPath, findNode };
+export { getNextItem, getPreviousItem, getFirstItem, getLastItem, getParentPath, findNode };

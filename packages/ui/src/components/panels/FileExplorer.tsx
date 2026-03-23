@@ -91,16 +91,20 @@ function FileExplorer() {
         return result;
     }, [workingDir, tree, treePath, gitignorePatterns]);
 
+    const taskId = workspace.task?.id;
+    const projectId = workspace.project?.id;
+    const workspaceKey = workspace.workspaceKey;
+
     const handleFileClick = useCallback(
         (path: string) => {
-            const owner = workspace.task
-                ? { taskId: workspace.task.id }
-                : workspace.project
-                  ? { projectId: workspace.project.id }
+            const owner = taskId
+                ? { taskId }
+                : projectId
+                  ? { projectId }
                   : undefined;
-            void openFileInApp(path, workspace.workspaceKey, owner);
+            void openFileInApp(path, workspaceKey, owner);
         },
-        [workspace],
+        [taskId, projectId, workspaceKey],
     );
 
     const setOnOpenFile = useFileStore((s) => s.setOnOpenFile);

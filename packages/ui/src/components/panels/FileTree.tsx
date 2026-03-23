@@ -54,13 +54,11 @@ function FileTree({
     onFileClick,
     rootPath,
 }: FileTreeProps) {
-    const expandedDirs = useFileStore((s) => s.expandedDirs);
+    const open = useFileStore((s) => node.type === "directory" && s.expandedDirs.has(node.path));
     const toggleDir = useFileStore((s) => s.toggleDir);
     const loadingDirs = useFileStore((s) => s.loadingDirs);
-    const focusedPath = useFileStore((s) => s.focusedPath);
+    const isFocused = useFileStore((s) => s.focusedPath === node.path);
     const setFocusedPath = useFileStore((s) => s.setFocusedPath);
-    const isFocused = focusedPath === node.path;
-    const open = node.type === "directory" && expandedDirs.has(node.path);
     const isLoading = node.type === "directory" && loadingDirs.has(node.path);
 
     const handleOpenChange = useCallback(() => {
