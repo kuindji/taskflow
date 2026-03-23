@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 import { TaskStore } from "../../src/services/task-store";
 import { createTitleGenerator } from "../../src/services/title-generator";
+import { createWorktreeSetup } from "../../src/services/worktree-setup";
 import type { GitService } from "../../src/services/git-service";
 
 class FakeGitService {
@@ -79,12 +80,20 @@ describe("title generator", () => {
             worktree: { enabled: true, path: null, branch: null, pr: null },
         });
 
-        const generator = createTitleGenerator({
+        const broadcast = (event: { type: string; payload: unknown }) => {
+            events.push(event);
+        };
+
+        const worktreeSetup = createWorktreeSetup({
             taskStore: store,
             gitService: gitService as unknown as GitService,
-            broadcast: (event) => {
-                events.push(event);
-            },
+            broadcast,
+        });
+
+        const generator = createTitleGenerator({
+            taskStore: store,
+            broadcast,
+            createWorktree: worktreeSetup.createWorktreeForTask,
         });
 
         await generator.generate(task.id, task.description);
@@ -119,7 +128,6 @@ describe("title generator", () => {
 
         const generator = createTitleGenerator({
             taskStore: store,
-            gitService: gitService as unknown as GitService,
             broadcast: (event) => {
                 events.push(event);
             },
@@ -132,5 +140,47 @@ describe("title generator", () => {
         expect(updated?.worktree).toEqual({ enabled: false, path: null, branch: null, pr: null });
         expect(gitService.createdWorktrees).toEqual([]);
         expect(events.map((event) => event.type)).toEqual([MSG.TASK_UPDATED]);
+    });
+
+    it("creates worktree using description fallback when title generation fails", async () => {
+        Bun.spawn = (() => makeSpawnResult("", 1)) as unknown as typeof Bun.spawn;
+
+        const project = await store.addProject({ name: "project", path: projectPath });
+        const task = await store.createTask({
+            projectId: project.id,
+            title: "",
+            description: "Fix authentication flow",
+            worktree: { enabled: true, path: null, branch: null, pr: null },
+        });
+
+        const broadcast = (event: { type: string; payload: unknown }) => {
+            events.push(event);
+        };
+
+        const worktreeSetup = createWorktreeSetup({
+            taskStore: store,
+            gitService: gitService as unknown as GitService,
+            broadcast,
+        });
+
+        const generator = createTitleGenerator({
+            taskStore: store,
+            broadcast,
+            createWorktree: worktreeSetup.createWorktreeForTask,
+        });
+
+        await generator.generate(task.id, task.description);
+
+        const updated = await store.getTask(task.id);
+        // Title should not be updated (generation failed)
+        expect(updated?.title).toBe("");
+        // But worktree should still be created using description
+        expect(updated?.worktree).toEqual({
+            enabled: true,
+            path: join(projectPath, ".worktrees", "fix-authentication-flow"),
+            branch: "task/fix-authentication-flow",
+            pr: null,
+        });
+        expect(gitService.createdWorktrees.length).toBe(1);
     });
 });
