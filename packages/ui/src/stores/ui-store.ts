@@ -26,6 +26,9 @@ export function updateCollapsedProjectIds(
     return current.filter((id) => id !== projectId);
 }
 
+type PanelId = "sidebar" | "fileexplorer" | "workspace" | "taskinfo";
+export type { PanelId };
+
 interface UIStore {
     activeProjectId: string | null;
     masterWorkspaceActive: boolean;
@@ -37,7 +40,7 @@ interface UIStore {
     scheduleManagementOpen: boolean;
     appearanceOpen: boolean;
     shortcutsDialogOpen: boolean;
-    focusedPanel: "sidebar" | "workspace" | "taskinfo";
+    focusedPanel: PanelId;
     sidebarFocusedItem: { type: "project" | "task"; id: string } | null;
     sidebarWidth: number;
     fileExplorerWidth: number;
@@ -54,7 +57,7 @@ interface UIStore {
     setAppearanceOpen(open: boolean): void;
     toggleAppearance(): void;
     toggleShortcutsDialog(): void;
-    setFocusedPanel(panel: "sidebar" | "workspace" | "taskinfo"): void;
+    setFocusedPanel(panel: PanelId): void;
     setSidebarFocusedItem(item: { type: "project" | "task"; id: string } | null): void;
     setFlowPanelOpen(open: boolean): void;
     setMasterWorkspaceActive(active: boolean): void;

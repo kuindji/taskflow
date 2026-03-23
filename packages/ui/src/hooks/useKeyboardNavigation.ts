@@ -5,12 +5,16 @@ import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { isDialogOpen, isEditableElement } from "@/lib/global-shortcuts";
+import { getNextItem, getPreviousItem, getFirstItem, getLastItem, getParentPath, findNode } from "@/lib/tree-walker";
+import { useFileStore } from "@/stores/file-store";
 
 type PanelId = ReturnType<typeof useUIStore.getState>["focusedPanel"];
 const PANEL_FOCUS_DEDUPE_MS = 150;
 
 function getPanelOrder(): PanelId[] {
-    const panels: PanelId[] = ["sidebar", "workspace"];
+    const panels: PanelId[] = ["sidebar"];
+    if (useUIStore.getState().fileExplorerOpen) panels.push("fileexplorer");
+    panels.push("workspace");
     if (useUIStore.getState().taskInfoOpen) panels.push("taskinfo");
     return panels;
 }
@@ -174,6 +178,81 @@ function handleSidebarArrow(key: string) {
     }
 }
 
+function handleFileExplorerArrow(key: string) {
+    const { tree, expandedDirs, focusedPath, setFocusedPath, expandDir, collapseDir } = useFileStore.getState();
+    if (!tree) return;
+
+    if (key === "ArrowDown") {
+        if (!focusedPath) {
+            const first = getFirstItem(tree);
+            if (first) setFocusedPath(first);
+            return;
+        }
+        const next = getNextItem(tree, expandedDirs, focusedPath);
+        if (next) setFocusedPath(next);
+        return;
+    }
+
+    if (key === "ArrowUp") {
+        if (!focusedPath) {
+            const first = getFirstItem(tree);
+            if (first) setFocusedPath(first);
+            return;
+        }
+        const prev = getPreviousItem(tree, expandedDirs, focusedPath);
+        if (prev) setFocusedPath(prev);
+        return;
+    }
+
+    if (key === "ArrowRight") {
+        if (!focusedPath) return;
+        const node = findNode(tree, focusedPath);
+        if (!node || node.type !== "directory") return;
+        if (!expandedDirs.has(focusedPath)) {
+            // Expand and focus first child when loaded
+            const pathAtExpand = focusedPath;
+            void expandDir(focusedPath).then(() => {
+                // Guard: if user navigated away during load, don't move focus
+                if (useFileStore.getState().focusedPath !== pathAtExpand) return;
+                const updatedTree = useFileStore.getState().tree;
+                if (!updatedTree) return;
+                const updatedNode = findNode(updatedTree, pathAtExpand);
+                if (updatedNode?.children?.[0]) {
+                    useFileStore.getState().setFocusedPath(updatedNode.children[0].path);
+                }
+            });
+        } else if (node.children?.[0]) {
+            setFocusedPath(node.children[0].path);
+        }
+        return;
+    }
+
+    if (key === "ArrowLeft") {
+        if (!focusedPath) return;
+        const node = findNode(tree, focusedPath);
+        if (node?.type === "directory" && expandedDirs.has(focusedPath)) {
+            collapseDir(focusedPath);
+        } else {
+            const parent = getParentPath(tree, focusedPath);
+            if (parent) setFocusedPath(parent);
+        }
+        return;
+    }
+}
+
+function handleFileExplorerEnter() {
+    const { tree, focusedPath } = useFileStore.getState();
+    if (!tree || !focusedPath) return;
+    const node = findNode(tree, focusedPath);
+    if (!node) return;
+
+    if (node.type === "directory") {
+        useFileStore.getState().toggleDir(focusedPath);
+    } else {
+        useFileStore.getState().onOpenFile?.(focusedPath);
+    }
+}
+
 const ARROW_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 
 export function useKeyboardNavigation() {
@@ -251,6 +330,33 @@ export function useKeyboardNavigation() {
             if (e.key === "/" && !e.shiftKey && !e.altKey) {
                 e.preventDefault();
                 useUIStore.getState().toggleShortcutsDialog();
+                return;
+            }
+
+            // Cmd+Enter: open focused file / toggle focused folder
+            if (e.key === "Enter" && useUIStore.getState().focusedPanel === "fileexplorer") {
+                if (isEditableElement(document.activeElement)) return;
+                e.preventDefault();
+                handleFileExplorerEnter();
+                return;
+            }
+
+            // Cmd+Home/End: jump to first/last item in file explorer
+            if ((e.key === "Home" || e.key === "End") && useUIStore.getState().focusedPanel === "fileexplorer") {
+                if (isEditableElement(document.activeElement)) return;
+                e.preventDefault();
+                const { tree, expandedDirs, setFocusedPath } = useFileStore.getState();
+                if (!tree) return;
+                const target = e.key === "Home" ? getFirstItem(tree) : getLastItem(tree, expandedDirs);
+                if (target) setFocusedPath(target);
+                return;
+            }
+
+            // Cmd+Arrow: file explorer navigation (only when file explorer focused)
+            if (useUIStore.getState().focusedPanel === "fileexplorer" && ARROW_KEYS.includes(e.key)) {
+                if (isEditableElement(document.activeElement)) return;
+                e.preventDefault();
+                handleFileExplorerArrow(e.key);
                 return;
             }
 

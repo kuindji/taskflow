@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useUIStore } from "@/stores/ui-store";
+import type { PanelId } from "@/stores/ui-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import useIsElectron from "@/hooks/useIsElectron";
@@ -95,7 +96,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
     }, []);
 
     const handlePanelClick = useCallback(
-        (panel: "sidebar" | "workspace" | "taskinfo") => {
+        (panel: PanelId) => {
             setFocusedPanel(panel);
         },
         [setFocusedPanel],
@@ -146,7 +147,15 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
 
                 {fileExplorerOpen && (
                     <div
-                        className="bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20"
+                        className={cn(
+                            "bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
+                            (showOutline || cmdShiftHeld) &&
+                                focusedPanel === "fileexplorer" &&
+                                "ring-accent/50 ring-1 transition-[box-shadow] duration-500",
+                        )}
+                        data-panel="fileexplorer"
+                        onPointerDown={handlePanelPointerDown}
+                        onClick={() => handlePanelClick("fileexplorer")}
                         style={{ width: fileExplorerWidth }}>
                         {fileExplorer}
                     </div>
