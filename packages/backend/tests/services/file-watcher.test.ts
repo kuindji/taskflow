@@ -53,6 +53,29 @@ describe("FileWatcher", () => {
         expect(gitignorePatterns).toContain("dist");
     });
 
+    it("hides .DS_Store from tree and directory listings", async () => {
+        tempDir = await mkdtemp(join(tmpdir(), "taskflow-fw-test-"));
+        await writeFile(join(tempDir, ".DS_Store"), "x");
+        await mkdir(join(tempDir, "src"));
+        await writeFile(join(tempDir, "src", ".DS_Store"), "x");
+        await writeFile(join(tempDir, "src", "visible.ts"), "x");
+
+        watcher = new FileWatcher();
+        const { tree } = await watcher.buildTree(tempDir);
+        const { entries } = await watcher.listDir(join(tempDir, "src"));
+
+        const rootNames = tree.children?.map((c) => c.name) ?? [];
+        const srcNode = tree.children?.find((c) => c.name === "src");
+        const srcTreeNames = srcNode?.children?.map((c) => c.name) ?? [];
+        const listedNames = entries.map((c) => c.name);
+
+        expect(rootNames).not.toContain(".DS_Store");
+        expect(srcTreeNames).not.toContain(".DS_Store");
+        expect(srcTreeNames).toContain("visible.ts");
+        expect(listedNames).not.toContain(".DS_Store");
+        expect(listedNames).toContain("visible.ts");
+    });
+
     it("watches for file changes", async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-fw-test-"));
         watcher = new FileWatcher();

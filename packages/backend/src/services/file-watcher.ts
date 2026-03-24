@@ -2,7 +2,19 @@ import type { FileNode, FileChangeEvent } from "@taskflow/shared";
 import { readdir, readFile, stat } from "fs/promises";
 import { join, basename } from "path";
 
-const IGNORED = new Set(["node_modules", ".git", ".worktrees", "dist", ".next", ".superpowers"]);
+const IGNORED_NAMES = new Set([
+    "node_modules",
+    ".git",
+    ".worktrees",
+    "dist",
+    ".next",
+    ".superpowers",
+    ".DS_Store",
+]);
+
+function shouldIgnoreEntry(name: string): boolean {
+    return IGNORED_NAMES.has(name);
+}
 
 interface SnapshotEntry {
     type: FileNode["type"];
@@ -36,7 +48,7 @@ export class FileWatcher {
         try {
             const entries = await readdir(dirPath, { withFileTypes: true });
             for (const entry of entries) {
-                if (IGNORED.has(entry.name)) continue;
+                if (shouldIgnoreEntry(entry.name)) continue;
 
                 const fullPath = join(dirPath, entry.name);
                 if (entry.isDirectory()) {
@@ -73,7 +85,7 @@ export class FileWatcher {
         try {
             const dirEntries = await readdir(dirPath, { withFileTypes: true });
             for (const entry of dirEntries) {
-                if (IGNORED.has(entry.name)) continue;
+                if (shouldIgnoreEntry(entry.name)) continue;
                 const fullPath = join(dirPath, entry.name);
                 entries.push({
                     name: entry.name,
@@ -117,7 +129,7 @@ export class FileWatcher {
                 }
 
                 for (const entry of await readdir(targetPath, { withFileTypes: true })) {
-                    if (IGNORED.has(entry.name)) continue;
+                    if (shouldIgnoreEntry(entry.name)) continue;
                     await this.snapshotPath(join(targetPath, entry.name), entries, depth + 1);
                 }
                 return entries;
