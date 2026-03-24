@@ -747,6 +747,13 @@ function buildAppMenu() {
             role: "help",
             submenu: [
                 {
+                    label: "Keyboard Shortcuts",
+                    accelerator: "CmdOrCtrl+/",
+                    click: () => {
+                        mainWindow?.webContents.send("open-keyboard-shortcuts");
+                    },
+                },
+                {
                     label: "What Agents Can Do",
                     click: () => {
                         mainWindow?.webContents.send("open-agent-operations-help");

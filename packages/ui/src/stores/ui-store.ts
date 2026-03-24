@@ -57,6 +57,8 @@ interface UIStore {
     toggleScheduleManagement(): void;
     setAppearanceOpen(open: boolean): void;
     toggleAppearance(): void;
+    openShortcutsDialog(): void;
+    setShortcutsDialogOpen(open: boolean): void;
     toggleShortcutsDialog(): void;
     openAgentOperationsHelp(): void;
     setAgentOperationsHelpOpen(open: boolean): void;
@@ -123,6 +125,12 @@ export const useUIStore = create<UIStore>((set) => ({
     },
     toggleAppearance() {
         set((s) => ({ appearanceOpen: !s.appearanceOpen }));
+    },
+    openShortcutsDialog() {
+        set({ shortcutsDialogOpen: true });
+    },
+    setShortcutsDialogOpen(open) {
+        set({ shortcutsDialogOpen: open });
     },
     toggleShortcutsDialog() {
         set((s) => ({ shortcutsDialogOpen: !s.shortcutsDialogOpen }));

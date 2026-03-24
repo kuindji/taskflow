@@ -18,14 +18,12 @@ import { ProjectGroup } from "./ProjectGroup";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
-import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { useNotificationStore } from "../../stores/notification-store";
 import NotificationPopover from "./NotificationPopover";
 import {
     ArrowDownToLine,
     Bell,
     CalendarClock,
-    Keyboard,
     Loader2,
     Monitor,
     Palette,
@@ -73,7 +71,6 @@ export function TaskSidebar() {
     const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
     const toggleScheduleManagement = useUIStore((s) => s.toggleScheduleManagement);
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
-    const toggleShortcutsDialog = useUIStore((s) => s.toggleShortcutsDialog);
     const fetchThemes = useThemeStore((s) => s.fetchThemes);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
@@ -553,16 +550,6 @@ export function TaskSidebar() {
                         className="text-muted-foreground [-webkit-app-region:no-drag]">
                         <Settings2 className="h-3.5 w-3.5" />
                     </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={toggleShortcutsDialog}
-                        aria-label="Keyboard Shortcuts"
-                        tooltip="Keyboard Shortcuts"
-                        tooltipSide="bottom"
-                        className="text-muted-foreground [-webkit-app-region:no-drag]">
-                        <Keyboard className="h-3.5 w-3.5" />
-                    </Button>
                 </div>
             </Toolbar>
             <NewProjectDialog
@@ -590,7 +577,6 @@ export function TaskSidebar() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-            <KeyboardShortcutsDialog />
         </>
     );
 }

@@ -8,6 +8,7 @@ import "@/lib/monaco-theme"; // Ensure module-level defineTheme runs
 import { AppShell } from "@/components/AppShell";
 import { AgentOperationsHelpDialog } from "@/components/AgentOperationsHelpDialog";
 import { DialogHost } from "@/components/DialogHost";
+import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { FlowManagementDialog } from "@/components/flows/FlowManagementDialog";
 import { ScheduleManagementDialog } from "@/components/schedules/ScheduleManagementDialog";
@@ -131,6 +132,7 @@ export function App() {
                 <ConnectionOverlay />
                 <DialogHost />
                 <AgentOperationsHelpDialog />
+                <KeyboardShortcutsDialog />
                 <SettingsModal />
                 <FlowManagementDialog />
                 <ScheduleManagementDialog />

@@ -38,10 +38,10 @@ function ShortcutGroup({ title, children }: { title: string; children: React.Rea
 
 function KeyboardShortcutsDialog() {
     const open = useUIStore((s) => s.shortcutsDialogOpen);
-    const toggle = useUIStore((s) => s.toggleShortcutsDialog);
+    const setOpen = useUIStore((s) => s.setShortcutsDialogOpen);
 
     return (
-        <Dialog open={open} onOpenChange={() => toggle()}>
+        <Dialog open={open} onOpenChange={setOpen}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>Keyboard Shortcuts</DialogTitle>
