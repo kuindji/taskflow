@@ -7,10 +7,11 @@ import { useUIStore } from "@/stores/ui-store";
 
 interface ExpandableTextareaProps extends React.ComponentProps<"textarea"> {
     dialogTitle?: string;
+    showInfoButton?: boolean;
 }
 
 const ExpandableTextarea = React.forwardRef<HTMLTextAreaElement, ExpandableTextareaProps>(
-    ({ className, dialogTitle, onChange, value, ...props }, ref) => {
+    ({ className, dialogTitle, onChange, showInfoButton = true, value, ...props }, ref) => {
         const [editorOpen, setEditorOpen] = useState(false);
         const openAgentOperationsHelp = useUIStore((s) => s.openAgentOperationsHelp);
 
@@ -36,14 +37,16 @@ const ExpandableTextarea = React.forwardRef<HTMLTextAreaElement, ExpandableTexta
                         onChange={onChange}
                         {...props}
                     />
-                    <button
-                        type="button"
-                        className="text-muted-foreground hover:text-foreground absolute -top-5.5 right-7 rounded-sm p-0.5 opacity-60 transition-opacity hover:opacity-100"
-                        onClick={openAgentOperationsHelp}
-                        tabIndex={-1}
-                        aria-label="What agents can do">
-                        <CircleHelp className="size-3.5" />
-                    </button>
+                    {showInfoButton && (
+                        <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground absolute -top-5.5 right-7 rounded-sm p-0.5 opacity-60 transition-opacity hover:opacity-100"
+                            onClick={openAgentOperationsHelp}
+                            tabIndex={-1}
+                            aria-label="What agents can do">
+                            <CircleHelp className="size-3.5" />
+                        </button>
+                    )}
                     <button
                         type="button"
                         className="text-muted-foreground hover:text-foreground absolute -top-5.5 right-1.5 rounded-sm p-0.5 opacity-60 transition-opacity hover:opacity-100"

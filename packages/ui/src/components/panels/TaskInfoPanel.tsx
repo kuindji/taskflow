@@ -411,6 +411,7 @@ function TaskInfoPanel() {
                         <ExpandableTextarea
                             id="task-info-notes"
                             dialogTitle="Notes"
+                            showInfoButton={false}
                             value={notesDraft}
                             onChange={(e) => setNotesDraft(e.target.value)}
                             rows={6}
