@@ -47,6 +47,92 @@ function computeNextRunPreview(expression: string, expressionType: "cron" | "rat
     }
 }
 
+function normalizeAgentOptions(
+    agentType: AgentType | "",
+    agentOptions: AgentLaunchOptions | undefined,
+): AgentLaunchOptions | undefined {
+    if (!agentType || agentOptions?.type !== agentType) return undefined;
+
+    const base = {
+        fullAccess: agentOptions.fullAccess || undefined,
+        dontAskQuestions: agentOptions.dontAskQuestions || undefined,
+    };
+
+    switch (agentType) {
+        case "claude":
+            return {
+                ...base,
+                type: "claude",
+                model: agentOptions.type === "claude" ? agentOptions.model : undefined,
+            };
+        case "codex":
+            return { ...base, type: "codex" };
+        case "opencode":
+            return {
+                ...base,
+                type: "opencode",
+                model: agentOptions.type === "opencode" ? agentOptions.model : undefined,
+            };
+        case "gemini":
+            return {
+                ...base,
+                type: "gemini",
+                model: agentOptions.type === "gemini" ? agentOptions.model : undefined,
+            };
+        case "cursor":
+            return {
+                ...base,
+                type: "cursor",
+                model: agentOptions.type === "cursor" ? agentOptions.model : undefined,
+            };
+        default:
+            return undefined;
+    }
+}
+
+function normalizeTimeout(timeout: string | number | undefined): number {
+    const value = typeof timeout === "number" ? timeout : parseInt(timeout ?? "", 10);
+    return Number.isFinite(value) && value > 0 ? value : 30;
+}
+
+function serializeScheduleState({
+    includeProjectId,
+    projectId,
+    name,
+    actionId,
+    prompt,
+    expression,
+    expressionType,
+    agentType,
+    agentOptions,
+    timeout,
+    useAction,
+}: {
+    includeProjectId: boolean;
+    projectId: string;
+    name: string | undefined;
+    actionId: string | undefined;
+    prompt: string | undefined;
+    expression: string;
+    expressionType: "cron" | "rate";
+    agentType: AgentType | "";
+    agentOptions: AgentLaunchOptions | undefined;
+    timeout: string | number | undefined;
+    useAction: boolean;
+}) {
+    return JSON.stringify({
+        projectId: includeProjectId ? projectId : undefined,
+        name: name || undefined,
+        actionId: actionId || undefined,
+        prompt: useAction ? undefined : prompt,
+        expression,
+        expressionType,
+        agentType: useAction ? undefined : agentType || undefined,
+        agentOptions: useAction ? undefined : normalizeAgentOptions(agentType, agentOptions),
+        timeout: normalizeTimeout(timeout),
+    });
+}
+
 interface ScheduleFormProps {
     schedule: Schedule | null;
     projects: Project[];
@@ -120,6 +206,53 @@ function ScheduleForm({
         () => computeNextRunPreview(expression, expressionType),
         [expression, expressionType],
     );
+    const initialSnapshot = useMemo(
+        () =>
+            serializeScheduleState({
+                includeProjectId: !isEditing,
+                projectId: schedule?.projectId ?? defaultProjectId ?? "",
+                name: schedule?.name,
+                actionId: schedule?.actionId,
+                prompt: schedule?.prompt,
+                expression: schedule?.expression ?? "rate(30 minutes)",
+                expressionType: schedule?.expressionType ?? "rate",
+                agentType: schedule?.agentType ?? "",
+                agentOptions: schedule?.agentOptions,
+                timeout: schedule?.timeout ?? 30,
+                useAction: Boolean(schedule?.actionId),
+            }),
+        [defaultProjectId, isEditing, schedule],
+    );
+    const currentSnapshot = useMemo(
+        () =>
+            serializeScheduleState({
+                includeProjectId: !isEditing,
+                projectId,
+                name,
+                actionId,
+                prompt,
+                expression,
+                expressionType,
+                agentType,
+                agentOptions,
+                timeout,
+                useAction,
+            }),
+        [
+            actionId,
+            agentOptions,
+            agentType,
+            expression,
+            expressionType,
+            isEditing,
+            name,
+            projectId,
+            prompt,
+            timeout,
+            useAction,
+        ],
+    );
+    const hasChanges = initialSnapshot !== currentSnapshot;
 
     const canSave =
         (useAction || prompt.trim().length > 0) &&
@@ -127,10 +260,9 @@ function ScheduleForm({
         (isEditing || projectId.length > 0);
 
     const handleSave = useCallback(async () => {
-        if (!canSave || saving) return;
+        if (!canSave || saving || !hasChanges) return;
 
-        const timeoutNum = parseInt(timeout, 10);
-        const effectiveTimeout = Number.isFinite(timeoutNum) && timeoutNum > 0 ? timeoutNum : 30;
+        const effectiveTimeout = normalizeTimeout(timeout);
 
         setSaving(true);
         try {
@@ -166,6 +298,7 @@ function ScheduleForm({
         }
     }, [
         canSave,
+        hasChanges,
         saving,
         isEditing,
         schedule,
@@ -384,7 +517,10 @@ function ScheduleForm({
                 <Button variant="ghost" size="sm" onClick={onCancel}>
                     Cancel
                 </Button>
-                <Button size="sm" disabled={!canSave || saving} onClick={() => void handleSave()}>
+                <Button
+                    size="sm"
+                    disabled={!canSave || saving || !hasChanges}
+                    onClick={() => void handleSave()}>
                     {saving ? (isEditing ? "Saving…" : "Creating…") : isEditing ? "Save" : "Create"}
                 </Button>
             </div>
