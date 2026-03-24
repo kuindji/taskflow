@@ -1,6 +1,6 @@
 import type { FileNode, FileChangeEvent } from "@taskflow/shared";
 import chokidar, { type FSWatcher } from "chokidar";
-import { readdir, readFile, stat } from "fs/promises";
+import { readdir, readFile } from "fs/promises";
 import { join, basename } from "path";
 
 const IGNORED_NAMES = new Set([

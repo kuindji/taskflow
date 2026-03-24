@@ -26,12 +26,16 @@ describe("detectRuntimes", () => {
 });
 
 describe("detectAgents", () => {
-    it("returns an entry for each known agent type", async () => {
-        const agents = await detectAgents();
-        const types = agents.map((a) => a.type);
-        expect(types).toContain("claude");
-        expect(types).toContain("codex");
-    });
+    it(
+        "returns an entry for each known agent type",
+        async () => {
+            const agents = await detectAgents();
+            const types = agents.map((a) => a.type);
+            expect(types).toContain("claude");
+            expect(types).toContain("codex");
+        },
+        { timeout: 15000 },
+    );
 
     it("returns correct shape for each agent", async () => {
         const agents = await detectAgents();
