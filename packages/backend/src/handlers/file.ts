@@ -72,7 +72,7 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
     router.register(MSG.FILE_UNWATCH, async (payload) => {
         const { path } = payload as FileUnwatchPayload;
         const workspacePath = await assertWorkspacePath(taskStore, path);
-        fileWatcher.stop(workspacePath);
+        await fileWatcher.stop(workspacePath);
         return { success: true };
     });
 

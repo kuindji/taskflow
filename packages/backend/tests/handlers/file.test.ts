@@ -49,7 +49,7 @@ describe("file handlers", () => {
     });
 
     afterEach(async () => {
-        fileWatcher.stopAll();
+        await fileWatcher.stopAll();
         await rm(tempDir, { recursive: true, force: true });
     });
 

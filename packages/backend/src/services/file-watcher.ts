@@ -1,4 +1,5 @@
 import type { FileNode, FileChangeEvent } from "@taskflow/shared";
+import chokidar, { type FSWatcher } from "chokidar";
 import { readdir, readFile, stat } from "fs/promises";
 import { join, basename } from "path";
 
@@ -16,16 +17,8 @@ function shouldIgnoreEntry(name: string): boolean {
     return IGNORED_NAMES.has(name);
 }
 
-interface SnapshotEntry {
-    type: FileNode["type"];
-    mtimeMs: number;
-    size: number;
-}
-
-interface PollingWatcher {
-    interval: ReturnType<typeof setInterval>;
-    snapshot: Map<string, SnapshotEntry>;
-    scanning: boolean;
+interface ActiveWatcher {
+    watcher: FSWatcher;
 }
 
 interface BuildTreeResult {
@@ -34,7 +27,7 @@ interface BuildTreeResult {
 }
 
 export class FileWatcher {
-    private watchers = new Map<string, PollingWatcher>();
+    private watchers = new Map<string, ActiveWatcher>();
 
     async buildTree(dirPath: string, depth = 0): Promise<BuildTreeResult> {
         const name = basename(dirPath);
@@ -111,105 +104,46 @@ export class FileWatcher {
         return { entries, gitignorePatterns };
     }
 
-    private async snapshotPath(
-        targetPath: string,
-        entries = new Map<string, SnapshotEntry>(),
-        depth = 0,
-    ): Promise<Map<string, SnapshotEntry>> {
-        try {
-            const info = await stat(targetPath);
-            if (info.isDirectory()) {
-                entries.set(targetPath, {
-                    type: "directory",
-                    mtimeMs: info.mtimeMs,
-                    size: info.size,
-                });
-                if (depth > 3) {
-                    return entries;
-                }
-
-                for (const entry of await readdir(targetPath, { withFileTypes: true })) {
-                    if (shouldIgnoreEntry(entry.name)) continue;
-                    await this.snapshotPath(join(targetPath, entry.name), entries, depth + 1);
-                }
-                return entries;
-            }
-
-            entries.set(targetPath, {
-                type: "file",
-                mtimeMs: info.mtimeMs,
-                size: info.size,
-            });
-        } catch {
-            // Ignore paths that disappear between scans.
-        }
-
-        return entries;
-    }
-
-    private emitDiff(
-        previous: Map<string, SnapshotEntry>,
-        next: Map<string, SnapshotEntry>,
-        onChange: (event: FileChangeEvent) => void,
-    ): void {
-        for (const [path, entry] of next) {
-            const prior = previous.get(path);
-            if (!prior) {
-                onChange({ type: "create", path });
-                continue;
-            }
-
-            if (
-                entry.type === "file" &&
-                prior.type === "file" &&
-                (entry.mtimeMs !== prior.mtimeMs || entry.size !== prior.size)
-            ) {
-                onChange({ type: "modify", path });
-            }
-        }
-
-        for (const [path] of previous) {
-            if (!next.has(path)) {
-                onChange({ type: "delete", path });
-            }
-        }
+    private shouldIgnorePath(path: string): boolean {
+        return path
+            .split("/")
+            .filter(Boolean)
+            .some((segment) => shouldIgnoreEntry(segment));
     }
 
     async watch(dirPath: string, onChange: (event: FileChangeEvent) => void): Promise<void> {
-        this.stop(dirPath);
-        const initialSnapshot = await this.snapshotPath(dirPath);
-        const watcher: PollingWatcher = {
-            interval: setInterval(() => {
-                if (watcher.scanning) {
-                    return;
-                }
+        await this.stop(dirPath);
 
-                watcher.scanning = true;
-                void this.snapshotPath(dirPath)
-                    .then((nextSnapshot) => {
-                        this.emitDiff(watcher.snapshot, nextSnapshot, onChange);
-                        watcher.snapshot = nextSnapshot;
-                    })
-                    .finally(() => {
-                        watcher.scanning = false;
-                    });
-            }, 250),
-            snapshot: initialSnapshot,
-            scanning: false,
-        };
+        const watcher = chokidar.watch(dirPath, {
+            ignored: (path) => this.shouldIgnorePath(path),
+            ignoreInitial: true,
+            ignorePermissionErrors: true,
+            persistent: true,
+        });
 
-        this.watchers.set(dirPath, watcher);
+        watcher.on("add", (path) => onChange({ type: "create", path }));
+        watcher.on("addDir", (path) => onChange({ type: "create", path }));
+        watcher.on("change", (path) => onChange({ type: "modify", path }));
+        watcher.on("unlink", (path) => onChange({ type: "delete", path }));
+        watcher.on("unlinkDir", (path) => onChange({ type: "delete", path }));
+
+        await new Promise<void>((resolve, reject) => {
+            watcher.once("ready", () => resolve());
+            watcher.once("error", reject);
+        });
+
+        this.watchers.set(dirPath, { watcher });
     }
 
-    stop(dirPath: string): void {
+    async stop(dirPath: string): Promise<void> {
         const w = this.watchers.get(dirPath);
         if (w) {
-            clearInterval(w.interval);
             this.watchers.delete(dirPath);
+            await w.watcher.close();
         }
     }
 
-    stopAll(): void {
-        for (const [path] of this.watchers) this.stop(path);
+    async stopAll(): Promise<void> {
+        await Promise.all(Array.from(this.watchers.keys(), (path) => this.stop(path)));
     }
 }

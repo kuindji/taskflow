@@ -414,7 +414,7 @@ async function main() {
             schedulerService.shutdown();
             changeTracker.dispose();
             ptyManager.closeAll();
-            fileWatcher.stopAll();
+            void fileWatcher.stopAll();
             stop?.();
             process.exit(0);
         };

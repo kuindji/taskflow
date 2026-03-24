@@ -9,7 +9,7 @@ describe("FileWatcher", () => {
     let tempDir: string;
 
     afterEach(async () => {
-        watcher?.stopAll();
+        await watcher?.stopAll();
         if (tempDir) await rm(tempDir, { recursive: true, force: true });
     });
 
