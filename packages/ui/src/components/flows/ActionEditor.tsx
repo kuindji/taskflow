@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
@@ -24,6 +24,26 @@ interface ActionEditorProps {
     onDelete?: () => void;
     deleteDisabled?: boolean;
     deleteDisabledReason?: string;
+}
+
+function normalizeAgentOptions(
+    sessionType: SessionType,
+    agentOptions: AgentLaunchOptions | undefined,
+) {
+    if (sessionType === "shell") return undefined;
+
+    const matchingOptions = agentOptions?.type === sessionType ? agentOptions : undefined;
+    const normalized: Record<string, string | boolean | undefined> = {
+        type: sessionType,
+        fullAccess: matchingOptions?.fullAccess || undefined,
+        dontAskQuestions: matchingOptions?.dontAskQuestions || undefined,
+    };
+
+    if ("model" in (matchingOptions ?? {}) && matchingOptions?.model) {
+        normalized.model = matchingOptions.model;
+    }
+
+    return normalized;
 }
 
 function ActionEditor({
@@ -75,6 +95,30 @@ function ActionEditor({
     }, []);
 
     const isValid = name.trim() !== "" && prompt.trim() !== "";
+    const initialSnapshot = useMemo(
+        () =>
+            JSON.stringify({
+                projectId: action?.projectId ?? defaultProjectId,
+                name: action?.name ?? "",
+                prompt: action?.prompt ?? "",
+                sessionType: action?.sessionType ?? "claude",
+                agentOptions: normalizeAgentOptions(
+                    action?.sessionType ?? "claude",
+                    action?.agentOptions,
+                ),
+                standalone: action?.standalone || undefined,
+            }),
+        [action, defaultProjectId],
+    );
+    const currentSnapshot = JSON.stringify({
+        projectId,
+        name,
+        prompt,
+        sessionType,
+        agentOptions: normalizeAgentOptions(sessionType, agentOptions),
+        standalone: standalone || undefined,
+    });
+    const hasChanges = initialSnapshot !== currentSnapshot;
 
     return (
         <div className="flex h-full flex-col">
@@ -206,7 +250,7 @@ function ActionEditor({
                 <Button variant="secondary" size="sm" onClick={onCancel}>
                     Cancel
                 </Button>
-                <Button size="sm" onClick={handleSave} disabled={!isValid}>
+                <Button size="sm" onClick={handleSave} disabled={!isValid || !hasChanges}>
                     Save Action
                 </Button>
             </div>

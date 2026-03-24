@@ -38,6 +38,43 @@ interface FlowEditorProps {
     onDelete?: () => void;
 }
 
+function normalizeAgentOptions(
+    sessionType: SessionType,
+    agentOptions: AgentLaunchOptions | undefined,
+) {
+    if (sessionType === "shell") return undefined;
+
+    const matchingOptions = agentOptions?.type === sessionType ? agentOptions : undefined;
+    const normalized: Record<string, string | boolean | undefined> = {
+        type: sessionType,
+        fullAccess: matchingOptions?.fullAccess || undefined,
+        dontAskQuestions: matchingOptions?.dontAskQuestions || undefined,
+    };
+
+    if ("model" in (matchingOptions ?? {}) && matchingOptions?.model) {
+        normalized.model = matchingOptions.model;
+    }
+
+    return normalized;
+}
+
+function normalizeActions(actions: FlowActionEntry[]) {
+    return actions.map((entry) => {
+        if (!("inline" in entry) || !entry.inline) return entry;
+
+        return {
+            ...entry,
+            inline: {
+                ...entry.inline,
+                agentOptions: normalizeAgentOptions(
+                    entry.inline.sessionType,
+                    entry.inline.agentOptions,
+                ),
+            },
+        } satisfies FlowActionEntry;
+    });
+}
+
 function FlowEditor({
     flow,
     globalActions,
@@ -202,6 +239,25 @@ function FlowEditor({
                 input.label.trim() !== "",
         ) &&
         new Set(inputs.map((i) => i.id)).size === inputs.length;
+    const initialSnapshot = useMemo(
+        () =>
+            JSON.stringify({
+                projectId: flow?.projectId ?? defaultProjectId,
+                name: flow?.name ?? "",
+                description: flow?.description ?? "",
+                actions: normalizeActions(flow?.actions ?? []),
+                inputs: flow?.inputs ?? [],
+            }),
+        [flow, defaultProjectId],
+    );
+    const currentSnapshot = JSON.stringify({
+        projectId,
+        name,
+        description,
+        actions: normalizeActions(actions),
+        inputs,
+    });
+    const hasChanges = initialSnapshot !== currentSnapshot;
 
     const getActionName = (entry: FlowActionEntry): string => {
         if (entry.label) return entry.label;
@@ -521,7 +577,7 @@ function FlowEditor({
                 <Button variant="secondary" size="sm" onClick={onCancel}>
                     Cancel
                 </Button>
-                <Button size="sm" onClick={handleSave} disabled={!isValid}>
+                <Button size="sm" onClick={handleSave} disabled={!isValid || !hasChanges}>
                     Save Flow
                 </Button>
             </div>
