@@ -248,7 +248,7 @@ export function ProjectGroup({
                 {!locationInvalid && (
                     <CollapsibleContent
                         className={cn(
-                            topLevelTasks.length > 0 ? "border-border/40 mb-1 border-b pb-1" : "",
+                            topLevelTasks.length > 0 ? "border-border/40 mb-0.5 border-b pb-1" : "",
                         )}>
                         {topLevelTasks.map((task, index) => {
                             const subtasks = subtaskMap.get(task.id);

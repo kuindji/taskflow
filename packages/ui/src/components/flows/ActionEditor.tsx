@@ -1,5 +1,10 @@
 import { useState, useCallback, useMemo } from "react";
-import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
+import type {
+    ActionDefinition,
+    AgentLaunchOptions,
+    ClaudeLaunchOptions,
+    SessionType,
+} from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";
@@ -29,21 +34,29 @@ interface ActionEditorProps {
 function normalizeAgentOptions(
     sessionType: SessionType,
     agentOptions: AgentLaunchOptions | undefined,
-) {
+): AgentLaunchOptions | undefined {
     if (sessionType === "shell") return undefined;
 
     const matchingOptions = agentOptions?.type === sessionType ? agentOptions : undefined;
-    const normalized: Record<string, string | boolean | undefined> = {
-        type: sessionType,
+    const base = {
         fullAccess: matchingOptions?.fullAccess || undefined,
         dontAskQuestions: matchingOptions?.dontAskQuestions || undefined,
     };
+    const model =
+        matchingOptions && "model" in matchingOptions && matchingOptions.model
+            ? matchingOptions.model
+            : undefined;
 
-    if ("model" in (matchingOptions ?? {}) && matchingOptions?.model) {
-        normalized.model = matchingOptions.model;
+    switch (sessionType) {
+        case "claude":
+            return { ...base, type: sessionType, model: model as ClaudeLaunchOptions["model"] };
+        case "codex":
+            return { ...base, type: sessionType };
+        case "cursor":
+            return { ...base, type: sessionType, model };
+        default:
+            return undefined;
     }
-
-    return normalized;
 }
 
 function ActionEditor({
