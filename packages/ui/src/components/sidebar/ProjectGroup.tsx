@@ -141,7 +141,7 @@ export function ProjectGroup({
             <Collapsible open={open} onOpenChange={onOpenChange} className="min-w-0">
                 <div
                     className={cn(
-                        "group mx-1.5 flex min-w-0 cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
+                        "group mx-1 flex min-w-0 cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
                         isActive && !locationInvalid
                             ? "bg-accent/15"
                             : open
@@ -248,7 +248,7 @@ export function ProjectGroup({
                 {!locationInvalid && (
                     <CollapsibleContent
                         className={cn(
-                            topLevelTasks.length > 0 ? "border-border/40 mb-1 border-b pb-1.5" : "",
+                            topLevelTasks.length > 0 ? "border-border/40 mb-1 border-b pb-1" : "",
                         )}>
                         {topLevelTasks.map((task, index) => {
                             const subtasks = subtaskMap.get(task.id);

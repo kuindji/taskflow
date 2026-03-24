@@ -23,7 +23,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useFileStore } from "@/stores/file-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useThemeStore } from "@/stores/theme-store";
-import type { IBufferLine, ILink, ILinkProvider } from "@xterm/xterm";
+import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { cn } from "@/lib/utils";
 import { middleTruncate } from "@/lib/middle-truncate";
 import { TimeBudgetedWriter } from "@/lib/time-budgeted-writer";
@@ -32,6 +32,7 @@ import {
     getRestoreViewportLine,
     isTerminalViewportAtBottom,
 } from "@/lib/terminal-viewport";
+import { getWrappedLineWindow, getWrappedRangeForMatch } from "@/lib/terminal-wrapped-links";
 import "@xterm/xterm/css/xterm.css";
 
 const SHELL_UNSAFE = /[^a-zA-Z0-9_./:@=+-]/;
@@ -258,27 +259,6 @@ async function cachedFileStat(
     }
 }
 
-/**
- * Build a mapping from string character index (as returned by translateToString)
- * to buffer cell column. Needed because wide chars, combining marks, and surrogate
- * pairs cause string indices to diverge from cell positions.
- */
-function buildCellMapping(line: IBufferLine): number[] {
-    const mapping: number[] = [];
-    for (let col = 0; col < line.length; col++) {
-        const cell = line.getCell(col);
-        if (!cell) break;
-        const width = cell.getWidth();
-        if (width === 0) continue; // continuation cell of a wide char
-        const chars = cell.getChars();
-        const len = chars.length || 1;
-        for (let i = 0; i < len; i++) {
-            mapping.push(col);
-        }
-    }
-    return mapping;
-}
-
 function createFilePathLinkProvider(
     term: Terminal,
     taskId?: string,
@@ -289,15 +269,14 @@ function createFilePathLinkProvider(
 
     return {
         provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) {
-            const line = term.buffer.active.getLine(bufferLineNumber - 1);
-            if (!line) {
+            const wrappedLine = getWrappedLineWindow(term, bufferLineNumber - 1);
+            if (!wrappedLine) {
                 callback(undefined);
                 return;
             }
 
             const workingDir = getWorkingDir(taskId, projectId, master);
-            const lineText = line.translateToString(true);
-            const cellMap = buildCellMapping(line);
+            const lineText = wrappedLine.text;
             const links: ILink[] = [];
             const seen = new Set<string>();
 
@@ -316,16 +295,16 @@ function createFilePathLinkProvider(
                     const resolved = resolvePath(fullMatch, workingDir);
                     if (!resolved) continue;
 
-                    // Map string indices to buffer cell positions (1-based, end exclusive)
-                    const startCol = (cellMap[matchIndex] ?? matchIndex) + 1;
-                    const lastCharIdx = matchIndex + fullMatch.length - 1;
-                    const endCol = (cellMap[lastCharIdx] ?? lastCharIdx) + 2;
+                    const range = getWrappedRangeForMatch(
+                        term,
+                        wrappedLine.startLineIndex,
+                        matchIndex,
+                        fullMatch.length,
+                    );
+                    if (!range) continue;
 
                     links.push({
-                        range: {
-                            start: { x: startCol, y: bufferLineNumber },
-                            end: { x: endCol, y: bufferLineNumber },
-                        },
+                        range,
                         text: fullMatch,
                         activate(event: MouseEvent, text: string) {
                             void handlePathActivation(
@@ -363,17 +342,18 @@ function createFilePathLinkProvider(
                 // Reject paths that escape workingDir
                 if (resolved !== workingDir && !resolved.startsWith(workingDir + "/")) continue;
 
-                const startCol = (cellMap[matchIndex] ?? matchIndex) + 1;
-                const lastCharIdx = matchIndex + fullMatch.length - 1;
-                const endCol = (cellMap[lastCharIdx] ?? lastCharIdx) + 2;
+                const range = getWrappedRangeForMatch(
+                    term,
+                    wrappedLine.startLineIndex,
+                    matchIndex,
+                    fullMatch.length,
+                );
+                if (!range) continue;
 
                 bareCandidates.push({
                     resolved,
                     link: {
-                        range: {
-                            start: { x: startCol, y: bufferLineNumber },
-                            end: { x: endCol, y: bufferLineNumber },
-                        },
+                        range,
                         text: fullMatch,
                         activate(event: MouseEvent, text: string) {
                             void handlePathActivation(text, workingDir, workspaceKey, event);

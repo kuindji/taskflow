@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { KeyBadge } from "@/components/ui/key-badge";
 import { SessionBadge } from "./SessionBadge";
 
-const taskCardVariants = cva("px-2.5 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-colors", {
+const taskCardVariants = cva("px-2.5 py-2.5 mx-1 rounded-lg cursor-pointer transition-colors", {
     variants: {
         active: {
             true: "bg-accent/15 text-foreground",

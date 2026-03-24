@@ -86,13 +86,10 @@ export function NewTaskDialog({
         setStartWithFlowId("");
     }, []);
 
-    const handleProjectChange = useCallback(
-        (nextProjectId: string) => {
-            setProjectId(nextProjectId);
-            setInitCommand("");
-        },
-        [],
-    );
+    const handleProjectChange = useCallback((nextProjectId: string) => {
+        setProjectId(nextProjectId);
+        setInitCommand("");
+    }, []);
 
     const handleStartWithChange = useCallback(
         (value: string) => {
