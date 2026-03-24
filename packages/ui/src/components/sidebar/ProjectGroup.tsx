@@ -142,7 +142,11 @@ export function ProjectGroup({
                 <div
                     className={cn(
                         "group mx-1.5 flex min-w-0 cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
-                        isActive && !locationInvalid ? "bg-accent/15" : "hover:bg-muted/50",
+                        isActive && !locationInvalid
+                            ? "bg-accent/15"
+                            : open
+                              ? "bg-accent/5 hover:bg-accent/10"
+                              : "hover:bg-muted/50",
                     )}>
                     <Tooltip key={projectToggleLabel}>
                         <TooltipTrigger asChild>
