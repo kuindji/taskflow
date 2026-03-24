@@ -21,7 +21,7 @@ import { Plus, Play, MoreHorizontal, CalendarClock } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
 import { useScheduleStore } from "@/stores/schedule-store";
 import { useProjectStore } from "@/stores/project-store";
-import { useFlowStore, filterByProject } from "@/stores/flow-store";
+import { useFlowStore } from "@/stores/flow-store";
 import { ScheduleForm } from "./ScheduleForm";
 import { cn } from "@/lib/utils";
 
@@ -84,12 +84,6 @@ function ScheduleManagementDialog() {
     const defaultProjectId = projectFilter !== "all" ? projectFilter : undefined;
 
     const selectedSchedule = filteredSchedules.find((s) => s.id === selectedId) ?? null;
-
-    const formProjectId = selectedSchedule?.projectId ?? defaultProjectId;
-    const formActions = useMemo(
-        () => filterByProject(allActions, formProjectId).filter((a) => a.standalone),
-        [allActions, formProjectId],
-    );
 
     const handleOpenChange = useCallback(
         (value: boolean) => {
@@ -285,7 +279,7 @@ function ScheduleManagementDialog() {
                                 }
                                 schedule={creating ? null : selectedSchedule}
                                 projects={projects}
-                                actions={formActions}
+                                actions={allActions}
                                 defaultProjectId={defaultProjectId}
                                 onSave={handleSave}
                                 onCancel={clearSelection}

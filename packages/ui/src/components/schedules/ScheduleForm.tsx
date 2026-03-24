@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import type {
     Schedule,
     ScheduleCreatePayload,
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Trash2 } from "lucide-react";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
+import { filterByProject } from "@/stores/flow-store";
 
 function computeNextRunPreview(expression: string, expressionType: "cron" | "rate"): string | null {
     try {
@@ -85,10 +86,20 @@ function ScheduleForm({
     const [timeout, setTimeout] = useState(String(schedule?.timeout ?? 30));
     const [confirmDelete, setConfirmDelete] = useState(false);
 
+    const availableActions = useMemo(
+        () => filterByProject(actions, projectId).filter((action) => action.standalone),
+        [actions, projectId],
+    );
     const selectedAction = useMemo(
         () => (actionId ? actions.find((a) => a.id === actionId) : undefined),
         [actionId, actions],
     );
+
+    useEffect(() => {
+        if (!actionId) return;
+        if (availableActions.some((action) => action.id === actionId)) return;
+        setActionId("");
+    }, [actionId, availableActions]);
 
     const useAction = !!selectedAction;
 
@@ -226,7 +237,7 @@ function ScheduleForm({
                 )}
 
                 {/* Action selector */}
-                {actions.length > 0 && (
+                {availableActions.length > 0 && (
                     <div className="space-y-1.5">
                         <Label className="text-xs">Action</Label>
                         <Select
@@ -237,7 +248,7 @@ function ScheduleForm({
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="__none__">None (custom prompt)</SelectItem>
-                                {actions.map((a) => (
+                                {availableActions.map((a) => (
                                     <SelectItem key={a.id} value={a.id}>
                                         {a.name}
                                     </SelectItem>
