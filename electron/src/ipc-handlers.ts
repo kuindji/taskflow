@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { execFile } from "child_process";
 import { copyFile, writeFile } from "fs/promises";
@@ -15,6 +15,54 @@ interface IpcHandlersDeps {
     setFileExplorerChecked: (value: boolean) => void;
     setTaskInfoChecked: (value: boolean) => void;
     setWordWrapChecked: (value: boolean) => void;
+}
+
+interface NativeMenuItem {
+    id?: string;
+    label?: string;
+    enabled?: boolean;
+    checked?: boolean;
+    type?: "normal" | "separator" | "submenu" | "checkbox" | "label";
+    submenu?: NativeMenuItem[];
+}
+
+interface NativeMenuPosition {
+    x: number;
+    y: number;
+}
+
+function buildNativeMenuTemplate(
+    items: NativeMenuItem[],
+    resolveSelection: (id: string | null) => void,
+): Electron.MenuItemConstructorOptions[] {
+    return items.map((item) => {
+        if (item.type === "separator") {
+            return { type: "separator" };
+        }
+
+        if (item.type === "submenu") {
+            return {
+                label: item.label ?? "",
+                enabled: item.enabled !== false,
+                submenu: buildNativeMenuTemplate(item.submenu ?? [], resolveSelection),
+            };
+        }
+
+        if (item.type === "label") {
+            return {
+                label: item.label ?? "",
+                enabled: false,
+            };
+        }
+
+        return {
+            type: item.type === "checkbox" ? "checkbox" : "normal",
+            label: item.label ?? "",
+            enabled: item.enabled !== false,
+            checked: item.type === "checkbox" ? !!item.checked : undefined,
+            click: () => resolveSelection(item.id ?? null),
+        };
+    });
 }
 
 function registerIpcHandlers(deps: IpcHandlersDeps): void {
@@ -159,6 +207,41 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
         if (result.canceled || result.filePaths.length === 0) return null;
         return result.filePaths[0];
     });
+
+    ipcMain.handle(
+        "show-native-menu",
+        async (
+            event,
+            items: NativeMenuItem[],
+            position: NativeMenuPosition,
+        ): Promise<string | null> => {
+            const senderWindow =
+                BrowserWindow.fromWebContents(event.sender) ??
+                BrowserWindow.getFocusedWindow() ??
+                deps.getMainWindow();
+            if (!senderWindow) return null;
+
+            return await new Promise<string | null>((resolve) => {
+                let settled = false;
+                const resolveSelection = (id: string | null) => {
+                    if (settled) return;
+                    settled = true;
+                    resolve(id);
+                };
+
+                const menu = Menu.buildFromTemplate(
+                    buildNativeMenuTemplate(items, resolveSelection),
+                );
+
+                menu.popup({
+                    window: senderWindow,
+                    x: Number.isFinite(position?.x) ? Math.round(position.x) : undefined,
+                    y: Number.isFinite(position?.y) ? Math.round(position.y) : undefined,
+                    callback: () => resolveSelection(null),
+                });
+            });
+        },
+    );
 
     ipcMain.on("archive-state-changed", (_event, showArchive: boolean) => {
         deps.setShowArchiveChecked(showArchive);

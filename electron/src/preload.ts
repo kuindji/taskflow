@@ -1,5 +1,19 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
+interface NativeMenuItem {
+    id?: string;
+    label?: string;
+    enabled?: boolean;
+    checked?: boolean;
+    type?: "normal" | "separator" | "submenu" | "checkbox" | "label";
+    submenu?: NativeMenuItem[];
+}
+
+interface NativeMenuPosition {
+    x: number;
+    y: number;
+}
+
 contextBridge.exposeInMainWorld("taskflow", {
     getBackendPort: () => ipcRenderer.invoke("get-backend-port"),
     selectProjectDirectory: () => ipcRenderer.invoke("select-project-directory"),
@@ -180,4 +194,6 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("notification-clicked", listener);
         };
     },
+    showNativeMenu: (items: NativeMenuItem[], position: NativeMenuPosition) =>
+        ipcRenderer.invoke("show-native-menu", items, position) as Promise<string | null>,
 });

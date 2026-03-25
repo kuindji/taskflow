@@ -24,6 +24,13 @@ import { CommitDialog } from "./CommitDialog";
 import { ForkProjectDialog } from "./ForkProjectDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import {
+    getElementMenuPosition,
+    showNativeMenuAndRun,
+    supportsNativeMenus,
+    type NativeMenuActionMap,
+    type NativeMenuItem,
+} from "@/lib/native-menu";
+import {
     Archive,
     ArchiveRestore,
     ArrowDownToLine,
@@ -108,6 +115,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const infoLabel = task ? "task" : "project";
     const isArchivedTask = task?.status === "archived";
     const canShowTaskExtras = !!task && !isArchivedTask && !task.parentId;
+    const nativeMenus = supportsNativeMenus();
 
     const handlePull = useCallback(async () => {
         if (pulling || !gitRepoPath) return;
@@ -179,6 +187,72 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
         if (!project) return;
         requestNewTask(project.id);
     }, [project, requestNewTask]);
+
+    const openTaskActions = useCallback(
+        async (target: HTMLElement) => {
+            if (!task) return;
+
+            const items: NativeMenuItem[] = [];
+            const actions: NativeMenuActionMap = {};
+
+            if (canShowTaskExtras) {
+                items.push(
+                    { id: "add-subtask", label: "Add subtask" },
+                    { id: "toggle-pin", label: task.pinned ? "Unpin task" : "Pin task" },
+                    { type: "separator" },
+                );
+                actions["add-subtask"] = handleAddSubtask;
+                actions["toggle-pin"] = handleTogglePin;
+            }
+
+            items.push(
+                {
+                    id: isArchivedTask ? "unarchive" : "archive",
+                    label: isArchivedTask ? "Unarchive task" : "Archive task",
+                },
+                { id: "delete", label: "Delete task" },
+            );
+
+            actions[isArchivedTask ? "unarchive" : "archive"] = isArchivedTask
+                ? handleUnarchive
+                : handleArchive;
+            actions.delete = handleDelete;
+
+            await showNativeMenuAndRun(items, actions, getElementMenuPosition(target, "end"));
+        },
+        [
+            canShowTaskExtras,
+            handleAddSubtask,
+            handleArchive,
+            handleDelete,
+            handleTogglePin,
+            handleUnarchive,
+            isArchivedTask,
+            task,
+        ],
+    );
+
+    const openProjectActions = useCallback(
+        async (target: HTMLElement) => {
+            if (!project) return;
+
+            await showNativeMenuAndRun(
+                [
+                    { id: "create-task", label: "Create task" },
+                    { id: "fork-project", label: "Fork project" },
+                    { type: "separator" },
+                    { id: "delete-project", label: "Delete project" },
+                ],
+                {
+                    "create-task": handleCreateProjectTask,
+                    "fork-project": () => setForkOpen(true),
+                    "delete-project": handleDelete,
+                },
+                getElementMenuPosition(target, "end"),
+            );
+        },
+        [handleCreateProjectTask, handleDelete, project],
+    );
 
     return (
         <Toolbar className={`gap-1.5 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
@@ -288,82 +362,114 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         </Button>
                     )}
                     {task ? (
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    aria-label="Task actions"
-                                    tooltip="Task actions"
-                                    tooltipSide="bottom"
-                                    className="[-webkit-app-region:no-drag]">
-                                    <Ellipsis className="h-4 w-4" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                {canShowTaskExtras && (
-                                    <>
-                                        <DropdownMenuItem onSelect={handleAddSubtask}>
-                                            <Plus className="h-4 w-4" />
-                                            Add subtask
+                        nativeMenus ? (
+                            <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label="Task actions"
+                                tooltip="Task actions"
+                                tooltipSide="bottom"
+                                onClick={(e) => void openTaskActions(e.currentTarget)}
+                                className="[-webkit-app-region:no-drag]">
+                                <Ellipsis className="h-4 w-4" />
+                            </Button>
+                        ) : (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        aria-label="Task actions"
+                                        tooltip="Task actions"
+                                        tooltipSide="bottom"
+                                        className="[-webkit-app-region:no-drag]">
+                                        <Ellipsis className="h-4 w-4" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    {canShowTaskExtras && (
+                                        <>
+                                            <DropdownMenuItem onSelect={handleAddSubtask}>
+                                                <Plus className="h-4 w-4" />
+                                                Add subtask
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onSelect={handleTogglePin}>
+                                                <Pin
+                                                    className={
+                                                        task.pinned
+                                                            ? "h-4 w-4 fill-current"
+                                                            : "h-4 w-4"
+                                                    }
+                                                />
+                                                {task.pinned ? "Unpin task" : "Pin task"}
+                                            </DropdownMenuItem>
+                                            <DropdownMenuSeparator />
+                                        </>
+                                    )}
+                                    {isArchivedTask ? (
+                                        <DropdownMenuItem onSelect={handleUnarchive}>
+                                            <ArchiveRestore className="h-4 w-4" />
+                                            Unarchive task
                                         </DropdownMenuItem>
-                                        <DropdownMenuItem onSelect={handleTogglePin}>
-                                            <Pin
-                                                className={
-                                                    task.pinned ? "h-4 w-4 fill-current" : "h-4 w-4"
-                                                }
-                                            />
-                                            {task.pinned ? "Unpin task" : "Pin task"}
+                                    ) : (
+                                        <DropdownMenuItem onSelect={handleArchive}>
+                                            <Archive className="h-4 w-4" />
+                                            Archive task
                                         </DropdownMenuItem>
-                                        <DropdownMenuSeparator />
-                                    </>
-                                )}
-                                {isArchivedTask ? (
-                                    <DropdownMenuItem onSelect={handleUnarchive}>
-                                        <ArchiveRestore className="h-4 w-4" />
-                                        Unarchive task
+                                    )}
+                                    <DropdownMenuItem
+                                        variant="destructive"
+                                        onSelect={handleDelete}>
+                                        <Trash2 className="h-4 w-4" />
+                                        Delete task
                                     </DropdownMenuItem>
-                                ) : (
-                                    <DropdownMenuItem onSelect={handleArchive}>
-                                        <Archive className="h-4 w-4" />
-                                        Archive task
-                                    </DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
-                                    <Trash2 className="h-4 w-4" />
-                                    Delete task
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )
                     ) : project ? (
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    aria-label="Project actions"
-                                    tooltip="Project actions"
-                                    tooltipSide="bottom"
-                                    className="[-webkit-app-region:no-drag]">
-                                    <Ellipsis className="h-4 w-4" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onSelect={handleCreateProjectTask}>
-                                    <Plus className="h-4 w-4" />
-                                    Create task
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => setForkOpen(true)}>
-                                    <GitFork className="h-4 w-4" />
-                                    Fork project
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
-                                    <Trash2 className="h-4 w-4" />
-                                    Delete project
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                        nativeMenus ? (
+                            <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label="Project actions"
+                                tooltip="Project actions"
+                                tooltipSide="bottom"
+                                onClick={(e) => void openProjectActions(e.currentTarget)}
+                                className="[-webkit-app-region:no-drag]">
+                                <Ellipsis className="h-4 w-4" />
+                            </Button>
+                        ) : (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        aria-label="Project actions"
+                                        tooltip="Project actions"
+                                        tooltipSide="bottom"
+                                        className="[-webkit-app-region:no-drag]">
+                                        <Ellipsis className="h-4 w-4" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onSelect={handleCreateProjectTask}>
+                                        <Plus className="h-4 w-4" />
+                                        Create task
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => setForkOpen(true)}>
+                                        <GitFork className="h-4 w-4" />
+                                        Fork project
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                        variant="destructive"
+                                        onSelect={handleDelete}>
+                                        <Trash2 className="h-4 w-4" />
+                                        Delete project
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )
                     ) : null}
                     <Button
                         variant={taskInfoOpen ? "secondary" : "ghost"}

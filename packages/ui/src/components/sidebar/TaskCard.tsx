@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { KeyBadge } from "@/components/ui/key-badge";
+import { getEventMenuPosition, showNativeMenuAndRun, supportsNativeMenus } from "@/lib/native-menu";
 import { SessionBadge } from "./SessionBadge";
 
 const taskCardVariants = cva("px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors", {
@@ -93,6 +94,7 @@ export function TaskCard({
         [task.sessions, subtaskSessions, isExpanded, isSubtask],
     );
     const hasWorktree = task.worktree.enabled && !!task.worktree.path;
+    const nativeMenus = supportsNativeMenus();
 
     const cardClasses = useMemo(
         () =>
@@ -145,133 +147,189 @@ export function TaskCard({
         void deleteTask(task.id, hasWorktree ? { deleteWorktree } : undefined);
     }, [deleteTask, task.id, hasWorktree, deleteWorktree]);
 
+    const handleNativeContextMenu = useCallback(
+        async (event: MouseEvent<HTMLDivElement>) => {
+            event.preventDefault();
+            setContextMenuOpen(true);
+
+            try {
+                await showNativeMenuAndRun(
+                    [
+                        ...(!archived && !isSubtask
+                            ? [
+                                  { id: "add-subtask", label: "Add subtask" as const },
+                                  {
+                                      id: "toggle-pin",
+                                      label: task.pinned ? "Unpin task" : "Pin task",
+                                  },
+                                  { type: "separator" as const },
+                              ]
+                            : []),
+                        {
+                            id: archived ? "unarchive" : "archive",
+                            label: archived ? "Unarchive task" : "Archive task",
+                        },
+                        { id: "delete", label: "Delete task" },
+                    ],
+                    {
+                        "add-subtask": openAddSubtask,
+                        "toggle-pin": togglePin,
+                        [archived ? "unarchive" : "archive"]: archived ? openUnarchive : openArchive,
+                        delete: openDelete,
+                    },
+                    getEventMenuPosition(event),
+                );
+            } finally {
+                setContextMenuOpen(false);
+            }
+        },
+        [
+            archived,
+            isSubtask,
+            openAddSubtask,
+            openArchive,
+            openDelete,
+            openUnarchive,
+            task.pinned,
+            togglePin,
+        ],
+    );
+
+    const cardBody = (
+        <div
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+                e.stopPropagation();
+                onClick();
+            }}
+            onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onClick?.();
+                }
+            }}
+            className={cn(
+                cardClasses,
+                "ml-3 flex flex-col",
+                "group relative min-w-0 overflow-hidden [-webkit-app-region:no-drag]",
+                compact && "py-1.5",
+                isSubtask && "ml-0.5 py-1.5",
+            )}>
+            <div className="min-w-0 flex-1">
+                <TruncatedText
+                    truncate={!!compact}
+                    tooltip={!!compact}
+                    tooltipSide="right"
+                    className={cn(
+                        isSubtask ? "text-xs" : "text-sm",
+                        isActive && "text-foreground",
+                        "leading-normal font-medium",
+                    )}>
+                    {title}
+                </TruncatedText>
+            </div>
+            {keyBadgeNumber != null && (
+                <div className="absolute top-2 right-2">
+                    <KeyBadge number={keyBadgeNumber} />
+                </div>
+            )}
+            {!compact && description && (
+                <div className="min-w-0 flex-1">
+                    <TruncatedText
+                        tooltip
+                        tooltipSide="right"
+                        tooltipDelay={1000}
+                        tooltipClassName="max-w-[300px]"
+                        className="text-foreground/50 text-xs leading-normal">
+                        {description}
+                    </TruncatedText>
+                </div>
+            )}
+
+            {(displaySessions.length > 0 || (!isSubtask && task.worktree.enabled)) && (
+                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
+                    {!isSubtask && task.worktree.enabled && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Badge
+                                    variant="outline"
+                                    className="border-border/60 bg-muted/50 min-h-4.5 gap-0.5 px-1 py-0 text-xs font-medium">
+                                    <GitBranch className="text-muted-foreground" />
+                                    {task.worktree.pr && (
+                                        <span className="text-accent">
+                                            #{task.worktree.pr.number}
+                                        </span>
+                                    )}
+                                    {behind > 0 && <span className="text-info">↓{behind}</span>}
+                                    {diffStats && (
+                                        <>
+                                            <span className="text-success">
+                                                +{diffStats.additions}
+                                            </span>
+                                            <span className="text-destructive">
+                                                -{diffStats.deletions}
+                                            </span>
+                                        </>
+                                    )}
+                                </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">
+                                {task.worktree.branch ?? "pending"}
+                            </TooltipContent>
+                        </Tooltip>
+                    )}
+                    {displaySessions.map((session) => (
+                        <SessionBadge key={session.id} session={session} />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+
     return (
         <>
-            <ContextMenu onOpenChange={setContextMenuOpen}>
-                <ContextMenuTrigger asChild>
-                    <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onClick();
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                onClick?.();
-                            }
-                        }}
-                        className={cn(
-                            cardClasses,
-                            "ml-3 flex flex-col",
-                            "group relative min-w-0 overflow-hidden [-webkit-app-region:no-drag]",
-                            compact && "py-1.5",
-                            isSubtask && "ml-0.5 py-1.5",
-                        )}>
-                        <div className="min-w-0 flex-1">
-                            <TruncatedText
-                                truncate={!!compact}
-                                tooltip={!!compact}
-                                tooltipSide="right"
-                                className={cn(
-                                    isSubtask ? "text-xs" : "text-sm",
-                                    isActive && "text-foreground",
-                                    "leading-normal font-medium",
-                                )}>
-                                {title}
-                            </TruncatedText>
-                        </div>
-                        {keyBadgeNumber != null && (
-                            <div className="absolute top-2 right-2">
-                                <KeyBadge number={keyBadgeNumber} />
-                            </div>
+            {nativeMenus ? (
+                <div style={{ display: "contents" }} onContextMenu={handleNativeContextMenu}>
+                    {cardBody}
+                </div>
+            ) : (
+                <ContextMenu onOpenChange={setContextMenuOpen}>
+                    <ContextMenuTrigger asChild>{cardBody}</ContextMenuTrigger>
+                    <ContextMenuContent>
+                        {!archived && !isSubtask && (
+                            <>
+                                <ContextMenuItem onSelect={openAddSubtask}>
+                                    <Plus className="h-3.5 w-3.5" />
+                                    Add subtask
+                                </ContextMenuItem>
+                                <ContextMenuItem onSelect={togglePin}>
+                                    <Pin
+                                        className={cn("h-3.5 w-3.5", task.pinned && "fill-current")}
+                                    />
+                                    {task.pinned ? "Unpin task" : "Pin task"}
+                                </ContextMenuItem>
+                                <ContextMenuSeparator />
+                            </>
                         )}
-                        {!compact && description && (
-                            <div className="min-w-0 flex-1">
-                                <TruncatedText
-                                    tooltip
-                                    tooltipSide="right"
-                                    tooltipDelay={1000}
-                                    tooltipClassName="max-w-[300px]"
-                                    className="text-foreground/50 text-xs leading-normal">
-                                    {description}
-                                </TruncatedText>
-                            </div>
-                        )}
-
-                        {(displaySessions.length > 0 || (!isSubtask && task.worktree.enabled)) && (
-                            <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
-                                {!isSubtask && task.worktree.enabled && (
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Badge
-                                                variant="outline"
-                                                className="border-border/60 bg-muted/50 min-h-4.5 gap-0.5 px-1 py-0 text-xs font-medium">
-                                                <GitBranch className="text-muted-foreground" />
-                                                {task.worktree.pr && (
-                                                    <span className="text-accent">
-                                                        #{task.worktree.pr.number}
-                                                    </span>
-                                                )}
-                                                {behind > 0 && (
-                                                    <span className="text-info">↓{behind}</span>
-                                                )}
-                                                {diffStats && (
-                                                    <>
-                                                        <span className="text-success">
-                                                            +{diffStats.additions}
-                                                        </span>
-                                                        <span className="text-destructive">
-                                                            -{diffStats.deletions}
-                                                        </span>
-                                                    </>
-                                                )}
-                                            </Badge>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="right">
-                                            {task.worktree.branch ?? "pending"}
-                                        </TooltipContent>
-                                    </Tooltip>
-                                )}
-                                {displaySessions.map((session) => (
-                                    <SessionBadge key={session.id} session={session} />
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                    {!archived && !isSubtask && (
-                        <>
-                            <ContextMenuItem onSelect={openAddSubtask}>
-                                <Plus className="h-3.5 w-3.5" />
-                                Add subtask
+                        {archived ? (
+                            <ContextMenuItem onSelect={openUnarchive}>
+                                <ArchiveRestore className="h-3.5 w-3.5" />
+                                Unarchive task
                             </ContextMenuItem>
-                            <ContextMenuItem onSelect={togglePin}>
-                                <Pin className={cn("h-3.5 w-3.5", task.pinned && "fill-current")} />
-                                {task.pinned ? "Unpin task" : "Pin task"}
+                        ) : (
+                            <ContextMenuItem onSelect={openArchive}>
+                                <Archive className="h-3.5 w-3.5" />
+                                Archive task
                             </ContextMenuItem>
-                            <ContextMenuSeparator />
-                        </>
-                    )}
-                    {archived ? (
-                        <ContextMenuItem onSelect={openUnarchive}>
-                            <ArchiveRestore className="h-3.5 w-3.5" />
-                            Unarchive task
+                        )}
+                        <ContextMenuItem variant="destructive" onSelect={openDelete}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete task
                         </ContextMenuItem>
-                    ) : (
-                        <ContextMenuItem onSelect={openArchive}>
-                            <Archive className="h-3.5 w-3.5" />
-                            Archive task
-                        </ContextMenuItem>
-                    )}
-                    <ContextMenuItem variant="destructive" onSelect={openDelete}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Delete task
-                    </ContextMenuItem>
-                </ContextMenuContent>
-            </ContextMenu>
+                    </ContextMenuContent>
+                </ContextMenu>
+            )}
             <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
                 <AlertDialogContent onClick={(e: MouseEvent) => e.stopPropagation()}>
                     <AlertDialogHeader>

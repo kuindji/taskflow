@@ -24,6 +24,11 @@ import { useProjectStore } from "@/stores/project-store";
 import { useFlowStore } from "@/stores/flow-store";
 import { ScheduleForm } from "./ScheduleForm";
 import { cn } from "@/lib/utils";
+import {
+    getElementMenuPosition,
+    showNativeMenuAndRun,
+    supportsNativeMenus,
+} from "@/lib/native-menu";
 
 function formatRelativeTime(dateStr: string | null): string {
     if (!dateStr) return "Never";
@@ -66,6 +71,7 @@ function ScheduleManagementDialog() {
     const [creating, setCreating] = useState(false);
     const [projectFilter, setProjectFilter] = useState<string>(activeProjectId ?? "all");
     const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+    const nativeMenus = supportsNativeMenus();
 
     useEffect(() => {
         if (!open) return;
@@ -224,27 +230,63 @@ function ScheduleManagementDialog() {
                                                 onCheckedChange={() => void handleToggleEnabled(s)}
                                                 className="scale-75"
                                             />
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <button
-                                                        className="text-muted-foreground hover:text-foreground rounded p-0.5"
-                                                        title="Actions">
-                                                        <MoreHorizontal className="h-3.5 w-3.5" />
-                                                    </button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="start">
-                                                    <DropdownMenuItem
-                                                        onClick={() => void handleTrigger(s.id)}>
-                                                        <Play className="mr-2 h-3.5 w-3.5" />
-                                                        Run now
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        className="text-destructive"
-                                                        onClick={() => setPendingDeleteId(s.id)}>
-                                                        Delete
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
+                                            {nativeMenus ? (
+                                                <button
+                                                    className="text-muted-foreground hover:text-foreground rounded p-0.5"
+                                                    title="Actions"
+                                                    onClick={(e) =>
+                                                        void showNativeMenuAndRun(
+                                                            [
+                                                                {
+                                                                    id: "run-now",
+                                                                    label: "Run now",
+                                                                },
+                                                                {
+                                                                    id: "delete",
+                                                                    label: "Delete",
+                                                                },
+                                                            ],
+                                                            {
+                                                                "run-now": () =>
+                                                                    void handleTrigger(s.id),
+                                                                delete: () =>
+                                                                    setPendingDeleteId(s.id),
+                                                            },
+                                                            getElementMenuPosition(
+                                                                e.currentTarget,
+                                                                "start",
+                                                            ),
+                                                        )
+                                                    }>
+                                                    <MoreHorizontal className="h-3.5 w-3.5" />
+                                                </button>
+                                            ) : (
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <button
+                                                            className="text-muted-foreground hover:text-foreground rounded p-0.5"
+                                                            title="Actions">
+                                                            <MoreHorizontal className="h-3.5 w-3.5" />
+                                                        </button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="start">
+                                                        <DropdownMenuItem
+                                                            onClick={() =>
+                                                                void handleTrigger(s.id)
+                                                            }>
+                                                            <Play className="mr-2 h-3.5 w-3.5" />
+                                                            Run now
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem
+                                                            className="text-destructive"
+                                                            onClick={() =>
+                                                                setPendingDeleteId(s.id)
+                                                            }>
+                                                            Delete
+                                                        </DropdownMenuItem>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            )}
                                         </div>
                                     </button>
                                 );

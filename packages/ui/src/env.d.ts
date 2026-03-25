@@ -1,5 +1,19 @@
 /// <reference types="vite/client" />
 
+interface NativeMenuItem {
+    id?: string;
+    label?: string;
+    enabled?: boolean;
+    checked?: boolean;
+    type?: "normal" | "separator" | "submenu" | "checkbox" | "label";
+    submenu?: NativeMenuItem[];
+}
+
+interface NativeMenuPosition {
+    x: number;
+    y: number;
+}
+
 interface TaskflowBridge {
     getBackendPort(): Promise<number>;
     selectProjectDirectory(): Promise<string | null>;
@@ -42,6 +56,10 @@ interface TaskflowBridge {
         text?: string;
         defaultName?: string;
     }): Promise<{ success: boolean; error?: string }>;
+    showNativeMenu(
+        items: NativeMenuItem[],
+        position: NativeMenuPosition,
+    ): Promise<string | null>;
     onNotificationClicked(
         callback: (payload: {
             id: string;

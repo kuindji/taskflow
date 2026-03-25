@@ -11,6 +11,11 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+    getElementMenuPosition,
+    showNativeMenuAndRun,
+    supportsNativeMenus,
+} from "@/lib/native-menu";
 import { ChevronUp, ChevronDown, X, Plus } from "lucide-react";
 import { InlineActionEditor } from "./InlineActionEditor";
 
@@ -64,6 +69,8 @@ function FlowActionList({
     onUpdateInline,
     onInlineSessionTypeChange,
 }: FlowActionListProps) {
+    const nativeMenus = supportsNativeMenus();
+
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
@@ -72,22 +79,45 @@ function FlowActionList({
                 </span>
                 <div className="flex gap-1">
                     {libraryActions.length > 0 && (
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                    <Plus className="mr-1 h-3 w-3" /> From Library
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                {libraryActions.map((action) => (
-                                    <DropdownMenuItem
-                                        key={action.id}
-                                        onClick={() => onAddGlobal(action)}>
-                                        {action.name}
-                                    </DropdownMenuItem>
-                                ))}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                        nativeMenus ? (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) =>
+                                    void showNativeMenuAndRun(
+                                        libraryActions.map((action) => ({
+                                            id: action.id,
+                                            label: action.name,
+                                        })),
+                                        Object.fromEntries(
+                                            libraryActions.map((action) => [
+                                                action.id,
+                                                () => onAddGlobal(action),
+                                            ]),
+                                        ),
+                                        getElementMenuPosition(e.currentTarget, "end"),
+                                    )
+                                }>
+                                <Plus className="mr-1 h-3 w-3" /> From Library
+                            </Button>
+                        ) : (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="outline" size="sm">
+                                        <Plus className="mr-1 h-3 w-3" /> From Library
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    {libraryActions.map((action) => (
+                                        <DropdownMenuItem
+                                            key={action.id}
+                                            onClick={() => onAddGlobal(action)}>
+                                            {action.name}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )
                     )}
                     <Button variant="outline" size="sm" onClick={onAddInline}>
                         <Plus className="mr-1 h-3 w-3" /> Inline Action

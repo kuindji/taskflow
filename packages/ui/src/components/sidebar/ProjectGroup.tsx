@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type MouseEvent } from "react";
 import type { Project, SessionStatus, Task } from "@taskflow/shared";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/context-menu";
 import { ForkProjectDialog } from "@/components/workspace/ForkProjectDialog";
 import { RemoveProjectDialog } from "@/components/workspace/RemoveProjectDialog";
+import { getEventMenuPosition, showNativeMenuAndRun, supportsNativeMenus } from "@/lib/native-menu";
 
 interface ProjectGroupProps {
     project: Project;
@@ -69,6 +70,7 @@ export function ProjectGroup({
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const hideProject = useProjectStore((s) => s.hideProject);
     const removeProject = useProjectStore((s) => s.removeProject);
+    const nativeMenus = supportsNativeMenus();
 
     const { topLevelTasks, subtaskMap } = useMemo(() => {
         const topLevel: Task[] = [];
@@ -156,6 +158,123 @@ export function ProjectGroup({
         requestNewTask(project.id);
     };
 
+    const handleNativeContextMenu = async (event: MouseEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        setContextMenuOpen(true);
+
+        try {
+            await showNativeMenuAndRun(
+                [
+                    { id: "create-task", label: "Create task" },
+                    { id: "fork-project", label: "Fork project" },
+                    { type: "separator" },
+                    { id: "delete-project", label: "Delete project" },
+                ],
+                {
+                    "create-task": handleCreateTask,
+                    "fork-project": () => setForkOpen(true),
+                    "delete-project": () => setRemoveOpen(true),
+                },
+                getEventMenuPosition(event),
+            );
+        } finally {
+            setContextMenuOpen(false);
+        }
+    };
+
+    const projectHeader = (
+        <div
+            className={cn(
+                "group flex min-w-0 cursor-pointer items-start overflow-hidden",
+                "rounded-lg transition-colors [-webkit-app-region:no-drag]",
+                (isActive || contextMenuOpen) && !locationInvalid
+                    ? isActive
+                        ? "bg-accent/15"
+                        : "bg-accent/8"
+                    : open
+                      ? ""
+                      : "",
+            )}>
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenChange(!open);
+                }}
+                aria-label={projectToggleLabel}
+                className="text-foreground mt-[0.55rem] flex h-full shrink-0 items-center px-1">
+                {open ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                )}
+            </button>
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    handleProjectClick();
+                }}
+                className="flex w-0 min-w-0 flex-1 cursor-pointer flex-col overflow-hidden py-1.5 pr-1.5 text-left"
+                title={project.name}>
+                <div className="flex min-w-0 items-center gap-1.5">
+                    {locationInvalid && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
+                            </TooltipTrigger>
+                            <TooltipContent side="right" sideOffset={4}>
+                                Project location not found
+                            </TooltipContent>
+                        </Tooltip>
+                    )}
+                    {!open &&
+                        !locationInvalid &&
+                        (projectStatus ? (
+                            <StatusDot status={projectStatus} />
+                        ) : (
+                            hasAgents && (
+                                <span className="bg-muted-foreground/30 inline-block h-2 w-2 shrink-0 rounded-full" />
+                            )
+                        ))}
+                    <span
+                        className={cn(
+                            "block min-w-0 truncate text-sm font-medium tracking-wide",
+                            locationInvalid ? "text-foreground/50" : "text-foreground",
+                        )}>
+                        {project.name}
+                    </span>
+                    {!locationInvalid && branch && (
+                        <span className="text-foreground/40 shrink-0 truncate text-xs">
+                            ({branch})
+                        </span>
+                    )}
+                </div>
+                {open && !locationInvalid && project.sessions.length > 0 && (
+                    <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
+                        {project.sessions.map((session) => (
+                            <SessionBadge key={session.id} session={session} />
+                        ))}
+                    </div>
+                )}
+            </button>
+            <div className="relative mt-[0.45rem] mr-1.5 flex shrink-0 items-center">
+                {keyBadgeNumber == null && !locationInvalid && (diffStats || behind > 0) && (
+                    <Badge
+                        variant="outline"
+                        className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium">
+                        {behind > 0 && <span className="text-info">↓{behind}</span>}
+                        {diffStats && (
+                            <>
+                                <span className="text-success">+{diffStats.additions}</span>
+                                <span className="text-destructive">-{diffStats.deletions}</span>
+                            </>
+                        )}
+                    </Badge>
+                )}
+                {keyBadgeNumber != null ? <KeyBadge number={keyBadgeNumber} /> : null}
+            </div>
+        </div>
+    );
+
     //max-w-[calc(100%-0.75rem)]
     return (
         <>
@@ -166,127 +285,32 @@ export function ProjectGroup({
                     "min-w-0 rounded-lg border border-transparent",
                     // open && topLevelTasks.length > 0 ? "border border-white/50" : ""
                 )}>
-                <ContextMenu onOpenChange={setContextMenuOpen}>
-                    <ContextMenuTrigger asChild>
-                        <div
-                            className={cn(
-                                "group flex min-w-0 cursor-pointer items-start overflow-hidden",
-                                "rounded-lg transition-colors [-webkit-app-region:no-drag]",
-                                (isActive || contextMenuOpen) && !locationInvalid
-                                    ? isActive
-                                        ? "bg-accent/15"
-                                        : "bg-accent/8"
-                                    : open
-                                      ? ""
-                                      : "",
-                            )}>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenChange(!open);
-                                }}
-                                aria-label={projectToggleLabel}
-                                className="text-foreground mt-[0.55rem] flex h-full shrink-0 items-center px-1">
-                                {open ? (
-                                    <ChevronDown className="h-3.5 w-3.5" />
-                                ) : (
-                                    <ChevronRight className="h-3.5 w-3.5" />
-                                )}
-                            </button>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleProjectClick();
-                                }}
-                                className="flex w-0 min-w-0 flex-1 cursor-pointer flex-col overflow-hidden py-1.5 pr-1.5 text-left"
-                                title={project.name}>
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                    {locationInvalid && (
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
-                                            </TooltipTrigger>
-                                            <TooltipContent side="right" sideOffset={4}>
-                                                Project location not found
-                                            </TooltipContent>
-                                        </Tooltip>
-                                    )}
-                                    {!open &&
-                                        !locationInvalid &&
-                                        (projectStatus ? (
-                                            <StatusDot status={projectStatus} />
-                                        ) : (
-                                            hasAgents && (
-                                                <span className="bg-muted-foreground/30 inline-block h-2 w-2 shrink-0 rounded-full" />
-                                            )
-                                        ))}
-                                    <span
-                                        className={cn(
-                                            "block min-w-0 truncate text-sm font-medium tracking-wide",
-                                            locationInvalid
-                                                ? "text-foreground/50"
-                                                : "text-foreground",
-                                        )}>
-                                        {project.name}
-                                    </span>
-                                    {!locationInvalid && branch && (
-                                        <span className="text-foreground/40 shrink-0 truncate text-xs">
-                                            ({branch})
-                                        </span>
-                                    )}
-                                </div>
-                                {open && !locationInvalid && project.sessions.length > 0 && (
-                                    <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
-                                        {project.sessions.map((session) => (
-                                            <SessionBadge key={session.id} session={session} />
-                                        ))}
-                                    </div>
-                                )}
-                            </button>
-                            <div className="relative mt-[0.45rem] mr-1.5 flex shrink-0 items-center">
-                                {keyBadgeNumber == null &&
-                                    !locationInvalid &&
-                                    (diffStats || behind > 0) && (
-                                        <Badge
-                                            variant="outline"
-                                            className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium">
-                                            {behind > 0 && (
-                                                <span className="text-info">↓{behind}</span>
-                                            )}
-                                            {diffStats && (
-                                                <>
-                                                    <span className="text-success">
-                                                        +{diffStats.additions}
-                                                    </span>
-                                                    <span className="text-destructive">
-                                                        -{diffStats.deletions}
-                                                    </span>
-                                                </>
-                                            )}
-                                        </Badge>
-                                    )}
-                                {keyBadgeNumber != null ? (
-                                    <KeyBadge number={keyBadgeNumber} />
-                                ) : null}
-                            </div>
-                        </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent>
-                        <ContextMenuItem onSelect={handleCreateTask}>
-                            <Plus className="h-4 w-4" />
-                            Create task
-                        </ContextMenuItem>
-                        <ContextMenuItem onSelect={() => setForkOpen(true)}>
-                            <GitFork className="h-4 w-4" />
-                            Fork project
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem variant="destructive" onSelect={() => setRemoveOpen(true)}>
-                            <Trash2 className="h-4 w-4" />
-                            Delete project
-                        </ContextMenuItem>
-                    </ContextMenuContent>
-                </ContextMenu>
+                {nativeMenus ? (
+                    <div style={{ display: "contents" }} onContextMenu={handleNativeContextMenu}>
+                        {projectHeader}
+                    </div>
+                ) : (
+                    <ContextMenu onOpenChange={setContextMenuOpen}>
+                        <ContextMenuTrigger asChild>{projectHeader}</ContextMenuTrigger>
+                        <ContextMenuContent>
+                            <ContextMenuItem onSelect={handleCreateTask}>
+                                <Plus className="h-4 w-4" />
+                                Create task
+                            </ContextMenuItem>
+                            <ContextMenuItem onSelect={() => setForkOpen(true)}>
+                                <GitFork className="h-4 w-4" />
+                                Fork project
+                            </ContextMenuItem>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem
+                                variant="destructive"
+                                onSelect={() => setRemoveOpen(true)}>
+                                <Trash2 className="h-4 w-4" />
+                                Delete project
+                            </ContextMenuItem>
+                        </ContextMenuContent>
+                    </ContextMenu>
+                )}
                 {!locationInvalid && (
                     <CollapsibleContent
                         className={
