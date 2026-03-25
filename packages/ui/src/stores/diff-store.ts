@@ -3,7 +3,7 @@ import type { ChangeStatsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { onEvent } from "../hooks/useWebSocket";
 
-interface DiffStats {
+export interface DiffStats {
     additions: number;
     deletions: number;
 }

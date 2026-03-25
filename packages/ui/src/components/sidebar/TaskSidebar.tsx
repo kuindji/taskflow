@@ -1,68 +1,39 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import type { Notification, SessionRef, Task, TaskWorktreePr } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
-import { getTaskWorkspaceKey, prefetchHomedir } from "@/hooks/useActiveWorkspace";
+import { useEffect, useState, useCallback } from "react";
+import type { Notification } from "@taskflow/shared";
+import { getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { updateCollapsedProjectIds, useUIStore } from "@/stores/ui-store";
-import { useFlowStore } from "@/stores/flow-store";
-import { useDiffStore } from "@/stores/diff-store";
-import { useThemeStore } from "@/stores/theme-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { useCmdHeld } from "@/hooks/useCmdHeld";
 import { ProjectGroup } from "./ProjectGroup";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
-import { useNotificationStore } from "../../stores/notification-store";
 import NotificationPopover from "./NotificationPopover";
-import {
-    ArrowDownToLine,
-    Bell,
-    CalendarClock,
-    Loader2,
-    Monitor,
-    Palette,
-    Plus,
-    Settings2,
-    Workflow,
-} from "lucide-react";
+import { useSidebarData } from "./hooks/useSidebarData";
+import { UpdateDialog } from "./UpdateDialog";
+import type { UpdateStatus } from "./UpdateDialog";
+import { SidebarToolbar } from "./SidebarToolbar";
+import { Bell, Monitor, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
-// import { Separator } from "@/components/ui/separator";
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 
 export function TaskSidebar() {
     const { connected } = useWsStatus();
-    const { projects, fetchProjects, addProject } = useProjectStore();
-    const { tasks, activeTaskId, fetchTasks, setActiveTask } = useTaskStore();
-    const archivedTasks = useTaskStore((s) => s.archivedTasks);
-    const showArchive = useTaskStore((s) => s.showArchive);
+    const { addProject } = useProjectStore();
+    const { activeTaskId, setActiveTask } = useTaskStore();
     const setShowArchive = useTaskStore((s) => s.setShowArchive);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
     const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
     const collapsedProjectIds = useUIStore((s) => s.collapsedProjectIds);
     const setProjectCollapsed = useUIStore((s) => s.setProjectCollapsed);
-    const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
-    const syncWithProjects = useSessionStore((s) => s.syncWithProjects);
-    const syncWithMasterSessions = useSessionStore((s) => s.syncWithMasterSessions);
     const masterWorkspaceActive = useUIStore((s) => s.masterWorkspaceActive);
     const setMasterWorkspaceActive = useUIStore((s) => s.setMasterWorkspaceActive);
-    const fetchSettings = useSettingsStore((s) => s.fetchSettings);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
     const compactSidebar = useSettingsStore(
         (s) => s.settings?.layout?.panels?.compactSidebar ?? false,
@@ -71,107 +42,30 @@ export function TaskSidebar() {
     const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
     const toggleScheduleManagement = useUIStore((s) => s.toggleScheduleManagement);
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
-    const fetchThemes = useThemeStore((s) => s.fetchThemes);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
-    const [updateStatus, setUpdateStatus] = useState<{
-        status: "idle" | "checking" | "downloading" | "ready";
-        version?: string;
-    }>({ status: "idle" });
+    const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ status: "idle" });
     const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
-    const diffStatsByProject = useDiffStore((s) => s.statsByProject);
-    const behindByProject = useDiffStore((s) => s.behindByProject);
-    const notifications = useNotificationStore((s) => s.notifications);
-    const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
     const [notificationPopoverOpen, setNotificationPopoverOpen] = useState(false);
+
+    const {
+        projects,
+        tasks,
+        displayTasks,
+        showArchive,
+        tasksByProject,
+        visibleProjects,
+        diffStatsByProject,
+        behindByProject,
+        notifications,
+    } = useSidebarData(connected);
+
     const unreadCount = notifications.filter((n) => !n.read).length;
 
     const { cmdHeld } = useCmdHeld();
     const focusedPanel = useUIStore((s) => s.focusedPanel);
     const sidebarFocusedItem = useUIStore((s) => s.sidebarFocusedItem);
     const showBadges = cmdHeld && focusedPanel === "sidebar";
-
-    useEffect(() => {
-        if (!connected) return;
-        void fetchProjects();
-        void fetchTasks();
-        void useFlowStore.getState().fetchFlows();
-        void useFlowStore.getState().fetchActions();
-        prefetchHomedir();
-
-        void (async () => {
-            try {
-                await fetchSettings();
-            } catch {
-                // Keep existing defaults if settings are temporarily unavailable.
-            }
-
-            try {
-                await fetchThemes();
-            } catch {
-                // Theme store already has a bundled fallback; keep the app usable.
-            }
-        })();
-    }, [connected, fetchProjects, fetchTasks, fetchSettings, fetchThemes]);
-
-    useEffect(() => {
-        syncWithTasks(tasks);
-    }, [tasks, syncWithTasks]);
-
-    useEffect(() => {
-        syncWithProjects(projects);
-    }, [projects, syncWithProjects]);
-
-    useEffect(() => {
-        if (!connected) return;
-        sendRequest<{ sessions: SessionRef[] }>(MSG.MASTER_SESSIONS_LIST, {})
-            .then((res) => syncWithMasterSessions(res.sessions))
-            .catch(() => {});
-    }, [connected, syncWithMasterSessions]);
-
-    // Poll for PRs on worktree tasks that don't have one yet
-    const updateTask = useTaskStore((s) => s.updateTask);
-    const prCheckTasks = useMemo(
-        () =>
-            tasks.filter(
-                (t) => t.worktree.enabled && t.worktree.branch && !t.worktree.pr && !t.parentId,
-            ),
-        [tasks],
-    );
-    const prCheckTasksRef = useRef<Task[]>(prCheckTasks);
-    useEffect(() => {
-        prCheckTasksRef.current = prCheckTasks;
-    }, [prCheckTasks]);
-
-    useEffect(() => {
-        if (!connected) return;
-
-        async function checkPrs() {
-            const tasksToCheck = prCheckTasksRef.current;
-            if (tasksToCheck.length === 0) return;
-
-            for (const task of tasksToCheck) {
-                if (!task.worktree.path || !task.worktree.branch) continue;
-                try {
-                    const result = await sendRequest<{ pr: TaskWorktreePr | null }>(
-                        MSG.GIT_CHECK_PR,
-                        { path: task.worktree.path, branch: task.worktree.branch },
-                    );
-                    if (result.pr) {
-                        await updateTask(task.id, {
-                            worktree: { ...task.worktree, pr: result.pr },
-                        });
-                    }
-                } catch {
-                    // Silently skip — will retry next cycle
-                }
-            }
-        }
-
-        void checkPrs();
-        const interval = setInterval(() => void checkPrs(), 30_000);
-        return () => clearInterval(interval);
-    }, [connected, updateTask]);
 
     useEffect(() => {
         const cleanup = window.taskflow?.onToggleArchive(() => {
@@ -199,41 +93,14 @@ export function TaskSidebar() {
     }, []);
 
     useEffect(() => {
-        if (!connected) return;
-        void fetchNotifications();
-    }, [connected, fetchNotifications]);
-
-    useEffect(() => {
         const cleanup = window.taskflow?.onUpdateStatus((payload) => {
             setUpdateStatus({
-                status: payload.status as "idle" | "checking" | "downloading" | "ready",
+                status: payload.status as UpdateStatus["status"],
                 version: payload.version,
             });
         });
         return cleanup;
     }, []);
-
-    const displayTasks = showArchive ? archivedTasks : tasks;
-
-    const tasksByProject = useMemo(() => {
-        const map = new Map<string, Task[]>();
-        for (const task of displayTasks) {
-            const list = map.get(task.projectId) ?? [];
-            list.push(task);
-            map.set(task.projectId, list);
-        }
-        return map;
-    }, [displayTasks]);
-
-    const visibleProjects = useMemo(
-        () =>
-            projects.filter((project) => {
-                if (project.hidden) return false;
-                if (!showArchive) return true;
-                return (tasksByProject.get(project.id) ?? []).length > 0;
-            }),
-        [projects, showArchive, tasksByProject],
-    );
 
     const handleOpenProjectDialog = useCallback(() => {
         setProjectError(null);
@@ -472,85 +339,18 @@ export function TaskSidebar() {
                             </Button>
                         </NotificationPopover>
                     )}
-                    {updateStatus.status === "checking" && (
-                        <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            disabled
-                            aria-label="Checking for updates"
-                            tooltip="Checking for updates…"
-                            tooltipSide="right"
-                            className="[-webkit-app-region:no-drag]">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        </Button>
-                    )}
-                    {updateStatus.status === "downloading" && (
-                        <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            disabled
-                            aria-label="Downloading update"
-                            tooltip={`Downloading v${updateStatus.version ?? ""}…`}
-                            tooltipSide="right"
-                            className="[-webkit-app-region:no-drag]">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        </Button>
-                    )}
-                    {updateStatus.status === "ready" && (
-                        <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => setUpdateDialogOpen(true)}
-                            aria-label="Update available"
-                            tooltip={`v${updateStatus.version ?? ""} available — click to update`}
-                            tooltipSide="right"
-                            className="text-accent [-webkit-app-region:no-drag]">
-                            <ArrowDownToLine className="h-3.5 w-3.5" />
-                        </Button>
-                    )}
+                    <UpdateDialog
+                        updateStatus={updateStatus}
+                        dialogOpen={updateDialogOpen}
+                        onDialogOpenChange={setUpdateDialogOpen}
+                    />
                 </div>
-                <div className="flex items-center">
-                    <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={toggleFlowManagement}
-                        aria-label="Actions and Flows"
-                        tooltip="Actions and Flows"
-                        tooltipSide="bottom"
-                        className="[-webkit-app-region:no-drag]">
-                        <Workflow className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={toggleScheduleManagement}
-                        aria-label="Schedules"
-                        tooltip="Schedules"
-                        tooltipSide="bottom"
-                        className="[-webkit-app-region:no-drag]">
-                        <CalendarClock className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={toggleAppearance}
-                        aria-label="Appearance"
-                        tooltip="Appearance"
-                        tooltipSide="bottom"
-                        className="[-webkit-app-region:no-drag]">
-                        <Palette className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={openSettings}
-                        aria-label="Settings"
-                        tooltip="Settings"
-                        tooltipSide="bottom"
-                        className="[-webkit-app-region:no-drag]">
-                        <Settings2 className="h-3.5 w-3.5" />
-                    </Button>
-                </div>
+                <SidebarToolbar
+                    onFlows={toggleFlowManagement}
+                    onSchedules={toggleScheduleManagement}
+                    onAppearance={toggleAppearance}
+                    onSettings={openSettings}
+                />
             </Toolbar>
             <NewProjectDialog
                 open={newProjectOpen}
@@ -558,25 +358,6 @@ export function TaskSidebar() {
                 onSubmit={(path) => void handleProjectSubmit(path)}
                 error={projectError}
             />
-            <AlertDialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
-                <AlertDialogContent size="sm">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Update Available</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Taskflow v{updateStatus.version} is ready to install. The app will
-                            restart to apply the update.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel size="sm">Later</AlertDialogCancel>
-                        <AlertDialogAction
-                            size="sm"
-                            onClick={() => window.taskflow?.quitAndInstallUpdate()}>
-                            Restart Now
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </>
     );
 }

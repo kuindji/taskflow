@@ -1,20 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
     ActionDefinition,
     AgentCommand,
     AgentLaunchOptions,
-    AgentCommandsListResponse,
     CursorRulesCheckResponse,
     FlowInputDefinition,
-    ScriptsListResponse,
     ShellListResponse,
 } from "@taskflow/shared";
-import { DEFAULT_TERMINAL_SHELL, MASTER_OWNER_ID, MSG } from "@taskflow/shared";
+import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
 import { useSessionStore, isSessionExited } from "@/stores/session-store";
-import type { Tab } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useTaskStore } from "@/stores/task-store";
-import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { TaskHeader } from "./TaskHeader";
@@ -27,10 +23,9 @@ import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { isEditorDirty, clearEditorDirty } from "@/components/panes/editor-dirty-state";
 import { confirm } from "@/stores/dialog-store";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
-import { useFlowStore, filterByProject } from "@/stores/flow-store";
+import { useFlowStore } from "@/stores/flow-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import useIsElectron from "@/hooks/useIsElectron";
-import { isDialogOpen } from "@/lib/global-shortcuts";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -43,49 +38,30 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Loader2 } from "lucide-react";
 
-const emptyTabs: Tab[] = [];
-const emptyScripts: Record<string, string> = {};
-const emptyAgentCommands: AgentCommand[] = [];
+import { useSessionSync } from "./hooks/useSessionSync";
+import { useWorkspaceKeyboardShortcuts } from "./hooks/useWorkspaceKeyboardShortcuts";
+import { useWorkspaceTabOps } from "./hooks/useWorkspaceTabOps";
 
 export function Workspace() {
     useKeyboardNavigation();
     const isElectron = useIsElectron();
     const workspace = useActiveWorkspace();
-    const tabs = useSessionStore((s) =>
-        workspace.workspaceKey
-            ? (s.tabsByWorkspace[workspace.workspaceKey] ?? emptyTabs)
-            : emptyTabs,
-    );
-    const activeTabId = useSessionStore((s) =>
-        workspace.workspaceKey ? (s.activeTabByWorkspace[workspace.workspaceKey] ?? "") : "",
-    );
     const setActiveTab = useSessionStore((s) => s.setActiveTab);
     const closeTab = useSessionStore((s) => s.closeTab);
     const createSession = useSessionStore((s) => s.createSession);
     const addTab = useSessionStore((s) => s.addTab);
     const sendInput = useSessionStore((s) => s.sendInput);
     const renameTab = useSessionStore((s) => s.renameTab);
-    const setActiveTask = useTaskStore((s) => s.setActiveTask);
     const updateTask = useTaskStore((s) => s.updateTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
-    const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
-    const setActiveProject = useUIStore((s) => s.setActiveProject);
-    const openSettings = useUIStore((s) => s.openSettings);
-    const openShortcutsDialog = useUIStore((s) => s.openShortcutsDialog);
-    const openAgentOperationsHelp = useUIStore((s) => s.openAgentOperationsHelp);
     const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
-    const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
-    const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
+    const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
     const [worktreeMissingDialogOpen, setWorktreeMissingDialogOpen] = useState(false);
     const [cursorRulesDialog, setCursorRulesDialog] = useState<{
         pending: true;
         type: "new" | "run";
         agentOptions?: AgentLaunchOptions;
     } | null>(null);
-    const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
-    const [agentCommands, setAgentCommands] = useState<AgentCommand[]>(emptyAgentCommands);
-    const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
-    const [flowRunsHydratedOwnerId, setFlowRunsHydratedOwnerId] = useState<string | null>(null);
     const [flowInputState, setFlowInputState] = useState<{
         flowId: string;
         flowName: string;
@@ -96,60 +72,36 @@ export function Workspace() {
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
     const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
-    const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
-    const toggleScheduleManagement = useUIStore((s) => s.toggleScheduleManagement);
-    const toggleAppearance = useUIStore((s) => s.toggleAppearance);
+
+    const {
+        tabs: visibleTabs,
+        activeTab,
+        scripts,
+        agentCommands,
+        defaultShellPath,
+        flowRunsReady,
+        flowDefinitions,
+        standaloneActions,
+        activeFlowRun,
+        hasScripts,
+    } = useSessionSync(workspace);
+
+    const { handleCloseActiveTab, handleOpenNewTask, handleOpenDefaultTerminal } =
+        useWorkspaceTabOps({
+            workspace,
+            activeTab,
+            defaultShellPath,
+            configuredShell,
+        });
+
+    useWorkspaceKeyboardShortcuts({
+        handleCloseActiveTab,
+        handleOpenNewTask,
+        handleOpenDefaultTerminal,
+        isElectron,
+    });
+
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
-    const ownerId =
-        taskId ??
-        workspace.project?.id ??
-        (workspace.scope === "master" ? MASTER_OWNER_ID : undefined);
-    const activeFlowRun = useFlowStore((s) => (ownerId ? s.activeRuns[ownerId] : undefined));
-    const allFlows = useFlowStore((s) => s.flows);
-    const allActions = useFlowStore((s) => s.actions);
-    const currentProjectId = workspace.project?.id ?? null;
-    const flowDefinitions = useMemo(
-        () => filterByProject(allFlows, currentProjectId),
-        [allFlows, currentProjectId],
-    );
-    const standaloneActions = useMemo(
-        () => filterByProject(allActions, currentProjectId).filter((a) => a.standalone),
-        [allActions, currentProjectId],
-    );
-
-    useEffect(() => {
-        // Fetch flow/action definitions so the Run menu can show them
-        const store = useFlowStore.getState();
-        void store.fetchFlows();
-        void store.fetchActions();
-    }, [workspace.project?.id]);
-
-    useEffect(() => {
-        if (!ownerId) {
-            setFlowRunsHydratedOwnerId(null);
-            return;
-        }
-
-        let cancelled = false;
-        setFlowRunsHydratedOwnerId(null);
-        void useFlowStore
-            .getState()
-            .fetchFlowRuns(ownerId)
-            .then(() => {
-                if (!cancelled) {
-                    setFlowRunsHydratedOwnerId(ownerId);
-                }
-            })
-            .catch(() => {
-                // Keep the start control hidden until we can confirm the current owner state.
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [ownerId]);
-
-    const flowRunsReady = flowRunsHydratedOwnerId === ownerId;
 
     const worktreePending =
         workspace.scope === "task" &&
@@ -187,56 +139,6 @@ export function Workspace() {
         workspace.task?.worktree.path,
     ]);
 
-    useEffect(() => {
-        if (!workspace.workingDir || workspace.scope === "master") {
-            setScripts(emptyScripts);
-            return;
-        }
-        let cancelled = false;
-        sendRequest<ScriptsListResponse>(MSG.SCRIPTS_LIST, { path: workspace.workingDir })
-            .then((res) => {
-                if (cancelled) return;
-                setScripts(res.scripts);
-            })
-            .catch(() => {
-                if (!cancelled) setScripts(emptyScripts);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [workspace.workingDir, workspace.scope]);
-
-    useEffect(() => {
-        if (!workspace.workingDir) {
-            setAgentCommands(emptyAgentCommands);
-            return;
-        }
-        let cancelled = false;
-        sendRequest<AgentCommandsListResponse>(MSG.AGENT_COMMANDS_LIST, {
-            path: workspace.workingDir,
-        })
-            .then((res) => {
-                if (cancelled) return;
-                setAgentCommands(res.commands);
-            })
-            .catch(() => {
-                if (!cancelled) setAgentCommands(emptyAgentCommands);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [workspace.workingDir, workspace.scope]);
-
-    useEffect(() => {
-        sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {}).then(
-            (res) =>
-                setDefaultShellPath(
-                    resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell),
-                ),
-            () => setDefaultShellPath(null),
-        );
-    }, [configuredShell]);
-
     const handleWorktreeReset = useCallback(() => {
         if (!workspace.task) return;
         void updateTask(workspace.task.id, {
@@ -251,202 +153,11 @@ export function Workspace() {
         setWorktreeMissingDialogOpen(false);
     }, [workspace.task, deleteTask]);
 
-    const hasScripts = Object.keys(scripts).length > 0;
-
     const canShowGitControls =
         !!workspace.project &&
         (workspace.scope !== "task" ||
             !workspace.task?.worktree.enabled ||
             !!workspace.task.worktree.path);
-
-    const visibleTabs = tabs;
-
-    const activeTab = visibleTabs.find((t) => t.id === activeTabId) ?? visibleTabs[0];
-
-    const handleCloseActiveTab = useCallback(() => {
-        if (activeTab && workspace.workspaceKey) {
-            if (activeTab.sessionId) destroyTerminal(activeTab.sessionId);
-            void closeTab(workspace.workspaceKey, activeTab.id);
-        } else if (workspace.scope === "task") {
-            setActiveTask(null);
-        } else if (workspace.scope === "project") {
-            setActiveProject(null);
-        }
-    }, [
-        activeTab,
-        workspace.workspaceKey,
-        workspace.scope,
-        closeTab,
-        setActiveTask,
-        setActiveProject,
-    ]);
-
-    const handleOpenNewTask = useCallback(() => {
-        requestNewTask();
-    }, [requestNewTask]);
-
-    const handleOpenDefaultTerminal = useCallback(async () => {
-        if (!workspace.scope) return;
-
-        let shell = defaultShellPath;
-        if (!shell) {
-            const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
-            shell = resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell);
-        }
-        if (!shell) return;
-
-        const owner =
-            workspace.scope === "task"
-                ? { taskId: workspace.task.id }
-                : workspace.scope === "project"
-                  ? { projectId: workspace.project.id }
-                  : { master: true as const };
-        setFocusedPanel("workspace");
-        await createSession(owner, "shell", getShellSessionLabel(shell), undefined, shell);
-    }, [
-        configuredShell,
-        createSession,
-        defaultShellPath,
-        setFocusedPanel,
-        workspace.project,
-        workspace.scope,
-        workspace.task,
-    ]);
-
-    useEffect(() => {
-        const cleanupFns: Array<() => void> = [];
-        const onCloseTab = isElectron ? window.taskflow?.onCloseTab : undefined;
-        const onNewTask = isElectron ? window.taskflow?.onNewTask : undefined;
-        const onNewTerminal = isElectron ? window.taskflow?.onNewTerminal : undefined;
-        const onOpenSettings = isElectron ? window.taskflow?.onOpenSettings : undefined;
-        const onOpenKeyboardShortcuts = isElectron
-            ? window.taskflow?.onOpenKeyboardShortcuts
-            : undefined;
-        const onOpenAgentOperationsHelp = isElectron
-            ? window.taskflow?.onOpenAgentOperationsHelp
-            : undefined;
-        const onOpenAppearance = isElectron ? window.taskflow?.onOpenAppearance : undefined;
-        const onOpenFlows = isElectron ? window.taskflow?.onOpenFlows : undefined;
-        const onOpenSchedules = isElectron ? window.taskflow?.onOpenSchedules : undefined;
-
-        const runIfNoDialogOpen = (action: () => void) => () => {
-            if (isDialogOpen()) return;
-            action();
-        };
-
-        if (onCloseTab) {
-            cleanupFns.push(onCloseTab(runIfNoDialogOpen(handleCloseActiveTab)));
-        }
-        if (onNewTask) {
-            cleanupFns.push(onNewTask(runIfNoDialogOpen(handleOpenNewTask)));
-        }
-        if (onNewTerminal) {
-            cleanupFns.push(
-                onNewTerminal(runIfNoDialogOpen(() => void handleOpenDefaultTerminal())),
-            );
-        }
-        if (onOpenSettings) {
-            cleanupFns.push(onOpenSettings(runIfNoDialogOpen(openSettings)));
-        }
-        if (onOpenKeyboardShortcuts) {
-            cleanupFns.push(onOpenKeyboardShortcuts(runIfNoDialogOpen(openShortcutsDialog)));
-        }
-        if (onOpenAgentOperationsHelp) {
-            cleanupFns.push(onOpenAgentOperationsHelp(runIfNoDialogOpen(openAgentOperationsHelp)));
-        }
-        if (onOpenAppearance) {
-            cleanupFns.push(onOpenAppearance(runIfNoDialogOpen(toggleAppearance)));
-        }
-        if (onOpenFlows) {
-            cleanupFns.push(onOpenFlows(runIfNoDialogOpen(toggleFlowManagement)));
-        }
-        if (onOpenSchedules) {
-            cleanupFns.push(onOpenSchedules(runIfNoDialogOpen(toggleScheduleManagement)));
-        }
-
-        const needsCloseTabFallback = !onCloseTab;
-        const needsNewTaskFallback = !onNewTask;
-        const needsNewTerminalFallback = !onNewTerminal;
-        const needsFileExplorerFallback = !window.taskflow?.onToggleFileExplorer;
-        const needsTaskInfoFallback = !window.taskflow?.onToggleTaskInfo;
-
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (!(e.metaKey || e.ctrlKey)) return;
-            if (isDialogOpen()) return;
-
-            if (needsCloseTabFallback && e.key.toLowerCase() === "w") {
-                e.preventDefault();
-                handleCloseActiveTab();
-                return;
-            }
-
-            if (needsNewTaskFallback && e.key.toLowerCase() === "n") {
-                e.preventDefault();
-                handleOpenNewTask();
-                return;
-            }
-
-            if (needsNewTerminalFallback && e.key.toLowerCase() === "t") {
-                e.preventDefault();
-                void handleOpenDefaultTerminal();
-                return;
-            }
-
-            if (needsFileExplorerFallback && e.key.toLowerCase() === "e") {
-                e.preventDefault();
-                toggleFileExplorer();
-                return;
-            }
-
-            if (needsTaskInfoFallback && e.key.toLowerCase() === "i") {
-                e.preventDefault();
-                toggleTaskInfo();
-            }
-        };
-
-        if (
-            needsCloseTabFallback ||
-            needsNewTaskFallback ||
-            needsNewTerminalFallback ||
-            needsFileExplorerFallback ||
-            needsTaskInfoFallback
-        ) {
-            window.addEventListener("keydown", onKeyDown);
-        }
-
-        return () => {
-            cleanupFns.forEach((cleanup) => cleanup());
-            if (
-                needsCloseTabFallback ||
-                needsNewTaskFallback ||
-                needsNewTerminalFallback ||
-                needsFileExplorerFallback ||
-                needsTaskInfoFallback
-            ) {
-                window.removeEventListener("keydown", onKeyDown);
-            }
-        };
-    }, [
-        isElectron,
-        handleCloseActiveTab,
-        handleOpenDefaultTerminal,
-        handleOpenNewTask,
-        openSettings,
-        openShortcutsDialog,
-        openAgentOperationsHelp,
-        toggleAppearance,
-        toggleFlowManagement,
-        toggleScheduleManagement,
-        toggleFileExplorer,
-        toggleTaskInfo,
-    ]);
-
-    useEffect(() => {
-        if (!workspace.workspaceKey || !activeTab || activeTab.id === activeTabId) {
-            return;
-        }
-        setActiveTab(workspace.workspaceKey, activeTab.id);
-    }, [activeTab, activeTabId, setActiveTab, workspace.workspaceKey]);
 
     if (!workspace.scope) {
         return (
@@ -623,7 +334,7 @@ export function Workspace() {
 
     const handleDiffTab = () => {
         if (!workspace.workspaceKey) return;
-        const existingChangesTab = tabs.find((tab) => tab.type === "changes");
+        const existingChangesTab = visibleTabs.find((tab) => tab.type === "changes");
         if (existingChangesTab) {
             setActiveTab(workspace.workspaceKey, existingChangesTab.id);
             return;

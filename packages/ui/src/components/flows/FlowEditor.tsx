@@ -1,7 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import type {
     AgentLaunchOptions,
-    ClaudeLaunchOptions,
     FlowDefinition,
     FlowActionEntry,
     ActionDefinition,
@@ -11,7 +10,6 @@ import type {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
-import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Label } from "@/components/ui/label";
 import {
     Select,
@@ -20,15 +18,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 import { useProjectStore } from "@/stores/project-store";
-import { ChevronUp, ChevronDown, X, Plus } from "lucide-react";
+import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
+import { FlowActionList } from "./FlowActionList";
+import { Plus, X } from "lucide-react";
 
 interface FlowEditorProps {
     flow: FlowDefinition | null;
@@ -37,34 +30,6 @@ interface FlowEditorProps {
     onSave: (flow: FlowDefinition) => void;
     onCancel: () => void;
     onDelete?: () => void;
-}
-
-function normalizeAgentOptions(
-    sessionType: SessionType,
-    agentOptions: AgentLaunchOptions | undefined,
-): AgentLaunchOptions | undefined {
-    if (sessionType === "shell") return undefined;
-
-    const matchingOptions = agentOptions?.type === sessionType ? agentOptions : undefined;
-    const base = {
-        fullAccess: matchingOptions?.fullAccess || undefined,
-        dontAskQuestions: matchingOptions?.dontAskQuestions || undefined,
-    };
-    const model =
-        matchingOptions && "model" in matchingOptions && matchingOptions.model
-            ? matchingOptions.model
-            : undefined;
-
-    switch (sessionType) {
-        case "claude":
-            return { ...base, type: sessionType, model: model as ClaudeLaunchOptions["model"] };
-        case "codex":
-            return { ...base, type: sessionType };
-        case "cursor":
-            return { ...base, type: sessionType, model };
-        default:
-            return undefined;
-    }
 }
 
 function normalizeActions(actions: FlowActionEntry[]) {
@@ -268,25 +233,6 @@ function FlowEditor({
     });
     const hasChanges = initialSnapshot !== currentSnapshot;
 
-    const getActionName = (entry: FlowActionEntry): string => {
-        if (entry.label) return entry.label;
-        if ("inline" in entry && entry.inline) return entry.inline.name;
-        if ("actionId" in entry && entry.actionId) {
-            const global = globalActions.find((s) => s.id === entry.actionId);
-            return global?.name ?? "Unknown action";
-        }
-        return "Unknown";
-    };
-
-    const getActionType = (entry: FlowActionEntry): string => {
-        if ("inline" in entry && entry.inline) return entry.inline.sessionType;
-        if ("actionId" in entry && entry.actionId) {
-            const global = globalActions.find((s) => s.id === entry.actionId);
-            return global?.sessionType ?? "?";
-        }
-        return "?";
-    };
-
     return (
         <div className="flex h-full flex-col">
             {/* Scrollable content */}
@@ -408,140 +354,17 @@ function FlowEditor({
                         </div>
                     </div>
 
-                    <div className="flex flex-col gap-2">
-                        <div className="flex items-center justify-between">
-                            <Label className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
-                                Actions
-                            </Label>
-                            <div className="flex gap-1">
-                                {libraryActions.length > 0 && (
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button variant="outline" size="sm">
-                                                <Plus className="mr-1 h-3 w-3" /> From Library
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            {libraryActions.map((action) => (
-                                                <DropdownMenuItem
-                                                    key={action.id}
-                                                    onClick={() => addGlobalAction(action)}>
-                                                    {action.name}
-                                                </DropdownMenuItem>
-                                            ))}
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                )}
-                                <Button variant="outline" size="sm" onClick={addInlineAction}>
-                                    <Plus className="mr-1 h-3 w-3" /> Inline Action
-                                </Button>
-                            </div>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                            {actions.map((entry, i) => (
-                                <div
-                                    key={entry.id}
-                                    className="bg-island-base border-border rounded-lg border p-2.5">
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex flex-col gap-0.5">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-5 w-5"
-                                                onClick={() => moveAction(i, -1)}
-                                                disabled={i === 0}>
-                                                <ChevronUp className="h-3 w-3" />
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-5 w-5"
-                                                onClick={() => moveAction(i, 1)}
-                                                disabled={i === actions.length - 1}>
-                                                <ChevronDown className="h-3 w-3" />
-                                            </Button>
-                                        </div>
-                                        <span className="text-muted-foreground mr-1 text-xs font-medium tabular-nums">
-                                            {i + 1}.
-                                        </span>
-                                        <span className="flex-1 text-sm font-medium">
-                                            {getActionName(entry)}
-                                        </span>
-                                        <span className="bg-background text-muted-foreground rounded-md px-2 py-0.5 text-xs">
-                                            {getActionType(entry)}
-                                        </span>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-6 w-6"
-                                            onClick={() => removeAction(i)}>
-                                            <X className="h-3 w-3" />
-                                        </Button>
-                                    </div>
-
-                                    {"inline" in entry && entry.inline && (
-                                        <div className="border-border mt-3 flex flex-col gap-2 border-t pt-3">
-                                            <Input
-                                                value={entry.inline.name}
-                                                onChange={(e) =>
-                                                    updateInlineAction(entry.id, {
-                                                        name: e.target.value,
-                                                    })
-                                                }
-                                                placeholder="Inline action name"
-                                            />
-                                            <Select
-                                                value={entry.inline.sessionType}
-                                                onValueChange={(value) =>
-                                                    handleInlineSessionTypeChange(entry.id, value)
-                                                }>
-                                                <SelectTrigger>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="claude">Claude</SelectItem>
-                                                    <SelectItem value="codex">Codex</SelectItem>
-                                                    <SelectItem value="shell">Shell</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                            <ExpandableTextarea
-                                                value={entry.inline.prompt}
-                                                onChange={(e) =>
-                                                    updateInlineAction(entry.id, {
-                                                        prompt: e.target.value,
-                                                    })
-                                                }
-                                                placeholder="Inline action prompt"
-                                                className="min-h-[120px] text-sm"
-                                                dialogTitle="Inline Action Prompt"
-                                            />
-                                            {(entry.inline.sessionType === "claude" ||
-                                                entry.inline.sessionType === "codex") && (
-                                                <div className="border-border rounded-md border p-1">
-                                                    <AgentOptionsPanel
-                                                        key={`${entry.id}-${entry.inline.sessionType}`}
-                                                        agentType={entry.inline.sessionType}
-                                                        value={entry.inline.agentOptions}
-                                                        emitOnMount
-                                                        onChange={(options) =>
-                                                            updateInlineAction(entry.id, {
-                                                                agentOptions: options,
-                                                            })
-                                                        }
-                                                    />
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                            {actions.length === 0 && (
-                                <div className="text-muted-foreground rounded-md border border-dashed py-6 text-center text-sm">
-                                    No actions added yet
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                    <FlowActionList
+                        actions={actions}
+                        globalActions={globalActions}
+                        libraryActions={libraryActions}
+                        onMove={moveAction}
+                        onRemove={removeAction}
+                        onAddGlobal={addGlobalAction}
+                        onAddInline={addInlineAction}
+                        onUpdateInline={updateInlineAction}
+                        onInlineSessionTypeChange={handleInlineSessionTypeChange}
+                    />
 
                     <div className="text-muted-foreground rounded-md border border-blue-900/50 bg-blue-950/30 p-3 text-xs">
                         <p className="mb-1 font-medium text-blue-400">Action Prompt Tips</p>

@@ -130,7 +130,7 @@ function FileExplorer() {
             </Toolbar>
             <div className="flex-1 overflow-x-auto overflow-y-auto py-1">
                 {tree && treePath === workingDir ? (
-                    <div className="min-w-full w-max">
+                    <div className="w-max min-w-full">
                         <FileTree
                             node={tree}
                             gitFiles={gitFiles}
