@@ -41,7 +41,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
     const setTaskInfoWidth = useUIStore((s) => s.setTaskInfoWidth);
     const setFlowPanelWidth = useUIStore((s) => s.setFlowPanelWidth);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
-    const innerPanelGap = Math.max(panelGap - 3, 0);
+    const innerPanelGap = Math.max(panelGap - 1, 0);
 
     const handleSidebarResize = useCallback(
         (delta: number) => {

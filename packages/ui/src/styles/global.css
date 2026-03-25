@@ -97,7 +97,7 @@
     --cursor-agent-foreground: #1e1e2e;
     --island-base: rgba(24, 24, 37, 0.5);
     --dialog-shell: #11111b;
-    --window-shell: color-mix(in srgb, var(--dialog-shell) 25%, transparent);
+    --window-shell: color-mix(in srgb, var(--card) 25%, transparent);
 }
 
 html,

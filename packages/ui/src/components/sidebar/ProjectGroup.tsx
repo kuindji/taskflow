@@ -170,7 +170,7 @@ export function ProjectGroup({
                     <ContextMenuTrigger asChild>
                         <div
                             className={cn(
-                                "group flex min-w-0 cursor-pointer items-center overflow-hidden",
+                                "group flex min-w-0 cursor-pointer items-start overflow-hidden",
                                 "rounded-lg transition-colors [-webkit-app-region:no-drag]",
                                 (isActive || contextMenuOpen) && !locationInvalid
                                     ? isActive
@@ -186,7 +186,7 @@ export function ProjectGroup({
                                     onOpenChange(!open);
                                 }}
                                 aria-label={projectToggleLabel}
-                                className="text-foreground flex h-full shrink-0 items-center px-1">
+                                className="text-foreground mt-[0.55rem] flex h-full shrink-0 items-center px-1">
                                 {open ? (
                                     <ChevronDown className="h-3.5 w-3.5" />
                                 ) : (
@@ -243,7 +243,7 @@ export function ProjectGroup({
                                     </div>
                                 )}
                             </button>
-                            <div className="relative mr-1.5 flex shrink-0 items-center">
+                            <div className="relative mt-[0.45rem] mr-1.5 flex shrink-0 items-center">
                                 {keyBadgeNumber == null &&
                                     !locationInvalid &&
                                     (diffStats || behind > 0) && (
@@ -289,9 +289,10 @@ export function ProjectGroup({
                 </ContextMenu>
                 {!locationInvalid && (
                     <CollapsibleContent
-                        className={cn()
+                        className={
+                            cn()
 
-                        // topLevelTasks.length > 0 ? "border-border/40 mb-0.5 border-b pb-1" : "",
+                            // topLevelTasks.length > 0 ? "border-border/40 mb-0.5 border-b pb-1" : "",
                         }>
                         {topLevelTasks.map((task, index) => {
                             const subtasks = subtaskMap.get(task.id);
