@@ -1,13 +1,6 @@
 import { useMemo, useState, useCallback, type MouseEvent } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import {
-    Archive,
-    ArchiveRestore,
-    GitBranch,
-    Pin,
-    Plus,
-    Trash2,
-} from "lucide-react";
+import { Archive, ArchiveRestore, GitBranch, Pin, Plus, Trash2 } from "lucide-react";
 import type { Task, SessionRef } from "@taskflow/shared";
 import { useShallow } from "zustand/react/shallow";
 import { useTaskStore } from "@/stores/task-store";
@@ -148,31 +141,6 @@ export function TaskCard({
         setDeleteOpen(true);
     }, []);
 
-    const handleAddSubtask = (e: MouseEvent) => {
-        e.stopPropagation();
-        openAddSubtask();
-    };
-
-    const handleArchive = (e: MouseEvent) => {
-        e.stopPropagation();
-        openArchive();
-    };
-
-    const handleUnarchive = (e: MouseEvent) => {
-        e.stopPropagation();
-        openUnarchive();
-    };
-
-    const handlePinToggle = (e: MouseEvent) => {
-        e.stopPropagation();
-        togglePin();
-    };
-
-    const handleDeleteClick = (e: MouseEvent) => {
-        e.stopPropagation();
-        openDelete();
-    };
-
     const handleDeleteConfirm = useCallback(() => {
         void deleteTask(task.id, hasWorktree ? { deleteWorktree } : undefined);
     }, [deleteTask, task.id, hasWorktree, deleteWorktree]);
@@ -196,7 +164,7 @@ export function TaskCard({
                         }}
                         className={cn(
                             cardClasses,
-                            "flex flex-col ml-3",
+                            "ml-3 flex flex-col",
                             "group relative min-w-0 overflow-hidden [-webkit-app-region:no-drag]",
                             compact && "py-1.5",
                             isSubtask && "ml-0.5 py-1.5",

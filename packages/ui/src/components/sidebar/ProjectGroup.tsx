@@ -159,12 +159,13 @@ export function ProjectGroup({
     //max-w-[calc(100%-0.75rem)]
     return (
         <>
-            <Collapsible open={open} onOpenChange={onOpenChange} className={
-                cn(
-                    "min-w-0 border border-transparent rounded-lg", 
+            <Collapsible
+                open={open}
+                onOpenChange={onOpenChange}
+                className={cn(
+                    "min-w-0 rounded-lg border border-transparent",
                     // open && topLevelTasks.length > 0 ? "border border-white/50" : ""
-                )
-                }>
+                )}>
                 <ContextMenu onOpenChange={setContextMenuOpen}>
                     <ContextMenuTrigger asChild>
                         <div
@@ -222,8 +223,9 @@ export function ProjectGroup({
                                     <span
                                         className={cn(
                                             "block min-w-0 truncate text-sm font-medium tracking-wide",
-                                            locationInvalid ? "text-foreground/50" : "text-foreground",
-                                            
+                                            locationInvalid
+                                                ? "text-foreground/50"
+                                                : "text-foreground",
                                         )}>
                                         {project.name}
                                     </span>
@@ -248,7 +250,9 @@ export function ProjectGroup({
                                         <Badge
                                             variant="outline"
                                             className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium">
-                                            {behind > 0 && <span className="text-info">↓{behind}</span>}
+                                            {behind > 0 && (
+                                                <span className="text-info">↓{behind}</span>
+                                            )}
                                             {diffStats && (
                                                 <>
                                                     <span className="text-success">
@@ -285,10 +289,10 @@ export function ProjectGroup({
                 </ContextMenu>
                 {!locationInvalid && (
                     <CollapsibleContent
-                        className={cn(
-                            
-                            // topLevelTasks.length > 0 ? "border-border/40 mb-0.5 border-b pb-1" : "",
-                        )}>
+                        className={cn()
+
+                        // topLevelTasks.length > 0 ? "border-border/40 mb-0.5 border-b pb-1" : "",
+                        }>
                         {topLevelTasks.map((task, index) => {
                             const subtasks = subtaskMap.get(task.id);
                             const hasSubtasks = !!subtasks && subtasks.length > 0;

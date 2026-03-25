@@ -309,7 +309,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                         </DropdownMenuItem>
                                         <DropdownMenuItem onSelect={handleTogglePin}>
                                             <Pin
-                                                className={task.pinned ? "h-4 w-4 fill-current" : "h-4 w-4"}
+                                                className={
+                                                    task.pinned ? "h-4 w-4 fill-current" : "h-4 w-4"
+                                                }
                                             />
                                             {task.pinned ? "Unpin task" : "Pin task"}
                                         </DropdownMenuItem>
