@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
-import { Separator } from "@/components/ui/separator";
+// import { Separator } from "@/components/ui/separator";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -344,7 +344,7 @@ export function TaskSidebar() {
 
     return (
         <>
-            <Toolbar className="justify-between gap-2">
+            <Toolbar className="justify-between gap-2 border-none">
                 <div className="flex flex-1 items-center justify-end gap-1">
                     {showArchive ? (
                         <span className="text-muted-foreground px-1 text-xs font-medium">
@@ -365,7 +365,7 @@ export function TaskSidebar() {
                     )}
                 </div>
             </Toolbar>
-            <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
+            <div className="flex-1 overflow-x-hidden overflow-y-auto pb-1 pt-0.5">
                 {!showArchive && projects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">No projects yet.</div>
@@ -435,7 +435,7 @@ export function TaskSidebar() {
                     );
                 })}
             </div>
-            <Separator />
+            {/* <Separator /> */}
             <Toolbar noBorder className="justify-between">
                 <div className="flex items-center">
                     <Button
@@ -447,7 +447,7 @@ export function TaskSidebar() {
                         tooltipSide="right"
                         className={cn(
                             "[-webkit-app-region:no-drag]",
-                            masterWorkspaceActive ? "text-accent" : "text-muted-foreground",
+                            masterWorkspaceActive ? "text-accent" : "",
                         )}>
                         <Monitor className="h-3.5 w-3.5" />
                     </Button>
@@ -462,7 +462,7 @@ export function TaskSidebar() {
                                 aria-label="Notifications"
                                 tooltip="Notifications"
                                 tooltipSide="right"
-                                className="text-muted-foreground relative [-webkit-app-region:no-drag]">
+                                className="relative [-webkit-app-region:no-drag]">
                                 <Bell className="h-3.5 w-3.5" />
                                 {unreadCount > 0 && (
                                     <span className="bg-accent text-accent-foreground absolute -top-0.5 -right-0.5 flex h-3 min-w-3 items-center justify-center rounded-full px-0.5 text-[8px] font-medium">
@@ -480,7 +480,7 @@ export function TaskSidebar() {
                             aria-label="Checking for updates"
                             tooltip="Checking for updates…"
                             tooltipSide="right"
-                            className="text-muted-foreground [-webkit-app-region:no-drag]">
+                            className="[-webkit-app-region:no-drag]">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         </Button>
                     )}
@@ -492,7 +492,7 @@ export function TaskSidebar() {
                             aria-label="Downloading update"
                             tooltip={`Downloading v${updateStatus.version ?? ""}…`}
                             tooltipSide="right"
-                            className="text-muted-foreground [-webkit-app-region:no-drag]">
+                            className="[-webkit-app-region:no-drag]">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         </Button>
                     )}
@@ -517,7 +517,7 @@ export function TaskSidebar() {
                         aria-label="Actions and Flows"
                         tooltip="Actions and Flows"
                         tooltipSide="bottom"
-                        className="text-muted-foreground [-webkit-app-region:no-drag]">
+                        className="[-webkit-app-region:no-drag]">
                         <Workflow className="h-3.5 w-3.5" />
                     </Button>
                     <Button
@@ -527,7 +527,7 @@ export function TaskSidebar() {
                         aria-label="Schedules"
                         tooltip="Schedules"
                         tooltipSide="bottom"
-                        className="text-muted-foreground [-webkit-app-region:no-drag]">
+                        className="[-webkit-app-region:no-drag]">
                         <CalendarClock className="h-3.5 w-3.5" />
                     </Button>
                     <Button
@@ -537,7 +537,7 @@ export function TaskSidebar() {
                         aria-label="Appearance"
                         tooltip="Appearance"
                         tooltipSide="bottom"
-                        className="text-muted-foreground [-webkit-app-region:no-drag]">
+                        className="[-webkit-app-region:no-drag]">
                         <Palette className="h-3.5 w-3.5" />
                     </Button>
                     <Button
@@ -547,7 +547,7 @@ export function TaskSidebar() {
                         aria-label="Settings"
                         tooltip="Settings"
                         tooltipSide="bottom"
-                        className="text-muted-foreground [-webkit-app-region:no-drag]">
+                        className="[-webkit-app-region:no-drag]">
                         <Settings2 className="h-3.5 w-3.5" />
                     </Button>
                 </div>

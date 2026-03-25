@@ -41,7 +41,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
     const setTaskInfoWidth = useUIStore((s) => s.setTaskInfoWidth);
     const setFlowPanelWidth = useUIStore((s) => s.setFlowPanelWidth);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
-    const innerPanelGap = Math.max(panelGap - 1, 0);
+    const innerPanelGap = Math.max(panelGap - 3, 0);
 
     const handleSidebarResize = useCallback(
         (delta: number) => {
@@ -120,14 +120,18 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
     const isElectron = useIsElectron();
 
     return (
-        <div className="bg-island-base flex h-screen flex-col overflow-hidden">
+        <div
+            className={cn(
+                "flex h-screen flex-col overflow-hidden",
+                isElectron ? "bg-(--window-shell)" : "bg-[#2a2a2a]",
+            )}>
             <div className="flex flex-1 overflow-hidden" style={{ padding: panelGap }}>
                 <div
                     className={cn(
-                        "bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
+                        "mt-px flex shrink-0 flex-col overflow-hidden rounded-(--window-radius)",
                         (showOutline || cmdShiftHeld) &&
                             focusedPanel === "sidebar" &&
-                            "ring-accent/50 ring-1 transition-[box-shadow] duration-500",
+                            "ring-accent/50 ring-1 transition-shadow duration-500",
                     )}
                     data-panel="sidebar"
                     onPointerDown={handlePanelPointerDown}
@@ -148,10 +152,10 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                 {fileExplorerOpen && (
                     <div
                         className={cn(
-                            "bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
+                            "bg-card border-border/50 panel-shadow flex shrink-0 flex-col overflow-hidden rounded-(--window-radius) border",
                             (showOutline || cmdShiftHeld) &&
                                 focusedPanel === "fileexplorer" &&
-                                "ring-accent/50 ring-1 transition-[box-shadow] duration-500",
+                                "ring-accent/50 ring-1 transition-shadow duration-500",
                         )}
                         data-panel="fileexplorer"
                         onPointerDown={handlePanelPointerDown}
@@ -171,7 +175,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
 
                 {flowPanel && (
                     <div
-                        className="bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20"
+                        className="bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-(--window-radius) border shadow-lg shadow-black/20"
                         style={{ width: flowPanelWidth }}>
                         {flowPanel}
                     </div>
@@ -187,10 +191,10 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
 
                 <div
                     className={cn(
-                        "bg-card border-border/50 flex flex-1 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
+                        "bg-card border-border/50 panel-shadow flex flex-1 flex-col overflow-hidden rounded-(--window-radius) border",
                         (showOutline || cmdShiftHeld) &&
                             focusedPanel === "workspace" &&
-                            "ring-accent/50 ring-1 transition-[box-shadow] duration-500",
+                            "ring-accent/50 ring-1 transition-shadow duration-500",
                     )}
                     data-panel="workspace"
                     onPointerDown={handlePanelPointerDown}
@@ -209,10 +213,10 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                 {taskInfoOpen && (
                     <div
                         className={cn(
-                            "bg-card border-border/50 flex shrink-0 flex-col overflow-hidden rounded-[var(--window-radius)] border shadow-lg shadow-black/20",
+                            "bg-card border-border/50 panel-shadow flex shrink-0 flex-col overflow-hidden rounded-(--window-radius) border",
                             (showOutline || cmdShiftHeld) &&
                                 focusedPanel === "taskinfo" &&
-                                "ring-accent/50 ring-1 transition-[box-shadow] duration-500",
+                                "ring-accent/50 ring-1 transition-shadow duration-500",
                         )}
                         data-panel="taskinfo"
                         onPointerDown={handlePanelPointerDown}

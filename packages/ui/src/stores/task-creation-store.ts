@@ -7,7 +7,8 @@ interface TaskCreationStore {
     openTaskAfterProject: boolean;
     projectError: string | null;
     parentTaskId: string | null;
-    requestNewTask(): void;
+    preferredProjectId: string | null;
+    requestNewTask(projectId?: string): void;
     requestNewSubtask(parentTaskId: string): void;
     openProjectDialog(thenOpenTask?: boolean): void;
     setNewTaskOpen(open: boolean): void;
@@ -22,7 +23,8 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
     openTaskAfterProject: false,
     projectError: null,
     parentTaskId: null,
-    requestNewTask() {
+    preferredProjectId: null,
+    requestNewTask(projectId) {
         const hasProjects = useProjectStore.getState().projects.length > 0;
         set({
             newTaskOpen: hasProjects,
@@ -30,6 +32,7 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
             openTaskAfterProject: !hasProjects,
             projectError: null,
             parentTaskId: null,
+            preferredProjectId: projectId ?? null,
         });
     },
     requestNewSubtask(parentTaskId: string) {
@@ -39,6 +42,7 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
             newProjectOpen: false,
             openTaskAfterProject: false,
             projectError: null,
+            preferredProjectId: null,
         });
     },
     openProjectDialog(thenOpenTask = false) {
@@ -47,10 +51,15 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
             newTaskOpen: false,
             openTaskAfterProject: thenOpenTask,
             projectError: null,
+            preferredProjectId: null,
         });
     },
     setNewTaskOpen(open) {
-        set(open ? { newTaskOpen: open } : { newTaskOpen: open, parentTaskId: null });
+        set(
+            open
+                ? { newTaskOpen: open }
+                : { newTaskOpen: open, parentTaskId: null, preferredProjectId: null },
+        );
     },
     setNewProjectOpen(open) {
         set((state) => ({

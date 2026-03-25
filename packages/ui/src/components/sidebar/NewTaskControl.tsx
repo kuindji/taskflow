@@ -23,7 +23,7 @@ export function NewTaskControl({
         <Button
             variant="ghost"
             size={size}
-            onClick={requestNewTask}
+            onClick={() => requestNewTask()}
             tooltip="New task (Cmd+N)"
             tooltipSide={tooltipSide}
             className={cn("[-webkit-app-region:no-drag]", className)}>

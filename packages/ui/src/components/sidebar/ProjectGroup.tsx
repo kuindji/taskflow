@@ -8,11 +8,22 @@ import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { MissingLocationDialog } from "./MissingLocationDialog";
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, GitFork, Plus, Trash2 } from "lucide-react";
 import { KeyBadge } from "@/components/ui/key-badge";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
 import { useDiffStore } from "@/stores/diff-store";
+import { useTaskCreationStore } from "@/stores/task-creation-store";
+import { useProjectStore } from "@/stores/project-store";
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuSeparator,
+    ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { ForkProjectDialog } from "@/components/workspace/ForkProjectDialog";
+import { RemoveProjectDialog } from "@/components/workspace/RemoveProjectDialog";
 
 interface ProjectGroupProps {
     project: Project;
@@ -52,6 +63,12 @@ export function ProjectGroup({
     onOpenChange,
 }: ProjectGroupProps) {
     const [missingDialogOpen, setMissingDialogOpen] = useState(false);
+    const [forkOpen, setForkOpen] = useState(false);
+    const [removeOpen, setRemoveOpen] = useState(false);
+    const [contextMenuOpen, setContextMenuOpen] = useState(false);
+    const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
+    const hideProject = useProjectStore((s) => s.hideProject);
+    const removeProject = useProjectStore((s) => s.removeProject);
 
     const { topLevelTasks, subtaskMap } = useMemo(() => {
         const topLevel: Task[] = [];
@@ -135,120 +152,142 @@ export function ProjectGroup({
         }
     };
 
+    const handleCreateTask = () => {
+        requestNewTask(project.id);
+    };
+
     //max-w-[calc(100%-0.75rem)]
     return (
         <>
-            <Collapsible open={open} onOpenChange={onOpenChange} className="min-w-0">
-                <div
-                    className={cn(
-                        "group mx-1 flex min-w-0 cursor-pointer items-center overflow-hidden rounded-lg transition-colors [-webkit-app-region:no-drag]",
-                        isActive && !locationInvalid
-                            ? "bg-accent/15"
-                            : open
-                              ? "bg-accent/5 hover:bg-accent/10"
-                              : "hover:bg-muted/50",
-                    )}>
-                    <Tooltip key={projectToggleLabel}>
-                        <TooltipTrigger asChild>
+            <Collapsible open={open} onOpenChange={onOpenChange} className={
+                cn(
+                    "min-w-0 border border-transparent rounded-lg", 
+                    // open && topLevelTasks.length > 0 ? "border border-white/50" : ""
+                )
+                }>
+                <ContextMenu onOpenChange={setContextMenuOpen}>
+                    <ContextMenuTrigger asChild>
+                        <div
+                            className={cn(
+                                "group flex min-w-0 cursor-pointer items-center overflow-hidden",
+                                "rounded-lg transition-colors [-webkit-app-region:no-drag]",
+                                (isActive || contextMenuOpen) && !locationInvalid
+                                    ? isActive
+                                        ? "bg-accent/15"
+                                        : "bg-accent/8"
+                                    : open
+                                      ? ""
+                                      : "",
+                            )}>
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     onOpenChange(!open);
                                 }}
                                 aria-label={projectToggleLabel}
-                                className="text-muted-foreground flex h-full shrink-0 items-center px-1">
+                                className="text-foreground flex h-full shrink-0 items-center px-1">
                                 {open ? (
                                     <ChevronDown className="h-3.5 w-3.5" />
                                 ) : (
                                     <ChevronRight className="h-3.5 w-3.5" />
                                 )}
                             </button>
-                        </TooltipTrigger>
-                        <TooltipContent key={projectToggleLabel} side="right" sideOffset={4}>
-                            {projectToggleLabel}
-                        </TooltipContent>
-                    </Tooltip>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleProjectClick();
-                        }}
-                        className="flex w-0 min-w-0 flex-1 cursor-pointer flex-col overflow-hidden py-1.5 pr-1.5 text-left"
-                        title={project.name}>
-                        <div className="flex min-w-0 items-center gap-1.5">
-                            {locationInvalid && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
-                                    </TooltipTrigger>
-                                    <TooltipContent side="right" sideOffset={4}>
-                                        Project location not found
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
-                            {!open &&
-                                !locationInvalid &&
-                                (projectStatus ? (
-                                    <StatusDot status={projectStatus} />
-                                ) : (
-                                    hasAgents && (
-                                        <span className="bg-muted-foreground/30 inline-block h-2 w-2 shrink-0 rounded-full" />
-                                    )
-                                ))}
-                            <span
-                                className={cn(
-                                    "block min-w-0 truncate text-xs font-medium tracking-wide",
-                                    locationInvalid ? "text-foreground/40" : "text-foreground/60",
-                                )}>
-                                {project.name}
-                            </span>
-                            {!locationInvalid && branch && (
-                                <span className="text-foreground/40 shrink-0 truncate text-[10px]">
-                                    ({branch})
-                                </span>
-                            )}
-                        </div>
-                        {open && !locationInvalid && project.sessions.length > 0 && (
-                            <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
-                                {project.sessions.map((session) => (
-                                    <SessionBadge key={session.id} session={session} />
-                                ))}
-                            </div>
-                        )}
-                    </button>
-                    <div className="relative mr-1.5 flex shrink-0 items-center">
-                        {keyBadgeNumber == null &&
-                            !locationInvalid &&
-                            (diffStats || behind > 0) && (
-                                <Badge
-                                    variant="outline"
-                                    className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium transition-opacity group-hover:opacity-0">
-                                    {behind > 0 && <span className="text-info">↓{behind}</span>}
-                                    {diffStats && (
-                                        <>
-                                            <span className="text-success">
-                                                +{diffStats.additions}
-                                            </span>
-                                            <span className="text-destructive">
-                                                -{diffStats.deletions}
-                                            </span>
-                                        </>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleProjectClick();
+                                }}
+                                className="flex w-0 min-w-0 flex-1 cursor-pointer flex-col overflow-hidden py-1.5 pr-1.5 text-left"
+                                title={project.name}>
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                    {locationInvalid && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
+                                            </TooltipTrigger>
+                                            <TooltipContent side="right" sideOffset={4}>
+                                                Project location not found
+                                            </TooltipContent>
+                                        </Tooltip>
                                     )}
-                                </Badge>
-                            )}
-                        {keyBadgeNumber != null ? (
-                            <KeyBadge number={keyBadgeNumber} />
-                        ) : (
-                            !locationInvalid && (
-                                <ArrowRight className="text-accent absolute right-0 h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
-                            )
-                        )}
-                    </div>
-                </div>
+                                    {!open &&
+                                        !locationInvalid &&
+                                        (projectStatus ? (
+                                            <StatusDot status={projectStatus} />
+                                        ) : (
+                                            hasAgents && (
+                                                <span className="bg-muted-foreground/30 inline-block h-2 w-2 shrink-0 rounded-full" />
+                                            )
+                                        ))}
+                                    <span
+                                        className={cn(
+                                            "block min-w-0 truncate text-sm font-medium tracking-wide",
+                                            locationInvalid ? "text-foreground/50" : "text-foreground",
+                                            
+                                        )}>
+                                        {project.name}
+                                    </span>
+                                    {!locationInvalid && branch && (
+                                        <span className="text-foreground/40 shrink-0 truncate text-xs">
+                                            ({branch})
+                                        </span>
+                                    )}
+                                </div>
+                                {open && !locationInvalid && project.sessions.length > 0 && (
+                                    <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
+                                        {project.sessions.map((session) => (
+                                            <SessionBadge key={session.id} session={session} />
+                                        ))}
+                                    </div>
+                                )}
+                            </button>
+                            <div className="relative mr-1.5 flex shrink-0 items-center">
+                                {keyBadgeNumber == null &&
+                                    !locationInvalid &&
+                                    (diffStats || behind > 0) && (
+                                        <Badge
+                                            variant="outline"
+                                            className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium">
+                                            {behind > 0 && <span className="text-info">↓{behind}</span>}
+                                            {diffStats && (
+                                                <>
+                                                    <span className="text-success">
+                                                        +{diffStats.additions}
+                                                    </span>
+                                                    <span className="text-destructive">
+                                                        -{diffStats.deletions}
+                                                    </span>
+                                                </>
+                                            )}
+                                        </Badge>
+                                    )}
+                                {keyBadgeNumber != null ? (
+                                    <KeyBadge number={keyBadgeNumber} />
+                                ) : null}
+                            </div>
+                        </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                        <ContextMenuItem onSelect={handleCreateTask}>
+                            <Plus className="h-4 w-4" />
+                            Create task
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={() => setForkOpen(true)}>
+                            <GitFork className="h-4 w-4" />
+                            Fork project
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem variant="destructive" onSelect={() => setRemoveOpen(true)}>
+                            <Trash2 className="h-4 w-4" />
+                            Delete project
+                        </ContextMenuItem>
+                    </ContextMenuContent>
+                </ContextMenu>
                 {!locationInvalid && (
                     <CollapsibleContent
                         className={cn(
-                            topLevelTasks.length > 0 ? "border-border/40 mb-0.5 border-b pb-1" : "",
+                            
+                            // topLevelTasks.length > 0 ? "border-border/40 mb-0.5 border-b pb-1" : "",
                         )}>
                         {topLevelTasks.map((task, index) => {
                             const subtasks = subtaskMap.get(task.id);
@@ -305,6 +344,14 @@ export function ProjectGroup({
                 project={project}
                 open={missingDialogOpen}
                 onOpenChange={setMissingDialogOpen}
+            />
+            <ForkProjectDialog open={forkOpen} onOpenChange={setForkOpen} project={project} />
+            <RemoveProjectDialog
+                open={removeOpen}
+                project={project}
+                onOpenChange={setRemoveOpen}
+                onRemove={removeProject}
+                onHide={hideProject}
             />
         </>
     );

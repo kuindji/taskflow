@@ -33,6 +33,7 @@ export function TaskCreationDialogHost() {
         newProjectOpen,
         projectError,
         parentTaskId,
+        preferredProjectId,
         setNewTaskOpen,
         setNewProjectOpen,
         setProjectError,
@@ -42,9 +43,11 @@ export function TaskCreationDialogHost() {
     const pendingSessionRef = useRef<PendingSession | null>(null);
     const pendingFlowRef = useRef<PendingFlow | null>(null);
 
-    const defaultProjectId = activeTaskId
-        ? (tasks.find((task) => task.id === activeTaskId)?.projectId ?? projects[0]?.id)
-        : (activeProjectId ?? projects[0]?.id);
+    const defaultProjectId =
+        preferredProjectId ??
+        (activeTaskId
+            ? (tasks.find((task) => task.id === activeTaskId)?.projectId ?? projects[0]?.id)
+            : (activeProjectId ?? projects[0]?.id));
 
     // Watch for worktree readiness and start deferred session or flow
     useEffect(() => {

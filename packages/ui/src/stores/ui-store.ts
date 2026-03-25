@@ -100,7 +100,7 @@ export const useUIStore = create<UIStore>((set) => ({
     fileExplorerWidth: 220,
     taskInfoWidth: 220,
     flowPanelWidth: 220,
-    panelGap: 4,
+    panelGap: 6,
     collapsedProjectIds: [],
     toggleFileExplorer() {
         set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen }));

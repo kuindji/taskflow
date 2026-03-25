@@ -56,19 +56,19 @@ function ResizeHandle({
             ? {
                   backgroundImage: `linear-gradient(to bottom,
                       transparent 0%,
-                      transparent 33%,
-                      color-mix(in srgb, var(--accent) 72%, transparent) 40%,
-                      color-mix(in srgb, var(--accent) 72%, transparent) 60%,
-                      transparent 67%,
+                      transparent 23%,
+                      color-mix(in srgb, var(--accent) 35%, transparent) 40%,
+                      color-mix(in srgb, var(--accent) 35%, transparent) 60%,
+                      transparent 77%,
                       transparent 100%)`,
               }
             : {
                   backgroundImage: `linear-gradient(to right,
                       transparent 0%,
-                      transparent 33%,
-                      color-mix(in srgb, var(--accent) 72%, transparent) 40%,
-                      color-mix(in srgb, var(--accent) 72%, transparent) 60%,
-                      transparent 67%,
+                      transparent 23%,
+                      color-mix(in srgb, var(--accent) 35%, transparent) 40%,
+                      color-mix(in srgb, var(--accent) 35%, transparent) 60%,
+                      transparent 77%,
                       transparent 100%)`,
               };
 
@@ -83,7 +83,7 @@ function ResizeHandle({
             }`}>
             <div
                 style={{ ...lineStyle, opacity: isDragging ? 1 : undefined }}
-                className={`pointer-events-none absolute transition-opacity duration-200 ease-out ${
+                className={`pointer-events-none absolute transition-opacity duration-400 ease-out ${
                     orientation === "vertical"
                         ? "inset-y-0 left-1/2 w-px -translate-x-1/2"
                         : "inset-x-0 top-1/2 h-px -translate-y-1/2"
