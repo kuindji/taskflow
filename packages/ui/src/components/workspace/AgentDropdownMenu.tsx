@@ -299,8 +299,8 @@ function AgentDropdownMenu({
 
     return (
         <>
-            {showRunButton && (
-                nativeMenus ? (
+            {showRunButton &&
+                (nativeMenus ? (
                     <Button
                         variant="ghost"
                         size="icon-xs"
@@ -433,7 +433,9 @@ function AgentDropdownMenu({
                                             <Fragment key={agentType}>
                                                 <DropdownMenuItem
                                                     disabled={!available}
-                                                    onClick={() => available && onRunTab(agentType)}>
+                                                    onClick={() =>
+                                                        available && onRunTab(agentType)
+                                                    }>
                                                     <Icon className="mr-2 h-4 w-4" />
                                                     {label}
                                                     {!available ? " (not installed)" : ""}
@@ -461,8 +463,7 @@ function AgentDropdownMenu({
                             )}
                         </DropdownMenuContent>
                     </DropdownMenu>
-                )
-            )}
+                ))}
             {allowSessionTabs && (
                 <>
                     {favoriteAgents.map((agentType) => {
@@ -541,8 +542,8 @@ function AgentDropdownMenu({
                 tooltipSide="bottom">
                 <Globe className="h-3.5 w-3.5" />
             </Button>
-            {((hasAvailableNonFavorites && allowSessionTabs) || shells.length > 1) && (
-                nativeMenus ? (
+            {((hasAvailableNonFavorites && allowSessionTabs) || shells.length > 1) &&
+                (nativeMenus ? (
                     <Button
                         variant="ghost"
                         size="icon-xs"
@@ -622,8 +623,7 @@ function AgentDropdownMenu({
                             )}
                         </DropdownMenuContent>
                     </DropdownMenu>
-                )
-            )}
+                ))}
             <AgentOptionsDialog
                 open={runOptionsAgent !== null}
                 title={

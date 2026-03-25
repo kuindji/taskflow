@@ -55,17 +55,17 @@ function AppearanceDialog() {
                     {/* Content */}
                     <div className="bg-background min-w-0 flex-1 overflow-y-auto rounded-[10px]">
                         {section === "themes" && (
-                            <div className="px-5 py-4">
+                            <div className="h-[360px] px-5 py-4">
                                 <ThemeGrid />
                             </div>
                         )}
                         {section === "import" && (
-                            <div className="py-1">
+                            <div className="h-[360px] py-1">
                                 <ImportTab />
                             </div>
                         )}
                         {section === "fonts" && (
-                            <div className="py-1">
+                            <div className="h-[360px] py-1">
                                 <FontsTab />
                             </div>
                         )}

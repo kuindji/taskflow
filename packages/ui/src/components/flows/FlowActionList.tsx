@@ -78,8 +78,8 @@ function FlowActionList({
                     Actions
                 </span>
                 <div className="flex gap-1">
-                    {libraryActions.length > 0 && (
-                        nativeMenus ? (
+                    {libraryActions.length > 0 &&
+                        (nativeMenus ? (
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -117,8 +117,7 @@ function FlowActionList({
                                     ))}
                                 </DropdownMenuContent>
                             </DropdownMenu>
-                        )
-                    )}
+                        ))}
                     <Button variant="outline" size="sm" onClick={onAddInline}>
                         <Plus className="mr-1 h-3 w-3" /> Inline Action
                     </Button>

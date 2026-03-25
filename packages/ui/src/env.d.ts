@@ -56,10 +56,7 @@ interface TaskflowBridge {
         text?: string;
         defaultName?: string;
     }): Promise<{ success: boolean; error?: string }>;
-    showNativeMenu(
-        items: NativeMenuItem[],
-        position: NativeMenuPosition,
-    ): Promise<string | null>;
+    showNativeMenu(items: NativeMenuItem[], position: NativeMenuPosition): Promise<string | null>;
     onNotificationClicked(
         callback: (payload: {
             id: string;

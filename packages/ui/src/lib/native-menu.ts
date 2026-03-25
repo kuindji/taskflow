@@ -22,10 +22,7 @@ function roundPosition(position: NativeMenuPosition): NativeMenuPosition {
 }
 
 function supportsNativeMenus(): boolean {
-    return (
-        typeof window !== "undefined" &&
-        typeof window.taskflow?.showNativeMenu === "function"
-    );
+    return typeof window !== "undefined" && typeof window.taskflow?.showNativeMenu === "function";
 }
 
 async function showNativeMenu(
@@ -33,7 +30,7 @@ async function showNativeMenu(
     position: NativeMenuPosition,
 ): Promise<string | null> {
     if (!supportsNativeMenus()) return null;
-    return window.taskflow!.showNativeMenu(items, roundPosition(position));
+    return window.taskflow?.showNativeMenu(items, roundPosition(position)) ?? null;
 }
 
 async function showNativeMenuAndRun(

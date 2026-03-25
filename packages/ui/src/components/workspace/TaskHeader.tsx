@@ -417,9 +417,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                             Archive task
                                         </DropdownMenuItem>
                                     )}
-                                    <DropdownMenuItem
-                                        variant="destructive"
-                                        onSelect={handleDelete}>
+                                    <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
                                         <Trash2 className="h-4 w-4" />
                                         Delete task
                                     </DropdownMenuItem>
@@ -461,9 +459,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                         Fork project
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                        variant="destructive"
-                                        onSelect={handleDelete}>
+                                    <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
                                         <Trash2 className="h-4 w-4" />
                                         Delete project
                                     </DropdownMenuItem>

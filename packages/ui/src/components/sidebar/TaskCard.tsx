@@ -174,7 +174,9 @@ export function TaskCard({
                     {
                         "add-subtask": openAddSubtask,
                         "toggle-pin": togglePin,
-                        [archived ? "unarchive" : "archive"]: archived ? openUnarchive : openArchive,
+                        [archived ? "unarchive" : "archive"]: archived
+                            ? openUnarchive
+                            : openArchive,
                         delete: openDelete,
                     },
                     getEventMenuPosition(event),

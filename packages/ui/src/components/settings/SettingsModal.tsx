@@ -427,15 +427,15 @@ function SettingsModal() {
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent
-                className="bg-dialog-shell border-border w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] gap-0 rounded-xl p-1.5 sm:max-w-xl"
+                className="bg-dialog-shell border-border flex max-h-[min(32rem,calc(100vh-2rem))] w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden rounded-xl p-1.5 sm:max-w-xl"
                 aria-describedby={undefined}>
                 <DialogHeader className="px-2 py-2">
                     <DialogTitle className="text-[15px]">Settings</DialogTitle>
                 </DialogHeader>
 
-                <div className="flex gap-1.5">
+                <div className="flex h-[360px] min-h-0 gap-1.5">
                     {/* Sidebar */}
-                    <nav className="bg-card w-[148px] shrink-0 rounded-[10px] p-1.5">
+                    <nav className="bg-card w-[148px] shrink-0 overflow-y-auto rounded-[10px] p-1.5">
                         {navItems.map((item) => (
                             <button
                                 key={item.key}
@@ -451,7 +451,7 @@ function SettingsModal() {
                     </nav>
 
                     {/* Content */}
-                    <div className="bg-background min-h-[360px] min-w-0 flex-1 rounded-[10px] py-1">
+                    <div className="bg-background h-full min-h-0 min-w-0 flex-1 overflow-hidden rounded-[10px] py-1">
                         {section === "general" && (
                             <GeneralSection
                                 dataDirInfo={dataDirInfo}
@@ -463,20 +463,22 @@ function SettingsModal() {
                         )}
 
                         {section === "defaults" && (
-                            <DefaultsSection
-                                settings={settings}
-                                shells={shells}
-                                systemShellPath={systemShellPath}
-                                runtimes={runtimes}
-                                systemEditors={systemEditors}
-                                agents={agents}
-                                onInternalEditor={handleInternalEditor}
-                                onExternalEditor={handleExternalEditor}
-                                onDefaultAgent={handleDefaultAgent}
-                                onToggleFavoriteAgent={handleToggleFavoriteAgent}
-                                onDefaultShell={handleDefaultShell}
-                                onDefaultRuntime={handleDefaultRuntime}
-                            />
+                            <div className="h-full overflow-y-auto">
+                                <DefaultsSection
+                                    settings={settings}
+                                    shells={shells}
+                                    systemShellPath={systemShellPath}
+                                    runtimes={runtimes}
+                                    systemEditors={systemEditors}
+                                    agents={agents}
+                                    onInternalEditor={handleInternalEditor}
+                                    onExternalEditor={handleExternalEditor}
+                                    onDefaultAgent={handleDefaultAgent}
+                                    onToggleFavoriteAgent={handleToggleFavoriteAgent}
+                                    onDefaultShell={handleDefaultShell}
+                                    onDefaultRuntime={handleDefaultRuntime}
+                                />
+                            </div>
                         )}
 
                         {section === "claude" && (
