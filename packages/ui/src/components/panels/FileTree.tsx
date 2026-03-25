@@ -70,7 +70,7 @@ function FileTree({
 
     useEffect(() => {
         if (isFocused && itemRef.current) {
-            itemRef.current.scrollIntoView({ block: "nearest" });
+            itemRef.current.scrollIntoView({ block: "nearest", inline: "nearest" });
         }
     }, [isFocused]);
 
@@ -90,12 +90,13 @@ function FileTree({
     const directoryClasses = useMemo(
         () =>
             cn(
-                "flex w-full min-w-0 cursor-pointer items-center px-3 py-1 text-sm font-medium select-none",
+                "flex w-max min-w-full cursor-pointer items-center gap-1.5 px-3 py-1 text-sm font-medium select-none",
                 "text-foreground/90 hover:bg-accent/10 hover:text-foreground",
                 open && "text-foreground",
             ),
         [open],
     );
+    const rowPaddingLeft = Math.min(depth, 8) * 16 + 12;
 
     const handleDragStart = useCallback(
         (e: React.DragEvent) => {
@@ -119,12 +120,15 @@ function FileTree({
                     onDragStart={handleDragStart}
                     className={cn(
                         fileClasses,
-                        "flex min-w-0 items-center gap-1.5",
+                        "flex w-max min-w-full items-center gap-1.5",
                         (isFocused || isContextMenuActive) && "bg-accent/20 ring-accent/40 ring-1",
                     )}
-                    style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}>
+                    style={{ paddingLeft: rowPaddingLeft }}>
+                    <span aria-hidden="true" className="h-4 w-4 shrink-0" />
                     <FileIcon name={node.name} isDirectory={false} />
-                    <TruncatedText tooltipContent={node.path}>{node.name}</TruncatedText>
+                    <TruncatedText truncate={false} className="whitespace-nowrap">
+                        {node.name}
+                    </TruncatedText>
                 </div>
             </FileContextMenu>
         );
@@ -141,14 +145,18 @@ function FileTree({
                         directoryClasses,
                         (isFocused || isContextMenuActive) && "bg-accent/20 ring-accent/40 ring-1",
                     )}
-                    style={{ paddingLeft: Math.min(depth, 8) * 16 + 12 }}>
-                    {open ? (
-                        <ChevronDown className="mr-1.5 h-4 w-4 shrink-0" />
-                    ) : (
-                        <ChevronRight className="mr-1.5 h-4 w-4 shrink-0" />
-                    )}
-                    <FileIcon name={node.name} isDirectory isOpen={open} className="mr-1.5" />
-                    <TruncatedText tooltipContent={node.path}>{node.name}</TruncatedText>
+                    style={{ paddingLeft: rowPaddingLeft }}>
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                        {open ? (
+                            <ChevronDown className="h-4 w-4 shrink-0" />
+                        ) : (
+                            <ChevronRight className="h-4 w-4 shrink-0" />
+                        )}
+                    </span>
+                    <FileIcon name={node.name} isDirectory isOpen={open} />
+                    <TruncatedText truncate={false} className="whitespace-nowrap">
+                        {node.name}
+                    </TruncatedText>
                 </CollapsibleTrigger>
             </FileContextMenu>
             <CollapsibleContent>

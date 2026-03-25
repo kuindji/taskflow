@@ -128,15 +128,17 @@ function FileExplorer() {
                     <X className="h-3 w-3" />
                 </Button>
             </Toolbar>
-            <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
+            <div className="flex-1 overflow-x-auto overflow-y-auto py-1">
                 {tree && treePath === workingDir ? (
-                    <FileTree
-                        node={tree}
-                        gitFiles={gitFiles}
-                        ignoredFiles={ignoredFiles}
-                        onFileClick={handleFileClick}
-                        rootPath={workingDir ?? ""}
-                    />
+                    <div className="min-w-full w-max">
+                        <FileTree
+                            node={tree}
+                            gitFiles={gitFiles}
+                            ignoredFiles={ignoredFiles}
+                            onFileClick={handleFileClick}
+                            rootPath={workingDir ?? ""}
+                        />
+                    </div>
                 ) : (
                     <div className="text-muted-foreground p-2 text-sm">
                         {workingDir ? "Loading..." : "Select a task or project"}

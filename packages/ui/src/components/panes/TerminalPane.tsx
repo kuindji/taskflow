@@ -1159,7 +1159,7 @@ function TerminalPane({ taskId, projectId, master, sessionId, visible }: Termina
     }, [sessionId]);
 
     return (
-        <div className="bg-card relative flex-1 overflow-hidden px-3 py-1.5">
+        <div className="bg-card relative flex-1 overflow-hidden p-3">
             <div
                 ref={containerRef}
                 className={cn(
