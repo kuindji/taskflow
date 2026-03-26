@@ -146,7 +146,31 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
             const uri = model.uri;
             const filePath = uri.path;
 
-            // First: try Monaco's built-in TypeScript worker
+            // For import statements, always use backend resolution.
+            // The Monaco TS worker doesn't have filesystem access so it can't
+            // resolve imports to files that aren't loaded as models.
+            const lineContent = model.getLineContent(position.lineNumber);
+            const specifier = extractImportSpecifier(lineContent);
+            if (specifier) {
+                try {
+                    const result = await sendRequest<TsResolveImportResponse>(
+                        MSG.TS_RESOLVE_IMPORT,
+                        { sourceFilePath: filePath, importSpecifier: specifier },
+                    );
+                    if (result.resolvedPath) {
+                        return {
+                            uri: monaco.Uri.file(result.resolvedPath),
+                            range: new monaco.Range(1, 1, 1, 1),
+                        };
+                    }
+                } catch {
+                    // Resolution failed — nothing to navigate to
+                }
+                return null;
+            }
+
+            // For non-import positions (local symbols), use the TS worker
+            // for same-file go-to-definition
             const workerGetter = language === "typescript"
                 ? monaco.languages.typescript.getTypeScriptWorker
                 : monaco.languages.typescript.getJavaScriptWorker;
@@ -163,60 +187,25 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
                     const def = definitions[0];
                     const defUri = monaco.Uri.parse(def.fileName);
 
-                    // For same-file definitions, return location for in-editor navigation
+                    // Same-file definition: navigate within the editor
                     if (defUri.path === filePath) {
-                        const defModel = monaco.editor.getModel(defUri);
-                        if (defModel) {
-                            const startPos = defModel.getPositionAt(def.textSpan.start);
-                            const endPos = defModel.getPositionAt(
-                                def.textSpan.start + def.textSpan.length,
-                            );
-                            return {
-                                uri: defUri,
-                                range: new monaco.Range(
-                                    startPos.lineNumber,
-                                    startPos.column,
-                                    endPos.lineNumber,
-                                    endPos.column,
-                                ),
-                            };
-                        }
-                    }
-
-                    // For cross-file definitions, only use the worker result if the
-                    // URI looks like a real file path (starts with /). The TS worker
-                    // may return internal URIs for files not loaded as models.
-                    if (defUri.path.startsWith("/")) {
+                        const startPos = model.getPositionAt(def.textSpan.start);
+                        const endPos = model.getPositionAt(
+                            def.textSpan.start + def.textSpan.length,
+                        );
                         return {
-                            uri: monaco.Uri.file(defUri.path),
-                            range: new monaco.Range(1, 1, 1, 1),
+                            uri,
+                            range: new monaco.Range(
+                                startPos.lineNumber,
+                                startPos.column,
+                                endPos.lineNumber,
+                                endPos.column,
+                            ),
                         };
                     }
-                    // Non-file URI — fall through to backend resolution
                 }
             } catch {
-                // Worker failed — fall through to backend resolution
-            }
-
-            // Fallback: extract import specifier and ask backend to resolve
-            // the module path using TypeScript's own resolution with filesystem access
-            const lineContent = model.getLineContent(position.lineNumber);
-            const specifier = extractImportSpecifier(lineContent);
-            if (!specifier) return null;
-
-            try {
-                const result = await sendRequest<TsResolveImportResponse>(
-                    MSG.TS_RESOLVE_IMPORT,
-                    { sourceFilePath: filePath, importSpecifier: specifier },
-                );
-                if (result.resolvedPath) {
-                    return {
-                        uri: monaco.Uri.file(result.resolvedPath),
-                        range: new monaco.Range(1, 1, 1, 1),
-                    };
-                }
-            } catch {
-                // Resolution failed — nothing to navigate to
+                // Worker failed
             }
 
             return null;

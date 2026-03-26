@@ -43,6 +43,7 @@ monaco.editor.defineTheme(THEME_NAME, {
         "editorIndentGuide.background": "#31324440",
         "editorLineNumber.foreground": "#585b70",
         "editorLineNumber.activeForeground": "#cdd6f4",
+        "editorLink.activeForeground": "#89b4fa",
     },
 });
 
@@ -172,6 +173,10 @@ function updateMonacoTheme(resolved: ResolvedTheme): void {
             "editorLineNumber.activeForeground": toMonacoColor(
                 css["--foreground"],
                 FALLBACKS.foreground,
+            ),
+            "editorLink.activeForeground": toMonacoColor(
+                css["--accent"],
+                FALLBACKS.keyword,
             ),
         },
     });
