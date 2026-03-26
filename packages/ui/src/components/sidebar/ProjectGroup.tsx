@@ -8,7 +8,7 @@ import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { MissingLocationDialog } from "./MissingLocationDialog";
-import { AlertTriangle, ChevronDown, ChevronRight, GitFork, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronRight, GitFork, Plus, Trash2 } from "lucide-react";
 import { KeyBadge } from "@/components/ui/key-badge";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
@@ -185,83 +185,84 @@ export function ProjectGroup({
     const projectHeader = (
         <div
             className={cn(
-                "group flex flex-col min-w-0 overflow-hidden",
-                "rounded-lg transition-colors [-webkit-app-region:no-drag]",
+                "group flex min-w-0 flex-col overflow-hidden",
+                "rounded-lg transition-colors duration-300 [-webkit-app-region:no-drag]",
                 (isActive || contextMenuOpen) && !locationInvalid
                     ? isActive
                         ? "bg-accent/15"
                         : "bg-accent/8"
                     : open
-                      ? ""
-                      : "",
+                      ? "hover:bg-accent/5"
+                      : "hover:bg-accent/5",
             )}>
             <div className="flex items-center">
-            <button
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenChange(!open);
-                }}
-                aria-label={projectToggleLabel}
-                className="text-foreground flex shrink-0 items-center px-1">
-                {open ? (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                ) : (
-                    <ChevronRight className="h-3.5 w-3.5" />
-                )}
-            </button>
-            <button
-                onClick={(e) => {
-                    e.stopPropagation();
-                    handleProjectClick();
-                }}
-                className="flex-1 flex min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden py-1.5 pr-1.5 text-left"
-                title={project.name}>
-                {locationInvalid && (
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
-                        </TooltipTrigger>
-                        <TooltipContent side="right" sideOffset={4}>
-                            Project location not found
-                        </TooltipContent>
-                    </Tooltip>
-                )}
-                {!open &&
-                    !locationInvalid &&
-                    (projectStatus ? (
-                        <StatusDot status={projectStatus} />
-                    ) : (
-                        hasAgents && (
-                            <span className="bg-muted-foreground/30 inline-block h-2 w-2 shrink-0 rounded-full" />
-                        )
-                    ))}
-                <span
-                    className={cn(
-                        "block min-w-0 truncate text-sm font-medium tracking-wide",
-                        locationInvalid ? "text-foreground/50" : "text-foreground",
-                    )}>
-                    {project.name}
-                </span>
-                {!locationInvalid && branch && (
-                    <span className="text-foreground/40 shrink-0 truncate text-xs">({branch})</span>
-                )}
-            </button>
-            <div className="relative flex shrink-0 items-center">
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenChange(!open);
+                    }}
+                    aria-label={projectToggleLabel}
+                    className="text-foreground flex shrink-0 items-center px-1">
+                    <ChevronRight
+                        className={cn("h-3.5 w-3.5 duration-200", open ? "rotate-90" : "")}
+                    />
+                </button>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        handleProjectClick();
+                    }}
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden py-1.5 pr-1.5 text-left"
+                    title={project.name}>
+                    {locationInvalid && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
+                            </TooltipTrigger>
+                            <TooltipContent side="right" sideOffset={4}>
+                                Project location not found
+                            </TooltipContent>
+                        </Tooltip>
+                    )}
+                    {!open &&
+                        !locationInvalid &&
+                        (projectStatus ? (
+                            <StatusDot status={projectStatus} />
+                        ) : (
+                            hasAgents && (
+                                <span className="bg-muted-foreground/30 inline-block h-2 w-2 shrink-0 rounded-full" />
+                            )
+                        ))}
+                    <span
+                        className={cn(
+                            "block min-w-0 truncate text-sm font-medium tracking-wide",
+                            locationInvalid ? "text-foreground/50" : "text-foreground",
+                        )}>
+                        {project.name}
+                    </span>
+                    {!locationInvalid && branch && (
+                        <span className="text-foreground/40 shrink-0 truncate text-xs">
+                            ({branch})
+                        </span>
+                    )}
+                </button>
                 {keyBadgeNumber == null && !locationInvalid && (diffStats || behind > 0) && (
-                    <Badge
-                        variant="outline"
-                        className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium">
-                        {behind > 0 && <span className="text-info">↓{behind}</span>}
-                        {diffStats && (
-                            <>
-                                <span className="text-success">+{diffStats.additions}</span>
-                                <span className="text-destructive">-{diffStats.deletions}</span>
-                            </>
-                        )}
-                    </Badge>
+                    <div className="relative mr-1.5 flex shrink-0 items-center">
+                        <Badge
+                            variant="outline"
+                            className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium">
+                            {behind > 0 && <span className="text-info">↓{behind}</span>}
+                            {diffStats && (
+                                <>
+                                    <span className="text-success">+{diffStats.additions}</span>
+                                    <span className="text-destructive">-{diffStats.deletions}</span>
+                                </>
+                            )}
+                        </Badge>
+
+                        {keyBadgeNumber != null ? <KeyBadge number={keyBadgeNumber} /> : null}
+                    </div>
                 )}
-                {keyBadgeNumber != null ? <KeyBadge number={keyBadgeNumber} /> : null}
-            </div>
             </div>
             {open && !locationInvalid && project.sessions.length > 0 && (
                 <button
@@ -269,7 +270,7 @@ export function ProjectGroup({
                         e.stopPropagation();
                         handleProjectClick();
                     }}
-                    className="min-w-0 cursor-pointer pb-1.5 pr-1.5 pl-5.5 text-left"
+                    className="min-w-0 cursor-pointer pr-1.5 pb-1.5 pl-5.5 text-left"
                     title={project.name}>
                     <div className="flex min-w-0 flex-wrap gap-1">
                         {project.sessions.map((session) => (

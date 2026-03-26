@@ -14,7 +14,7 @@ function ThemeGrid() {
                     No themes installed.
                 </p>
             ) : (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                     {themes.map((theme) => (
                         <ThemeCard
                             key={theme.id}

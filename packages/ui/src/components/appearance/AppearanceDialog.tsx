@@ -29,7 +29,7 @@ function AppearanceDialog() {
     return (
         <Dialog open={open} onOpenChange={setAppearanceOpen}>
             <DialogContent
-                className="bg-dialog-shell border-border flex max-h-[80vh] max-w-2xl flex-col gap-0 overflow-hidden rounded-xl p-1.5"
+                className="bg-dialog-shell border-border flex max-h-[80vh] max-w-4xl flex-col gap-0 overflow-hidden rounded-xl p-1.5 sm:max-w-3xl"
                 aria-describedby={undefined}>
                 <DialogHeader className="px-2 py-2">
                     <DialogTitle className="text-[15px]">Appearance</DialogTitle>
@@ -53,19 +53,19 @@ function AppearanceDialog() {
                     </nav>
 
                     {/* Content */}
-                    <div className="bg-background min-w-0 flex-1 overflow-y-auto rounded-[10px]">
+                    <div className="bg-background h-[460px] min-w-0 flex-1 overflow-y-auto rounded-[10px]">
                         {section === "themes" && (
-                            <div className="h-[360px] px-5 py-4">
+                            <div className="px-5 py-4">
                                 <ThemeGrid />
                             </div>
                         )}
                         {section === "import" && (
-                            <div className="h-[360px] py-1">
+                            <div className="py-1">
                                 <ImportTab />
                             </div>
                         )}
                         {section === "fonts" && (
-                            <div className="h-[360px] py-1">
+                            <div className="py-1">
                                 <FontsTab />
                             </div>
                         )}

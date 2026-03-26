@@ -35,7 +35,7 @@ function GeneralSection({
                 as="code"
                 tooltip
                 tooltipSide="bottom"
-                className="bg-card border-border text-muted-foreground flex h-8 w-full max-w-90 min-w-0 items-center overflow-x-auto rounded-md border px-2.5 font-mono text-xs"
+                className="bg-card border-border text-muted-foreground flex h-8 w-full max-w-110 min-w-0 items-center overflow-x-auto rounded-md border px-2.5 font-mono text-xs"
                 tooltipContent={dataDirInfo?.dataDir ?? "Loading..."}>
                 {dataDirInfo?.dataDir ?? "Loading..."}
             </TruncatedText>
