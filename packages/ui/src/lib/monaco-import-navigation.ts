@@ -108,7 +108,7 @@ function extractImportSpecifier(lineContent: string): ImportSpecifierMatch | nul
     for (const pattern of patterns) {
         const match = lineContent.match(pattern);
         if (match) {
-            const fullMatchStart = match.index!;
+            const fullMatchStart = match.index ?? 0;
             const specifier = match[1];
             // Find the specifier within the full match (after the opening quote)
             const specifierOffset = match[0].indexOf(specifier);
