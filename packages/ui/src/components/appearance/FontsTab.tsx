@@ -74,7 +74,7 @@ function FontsTab() {
         <div className="flex flex-col">
             <div className="hover:bg-island-base mx-1 rounded-md px-5 py-2.5 transition-colors">
                 <div className="text-muted-foreground mb-2 text-[11px] font-medium tracking-wider uppercase">
-                    Application
+                    Workspace
                 </div>
                 <div className="flex items-center gap-3">
                     <span className="text-secondary-foreground shrink-0 text-[13px] font-medium">
