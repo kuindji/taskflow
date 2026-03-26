@@ -14,6 +14,37 @@ let activeTsconfigPath: string | null | undefined;
 /** Cache: directory → tsconfig path (avoids repeated backend calls) */
 const dirTsconfigCache = new Map<string, string | null>();
 
+/** Cache: tsconfig path → compiler options (avoids re-fetching when switching between zones) */
+const tsconfigOptionsCache = new Map<string, Record<string, unknown>>();
+
+function buildMonacoOpts(opts: Record<string, unknown>): monaco.languages.typescript.CompilerOptions {
+    const monacoOpts: monaco.languages.typescript.CompilerOptions = {
+        allowJs: true,
+        allowNonTsExtensions: true,
+        esModuleInterop: true,
+        jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+        target: monaco.languages.typescript.ScriptTarget.ESNext,
+        module: monaco.languages.typescript.ModuleKind.ESNext,
+        moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+    };
+
+    if (typeof opts.baseUrl === "string") monacoOpts.baseUrl = opts.baseUrl;
+    if (typeof opts.strict === "boolean") monacoOpts.strict = opts.strict;
+    if (typeof opts.rootDir === "string") monacoOpts.rootDir = opts.rootDir;
+    if (Array.isArray(opts.rootDirs)) monacoOpts.rootDirs = opts.rootDirs;
+    if (opts.paths !== null && typeof opts.paths === "object" && !Array.isArray(opts.paths)) {
+        monacoOpts.paths = opts.paths as Record<string, string[]>;
+    }
+
+    return monacoOpts;
+}
+
+function applyCompilerOptions(opts: Record<string, unknown>): void {
+    const monacoOpts = buildMonacoOpts(opts);
+    monaco.languages.typescript.typescriptDefaults.setCompilerOptions(monacoOpts);
+    monaco.languages.typescript.javascriptDefaults.setCompilerOptions(monacoOpts);
+}
+
 /**
  * Sync Monaco's TypeScript compiler options with the nearest tsconfig for the given file.
  * Only calls the backend if the file's directory hasn't been seen before.
@@ -22,10 +53,18 @@ async function syncCompilerOptions(filePath: string): Promise<void> {
     const dir = filePath.substring(0, filePath.lastIndexOf("/"));
 
     // Check if we've already resolved this directory
-    if (dirTsconfigCache.has(dir)) {
-        const cachedPath = dirTsconfigCache.get(dir)!;
+    const cachedPath = dirTsconfigCache.get(dir);
+    if (cachedPath !== undefined) {
         if (cachedPath === activeTsconfigPath) return;
-        // Different tsconfig — need to re-fetch to get options
+        // Different tsconfig — apply cached options if available
+        activeTsconfigPath = cachedPath;
+        if (cachedPath !== null) {
+            const cachedOpts = tsconfigOptionsCache.get(cachedPath);
+            if (cachedOpts) {
+                applyCompilerOptions(cachedOpts);
+                return;
+            }
+        }
     }
 
     let result: TsResolveTsconfigResponse;
@@ -45,31 +84,8 @@ async function syncCompilerOptions(filePath: string): Promise<void> {
 
     if (!result.tsconfigPath) return;
 
-    // Map raw tsconfig compilerOptions to Monaco's TypeScript compiler options.
-    // Monaco uses its own enum values, so we pass the raw JSON and let Monaco
-    // interpret string values (e.g., "esnext" for target/module).
-    const opts = result.compilerOptions;
-
-    // Build Monaco-compatible compiler options, preserving existing defaults
-    const monacoOpts: monaco.languages.typescript.CompilerOptions = {
-        allowJs: true,
-        allowNonTsExtensions: true,
-        esModuleInterop: true,
-        jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
-        target: monaco.languages.typescript.ScriptTarget.ESNext,
-        module: monaco.languages.typescript.ModuleKind.ESNext,
-        moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-    };
-
-    // Apply tsconfig overrides where they exist
-    if (opts.baseUrl !== undefined) monacoOpts.baseUrl = opts.baseUrl as string;
-    if (opts.paths !== undefined) monacoOpts.paths = opts.paths as Record<string, string[]>;
-    if (opts.rootDir !== undefined) monacoOpts.rootDir = opts.rootDir as string;
-    if (opts.rootDirs !== undefined) monacoOpts.rootDirs = opts.rootDirs as string[];
-    if (opts.strict !== undefined) monacoOpts.strict = opts.strict as boolean;
-
-    monaco.languages.typescript.typescriptDefaults.setCompilerOptions(monacoOpts);
-    monaco.languages.typescript.javascriptDefaults.setCompilerOptions(monacoOpts);
+    tsconfigOptionsCache.set(result.tsconfigPath, result.compilerOptions);
+    applyCompilerOptions(result.compilerOptions);
 }
 
 /**

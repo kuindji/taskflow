@@ -20,8 +20,10 @@ async function loadProjectTs(projectRoot: string): Promise<typeof ts> {
     try {
         await access(resolve(projectTsPath, "lib", "typescript.js"));
         // Dynamic import of the project's TypeScript
-        const projectTs = await import(resolve(projectTsPath, "lib", "typescript.js"));
-        return projectTs.default ?? projectTs;
+        const projectTs: { default?: typeof ts } = await import(
+            resolve(projectTsPath, "lib", "typescript.js")
+        );
+        return projectTs.default ?? ts;
     } catch {
         return ts;
     }
@@ -149,7 +151,7 @@ export async function resolveImport(
 /**
  * Clear all caches. Useful if tsconfig files change on disk.
  */
-export function clearTsResolverCaches(): void {
+function clearTsResolverCaches(): void {
     tsconfigCache.clear();
     dirToTsconfigPath.clear();
     tsInstanceCache.clear();
