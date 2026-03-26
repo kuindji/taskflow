@@ -183,18 +183,23 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
                         }
                     }
 
-                    // For cross-file definitions, return a location pointing to the target.
-                    // Monaco will call our EditorOpener on actual click.
-                    return {
-                        uri: defUri,
-                        range: new monaco.Range(1, 1, 1, 1),
-                    };
+                    // For cross-file definitions, only use the worker result if the
+                    // URI looks like a real file path (starts with /). The TS worker
+                    // may return internal URIs for files not loaded as models.
+                    if (defUri.path.startsWith("/")) {
+                        return {
+                            uri: monaco.Uri.file(defUri.path),
+                            range: new monaco.Range(1, 1, 1, 1),
+                        };
+                    }
+                    // Non-file URI — fall through to backend resolution
                 }
             } catch {
                 // Worker failed — fall through to backend resolution
             }
 
-            // Fallback: extract import specifier and ask backend
+            // Fallback: extract import specifier and ask backend to resolve
+            // the module path using TypeScript's own resolution with filesystem access
             const lineContent = model.getLineContent(position.lineNumber);
             const specifier = extractImportSpecifier(lineContent);
             if (!specifier) return null;
@@ -205,11 +210,8 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
                     { sourceFilePath: filePath, importSpecifier: specifier },
                 );
                 if (result.resolvedPath) {
-                    // Return a location so Monaco shows the underline on hover.
-                    // The EditorOpener handles the actual file open on click.
-                    const targetUri = monaco.Uri.file(result.resolvedPath);
                     return {
-                        uri: targetUri,
+                        uri: monaco.Uri.file(result.resolvedPath),
                         range: new monaco.Range(1, 1, 1, 1),
                     };
                 }
