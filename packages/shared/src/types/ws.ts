@@ -500,3 +500,22 @@ export interface RemoteAgentStatusPayload {
     running: boolean;
     sessionId?: string;
 }
+
+// TypeScript resolution
+export interface TsResolveTsconfigPayload {
+    filePath: string;
+}
+
+export interface TsResolveTsconfigResponse {
+    tsconfigPath: string | null;
+    compilerOptions: Record<string, unknown>;
+}
+
+export interface TsResolveImportPayload {
+    sourceFilePath: string;
+    importSpecifier: string;
+}
+
+export interface TsResolveImportResponse {
+    resolvedPath: string | null;
+}

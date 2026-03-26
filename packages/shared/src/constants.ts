@@ -55,6 +55,10 @@ export const MSG = {
     FILE_OPEN_EXTERNAL: "file:open-external",
     FILE_REVEAL: "file:reveal",
 
+    // TypeScript resolution
+    TS_RESOLVE_TSCONFIG: "ts:resolve-tsconfig",
+    TS_RESOLVE_IMPORT: "ts:resolve-import",
+
     // Git
     GIT_STATUS: "git:status",
     GIT_DIFF: "git:diff",
