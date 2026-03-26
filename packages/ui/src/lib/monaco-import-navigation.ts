@@ -88,22 +88,40 @@ async function syncCompilerOptions(filePath: string): Promise<void> {
     applyCompilerOptions(result.compilerOptions);
 }
 
+interface ImportSpecifierMatch {
+    specifier: string;
+    /** 1-based start column of the specifier (inside the quotes) */
+    startColumn: number;
+    /** 1-based end column (exclusive) of the specifier */
+    endColumn: number;
+}
+
 /**
- * Extract the import specifier string from the line at the cursor position.
+ * Extract the import specifier string and its column range from a line.
  * Handles: import ... from "specifier", import "specifier", require("specifier")
  */
-function extractImportSpecifier(lineContent: string): string | null {
-    // Match: from "..." or from '...'
-    const fromMatch = lineContent.match(/from\s+['"]([^'"]+)['"]/);
-    if (fromMatch) return fromMatch[1];
+function extractImportSpecifier(lineContent: string): ImportSpecifierMatch | null {
+    const patterns = [
+        /from\s+['"]([^'"]+)['"]/,
+        /import\s+['"]([^'"]+)['"]/,
+        /require\s*\(\s*['"]([^'"]+)['"]\s*\)/,
+    ];
 
-    // Match: import "..." or import '...'
-    const importMatch = lineContent.match(/import\s+['"]([^'"]+)['"]/);
-    if (importMatch) return importMatch[1];
-
-    // Match: require("...") or require('...')
-    const requireMatch = lineContent.match(/require\s*\(\s*['"]([^'"]+)['"]\s*\)/);
-    if (requireMatch) return requireMatch[1];
+    for (const pattern of patterns) {
+        const match = lineContent.match(pattern);
+        if (match) {
+            const fullMatchStart = match.index!;
+            const specifier = match[1];
+            // Find the specifier within the full match (after the opening quote)
+            const specifierOffset = match[0].indexOf(specifier);
+            const startColumn = fullMatchStart + specifierOffset + 1; // 1-based
+            return {
+                specifier,
+                startColumn,
+                endColumn: startColumn + specifier.length,
+            };
+        }
+    }
 
     return null;
 }
@@ -153,7 +171,7 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
         provideDefinition: async (
             model: monaco.editor.ITextModel,
             position: monaco.Position,
-        ): Promise<monaco.languages.Definition | null> => {
+        ): Promise<monaco.languages.LocationLink[] | monaco.languages.Definition | null> => {
             const language = model.getLanguageId();
             if (!TS_LANGUAGES.has(language)) return null;
 
@@ -164,20 +182,26 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
             // The Monaco TS worker doesn't have filesystem access so it can't
             // resolve imports to files that aren't loaded as models.
             const lineContent = model.getLineContent(position.lineNumber);
-            const specifier = extractImportSpecifier(lineContent);
-            if (specifier) {
+            const importMatch = extractImportSpecifier(lineContent);
+            if (importMatch) {
                 try {
                     const result = await sendRequest<TsResolveImportResponse>(
                         MSG.TS_RESOLVE_IMPORT,
-                        { sourceFilePath: filePath, importSpecifier: specifier },
+                        { sourceFilePath: filePath, importSpecifier: importMatch.specifier },
                     );
                     if (result.resolvedPath) {
                         const targetUri = monaco.Uri.file(result.resolvedPath);
                         ensureModel(targetUri);
-                        return {
+                        const line = position.lineNumber;
+                        const link: monaco.languages.LocationLink = {
+                            originSelectionRange: new monaco.Range(
+                                line, importMatch.startColumn,
+                                line, importMatch.endColumn,
+                            ),
                             uri: targetUri,
                             range: new monaco.Range(1, 1, 1, 1),
                         };
+                        return [link];
                     }
                 } catch {
                     // Resolution failed — nothing to navigate to
