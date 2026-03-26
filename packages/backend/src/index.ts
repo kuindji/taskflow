@@ -40,6 +40,7 @@ import { NotificationStore } from "./services/notification-store";
 import { registerNotificationHandlers } from "./handlers/notification";
 import { RemoteAgentService } from "./services/remote-agent-service";
 import { registerRemoteAgentHandlers } from "./handlers/remote-agent";
+import { registerTypeScriptHandlers } from "./handlers/typescript";
 import { writeFile } from "fs/promises";
 import { homedir } from "os";
 
@@ -271,6 +272,10 @@ async function main() {
             taskStore: store,
             broadcast: server.broadcast,
             changeTracker,
+        });
+        registerTypeScriptHandlers({
+            router,
+            taskStore: store,
         });
 
         const themeService = new ThemeService(config.themesDir);
