@@ -80,7 +80,7 @@ function AgentDropdownMenu({
     onRunAction,
     onRunAgentCommand,
     onStartFlow,
-    onManageFlows,
+    //onManageFlows,
     scripts,
     defaultRuntime,
     flows,
@@ -176,8 +176,8 @@ function AgentDropdownMenu({
                         id: `flow:${flow.id}`,
                         label: flow.name,
                     })),
-                    { type: "separator" },
-                    { id: "manage-flows", label: "Manage Actions and Flows..." },
+                    //{ type: "separator" },
+                    //{ id: "manage-flows", label: "Manage Actions and Flows..." },
                 ],
             });
 
