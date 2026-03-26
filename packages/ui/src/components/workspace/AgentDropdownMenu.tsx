@@ -184,7 +184,7 @@ function AgentDropdownMenu({
             for (const flow of flows) {
                 actions[`flow:${flow.id}`] = () => onStartFlow(flow.id);
             }
-            actions["manage-flows"] = onManageFlows;
+            // actions["manage-flows"] = onManageFlows;
         }
 
         if (standaloneActions.length > 0) {
@@ -383,10 +383,10 @@ function AgentDropdownMenu({
                                                     {f.name}
                                                 </DropdownMenuItem>
                                             ))}
-                                            <DropdownMenuSeparator />
-                                            <DropdownMenuItem onClick={onManageFlows}>
+                                            {/* <DropdownMenuSeparator /> */}
+                                            {/* <DropdownMenuItem onClick={onManageFlows}>
                                                 Manage Actions and Flows...
-                                            </DropdownMenuItem>
+                                            </DropdownMenuItem> */}
                                         </DropdownMenuSubContent>
                                     </DropdownMenuSub>
                                 </>
