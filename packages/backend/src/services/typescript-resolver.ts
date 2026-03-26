@@ -3,10 +3,13 @@ import { access } from "fs/promises";
 import ts from "typescript";
 
 /** Cache of parsed tsconfig results keyed by tsconfig file path */
-const tsconfigCache = new Map<string, {
-    compilerOptions: ts.CompilerOptions;
-    raw: Record<string, unknown>;
-}>();
+const tsconfigCache = new Map<
+    string,
+    {
+        compilerOptions: ts.CompilerOptions;
+        raw: Record<string, unknown>;
+    }
+>();
 
 /** Cache of directory → tsconfig path mapping so we don't re-walk for sibling files */
 const dirToTsconfigPath = new Map<string, string | null>();
@@ -20,9 +23,9 @@ async function loadProjectTs(projectRoot: string): Promise<typeof ts> {
     try {
         await access(resolve(projectTsPath, "lib", "typescript.js"));
         // Dynamic import of the project's TypeScript
-        const projectTs: { default?: typeof ts } = await import(
-            resolve(projectTsPath, "lib", "typescript.js")
-        );
+        const projectTs = (await import(resolve(projectTsPath, "lib", "typescript.js"))) as {
+            default?: typeof ts;
+        };
         return projectTs.default ?? ts;
     } catch {
         return ts;
@@ -36,8 +39,9 @@ async function getTsForProject(filePath: string): Promise<typeof ts> {
     // Walk up to find the nearest directory with node_modules/typescript
     let dir = dirname(filePath);
     while (dir !== dirname(dir)) {
-        if (tsInstanceCache.has(dir)) {
-            return tsInstanceCache.get(dir)!;
+        const cached = tsInstanceCache.get(dir);
+        if (cached) {
+            return cached;
         }
         try {
             await access(resolve(dir, "node_modules", "typescript", "lib", "typescript.js"));
@@ -62,24 +66,20 @@ export async function resolveTsconfig(filePath: string): Promise<{
     const dir = dirname(filePath);
 
     // Check directory cache first
-    if (dirToTsconfigPath.has(dir)) {
-        const cachedPath = dirToTsconfigPath.get(dir)!;
-        if (cachedPath === null) {
+    const cachedDir = dirToTsconfigPath.get(dir);
+    if (cachedDir !== undefined) {
+        if (cachedDir === null) {
             return { tsconfigPath: null, compilerOptions: {} };
         }
-        const cached = tsconfigCache.get(cachedPath);
+        const cached = tsconfigCache.get(cachedDir);
         if (cached) {
-            return { tsconfigPath: cachedPath, compilerOptions: cached.raw };
+            return { tsconfigPath: cachedDir, compilerOptions: cached.raw };
         }
     }
 
     const tsInstance = await getTsForProject(filePath);
 
-    const tsconfigPath = tsInstance.findConfigFile(
-        dir,
-        tsInstance.sys.fileExists,
-        "tsconfig.json",
-    );
+    const tsconfigPath = tsInstance.findConfigFile(dir, tsInstance.sys.fileExists, "tsconfig.json");
 
     if (!tsconfigPath) {
         dirToTsconfigPath.set(dir, null);
@@ -87,10 +87,10 @@ export async function resolveTsconfig(filePath: string): Promise<{
     }
 
     // Check tsconfig cache
-    if (tsconfigCache.has(tsconfigPath)) {
+    const cachedConfig = tsconfigCache.get(tsconfigPath);
+    if (cachedConfig) {
         dirToTsconfigPath.set(dir, tsconfigPath);
-        const cached = tsconfigCache.get(tsconfigPath)!;
-        return { tsconfigPath, compilerOptions: cached.raw };
+        return { tsconfigPath, compilerOptions: cachedConfig.raw };
     }
 
     // Parse the tsconfig
@@ -100,14 +100,18 @@ export async function resolveTsconfig(filePath: string): Promise<{
         return { tsconfigPath: null, compilerOptions: {} };
     }
 
+    const configJson = configFile.config as
+        | { compilerOptions?: Record<string, unknown> }
+        | undefined;
+
     const parsed = tsInstance.parseJsonConfigFileContent(
-        configFile.config,
+        configJson,
         tsInstance.sys,
         dirname(tsconfigPath),
     );
 
     // Extract a serializable subset of compiler options for Monaco
-    const raw = configFile.config?.compilerOptions ?? {};
+    const raw: Record<string, unknown> = configJson?.compilerOptions ?? {};
 
     tsconfigCache.set(tsconfigPath, {
         compilerOptions: parsed.options,
@@ -131,7 +135,7 @@ export async function resolveImport(
     // Get compiler options from nearest tsconfig
     const { tsconfigPath } = await resolveTsconfig(sourceFilePath);
     const compilerOptions = tsconfigPath
-        ? tsconfigCache.get(tsconfigPath)?.compilerOptions ?? {}
+        ? (tsconfigCache.get(tsconfigPath)?.compilerOptions ?? {})
         : {};
 
     const result = tsInstance.resolveModuleName(
@@ -146,13 +150,4 @@ export async function resolveImport(
     }
 
     return null;
-}
-
-/**
- * Clear all caches. Useful if tsconfig files change on disk.
- */
-function clearTsResolverCaches(): void {
-    tsconfigCache.clear();
-    dirToTsconfigPath.clear();
-    tsInstanceCache.clear();
 }

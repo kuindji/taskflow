@@ -1,9 +1,6 @@
 import * as monaco from "monaco-editor";
 import { MSG } from "@taskflow/shared";
-import type {
-    TsResolveTsconfigResponse,
-    TsResolveImportResponse,
-} from "@taskflow/shared";
+import type { TsResolveTsconfigResponse, TsResolveImportResponse } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 
 const TS_LANGUAGES = new Set(["typescript", "javascript"]);
@@ -17,7 +14,9 @@ const dirTsconfigCache = new Map<string, string | null>();
 /** Cache: tsconfig path → compiler options (avoids re-fetching when switching between zones) */
 const tsconfigOptionsCache = new Map<string, Record<string, unknown>>();
 
-function buildMonacoOpts(opts: Record<string, unknown>): monaco.languages.typescript.CompilerOptions {
+function buildMonacoOpts(
+    opts: Record<string, unknown>,
+): monaco.languages.typescript.CompilerOptions {
     const monacoOpts: monaco.languages.typescript.CompilerOptions = {
         allowJs: true,
         allowNonTsExtensions: true,
@@ -69,10 +68,9 @@ async function syncCompilerOptions(filePath: string): Promise<void> {
 
     let result: TsResolveTsconfigResponse;
     try {
-        result = await sendRequest<TsResolveTsconfigResponse>(
-            MSG.TS_RESOLVE_TSCONFIG,
-            { filePath },
-        );
+        result = await sendRequest<TsResolveTsconfigResponse>(MSG.TS_RESOLVE_TSCONFIG, {
+            filePath,
+        });
     } catch {
         return;
     }
@@ -195,8 +193,10 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
                         const line = position.lineNumber;
                         const link: monaco.languages.LocationLink = {
                             originSelectionRange: new monaco.Range(
-                                line, importMatch.startColumn,
-                                line, importMatch.endColumn,
+                                line,
+                                importMatch.startColumn,
+                                line,
+                                importMatch.endColumn,
                             ),
                             uri: targetUri,
                             range: new monaco.Range(1, 1, 1, 1),
@@ -211,9 +211,10 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
 
             // For non-import positions (local symbols), use the TS worker
             // for same-file go-to-definition
-            const workerGetter = language === "typescript"
-                ? monaco.languages.typescript.getTypeScriptWorker
-                : monaco.languages.typescript.getJavaScriptWorker;
+            const workerGetter =
+                language === "typescript"
+                    ? monaco.languages.typescript.getTypeScriptWorker
+                    : monaco.languages.typescript.getJavaScriptWorker;
 
             try {
                 const worker = await workerGetter();
@@ -224,7 +225,10 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
                 );
 
                 if (definitions && definitions.length > 0) {
-                    const def = definitions[0];
+                    const def = definitions[0] as {
+                        fileName: string;
+                        textSpan: { start: number; length: number };
+                    };
                     const defUri = monaco.Uri.parse(def.fileName);
 
                     // Same-file definition: navigate within the editor

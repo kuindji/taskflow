@@ -174,10 +174,7 @@ function updateMonacoTheme(resolved: ResolvedTheme): void {
                 css["--foreground"],
                 FALLBACKS.foreground,
             ),
-            "editorLink.activeForeground": toMonacoColor(
-                css["--accent"],
-                FALLBACKS.keyword,
-            ),
+            "editorLink.activeForeground": toMonacoColor(css["--accent"], FALLBACKS.keyword),
         },
     });
 
