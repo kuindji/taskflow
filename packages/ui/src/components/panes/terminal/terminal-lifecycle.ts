@@ -8,7 +8,7 @@ import type { Tab } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useThemeStore } from "@/stores/theme-store";
 import { onEvent, sendRequest } from "@/hooks/useWebSocket";
-import { DEFAULT_TERMINAL_FONT_FAMILY, MSG, TERMINAL_SCROLLBACK } from "@taskflow/shared";
+import { DEFAULT_TERMINAL_FONT_FAMILY, DEFAULT_TERMINAL_FONT_SIZE, MSG, TERMINAL_SCROLLBACK } from "@taskflow/shared";
 import type {
     TerminalOutputEvent,
     SessionExitedEvent,
@@ -160,7 +160,7 @@ function getOrCreateTerminal(
         rows: lastTerminalSize?.rows ?? undefined,
         theme: getTerminalTheme(),
         fontFamily: terminalSettings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
-        fontSize: terminalSettings?.fontSize ?? 13,
+        fontSize: terminalSettings?.fontSize ?? DEFAULT_TERMINAL_FONT_SIZE,
         fontWeight: "normal",
         fontWeightBold: "bold",
         lineHeight: 1.0,

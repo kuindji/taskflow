@@ -5,6 +5,7 @@ import {
     DEFAULT_EDITOR_FONT_SIZE,
     DEFAULT_EDITOR_WORD_WRAP,
     DEFAULT_TERMINAL_FONT_FAMILY,
+    DEFAULT_TERMINAL_FONT_SIZE,
     DEFAULT_TERMINAL_SHELL,
     DEFAULT_THEME_ID,
 } from "@taskflow/shared";
@@ -25,7 +26,7 @@ const DEFAULTS: AppSettings = {
     },
     terminal: {
         fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
-        fontSize: 13,
+        fontSize: DEFAULT_TERMINAL_FONT_SIZE,
         defaultShell: DEFAULT_TERMINAL_SHELL,
     },
     editor: {

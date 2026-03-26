@@ -150,10 +150,11 @@ export const ARCHIVE_EXPIRY_DAYS = 30;
 
 export const DEFAULT_TERMINAL_FONT_FAMILY =
     '"CaskaydiaCove Nerd Font Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+export const DEFAULT_TERMINAL_FONT_SIZE = 18;
 export const DEFAULT_TERMINAL_SHELL = "system";
 
-export const DEFAULT_EDITOR_FONT_FAMILY = '"JetBrains Mono", Menlo, Monaco, monospace';
-export const DEFAULT_EDITOR_FONT_SIZE = 13;
+export const DEFAULT_EDITOR_FONT_FAMILY = '"JetBrainsMono Nerd Font", "JetBrains Mono", Menlo, Monaco, monospace';
+export const DEFAULT_EDITOR_FONT_SIZE = 18;
 export const DEFAULT_EDITOR_WORD_WRAP = true;
 
 /** Shared scrollback line count — must match between frontend xterm and backend headless xterm. */
