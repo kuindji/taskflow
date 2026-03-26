@@ -111,15 +111,29 @@ function extractImportSpecifier(lineContent: string): string | null {
 /** Open a resolved file path in a new editor tab */
 type OpenFileCallback = (filePath: string) => void;
 
-const definitionProviderDisposables: monaco.IDisposable[] = [];
+const registeredDisposables: monaco.IDisposable[] = [];
 
 /**
- * Register the Monaco definition provider for Cmd+click import navigation.
- * Call this once on app startup. The `openFile` callback is called when
- * a definition is resolved to a file path.
+ * Register Monaco definition provider and editor opener for Cmd+click import navigation.
+ *
+ * The definition provider returns Location objects pointing to the target file.
+ * Monaco calls provideDefinition on hover (to show the underline) — returning a
+ * Location has no side effects. The actual file opening happens only on click,
+ * when Monaco invokes the registered EditorOpener with the resolved URI.
  */
-function registerDefinitionProvider(openFile: OpenFileCallback): void {
-    if (definitionProviderDisposables.length > 0) return;
+function registerImportNavigation(openFile: OpenFileCallback): void {
+    if (registeredDisposables.length > 0) return;
+
+    // EditorOpener: intercepts "go to definition" when the target is a different file.
+    // This is called only on actual Cmd+click, not during hover preview.
+    registeredDisposables.push(
+        monaco.editor.registerEditorOpener({
+            openCodeEditor(_source, resource) {
+                openFile(resource.path);
+                return true;
+            },
+        }),
+    );
 
     const provider: monaco.languages.DefinitionProvider = {
         provideDefinition: async (
@@ -148,30 +162,33 @@ function registerDefinitionProvider(openFile: OpenFileCallback): void {
                 if (definitions && definitions.length > 0) {
                     const def = definitions[0];
                     const defUri = monaco.Uri.parse(def.fileName);
-                    const defModel = monaco.editor.getModel(defUri);
 
-                    // If the definition is in a different file, open it
-                    if (defUri.path !== filePath) {
-                        openFile(defUri.path);
-                        return null;
+                    // For same-file definitions, return location for in-editor navigation
+                    if (defUri.path === filePath) {
+                        const defModel = monaco.editor.getModel(defUri);
+                        if (defModel) {
+                            const startPos = defModel.getPositionAt(def.textSpan.start);
+                            const endPos = defModel.getPositionAt(
+                                def.textSpan.start + def.textSpan.length,
+                            );
+                            return {
+                                uri: defUri,
+                                range: new monaco.Range(
+                                    startPos.lineNumber,
+                                    startPos.column,
+                                    endPos.lineNumber,
+                                    endPos.column,
+                                ),
+                            };
+                        }
                     }
 
-                    // If it's in the same file, return the location for Monaco to navigate
-                    if (defModel) {
-                        const startPos = defModel.getPositionAt(def.textSpan.start);
-                        const endPos = defModel.getPositionAt(
-                            def.textSpan.start + def.textSpan.length,
-                        );
-                        return {
-                            uri: defUri,
-                            range: new monaco.Range(
-                                startPos.lineNumber,
-                                startPos.column,
-                                endPos.lineNumber,
-                                endPos.column,
-                            ),
-                        };
-                    }
+                    // For cross-file definitions, return a location pointing to the target.
+                    // Monaco will call our EditorOpener on actual click.
+                    return {
+                        uri: defUri,
+                        range: new monaco.Range(1, 1, 1, 1),
+                    };
                 }
             } catch {
                 // Worker failed — fall through to backend resolution
@@ -188,7 +205,13 @@ function registerDefinitionProvider(openFile: OpenFileCallback): void {
                     { sourceFilePath: filePath, importSpecifier: specifier },
                 );
                 if (result.resolvedPath) {
-                    openFile(result.resolvedPath);
+                    // Return a location so Monaco shows the underline on hover.
+                    // The EditorOpener handles the actual file open on click.
+                    const targetUri = monaco.Uri.file(result.resolvedPath);
+                    return {
+                        uri: targetUri,
+                        range: new monaco.Range(1, 1, 1, 1),
+                    };
                 }
             } catch {
                 // Resolution failed — nothing to navigate to
@@ -198,10 +221,10 @@ function registerDefinitionProvider(openFile: OpenFileCallback): void {
         },
     };
 
-    definitionProviderDisposables.push(
+    registeredDisposables.push(
         monaco.languages.registerDefinitionProvider("typescript", provider),
         monaco.languages.registerDefinitionProvider("javascript", provider),
     );
 }
 
-export { syncCompilerOptions, registerDefinitionProvider };
+export { syncCompilerOptions, registerImportNavigation };

@@ -9,7 +9,7 @@ import { useFileStore } from "@/stores/file-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { MONACO_THEME_NAME } from "@/lib/monaco-theme";
 import { Button } from "@/components/ui/button";
-import { syncCompilerOptions, registerDefinitionProvider } from "@/lib/monaco-import-navigation";
+import { syncCompilerOptions, registerImportNavigation } from "@/lib/monaco-import-navigation";
 import { openFileInApp } from "@/lib/open-file";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
@@ -74,7 +74,7 @@ monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
 // Register Cmd+click import navigation.
 // The provider is registered once globally; the openFile callback reads
 // current workspace context at call time via store.getState().
-registerDefinitionProvider((filePath: string) => {
+registerImportNavigation((filePath: string) => {
     const { masterWorkspaceActive, activeProjectId } = useUIStore.getState();
     const { activeTaskId } = useTaskStore.getState();
     const { projects } = useProjectStore.getState();
