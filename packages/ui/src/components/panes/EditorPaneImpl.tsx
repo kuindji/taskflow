@@ -9,6 +9,16 @@ import { useFileStore } from "@/stores/file-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { MONACO_THEME_NAME } from "@/lib/monaco-theme";
 import { Button } from "@/components/ui/button";
+import { syncCompilerOptions, registerDefinitionProvider } from "@/lib/monaco-import-navigation";
+import { openFileInApp } from "@/lib/open-file";
+import { useTaskStore } from "@/stores/task-store";
+import { useUIStore } from "@/stores/ui-store";
+import { useProjectStore } from "@/stores/project-store";
+import {
+    getTaskWorkspaceKey,
+    getProjectWorkspaceKey,
+    MASTER_WORKSPACE_KEY,
+} from "@/hooks/useActiveWorkspace";
 
 interface EditorPaneImplProps {
     filePath: string;
@@ -59,6 +69,28 @@ monaco.languages.typescript.javascriptDefaults.setCompilerOptions(jsxCompilerOpt
 monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
     noSemanticValidation: true,
     noSuggestionDiagnostics: true,
+});
+
+// Register Cmd+click import navigation.
+// The provider is registered once globally; the openFile callback reads
+// current workspace context at call time via store.getState().
+registerDefinitionProvider((filePath: string) => {
+    const { masterWorkspaceActive, activeProjectId } = useUIStore.getState();
+    const { activeTaskId } = useTaskStore.getState();
+    const { projects } = useProjectStore.getState();
+
+    let workspaceKey: string | null = null;
+    if (masterWorkspaceActive) {
+        workspaceKey = MASTER_WORKSPACE_KEY;
+    } else if (activeTaskId) {
+        workspaceKey = getTaskWorkspaceKey(activeTaskId);
+    } else if (activeProjectId) {
+        const project = projects.find((p) => p.id === activeProjectId);
+        if (project) workspaceKey = getProjectWorkspaceKey(activeProjectId);
+    }
+
+    if (!workspaceKey) return;
+    void openFileInApp(filePath, workspaceKey);
 });
 
 function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
@@ -114,6 +146,12 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
         });
 
         editorRef.current = editor;
+
+        // Sync TypeScript compiler options with nearest tsconfig
+        const language = getLanguage(filePath);
+        if (language === "typescript" || language === "javascript") {
+            void syncCompilerOptions(filePath);
+        }
 
         const restoreViewState = () => {
             const savedViewState = viewStates.get(filePath);
