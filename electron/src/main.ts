@@ -1,4 +1,4 @@
-import { app, dialog } from "electron";
+import { app, dialog, nativeTheme } from "electron";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -56,6 +56,8 @@ declare const BUILD_GIT_BRANCH: string;
 
 let quitting = false;
 let devBranch: string | null = null;
+
+nativeTheme.themeSource = "dark";
 
 // --- Dev mode setup ---
 
