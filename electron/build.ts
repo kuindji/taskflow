@@ -97,6 +97,22 @@ if (!preloadResult.success) {
     process.exit(1);
 }
 
+const browserPreloadResult = await Bun.build({
+    entrypoints: ["src/browser-preload.ts"],
+    outdir: "dist",
+    target: "node",
+    format: "cjs",
+    external: ["electron"],
+});
+
+if (!browserPreloadResult.success) {
+    console.error("Failed to build browser-preload.ts:");
+    for (const log of browserPreloadResult.logs) {
+        console.error(log);
+    }
+    process.exit(1);
+}
+
 mkdirSync("dist", { recursive: true });
 buildMenuBarIconPng(18, join(import.meta.dir, "dist", "menubar-icon.png"));
 buildMenuBarIconPng(36, join(import.meta.dir, "dist", "menubar-icon@2x.png"));

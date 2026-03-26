@@ -77,6 +77,8 @@ declare global {
 
     interface WebviewElement extends HTMLElement {
         src: string;
+        partition: string;
+        useragent: string;
         getURL(): string;
         goBack(): void;
         goForward(): void;
@@ -94,6 +96,8 @@ declare global {
             webview: React.DetailedHTMLProps<
                 React.HTMLAttributes<WebviewElement> & {
                     src?: string;
+                    partition?: string;
+                    useragent?: string;
                 },
                 WebviewElement
             >;

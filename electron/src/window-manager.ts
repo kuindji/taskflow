@@ -82,7 +82,9 @@ async function createWindow(): Promise<void> {
     mainWindow.webContents.on("will-attach-webview", (_event, webPreferences) => {
         webPreferences.nodeIntegration = false;
         webPreferences.nodeIntegrationInSubFrames = false;
-        delete webPreferences.preload;
+        // Replace the app preload with a minimal browser preload that patches
+        // automation fingerprints (e.g. navigator.webdriver).
+        webPreferences.preload = join(appPath, "dist", "browser-preload.js");
     });
 
     if (saved?.isMaximized) {

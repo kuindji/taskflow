@@ -152,8 +152,7 @@ function FontsTab() {
                     variant="ghost"
                     size="sm"
                     onClick={handleResetAll}
-                    className="text-muted-foreground hover:text-foreground h-7 gap-1.5 px-2 text-xs"
-                >
+                    className="text-muted-foreground hover:text-foreground h-7 gap-1.5 px-2 text-xs">
                     <RotateCcw className="h-3 w-3" />
                     Reset to defaults
                 </Button>

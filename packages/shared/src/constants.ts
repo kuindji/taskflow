@@ -156,7 +156,8 @@ export const DEFAULT_TERMINAL_FONT_FAMILY =
 export const DEFAULT_TERMINAL_FONT_SIZE = 18;
 export const DEFAULT_TERMINAL_SHELL = "system";
 
-export const DEFAULT_EDITOR_FONT_FAMILY = '"JetBrainsMono Nerd Font", "JetBrains Mono", Menlo, Monaco, monospace';
+export const DEFAULT_EDITOR_FONT_FAMILY =
+    '"JetBrainsMono Nerd Font", "JetBrains Mono", Menlo, Monaco, monospace';
 export const DEFAULT_EDITOR_FONT_SIZE = 18;
 export const DEFAULT_EDITOR_WORD_WRAP = true;
 

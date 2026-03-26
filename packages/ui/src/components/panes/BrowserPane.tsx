@@ -6,6 +6,12 @@ import { ArrowLeft, ExternalLink, RotateCw } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
 import { normalizeUrl } from "@/utils/url";
 
+// Build a user-agent string that looks like a regular Chrome browser by
+// stripping the Electron and app-name tokens from the default UA.
+const chromeUserAgent = navigator.userAgent
+    .replace(/\s*Electron\/[\w.-]+/i, "")
+    .replace(/\s*Taskflow\/[\w.-]+/i, "");
+
 interface BrowserPaneProps {
     initialUrl: string;
 }
@@ -173,7 +179,13 @@ function BrowserPane({ initialUrl }: BrowserPaneProps) {
             </Toolbar>
 
             {isElectron ? (
-                <webview ref={webviewRef} src={url} style={frameStyle} />
+                <webview
+                    ref={webviewRef}
+                    src={url}
+                    partition="persist:browser"
+                    useragent={chromeUserAgent}
+                    style={frameStyle}
+                />
             ) : (
                 <iframe
                     key={reloadKey}

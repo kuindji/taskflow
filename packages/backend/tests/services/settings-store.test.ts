@@ -7,7 +7,10 @@ import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
     DEFAULT_EDITOR_WORD_WRAP,
+    DEFAULT_GENERAL_FONT_FAMILY,
+    DEFAULT_GENERAL_FONT_SIZE,
     DEFAULT_TERMINAL_FONT_FAMILY,
+    DEFAULT_TERMINAL_FONT_SIZE,
     DEFAULT_TERMINAL_SHELL,
 } from "@taskflow/shared";
 import { SettingsStore } from "../../src/services/settings-store";
@@ -59,15 +62,15 @@ describe("SettingsStore", () => {
         const first = await store.get();
         expect(first).toEqual({
             general: {
-                fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
-                fontSize: 13,
+                fontFamily: DEFAULT_GENERAL_FONT_FAMILY,
+                fontSize: DEFAULT_GENERAL_FONT_SIZE,
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
                 favoriteAgents: [...ALL_AGENT_TYPES],
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
-                fontSize: 13,
+                fontSize: DEFAULT_TERMINAL_FONT_SIZE,
                 defaultShell: DEFAULT_TERMINAL_SHELL,
             },
             editor: {
@@ -91,15 +94,15 @@ describe("SettingsStore", () => {
 
         expect(await store.get()).toEqual({
             general: {
-                fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
-                fontSize: 13,
+                fontFamily: DEFAULT_GENERAL_FONT_FAMILY,
+                fontSize: DEFAULT_GENERAL_FONT_SIZE,
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
                 favoriteAgents: [...ALL_AGENT_TYPES],
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
-                fontSize: 13,
+                fontSize: DEFAULT_TERMINAL_FONT_SIZE,
                 defaultShell: DEFAULT_TERMINAL_SHELL,
             },
             editor: {
@@ -131,7 +134,7 @@ describe("SettingsStore", () => {
 
         expect(await store.get()).toEqual({
             general: {
-                fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
+                fontFamily: DEFAULT_GENERAL_FONT_FAMILY,
                 fontSize: 15,
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
@@ -139,7 +142,7 @@ describe("SettingsStore", () => {
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
-                fontSize: 13,
+                fontSize: DEFAULT_TERMINAL_FONT_SIZE,
                 defaultShell: DEFAULT_TERMINAL_SHELL,
             },
             editor: {
@@ -161,7 +164,7 @@ describe("SettingsStore", () => {
 
         expect(await store.update({ editor: { fontSize: 16 } })).toEqual({
             general: {
-                fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
+                fontFamily: DEFAULT_GENERAL_FONT_FAMILY,
                 fontSize: 15,
                 defaultAgent: "claude",
                 defaultRuntime: "bun",
@@ -169,7 +172,7 @@ describe("SettingsStore", () => {
             },
             terminal: {
                 fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
-                fontSize: 13,
+                fontSize: DEFAULT_TERMINAL_FONT_SIZE,
                 defaultShell: DEFAULT_TERMINAL_SHELL,
             },
             editor: {

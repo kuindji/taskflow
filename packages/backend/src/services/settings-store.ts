@@ -103,13 +103,10 @@ function createDefaultSettings(): AppSettings {
 }
 
 /** Apply partial update, deleting keys set to null so defaults fill in on next get(). */
-function applyNullable<T extends Record<string, unknown>>(
-    target: T,
-    patch: { [K in keyof T]?: T[K] | null },
-): void {
+function applyNullable<T extends object>(target: T, patch: { [K in keyof T]?: T[K] | null }): void {
     for (const key of Object.keys(patch) as Array<keyof T>) {
         if (patch[key] === null) {
-            delete target[key];
+            Reflect.deleteProperty(target, key);
         } else if (patch[key] !== undefined) {
             target[key] = patch[key] as T[keyof T];
         }
