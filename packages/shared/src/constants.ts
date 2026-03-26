@@ -148,6 +148,9 @@ export const DEFAULT_THEME_ID = "catppuccin-mocha";
 // Archive expiry (safe to import in browser)
 export const ARCHIVE_EXPIRY_DAYS = 30;
 
+export const DEFAULT_GENERAL_FONT_FAMILY = '"CaskaydiaCove Nerd Font Mono", monospace';
+export const DEFAULT_GENERAL_FONT_SIZE = 13;
+
 export const DEFAULT_TERMINAL_FONT_FAMILY =
     '"CaskaydiaCove Nerd Font Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 export const DEFAULT_TERMINAL_FONT_SIZE = 18;

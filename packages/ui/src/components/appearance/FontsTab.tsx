@@ -1,7 +1,17 @@
 import { useCallback } from "react";
+import { RotateCcw } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useSettingsStore } from "@/stores/settings-store";
 import { FontFamilySelect } from "@/components/settings/FontFamilySelect";
+import {
+    DEFAULT_GENERAL_FONT_FAMILY,
+    DEFAULT_GENERAL_FONT_SIZE,
+    DEFAULT_TERMINAL_FONT_FAMILY,
+    DEFAULT_TERMINAL_FONT_SIZE,
+    DEFAULT_EDITOR_FONT_FAMILY,
+    DEFAULT_EDITOR_FONT_SIZE,
+} from "@taskflow/shared";
 
 function FontsTab() {
     const settings = useSettingsStore((s) => s.settings);
@@ -57,6 +67,23 @@ function FontsTab() {
         },
         [updateSettings],
     );
+
+    const handleResetAll = useCallback(() => {
+        void updateSettings({
+            general: {
+                fontFamily: DEFAULT_GENERAL_FONT_FAMILY,
+                fontSize: DEFAULT_GENERAL_FONT_SIZE,
+            },
+            terminal: {
+                fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
+                fontSize: DEFAULT_TERMINAL_FONT_SIZE,
+            },
+            editor: {
+                fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
+                fontSize: DEFAULT_EDITOR_FONT_SIZE,
+            },
+        });
+    }, [updateSettings]);
 
     if (!settings) return null;
 
@@ -135,6 +162,18 @@ function FontsTab() {
                         className="h-8 w-[80px] shrink-0 text-sm"
                     />
                 </div>
+            </div>
+
+            <div className="mx-1 mt-1 px-5 py-2">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleResetAll}
+                    className="text-muted-foreground hover:text-foreground h-7 gap-1.5 px-2 text-xs"
+                >
+                    <RotateCcw className="h-3 w-3" />
+                    Reset to defaults
+                </Button>
             </div>
         </div>
     );

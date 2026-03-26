@@ -4,6 +4,8 @@ import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
     DEFAULT_EDITOR_WORD_WRAP,
+    DEFAULT_GENERAL_FONT_FAMILY,
+    DEFAULT_GENERAL_FONT_SIZE,
     DEFAULT_TERMINAL_FONT_FAMILY,
     DEFAULT_TERMINAL_FONT_SIZE,
     DEFAULT_TERMINAL_SHELL,
@@ -18,8 +20,8 @@ import type {
 
 const DEFAULTS: AppSettings = {
     general: {
-        fontFamily: "CaskaydiaCove Nerd Font Mono, monospace",
-        fontSize: 13,
+        fontFamily: DEFAULT_GENERAL_FONT_FAMILY,
+        fontSize: DEFAULT_GENERAL_FONT_SIZE,
         defaultAgent: "claude",
         defaultRuntime: "bun",
         favoriteAgents: [...ALL_AGENT_TYPES],
