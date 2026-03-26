@@ -185,7 +185,7 @@ export function ProjectGroup({
     const projectHeader = (
         <div
             className={cn(
-                "group flex min-w-0 cursor-pointer items-start overflow-hidden",
+                "group flex flex-col min-w-0 overflow-hidden",
                 "rounded-lg transition-colors [-webkit-app-region:no-drag]",
                 (isActive || contextMenuOpen) && !locationInvalid
                     ? isActive
@@ -195,13 +195,14 @@ export function ProjectGroup({
                       ? ""
                       : "",
             )}>
+            <div className="flex items-center">
             <button
                 onClick={(e) => {
                     e.stopPropagation();
                     onOpenChange(!open);
                 }}
                 aria-label={projectToggleLabel}
-                className="text-foreground mt-[0.55rem] flex h-full shrink-0 items-center px-1">
+                className="text-foreground flex shrink-0 items-center px-1">
                 {open ? (
                     <ChevronDown className="h-3.5 w-3.5" />
                 ) : (
@@ -213,50 +214,39 @@ export function ProjectGroup({
                     e.stopPropagation();
                     handleProjectClick();
                 }}
-                className="flex w-0 min-w-0 flex-1 cursor-pointer flex-col overflow-hidden py-1.5 pr-1.5 text-left"
+                className="flex-1 flex min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden py-1.5 pr-1.5 text-left"
                 title={project.name}>
-                <div className="flex min-w-0 items-center gap-1.5">
-                    {locationInvalid && (
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
-                            </TooltipTrigger>
-                            <TooltipContent side="right" sideOffset={4}>
-                                Project location not found
-                            </TooltipContent>
-                        </Tooltip>
-                    )}
-                    {!open &&
-                        !locationInvalid &&
-                        (projectStatus ? (
-                            <StatusDot status={projectStatus} />
-                        ) : (
-                            hasAgents && (
-                                <span className="bg-muted-foreground/30 inline-block h-2 w-2 shrink-0 rounded-full" />
-                            )
-                        ))}
-                    <span
-                        className={cn(
-                            "block min-w-0 truncate text-sm font-medium tracking-wide",
-                            locationInvalid ? "text-foreground/50" : "text-foreground",
-                        )}>
-                        {project.name}
-                    </span>
-                    {!locationInvalid && branch && (
-                        <span className="text-foreground/40 shrink-0 truncate text-xs">
-                            ({branch})
-                        </span>
-                    )}
-                </div>
-                {open && !locationInvalid && project.sessions.length > 0 && (
-                    <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
-                        {project.sessions.map((session) => (
-                            <SessionBadge key={session.id} session={session} />
-                        ))}
-                    </div>
+                {locationInvalid && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" sideOffset={4}>
+                            Project location not found
+                        </TooltipContent>
+                    </Tooltip>
+                )}
+                {!open &&
+                    !locationInvalid &&
+                    (projectStatus ? (
+                        <StatusDot status={projectStatus} />
+                    ) : (
+                        hasAgents && (
+                            <span className="bg-muted-foreground/30 inline-block h-2 w-2 shrink-0 rounded-full" />
+                        )
+                    ))}
+                <span
+                    className={cn(
+                        "block min-w-0 truncate text-sm font-medium tracking-wide",
+                        locationInvalid ? "text-foreground/50" : "text-foreground",
+                    )}>
+                    {project.name}
+                </span>
+                {!locationInvalid && branch && (
+                    <span className="text-foreground/40 shrink-0 truncate text-xs">({branch})</span>
                 )}
             </button>
-            <div className="relative mt-[0.45rem] mr-1.5 flex shrink-0 items-center">
+            <div className="relative flex shrink-0 items-center">
                 {keyBadgeNumber == null && !locationInvalid && (diffStats || behind > 0) && (
                     <Badge
                         variant="outline"
@@ -272,6 +262,22 @@ export function ProjectGroup({
                 )}
                 {keyBadgeNumber != null ? <KeyBadge number={keyBadgeNumber} /> : null}
             </div>
+            </div>
+            {open && !locationInvalid && project.sessions.length > 0 && (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        handleProjectClick();
+                    }}
+                    className="min-w-0 cursor-pointer pb-1.5 pr-1.5 pl-5.5 text-left"
+                    title={project.name}>
+                    <div className="flex min-w-0 flex-wrap gap-1">
+                        {project.sessions.map((session) => (
+                            <SessionBadge key={session.id} session={session} />
+                        ))}
+                    </div>
+                </button>
+            )}
         </div>
     );
 
