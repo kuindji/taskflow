@@ -108,6 +108,20 @@ function extractImportSpecifier(lineContent: string): string | null {
     return null;
 }
 
+/**
+ * Ensure a Monaco model exists for the given file URI so that
+ * Monaco's GotoDefinitionAtPosition contribution can resolve it
+ * and show the definition link underline. Without a model, the
+ * contribution silently skips adding the underline decoration.
+ */
+function ensureModel(fileUri: monaco.Uri): void {
+    if (!monaco.editor.getModel(fileUri)) {
+        // Create a placeholder model. It will be replaced with real
+        // content if/when the user actually opens the file.
+        monaco.editor.createModel("", undefined, fileUri);
+    }
+}
+
 /** Open a resolved file path in a new editor tab */
 type OpenFileCallback = (filePath: string) => void;
 
@@ -158,8 +172,10 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
                         { sourceFilePath: filePath, importSpecifier: specifier },
                     );
                     if (result.resolvedPath) {
+                        const targetUri = monaco.Uri.file(result.resolvedPath);
+                        ensureModel(targetUri);
                         return {
-                            uri: monaco.Uri.file(result.resolvedPath),
+                            uri: targetUri,
                             range: new monaco.Range(1, 1, 1, 1),
                         };
                     }
