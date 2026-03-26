@@ -4,14 +4,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useSettingsStore } from "@/stores/settings-store";
 import { FontFamilySelect } from "@/components/settings/FontFamilySelect";
-import {
-    DEFAULT_GENERAL_FONT_FAMILY,
-    DEFAULT_GENERAL_FONT_SIZE,
-    DEFAULT_TERMINAL_FONT_FAMILY,
-    DEFAULT_TERMINAL_FONT_SIZE,
-    DEFAULT_EDITOR_FONT_FAMILY,
-    DEFAULT_EDITOR_FONT_SIZE,
-} from "@taskflow/shared";
 
 function FontsTab() {
     const settings = useSettingsStore((s) => s.settings);
@@ -70,18 +62,9 @@ function FontsTab() {
 
     const handleResetAll = useCallback(() => {
         void updateSettings({
-            general: {
-                fontFamily: DEFAULT_GENERAL_FONT_FAMILY,
-                fontSize: DEFAULT_GENERAL_FONT_SIZE,
-            },
-            terminal: {
-                fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
-                fontSize: DEFAULT_TERMINAL_FONT_SIZE,
-            },
-            editor: {
-                fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
-                fontSize: DEFAULT_EDITOR_FONT_SIZE,
-            },
+            general: { fontFamily: null, fontSize: null },
+            terminal: { fontFamily: null, fontSize: null },
+            editor: { fontFamily: null, fontSize: null },
         });
     }, [updateSettings]);
 

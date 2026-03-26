@@ -102,6 +102,20 @@ function createDefaultSettings(): AppSettings {
     };
 }
 
+/** Apply partial update, deleting keys set to null so defaults fill in on next get(). */
+function applyNullable<T extends Record<string, unknown>>(
+    target: T,
+    patch: { [K in keyof T]?: T[K] | null },
+): void {
+    for (const key of Object.keys(patch) as Array<keyof T>) {
+        if (patch[key] === null) {
+            delete target[key];
+        } else if (patch[key] !== undefined) {
+            target[key] = patch[key] as T[keyof T];
+        }
+    }
+}
+
 export class SettingsStore {
     constructor(private filePath: string) {}
 
@@ -156,42 +170,44 @@ export class SettingsStore {
     async update(partial: SettingsUpdatePayload): Promise<AppSettings> {
         const current = await this.get();
         if (partial.general) {
-            Object.assign(current.general, partial.general);
+            applyNullable(current.general, partial.general);
         }
         if (partial.terminal) {
-            Object.assign(current.terminal, partial.terminal);
+            applyNullable(current.terminal, partial.terminal);
         }
         if (partial.editor) {
-            Object.assign(current.editor, partial.editor);
+            applyNullable(current.editor, partial.editor);
         }
         if (partial.layout?.window) {
-            Object.assign(current.layout.window, partial.layout.window);
+            applyNullable(current.layout.window, partial.layout.window);
         }
         if (partial.layout?.panels) {
-            Object.assign(current.layout.panels, partial.layout.panels);
+            applyNullable(current.layout.panels, partial.layout.panels);
         }
         if (partial.claude) {
-            Object.assign(current.claude, partial.claude);
+            applyNullable(current.claude, partial.claude);
         }
         if (partial.codex) {
-            Object.assign(current.codex, partial.codex);
+            applyNullable(current.codex, partial.codex);
         }
         if (partial.opencode) {
-            Object.assign(current.opencode, partial.opencode);
+            applyNullable(current.opencode, partial.opencode);
         }
         if (partial.gemini) {
-            Object.assign(current.gemini, partial.gemini);
+            applyNullable(current.gemini, partial.gemini);
         }
         if (partial.cursor) {
-            Object.assign(current.cursor, partial.cursor);
+            applyNullable(current.cursor, partial.cursor);
         }
         if (partial.appearance) {
-            Object.assign(current.appearance, partial.appearance);
+            applyNullable(current.appearance, partial.appearance);
         }
         if (partial.remoteAgent) {
-            Object.assign(current.remoteAgent, partial.remoteAgent);
+            applyNullable(current.remoteAgent, partial.remoteAgent);
         }
+        // Persist without null keys so defaults fill in on next get()
         await writeFile(this.filePath, JSON.stringify(current, null, 2));
-        return current;
+        // Re-read to apply defaults for any deleted keys
+        return this.get();
     }
 }

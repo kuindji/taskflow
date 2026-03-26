@@ -97,19 +97,21 @@ export interface AppSettings {
     remoteAgent: RemoteAgentSettings;
 }
 
+type NullablePartial<T> = { [K in keyof T]?: T[K] | null };
+
 export interface SettingsUpdatePayload {
-    general?: Partial<GeneralSettings>;
-    terminal?: Partial<TerminalSettings>;
-    editor?: Partial<EditorSettings>;
+    general?: NullablePartial<GeneralSettings>;
+    terminal?: NullablePartial<TerminalSettings>;
+    editor?: NullablePartial<EditorSettings>;
     layout?: {
-        window?: Partial<WindowSettings>;
-        panels?: Partial<PanelSettings>;
+        window?: NullablePartial<WindowSettings>;
+        panels?: NullablePartial<PanelSettings>;
     };
-    claude?: Partial<ClaudeSettings>;
-    codex?: Partial<CodexSettings>;
-    opencode?: Partial<OpenCodeSettings>;
-    gemini?: Partial<GeminiSettings>;
-    cursor?: Partial<CursorSettings>;
-    appearance?: Partial<AppearanceSettings>;
-    remoteAgent?: Partial<RemoteAgentSettings>;
+    claude?: NullablePartial<ClaudeSettings>;
+    codex?: NullablePartial<CodexSettings>;
+    opencode?: NullablePartial<OpenCodeSettings>;
+    gemini?: NullablePartial<GeminiSettings>;
+    cursor?: NullablePartial<CursorSettings>;
+    appearance?: NullablePartial<AppearanceSettings>;
+    remoteAgent?: NullablePartial<RemoteAgentSettings>;
 }
