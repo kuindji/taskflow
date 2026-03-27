@@ -21,6 +21,8 @@ import {
     captureViewport,
     restoreViewport,
 } from "./terminal/terminal-utils";
+import { MarkdownInputHelper } from "./terminal/MarkdownInputHelper";
+import type { Tab } from "@/stores/session-helpers";
 
 const RESIZE_DEBOUNCE_MS = 250;
 
@@ -29,10 +31,11 @@ interface TerminalPaneProps {
     projectId?: string;
     master?: boolean;
     sessionId: string;
+    sessionType: Tab["type"];
     visible: boolean;
 }
 
-function TerminalPane({ taskId, projectId, master, sessionId, visible }: TerminalPaneProps) {
+function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visible }: TerminalPaneProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
@@ -478,6 +481,7 @@ function TerminalPane({ taskId, projectId, master, sessionId, visible }: Termina
                     </div>
                 </div>
             )}
+            <MarkdownInputHelper sessionId={sessionId} sessionType={sessionType} />
         </div>
     );
 }

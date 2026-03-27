@@ -63,6 +63,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                                 projectId={workspace.task ? undefined : workspace.project?.id}
                                 master={workspace.scope === "master" ? true : undefined}
                                 sessionId={tab.sessionId}
+                                sessionType={tab.type}
                                 visible={isActive}
                             />
                         ) : (
@@ -80,6 +81,7 @@ function TabContent({ tabs, activeTabId }: TabContentProps) {
                                     projectId={workspace.task ? undefined : workspace.project?.id}
                                     master={workspace.scope === "master" ? true : undefined}
                                     sessionId={tab.sessionId}
+                                    sessionType={tab.type}
                                     visible={isActive}
                                 />
                             );
