@@ -40,11 +40,14 @@ function TabItem({
 
     const tooltipPath = useMemo(() => {
         if (!tab.filePath) return null;
-        if (projectPath && tab.filePath.startsWith(projectPath + "/")) {
-            return tab.filePath.slice(projectPath.length + 1);
+        let path = tab.filePath;
+        if (projectPath && path.startsWith(projectPath + "/")) {
+            path = path.slice(projectPath.length + 1);
         }
-        return tab.filePath;
-    }, [tab.filePath, projectPath]);
+        // Skip tooltip if the path is just the filename (same as tab label)
+        if (path === tab.label) return null;
+        return path;
+    }, [tab.filePath, projectPath, tab.label]);
 
     const [isEditing, setIsEditing] = useState(false);
     const [editValue, setEditValue] = useState(tab.label);
