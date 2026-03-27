@@ -5,12 +5,8 @@ import { MONACO_THEME_NAME } from "@/lib/monaco-theme";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useMarkdownInputStore, getEditor } from "@/stores/markdown-input-store";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { XIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { Tab } from "@/stores/session-helpers";
 
@@ -27,6 +23,8 @@ const DEFAULT_HEIGHT = 220;
 const MIN_WIDTH = 300;
 const MIN_HEIGHT = 150;
 const CONTAINER_PADDING = 12;
+
+type ResizeEdge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
 // --- EditorPanel sub-component ---
 
@@ -57,8 +55,9 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
     const panelRef = useRef<HTMLDivElement>(null);
     const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     const isDragging = useRef(false);
-    const isResizing = useRef(false);
+    const resizeEdge = useRef<ResizeEdge | null>(null);
     const dragOffset = useRef({ x: 0, y: 0 });
+    const resizeOrigin = useRef({ x: 0, y: 0, w: 0, h: 0, px: 0, py: 0 });
 
     // Compute clamped position and size
     const containerRect = containerRef.current?.getBoundingClientRect();
@@ -153,7 +152,7 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
     // --- Drag handlers (document-level move/end for reliable capture) ---
     const handleDragStart = useCallback(
         (e: React.PointerEvent) => {
-            if (isResizing.current) return;
+            if (resizeEdge.current) return;
             isDragging.current = true;
             const panel = panelRef.current;
             if (!panel) return;
@@ -197,35 +196,70 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
         };
     }, [containerRef, width, height, setPosition, updateSettings]);
 
-    // --- Resize handlers (document-level move/end for reliable capture) ---
-    const handleResizeStart = useCallback((e: React.PointerEvent) => {
-        isResizing.current = true;
-        e.stopPropagation();
-        e.preventDefault();
-    }, []);
+    // --- Resize handlers (all edges & corners) ---
+    const handleResizeStart = useCallback(
+        (edge: ResizeEdge) => (e: React.PointerEvent) => {
+            resizeEdge.current = edge;
+            resizeOrigin.current = { x, y, w: width, h: height, px: e.clientX, py: e.clientY };
+            e.stopPropagation();
+            e.preventDefault();
+        },
+        [x, y, width, height],
+    );
 
     useEffect(() => {
         const onMove = (e: PointerEvent) => {
-            if (!isResizing.current) return;
+            const edge = resizeEdge.current;
+            if (!edge) return;
             const containerR = containerRef.current?.getBoundingClientRect();
             if (!containerR) return;
-            const newW = Math.min(
-                Math.max(MIN_WIDTH, e.clientX - containerR.left - x),
-                containerR.width - x,
-            );
-            const newH = Math.min(
-                Math.max(MIN_HEIGHT, e.clientY - containerR.top - y),
-                containerR.height - y,
-            );
+
+            const { x: ox, y: oy, w: ow, h: oh, px, py } = resizeOrigin.current;
+            const dx = e.clientX - px;
+            const dy = e.clientY - py;
+
+            let newX = ox;
+            let newY = oy;
+            let newW = ow;
+            let newH = oh;
+
+            // Horizontal
+            if (edge.includes("e")) {
+                newW = Math.min(Math.max(MIN_WIDTH, ow + dx), containerR.width - ox);
+            }
+            if (edge.includes("w")) {
+                const maxDx = ow - MIN_WIDTH;
+                const clampedDx = Math.min(Math.max(dx, -ox), maxDx);
+                newX = ox + clampedDx;
+                newW = ow - clampedDx;
+            }
+
+            // Vertical
+            if (edge.includes("s")) {
+                newH = Math.min(Math.max(MIN_HEIGHT, oh + dy), containerR.height - oy);
+            }
+            if (edge === "n" || edge === "ne" || edge === "nw") {
+                const maxDy = oh - MIN_HEIGHT;
+                const clampedDy = Math.min(Math.max(dy, -oy), maxDy);
+                newY = oy + clampedDy;
+                newH = oh - clampedDy;
+            }
+
             setSize({ width: newW, height: newH });
+            setPosition({ x: newX, y: newY });
         };
         const onUp = () => {
-            if (isResizing.current) {
-                isResizing.current = false;
-                const sz = useMarkdownInputStore.getState().size;
-                if (sz) {
+            if (resizeEdge.current) {
+                resizeEdge.current = null;
+                const state = useMarkdownInputStore.getState();
+                if (state.size) {
                     void updateSettings({
-                        layout: { panels: { markdownEditorSize: sz } },
+                        layout: {
+                            panels: {
+                                markdownEditorSize: state.size,
+                                markdownEditorPosition: state.position ?? undefined,
+                            },
+                        },
                     });
                 }
             }
@@ -236,7 +270,7 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             document.removeEventListener("pointermove", onMove);
             document.removeEventListener("pointerup", onUp);
         };
-    }, [containerRef, x, y, setSize, updateSettings]);
+    }, [containerRef, setSize, setPosition, updateSettings]);
 
     return (
         <div
@@ -245,22 +279,17 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             style={{ left: x, top: y, width, height }}>
             {/* Drag zone — top strip */}
             <div
-                className="flex shrink-0 cursor-grab items-center justify-between px-2.5 py-1.5 active:cursor-grabbing"
-                onPointerDown={handleDragStart}>
-                <div className="flex items-center gap-1.5">
-                    <span className="text-muted-foreground/40 text-[10px] tracking-wider">⋮⋮</span>
-                    <span className="text-muted-foreground/60 font-sans text-[10px]">
-                        Markdown Input
-                    </span>
-                </div>
-                <button
-                    type="button"
-                    onClick={onClose}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    className="text-muted-foreground/40 hover:text-muted-foreground flex h-5 w-5 items-center justify-center rounded transition-colors">
-                    ×
-                </button>
-            </div>
+                className="shrink-0 cursor-grab py-1.5 active:cursor-grabbing"
+                onPointerDown={handleDragStart}
+            />
+            {/* Close button */}
+            <button
+                type="button"
+                onClick={onClose}
+                className="ring-offset-background focus:ring-ring absolute top-2 right-2 z-10 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4">
+                <XIcon />
+                <span className="sr-only">Close</span>
+            </button>
 
             {/* Monaco editor area */}
             <div
@@ -271,35 +300,26 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             {/* Footer — same bg, no border */}
             <div className="flex shrink-0 items-center justify-between px-2.5 py-1.5">
                 <span className="text-muted-foreground/30 font-sans text-[10px]">⌘⇧E</span>
-                <div className="flex items-center">
-                    <button
-                        type="button"
-                        onClick={onSend}
-                        className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-l-md px-3 py-1 font-sans text-[11px] transition-colors">
-                        Send ↵
-                    </button>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <button
-                                type="button"
-                                className="border-primary-foreground/20 bg-primary text-primary-foreground hover:bg-primary/90 rounded-r-md border-l px-1.5 py-1 font-sans text-[11px] transition-colors">
-                                ▾
-                            </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent side="top" align="end">
-                            <DropdownMenuItem onSelect={onInsert}>
-                                Insert (no submit)
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                <div className="flex items-center gap-1.5">
+                    <Button variant="secondary" size="xs" onClick={onInsert}>
+                        Insert
+                    </Button>
+                    <Button size="xs" onClick={onSend}>
+                        Send
+                    </Button>
                 </div>
             </div>
 
-            {/* Resize handle — bottom right corner */}
-            <div
-                className="absolute right-0 bottom-0 h-3 w-3 cursor-nwse-resize"
-                onPointerDown={handleResizeStart}
-            />
+            {/* Resize edges */}
+            <div className="absolute inset-x-2 top-0 h-1 cursor-ns-resize" onPointerDown={handleResizeStart("n")} />
+            <div className="absolute inset-x-2 bottom-0 h-1 cursor-ns-resize" onPointerDown={handleResizeStart("s")} />
+            <div className="absolute inset-y-2 left-0 w-1 cursor-ew-resize" onPointerDown={handleResizeStart("w")} />
+            <div className="absolute inset-y-2 right-0 w-1 cursor-ew-resize" onPointerDown={handleResizeStart("e")} />
+            {/* Resize corners */}
+            <div className="absolute top-0 left-0 h-2 w-2 cursor-nwse-resize" onPointerDown={handleResizeStart("nw")} />
+            <div className="absolute top-0 right-0 h-2 w-2 cursor-nesw-resize" onPointerDown={handleResizeStart("ne")} />
+            <div className="absolute bottom-0 left-0 h-2 w-2 cursor-nesw-resize" onPointerDown={handleResizeStart("sw")} />
+            <div className="absolute right-0 bottom-0 h-2 w-2 cursor-nwse-resize" onPointerDown={handleResizeStart("se")} />
         </div>
     );
 }
