@@ -1,10 +1,16 @@
-import { useCallback, useRef, useEffect, useState } from "react";
+import { useCallback, useRef, useEffect } from "react";
 import * as monaco from "monaco-editor";
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_EDITOR_FONT_SIZE } from "@taskflow/shared";
 import { MONACO_THEME_NAME } from "@/lib/monaco-theme";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useMarkdownInputStore, getEditor } from "@/stores/markdown-input-store";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Tab } from "@/stores/session-helpers";
 
 const AGENT_SESSION_TYPES: ReadonlySet<Tab["type"]> = new Set([
@@ -49,7 +55,6 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
     const isDragging = useRef(false);
     const isResizing = useRef(false);
     const dragOffset = useRef({ x: 0, y: 0 });
-    const [dropdownOpen, setDropdownOpen] = useState(false);
 
     // Compute clamped position and size
     const containerRect = containerRef.current?.getBoundingClientRect();
@@ -140,7 +145,7 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
         }
     }, [fontFamily, fontSize]);
 
-    // --- Drag handlers ---
+    // --- Drag handlers (document-level move/end for reliable capture) ---
     const handleDragStart = useCallback(
         (e: React.PointerEvent) => {
             if (isResizing.current) return;
@@ -153,13 +158,12 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
                 x: e.clientX - rect.left + (containerR?.left ?? 0),
                 y: e.clientY - rect.top + (containerR?.top ?? 0),
             };
-            (e.target as HTMLElement).setPointerCapture(e.pointerId);
         },
         [containerRef],
     );
 
-    const handleDragMove = useCallback(
-        (e: React.PointerEvent) => {
+    useEffect(() => {
+        const onMove = (e: PointerEvent) => {
             if (!isDragging.current) return;
             const containerR = containerRef.current?.getBoundingClientRect();
             if (!containerR) return;
@@ -168,23 +172,27 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             const clampedX = Math.min(Math.max(0, newX), Math.max(0, containerR.width - width));
             const clampedY = Math.min(Math.max(0, newY), Math.max(0, containerR.height - height));
             setPosition(sessionId, { x: clampedX, y: clampedY });
-        },
-        [containerRef, sessionId, width, height, setPosition],
-    );
+        };
+        const onUp = () => {
+            isDragging.current = false;
+        };
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", onUp);
+        return () => {
+            document.removeEventListener("pointermove", onMove);
+            document.removeEventListener("pointerup", onUp);
+        };
+    }, [containerRef, sessionId, width, height, setPosition]);
 
-    const handleDragEnd = useCallback(() => {
-        isDragging.current = false;
-    }, []);
-
-    // --- Resize handlers ---
+    // --- Resize handlers (document-level move/end for reliable capture) ---
     const handleResizeStart = useCallback((e: React.PointerEvent) => {
         isResizing.current = true;
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
         e.stopPropagation();
+        e.preventDefault();
     }, []);
 
-    const handleResizeMove = useCallback(
-        (e: React.PointerEvent) => {
+    useEffect(() => {
+        const onMove = (e: PointerEvent) => {
             if (!isResizing.current) return;
             const containerR = containerRef.current?.getBoundingClientRect();
             if (!containerR) return;
@@ -197,26 +205,17 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
                 containerR.height - y,
             );
             setSize(sessionId, { width: newW, height: newH });
-        },
-        [containerRef, sessionId, x, y, setSize],
-    );
-
-    const handleResizeEnd = useCallback(() => {
-        isResizing.current = false;
-    }, []);
-
-    // Close dropdown on outside click
-    const dropdownRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        if (!dropdownOpen) return;
-        const handleClick = (e: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-                setDropdownOpen(false);
-            }
         };
-        document.addEventListener("pointerdown", handleClick);
-        return () => document.removeEventListener("pointerdown", handleClick);
-    }, [dropdownOpen]);
+        const onUp = () => {
+            isResizing.current = false;
+        };
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", onUp);
+        return () => {
+            document.removeEventListener("pointermove", onMove);
+            document.removeEventListener("pointerup", onUp);
+        };
+    }, [containerRef, sessionId, x, y, setSize]);
 
     return (
         <div
@@ -228,8 +227,6 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             <div
                 className="flex shrink-0 cursor-grab items-center justify-between px-2.5 py-1.5 active:cursor-grabbing"
                 onPointerDown={handleDragStart}
-                onPointerMove={handleDragMove}
-                onPointerUp={handleDragEnd}
             >
                 <div className="flex items-center gap-1.5">
                     <span className="text-[10px] tracking-wider text-muted-foreground/40">⋮⋮</span>
@@ -250,13 +247,13 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             {/* Monaco editor area */}
             <div
                 ref={editorContainerRef}
-                className="min-h-0 flex-1 overflow-hidden [&_.monaco-editor]:!border-none [&_.monaco-editor]:!outline-none"
+                className="min-h-0 flex-1 overflow-hidden p-3 [&_.monaco-editor]:!border-none [&_.monaco-editor]:!outline-none"
             />
 
             {/* Footer — same bg, no border */}
             <div className="flex shrink-0 items-center justify-between px-2.5 py-1.5">
                 <span className="font-sans text-[10px] text-muted-foreground/30">⌘⇧I</span>
-                <div ref={dropdownRef} className="relative flex items-center">
+                <div className="flex items-center">
                     <button
                         type="button"
                         onClick={onSend}
@@ -264,27 +261,21 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
                     >
                         Send ↵
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => setDropdownOpen(!dropdownOpen)}
-                        className="rounded-r-md border-l border-primary-foreground/20 bg-primary px-1.5 py-1 text-[9px] text-primary-foreground transition-colors hover:bg-primary/90"
-                    >
-                        ▾
-                    </button>
-                    {dropdownOpen && (
-                        <div className="absolute bottom-full right-0 mb-1 rounded-md border border-border bg-popover p-1 shadow-md">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setDropdownOpen(false);
-                                    onInsert();
-                                }}
-                                className="w-full rounded px-3 py-1 text-left font-sans text-[11px] text-popover-foreground transition-colors hover:bg-accent"
+                                className="rounded-r-md border-l border-primary-foreground/20 bg-primary px-1.5 py-1 font-sans text-[11px] text-primary-foreground transition-colors hover:bg-primary/90"
                             >
-                                Insert (no submit)
+                                ▾
                             </button>
-                        </div>
-                    )}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent side="top" align="end">
+                            <DropdownMenuItem onSelect={onInsert}>
+                                Insert (no submit)
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             </div>
 
@@ -292,8 +283,6 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             <div
                 className="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize"
                 onPointerDown={handleResizeStart}
-                onPointerMove={handleResizeMove}
-                onPointerUp={handleResizeEnd}
             />
         </div>
     );
