@@ -1143,9 +1143,10 @@ case "$cmd" in
         curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/snapshot"
         ;;
       close)
-        sess_id="${1:-}"
+        sess_id="${1:-$TASKFLOW_SESSION_ID}"
         if [ -z "$sess_id" ]; then
-          echo "Usage: taskflow-cli session close <sessionId>" >&2
+          echo "Usage: taskflow-cli session close [sessionId]" >&2
+          echo "  If no sessionId is provided, closes the current session (using TASKFLOW_SESSION_ID)." >&2
           exit 1
         fi
         curl -sf -X POST "$TASKFLOW_API_URL/api/sessions/$sess_id/done"
