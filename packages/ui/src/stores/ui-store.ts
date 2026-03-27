@@ -29,6 +29,15 @@ export function updateCollapsedProjectIds(
 type PanelId = "sidebar" | "fileexplorer" | "workspace" | "taskinfo";
 export type { PanelId };
 
+/** Static ordering used by cycleFocus to determine panel cycle direction. */
+const PANEL_ORDER: readonly PanelId[] = ["sidebar", "fileexplorer", "workspace", "taskinfo"];
+
+function getOrderedPanels(registered: Set<PanelId>): PanelId[] {
+    return PANEL_ORDER.filter((id) => registered.has(id));
+}
+
+export { getOrderedPanels };
+
 interface UIStore {
     activeProjectId: string | null;
     masterWorkspaceActive: boolean;
@@ -42,6 +51,9 @@ interface UIStore {
     shortcutsDialogOpen: boolean;
     agentOperationsHelpOpen: boolean;
     focusedPanel: PanelId;
+    navigationMode: boolean;
+    cmdHeld: boolean;
+    registeredPanels: Set<PanelId>;
     sidebarFocusedItem: { type: "project" | "task"; id: string } | null;
     sidebarWidth: number;
     fileExplorerWidth: number;
@@ -63,6 +75,10 @@ interface UIStore {
     openAgentOperationsHelp(): void;
     setAgentOperationsHelpOpen(open: boolean): void;
     setFocusedPanel(panel: PanelId): void;
+    setNavigationMode(active: boolean): void;
+    setCmdHeld(held: boolean): void;
+    registerPanel(id: PanelId): void;
+    unregisterPanel(id: PanelId): void;
     setSidebarFocusedItem(item: { type: "project" | "task"; id: string } | null): void;
     setFlowPanelOpen(open: boolean): void;
     setMasterWorkspaceActive(active: boolean): void;
@@ -95,6 +111,9 @@ export const useUIStore = create<UIStore>((set) => ({
     shortcutsDialogOpen: false,
     agentOperationsHelpOpen: false,
     focusedPanel: "workspace" as const,
+    navigationMode: false,
+    cmdHeld: false,
+    registeredPanels: new Set<PanelId>(["sidebar", "workspace"]),
     sidebarFocusedItem: null,
     sidebarWidth: 220,
     fileExplorerWidth: 220,
@@ -143,6 +162,31 @@ export const useUIStore = create<UIStore>((set) => ({
     },
     setFocusedPanel(panel) {
         set({ focusedPanel: panel });
+    },
+    setNavigationMode(active) {
+        set({ navigationMode: active });
+    },
+    setCmdHeld(held) {
+        set({ cmdHeld: held });
+    },
+    registerPanel(id) {
+        set((s) => {
+            if (s.registeredPanels.has(id)) return s;
+            const next = new Set(s.registeredPanels);
+            next.add(id);
+            return { registeredPanels: next };
+        });
+    },
+    unregisterPanel(id) {
+        set((s) => {
+            if (!s.registeredPanels.has(id)) return s;
+            const next = new Set(s.registeredPanels);
+            next.delete(id);
+            // Fall back to workspace if the unregistered panel was focused
+            const patch: Partial<UIStore> = { registeredPanels: next };
+            if (s.focusedPanel === id) patch.focusedPanel = "workspace";
+            return patch;
+        });
     },
     setSidebarFocusedItem(item) {
         set({ sidebarFocusedItem: item });

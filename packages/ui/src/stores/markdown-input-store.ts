@@ -4,28 +4,34 @@ import { create } from "zustand";
 interface EditorState {
     buffer: string;
     isOpen: boolean;
-    position: { x: number; y: number } | null;
-    size: { width: number; height: number } | null;
 }
 
 interface MarkdownInputState {
     editors: Record<string, EditorState>;
+    position: { x: number; y: number } | null;
+    size: { width: number; height: number } | null;
     open: (sessionId: string) => void;
     close: (sessionId: string) => void;
     toggle: (sessionId: string) => void;
     setBuffer: (sessionId: string, text: string) => void;
     clearBuffer: (sessionId: string) => void;
-    setPosition: (sessionId: string, position: { x: number; y: number }) => void;
-    setSize: (sessionId: string, size: { width: number; height: number }) => void;
+    setPosition: (position: { x: number; y: number }) => void;
+    setSize: (size: { width: number; height: number }) => void;
+    hydrateLayout: (
+        position: { x: number; y: number } | undefined,
+        size: { width: number; height: number } | undefined,
+    ) => void;
     cleanup: (sessionId: string) => void;
 }
 
 function getEditor(state: MarkdownInputState, sessionId: string): EditorState {
-    return state.editors[sessionId] ?? { buffer: "", isOpen: false, position: null, size: null };
+    return state.editors[sessionId] ?? { buffer: "", isOpen: false };
 }
 
 const useMarkdownInputStore = create<MarkdownInputState>((set) => ({
     editors: {},
+    position: null,
+    size: null,
 
     open(sessionId) {
         set((state) => ({
@@ -75,22 +81,19 @@ const useMarkdownInputStore = create<MarkdownInputState>((set) => ({
         }));
     },
 
-    setPosition(sessionId, position) {
-        set((state) => ({
-            editors: {
-                ...state.editors,
-                [sessionId]: { ...getEditor(state, sessionId), position },
-            },
-        }));
+    setPosition(position) {
+        set({ position });
     },
 
-    setSize(sessionId, size) {
-        set((state) => ({
-            editors: {
-                ...state.editors,
-                [sessionId]: { ...getEditor(state, sessionId), size },
-            },
-        }));
+    setSize(size) {
+        set({ size });
+    },
+
+    hydrateLayout(position, size) {
+        set({
+            position: position ?? null,
+            size: size ?? null,
+        });
     },
 
     cleanup(sessionId) {

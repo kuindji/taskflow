@@ -8,7 +8,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { updateCollapsedProjectIds, useUIStore } from "@/stores/ui-store";
 import { useWsStatus } from "@/providers/ws-context";
-import { useCmdHeld } from "@/hooks/useCmdHeld";
+import { useSidebarNavigation } from "./hooks/useSidebarNavigation";
 import { ProjectGroup } from "./ProjectGroup";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { NewProjectDialog } from "./NewProjectDialog";
@@ -62,10 +62,12 @@ export function TaskSidebar() {
 
     const unreadCount = notifications.filter((n) => !n.read).length;
 
-    const { cmdHeld } = useCmdHeld();
+    const cmdHeld = useUIStore((s) => s.cmdHeld);
     const focusedPanel = useUIStore((s) => s.focusedPanel);
     const sidebarFocusedItem = useUIStore((s) => s.sidebarFocusedItem);
     const showBadges = cmdHeld && focusedPanel === "sidebar";
+
+    useSidebarNavigation();
 
     useEffect(() => {
         const cleanup = window.taskflow?.onToggleArchive(() => {

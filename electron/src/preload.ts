@@ -126,6 +126,13 @@ contextBridge.exposeInMainWorld("taskflow", {
     sendTaskInfoState: (open: boolean) => {
         ipcRenderer.send("task-info-state-changed", open);
     },
+    onToggleMarkdownInput: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("toggle-markdown-input", listener);
+        return () => {
+            ipcRenderer.removeListener("toggle-markdown-input", listener);
+        };
+    },
     onToggleWordWrap: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("toggle-word-wrap", listener);

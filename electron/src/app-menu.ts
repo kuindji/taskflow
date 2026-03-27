@@ -222,6 +222,14 @@ function buildAppMenu(): void {
                         mainWindow?.webContents.send("toggle-task-info");
                     },
                 },
+                {
+                    id: "toggle-markdown-input",
+                    label: "Markdown Input",
+                    accelerator: "CmdOrCtrl+Shift+E",
+                    click: () => {
+                        mainWindow?.webContents.send("toggle-markdown-input");
+                    },
+                },
                 { type: "separator" },
                 { role: "reload" },
                 { role: "forceReload" },

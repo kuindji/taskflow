@@ -10,8 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
 import useIsElectron from "@/hooks/useIsElectron";
 import { FileTree } from "./FileTree";
+import { useFileExplorerNavigation } from "./hooks/useFileExplorerNavigation";
 
 function FileExplorer() {
+    useFileExplorerNavigation();
     const {
         tree,
         treePath,

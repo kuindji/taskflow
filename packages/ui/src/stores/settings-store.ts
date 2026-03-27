@@ -3,6 +3,7 @@ import type { AppSettings, SettingsUpdatePayload } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "../hooks/useWebSocket";
 import { useUIStore } from "./ui-store";
+import { useMarkdownInputStore } from "./markdown-input-store";
 
 interface DataDirInfo {
     dataDir: string;
@@ -28,6 +29,10 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
         set({ settings });
         if (settings.layout?.panels) {
             useUIStore.getState().hydrateLayout(settings.layout.panels);
+            useMarkdownInputStore.getState().hydrateLayout(
+                settings.layout.panels.markdownEditorPosition,
+                settings.layout.panels.markdownEditorSize,
+            );
         }
         window.taskflow?.sendCompactSidebarState(settings.layout?.panels?.compactSidebar ?? false);
     },

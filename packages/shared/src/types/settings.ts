@@ -66,6 +66,8 @@ export interface PanelSettings {
     flowPanelWidth: number;
     compactSidebar: boolean;
     collapsedProjectIds: string[];
+    markdownEditorPosition?: { x: number; y: number };
+    markdownEditorSize?: { width: number; height: number };
 }
 
 export interface LayoutSettings {

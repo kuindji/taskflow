@@ -4,7 +4,8 @@ import type { FitAddon } from "@xterm/addon-fit";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useUIStore } from "@/stores/ui-store";
-import { useMarkdownInputStore } from "@/stores/markdown-input-store";
+import { useMarkdownInputStore, getEditor } from "@/stores/markdown-input-store";
+import { usePanelActivation } from "@/hooks/usePanelActivation";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
@@ -23,6 +24,7 @@ import {
     restoreViewport,
 } from "./terminal/terminal-utils";
 import { MarkdownInputHelper } from "./terminal/MarkdownInputHelper";
+import { useTerminalModifierBlur } from "./terminal/useTerminalModifierBlur";
 import type { Tab } from "@/stores/session-helpers";
 
 const RESIZE_DEBOUNCE_MS = 250;
@@ -47,7 +49,6 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
     const fitFrameRef = useRef<number | null>(null);
     const fitRetryTimeoutRef = useRef<number | null>(null);
     const resizeDebounceTimeoutRef = useRef<number | null>(null);
-    const restoreFocusAfterModifierRef = useRef(false);
     const [dragOver, setDragOver] = useState(false);
     const dragCounterRef = useRef(0);
     const sendInput = useSessionStore((s) => s.sendInput);
@@ -167,14 +168,14 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
             }
 
             // ⌘⇧E — toggle markdown input helper
-            if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === "E") {
+            if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.code === "KeyE") {
                 if (event.type === "keydown") {
                     useMarkdownInputStore.getState().toggle(sessionId);
                 }
                 return false;
             }
 
-            // Let modifier keys bubble so useCmdHeld can track Cmd/Shift state
+            // Let modifier keys bubble so usePanelNavigation can track Cmd/Shift state
             if (event.key === "Meta" || event.key === "Shift") return false;
 
             // Let Cmd+digit bubble for number navigation (tab/sidebar switching)
@@ -240,7 +241,9 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
         if (!visible || !termRef.current || !fitRef.current) return;
         // Force viewport recalculation when becoming visible.
         // Don't force scrollToBottom — preserve the user's scroll position.
-        scheduleFit(true, focusedPanel === "workspace", false);
+        // Skip focus during navigation mode — usePanelActivation handles that.
+        const shouldFocus = focusedPanel === "workspace" && !useUIStore.getState().navigationMode;
+        scheduleFit(true, shouldFocus, false);
     }, [focusedPanel, visible, sessionId, scheduleFit]);
 
     // Dedicated focus effect — independent of fit/resize logic.
@@ -248,6 +251,8 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
     // where the terminal element isn't ready yet (freshly mounted, layout pending).
     useEffect(() => {
         if (!visible || focusedPanel !== "workspace") return;
+        // Skip during navigation mode — usePanelActivation handles deferred focus.
+        if (useUIStore.getState().navigationMode) return;
 
         let cancelled = false;
         let attempts = 0;
@@ -256,6 +261,11 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
 
         function tryFocus() {
             if (cancelled) return;
+            const editorOpen = getEditor(
+                useMarkdownInputStore.getState(),
+                sessionId,
+            ).isOpen;
+            if (editorOpen) return;
             attempts++;
             const term = termRef.current;
             if (term) {
@@ -275,61 +285,19 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
         };
     }, [focusedPanel, visible, sessionId]);
 
-    useEffect(() => {
-        if (!visible) return;
+    // Panel activation: focus terminal (or markdown editor) when navigation mode ends.
+    usePanelActivation(
+        "workspace",
+        useCallback(() => {
+            if (!visible) return;
+            const editorOpen = getEditor(useMarkdownInputStore.getState(), sessionId).isOpen;
+            if (editorOpen) return; // markdown editor keeps its own focus
+            termRef.current?.focus();
+        }, [visible, sessionId]),
+    );
 
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) return;
-
-            // ⌘⇧E — toggle markdown input helper (handle here because
-            // the blur below would prevent xterm from seeing the event)
-            if (event.key === "E") {
-                event.preventDefault();
-                useMarkdownInputStore.getState().toggle(sessionId);
-                return;
-            }
-
-            const container = containerRef.current;
-            const active = document.activeElement;
-            if (!container || !(active instanceof HTMLElement) || !container.contains(active)) {
-                return;
-            }
-
-            restoreFocusAfterModifierRef.current = true;
-            active.blur();
-        };
-
-        const handleKeyUp = (event: KeyboardEvent) => {
-            if (!restoreFocusAfterModifierRef.current) return;
-
-            if (event.key === "Shift") {
-                if (useUIStore.getState().focusedPanel === "workspace") {
-                    restoreFocusAfterModifierRef.current = false;
-                    termRef.current?.focus();
-                }
-                return;
-            }
-
-            if (event.key === "Meta" || event.key === "Control") {
-                restoreFocusAfterModifierRef.current = false;
-                termRef.current?.focus();
-            }
-        };
-
-        const handleBlur = () => {
-            restoreFocusAfterModifierRef.current = false;
-        };
-
-        window.addEventListener("keydown", handleKeyDown, true);
-        window.addEventListener("keyup", handleKeyUp, true);
-        window.addEventListener("blur", handleBlur);
-
-        return () => {
-            window.removeEventListener("keydown", handleKeyDown, true);
-            window.removeEventListener("keyup", handleKeyUp, true);
-            window.removeEventListener("blur", handleBlur);
-        };
-    }, [visible, sessionId]);
+    // Blur xterm during Cmd+Shift so modifier events bubble to global handlers.
+    useTerminalModifierBlur(containerRef, termRef, sessionId, visible);
 
     const terminalFontFamily = useSettingsStore((s) => s.settings?.terminal?.fontFamily);
     const terminalFontSize = useSettingsStore((s) => s.settings?.terminal?.fontSize);

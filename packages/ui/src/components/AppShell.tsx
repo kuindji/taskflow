@@ -4,7 +4,7 @@ import type { PanelId } from "@/stores/ui-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import useIsElectron from "@/hooks/useIsElectron";
-import { useCmdHeld } from "@/hooks/useCmdHeld";
+import { usePanelNavigation } from "@/hooks/usePanelNavigation";
 import { cn } from "@/lib/utils";
 
 interface AppShellProps {
@@ -116,8 +116,27 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
         }
     }, [focusedPanel]);
 
-    const { cmdShiftHeld } = useCmdHeld();
+    usePanelNavigation();
+    const navigationMode = useUIStore((s) => s.navigationMode);
+    const registerPanel = useUIStore((s) => s.registerPanel);
+    const unregisterPanel = useUIStore((s) => s.unregisterPanel);
     const isElectron = useIsElectron();
+
+    // Register/unregister conditional panels so cycleFocus skips hidden ones.
+    // Sidebar and workspace are always registered (initial state in ui-store).
+    useEffect(() => {
+        if (fileExplorerOpen) {
+            registerPanel("fileexplorer");
+            return () => unregisterPanel("fileexplorer");
+        }
+    }, [fileExplorerOpen, registerPanel, unregisterPanel]);
+
+    useEffect(() => {
+        if (taskInfoOpen) {
+            registerPanel("taskinfo");
+            return () => unregisterPanel("taskinfo");
+        }
+    }, [taskInfoOpen, registerPanel, unregisterPanel]);
 
     return (
         <div
@@ -129,7 +148,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                 <div
                     className={cn(
                         "mt-px flex shrink-0 flex-col overflow-hidden rounded-(--window-radius)",
-                        (showOutline || cmdShiftHeld) &&
+                        (showOutline || navigationMode) &&
                             focusedPanel === "sidebar" &&
                             "ring-accent/50 ring-1 transition-shadow duration-500",
                     )}
@@ -153,7 +172,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                     <div
                         className={cn(
                             "bg-card border-border/50 panel-shadow flex shrink-0 flex-col overflow-hidden rounded-(--window-radius) border",
-                            (showOutline || cmdShiftHeld) &&
+                            (showOutline || navigationMode) &&
                                 focusedPanel === "fileexplorer" &&
                                 "ring-accent/50 ring-1 transition-shadow duration-500",
                         )}
@@ -192,7 +211,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                 <div
                     className={cn(
                         "bg-card border-border/50 panel-shadow flex flex-1 flex-col overflow-hidden rounded-(--window-radius) border",
-                        (showOutline || cmdShiftHeld) &&
+                        (showOutline || navigationMode) &&
                             focusedPanel === "workspace" &&
                             "ring-accent/50 ring-1 transition-shadow duration-500",
                     )}
@@ -214,7 +233,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                     <div
                         className={cn(
                             "bg-card border-border/50 panel-shadow flex shrink-0 flex-col overflow-hidden rounded-(--window-radius) border",
-                            (showOutline || cmdShiftHeld) &&
+                            (showOutline || navigationMode) &&
                                 focusedPanel === "taskinfo" &&
                                 "ring-accent/50 ring-1 transition-shadow duration-500",
                         )}

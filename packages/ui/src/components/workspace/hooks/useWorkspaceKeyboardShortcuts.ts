@@ -1,12 +1,15 @@
 import { useEffect } from "react";
 import { isDialogOpen } from "@/lib/global-shortcuts";
 import { useUIStore } from "@/stores/ui-store";
+import { useSessionStore } from "@/stores/session-store";
+import { useMarkdownInputStore } from "@/stores/markdown-input-store";
 
 interface KeyboardShortcutHandlers {
     handleCloseActiveTab: () => void;
     handleOpenNewTask: () => void;
     handleOpenDefaultTerminal: () => Promise<void>;
     isElectron: boolean;
+    workspaceKey: string | null;
 }
 
 function useWorkspaceKeyboardShortcuts({
@@ -14,6 +17,7 @@ function useWorkspaceKeyboardShortcuts({
     handleOpenNewTask,
     handleOpenDefaultTerminal,
     isElectron,
+    workspaceKey,
 }: KeyboardShortcutHandlers) {
     const openSettings = useUIStore((s) => s.openSettings);
     const openShortcutsDialog = useUIStore((s) => s.openShortcutsDialog);
@@ -75,11 +79,31 @@ function useWorkspaceKeyboardShortcuts({
             cleanupFns.push(onOpenSchedules(runIfNoDialogOpen(toggleScheduleManagement)));
         }
 
+        const onToggleMarkdownInput = isElectron
+            ? window.taskflow?.onToggleMarkdownInput
+            : undefined;
+
+        if (onToggleMarkdownInput) {
+            cleanupFns.push(
+                onToggleMarkdownInput(
+                    runIfNoDialogOpen(() => {
+                        if (!workspaceKey) return;
+                        const activeTab =
+                            useSessionStore.getState().getActiveTab(workspaceKey);
+                        if (activeTab?.sessionId) {
+                            useMarkdownInputStore.getState().toggle(activeTab.sessionId);
+                        }
+                    }),
+                ),
+            );
+        }
+
         const needsCloseTabFallback = !onCloseTab;
         const needsNewTaskFallback = !onNewTask;
         const needsNewTerminalFallback = !onNewTerminal;
         const needsFileExplorerFallback = !window.taskflow?.onToggleFileExplorer;
         const needsTaskInfoFallback = !window.taskflow?.onToggleTaskInfo;
+        const needsMarkdownInputFallback = !onToggleMarkdownInput;
 
         const onKeyDown = (e: KeyboardEvent) => {
             if (!(e.metaKey || e.ctrlKey)) return;
@@ -103,39 +127,52 @@ function useWorkspaceKeyboardShortcuts({
                 return;
             }
 
-            if (needsFileExplorerFallback && e.key.toLowerCase() === "e") {
+            if (e.shiftKey && needsMarkdownInputFallback && e.code === "KeyE") {
+                e.preventDefault();
+                if (workspaceKey) {
+                    const activeTab =
+                        useSessionStore.getState().getActiveTab(workspaceKey);
+                    if (activeTab?.sessionId) {
+                        useMarkdownInputStore.getState().toggle(activeTab.sessionId);
+                    }
+                }
+                return;
+            }
+
+            if (needsFileExplorerFallback && !e.shiftKey && e.key.toLowerCase() === "e") {
                 e.preventDefault();
                 toggleFileExplorer();
                 return;
             }
 
-            if (needsTaskInfoFallback && e.key.toLowerCase() === "i") {
+            if (needsTaskInfoFallback && !e.shiftKey && e.key.toLowerCase() === "i") {
                 e.preventDefault();
                 toggleTaskInfo();
+                return;
+            }
+
+            // Cmd+1-9: workspace tab switching (only when workspace is focused
+            // and not in panel navigation mode)
+            if (!e.shiftKey && !e.altKey) {
+                const digit = parseInt(e.key, 10);
+                if (digit >= 1 && digit <= 9) {
+                    const state = useUIStore.getState();
+                    if (state.focusedPanel === "workspace" && !state.navigationMode && workspaceKey) {
+                        e.preventDefault();
+                        const tabs = useSessionStore.getState().tabsByWorkspace[workspaceKey];
+                        if (tabs && digit <= tabs.length) {
+                            useSessionStore.getState().setActiveTab(workspaceKey, tabs[digit - 1].id);
+                        }
+                    }
+                }
             }
         };
 
-        if (
-            needsCloseTabFallback ||
-            needsNewTaskFallback ||
-            needsNewTerminalFallback ||
-            needsFileExplorerFallback ||
-            needsTaskInfoFallback
-        ) {
-            window.addEventListener("keydown", onKeyDown);
-        }
+        window.addEventListener("keydown", onKeyDown);
 
         return () => {
             cleanupFns.forEach((cleanup) => cleanup());
-            if (
-                needsCloseTabFallback ||
-                needsNewTaskFallback ||
-                needsNewTerminalFallback ||
-                needsFileExplorerFallback ||
-                needsTaskInfoFallback
-            ) {
-                window.removeEventListener("keydown", onKeyDown);
-            }
+            window.removeEventListener("keydown", onKeyDown);
         };
     }, [
         isElectron,
@@ -150,6 +187,7 @@ function useWorkspaceKeyboardShortcuts({
         toggleScheduleManagement,
         toggleFileExplorer,
         toggleTaskInfo,
+        workspaceKey,
     ]);
 }
 

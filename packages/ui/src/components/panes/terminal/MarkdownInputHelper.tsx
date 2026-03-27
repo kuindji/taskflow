@@ -11,6 +11,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { Tab } from "@/stores/session-helpers";
 
 const AGENT_SESSION_TYPES: ReadonlySet<Tab["type"]> = new Set([
@@ -39,9 +40,12 @@ interface EditorPanelProps {
 
 function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: EditorPanelProps) {
     const editorState = useMarkdownInputStore((s) => getEditor(s, sessionId));
+    const globalPosition = useMarkdownInputStore((s) => s.position);
+    const globalSize = useMarkdownInputStore((s) => s.size);
     const setPosition = useMarkdownInputStore((s) => s.setPosition);
     const setSize = useMarkdownInputStore((s) => s.setSize);
     const setBuffer = useMarkdownInputStore((s) => s.setBuffer);
+    const updateSettings = useSettingsStore((s) => s.updateSettings);
 
     const fontFamily = useSettingsStore(
         (s) => s.settings?.editor?.fontFamily ?? DEFAULT_EDITOR_FONT_FAMILY,
@@ -61,15 +65,15 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
     const maxW = (containerRect?.width ?? 600) - CONTAINER_PADDING * 2;
     const maxH = (containerRect?.height ?? 400) - CONTAINER_PADDING * 2;
 
-    const width = Math.min(Math.max(editorState.size?.width ?? DEFAULT_WIDTH, MIN_WIDTH), maxW);
-    const height = Math.min(Math.max(editorState.size?.height ?? DEFAULT_HEIGHT, MIN_HEIGHT), maxH);
+    const width = Math.min(Math.max(globalSize?.width ?? DEFAULT_WIDTH, MIN_WIDTH), maxW);
+    const height = Math.min(Math.max(globalSize?.height ?? DEFAULT_HEIGHT, MIN_HEIGHT), maxH);
 
     // Default position: bottom center
     const defaultX = Math.max(0, ((containerRect?.width ?? 600) - width) / 2);
     const defaultY = Math.max(0, (containerRect?.height ?? 400) - height - CONTAINER_PADDING);
 
-    const rawX = editorState.position?.x ?? defaultX;
-    const rawY = editorState.position?.y ?? defaultY;
+    const rawX = globalPosition?.x ?? defaultX;
+    const rawY = globalPosition?.y ?? defaultY;
     const x = Math.min(Math.max(0, rawX), Math.max(0, (containerRect?.width ?? 600) - width));
     const y = Math.min(Math.max(0, rawY), Math.max(0, (containerRect?.height ?? 400) - height));
 
@@ -122,7 +126,8 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
                 },
             );
 
-            editor.focus();
+            // Defer focus so Monaco has a frame to fully render
+            requestAnimationFrame(() => editor.focus());
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time setup, buffer read from ref
         [sessionId, fontFamily, fontSize],
@@ -171,10 +176,18 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             const newY = e.clientY - dragOffset.current.y;
             const clampedX = Math.min(Math.max(0, newX), Math.max(0, containerR.width - width));
             const clampedY = Math.min(Math.max(0, newY), Math.max(0, containerR.height - height));
-            setPosition(sessionId, { x: clampedX, y: clampedY });
+            setPosition({ x: clampedX, y: clampedY });
         };
         const onUp = () => {
-            isDragging.current = false;
+            if (isDragging.current) {
+                isDragging.current = false;
+                const pos = useMarkdownInputStore.getState().position;
+                if (pos) {
+                    void updateSettings({
+                        layout: { panels: { markdownEditorPosition: pos } },
+                    });
+                }
+            }
         };
         document.addEventListener("pointermove", onMove);
         document.addEventListener("pointerup", onUp);
@@ -182,7 +195,7 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             document.removeEventListener("pointermove", onMove);
             document.removeEventListener("pointerup", onUp);
         };
-    }, [containerRef, sessionId, width, height, setPosition]);
+    }, [containerRef, width, height, setPosition, updateSettings]);
 
     // --- Resize handlers (document-level move/end for reliable capture) ---
     const handleResizeStart = useCallback((e: React.PointerEvent) => {
@@ -204,10 +217,18 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
                 Math.max(MIN_HEIGHT, e.clientY - containerR.top - y),
                 containerR.height - y,
             );
-            setSize(sessionId, { width: newW, height: newH });
+            setSize({ width: newW, height: newH });
         };
         const onUp = () => {
-            isResizing.current = false;
+            if (isResizing.current) {
+                isResizing.current = false;
+                const sz = useMarkdownInputStore.getState().size;
+                if (sz) {
+                    void updateSettings({
+                        layout: { panels: { markdownEditorSize: sz } },
+                    });
+                }
+            }
         };
         document.addEventListener("pointermove", onMove);
         document.addEventListener("pointerup", onUp);
@@ -215,7 +236,7 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             document.removeEventListener("pointermove", onMove);
             document.removeEventListener("pointerup", onUp);
         };
-    }, [containerRef, sessionId, x, y, setSize]);
+    }, [containerRef, x, y, setSize, updateSettings]);
 
     return (
         <div
@@ -342,14 +363,18 @@ function MarkdownInputHelper({ sessionId, sessionType }: MarkdownInputHelperProp
                     />
                 </div>
             ) : (
-                <button
-                    type="button"
-                    onClick={handleToggle}
-                    className="pointer-events-auto absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-md transition-colors hover:bg-accent hover:text-accent-foreground"
-                    title="Markdown Input (⌘⇧E)"
-                >
-                    <PenIcon />
-                </button>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button
+                            type="button"
+                            onClick={handleToggle}
+                            className="pointer-events-auto absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-md transition-colors hover:bg-accent hover:text-accent-foreground"
+                        >
+                            <PenIcon />
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">Input editor (⌘⇧E)</TooltipContent>
+                </Tooltip>
             )}
         </div>
     );

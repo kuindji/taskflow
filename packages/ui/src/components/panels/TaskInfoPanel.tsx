@@ -5,6 +5,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { usePanelActivation } from "@/hooks/usePanelActivation";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +32,20 @@ function formatLogTime(timestamp: string): string {
 }
 
 function TaskInfoPanel() {
+    // Focus the first input field when navigation mode ends on this panel
+    usePanelActivation(
+        "taskinfo",
+        useCallback(() => {
+            requestAnimationFrame(() => {
+                const panel = document.querySelector('[data-panel="taskinfo"]');
+                const input = panel?.querySelector(
+                    "input, textarea, select",
+                ) as HTMLElement | null;
+                input?.focus();
+            });
+        }, []),
+    );
+
     const workspace = useActiveWorkspace();
     const task = workspace.task;
     const project = workspace.project;

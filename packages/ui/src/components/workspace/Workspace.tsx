@@ -18,7 +18,6 @@ import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
 import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
 
-import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { isEditorDirty, clearEditorDirty } from "@/components/panes/editor-dirty-state";
 import { confirm } from "@/stores/dialog-store";
@@ -43,7 +42,6 @@ import { useWorkspaceKeyboardShortcuts } from "./hooks/useWorkspaceKeyboardShort
 import { useWorkspaceTabOps } from "./hooks/useWorkspaceTabOps";
 
 export function Workspace() {
-    useKeyboardNavigation();
     const isElectron = useIsElectron();
     const workspace = useActiveWorkspace();
     const setActiveTab = useSessionStore((s) => s.setActiveTab);
@@ -99,6 +97,7 @@ export function Workspace() {
         handleOpenNewTask,
         handleOpenDefaultTerminal,
         isElectron,
+        workspaceKey: workspace.workspaceKey,
     });
 
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;

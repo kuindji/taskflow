@@ -8,7 +8,6 @@ import type {
 } from "@taskflow/shared";
 import type { AgentType } from "@taskflow/shared";
 import { cn } from "@/lib/utils";
-import { useCmdHeld } from "@/hooks/useCmdHeld";
 import { useUIStore } from "@/stores/ui-store";
 import { AgentDropdownMenu } from "./AgentDropdownMenu";
 import { TabItem } from "./TabItem";
@@ -66,7 +65,7 @@ export function TabBar({
     allowSessionTabs,
     className,
 }: TabBarProps) {
-    const { cmdHeld } = useCmdHeld();
+    const cmdHeld = useUIStore((s) => s.cmdHeld);
     const focusedPanel = useUIStore((s) => s.focusedPanel);
     const showBadges = cmdHeld && focusedPanel === "workspace";
 
