@@ -4,6 +4,7 @@ import type { FitAddon } from "@xterm/addon-fit";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useUIStore } from "@/stores/ui-store";
+import { useMarkdownInputStore } from "@/stores/markdown-input-store";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
@@ -163,6 +164,14 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
                     sendInputRef.current(sessionId, "\x1b\r");
                 }
                 return false; // prevent xterm default handling for all event phases
+            }
+
+            // ⌘⇧I — toggle markdown input helper
+            if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === "I") {
+                if (event.type === "keydown") {
+                    useMarkdownInputStore.getState().toggle(sessionId);
+                }
+                return false;
             }
 
             // Let modifier keys bubble so useCmdHeld can track Cmd/Shift state
@@ -345,6 +354,19 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
     const handleContainerClick = useCallback(() => {
         termRef.current?.focus();
     }, []);
+
+    useEffect(() => {
+        const id = sessionId;
+        return () => {
+            // If the terminal cache no longer has this session after the detach
+            // grace period, clean up the markdown input state.
+            window.setTimeout(() => {
+                if (!terminalCache.has(id)) {
+                    useMarkdownInputStore.getState().cleanup(id);
+                }
+            }, 100);
+        };
+    }, [sessionId]);
 
     // Native drag-and-drop listeners attached in capture phase so they fire
     // before xterm.js's internal DOM elements can intercept the events.
