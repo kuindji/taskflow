@@ -112,6 +112,21 @@ function useWorkspaceKeyboardShortcuts({
         const needsTaskInfoFallback = !window.taskflow?.onToggleTaskInfo;
         const needsMarkdownInputFallback = !onToggleMarkdownInput;
 
+        // Capture-phase listener for Cmd+J so it fires before Monaco/xterm
+        // can swallow the event.
+        const onCaptureKeyDown = (e: KeyboardEvent) => {
+            if (!(e.metaKey || e.ctrlKey)) return;
+            if (e.key.toLowerCase() !== "j") return;
+            if (isDialogOpen()) return;
+            e.preventDefault();
+            e.stopPropagation();
+            void handleOpenDefaultAgent();
+        };
+
+        if (needsNewAgentFallback) {
+            window.addEventListener("keydown", onCaptureKeyDown, true);
+        }
+
         const onKeyDown = (e: KeyboardEvent) => {
             if (!(e.metaKey || e.ctrlKey)) return;
             if (isDialogOpen()) return;
@@ -131,12 +146,6 @@ function useWorkspaceKeyboardShortcuts({
             if (needsNewTerminalFallback && e.key.toLowerCase() === "t") {
                 e.preventDefault();
                 void handleOpenDefaultTerminal();
-                return;
-            }
-
-            if (needsNewAgentFallback && e.key.toLowerCase() === "j") {
-                e.preventDefault();
-                void handleOpenDefaultAgent();
                 return;
             }
 
@@ -190,6 +199,7 @@ function useWorkspaceKeyboardShortcuts({
 
         return () => {
             cleanupFns.forEach((cleanup) => cleanup());
+            window.removeEventListener("keydown", onCaptureKeyDown, true);
             window.removeEventListener("keydown", onKeyDown);
         };
     }, [

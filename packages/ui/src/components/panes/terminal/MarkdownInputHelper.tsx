@@ -117,9 +117,6 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
                 onSend();
             });
 
-            // Free Cmd+J so it bubbles to the app-level "New Agent" shortcut
-            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyJ, () => {});
-
             // Cmd+Shift+E to close editor
             editor.addCommand(
                 monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyE,
@@ -373,7 +370,8 @@ function MarkdownInputHelper({ sessionId, sessionType }: MarkdownInputHelperProp
     const handleSend = useCallback(() => {
         const buffer = getEditor(useMarkdownInputStore.getState(), sessionId).buffer;
         if (!buffer.trim()) return;
-        sendInput(sessionId, buffer + "\r");
+        sendInput(sessionId, buffer);
+        setTimeout(() => sendInput(sessionId, "\r"), 500);
         clearBuffer(sessionId);
         toggle(sessionId);
     }, [sessionId, sendInput, clearBuffer, toggle]);

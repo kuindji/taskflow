@@ -190,9 +190,6 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             setDirty(true);
         });
 
-        // Free Cmd+J so it bubbles to the app-level "New Agent" shortcut
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyJ, () => {});
-
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             if (!editorReadyRef.current) return;
             void writeFile(filePath, editor.getValue())
