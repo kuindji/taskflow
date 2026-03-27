@@ -247,7 +247,7 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             {/* Monaco editor area */}
             <div
                 ref={editorContainerRef}
-                className="min-h-0 flex-1 overflow-hidden p-3 [&_.monaco-editor]:!border-none [&_.monaco-editor]:!outline-none"
+                className="min-h-0 flex-1 overflow-hidden px-3 [&_.monaco-editor]:!border-none [&_.monaco-editor]:!outline-none"
             />
 
             {/* Footer — same bg, no border */}
@@ -312,14 +312,16 @@ function MarkdownInputHelper({ sessionId, sessionType }: MarkdownInputHelperProp
         if (!buffer.trim()) return;
         sendInput(sessionId, buffer + "\r");
         clearBuffer(sessionId);
-    }, [sessionId, sendInput, clearBuffer]);
+        toggle(sessionId);
+    }, [sessionId, sendInput, clearBuffer, toggle]);
 
     const handleInsert = useCallback(() => {
         const buffer = getEditor(useMarkdownInputStore.getState(), sessionId).buffer;
         if (!buffer.trim()) return;
         sendInput(sessionId, buffer);
         clearBuffer(sessionId);
-    }, [sessionId, sendInput, clearBuffer]);
+        toggle(sessionId);
+    }, [sessionId, sendInput, clearBuffer, toggle]);
 
     const handleClose = useCallback(() => {
         toggle(sessionId);
