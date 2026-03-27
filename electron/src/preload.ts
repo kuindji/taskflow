@@ -37,6 +37,13 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("new-terminal", listener);
         };
     },
+    onNewAgent: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("new-agent", listener);
+        return () => {
+            ipcRenderer.removeListener("new-agent", listener);
+        };
+    },
     onCloseTab: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("close-tab", listener);

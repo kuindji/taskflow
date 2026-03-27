@@ -259,6 +259,13 @@ function buildAppMenu(): void {
                         mainWindow?.webContents.send("new-terminal");
                     },
                 },
+                {
+                    label: "New Agent",
+                    accelerator: "CmdOrCtrl+J",
+                    click: () => {
+                        mainWindow?.webContents.send("new-agent");
+                    },
+                },
                 { type: "separator" },
                 {
                     label: "Close Tab",

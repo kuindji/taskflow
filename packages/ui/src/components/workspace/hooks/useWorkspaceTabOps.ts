@@ -3,6 +3,7 @@ import type { ShellListResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
@@ -24,6 +25,7 @@ interface TabOpsResult {
     handleCloseActiveTab: () => void;
     handleOpenNewTask: () => void;
     handleOpenDefaultTerminal: () => Promise<void>;
+    handleOpenDefaultAgent: () => Promise<void>;
 }
 
 function useWorkspaceTabOps({
@@ -34,6 +36,7 @@ function useWorkspaceTabOps({
 }: TabOpsParams): TabOpsResult {
     const closeTab = useSessionStore((s) => s.closeTab);
     const createSession = useSessionStore((s) => s.createSession);
+    const defaultAgent = useSettingsStore((s) => s.settings?.general.defaultAgent ?? "claude");
     const setActiveTask = useTaskStore((s) => s.setActiveTask);
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
@@ -89,10 +92,31 @@ function useWorkspaceTabOps({
         workspace.task,
     ]);
 
+    const handleOpenDefaultAgent = useCallback(async () => {
+        if (!workspace.scope) return;
+
+        const owner =
+            workspace.scope === "task"
+                ? { taskId: workspace.task.id }
+                : workspace.scope === "project"
+                  ? { projectId: workspace.project.id }
+                  : { master: true as const };
+        setFocusedPanel("workspace");
+        await createSession(owner, defaultAgent);
+    }, [
+        createSession,
+        defaultAgent,
+        setFocusedPanel,
+        workspace.project,
+        workspace.scope,
+        workspace.task,
+    ]);
+
     return {
         handleCloseActiveTab,
         handleOpenNewTask,
         handleOpenDefaultTerminal,
+        handleOpenDefaultAgent,
     };
 }
 
