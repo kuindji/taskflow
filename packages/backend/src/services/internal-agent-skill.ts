@@ -15,7 +15,8 @@ const PROMPT_TASK_SCOPE = `
 This session is scoped to a specific task.
 - At session start, read task info.
 - Log your findings and progress.
-- Log every commit hash when inside task context.`;
+- Log every commit hash when inside task context.
+- Log every edited file as path relative to worktree or repo root.`;
 
 const PROMPT_PROJECT_SCOPE = `
 This session is scoped to a project, not a specific task.`;

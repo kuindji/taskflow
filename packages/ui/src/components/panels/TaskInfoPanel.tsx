@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TaskLogEntryType } from "@taskflow/shared";
 import { X } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
@@ -12,12 +12,14 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Toolbar } from "@/components/ui/toolbar";
+import { EditedFilesList } from "@/components/panels/EditedFilesList";
 
 const logTypeStyles: Record<TaskLogEntryType, string> = {
     info: "bg-blue-500/20 text-blue-400 border-blue-500/30",
     commit: "bg-success/20 text-success border-success/30",
     warning: "bg-warning/20 text-warning border-warning/30",
     error: "bg-destructive/20 text-destructive border-destructive/30",
+    file: "bg-muted/20 text-muted-foreground border-muted/30",
 };
 
 function formatLogTime(timestamp: string): string {
@@ -37,7 +39,19 @@ function TaskInfoPanel() {
     const { updateTask, fetchTaskLog } = useTaskStore();
     const updateProject = useProjectStore((s) => s.updateProject);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
-    const taskLogs = useTaskStore((s) => (task ? s.taskLogs[task.id] : undefined));
+    const allLogs = useTaskStore((s) => (task ? s.taskLogs[task.id] : undefined));
+    const editedFiles = useMemo(
+        () => (allLogs ?? []).filter((e) => e.type === "file"),
+        [allLogs],
+    );
+    const taskLogs = useMemo(
+        () => {
+            if (!allLogs) return undefined;
+            const filtered = allLogs.filter((e) => e.type !== "file");
+            return filtered.length > 0 ? filtered : undefined;
+        },
+        [allLogs],
+    );
     const [titleDraft, setTitleDraft] = useState("");
     const [descriptionDraft, setDescriptionDraft] = useState("");
     const [notesDraft, setNotesDraft] = useState("");
@@ -419,6 +433,19 @@ function TaskInfoPanel() {
                             className="mt-1 text-sm"
                         />
                     </div>
+
+                    {/* Edited Files */}
+                    {project && editedFiles.length > 0 && (
+                        <>
+                            <Separator className="my-4" />
+                            <EditedFilesList
+                                files={editedFiles}
+                                workingDir={workspace.workingDir ?? project.path}
+                                workspaceKey={workspace.workspaceKey ?? ""}
+                                task={task}
+                            />
+                        </>
+                    )}
 
                     {/* Log */}
                     {taskLogs && taskLogs.length > 0 && (
