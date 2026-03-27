@@ -4,6 +4,7 @@ import type { PtyManager } from "./pty-manager";
 import type { TaskStore } from "./task-store";
 import {
     buildAgentLaunchSpec,
+    buildProjectContextBlock,
     ensureInternalAgentSkillFile,
     PROMPT_AUTONOMOUS,
 } from "./internal-agent-skill";
@@ -222,6 +223,28 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 effectiveSystemPrompt = effectiveSystemPrompt
                     ? `${effectiveSystemPrompt}\n\n${PROMPT_AUTONOMOUS}`
                     : PROMPT_AUTONOMOUS;
+            }
+            if (project && (project.prompt || project.linkedProjects?.length)) {
+                const resolvedProjects: Record<string, { name: string; path: string }> = {};
+                for (const link of project.linkedProjects ?? []) {
+                    const linked = await taskStore.getProject(link.projectId);
+                    if (linked) {
+                        resolvedProjects[link.projectId] = {
+                            name: linked.name,
+                            path: linked.path,
+                        };
+                    }
+                }
+                const projectBlock = buildProjectContextBlock({
+                    prompt: project.prompt,
+                    linkedProjects: project.linkedProjects,
+                    resolvedProjects,
+                });
+                if (projectBlock) {
+                    effectiveSystemPrompt = effectiveSystemPrompt
+                        ? `${effectiveSystemPrompt}\n\n${projectBlock}`
+                        : projectBlock;
+                }
             }
             const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
             if (type === "cursor" && !master && effectiveSystemPrompt) {

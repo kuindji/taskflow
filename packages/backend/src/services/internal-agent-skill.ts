@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import cliScript from "./taskflow-cli.sh" with { type: "text" };
 import skillMarkdown from "./taskflow-cli-skill.md" with { type: "text" };
-import type { AgentLaunchOptions } from "@taskflow/shared";
+import type { AgentLaunchOptions, LinkedProject } from "@taskflow/shared";
 
 const SKILL_DIR_NAME = "taskflow-internal-api";
 const SKILL_FILE_NAME = "SKILL.md";
@@ -69,6 +69,37 @@ export async function ensureCliScript(binDir: string): Promise<void> {
     await writeFile(scriptPath, cliScript, "utf8");
     await chmod(scriptPath, 0o755);
 }
+
+export interface ProjectContext {
+    prompt?: string;
+    linkedProjects?: LinkedProject[];
+    resolvedProjects?: Record<string, { name: string; path: string }>;
+}
+
+export function buildProjectContextBlock(context: ProjectContext): string | undefined {
+    const parts: string[] = [];
+
+    if (context.prompt?.trim()) {
+        parts.push(`## Project Instructions\n\n${context.prompt.trim()}`);
+    }
+
+    const links = context.linkedProjects;
+    if (links && links.length > 0 && context.resolvedProjects) {
+        const items: string[] = [];
+        for (const link of links) {
+            const resolved = context.resolvedProjects[link.projectId];
+            if (!resolved) continue;
+            const note = link.note.trim() ? ` — "${link.note.trim()}"` : "";
+            items.push(`- **${resolved.name}** (${link.projectId}) — ${resolved.path}${note}`);
+        }
+        if (items.length > 0) {
+            parts.push(`## Linked Projects\n\n${items.join("\n")}`);
+        }
+    }
+
+    return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
 export function buildAgentLaunchSpec(
     type: "claude" | "codex" | "opencode" | "gemini" | "cursor",
     prompt: string | undefined,

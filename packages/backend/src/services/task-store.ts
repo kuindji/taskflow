@@ -259,11 +259,31 @@ export class TaskStore {
     async updateProject(
         id: string,
         updates:
-            | Partial<Pick<Project, "name" | "path" | "sessions" | "hidden" | "defaultInitCommand">>
+            | Partial<
+                  Pick<
+                      Project,
+                      | "name"
+                      | "path"
+                      | "sessions"
+                      | "hidden"
+                      | "defaultInitCommand"
+                      | "prompt"
+                      | "linkedProjects"
+                  >
+              >
             | ((
                   project: Project,
               ) => Partial<
-                  Pick<Project, "name" | "path" | "sessions" | "hidden" | "defaultInitCommand">
+                  Pick<
+                      Project,
+                      | "name"
+                      | "path"
+                      | "sessions"
+                      | "hidden"
+                      | "defaultInitCommand"
+                      | "prompt"
+                      | "linkedProjects"
+                  >
               >),
     ): Promise<Project> {
         const projects = await this.listProjects();
@@ -297,6 +317,14 @@ export class TaskStore {
                 "defaultInitCommand" in resolvedUpdates
                     ? resolvedUpdates.defaultInitCommand?.trim() || undefined
                     : projects[index].defaultInitCommand,
+            prompt:
+                "prompt" in resolvedUpdates
+                    ? resolvedUpdates.prompt?.trim() || undefined
+                    : projects[index].prompt,
+            linkedProjects:
+                "linkedProjects" in resolvedUpdates
+                    ? resolvedUpdates.linkedProjects
+                    : projects[index].linkedProjects,
         };
         await writeFile(
             this.config.projectsFile,
