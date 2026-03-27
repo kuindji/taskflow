@@ -84,13 +84,17 @@ export function Workspace() {
         hasScripts,
     } = useSessionSync(workspace);
 
-    const { handleCloseActiveTab, handleOpenNewTask, handleOpenDefaultTerminal, handleOpenDefaultAgent } =
-        useWorkspaceTabOps({
-            workspace,
-            activeTab,
-            defaultShellPath,
-            configuredShell,
-        });
+    const {
+        handleCloseActiveTab,
+        handleOpenNewTask,
+        handleOpenDefaultTerminal,
+        handleOpenDefaultAgent,
+    } = useWorkspaceTabOps({
+        workspace,
+        activeTab,
+        defaultShellPath,
+        configuredShell,
+    });
 
     useWorkspaceKeyboardShortcuts({
         handleCloseActiveTab,

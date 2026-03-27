@@ -314,15 +314,39 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
             </div>
 
             {/* Resize edges */}
-            <div className="absolute inset-x-2 top-0 h-1 cursor-ns-resize" onPointerDown={handleResizeStart("n")} />
-            <div className="absolute inset-x-2 bottom-0 h-1 cursor-ns-resize" onPointerDown={handleResizeStart("s")} />
-            <div className="absolute inset-y-2 left-0 w-1 cursor-ew-resize" onPointerDown={handleResizeStart("w")} />
-            <div className="absolute inset-y-2 right-0 w-1 cursor-ew-resize" onPointerDown={handleResizeStart("e")} />
+            <div
+                className="absolute inset-x-2 top-0 h-1 cursor-ns-resize"
+                onPointerDown={handleResizeStart("n")}
+            />
+            <div
+                className="absolute inset-x-2 bottom-0 h-1 cursor-ns-resize"
+                onPointerDown={handleResizeStart("s")}
+            />
+            <div
+                className="absolute inset-y-2 left-0 w-1 cursor-ew-resize"
+                onPointerDown={handleResizeStart("w")}
+            />
+            <div
+                className="absolute inset-y-2 right-0 w-1 cursor-ew-resize"
+                onPointerDown={handleResizeStart("e")}
+            />
             {/* Resize corners */}
-            <div className="absolute top-0 left-0 h-2 w-2 cursor-nwse-resize" onPointerDown={handleResizeStart("nw")} />
-            <div className="absolute top-0 right-0 h-2 w-2 cursor-nesw-resize" onPointerDown={handleResizeStart("ne")} />
-            <div className="absolute bottom-0 left-0 h-2 w-2 cursor-nesw-resize" onPointerDown={handleResizeStart("sw")} />
-            <div className="absolute right-0 bottom-0 h-2 w-2 cursor-nwse-resize" onPointerDown={handleResizeStart("se")} />
+            <div
+                className="absolute top-0 left-0 h-2 w-2 cursor-nwse-resize"
+                onPointerDown={handleResizeStart("nw")}
+            />
+            <div
+                className="absolute top-0 right-0 h-2 w-2 cursor-nesw-resize"
+                onPointerDown={handleResizeStart("ne")}
+            />
+            <div
+                className="absolute bottom-0 left-0 h-2 w-2 cursor-nesw-resize"
+                onPointerDown={handleResizeStart("sw")}
+            />
+            <div
+                className="absolute right-0 bottom-0 h-2 w-2 cursor-nwse-resize"
+                onPointerDown={handleResizeStart("se")}
+            />
         </div>
     );
 }

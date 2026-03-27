@@ -65,9 +65,7 @@ function useWorkspaceKeyboardShortcuts({
 
         const onNewAgent = isElectron ? window.taskflow?.onNewAgent : undefined;
         if (onNewAgent) {
-            cleanupFns.push(
-                onNewAgent(runIfNoDialogOpen(() => void handleOpenDefaultAgent())),
-            );
+            cleanupFns.push(onNewAgent(runIfNoDialogOpen(() => void handleOpenDefaultAgent())));
         }
         if (onOpenSettings) {
             cleanupFns.push(onOpenSettings(runIfNoDialogOpen(openSettings)));
