@@ -152,10 +152,7 @@ function useRunMenu({
         [taskId, projectId],
     );
 
-    const owner = useMemo(
-        () => (taskId ? { taskId } : { projectId }),
-        [taskId, projectId],
-    );
+    const owner = useMemo(() => (taskId ? { taskId } : { projectId }), [taskId, projectId]);
 
     const onRunScript = useCallback(
         (name: string) => {
@@ -180,7 +177,9 @@ function useRunMenu({
     const onRunAgentCommand = useCallback(
         (cmd: AgentCommand) => {
             navigate(true);
-            void useSessionStore.getState().createSession(owner, "claude", cmd.name, `/${cmd.name}`);
+            void useSessionStore
+                .getState()
+                .createSession(owner, "claude", cmd.name, `/${cmd.name}`);
         },
         [navigate, owner],
     );
@@ -188,14 +187,16 @@ function useRunMenu({
     const onRunAction = useCallback(
         (action: ActionDefinition) => {
             navigate(true);
-            void useSessionStore.getState().createSession(
-                owner,
-                action.sessionType,
-                action.name,
-                action.prompt,
-                undefined,
-                action.sessionType !== "shell" ? action.agentOptions : undefined,
-            );
+            void useSessionStore
+                .getState()
+                .createSession(
+                    owner,
+                    action.sessionType,
+                    action.name,
+                    action.prompt,
+                    undefined,
+                    action.sessionType !== "shell" ? action.agentOptions : undefined,
+                );
         },
         [navigate, owner],
     );
@@ -203,9 +204,7 @@ function useRunMenu({
     const onStartFlow = useCallback(
         (flowId: string) => {
             const flow = useFlowStore.getState().flows.find((f) => f.id === flowId);
-            const flowOwner = taskId
-                ? { taskId, flowId }
-                : { projectId, flowId };
+            const flowOwner = taskId ? { taskId, flowId } : { projectId, flowId };
 
             if (flow?.inputs && flow.inputs.length > 0) {
                 setFlowInputState({
@@ -228,14 +227,16 @@ function useRunMenu({
             if (!taskId) return;
             navigate(true);
             const task = useTaskStore.getState().tasks.find((t) => t.id === taskId);
-            void useSessionStore.getState().createSession(
-                { taskId },
-                type,
-                undefined,
-                task?.description || undefined,
-                undefined,
-                agentOptions,
-            );
+            void useSessionStore
+                .getState()
+                .createSession(
+                    { taskId },
+                    type,
+                    undefined,
+                    task?.description || undefined,
+                    undefined,
+                    agentOptions,
+                );
         },
         [navigate, taskId],
     );
@@ -257,12 +258,9 @@ function useRunMenu({
         setFlowInputState(null);
     }, []);
 
-    const onRunTabWithOptions = useCallback(
-        (type: AgentType) => {
-            setRunOptionsAgent(type);
-        },
-        [],
-    );
+    const onRunTabWithOptions = useCallback((type: AgentType) => {
+        setRunOptionsAgent(type);
+    }, []);
 
     const handleRunOptionsConfirm = useCallback(
         (agentType: AgentType, options: AgentLaunchOptions) => {
@@ -272,12 +270,9 @@ function useRunMenu({
         [onRunTab],
     );
 
-    const handleRunOptionsOpenChange = useCallback(
-        (open: boolean) => {
-            if (!open) setRunOptionsAgent(null);
-        },
-        [],
-    );
+    const handleRunOptionsOpenChange = useCallback((open: boolean) => {
+        if (!open) setRunOptionsAgent(null);
+    }, []);
 
     const callbacks: RunMenuCallbacks = useMemo(
         () => ({
@@ -288,7 +283,15 @@ function useRunMenu({
             onRunTab: showAgentOptions ? onRunTab : undefined,
             onRunTabWithOptions: showAgentOptions ? onRunTabWithOptions : undefined,
         }),
-        [onRunScript, onRunAgentCommand, onRunAction, onStartFlow, showAgentOptions, onRunTab, onRunTabWithOptions],
+        [
+            onRunScript,
+            onRunAgentCommand,
+            onRunAction,
+            onStartFlow,
+            showAgentOptions,
+            onRunTab,
+            onRunTabWithOptions,
+        ],
     );
 
     return {

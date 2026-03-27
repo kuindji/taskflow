@@ -156,7 +156,16 @@ function AgentDropdownMenu({
             agents,
             showAgentOptions,
         }),
-        [scripts, defaultRuntime, agentCommands, flows, standaloneActions, activeFlowRun, agents, showAgentOptions],
+        [
+            scripts,
+            defaultRuntime,
+            agentCommands,
+            flows,
+            standaloneActions,
+            activeFlowRun,
+            agents,
+            showAgentOptions,
+        ],
     );
 
     const openNativeRunMenu = async (target: HTMLElement) => {

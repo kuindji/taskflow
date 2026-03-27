@@ -286,21 +286,25 @@ export function ProjectGroup({
                         </span>
                     )}
                 </button>
-                {keyBadgeNumber == null && !locationInvalid && (diffStats || behind > 0) && (
+                {!locationInvalid && (keyBadgeNumber != null || diffStats || behind > 0) && (
                     <div className="relative mr-1.5 flex shrink-0 items-center">
-                        <Badge
-                            variant="outline"
-                            className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium">
-                            {behind > 0 && <span className="text-info">↓{behind}</span>}
-                            {diffStats && (
-                                <>
-                                    <span className="text-success">+{diffStats.additions}</span>
-                                    <span className="text-destructive">-{diffStats.deletions}</span>
-                                </>
-                            )}
-                        </Badge>
-
-                        {keyBadgeNumber != null ? <KeyBadge number={keyBadgeNumber} /> : null}
+                        {keyBadgeNumber != null ? (
+                            <KeyBadge number={keyBadgeNumber} />
+                        ) : (
+                            <Badge
+                                variant="outline"
+                                className="border-border/60 bg-muted/50 gap-0.5 px-1.5 py-0 text-[10px] font-medium">
+                                {behind > 0 && <span className="text-info">↓{behind}</span>}
+                                {diffStats && (
+                                    <>
+                                        <span className="text-success">+{diffStats.additions}</span>
+                                        <span className="text-destructive">
+                                            -{diffStats.deletions}
+                                        </span>
+                                    </>
+                                )}
+                            </Badge>
+                        )}
                     </div>
                 )}
             </div>

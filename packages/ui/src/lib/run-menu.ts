@@ -138,9 +138,7 @@ function buildNativeRunMenuItems(
                 continue;
             }
 
-            const submenu: NativeMenuItem[] = [
-                { id: `run:${agentType}`, label: "Run" },
-            ];
+            const submenu: NativeMenuItem[] = [{ id: `run:${agentType}`, label: "Run" }];
             if (callbacks.onRunTabWithOptions) {
                 submenu.push({ id: `run-options:${agentType}`, label: "Run with options..." });
             }

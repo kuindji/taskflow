@@ -32,14 +32,7 @@ interface RunMenuItemsProps {
 }
 
 function RunMenuItems({ data, callbacks, components }: RunMenuItemsProps) {
-    const {
-        Sub,
-        SubTrigger,
-        SubContent,
-        Item,
-        Separator,
-        Label,
-    } = components;
+    const { Sub, SubTrigger, SubContent, Item, Separator, Label } = components;
 
     const scriptNames = useMemo(() => Object.keys(data.scripts), [data.scripts]);
     const hasClaudeAgent = isAgentAvailable(data.agents, "claude");
@@ -151,9 +144,7 @@ function RunMenuItems({ data, callbacks, components }: RunMenuItemsProps) {
                                 </Item>
                                 {available && callbacks.onRunTabWithOptions && (
                                     <Item
-                                        onSelect={() =>
-                                            callbacks.onRunTabWithOptions?.(agentType)
-                                        }>
+                                        onSelect={() => callbacks.onRunTabWithOptions?.(agentType)}>
                                         <Icon className="mr-2 h-4 w-4" />
                                         {label} with options...
                                     </Item>
