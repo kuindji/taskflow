@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { AgentLaunchOptions, FlowDefinition } from "@taskflow/shared";
 import type { Project } from "@taskflow/shared";
 import {
@@ -62,6 +62,12 @@ export function NewTaskDialog({
     const [startWithFlowId, setStartWithFlowId] = useState("");
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
     const isSubtask = !!parentId;
+
+    useEffect(() => {
+        if (open) {
+            setProjectId(defaultProjectId ?? "");
+        }
+    }, [open, defaultProjectId]);
 
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
