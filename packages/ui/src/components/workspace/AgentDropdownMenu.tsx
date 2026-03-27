@@ -32,8 +32,9 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AgentOptionsPanel } from "./AgentOptionsPanel";
 import { AgentOptionsDialog } from "./AgentOptionsDialog";
-import { Play, Terminal, Globe, ChevronDown, SquareTerminal, Workflow, Zap } from "lucide-react";
-import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
+import { RunMenuItems } from "@/components/shared/RunMenuItems";
+import type { MenuComponents } from "@/components/shared/RunMenuItems";
+import { Play, Terminal, Globe, ChevronDown } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 import {
     getShellDisplayName,
@@ -48,7 +49,17 @@ import {
     type NativeMenuActionMap,
     type NativeMenuItem,
 } from "@/lib/native-menu";
+import { buildNativeRunMenuItems } from "@/lib/run-menu";
 import { AGENT_META } from "./tab-constants";
+
+const dropdownMenuComponents: MenuComponents = {
+    Sub: DropdownMenuSub,
+    SubTrigger: DropdownMenuSubTrigger,
+    SubContent: DropdownMenuSubContent,
+    Item: DropdownMenuItem,
+    Separator: DropdownMenuSeparator,
+    Label: DropdownMenuLabel,
+};
 
 interface AgentDropdownMenuProps {
     onNewTab: (
@@ -134,117 +145,29 @@ function AgentDropdownMenu({
     const scriptNames = useMemo(() => Object.keys(scripts), [scripts]);
     const nativeMenus = supportsNativeMenus();
 
+    const runMenuData = useMemo(
+        () => ({
+            scripts,
+            defaultRuntime,
+            agentCommands,
+            flows,
+            standaloneActions,
+            activeFlowRun,
+            agents,
+            showAgentOptions,
+        }),
+        [scripts, defaultRuntime, agentCommands, flows, standaloneActions, activeFlowRun, agents, showAgentOptions],
+    );
+
     const openNativeRunMenu = async (target: HTMLElement) => {
-        const items: NativeMenuItem[] = [];
-        const actions: NativeMenuActionMap = {};
-
-        if (scriptNames.length > 0) {
-            items.push({
-                type: "submenu",
-                label: "package.json",
-                submenu: scriptNames.map((name) => ({
-                    id: `script:${name}`,
-                    label: `${name} (${defaultRuntime})`,
-                })),
-            });
-            for (const name of scriptNames) {
-                actions[`script:${name}`] = () => onRunScript(name);
-            }
-        }
-
-        if (agentCommands.length > 0 && isAgentAvailable(agents, "claude")) {
-            items.push({
-                type: "submenu",
-                label: ".claude",
-                submenu: agentCommands.map((cmd) => ({
-                    id: `agent-command:${cmd.source}:${cmd.name}`,
-                    label: `${cmd.name} (${cmd.source})`,
-                })),
-            });
-            for (const cmd of agentCommands) {
-                actions[`agent-command:${cmd.source}:${cmd.name}`] = () => onRunAgentCommand(cmd);
-            }
-        }
-
-        if (flows.length > 0 && !activeFlowRun) {
-            if (items.length > 0) items.push({ type: "separator" });
-            items.push({
-                type: "submenu",
-                label: "Flows",
-                submenu: [
-                    ...flows.map((flow) => ({
-                        id: `flow:${flow.id}`,
-                        label: flow.name,
-                    })),
-                    //{ type: "separator" },
-                    //{ id: "manage-flows", label: "Manage Actions and Flows..." },
-                ],
-            });
-
-            for (const flow of flows) {
-                actions[`flow:${flow.id}`] = () => onStartFlow(flow.id);
-            }
-            // actions["manage-flows"] = onManageFlows;
-        }
-
-        if (standaloneActions.length > 0) {
-            if ((scriptNames.length > 0 || agentCommands.length > 0) && flows.length === 0) {
-                items.push({ type: "separator" });
-            }
-            items.push({
-                type: "submenu",
-                label: "Actions",
-                submenu: standaloneActions.map((action) => ({
-                    id: `action:${action.id}`,
-                    label: `${action.name} (${action.sessionType})`,
-                })),
-            });
-
-            for (const action of standaloneActions) {
-                actions[`action:${action.id}`] = () => onRunAction(action);
-            }
-        }
-
-        if (showAgentOptions) {
-            if (
-                scriptNames.length > 0 ||
-                flows.length > 0 ||
-                standaloneActions.length > 0 ||
-                agentCommands.length > 0
-            ) {
-                items.push({ type: "separator" });
-            }
-
-            items.push({
-                type: "label",
-                label: "Run agent with task description",
-            });
-
-            for (const agentType of ALL_AGENT_TYPES) {
-                const available = isAgentAvailable(agents, agentType);
-                const label = AGENT_DISPLAY_NAMES[agentType];
-
-                if (!available) {
-                    items.push({
-                        label: `${label} (not installed)`,
-                        enabled: false,
-                    });
-                    continue;
-                }
-
-                items.push({
-                    type: "submenu",
-                    label,
-                    submenu: [
-                        { id: `run:${agentType}`, label: "Run" },
-                        { id: `run-options:${agentType}`, label: "Run with options..." },
-                    ],
-                });
-
-                actions[`run:${agentType}`] = () => onRunTab(agentType);
-                actions[`run-options:${agentType}`] = () => setRunOptionsAgent(agentType);
-            }
-        }
+        const { items, actions } = buildNativeRunMenuItems(runMenuData, {
+            onRunScript,
+            onRunAgentCommand,
+            onStartFlow,
+            onRunAction,
+            onRunTab: (type) => onRunTab(type),
+            onRunTabWithOptions: (type) => setRunOptionsAgent(type),
+        });
 
         await showNativeMenuAndRun(items, actions, getElementMenuPosition(target, "start"));
     };
@@ -323,98 +246,16 @@ function AgentDropdownMenu({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start">
-                            {scriptNames.length > 0 && (
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger>
-                                        <SquareTerminal className="mr-2 h-4 w-4" />
-                                        package.json
-                                    </DropdownMenuSubTrigger>
-                                    <DropdownMenuSubContent>
-                                        {scriptNames.map((name) => (
-                                            <DropdownMenuItem
-                                                key={name}
-                                                onClick={() => onRunScript(name)}>
-                                                <SquareTerminal className="mr-2 h-4 w-4" />
-                                                {name}
-                                                <span className="text-muted-foreground ml-auto text-xs">
-                                                    {defaultRuntime}
-                                                </span>
-                                            </DropdownMenuItem>
-                                        ))}
-                                    </DropdownMenuSubContent>
-                                </DropdownMenuSub>
-                            )}
-                            {agentCommands.length > 0 && isAgentAvailable(agents, "claude") && (
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger>
-                                        <ClaudeIcon className="mr-2 h-4 w-4" />
-                                        .claude
-                                    </DropdownMenuSubTrigger>
-                                    <DropdownMenuSubContent>
-                                        {agentCommands.map((cmd) => (
-                                            <DropdownMenuItem
-                                                key={`${cmd.source}:${cmd.name}`}
-                                                onClick={() => onRunAgentCommand(cmd)}>
-                                                <ClaudeIcon className="mr-2 h-4 w-4" />
-                                                {cmd.name}
-                                                <span className="text-muted-foreground ml-auto text-xs">
-                                                    {cmd.source}
-                                                </span>
-                                            </DropdownMenuItem>
-                                        ))}
-                                    </DropdownMenuSubContent>
-                                </DropdownMenuSub>
-                            )}
-                            {flows.length > 0 && !activeFlowRun && (
-                                <>
-                                    {(scriptNames.length > 0 || agentCommands.length > 0) && (
-                                        <DropdownMenuSeparator />
-                                    )}
-                                    <DropdownMenuSub>
-                                        <DropdownMenuSubTrigger>
-                                            <Workflow className="mr-2 h-4 w-4" />
-                                            Flows
-                                        </DropdownMenuSubTrigger>
-                                        <DropdownMenuSubContent>
-                                            {flows.map((f) => (
-                                                <DropdownMenuItem
-                                                    key={f.id}
-                                                    onClick={() => onStartFlow(f.id)}>
-                                                    {f.name}
-                                                </DropdownMenuItem>
-                                            ))}
-                                            {/* <DropdownMenuSeparator /> */}
-                                            {/* <DropdownMenuItem onClick={onManageFlows}>
-                                                Manage Actions and Flows...
-                                            </DropdownMenuItem> */}
-                                        </DropdownMenuSubContent>
-                                    </DropdownMenuSub>
-                                </>
-                            )}
-                            {standaloneActions.length > 0 && (
-                                <>
-                                    {(scriptNames.length > 0 || agentCommands.length > 0) &&
-                                        flows.length === 0 && <DropdownMenuSeparator />}
-                                    <DropdownMenuSub>
-                                        <DropdownMenuSubTrigger>
-                                            <Zap className="mr-2 h-4 w-4" />
-                                            Actions
-                                        </DropdownMenuSubTrigger>
-                                        <DropdownMenuSubContent>
-                                            {standaloneActions.map((a) => (
-                                                <DropdownMenuItem
-                                                    key={a.id}
-                                                    onClick={() => onRunAction(a)}>
-                                                    {a.name}
-                                                    <span className="text-muted-foreground ml-auto text-xs">
-                                                        {a.sessionType}
-                                                    </span>
-                                                </DropdownMenuItem>
-                                            ))}
-                                        </DropdownMenuSubContent>
-                                    </DropdownMenuSub>
-                                </>
-                            )}
+                            <RunMenuItems
+                                data={{ ...runMenuData, showAgentOptions: false }}
+                                callbacks={{
+                                    onRunScript,
+                                    onRunAgentCommand,
+                                    onStartFlow,
+                                    onRunAction,
+                                }}
+                                components={dropdownMenuComponents}
+                            />
                             {showAgentOptions && (
                                 <>
                                     {(scriptNames.length > 0 ||

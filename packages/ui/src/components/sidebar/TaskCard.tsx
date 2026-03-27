@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, type MouseEvent } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Archive, ArchiveRestore, GitBranch, Pin, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, GitBranch, Pin, Play, Plus, Trash2 } from "lucide-react";
 import type { Task, SessionRef } from "@taskflow/shared";
 import { useShallow } from "zustand/react/shallow";
 import { useTaskStore } from "@/stores/task-store";
@@ -14,7 +14,11 @@ import {
     ContextMenu,
     ContextMenuContent,
     ContextMenuItem,
+    ContextMenuLabel,
     ContextMenuSeparator,
+    ContextMenuSub,
+    ContextMenuSubContent,
+    ContextMenuSubTrigger,
     ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -30,7 +34,23 @@ import {
 import { cn } from "@/lib/utils";
 import { KeyBadge } from "@/components/ui/key-badge";
 import { getEventMenuPosition, showNativeMenuAndRun, supportsNativeMenus } from "@/lib/native-menu";
+import { buildNativeRunMenuItems } from "@/lib/run-menu";
+import { useRunMenu } from "@/hooks/useRunMenu";
+import { RunMenuItems } from "@/components/shared/RunMenuItems";
+import type { MenuComponents } from "@/components/shared/RunMenuItems";
+import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
+import { AgentOptionsDialog } from "@/components/workspace/AgentOptionsDialog";
+import { AGENT_DISPLAY_NAMES } from "@taskflow/shared";
 import { SessionBadge } from "./SessionBadge";
+
+const contextMenuComponents: MenuComponents = {
+    Sub: ContextMenuSub,
+    SubTrigger: ContextMenuSubTrigger,
+    SubContent: ContextMenuSubContent,
+    Item: ContextMenuItem,
+    Separator: ContextMenuSeparator,
+    Label: ContextMenuLabel,
+};
 
 const taskCardVariants = cva(
     "px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-300 hover:bg-accent/5",
@@ -49,6 +69,8 @@ const emptySessions: SessionRef[] = [];
 
 interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
     task: Task;
+    projectId: string;
+    projectPath: string;
     isActive: boolean;
     onClick: () => void;
     className?: string;
@@ -63,6 +85,8 @@ interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
 
 export function TaskCard({
     task,
+    projectId,
+    projectPath,
     isActive,
     onClick,
     className,
@@ -98,6 +122,13 @@ export function TaskCard({
     );
     const hasWorktree = task.worktree.enabled && !!task.worktree.path;
     const nativeMenus = supportsNativeMenus();
+    const runMenu = useRunMenu({
+        projectId,
+        projectPath,
+        taskId: task.id,
+        showAgentOptions: !archived,
+        enabled: contextMenuOpen,
+    });
 
     const cardClasses = useMemo(
         () =>
@@ -156,6 +187,11 @@ export function TaskCard({
             setContextMenuOpen(true);
 
             try {
+                const { items: runItems, actions: runActions } = buildNativeRunMenuItems(
+                    runMenu.data,
+                    runMenu.callbacks,
+                );
+
                 await showNativeMenuAndRun(
                     [
                         ...(!archived && !isSubtask
@@ -164,6 +200,16 @@ export function TaskCard({
                                   {
                                       id: "toggle-pin",
                                       label: task.pinned ? "Unpin task" : "Pin task",
+                                  },
+                                  { type: "separator" as const },
+                              ]
+                            : []),
+                        ...(runItems.length > 0
+                            ? [
+                                  {
+                                      type: "submenu" as const,
+                                      label: "Run",
+                                      submenu: runItems,
                                   },
                                   { type: "separator" as const },
                               ]
@@ -181,6 +227,7 @@ export function TaskCard({
                             ? openUnarchive
                             : openArchive,
                         delete: openDelete,
+                        ...runActions,
                     },
                     getEventMenuPosition(event),
                 );
@@ -197,6 +244,8 @@ export function TaskCard({
             openUnarchive,
             task.pinned,
             togglePin,
+            runMenu.data,
+            runMenu.callbacks,
         ],
     );
 
@@ -317,6 +366,24 @@ export function TaskCard({
                                 <ContextMenuSeparator />
                             </>
                         )}
+                        {runMenu.hasItems && (
+                            <>
+                                <ContextMenuSub>
+                                    <ContextMenuSubTrigger>
+                                        <Play className="h-3.5 w-3.5" />
+                                        Run
+                                    </ContextMenuSubTrigger>
+                                    <ContextMenuSubContent>
+                                        <RunMenuItems
+                                            data={runMenu.data}
+                                            callbacks={runMenu.callbacks}
+                                            components={contextMenuComponents}
+                                        />
+                                    </ContextMenuSubContent>
+                                </ContextMenuSub>
+                                <ContextMenuSeparator />
+                            </>
+                        )}
                         {archived ? (
                             <ContextMenuItem onSelect={openUnarchive}>
                                 <ArchiveRestore className="h-3.5 w-3.5" />
@@ -386,6 +453,26 @@ export function TaskCard({
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+            {runMenu.flowInputState && (
+                <FlowInputDialog
+                    open
+                    flowName={runMenu.flowInputState.flowName}
+                    inputs={runMenu.flowInputState.inputs}
+                    onSubmit={runMenu.onFlowInputSubmit}
+                    onCancel={runMenu.onFlowInputCancel}
+                />
+            )}
+            <AgentOptionsDialog
+                open={runMenu.runOptionsAgent !== null}
+                title={
+                    runMenu.runOptionsAgent
+                        ? `Run ${AGENT_DISPLAY_NAMES[runMenu.runOptionsAgent]} with options`
+                        : "Run agent with options"
+                }
+                agentType={runMenu.runOptionsAgent}
+                onOpenChange={runMenu.handleRunOptionsOpenChange}
+                onRun={runMenu.handleRunOptionsConfirm}
+            />
         </>
     );
 }

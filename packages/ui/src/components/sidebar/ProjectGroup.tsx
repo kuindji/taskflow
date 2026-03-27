@@ -8,7 +8,7 @@ import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { MissingLocationDialog } from "./MissingLocationDialog";
-import { AlertTriangle, ChevronRight, GitFork, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronRight, GitFork, Play, Plus, Trash2 } from "lucide-react";
 import { KeyBadge } from "@/components/ui/key-badge";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
@@ -19,12 +19,30 @@ import {
     ContextMenu,
     ContextMenuContent,
     ContextMenuItem,
+    ContextMenuLabel,
     ContextMenuSeparator,
+    ContextMenuSub,
+    ContextMenuSubContent,
+    ContextMenuSubTrigger,
     ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { ForkProjectDialog } from "@/components/workspace/ForkProjectDialog";
 import { RemoveProjectDialog } from "@/components/workspace/RemoveProjectDialog";
+import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
+import { RunMenuItems } from "@/components/shared/RunMenuItems";
+import type { MenuComponents } from "@/components/shared/RunMenuItems";
 import { getEventMenuPosition, showNativeMenuAndRun, supportsNativeMenus } from "@/lib/native-menu";
+import { buildNativeRunMenuItems } from "@/lib/run-menu";
+import { useRunMenu } from "@/hooks/useRunMenu";
+
+const contextMenuComponents: MenuComponents = {
+    Sub: ContextMenuSub,
+    SubTrigger: ContextMenuSubTrigger,
+    SubContent: ContextMenuSubContent,
+    Item: ContextMenuItem,
+    Separator: ContextMenuSeparator,
+    Label: ContextMenuLabel,
+};
 
 interface ProjectGroupProps {
     project: Project;
@@ -71,6 +89,12 @@ export function ProjectGroup({
     const hideProject = useProjectStore((s) => s.hideProject);
     const removeProject = useProjectStore((s) => s.removeProject);
     const nativeMenus = supportsNativeMenus();
+    const runMenu = useRunMenu({
+        projectId: project.id,
+        projectPath: project.path,
+        showAgentOptions: false,
+        enabled: contextMenuOpen,
+    });
 
     const { topLevelTasks, subtaskMap } = useMemo(() => {
         const topLevel: Task[] = [];
@@ -163,10 +187,25 @@ export function ProjectGroup({
         setContextMenuOpen(true);
 
         try {
+            const { items: runItems, actions: runActions } = buildNativeRunMenuItems(
+                runMenu.data,
+                runMenu.callbacks,
+            );
+
             await showNativeMenuAndRun(
                 [
                     { id: "create-task", label: "Create task" },
                     { id: "fork-project", label: "Fork project" },
+                    ...(runItems.length > 0
+                        ? [
+                              { type: "separator" as const },
+                              {
+                                  type: "submenu" as const,
+                                  label: "Run",
+                                  submenu: runItems,
+                              },
+                          ]
+                        : []),
                     { type: "separator" },
                     { id: "delete-project", label: "Delete project" },
                 ],
@@ -174,6 +213,7 @@ export function ProjectGroup({
                     "create-task": handleCreateTask,
                     "fork-project": () => setForkOpen(true),
                     "delete-project": () => setRemoveOpen(true),
+                    ...runActions,
                 },
                 getEventMenuPosition(event),
             );
@@ -308,6 +348,24 @@ export function ProjectGroup({
                                 <GitFork className="h-4 w-4" />
                                 Fork project
                             </ContextMenuItem>
+                            {runMenu.hasItems && (
+                                <>
+                                    <ContextMenuSeparator />
+                                    <ContextMenuSub>
+                                        <ContextMenuSubTrigger>
+                                            <Play className="h-4 w-4" />
+                                            Run
+                                        </ContextMenuSubTrigger>
+                                        <ContextMenuSubContent>
+                                            <RunMenuItems
+                                                data={runMenu.data}
+                                                callbacks={runMenu.callbacks}
+                                                components={contextMenuComponents}
+                                            />
+                                        </ContextMenuSubContent>
+                                    </ContextMenuSub>
+                                </>
+                            )}
                             <ContextMenuSeparator />
                             <ContextMenuItem
                                 variant="destructive"
@@ -340,6 +398,8 @@ export function ProjectGroup({
                                     <NoDragSpacer />
                                     <TaskCard
                                         task={task}
+                                        projectId={project.id}
+                                        projectPath={project.path}
                                         isActive={task.id === activeTaskId}
                                         onClick={() => onTaskClick(task.id)}
                                         archived={archived}
@@ -357,6 +417,8 @@ export function ProjectGroup({
                                                     <NoDragSpacer />
                                                     <TaskCard
                                                         task={subtask}
+                                                        projectId={project.id}
+                                                        projectPath={project.path}
                                                         isActive={subtask.id === activeTaskId}
                                                         onClick={() => onTaskClick(subtask.id)}
                                                         archived={archived}
@@ -389,6 +451,15 @@ export function ProjectGroup({
                 onRemove={removeProject}
                 onHide={hideProject}
             />
+            {runMenu.flowInputState && (
+                <FlowInputDialog
+                    open
+                    flowName={runMenu.flowInputState.flowName}
+                    inputs={runMenu.flowInputState.inputs}
+                    onSubmit={runMenu.onFlowInputSubmit}
+                    onCancel={runMenu.onFlowInputCancel}
+                />
+            )}
         </>
     );
 }
