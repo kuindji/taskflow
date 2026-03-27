@@ -36,6 +36,13 @@ const fileNodeVariants = cva("text-sm cursor-pointer", {
 });
 
 const VALID_GIT_STATUSES = new Set<string>(["new", "untracked", "modified", "deleted", "renamed"]);
+const FILE_TREE_BASE_PADDING = 6;
+const FILE_TREE_INDENT_STEP = 16;
+const FILE_TREE_MAX_DEPTH = 8;
+
+function getRowPaddingLeft(depth: number): number {
+    return Math.min(depth, FILE_TREE_MAX_DEPTH) * FILE_TREE_INDENT_STEP + FILE_TREE_BASE_PADDING;
+}
 
 interface FileTreeProps {
     node: FileNode;
@@ -96,7 +103,7 @@ function FileTree({
             ),
         [open],
     );
-    const rowPaddingLeft = Math.min(depth, 8) * 16 + 12;
+    const rowPaddingLeft = getRowPaddingLeft(depth);
 
     const handleDragStart = useCallback(
         (e: React.DragEvent) => {
@@ -163,7 +170,7 @@ function FileTree({
                 {isLoading ? (
                     <div
                         className="text-muted-foreground py-1 text-xs"
-                        style={{ paddingLeft: Math.min(depth + 1, 8) * 16 + 12 }}>
+                        style={{ paddingLeft: getRowPaddingLeft(depth + 1) }}>
                         Loading...
                     </div>
                 ) : (
