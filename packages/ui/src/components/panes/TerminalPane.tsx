@@ -280,6 +280,15 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
 
         const handleKeyDown = (event: KeyboardEvent) => {
             if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) return;
+
+            // ⌘⇧I — toggle markdown input helper (handle here because
+            // the blur below would prevent xterm from seeing the event)
+            if (event.key === "I") {
+                event.preventDefault();
+                useMarkdownInputStore.getState().toggle(sessionId);
+                return;
+            }
+
             const container = containerRef.current;
             const active = document.activeElement;
             if (!container || !(active instanceof HTMLElement) || !container.contains(active)) {
