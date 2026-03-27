@@ -1,5 +1,5 @@
 import type { Notification } from "./notification";
-import type { Project } from "./project";
+import type { LinkedProject, Project } from "./project";
 import type { SessionRef, SessionStatus, Task, TaskLogEntry, TaskWorktree } from "./task";
 import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus, ChangeStats } from "./git";
@@ -45,6 +45,8 @@ export interface ProjectUpdatePayload {
     name?: string;
     path?: string;
     defaultInitCommand?: string;
+    prompt?: string;
+    linkedProjects?: LinkedProject[];
     hidden?: boolean;
 }
 

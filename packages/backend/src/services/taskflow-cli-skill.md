@@ -31,6 +31,7 @@ When running in task context, the following commands work as is. When running in
 `taskflow-cli log warning "potential issue with Y"` Log warning
 `taskflow-cli log error "failed to do Z"` Log error
 `taskflow-cli log commit "fix: resolve race condition" --hash abc123` Log commit
+`taskflow-cli log file "path/to/file"` Log edited file
 
 ## Project commands
 `taskflow-cli project list` List all projects

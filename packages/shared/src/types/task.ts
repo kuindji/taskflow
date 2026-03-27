@@ -37,7 +37,7 @@ export interface Task {
     initCommand?: string;
 }
 
-export type TaskLogEntryType = "info" | "commit" | "warning" | "error";
+export type TaskLogEntryType = "info" | "commit" | "warning" | "error" | "file";
 
 export interface TaskLogEntry {
     id: string;

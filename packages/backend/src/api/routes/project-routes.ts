@@ -112,8 +112,12 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const updates: Partial<Pick<Project, "name" | "path" | "hidden" | "defaultInitCommand">> =
-            {};
+        const updates: Partial<
+            Pick<
+                Project,
+                "name" | "path" | "hidden" | "defaultInitCommand" | "prompt" | "linkedProjects"
+            >
+        > = {};
         if (typeof body.name === "string") updates.name = body.name;
         if (typeof body.path === "string") updates.path = body.path;
         if (typeof body.hidden === "boolean") updates.hidden = body.hidden;
@@ -121,10 +125,18 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
             updates.defaultInitCommand =
                 typeof body.defaultInitCommand === "string" ? body.defaultInitCommand : undefined;
         }
+        if (Object.prototype.hasOwnProperty.call(body, "prompt")) {
+            updates.prompt = typeof body.prompt === "string" ? body.prompt : undefined;
+        }
+        if (Object.prototype.hasOwnProperty.call(body, "linkedProjects")) {
+            updates.linkedProjects = Array.isArray(body.linkedProjects)
+                ? body.linkedProjects
+                : undefined;
+        }
 
         if (Object.keys(updates).length === 0) {
             return errorResponse(
-                "At least one of name, path, hidden, or defaultInitCommand must be provided",
+                "At least one updatable field must be provided",
                 400,
             );
         }

@@ -65,24 +65,44 @@ export function registerProjectHandlers(
     });
 
     router.register(MSG.PROJECT_UPDATE, async (payload) => {
-        const { id, name, path, hidden, defaultInitCommand } = payload as ProjectUpdatePayload;
+        const { id, name, path, hidden, defaultInitCommand, prompt, linkedProjects } =
+            payload as ProjectUpdatePayload;
         const hasDefaultInitCommand = Object.prototype.hasOwnProperty.call(
             payload,
             "defaultInitCommand",
         );
-        if (!name && !path && hidden === undefined && !hasDefaultInitCommand) {
+        const hasPrompt = Object.prototype.hasOwnProperty.call(payload, "prompt");
+        const hasLinkedProjects = Object.prototype.hasOwnProperty.call(payload, "linkedProjects");
+        if (
+            !name &&
+            !path &&
+            hidden === undefined &&
+            !hasDefaultInitCommand &&
+            !hasPrompt &&
+            !hasLinkedProjects
+        ) {
             throw new Error(
-                "At least one of name, path, hidden, or defaultInitCommand must be provided",
+                "At least one updatable field must be provided",
             );
         }
-        const updates: Partial<Pick<Project, "name" | "path" | "hidden" | "defaultInitCommand">> =
-            {};
+        const updates: Partial<
+            Pick<
+                Project,
+                "name" | "path" | "hidden" | "defaultInitCommand" | "prompt" | "linkedProjects"
+            >
+        > = {};
         if (name) updates.name = name;
         if (path) updates.path = path;
         if (hidden !== undefined) updates.hidden = hidden;
         if (hasDefaultInitCommand) {
             updates.defaultInitCommand =
                 typeof defaultInitCommand === "string" ? defaultInitCommand : undefined;
+        }
+        if (hasPrompt) {
+            updates.prompt = typeof prompt === "string" ? prompt : undefined;
+        }
+        if (hasLinkedProjects) {
+            updates.linkedProjects = linkedProjects;
         }
         const updated = await store.updateProject(id, updates);
         if (path) {

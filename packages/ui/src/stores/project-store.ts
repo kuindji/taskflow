@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Project, ProjectForkResponse } from "@taskflow/shared";
+import type { LinkedProject, Project, ProjectForkResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 import { useTaskStore } from "./task-store";
@@ -12,7 +12,14 @@ interface ProjectStore {
     addProject(path: string): Promise<Project>;
     updateProject(
         id: string,
-        updates: { name?: string; path?: string; hidden?: boolean; defaultInitCommand?: string },
+        updates: {
+            name?: string;
+            path?: string;
+            hidden?: boolean;
+            defaultInitCommand?: string;
+            prompt?: string;
+            linkedProjects?: LinkedProject[];
+        },
     ): Promise<Project>;
     hideProject(id: string): Promise<void>;
     removeProject(id: string): Promise<void>;

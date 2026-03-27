@@ -24,6 +24,39 @@ interface TaskRouteDeps {
     createWorktree?: (taskId: string, nameSource: string, initCommand?: string) => Promise<void>;
 }
 
+/**
+ * Normalize a file path to be relative to the repo root.
+ * Handles absolute paths, worktree paths, and already-relative paths.
+ */
+function normalizeFilePath(
+    inputPath: string,
+    projectPath: string,
+    worktreePath?: string | null,
+): string {
+    const normalize = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+
+    const normProject = normalize(projectPath);
+    const normWorktree = worktreePath ? normalize(worktreePath) : null;
+    let p = normalize(inputPath);
+
+    // Strip absolute worktree path prefix first (more specific than project path)
+    if (normWorktree && (p === normWorktree || p.startsWith(normWorktree + "/"))) {
+        p = p.slice(normWorktree.length).replace(/^\//, "");
+    }
+    // Strip absolute project path prefix
+    else if (p === normProject || p.startsWith(normProject + "/")) {
+        p = p.slice(normProject.length).replace(/^\//, "");
+    }
+
+    // Strip relative .worktrees/<segment>/ prefix
+    const worktreeRelPrefix = /^\.worktrees\/[^/]+\//;
+    if (worktreeRelPrefix.test(p)) {
+        p = p.replace(worktreeRelPrefix, "");
+    }
+
+    return p;
+}
+
 function registerTaskRoutes(deps: TaskRouteDeps): void {
     const {
         apiRouter,
@@ -38,7 +71,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
         createWorktree,
     } = deps;
 
-    const allowedLogTypes = new Set<TaskLogEntryType>(["info", "commit", "warning", "error"]);
+    const allowedLogTypes = new Set<TaskLogEntryType>(["info", "commit", "warning", "error", "file"]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
         let body: Record<string, unknown>;
@@ -188,7 +221,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
 
         const type = body.type;
         if (typeof type !== "string" || !allowedLogTypes.has(type as TaskLogEntryType)) {
-            return errorResponse('Field "type" must be one of: info, commit, warning, error', 400);
+            return errorResponse('Field "type" must be one of: info, commit, warning, error, file', 400);
         }
 
         const message = body.message;
@@ -217,11 +250,33 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
                 return errorResponse(`Task not found: ${params.taskId}`, 404);
             }
 
+            let normalizedMessage = message.trim();
+
+            if (type === "file") {
+                const project = await taskStore.getProject(task.projectId);
+                if (!project) {
+                    return errorResponse(`Project not found for task: ${params.taskId}`, 500);
+                }
+                normalizedMessage = normalizeFilePath(
+                    normalizedMessage,
+                    project.path,
+                    task.worktree.path,
+                );
+                // Uniqueness: skip duplicate file paths
+                const existingLog = await taskStore.getTaskLog(params.taskId);
+                const duplicate = existingLog.find(
+                    (e) => e.type === "file" && e.message === normalizedMessage,
+                );
+                if (duplicate) {
+                    return jsonResponse({ entry: duplicate }, 200);
+                }
+            }
+
             const entry = await taskStore.appendTaskLog(
                 params.taskId,
                 sessionId,
                 type as TaskLogEntryType,
-                message.trim(),
+                normalizedMessage,
                 meta,
             );
 

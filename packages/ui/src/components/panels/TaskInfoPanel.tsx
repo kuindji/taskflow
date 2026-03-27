@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TaskLogEntryType } from "@taskflow/shared";
 import { X } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
@@ -13,12 +13,15 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Toolbar } from "@/components/ui/toolbar";
+import { EditedFilesList } from "@/components/panels/EditedFilesList";
+import { LinkedProjectsSection } from "@/components/panels/LinkedProjectsSection";
 
 const logTypeStyles: Record<TaskLogEntryType, string> = {
     info: "bg-blue-500/20 text-blue-400 border-blue-500/30",
     commit: "bg-success/20 text-success border-success/30",
     warning: "bg-warning/20 text-warning border-warning/30",
     error: "bg-destructive/20 text-destructive border-destructive/30",
+    file: "bg-muted/20 text-muted-foreground border-muted/30",
 };
 
 function formatLogTime(timestamp: string): string {
@@ -52,16 +55,29 @@ function TaskInfoPanel() {
     const { updateTask, fetchTaskLog } = useTaskStore();
     const updateProject = useProjectStore((s) => s.updateProject);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
-    const taskLogs = useTaskStore((s) => (task ? s.taskLogs[task.id] : undefined));
+    const allLogs = useTaskStore((s) => (task ? s.taskLogs[task.id] : undefined));
+    const editedFiles = useMemo(
+        () => (allLogs ?? []).filter((e) => e.type === "file"),
+        [allLogs],
+    );
+    const taskLogs = useMemo(
+        () => {
+            if (!allLogs) return undefined;
+            const filtered = allLogs.filter((e) => e.type !== "file");
+            return filtered.length > 0 ? filtered : undefined;
+        },
+        [allLogs],
+    );
     const [titleDraft, setTitleDraft] = useState("");
     const [descriptionDraft, setDescriptionDraft] = useState("");
     const [notesDraft, setNotesDraft] = useState("");
     const [projectTitleDraft, setProjectTitleDraft] = useState("");
     const [projectInitCommandDraft, setProjectInitCommandDraft] = useState("");
+    const [projectPromptDraft, setProjectPromptDraft] = useState("");
     const lastSavedRef = useRef({ title: "", description: "", notes: "" });
     const draftRef = useRef({ title: "", description: "", notes: "" });
-    const lastSavedProjectRef = useRef({ name: "", defaultInitCommand: "" });
-    const projectDraftRef = useRef({ name: "", defaultInitCommand: "" });
+    const lastSavedProjectRef = useRef({ name: "", defaultInitCommand: "", prompt: "" });
+    const projectDraftRef = useRef({ name: "", defaultInitCommand: "", prompt: "" });
     const taskId = task?.id ?? null;
     const projectId = workspace.scope === "project" ? (project?.id ?? null) : null;
 
@@ -77,8 +93,9 @@ function TaskInfoPanel() {
         projectDraftRef.current = {
             name: projectTitleDraft,
             defaultInitCommand: projectInitCommandDraft,
+            prompt: projectPromptDraft,
         };
-    }, [projectInitCommandDraft, projectTitleDraft]);
+    }, [projectInitCommandDraft, projectPromptDraft, projectTitleDraft]);
 
     const persistDrafts = useCallback(
         (targetTaskId: string, title: string, description: string, notes: string) => {
@@ -104,17 +121,20 @@ function TaskInfoPanel() {
     );
 
     const persistProjectDrafts = useCallback(
-        (targetProjectId: string, name: string, defaultInitCommand: string) => {
-            const updates: { name?: string; defaultInitCommand?: string } = {};
+        (targetProjectId: string, name: string, defaultInitCommand: string, prompt: string) => {
+            const updates: { name?: string; defaultInitCommand?: string; prompt?: string } = {};
             if (name !== lastSavedProjectRef.current.name) {
                 updates.name = name;
             }
             if (defaultInitCommand !== lastSavedProjectRef.current.defaultInitCommand) {
                 updates.defaultInitCommand = defaultInitCommand;
             }
+            if (prompt !== lastSavedProjectRef.current.prompt) {
+                updates.prompt = prompt;
+            }
             if (Object.keys(updates).length === 0) return;
 
-            lastSavedProjectRef.current = { name, defaultInitCommand };
+            lastSavedProjectRef.current = { name, defaultInitCommand, prompt };
 
             void updateProject(targetProjectId, updates).catch((err: unknown) => {
                 console.error("Failed to update project:", err);
@@ -147,15 +167,18 @@ function TaskInfoPanel() {
         if (workspace.scope !== "project" || !project) {
             setProjectTitleDraft("");
             setProjectInitCommandDraft("");
-            lastSavedProjectRef.current = { name: "", defaultInitCommand: "" };
+            setProjectPromptDraft("");
+            lastSavedProjectRef.current = { name: "", defaultInitCommand: "", prompt: "" };
             return;
         }
 
         setProjectTitleDraft(project.name);
         setProjectInitCommandDraft(project.defaultInitCommand ?? "");
+        setProjectPromptDraft(project.prompt ?? "");
         lastSavedProjectRef.current = {
             name: project.name,
             defaultInitCommand: project.defaultInitCommand ?? "",
+            prompt: project.prompt ?? "",
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally sync only when project identity changes, not on every project object update
     }, [projectId]);
@@ -186,7 +209,8 @@ function TaskInfoPanel() {
         if (!projectId) return;
         if (
             projectTitleDraft === lastSavedProjectRef.current.name &&
-            projectInitCommandDraft === lastSavedProjectRef.current.defaultInitCommand
+            projectInitCommandDraft === lastSavedProjectRef.current.defaultInitCommand &&
+            projectPromptDraft === lastSavedProjectRef.current.prompt
         ) {
             return;
         }
@@ -196,10 +220,11 @@ function TaskInfoPanel() {
                 projectId,
                 projectDraftRef.current.name,
                 projectDraftRef.current.defaultInitCommand,
+                projectDraftRef.current.prompt,
             );
         }, 400);
         return () => window.clearTimeout(timeoutId);
-    }, [persistProjectDrafts, projectId, projectInitCommandDraft, projectTitleDraft]);
+    }, [persistProjectDrafts, projectId, projectInitCommandDraft, projectPromptDraft, projectTitleDraft]);
 
     // Flush unsaved changes before switching tasks and on unmount.
     useEffect(() => {
@@ -221,6 +246,7 @@ function TaskInfoPanel() {
                 projectId,
                 projectDraftRef.current.name,
                 projectDraftRef.current.defaultInitCommand,
+                projectDraftRef.current.prompt,
             );
         };
     }, [persistProjectDrafts, projectId]);
@@ -289,11 +315,35 @@ function TaskInfoPanel() {
                         <Separator className="my-4" />
 
                         <div>
+                            <label
+                                htmlFor="project-info-prompt"
+                                className="text-muted-foreground text-xs font-medium">
+                                Prompt
+                            </label>
+                            <ExpandableTextarea
+                                id="project-info-prompt"
+                                dialogTitle="Project Prompt"
+                                showInfoButton={false}
+                                value={projectPromptDraft}
+                                onChange={(e) => setProjectPromptDraft(e.target.value)}
+                                rows={4}
+                                placeholder="Instructions injected into every agent session..."
+                                className="mt-1 text-sm"
+                            />
+                        </div>
+
+                        <Separator className="my-4" />
+
+                        <div>
                             <span className="text-muted-foreground text-xs font-medium">Path</span>
                             <div className="text-secondary-foreground mt-1 text-sm break-all">
                                 {project.path}
                             </div>
                         </div>
+
+                        <Separator className="my-4" />
+
+                        <LinkedProjectsSection project={project} />
 
                         <Separator className="my-4" />
 
@@ -434,6 +484,19 @@ function TaskInfoPanel() {
                             className="mt-1 text-sm"
                         />
                     </div>
+
+                    {/* Edited Files */}
+                    {project && editedFiles.length > 0 && (
+                        <>
+                            <Separator className="my-4" />
+                            <EditedFilesList
+                                files={editedFiles}
+                                workingDir={workspace.workingDir ?? project.path}
+                                workspaceKey={workspace.workspaceKey ?? ""}
+                                task={task}
+                            />
+                        </>
+                    )}
 
                     {/* Log */}
                     {taskLogs && taskLogs.length > 0 && (

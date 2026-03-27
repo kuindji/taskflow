@@ -1,10 +1,12 @@
 import { useCallback, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 
 interface ResizeHandleProps {
     onResize: (delta: number) => void;
     onResizeEnd?: () => void;
     panelGap: number;
     orientation?: "vertical" | "horizontal";
+    className?: string;
 }
 
 function ResizeHandle({
@@ -12,6 +14,7 @@ function ResizeHandle({
     onResizeEnd,
     panelGap,
     orientation = "vertical",
+    className
 }: ResizeHandleProps) {
     const startPositionRef = useRef(0);
     const isDraggingRef = useRef(false);
@@ -78,9 +81,9 @@ function ResizeHandle({
             role="separator"
             aria-orientation={orientation}
             style={orientation === "vertical" ? { width: panelGap } : { height: panelGap }}
-            className={`group relative flex shrink-0 items-center justify-center ${
+            className={cn(`group relative flex shrink-0 items-center justify-center ${
                 orientation === "vertical" ? "h-full cursor-col-resize" : "w-full cursor-row-resize"
-            }`}>
+            }`, className)}>
             <div
                 style={{ ...lineStyle, opacity: isDragging ? 1 : undefined }}
                 className={`pointer-events-none absolute transition-opacity duration-500 ease-out ${
