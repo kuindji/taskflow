@@ -87,6 +87,29 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     },
 }));
 
+// Listen for new projects broadcast by the backend (e.g., added via CLI).
+const _unsubProjectCreated = onEvent(MSG.PROJECT_CREATED, (payload) => {
+    if (payload && typeof payload === "object" && "id" in payload) {
+        const project = payload as Project;
+        const state = useProjectStore.getState();
+        if (!state.projects.some((p) => p.id === project.id)) {
+            useProjectStore.setState({ projects: [...state.projects, project] });
+        }
+    }
+});
+
+// Listen for project removals broadcast by the backend (e.g., removed via CLI).
+const _unsubProjectRemoved = onEvent(MSG.PROJECT_REMOVED, (payload) => {
+    if (payload && typeof payload === "object" && "id" in payload) {
+        const { id } = payload as { id: string };
+        const state = useProjectStore.getState();
+        useProjectStore.setState({ projects: state.projects.filter((p) => p.id !== id) });
+        if (useUIStore.getState().activeProjectId === id) {
+            useUIStore.getState().setActiveProject(null);
+        }
+    }
+});
+
 // Listen for project updates broadcast by the backend (e.g., new session added by a flow step).
 const _unsubProjectUpdated = onEvent(MSG.PROJECT_UPDATED, (payload) => {
     if (payload && typeof payload === "object" && "id" in payload) {

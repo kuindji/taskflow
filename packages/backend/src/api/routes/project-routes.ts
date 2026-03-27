@@ -74,6 +74,10 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
         try {
             const project = await taskStore.addProject({ name: resolvedName, path: path.trim() });
             changeTracker?.track(project.id, project.path);
+            broadcast({
+                type: MSG.PROJECT_CREATED,
+                payload: filterProjectSessions(project, config.instanceId),
+            });
             return jsonResponse(project, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
@@ -97,6 +101,7 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
             }
             await taskStore.removeProject(params.id);
             changeTracker?.untrack(params.id);
+            broadcast({ type: MSG.PROJECT_REMOVED, payload: { id: params.id } });
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
@@ -216,6 +221,10 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
 
             const newProject = await taskStore.addProject({ name: newName, path: targetPath });
             changeTracker?.track(newProject.id, newProject.path);
+            broadcast({
+                type: MSG.PROJECT_CREATED,
+                payload: filterProjectSessions(newProject, config.instanceId),
+            });
 
             return jsonResponse({ project: newProject, targetPath, branch }, 201);
         } catch (err) {
