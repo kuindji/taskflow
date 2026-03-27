@@ -166,8 +166,8 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
                 return false; // prevent xterm default handling for all event phases
             }
 
-            // ⌘⇧I — toggle markdown input helper
-            if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === "I") {
+            // ⌘⇧E — toggle markdown input helper
+            if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === "E") {
                 if (event.type === "keydown") {
                     useMarkdownInputStore.getState().toggle(sessionId);
                 }
@@ -281,9 +281,9 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
         const handleKeyDown = (event: KeyboardEvent) => {
             if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) return;
 
-            // ⌘⇧I — toggle markdown input helper (handle here because
+            // ⌘⇧E — toggle markdown input helper (handle here because
             // the blur below would prevent xterm from seeing the event)
-            if (event.key === "I") {
+            if (event.key === "E") {
                 event.preventDefault();
                 useMarkdownInputStore.getState().toggle(sessionId);
                 return;

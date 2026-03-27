@@ -114,9 +114,9 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
                 onSend();
             });
 
-            // Cmd+Shift+I to close editor
+            // Cmd+Shift+E to close editor
             editor.addCommand(
-                monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyI,
+                monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyE,
                 () => {
                     onClose();
                 },
@@ -252,7 +252,7 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
 
             {/* Footer — same bg, no border */}
             <div className="flex shrink-0 items-center justify-between px-2.5 py-1.5">
-                <span className="font-sans text-[10px] text-muted-foreground/30">⌘⇧I</span>
+                <span className="font-sans text-[10px] text-muted-foreground/30">⌘⇧E</span>
                 <div className="flex items-center">
                     <button
                         type="button"
@@ -346,7 +346,7 @@ function MarkdownInputHelper({ sessionId, sessionType }: MarkdownInputHelperProp
                     type="button"
                     onClick={handleToggle}
                     className="pointer-events-auto absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-md transition-colors hover:bg-accent hover:text-accent-foreground"
-                    title="Markdown Input (⌘⇧I)"
+                    title="Markdown Input (⌘⇧E)"
                 >
                     <PenIcon />
                 </button>
