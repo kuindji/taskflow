@@ -32,10 +32,10 @@ import { KeyBadge } from "@/components/ui/key-badge";
 import { getEventMenuPosition, showNativeMenuAndRun, supportsNativeMenus } from "@/lib/native-menu";
 import { SessionBadge } from "./SessionBadge";
 
-const taskCardVariants = cva("px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors", {
+const taskCardVariants = cva("px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-300 hover:bg-accent/5", {
     variants: {
         active: {
-            true: "bg-accent/15 text-foreground",
+            true: "bg-accent/15 hover:bg-accent/15 text-foreground",
             false: "text-secondary-foreground",
         },
     },
@@ -256,7 +256,7 @@ export function TaskCard({
                             <TooltipTrigger asChild>
                                 <Badge
                                     variant="outline"
-                                    className="border-border/60 bg-muted/50 min-h-4.5 gap-0.5 px-1 py-0 text-xs font-medium">
+                                    className="border-border/60 bg-muted/50 min-h-4.5 gap-0.5 px-1 py-0 text-[10px] font-medium">
                                     <GitBranch className="text-muted-foreground" />
                                     {task.worktree.pr && (
                                         <span className="text-accent">

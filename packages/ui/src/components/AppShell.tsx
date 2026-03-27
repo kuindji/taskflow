@@ -147,6 +147,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                     onResize={handleSidebarResize}
                     onResizeEnd={handleResizeEnd}
                     panelGap={innerPanelGap + 2}
+                    className="justify-end"
                 />
 
                 {fileExplorerOpen && (
