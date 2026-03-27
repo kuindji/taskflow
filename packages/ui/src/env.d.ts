@@ -27,6 +27,7 @@ interface TaskflowBridge {
     showItemInFolder(filePath: string): void;
     onNewTask(callback: () => void): () => void;
     onNewTerminal(callback: () => void): () => void;
+    onNewAgent(callback: () => void): () => void;
     onCloseTab(callback: () => void): () => void;
     onOpenSettings(callback: () => void): () => void;
     onOpenKeyboardShortcuts(callback: () => void): () => void;

@@ -118,6 +118,9 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
                 onSend();
             });
 
+            // Free Cmd+J so it bubbles to the app-level "New Agent" shortcut
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyJ, () => {});
+
             // Cmd+Shift+E to close editor
             editor.addCommand(
                 monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyE,

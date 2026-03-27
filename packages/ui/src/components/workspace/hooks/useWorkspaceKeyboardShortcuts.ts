@@ -8,6 +8,7 @@ interface KeyboardShortcutHandlers {
     handleCloseActiveTab: () => void;
     handleOpenNewTask: () => void;
     handleOpenDefaultTerminal: () => Promise<void>;
+    handleOpenDefaultAgent: () => Promise<void>;
     isElectron: boolean;
     workspaceKey: string | null;
 }
@@ -16,6 +17,7 @@ function useWorkspaceKeyboardShortcuts({
     handleCloseActiveTab,
     handleOpenNewTask,
     handleOpenDefaultTerminal,
+    handleOpenDefaultAgent,
     isElectron,
     workspaceKey,
 }: KeyboardShortcutHandlers) {
@@ -60,6 +62,13 @@ function useWorkspaceKeyboardShortcuts({
                 onNewTerminal(runIfNoDialogOpen(() => void handleOpenDefaultTerminal())),
             );
         }
+
+        const onNewAgent = isElectron ? window.taskflow?.onNewAgent : undefined;
+        if (onNewAgent) {
+            cleanupFns.push(
+                onNewAgent(runIfNoDialogOpen(() => void handleOpenDefaultAgent())),
+            );
+        }
         if (onOpenSettings) {
             cleanupFns.push(onOpenSettings(runIfNoDialogOpen(openSettings)));
         }
@@ -100,6 +109,7 @@ function useWorkspaceKeyboardShortcuts({
         const needsCloseTabFallback = !onCloseTab;
         const needsNewTaskFallback = !onNewTask;
         const needsNewTerminalFallback = !onNewTerminal;
+        const needsNewAgentFallback = !onNewAgent;
         const needsFileExplorerFallback = !window.taskflow?.onToggleFileExplorer;
         const needsTaskInfoFallback = !window.taskflow?.onToggleTaskInfo;
         const needsMarkdownInputFallback = !onToggleMarkdownInput;
@@ -123,6 +133,12 @@ function useWorkspaceKeyboardShortcuts({
             if (needsNewTerminalFallback && e.key.toLowerCase() === "t") {
                 e.preventDefault();
                 void handleOpenDefaultTerminal();
+                return;
+            }
+
+            if (needsNewAgentFallback && e.key.toLowerCase() === "j") {
+                e.preventDefault();
+                void handleOpenDefaultAgent();
                 return;
             }
 
@@ -182,6 +198,7 @@ function useWorkspaceKeyboardShortcuts({
         isElectron,
         handleCloseActiveTab,
         handleOpenDefaultTerminal,
+        handleOpenDefaultAgent,
         handleOpenNewTask,
         openSettings,
         openShortcutsDialog,

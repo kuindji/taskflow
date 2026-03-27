@@ -216,6 +216,15 @@ function KeyboardShortcutsDialog() {
                             keys={
                                 <>
                                     <Kbd>&#8984;</Kbd>
+                                    <Kbd className="text-xs">J</Kbd>
+                                </>
+                            }
+                            description="New agent in current task or project"
+                        />
+                        <ShortcutRow
+                            keys={
+                                <>
+                                    <Kbd>&#8984;</Kbd>
                                     <Kbd className="text-xs">N</Kbd>
                                 </>
                             }

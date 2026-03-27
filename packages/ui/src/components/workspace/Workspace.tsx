@@ -84,7 +84,7 @@ export function Workspace() {
         hasScripts,
     } = useSessionSync(workspace);
 
-    const { handleCloseActiveTab, handleOpenNewTask, handleOpenDefaultTerminal } =
+    const { handleCloseActiveTab, handleOpenNewTask, handleOpenDefaultTerminal, handleOpenDefaultAgent } =
         useWorkspaceTabOps({
             workspace,
             activeTab,
@@ -96,6 +96,7 @@ export function Workspace() {
         handleCloseActiveTab,
         handleOpenNewTask,
         handleOpenDefaultTerminal,
+        handleOpenDefaultAgent,
         isElectron,
         workspaceKey: workspace.workspaceKey,
     });
