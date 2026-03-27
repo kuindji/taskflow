@@ -173,6 +173,10 @@ body {
     @apply text-foreground overflow-hidden bg-transparent;
 }
 
+*:focus {
+    outline: none;
+}
+
 /* Native macOS-style overlay scrollbars */
 * {
     scrollbar-width: thin;
