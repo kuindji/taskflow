@@ -113,7 +113,9 @@
 
 @utility panel-shadow {
     --tw-shadow: -4px 10px 15px -3px rgb(0 0 0 / 0.2), -2px 4px 6px -4px rgb(0 0 0 / 0.2);
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+    box-shadow:
+        var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow),
+        var(--tw-ring-shadow), var(--tw-shadow);
 }
 
 :root {

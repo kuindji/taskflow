@@ -135,10 +135,7 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
         }
 
         if (Object.keys(updates).length === 0) {
-            return errorResponse(
-                "At least one updatable field must be provided",
-                400,
-            );
+            return errorResponse("At least one updatable field must be provided", 400);
         }
 
         try {

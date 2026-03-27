@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useUIStore, getOrderedPanels, type PanelId } from "@/stores/ui-store";
+import { useUIStore, getOrderedPanels } from "@/stores/ui-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useFileStore } from "@/stores/file-store";
@@ -49,9 +49,7 @@ function cycleFocus(direction: "left" | "right") {
         if (activeTaskId) {
             useUIStore.getState().setSidebarFocusedItem({ type: "task", id: activeTaskId });
         } else if (activeProjectId) {
-            useUIStore
-                .getState()
-                .setSidebarFocusedItem({ type: "project", id: activeProjectId });
+            useUIStore.getState().setSidebarFocusedItem({ type: "project", id: activeProjectId });
         } else {
             const { projects } = useProjectStore.getState();
             if (projects.length > 0) {

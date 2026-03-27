@@ -241,17 +241,15 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
     return (
         <div
             ref={panelRef}
-            className="absolute z-20 flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg"
-            style={{ left: x, top: y, width, height }}
-        >
+            className="border-border bg-card absolute z-20 flex flex-col overflow-hidden rounded-2xl border shadow-lg"
+            style={{ left: x, top: y, width, height }}>
             {/* Drag zone — top strip */}
             <div
                 className="flex shrink-0 cursor-grab items-center justify-between px-2.5 py-1.5 active:cursor-grabbing"
-                onPointerDown={handleDragStart}
-            >
+                onPointerDown={handleDragStart}>
                 <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] tracking-wider text-muted-foreground/40">⋮⋮</span>
-                    <span className="font-sans text-[10px] text-muted-foreground/60">
+                    <span className="text-muted-foreground/40 text-[10px] tracking-wider">⋮⋮</span>
+                    <span className="text-muted-foreground/60 font-sans text-[10px]">
                         Markdown Input
                     </span>
                 </div>
@@ -259,8 +257,7 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
                     type="button"
                     onClick={onClose}
                     onPointerDown={(e) => e.stopPropagation()}
-                    className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/40 transition-colors hover:text-muted-foreground"
-                >
+                    className="text-muted-foreground/40 hover:text-muted-foreground flex h-5 w-5 items-center justify-center rounded transition-colors">
                     ×
                 </button>
             </div>
@@ -273,21 +270,19 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
 
             {/* Footer — same bg, no border */}
             <div className="flex shrink-0 items-center justify-between px-2.5 py-1.5">
-                <span className="font-sans text-[10px] text-muted-foreground/30">⌘⇧E</span>
+                <span className="text-muted-foreground/30 font-sans text-[10px]">⌘⇧E</span>
                 <div className="flex items-center">
                     <button
                         type="button"
                         onClick={onSend}
-                        className="rounded-l-md bg-primary px-3 py-1 font-sans text-[11px] text-primary-foreground transition-colors hover:bg-primary/90"
-                    >
+                        className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-l-md px-3 py-1 font-sans text-[11px] transition-colors">
                         Send ↵
                     </button>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <button
                                 type="button"
-                                className="rounded-r-md border-l border-primary-foreground/20 bg-primary px-1.5 py-1 font-sans text-[11px] text-primary-foreground transition-colors hover:bg-primary/90"
-                            >
+                                className="border-primary-foreground/20 bg-primary text-primary-foreground hover:bg-primary/90 rounded-r-md border-l px-1.5 py-1 font-sans text-[11px] transition-colors">
                                 ▾
                             </button>
                         </DropdownMenuTrigger>
@@ -302,7 +297,7 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
 
             {/* Resize handle — bottom right corner */}
             <div
-                className="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize"
+                className="absolute right-0 bottom-0 h-3 w-3 cursor-nwse-resize"
                 onPointerDown={handleResizeStart}
             />
         </div>
@@ -368,8 +363,7 @@ function MarkdownInputHelper({ sessionId, sessionType }: MarkdownInputHelperProp
                         <button
                             type="button"
                             onClick={handleToggle}
-                            className="pointer-events-auto absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-md transition-colors hover:bg-accent hover:text-accent-foreground"
-                        >
+                            className="border-border bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground pointer-events-auto absolute right-3 bottom-3 flex h-8 w-8 items-center justify-center rounded-lg border shadow-md transition-colors">
                             <PenIcon />
                         </button>
                     </TooltipTrigger>
@@ -390,8 +384,7 @@ function PenIcon() {
             stroke="currentColor"
             strokeWidth="2"
             strokeLinecap="round"
-            strokeLinejoin="round"
-        >
+            strokeLinejoin="round">
             <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
             <path d="m15 5 4 4" />
         </svg>

@@ -81,9 +81,7 @@ export function registerProjectHandlers(
             !hasPrompt &&
             !hasLinkedProjects
         ) {
-            throw new Error(
-                "At least one updatable field must be provided",
-            );
+            throw new Error("At least one updatable field must be provided");
         }
         const updates: Partial<
             Pick<

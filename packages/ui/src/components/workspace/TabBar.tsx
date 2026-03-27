@@ -15,6 +15,7 @@ import { TabItem } from "./TabItem";
 interface TabBarProps {
     tabs: Tab[];
     activeTabId: string;
+    projectPath?: string | null;
     onTabClick: (tabId: string) => void;
     onTabClose: (tabId: string) => void;
     onTabRename: (tabId: string, newLabel: string) => void;
@@ -44,6 +45,7 @@ interface TabBarProps {
 export function TabBar({
     tabs,
     activeTabId,
+    projectPath,
     onTabClick,
     onTabClose,
     onTabRename,
@@ -105,6 +107,7 @@ export function TabBar({
                         isActive={tab.id === activeTabId}
                         index={index}
                         cmdHeld={showBadges}
+                        projectPath={projectPath}
                         onTabClick={onTabClick}
                         onTabClose={onTabClose}
                         onTabRename={onTabRename}

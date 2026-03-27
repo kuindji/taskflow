@@ -71,7 +71,13 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
         createWorktree,
     } = deps;
 
-    const allowedLogTypes = new Set<TaskLogEntryType>(["info", "commit", "warning", "error", "file"]);
+    const allowedLogTypes = new Set<TaskLogEntryType>([
+        "info",
+        "commit",
+        "warning",
+        "error",
+        "file",
+    ]);
 
     apiRouter.register("PATCH", "/api/tasks/:taskId", async (req, params) => {
         let body: Record<string, unknown>;
@@ -221,7 +227,10 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
 
         const type = body.type;
         if (typeof type !== "string" || !allowedLogTypes.has(type as TaskLogEntryType)) {
-            return errorResponse('Field "type" must be one of: info, commit, warning, error, file', 400);
+            return errorResponse(
+                'Field "type" must be one of: info, commit, warning, error, file',
+                400,
+            );
         }
 
         const message = body.message;

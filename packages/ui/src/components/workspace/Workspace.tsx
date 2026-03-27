@@ -288,6 +288,7 @@ export function Workspace() {
                     className={isElectron ? "[-webkit-app-region:drag]" : undefined}
                     tabs={visibleTabs}
                     activeTabId={activeTab?.id ?? ""}
+                    projectPath={workspace.workingDir}
                     onTabClick={(id) =>
                         workspace.workspaceKey && setActiveTab(workspace.workspaceKey, id)
                     }
@@ -414,6 +415,7 @@ export function Workspace() {
                     <TabBar
                         tabs={visibleTabs}
                         activeTabId={activeTab?.id ?? ""}
+                        projectPath={workspace.workingDir}
                         onTabClick={(id) =>
                             workspace.workspaceKey && setActiveTab(workspace.workspaceKey, id)
                         }

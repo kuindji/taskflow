@@ -38,7 +38,14 @@ interface TerminalPaneProps {
     visible: boolean;
 }
 
-function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visible }: TerminalPaneProps) {
+function TerminalPane({
+    taskId,
+    projectId,
+    master,
+    sessionId,
+    sessionType,
+    visible,
+}: TerminalPaneProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
@@ -261,10 +268,7 @@ function TerminalPane({ taskId, projectId, master, sessionId, sessionType, visib
 
         function tryFocus() {
             if (cancelled) return;
-            const editorOpen = getEditor(
-                useMarkdownInputStore.getState(),
-                sessionId,
-            ).isOpen;
+            const editorOpen = getEditor(useMarkdownInputStore.getState(), sessionId).isOpen;
             if (editorOpen) return;
             attempts++;
             const term = termRef.current;

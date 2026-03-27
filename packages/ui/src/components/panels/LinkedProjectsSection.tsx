@@ -108,7 +108,10 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
 
     const handleAdd = useCallback(
         (targetProjectId: string) => {
-            const updated = [...linkedProjectsRef.current, { projectId: targetProjectId, note: "" }];
+            const updated = [
+                ...linkedProjectsRef.current,
+                { projectId: targetProjectId, note: "" },
+            ];
             setNoteDrafts((prev) => ({ ...prev, [targetProjectId]: "" }));
             lastSavedNotes.current[targetProjectId] = "";
             void updateProject(project.id, { linkedProjects: updated });

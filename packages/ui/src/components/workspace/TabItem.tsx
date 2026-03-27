@@ -3,6 +3,7 @@ import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tabVariants } from "./tab-constants";
@@ -13,6 +14,7 @@ interface TabItemProps {
     isActive: boolean;
     index: number;
     cmdHeld: boolean;
+    projectPath?: string | null;
     onTabClick: (tabId: string) => void;
     onTabClose: (tabId: string) => void;
     onTabRename: (tabId: string, newLabel: string) => void;
@@ -23,6 +25,7 @@ function TabItem({
     isActive,
     index,
     cmdHeld,
+    projectPath,
     onTabClick,
     onTabClose,
     onTabRename,
@@ -34,6 +37,14 @@ function TabItem({
     const status = useSessionStore((s) =>
         tab.sessionId ? s.sessionStatus[tab.sessionId] : undefined,
     );
+
+    const tooltipPath = useMemo(() => {
+        if (!tab.filePath) return null;
+        if (projectPath && tab.filePath.startsWith(projectPath + "/")) {
+            return tab.filePath.slice(projectPath.length + 1);
+        }
+        return tab.filePath;
+    }, [tab.filePath, projectPath]);
 
     const [isEditing, setIsEditing] = useState(false);
     const [editValue, setEditValue] = useState(tab.label);
@@ -49,7 +60,7 @@ function TabItem({
         }
     }, [editValue, tab.label, tab.id, onTabRename]);
 
-    return (
+    const tabElement = (
         <div
             role="button"
             tabIndex={0}
@@ -112,6 +123,15 @@ function TabItem({
                 )}
             </div>
         </div>
+    );
+
+    if (!tooltipPath) return tabElement;
+
+    return (
+        <Tooltip delayDuration={500}>
+            <TooltipTrigger asChild>{tabElement}</TooltipTrigger>
+            <TooltipContent side="bottom">{tooltipPath}</TooltipContent>
+        </Tooltip>
     );
 }
 

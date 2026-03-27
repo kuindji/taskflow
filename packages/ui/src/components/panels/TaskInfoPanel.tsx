@@ -41,9 +41,7 @@ function TaskInfoPanel() {
         useCallback(() => {
             requestAnimationFrame(() => {
                 const panel = document.querySelector('[data-panel="taskinfo"]');
-                const input = panel?.querySelector(
-                    "input, textarea, select",
-                ) as HTMLElement | null;
+                const input = panel?.querySelector("input, textarea, select") as HTMLElement | null;
                 input?.focus();
             });
         }, []),
@@ -56,18 +54,12 @@ function TaskInfoPanel() {
     const updateProject = useProjectStore((s) => s.updateProject);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const allLogs = useTaskStore((s) => (task ? s.taskLogs[task.id] : undefined));
-    const editedFiles = useMemo(
-        () => (allLogs ?? []).filter((e) => e.type === "file"),
-        [allLogs],
-    );
-    const taskLogs = useMemo(
-        () => {
-            if (!allLogs) return undefined;
-            const filtered = allLogs.filter((e) => e.type !== "file");
-            return filtered.length > 0 ? filtered : undefined;
-        },
-        [allLogs],
-    );
+    const editedFiles = useMemo(() => (allLogs ?? []).filter((e) => e.type === "file"), [allLogs]);
+    const taskLogs = useMemo(() => {
+        if (!allLogs) return undefined;
+        const filtered = allLogs.filter((e) => e.type !== "file");
+        return filtered.length > 0 ? filtered : undefined;
+    }, [allLogs]);
     const [titleDraft, setTitleDraft] = useState("");
     const [descriptionDraft, setDescriptionDraft] = useState("");
     const [notesDraft, setNotesDraft] = useState("");
@@ -224,7 +216,13 @@ function TaskInfoPanel() {
             );
         }, 400);
         return () => window.clearTimeout(timeoutId);
-    }, [persistProjectDrafts, projectId, projectInitCommandDraft, projectPromptDraft, projectTitleDraft]);
+    }, [
+        persistProjectDrafts,
+        projectId,
+        projectInitCommandDraft,
+        projectPromptDraft,
+        projectTitleDraft,
+    ]);
 
     // Flush unsaved changes before switching tasks and on unmount.
     useEffect(() => {
@@ -318,7 +316,7 @@ function TaskInfoPanel() {
                             <label
                                 htmlFor="project-info-prompt"
                                 className="text-muted-foreground text-xs font-medium">
-                                Prompt
+                                Project-specific system prompt
                             </label>
                             <ExpandableTextarea
                                 id="project-info-prompt"

@@ -88,8 +88,7 @@ function useWorkspaceKeyboardShortcuts({
                 onToggleMarkdownInput(
                     runIfNoDialogOpen(() => {
                         if (!workspaceKey) return;
-                        const activeTab =
-                            useSessionStore.getState().getActiveTab(workspaceKey);
+                        const activeTab = useSessionStore.getState().getActiveTab(workspaceKey);
                         if (activeTab?.sessionId) {
                             useMarkdownInputStore.getState().toggle(activeTab.sessionId);
                         }
@@ -130,8 +129,7 @@ function useWorkspaceKeyboardShortcuts({
             if (e.shiftKey && needsMarkdownInputFallback && e.code === "KeyE") {
                 e.preventDefault();
                 if (workspaceKey) {
-                    const activeTab =
-                        useSessionStore.getState().getActiveTab(workspaceKey);
+                    const activeTab = useSessionStore.getState().getActiveTab(workspaceKey);
                     if (activeTab?.sessionId) {
                         useMarkdownInputStore.getState().toggle(activeTab.sessionId);
                     }
@@ -157,11 +155,17 @@ function useWorkspaceKeyboardShortcuts({
                 const digit = parseInt(e.key, 10);
                 if (digit >= 1 && digit <= 9) {
                     const state = useUIStore.getState();
-                    if (state.focusedPanel === "workspace" && !state.navigationMode && workspaceKey) {
+                    if (
+                        state.focusedPanel === "workspace" &&
+                        !state.navigationMode &&
+                        workspaceKey
+                    ) {
                         e.preventDefault();
                         const tabs = useSessionStore.getState().tabsByWorkspace[workspaceKey];
                         if (tabs && digit <= tabs.length) {
-                            useSessionStore.getState().setActiveTab(workspaceKey, tabs[digit - 1].id);
+                            useSessionStore
+                                .getState()
+                                .setActiveTab(workspaceKey, tabs[digit - 1].id);
                         }
                     }
                 }

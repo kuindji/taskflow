@@ -6,6 +6,7 @@ interface ResizeHandleProps {
     onResizeEnd?: () => void;
     panelGap: number;
     orientation?: "vertical" | "horizontal";
+    align?: "start" | "center" | "end";
     className?: string;
 }
 
@@ -14,7 +15,8 @@ function ResizeHandle({
     onResizeEnd,
     panelGap,
     orientation = "vertical",
-    className
+    align = "center",
+    className,
 }: ResizeHandleProps) {
     const startPositionRef = useRef(0);
     const isDraggingRef = useRef(false);
@@ -81,16 +83,31 @@ function ResizeHandle({
             role="separator"
             aria-orientation={orientation}
             style={orientation === "vertical" ? { width: panelGap } : { height: panelGap }}
-            className={cn(`group relative flex shrink-0 items-center justify-center ${
-                orientation === "vertical" ? "h-full cursor-col-resize" : "w-full cursor-row-resize"
-            }`, className)}>
+            className={cn(
+                `group relative flex shrink-0 items-center justify-center ${
+                    orientation === "vertical"
+                        ? "h-full cursor-col-resize"
+                        : "w-full cursor-row-resize"
+                }`,
+                className,
+            )}>
             <div
                 style={{ ...lineStyle, opacity: isDragging ? 1 : undefined }}
-                className={`pointer-events-none absolute transition-opacity duration-500 ease-out ${
+                className={cn(
+                    "pointer-events-none absolute transition-opacity duration-500 ease-out",
                     orientation === "vertical"
-                        ? "inset-y-0 left-1/2 w-px -translate-x-1/2"
-                        : "inset-x-0 top-1/2 h-px -translate-y-1/2"
-                } ${isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                        ? cn("inset-y-0 w-px", {
+                              "left-1/2 -translate-x-1/2": align === "center",
+                              "left-0": align === "start",
+                              "right-0": align === "end",
+                          })
+                        : cn("inset-x-0 h-px", {
+                              "top-1/2 -translate-y-1/2": align === "center",
+                              "top-0": align === "start",
+                              "bottom-0": align === "end",
+                          }),
+                    isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                )}
             />
         </div>
     );

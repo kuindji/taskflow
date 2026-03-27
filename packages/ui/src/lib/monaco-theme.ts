@@ -10,7 +10,7 @@ const FALLBACKS = {
     background: "#1e1e2e",
     comment: "#585b70",
     keyword: "#89b4fa",
-    selection: "#31324480",
+    selection: "#89b4fa40",
     lineHighlight: "#181825",
     whitespace: "#31324440",
 } as const;
@@ -36,7 +36,7 @@ monaco.editor.defineTheme(THEME_NAME, {
     colors: {
         "editor.background": "#1e1e2e",
         "editor.foreground": "#cdd6f4",
-        "editor.selectionBackground": "#31324480",
+        "editor.selectionBackground": "#89b4fa40",
         "editor.lineHighlightBackground": "#181825",
         "editorCursor.foreground": "#f5e0dc",
         "editorWhitespace.foreground": "#31324440",
@@ -149,11 +149,7 @@ function updateMonacoTheme(resolved: ResolvedTheme): void {
         colors: {
             "editor.background": bg,
             "editor.foreground": toMonacoColor(css["--foreground"], FALLBACKS.foreground),
-            "editor.selectionBackground": toMonacoColor(
-                css["--secondary"],
-                FALLBACKS.selection,
-                0.5,
-            ),
+            "editor.selectionBackground": toMonacoColor(css["--accent"], FALLBACKS.selection, 0.25),
             "editor.lineHighlightBackground": toMonacoColor(css["--card"], FALLBACKS.lineHighlight),
             "editorCursor.foreground": resolved.xterm.cursor,
             "editorWhitespace.foreground": toMonacoColor(

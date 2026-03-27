@@ -32,15 +32,18 @@ import { KeyBadge } from "@/components/ui/key-badge";
 import { getEventMenuPosition, showNativeMenuAndRun, supportsNativeMenus } from "@/lib/native-menu";
 import { SessionBadge } from "./SessionBadge";
 
-const taskCardVariants = cva("px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-300 hover:bg-accent/5", {
-    variants: {
-        active: {
-            true: "bg-accent/15 hover:bg-accent/15 text-foreground",
-            false: "text-secondary-foreground",
+const taskCardVariants = cva(
+    "px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-300 hover:bg-accent/5",
+    {
+        variants: {
+            active: {
+                true: "bg-accent/15 hover:bg-accent/15 text-foreground",
+                false: "text-secondary-foreground",
+            },
         },
+        defaultVariants: { active: false },
     },
-    defaultVariants: { active: false },
-});
+);
 
 const emptySessions: SessionRef[] = [];
 
