@@ -220,7 +220,7 @@ function EditorPanel({ sessionId, containerRef, onSend, onInsert, onClose }: Edi
     return (
         <div
             ref={panelRef}
-            className="absolute z-20 flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-lg"
+            className="absolute z-20 flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg"
             style={{ left: x, top: y, width, height }}
         >
             {/* Drag zone — top strip */}
