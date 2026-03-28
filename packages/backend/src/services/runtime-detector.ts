@@ -2,6 +2,7 @@ import type {
     RuntimeInfo,
     AgentAvailability,
     AgentType,
+    CursorModel,
     OpenCodeModelInfo,
     OpenCodeAgentInfo,
 } from "@taskflow/shared";
@@ -39,6 +40,39 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
 }
 
 const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor"];
+
+// Strip ANSI escape codes from terminal output
+function stripAnsi(str: string): string {
+    return str.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+export async function fetchCursorModels(): Promise<CursorModel[]> {
+    const PATH = buildShellPath();
+    const cursorPath = Bun.which("cursor", { PATH });
+    if (!cursorPath) return [];
+
+    try {
+        const proc = Bun.spawn([cursorPath, "agent", "--list-models"], {
+            stdout: "pipe",
+            stderr: "pipe",
+            env: { ...process.env, PATH },
+        });
+        const output = await new Response(proc.stdout).text();
+        await proc.exited;
+
+        const models: CursorModel[] = [];
+        for (const raw of stripAnsi(output).split("\n")) {
+            const line = raw.trim();
+            const match = line.match(/^(\S+)\s+-\s+(.+)$/);
+            if (match) {
+                models.push({ id: match[1], label: match[2].trim() });
+            }
+        }
+        return models;
+    } catch {
+        return [];
+    }
+}
 
 export async function detectAgents(): Promise<AgentAvailability[]> {
     const agents: AgentAvailability[] = [];

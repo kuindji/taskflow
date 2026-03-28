@@ -16,42 +16,47 @@ function normalizeAgentOptions(
 
     switch (agentType) {
         case "claude":
+            if (agentOptions.type !== "claude") return undefined;
             return {
                 type: "claude",
-                fullAccess: agentOptions.fullAccess || undefined,
-                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
-                model: agentOptions.type === "claude" ? agentOptions.model : undefined,
+                dangerouslySkipPermissions:
+                    agentOptions.dangerouslySkipPermissions || undefined,
+                permissionMode: agentOptions.permissionMode,
+                model: agentOptions.model,
+                effort: agentOptions.effort,
             };
         case "codex":
+            if (agentOptions.type !== "codex") return undefined;
             return {
                 type: "codex",
-                fullAccess: agentOptions.fullAccess || undefined,
-                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
+                model: agentOptions.model,
+                sandbox: agentOptions.sandbox,
+                approvalPolicy: agentOptions.approvalPolicy,
+                fullAuto: agentOptions.fullAuto || undefined,
             };
         case "opencode":
+            if (agentOptions.type !== "opencode") return undefined;
             return {
                 type: "opencode",
-                model: agentOptions.type === "opencode" ? agentOptions.model : undefined,
-                agent: agentOptions.type === "opencode" ? agentOptions.agent : undefined,
-                variant: agentOptions.type === "opencode" ? agentOptions.variant : undefined,
-                autoApprove:
-                    agentOptions.type === "opencode"
-                        ? (agentOptions.autoApprove || undefined)
-                        : undefined,
+                model: agentOptions.model,
+                agent: agentOptions.agent,
+                variant: agentOptions.variant,
+                autoApprove: agentOptions.autoApprove || undefined,
             };
         case "gemini":
+            if (agentOptions.type !== "gemini") return undefined;
             return {
                 type: "gemini",
-                fullAccess: agentOptions.fullAccess || undefined,
-                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
-                model: agentOptions.type === "gemini" ? agentOptions.model : undefined,
+                approvalMode: agentOptions.approvalMode,
+                sandbox: agentOptions.sandbox,
+                model: agentOptions.model,
             };
         case "cursor":
+            if (agentOptions.type !== "cursor") return undefined;
             return {
                 type: "cursor",
-                fullAccess: agentOptions.fullAccess || undefined,
-                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
-                model: agentOptions.type === "cursor" ? agentOptions.model : undefined,
+                yolo: agentOptions.yolo || undefined,
+                model: agentOptions.model,
             };
         default:
             return undefined;

@@ -56,15 +56,9 @@ function RemoteSection({ settings, remoteAgent, onUpdate }: RemoteSectionProps) 
                     </Label>
                 </div>
             </SettingRow>
-            <div className="hover:bg-island-base mx-1 flex items-center justify-between rounded-md px-5 py-3 transition-colors">
-                <div className="min-w-0 flex-1 pr-6">
-                    <div className="text-secondary-foreground text-[13px] font-medium">Status</div>
-                    <div className="text-muted-foreground text-[11px] leading-snug">
-                        {remoteAgent.running
-                            ? "Remote agent is running"
-                            : "Remote agent is stopped"}
-                    </div>
-                </div>
+            <SettingRow
+                label="Status"
+                hint={remoteAgent.running ? "Remote agent is running" : "Remote agent is stopped"}>
                 <div className="flex items-center gap-2.5">
                     {remoteAgent.running && (
                         <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
@@ -78,7 +72,7 @@ function RemoteSection({ settings, remoteAgent, onUpdate }: RemoteSectionProps) 
                         {remoteAgent.running ? "Stop" : "Start"}
                     </Button>
                 </div>
-            </div>
+            </SettingRow>
         </>
     );
 }

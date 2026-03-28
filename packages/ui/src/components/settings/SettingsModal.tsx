@@ -12,6 +12,7 @@ import {
     type RuntimeInfo,
     type RuntimeListResponse,
     type ClaudeSettings,
+    type CodexSettings,
     type GeminiSettings,
     type EditorInfo,
     type SystemInfoResponse,
@@ -31,7 +32,11 @@ import { useRemoteAgentStatus } from "@/hooks/useRemoteAgentStatus";
 import { GeneralSection } from "./sections/GeneralSection";
 import { DefaultsSection } from "./sections/DefaultsSection";
 import { AgentSection } from "./sections/AgentSection";
+import { CodexSection } from "./sections/CodexSection";
+import { GeminiSection } from "./sections/GeminiSection";
 import { OpenCodeSection } from "./sections/OpenCodeSection";
+import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
+import { CursorOptions } from "@/components/shared/CursorOptions";
 import { RemoteSection } from "./sections/RemoteSection";
 
 type SectionKey =
@@ -278,47 +283,64 @@ function SettingsModal() {
 
     const handleClaudeModel = useCallback(
         (defaultModel: string) => {
+            void updateSettings({ claude: { defaultModel } });
+        },
+        [updateSettings],
+    );
+
+    const handleClaudeEffort = useCallback(
+        (defaultEffort: string) => {
             void updateSettings({
-                claude: { defaultModel: defaultModel as ClaudeSettings["defaultModel"] },
+                claude: { defaultEffort: defaultEffort as ClaudeSettings["defaultEffort"] },
             });
         },
         [updateSettings],
     );
 
-    const handleClaudeFullAccess = useCallback(
-        (fullAccess: boolean) => {
-            void updateSettings({ claude: { fullAccess } });
+    const handleClaudeSkipPermissions = useCallback(
+        (dangerouslySkipPermissions: boolean) => {
+            void updateSettings({ claude: { dangerouslySkipPermissions } });
         },
         [updateSettings],
     );
 
-    const handleClaudeDontAsk = useCallback(
-        (dontAskQuestions: boolean) => {
+    const handleClaudePermissionMode = useCallback(
+        (permissionMode: string) => {
             void updateSettings({
-                claude: {
-                    dontAskQuestions,
-                    ...(dontAskQuestions ? { fullAccess: true } : {}),
-                },
+                claude: { permissionMode: permissionMode as ClaudeSettings["permissionMode"] },
             });
         },
         [updateSettings],
     );
 
-    const handleCodexFullAccess = useCallback(
-        (fullAccess: boolean) => {
-            void updateSettings({ codex: { fullAccess } });
+    const handleCodexFullAuto = useCallback(
+        (fullAuto: boolean) => {
+            void updateSettings({ codex: { fullAuto } });
         },
         [updateSettings],
     );
 
-    const handleCodexDontAsk = useCallback(
-        (dontAskQuestions: boolean) => {
+    const handleCodexSandbox = useCallback(
+        (sandbox: string) => {
             void updateSettings({
-                codex: {
-                    dontAskQuestions,
-                    ...(dontAskQuestions ? { fullAccess: true } : {}),
-                },
+                codex: { sandbox: sandbox as CodexSettings["sandbox"] },
             });
+        },
+        [updateSettings],
+    );
+
+    const handleCodexApprovalPolicy = useCallback(
+        (approvalPolicy: string) => {
+            void updateSettings({
+                codex: { approvalPolicy: approvalPolicy as CodexSettings["approvalPolicy"] },
+            });
+        },
+        [updateSettings],
+    );
+
+    const handleCodexModel = useCallback(
+        (defaultModel: string) => {
+            void updateSettings({ codex: { defaultModel } });
         },
         [updateSettings],
     );
@@ -353,28 +375,23 @@ function SettingsModal() {
 
     const handleGeminiModel = useCallback(
         (defaultModel: string) => {
+            void updateSettings({ gemini: { defaultModel } });
+        },
+        [updateSettings],
+    );
+
+    const handleGeminiApprovalMode = useCallback(
+        (approvalMode: string) => {
             void updateSettings({
-                gemini: { defaultModel: defaultModel as GeminiSettings["defaultModel"] },
+                gemini: { approvalMode: approvalMode as GeminiSettings["approvalMode"] },
             });
         },
         [updateSettings],
     );
 
-    const handleGeminiFullAccess = useCallback(
-        (fullAccess: boolean) => {
-            void updateSettings({ gemini: { fullAccess } });
-        },
-        [updateSettings],
-    );
-
-    const handleGeminiDontAsk = useCallback(
-        (dontAskQuestions: boolean) => {
-            void updateSettings({
-                gemini: {
-                    dontAskQuestions,
-                    ...(dontAskQuestions ? { fullAccess: true } : {}),
-                },
-            });
+    const handleGeminiSandbox = useCallback(
+        (sandbox: boolean) => {
+            void updateSettings({ gemini: { sandbox } });
         },
         [updateSettings],
     );
@@ -386,21 +403,9 @@ function SettingsModal() {
         [updateSettings],
     );
 
-    const handleCursorFullAccess = useCallback(
-        (fullAccess: boolean) => {
-            void updateSettings({ cursor: { fullAccess } });
-        },
-        [updateSettings],
-    );
-
-    const handleCursorDontAsk = useCallback(
-        (dontAskQuestions: boolean) => {
-            void updateSettings({
-                cursor: {
-                    dontAskQuestions,
-                    ...(dontAskQuestions ? { fullAccess: true } : {}),
-                },
-            });
+    const handleCursorYolo = useCallback(
+        (yolo: boolean) => {
+            void updateSettings({ cursor: { yolo } });
         },
         [updateSettings],
     );
@@ -466,7 +471,7 @@ function SettingsModal() {
                         )}
 
                         {section === "defaults" && (
-                            <div className="h-full overflow-y-auto">
+                            <div className="h-full overflow-y-auto px-3">
                                 <DefaultsSection
                                     settings={settings}
                                     shells={shells}
@@ -485,91 +490,86 @@ function SettingsModal() {
                         )}
 
                         {section === "claude" && (
-                            <AgentSection
-                                agentKey="claude"
-                                fullAccess={settings.claude.fullAccess}
-                                dontAskQuestions={settings.claude.dontAskQuestions}
-                                onFullAccess={handleClaudeFullAccess}
-                                onDontAsk={handleClaudeDontAsk}
-                                modelValue={settings.claude.defaultModel}
-                                modelOptions={[
-                                    { value: "default", label: "Default" },
-                                    { value: "opus", label: "Opus" },
-                                    { value: "sonnet", label: "Sonnet" },
-                                    { value: "haiku", label: "Haiku" },
-                                ]}
-                                onModelChange={handleClaudeModel}
-                            />
+                            <div className="px-3">
+                                <ClaudeOptions
+                                    mode="defaults"
+                                    modelValue={settings.claude.defaultModel}
+                                    effortValue={settings.claude.defaultEffort}
+                                    dangerouslySkipPermissions={
+                                        settings.claude.dangerouslySkipPermissions
+                                    }
+                                    permissionMode={settings.claude.permissionMode}
+                                    onModelChange={handleClaudeModel}
+                                    onEffortChange={handleClaudeEffort}
+                                    onSkipPermissions={handleClaudeSkipPermissions}
+                                    onPermissionModeChange={handleClaudePermissionMode}
+                                />
+                            </div>
                         )}
 
                         {section === "codex" && (
-                            <AgentSection
-                                agentKey="codex"
-                                fullAccess={settings.codex.fullAccess}
-                                dontAskQuestions={settings.codex.dontAskQuestions}
-                                onFullAccess={handleCodexFullAccess}
-                                onDontAsk={handleCodexDontAsk}
-                                fullAccessHint="Run in full-auto mode by default"
-                            />
+                            <div className="px-3">
+                                <CodexSection
+                                    defaultModel={settings.codex.defaultModel}
+                                    sandbox={settings.codex.sandbox}
+                                    approvalPolicy={settings.codex.approvalPolicy}
+                                    fullAuto={settings.codex.fullAuto}
+                                    onModelChange={handleCodexModel}
+                                    onSandboxChange={handleCodexSandbox}
+                                    onApprovalPolicyChange={handleCodexApprovalPolicy}
+                                    onFullAutoChange={handleCodexFullAuto}
+                                />
+                            </div>
                         )}
 
                         {section === "opencode" && (
-                            <OpenCodeSection
-                                modelValue={settings.opencode.defaultModel}
-                                agentValue={settings.opencode.defaultAgent}
-                                variantValue={settings.opencode.defaultVariant}
-                                autoApprove={settings.opencode.autoApprove}
-                                onModelChange={handleOpencodeModel}
-                                onAgentChange={handleOpencodeAgent}
-                                onVariantChange={handleOpencodeVariant}
-                                onAutoApproveChange={handleOpencodeAutoApprove}
-                            />
+                            <div className="px-3">
+                                <OpenCodeSection
+                                    defaultModel={settings.opencode.defaultModel}
+                                    defaultAgent={settings.opencode.defaultAgent}
+                                    defaultVariant={settings.opencode.defaultVariant}
+                                    autoApprove={settings.opencode.autoApprove}
+                                    onModelChange={handleOpencodeModel}
+                                    onAgentChange={handleOpencodeAgent}
+                                    onVariantChange={handleOpencodeVariant}
+                                    onAutoApproveChange={handleOpencodeAutoApprove}
+                                />
+                            </div>
                         )}
 
                         {section === "gemini" && (
-                            <AgentSection
-                                agentKey="gemini"
-                                fullAccess={settings.gemini.fullAccess}
-                                dontAskQuestions={settings.gemini.dontAskQuestions}
-                                onFullAccess={handleGeminiFullAccess}
-                                onDontAsk={handleGeminiDontAsk}
-                                modelValue={settings.gemini.defaultModel}
-                                modelOptions={[
-                                    { value: "default", label: "Default" },
-                                    { value: "auto", label: "Auto" },
-                                    { value: "pro", label: "Pro" },
-                                    { value: "flash", label: "Flash" },
-                                    { value: "flash-lite", label: "Flash Lite" },
-                                ]}
-                                onModelChange={handleGeminiModel}
-                                fullAccessHint="Auto-approve all actions by default"
-                            />
+                            <div className="px-3">
+                                <GeminiSection
+                                    defaultModel={settings.gemini.defaultModel}
+                                    approvalMode={settings.gemini.approvalMode}
+                                    sandbox={settings.gemini.sandbox}
+                                    onModelChange={handleGeminiModel}
+                                    onApprovalModeChange={handleGeminiApprovalMode}
+                                    onSandboxChange={handleGeminiSandbox}
+                                />
+                            </div>
                         )}
 
                         {section === "cursor" && (
-                            <AgentSection
-                                agentKey="cursor"
-                                fullAccess={settings.cursor.fullAccess}
-                                dontAskQuestions={settings.cursor.dontAskQuestions}
-                                onFullAccess={handleCursorFullAccess}
-                                onDontAsk={handleCursorDontAsk}
-                                modelValue={
-                                    settings.cursor.defaultModel === "default"
-                                        ? ""
-                                        : settings.cursor.defaultModel
-                                }
-                                modelInputPlaceholder="default"
-                                onModelInputChange={(e) => handleCursorModel(e.target.value)}
-                                fullAccessHint="Run in yolo mode by default (auto-approve commands)"
-                            />
+                            <div className="px-3">
+                                <CursorOptions
+                                    mode="defaults"
+                                    modelValue={settings.cursor.defaultModel}
+                                    yolo={settings.cursor.yolo}
+                                    onModelChange={handleCursorModel}
+                                    onYoloChange={handleCursorYolo}
+                                />
+                            </div>
                         )}
 
                         {section === "remote-agent" && (
-                            <RemoteSection
-                                settings={settings.remoteAgent}
-                                remoteAgent={remoteAgent}
-                                onUpdate={handleRemoteUpdate}
-                            />
+                            <div className="px-3">
+                                <RemoteSection
+                                    settings={settings.remoteAgent}
+                                    remoteAgent={remoteAgent}
+                                    onUpdate={handleRemoteUpdate}
+                                />
+                            </div>
                         )}
                     </div>
                 </div>

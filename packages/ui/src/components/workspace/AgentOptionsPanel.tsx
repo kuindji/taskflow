@@ -1,20 +1,21 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import type { AgentLaunchOptions, AgentType } from "@taskflow/shared";
+import { useState, useEffect, useRef, useCallback } from "react";
+import type {
+    AgentLaunchOptions,
+    AgentType,
+    ClaudePermissionMode,
+    ClaudeEffortLevel,
+    CodexSandboxMode,
+    CodexApprovalPolicy,
+    GeminiLaunchOptions,
+} from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Play } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useOpenCodeModels, useOpenCodeAgents } from "@/hooks/useOpenCodeData";
+import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
+import { CodexOptions } from "@/components/shared/CodexOptions";
+import { GeminiOptions } from "@/components/shared/GeminiOptions";
+import { CursorOptions } from "@/components/shared/CursorOptions";
+import { OpenCodeOptions } from "@/components/shared/OpenCodeOptions";
 
 interface AgentOptionsPanelProps {
     agentType: AgentType;
@@ -39,49 +40,45 @@ function AgentOptionsPanel({
 
     const matchingValue = value?.type === agentType ? value : undefined;
 
-    // Common defaults (for non-opencode agents)
-    const defaultFullAccess =
-        matchingValue?.type !== "opencode"
-            ? (matchingValue?.fullAccess ??
-              (agentType === "claude"
-                  ? (claudeSettings?.fullAccess ?? false)
-                  : agentType === "gemini"
-                    ? (geminiSettings?.fullAccess ?? false)
-                    : agentType === "cursor"
-                      ? (cursorSettings?.fullAccess ?? false)
-                      : (codexSettings?.fullAccess ?? false)))
-            : false;
-    const defaultDontAskQuestions =
-        matchingValue?.type !== "opencode"
-            ? (matchingValue?.dontAskQuestions ??
-              (agentType === "claude"
-                  ? (claudeSettings?.dontAskQuestions ?? false)
-                  : agentType === "gemini"
-                    ? (geminiSettings?.dontAskQuestions ?? false)
-                    : agentType === "cursor"
-                      ? (cursorSettings?.dontAskQuestions ?? false)
-                      : (codexSettings?.dontAskQuestions ?? false)))
-            : false;
-    const defaultModel =
+    // --- Claude-specific defaults ---
+    const defaultDangerouslySkipPermissions =
         agentType === "claude" && matchingValue?.type === "claude"
-            ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
-            : agentType === "gemini" && matchingValue?.type === "gemini"
-              ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "default")
-              : agentType === "cursor" && matchingValue?.type === "cursor"
-                ? (matchingValue.model ?? cursorSettings?.defaultModel ?? "default")
-                : agentType === "claude"
-                  ? (claudeSettings?.defaultModel ?? "default")
-                  : agentType === "gemini"
-                    ? (geminiSettings?.defaultModel ?? "default")
-                    : agentType === "cursor"
-                      ? (cursorSettings?.defaultModel ?? "default")
-                      : "default";
+            ? (matchingValue.dangerouslySkipPermissions ??
+              claudeSettings?.dangerouslySkipPermissions ??
+              false)
+            : agentType === "claude"
+              ? (claudeSettings?.dangerouslySkipPermissions ?? false)
+              : false;
 
-    // OpenCode-specific defaults
-    const defaultOcModel =
-        matchingValue?.type === "opencode"
-            ? (matchingValue.model ?? opencodeSettings?.defaultModel ?? "")
-            : (opencodeSettings?.defaultModel ?? "");
+    const defaultPermissionMode =
+        agentType === "claude" && matchingValue?.type === "claude"
+            ? (matchingValue.permissionMode ?? claudeSettings?.permissionMode ?? "default")
+            : agentType === "claude"
+              ? (claudeSettings?.permissionMode ?? "default")
+              : "default";
+
+    const defaultEffort =
+        agentType === "claude" && matchingValue?.type === "claude"
+            ? (matchingValue.effort ?? claudeSettings?.defaultEffort ?? "default")
+            : agentType === "claude"
+              ? (claudeSettings?.defaultEffort ?? "default")
+              : "default";
+
+    // --- Codex-specific defaults ---
+    const defaultFullAuto =
+        matchingValue?.type === "codex"
+            ? (matchingValue.fullAuto ?? codexSettings?.fullAuto ?? false)
+            : (codexSettings?.fullAuto ?? false);
+    const defaultCodexSandbox: CodexSandboxMode =
+        matchingValue?.type === "codex"
+            ? (matchingValue.sandbox ?? codexSettings?.sandbox ?? "workspace-write")
+            : (codexSettings?.sandbox ?? "workspace-write");
+    const defaultApprovalPolicy: CodexApprovalPolicy =
+        matchingValue?.type === "codex"
+            ? (matchingValue.approvalPolicy ?? codexSettings?.approvalPolicy ?? "on-request")
+            : (codexSettings?.approvalPolicy ?? "on-request");
+
+    // --- OpenCode-specific defaults ---
     const defaultOcAgent =
         matchingValue?.type === "opencode"
             ? (matchingValue.agent ?? opencodeSettings?.defaultAgent ?? "")
@@ -95,31 +92,67 @@ function AgentOptionsPanel({
             ? (matchingValue.autoApprove ?? opencodeSettings?.autoApprove ?? false)
             : (opencodeSettings?.autoApprove ?? false);
 
-    // Common state
-    const [fullAccess, setFullAccess] = useState(defaultFullAccess);
-    const [dontAskQuestions, setDontAskQuestions] = useState(defaultDontAskQuestions);
-    const [model, setModel] = useState<string>(defaultModel);
+    // --- Gemini-specific defaults ---
+    const defaultApprovalMode: NonNullable<GeminiLaunchOptions["approvalMode"]> =
+        matchingValue?.type === "gemini"
+            ? (matchingValue.approvalMode ?? geminiSettings?.approvalMode ?? "default")
+            : agentType === "gemini"
+              ? (geminiSettings?.approvalMode ?? "default")
+              : "default";
+    const defaultGeminiSandbox =
+        matchingValue?.type === "gemini"
+            ? (matchingValue.sandbox ?? geminiSettings?.sandbox ?? false)
+            : agentType === "gemini"
+              ? (geminiSettings?.sandbox ?? false)
+              : false;
 
-    // OpenCode state
-    const [ocModel, setOcModel] = useState(defaultOcModel);
+    // --- Cursor-specific defaults ---
+    const defaultYolo =
+        matchingValue?.type === "cursor"
+            ? (matchingValue.yolo ?? cursorSettings?.yolo ?? false)
+            : (cursorSettings?.yolo ?? false);
+
+    // --- Model defaults (shared across agents) ---
+    const defaultModel =
+        agentType === "codex" && matchingValue?.type === "codex"
+            ? (matchingValue.model ?? codexSettings?.defaultModel ?? "")
+            : agentType === "claude" && matchingValue?.type === "claude"
+              ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
+              : agentType === "opencode" && matchingValue?.type === "opencode"
+                ? (matchingValue.model ?? opencodeSettings?.defaultModel ?? "")
+                : agentType === "gemini" && matchingValue?.type === "gemini"
+                  ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "")
+                  : agentType === "cursor" && matchingValue?.type === "cursor"
+                    ? (matchingValue.model ?? cursorSettings?.defaultModel ?? "default")
+                    : agentType === "codex"
+                      ? (codexSettings?.defaultModel ?? "")
+                      : agentType === "claude"
+                        ? (claudeSettings?.defaultModel ?? "default")
+                        : agentType === "opencode"
+                          ? (opencodeSettings?.defaultModel ?? "")
+                          : agentType === "gemini"
+                            ? (geminiSettings?.defaultModel ?? "")
+                            : agentType === "cursor"
+                              ? (cursorSettings?.defaultModel ?? "default")
+                              : "default";
+
+    // --- State ---
+    const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(
+        defaultDangerouslySkipPermissions,
+    );
+    const [permissionMode, setPermissionMode] = useState<string>(defaultPermissionMode);
+    const [effort, setEffort] = useState<string>(defaultEffort);
+    const [fullAuto, setFullAuto] = useState(defaultFullAuto);
+    const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(defaultCodexSandbox);
+    const [approvalPolicy, setApprovalPolicy] =
+        useState<CodexApprovalPolicy>(defaultApprovalPolicy);
     const [ocAgent, setOcAgent] = useState(defaultOcAgent);
     const [ocVariant, setOcVariant] = useState(defaultOcVariant);
     const [ocAutoApprove, setOcAutoApprove] = useState(defaultOcAutoApprove);
-
-    // OpenCode dynamic data
-    const isOpenCode = agentType === "opencode";
-    const ocModels = useOpenCodeModels(isOpenCode);
-    const ocAgents = useOpenCodeAgents(isOpenCode);
-
-    const ocModelOptions = useMemo(() => {
-        if (!ocModels) return null;
-        return ocModels.map((m) => ({ value: m.id, label: m.id }));
-    }, [ocModels]);
-
-    const ocAgentOptions = useMemo(() => {
-        if (!ocAgents) return null;
-        return ocAgents.map((a) => ({ value: a.name, label: `${a.name} (${a.kind})` }));
-    }, [ocAgents]);
+    const [approvalMode, setApprovalMode] = useState(defaultApprovalMode);
+    const [geminiSandbox, setGeminiSandbox] = useState(defaultGeminiSandbox);
+    const [yolo, setYolo] = useState(defaultYolo);
+    const [model, setModel] = useState<string>(defaultModel);
 
     const isFirstRender = useRef(true);
     const onChangeRef = useRef(onChange);
@@ -129,76 +162,114 @@ function AgentOptionsPanel({
     }, [onChange]);
 
     useEffect(() => {
-        if (agentType === "opencode") {
-            setOcModel(defaultOcModel);
+        if (agentType === "claude") {
+            setDangerouslySkipPermissions(defaultDangerouslySkipPermissions);
+            setPermissionMode(defaultPermissionMode);
+            setEffort(defaultEffort);
+            setModel(defaultModel);
+        } else if (agentType === "codex") {
+            setFullAuto(defaultFullAuto);
+            setCodexSandbox(defaultCodexSandbox);
+            setApprovalPolicy(defaultApprovalPolicy);
+            setModel(defaultModel);
+        } else if (agentType === "opencode") {
             setOcAgent(defaultOcAgent);
             setOcVariant(defaultOcVariant);
             setOcAutoApprove(defaultOcAutoApprove);
-        } else {
-            setFullAccess(defaultFullAccess);
-            setDontAskQuestions(defaultDontAskQuestions);
-            if (
-                agentType === "claude" ||
-                agentType === "gemini" ||
-                agentType === "cursor"
-            ) {
-                setModel(defaultModel);
-            }
+            setModel(defaultModel);
+        } else if (agentType === "gemini") {
+            setApprovalMode(defaultApprovalMode);
+            setGeminiSandbox(defaultGeminiSandbox);
+            setModel(defaultModel);
+        } else if (agentType === "cursor") {
+            setYolo(defaultYolo);
+            setModel(defaultModel);
         }
     }, [
         agentType,
-        defaultFullAccess,
-        defaultDontAskQuestions,
-        defaultModel,
-        defaultOcModel,
+        defaultDangerouslySkipPermissions,
+        defaultPermissionMode,
+        defaultEffort,
+        defaultFullAuto,
+        defaultCodexSandbox,
+        defaultApprovalPolicy,
         defaultOcAgent,
         defaultOcVariant,
         defaultOcAutoApprove,
+        defaultApprovalMode,
+        defaultGeminiSandbox,
+        defaultYolo,
+        defaultModel,
     ]);
 
-    const buildOptions = useCallback((): AgentLaunchOptions => {
-        if (agentType === "opencode") {
-            return {
-                type: "opencode",
-                model: ocModel || undefined,
-                agent: ocAgent || undefined,
-                variant: ocVariant || undefined,
-                autoApprove: ocAutoApprove || undefined,
-            };
-        }
-        if (agentType === "claude") {
-            return {
-                type: "claude",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-                model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
-            };
-        }
-        if (agentType === "gemini") {
-            return {
-                type: "gemini",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-                model:
-                    model === "default"
-                        ? undefined
-                        : (model as "auto" | "pro" | "flash" | "flash-lite"),
-            };
-        }
-        if (agentType === "cursor") {
-            return {
-                type: "cursor",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-                model: model === "default" ? undefined : model,
-            };
-        }
-        return {
+    const buildClaudeOptions = useCallback(
+        (): AgentLaunchOptions => ({
+            type: "claude",
+            dangerouslySkipPermissions: dangerouslySkipPermissions || undefined,
+            permissionMode:
+                permissionMode === "default" ? undefined : (permissionMode as ClaudePermissionMode),
+            model: model === "default" ? undefined : model || undefined,
+            effort: effort === "default" ? undefined : (effort as ClaudeEffortLevel),
+        }),
+        [dangerouslySkipPermissions, permissionMode, model, effort],
+    );
+
+    const buildCodexOptions = useCallback(
+        (): AgentLaunchOptions => ({
             type: "codex",
-            fullAccess: fullAccess || undefined,
-            dontAskQuestions: dontAskQuestions || undefined,
-        };
-    }, [agentType, fullAccess, dontAskQuestions, model, ocModel, ocAgent, ocVariant, ocAutoApprove]);
+            model: model || undefined,
+            sandbox: codexSandbox || undefined,
+            approvalPolicy: approvalPolicy || undefined,
+            fullAuto: fullAuto || undefined,
+        }),
+        [model, codexSandbox, approvalPolicy, fullAuto],
+    );
+
+    const buildOpenCodeOptions = useCallback(
+        (): AgentLaunchOptions => ({
+            type: "opencode",
+            model: model || undefined,
+            agent: ocAgent || undefined,
+            variant: ocVariant || undefined,
+            autoApprove: ocAutoApprove || undefined,
+        }),
+        [model, ocAgent, ocVariant, ocAutoApprove],
+    );
+
+    const buildGeminiOptions = useCallback(
+        (): AgentLaunchOptions => ({
+            type: "gemini",
+            approvalMode: approvalMode === "default" ? undefined : approvalMode,
+            sandbox: geminiSandbox || undefined,
+            model: model || undefined,
+        }),
+        [approvalMode, geminiSandbox, model],
+    );
+
+    const buildCursorOptions = useCallback(
+        (): AgentLaunchOptions => ({
+            type: "cursor",
+            yolo: yolo || undefined,
+            model: model === "default" ? undefined : model,
+        }),
+        [yolo, model],
+    );
+
+    const buildOptions = useCallback((): AgentLaunchOptions => {
+        if (agentType === "claude") return buildClaudeOptions();
+        if (agentType === "codex") return buildCodexOptions();
+        if (agentType === "opencode") return buildOpenCodeOptions();
+        if (agentType === "gemini") return buildGeminiOptions();
+        if (agentType === "cursor") return buildCursorOptions();
+        return { type: "codex" };
+    }, [
+        agentType,
+        buildClaudeOptions,
+        buildCodexOptions,
+        buildOpenCodeOptions,
+        buildGeminiOptions,
+        buildCursorOptions,
+    ]);
 
     const emitChange = useCallback(() => {
         const cb = onChangeRef.current;
@@ -220,141 +291,67 @@ function AgentOptionsPanel({
     }, [buildOptions, onRun]);
 
     return (
-        <div className="flex flex-col gap-3 p-3">
-            {agentType !== "opencode" && (
-                <>
-                    <div className="flex items-center gap-2">
-                        <Switch
-                            id="agent-full-access"
-                            checked={fullAccess || dontAskQuestions}
-                            onCheckedChange={setFullAccess}
-                            disabled={dontAskQuestions}
-                        />
-                        <Label htmlFor="agent-full-access" className="cursor-pointer text-xs">
-                            Full access
-                        </Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Switch
-                            id="agent-dont-ask"
-                            checked={dontAskQuestions}
-                            onCheckedChange={setDontAskQuestions}
-                        />
-                        <Label htmlFor="agent-dont-ask" className="cursor-pointer text-xs">
-                            Don&apos;t ask questions
-                        </Label>
-                    </div>
-                </>
-            )}
-
-            {agentType === "claude" && (
-                <div className="flex flex-col gap-1">
-                    <Label htmlFor="agent-model" className="text-xs">
-                        Model
-                    </Label>
-                    <Select value={model} onValueChange={setModel}>
-                        <SelectTrigger id="agent-model" className="h-7 text-xs">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="default">Default</SelectItem>
-                            <SelectItem value="opus">Opus</SelectItem>
-                            <SelectItem value="sonnet">Sonnet</SelectItem>
-                            <SelectItem value="haiku">Haiku</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-            )}
-
-            {agentType === "gemini" && (
-                <div className="flex flex-col gap-1">
-                    <Label htmlFor="agent-model" className="text-xs">
-                        Model
-                    </Label>
-                    <Select value={model} onValueChange={setModel}>
-                        <SelectTrigger id="agent-model" className="h-7 text-xs">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="default">Default</SelectItem>
-                            <SelectItem value="auto">Auto</SelectItem>
-                            <SelectItem value="pro">Pro</SelectItem>
-                            <SelectItem value="flash">Flash</SelectItem>
-                            <SelectItem value="flash-lite">Flash Lite</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-            )}
-
-            {agentType === "cursor" && (
-                <div className="flex flex-col gap-1">
-                    <Label htmlFor="agent-model" className="text-xs">
-                        Model
-                    </Label>
-                    <Input
-                        id="agent-model"
-                        className="h-7 text-xs"
-                        value={model === "default" ? "" : model}
-                        placeholder="default"
-                        onChange={(e) => setModel(e.target.value || "default")}
-                    />
-                </div>
-            )}
-
-            {agentType === "opencode" && (
-                <>
-                    <div className="flex flex-col gap-1">
-                        <Label className="text-xs">Model</Label>
-                        <SearchableSelect
-                            value={ocModel}
-                            onChange={setOcModel}
-                            options={ocModelOptions}
-                            placeholder="e.g. anthropic/claude-sonnet-4-20250514"
-                            allowCustom
-                        />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <Label className="text-xs">Agent</Label>
-                        <SearchableSelect
-                            value={ocAgent}
-                            onChange={setOcAgent}
-                            options={ocAgentOptions}
-                            placeholder="Default agent"
-                            allowCustom
-                        />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <Label className="text-xs">Variant</Label>
-                        <Select value={ocVariant || "none"} onValueChange={(v) => setOcVariant(v === "none" ? "" : v)}>
-                            <SelectTrigger className="h-7 text-xs">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">None</SelectItem>
-                                <SelectItem value="high">High</SelectItem>
-                                <SelectItem value="max">Max</SelectItem>
-                                <SelectItem value="minimal">Minimal</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Switch
-                            id="agent-auto-approve"
-                            checked={ocAutoApprove}
-                            onCheckedChange={setOcAutoApprove}
-                        />
-                        <Label htmlFor="agent-auto-approve" className="cursor-pointer text-xs">
-                            Auto-approve permissions
-                        </Label>
-                    </div>
-                </>
-            )}
+        <div className="flex flex-col">
+            {agentType === "claude" ? (
+                <ClaudeOptions
+                    modelValue={model}
+                    effortValue={effort}
+                    dangerouslySkipPermissions={dangerouslySkipPermissions}
+                    permissionMode={permissionMode}
+                    onModelChange={setModel}
+                    onEffortChange={setEffort}
+                    onSkipPermissions={setDangerouslySkipPermissions}
+                    onPermissionModeChange={setPermissionMode}
+                />
+            ) : agentType === "codex" ? (
+                <CodexOptions
+                    modelValue={model}
+                    sandbox={codexSandbox}
+                    approvalPolicy={approvalPolicy}
+                    fullAuto={fullAuto}
+                    onModelChange={setModel}
+                    onSandboxChange={(v) => setCodexSandbox(v as CodexSandboxMode)}
+                    onApprovalPolicyChange={(v) => setApprovalPolicy(v as CodexApprovalPolicy)}
+                    onFullAutoChange={setFullAuto}
+                />
+            ) : agentType === "opencode" ? (
+                <OpenCodeOptions
+                    modelValue={model}
+                    agentValue={ocAgent}
+                    variantValue={ocVariant}
+                    autoApprove={ocAutoApprove}
+                    onModelChange={setModel}
+                    onAgentChange={setOcAgent}
+                    onVariantChange={setOcVariant}
+                    onAutoApproveChange={setOcAutoApprove}
+                />
+            ) : agentType === "gemini" ? (
+                <GeminiOptions
+                    modelValue={model}
+                    approvalMode={approvalMode ?? "default"}
+                    sandbox={geminiSandbox}
+                    onModelChange={setModel}
+                    onApprovalModeChange={(v) =>
+                        setApprovalMode(v as NonNullable<GeminiLaunchOptions["approvalMode"]>)
+                    }
+                    onSandboxChange={setGeminiSandbox}
+                />
+            ) : agentType === "cursor" ? (
+                <CursorOptions
+                    modelValue={model}
+                    yolo={yolo}
+                    onModelChange={setModel}
+                    onYoloChange={setYolo}
+                />
+            ) : null}
 
             {onRun && (
-                <Button size="sm" className="w-full" onClick={handleRun}>
-                    <Play className="mr-1 h-3 w-3" />
-                    Run
-                </Button>
+                <div className="pb-3">
+                    <Button size="sm" className="w-full" onClick={handleRun}>
+                        <Play className="mr-1 h-3 w-3" />
+                        Run
+                    </Button>
+                </div>
             )}
         </div>
     );

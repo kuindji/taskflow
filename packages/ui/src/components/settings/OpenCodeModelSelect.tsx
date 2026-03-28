@@ -3,34 +3,34 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronDownIcon } from "lucide-react";
+import { sendRequest } from "@/hooks/useWebSocket";
+import { MSG } from "@taskflow/shared";
+import type { OpenCodeModelInfo, OpenCodeModelsResponse } from "@taskflow/shared";
 
-interface SelectOption {
+interface OpenCodeModelSelectProps {
     value: string;
-    label: string;
+    onChange: (model: string) => void;
 }
 
-interface SearchableSelectProps {
-    value: string;
-    onChange: (value: string) => void;
-    options: SelectOption[] | null;
-    placeholder?: string;
-    allowCustom?: boolean;
-    className?: string;
-}
-
-function SearchableSelect({
-    value,
-    onChange,
-    options,
-    placeholder = "Select...",
-    allowCustom = false,
-    className,
-}: SearchableSelectProps) {
+function OpenCodeModelSelect({ value, onChange }: OpenCodeModelSelectProps) {
     const [open, setOpen] = useState(false);
+    const [models, setModels] = useState<OpenCodeModelInfo[] | null>(null);
     const [search, setSearch] = useState("");
+    const [fetchFailed, setFetchFailed] = useState(false);
     const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (!open || models !== null || fetchFailed) return;
+        sendRequest<OpenCodeModelsResponse>(MSG.OPENCODE_MODELS, {})
+            .then((res) => {
+                setModels(res.models);
+            })
+            .catch(() => {
+                setFetchFailed(true);
+            });
+    }, [open, models, fetchFailed]);
 
     useEffect(() => {
         setPortalContainer(
@@ -47,19 +47,15 @@ function SearchableSelect({
     }, []);
 
     const filtered = useMemo(() => {
-        if (!options) return [];
-        if (!search) return options;
+        if (!models) return [];
+        if (!search) return models;
         const lower = search.toLowerCase();
-        return options.filter(
-            (opt) =>
-                opt.label.toLowerCase().includes(lower) ||
-                opt.value.toLowerCase().includes(lower),
-        );
-    }, [options, search]);
+        return models.filter((m) => m.id.toLowerCase().includes(lower));
+    }, [models, search]);
 
     const handleSelect = useCallback(
-        (val: string) => {
-            onChange(val);
+        (model: string) => {
+            onChange(model);
             setOpen(false);
         },
         [onChange],
@@ -67,27 +63,27 @@ function SearchableSelect({
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
-            if (e.key === "Enter" && allowCustom && search) {
+            if (e.key === "Enter" && search) {
                 onChange(search);
                 setOpen(false);
             }
         },
-        [allowCustom, search, onChange],
+        [search, onChange],
     );
 
     const displayLabel = useMemo(() => {
         if (!value) return null;
-        const opt = options?.find((o) => o.value === value);
-        return opt?.label ?? value;
-    }, [value, options]);
+        const match = models?.find((m) => m.id === value);
+        return match?.id ?? value;
+    }, [value, models]);
 
-    if (allowCustom && !options) {
+    if (fetchFailed) {
         return (
             <Input
                 value={value}
+                placeholder="e.g. anthropic/claude-sonnet-4-20250514"
                 onChange={(e) => onChange(e.target.value)}
-                placeholder={placeholder}
-                className={className}
+                className="h-8 text-[13px]"
             />
         );
     }
@@ -98,9 +94,9 @@ function SearchableSelect({
                 <PopoverTrigger asChild>
                     <Button
                         variant="outline"
-                        className={`h-8 w-full min-w-0 justify-between overflow-hidden text-sm font-normal ${className ?? ""}`}>
+                        className="h-8 w-full min-w-0 justify-between overflow-hidden text-[13px] font-normal">
                         <span className="min-w-0 flex-1 truncate text-left">
-                            {displayLabel || placeholder}
+                            {displayLabel || "Select model..."}
                         </span>
                         <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
                     </Button>
@@ -112,7 +108,7 @@ function SearchableSelect({
                     <div className="border-border border-b p-2">
                         <Input
                             ref={searchRef}
-                            placeholder="Search..."
+                            placeholder="Search models... (Enter for custom)"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             onKeyDown={handleKeyDown}
@@ -120,28 +116,28 @@ function SearchableSelect({
                         />
                     </div>
                     <div className="max-h-60 overflow-y-auto p-1">
-                        {options === null ? (
+                        {models === null ? (
                             <div className="text-muted-foreground px-2 py-4 text-center text-sm">
-                                Loading...
+                                Loading models...
+                            </div>
+                        ) : models.length === 0 ? (
+                            <div className="text-muted-foreground px-2 py-4 text-center text-sm">
+                                No models available
                             </div>
                         ) : filtered.length === 0 ? (
                             <div className="text-muted-foreground px-2 py-4 text-center text-sm">
-                                {allowCustom && search
-                                    ? "No matches — press Enter to use custom value"
-                                    : "No results found"}
+                                No matches — press Enter to use custom value
                             </div>
                         ) : (
-                            filtered.map((opt) => (
+                            filtered.map((m) => (
                                 <button
-                                    key={opt.value}
+                                    key={m.id}
                                     type="button"
                                     className={`hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-left text-sm outline-hidden ${
-                                        opt.value === value
-                                            ? "bg-accent text-accent-foreground"
-                                            : ""
+                                        m.id === value ? "bg-accent text-accent-foreground" : ""
                                     }`}
-                                    onClick={() => handleSelect(opt.value)}>
-                                    <span className="truncate">{opt.label}</span>
+                                    onClick={() => handleSelect(m.id)}>
+                                    <span className="truncate">{m.id}</span>
                                 </button>
                             ))
                         )}
@@ -152,5 +148,4 @@ function SearchableSelect({
     );
 }
 
-export { SearchableSelect };
-export type { SelectOption, SearchableSelectProps };
+export { OpenCodeModelSelect };

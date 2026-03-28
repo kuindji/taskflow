@@ -12,6 +12,7 @@ import { detectShells, resolveSystemShellPath } from "./services/shell-detector"
 import {
     detectRuntimes,
     detectAgents,
+    fetchCursorModels,
     fetchOpenCodeModels,
     fetchOpenCodeAgents,
 } from "./services/runtime-detector";
@@ -377,6 +378,7 @@ async function main() {
         }));
         router.register(MSG.RUNTIMES_LIST, async () => ({ runtimes }));
         router.register(MSG.AGENTS_LIST, async () => ({ agents }));
+        router.register(MSG.CURSOR_MODELS, async () => ({ models: await fetchCursorModels() }));
         router.register(MSG.OPENCODE_MODELS, async () => ({
             models: await fetchOpenCodeModels(),
         }));

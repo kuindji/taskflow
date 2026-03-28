@@ -51,12 +51,15 @@ const DEFAULTS: AppSettings = {
     },
     claude: {
         defaultModel: "default",
-        fullAccess: false,
-        dontAskQuestions: false,
+        defaultEffort: "default",
+        dangerouslySkipPermissions: false,
+        permissionMode: "default",
     },
     codex: {
-        fullAccess: false,
-        dontAskQuestions: false,
+        defaultModel: "",
+        sandbox: "workspace-write",
+        approvalPolicy: "on-request",
+        fullAuto: false,
     },
     opencode: {
         defaultModel: "",
@@ -65,14 +68,13 @@ const DEFAULTS: AppSettings = {
         autoApprove: false,
     },
     gemini: {
-        defaultModel: "default",
-        fullAccess: false,
-        dontAskQuestions: false,
+        defaultModel: "",
+        approvalMode: "default",
+        sandbox: false,
     },
     cursor: {
         defaultModel: "default",
-        fullAccess: false,
-        dontAskQuestions: false,
+        yolo: false,
     },
     appearance: {
         theme: DEFAULT_THEME_ID,

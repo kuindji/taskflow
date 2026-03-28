@@ -228,6 +228,15 @@ export interface AgentListResponse {
     agents: AgentAvailability[];
 }
 
+export interface CursorModel {
+    id: string;
+    label: string;
+}
+
+export interface CursorModelsResponse {
+    models: CursorModel[];
+}
+
 export interface OpenCodeModelsResponse {
     models: OpenCodeModelInfo[];
 }
