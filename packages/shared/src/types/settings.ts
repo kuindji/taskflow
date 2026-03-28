@@ -35,9 +35,9 @@ export interface OpenCodeSettings {
 }
 
 export interface GeminiSettings {
-    defaultModel: "default" | "auto" | "pro" | "flash" | "flash-lite";
-    fullAccess: boolean;
-    dontAskQuestions: boolean;
+    defaultModel: string;
+    approvalMode: "default" | "auto_edit" | "yolo" | "plan";
+    sandbox: boolean;
 }
 
 export interface CursorSettings {

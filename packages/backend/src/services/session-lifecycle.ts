@@ -53,6 +53,16 @@ interface CreateSessionOpts {
     trayExclude?: boolean;
 }
 
+function isAutonomousAgent(
+    opts: import("@taskflow/shared").AgentLaunchOptions | undefined,
+    type: string,
+): boolean {
+    if (!opts || type === "claude") return false;
+    if (opts.type === "gemini") return opts.approvalMode === "yolo";
+    if (opts.type === "codex") return opts.approvalPolicy === "never";
+    return "dontAskQuestions" in opts && !!opts.dontAskQuestions;
+}
+
 interface SessionLifecycleDeps {
     ptyManager: PtyManager;
     taskStore: TaskStore;
@@ -219,11 +229,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             command = shell;
         } else {
             let effectiveSystemPrompt = systemPrompt;
-            const isAutonomous =
-                agentOptions?.type === "codex"
-                    ? agentOptions.approvalPolicy === "never"
-                    : agentOptions?.type !== "claude" && agentOptions?.dontAskQuestions;
-            if (isAutonomous) {
+            if (isAutonomousAgent(agentOptions, type)) {
                 effectiveSystemPrompt = effectiveSystemPrompt
                     ? `${effectiveSystemPrompt}\n\n${PROMPT_AUTONOMOUS}`
                     : PROMPT_AUTONOMOUS;

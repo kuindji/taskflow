@@ -12,6 +12,7 @@ import {
     type RuntimeInfo,
     type RuntimeListResponse,
     type ClaudeSettings,
+    type CodexSettings,
     type GeminiSettings,
     type EditorInfo,
     type SystemInfoResponse,
@@ -32,6 +33,7 @@ import { GeneralSection } from "./sections/GeneralSection";
 import { DefaultsSection } from "./sections/DefaultsSection";
 import { AgentSection } from "./sections/AgentSection";
 import { CodexSection } from "./sections/CodexSection";
+import { GeminiSection } from "./sections/GeminiSection";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { RemoteSection } from "./sections/RemoteSection";
 
@@ -318,14 +320,18 @@ function SettingsModal() {
 
     const handleCodexSandbox = useCallback(
         (sandbox: string) => {
-            void updateSettings({ codex: { sandbox } });
+            void updateSettings({
+                codex: { sandbox: sandbox as CodexSettings["sandbox"] },
+            });
         },
         [updateSettings],
     );
 
     const handleCodexApprovalPolicy = useCallback(
         (approvalPolicy: string) => {
-            void updateSettings({ codex: { approvalPolicy } });
+            void updateSettings({
+                codex: { approvalPolicy: approvalPolicy as CodexSettings["approvalPolicy"] },
+            });
         },
         [updateSettings],
     );
@@ -365,28 +371,23 @@ function SettingsModal() {
 
     const handleGeminiModel = useCallback(
         (defaultModel: string) => {
+            void updateSettings({ gemini: { defaultModel } });
+        },
+        [updateSettings],
+    );
+
+    const handleGeminiApprovalMode = useCallback(
+        (approvalMode: string) => {
             void updateSettings({
-                gemini: { defaultModel: defaultModel as GeminiSettings["defaultModel"] },
+                gemini: { approvalMode: approvalMode as GeminiSettings["approvalMode"] },
             });
         },
         [updateSettings],
     );
 
-    const handleGeminiFullAccess = useCallback(
-        (fullAccess: boolean) => {
-            void updateSettings({ gemini: { fullAccess } });
-        },
-        [updateSettings],
-    );
-
-    const handleGeminiDontAsk = useCallback(
-        (dontAskQuestions: boolean) => {
-            void updateSettings({
-                gemini: {
-                    dontAskQuestions,
-                    ...(dontAskQuestions ? { fullAccess: true } : {}),
-                },
-            });
+    const handleGeminiSandbox = useCallback(
+        (sandbox: boolean) => {
+            void updateSettings({ gemini: { sandbox } });
         },
         [updateSettings],
     );
@@ -547,22 +548,13 @@ function SettingsModal() {
 
                         {section === "gemini" && (
                             <div className="px-3">
-                                <AgentSection
-                                    agentKey="gemini"
-                                    fullAccess={settings.gemini.fullAccess}
-                                    dontAskQuestions={settings.gemini.dontAskQuestions}
-                                    onFullAccess={handleGeminiFullAccess}
-                                    onDontAsk={handleGeminiDontAsk}
-                                    modelValue={settings.gemini.defaultModel}
-                                    modelOptions={[
-                                        { value: "default", label: "Default" },
-                                        { value: "auto", label: "Auto" },
-                                        { value: "pro", label: "Pro" },
-                                        { value: "flash", label: "Flash" },
-                                        { value: "flash-lite", label: "Flash Lite" },
-                                    ]}
+                                <GeminiSection
+                                    defaultModel={settings.gemini.defaultModel}
+                                    approvalMode={settings.gemini.approvalMode}
+                                    sandbox={settings.gemini.sandbox}
                                     onModelChange={handleGeminiModel}
-                                    fullAccessHint="Auto-approve all actions by default"
+                                    onApprovalModeChange={handleGeminiApprovalMode}
+                                    onSandboxChange={handleGeminiSandbox}
                                 />
                             </div>
                         )}

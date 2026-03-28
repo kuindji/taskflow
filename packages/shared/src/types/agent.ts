@@ -48,9 +48,9 @@ interface OpenCodeLaunchOptions {
 
 interface GeminiLaunchOptions {
     type: Extract<AgentType, "gemini">;
-    fullAccess?: boolean;
-    dontAskQuestions?: boolean;
-    model?: "auto" | "pro" | "flash" | "flash-lite";
+    approvalMode?: "default" | "auto_edit" | "yolo" | "plan";
+    sandbox?: boolean;
+    model?: string;
 }
 
 interface CursorLaunchOptions {

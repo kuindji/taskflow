@@ -49,8 +49,10 @@ function normalizeAgentOptions(
             const opts = matchingOptions?.type === "codex" ? matchingOptions : undefined;
             return {
                 type: "codex",
-                fullAccess: opts?.fullAccess || undefined,
-                dontAskQuestions: opts?.dontAskQuestions || undefined,
+                model: opts?.model,
+                sandbox: opts?.sandbox,
+                approvalPolicy: opts?.approvalPolicy,
+                fullAuto: opts?.fullAuto || undefined,
             };
         }
         case "cursor": {

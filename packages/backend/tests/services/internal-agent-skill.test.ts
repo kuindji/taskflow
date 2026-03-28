@@ -108,12 +108,29 @@ describe("internal agent skill", () => {
     it("passes Gemini agent options through", () => {
         const spec = buildAgentLaunchSpec("gemini", "Do stuff", "/tmp/ignored/SKILL.md", {
             type: "gemini",
-            fullAccess: true,
-            model: "pro",
+            approvalMode: "yolo",
+            model: "gemini-2.5-pro",
         });
-        expect(spec.args).toContain("--yolo");
+        expect(spec.args).toContain("--approval-mode");
+        expect(spec.args).toContain("yolo");
         expect(spec.args).toContain("--model");
-        expect(spec.args).toContain("pro");
+        expect(spec.args).toContain("gemini-2.5-pro");
+    });
+
+    it("omits --approval-mode for Gemini when set to default", () => {
+        const spec = buildAgentLaunchSpec("gemini", "Do stuff", "/tmp/ignored/SKILL.md", {
+            type: "gemini",
+            approvalMode: "default",
+        });
+        expect(spec.args).not.toContain("--approval-mode");
+    });
+
+    it("passes --sandbox for Gemini when sandbox is true", () => {
+        const spec = buildAgentLaunchSpec("gemini", "Do stuff", "/tmp/ignored/SKILL.md", {
+            type: "gemini",
+            sandbox: true,
+        });
+        expect(spec.args).toContain("--sandbox");
     });
 
     it("passes project scope through to the system prompt", () => {
@@ -303,12 +320,13 @@ printf '{}'
         expect(spec.args).toContain("o4-mini");
     });
 
-    it("dontAskQuestions forces --yolo for Gemini", () => {
+    it("passes --approval-mode auto_edit for Gemini", () => {
         const spec = buildAgentLaunchSpec("gemini", "Do it", "/tmp/ignored/SKILL.md", {
             type: "gemini",
-            dontAskQuestions: true,
+            approvalMode: "auto_edit",
         });
-        expect(spec.args).toContain("--yolo");
+        expect(spec.args).toContain("--approval-mode");
+        expect(spec.args).toContain("auto_edit");
     });
 
     it("dontAskQuestions forces --yolo for Cursor", () => {

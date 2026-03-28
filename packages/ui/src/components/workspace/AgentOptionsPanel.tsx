@@ -6,22 +6,17 @@ import type {
     ClaudeEffortLevel,
     CodexSandboxMode,
     CodexApprovalPolicy,
+    GeminiLaunchOptions,
 } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Play } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { CodexOptions } from "@/components/shared/CodexOptions";
+import { GeminiOptions } from "@/components/shared/GeminiOptions";
 
 interface AgentOptionsPanelProps {
     agentType: AgentType;
@@ -75,7 +70,7 @@ function AgentOptionsPanel({
         matchingValue?.type === "codex"
             ? (matchingValue.fullAuto ?? codexSettings?.fullAuto ?? false)
             : (codexSettings?.fullAuto ?? false);
-    const defaultSandbox: CodexSandboxMode =
+    const defaultCodexSandbox: CodexSandboxMode =
         matchingValue?.type === "codex"
             ? (matchingValue.sandbox ?? codexSettings?.sandbox ?? "workspace-write")
             : (codexSettings?.sandbox ?? "workspace-write");
@@ -84,33 +79,45 @@ function AgentOptionsPanel({
             ? (matchingValue.approvalPolicy ?? codexSettings?.approvalPolicy ?? "on-request")
             : (codexSettings?.approvalPolicy ?? "on-request");
 
-    // --- Generic defaults for non-Claude, non-Codex agents ---
+    // --- Gemini-specific defaults ---
+    const defaultApprovalMode: NonNullable<GeminiLaunchOptions["approvalMode"]> =
+        matchingValue?.type === "gemini"
+            ? (matchingValue.approvalMode ?? geminiSettings?.approvalMode ?? "default")
+            : agentType === "gemini"
+              ? (geminiSettings?.approvalMode ?? "default")
+              : "default";
+    const defaultGeminiSandbox =
+        matchingValue?.type === "gemini"
+            ? (matchingValue.sandbox ?? geminiSettings?.sandbox ?? false)
+            : agentType === "gemini"
+              ? (geminiSettings?.sandbox ?? false)
+              : false;
+
+    // --- Generic defaults for non-Claude, non-Codex, non-Gemini agents ---
     const defaultFullAccess =
         matchingValue &&
         matchingValue.type !== "claude" &&
         matchingValue.type !== "codex" &&
+        matchingValue.type !== "gemini" &&
         "fullAccess" in matchingValue
             ? (matchingValue.fullAccess ?? false)
             : agentType === "opencode"
               ? (opencodeSettings?.fullAccess ?? false)
-              : agentType === "gemini"
-                ? (geminiSettings?.fullAccess ?? false)
-                : agentType === "cursor"
-                  ? (cursorSettings?.fullAccess ?? false)
-                  : false;
+              : agentType === "cursor"
+                ? (cursorSettings?.fullAccess ?? false)
+                : false;
     const defaultDontAskQuestions =
         matchingValue &&
         matchingValue.type !== "claude" &&
         matchingValue.type !== "codex" &&
+        matchingValue.type !== "gemini" &&
         "dontAskQuestions" in matchingValue
             ? (matchingValue.dontAskQuestions ?? false)
             : agentType === "opencode"
               ? (opencodeSettings?.dontAskQuestions ?? false)
-              : agentType === "gemini"
-                ? (geminiSettings?.dontAskQuestions ?? false)
-                : agentType === "cursor"
-                  ? (cursorSettings?.dontAskQuestions ?? false)
-                  : false;
+              : agentType === "cursor"
+                ? (cursorSettings?.dontAskQuestions ?? false)
+                : false;
 
     const defaultModel =
         agentType === "codex" && matchingValue?.type === "codex"
@@ -120,7 +127,7 @@ function AgentOptionsPanel({
               : agentType === "opencode" && matchingValue?.type === "opencode"
                 ? (matchingValue.model ?? opencodeSettings?.defaultModel ?? "")
                 : agentType === "gemini" && matchingValue?.type === "gemini"
-                  ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "default")
+                  ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "")
                   : agentType === "cursor" && matchingValue?.type === "cursor"
                     ? (matchingValue.model ?? cursorSettings?.defaultModel ?? "default")
                     : agentType === "codex"
@@ -130,7 +137,7 @@ function AgentOptionsPanel({
                         : agentType === "opencode"
                           ? (opencodeSettings?.defaultModel ?? "")
                           : agentType === "gemini"
-                            ? (geminiSettings?.defaultModel ?? "default")
+                            ? (geminiSettings?.defaultModel ?? "")
                             : agentType === "cursor"
                               ? (cursorSettings?.defaultModel ?? "default")
                               : "default";
@@ -144,9 +151,11 @@ function AgentOptionsPanel({
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [dontAskQuestions, setDontAskQuestions] = useState(defaultDontAskQuestions);
     const [fullAuto, setFullAuto] = useState(defaultFullAuto);
-    const [sandbox, setSandbox] = useState<CodexSandboxMode>(defaultSandbox);
+    const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(defaultCodexSandbox);
     const [approvalPolicy, setApprovalPolicy] =
         useState<CodexApprovalPolicy>(defaultApprovalPolicy);
+    const [approvalMode, setApprovalMode] = useState(defaultApprovalMode);
+    const [geminiSandbox, setGeminiSandbox] = useState(defaultGeminiSandbox);
     const [model, setModel] = useState<string>(defaultModel);
 
     const isFirstRender = useRef(true);
@@ -164,13 +173,17 @@ function AgentOptionsPanel({
             setModel(defaultModel);
         } else if (agentType === "codex") {
             setFullAuto(defaultFullAuto);
-            setSandbox(defaultSandbox);
+            setCodexSandbox(defaultCodexSandbox);
             setApprovalPolicy(defaultApprovalPolicy);
+            setModel(defaultModel);
+        } else if (agentType === "gemini") {
+            setApprovalMode(defaultApprovalMode);
+            setGeminiSandbox(defaultGeminiSandbox);
             setModel(defaultModel);
         } else {
             setFullAccess(defaultFullAccess);
             setDontAskQuestions(defaultDontAskQuestions);
-            if (agentType === "opencode" || agentType === "gemini" || agentType === "cursor") {
+            if (agentType === "opencode" || agentType === "cursor") {
                 setModel(defaultModel);
             }
         }
@@ -182,8 +195,10 @@ function AgentOptionsPanel({
         defaultFullAccess,
         defaultDontAskQuestions,
         defaultFullAuto,
-        defaultSandbox,
+        defaultCodexSandbox,
         defaultApprovalPolicy,
+        defaultApprovalMode,
+        defaultGeminiSandbox,
         defaultModel,
     ]);
 
@@ -203,11 +218,21 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "codex",
             model: model || undefined,
-            sandbox: sandbox || undefined,
+            sandbox: codexSandbox || undefined,
             approvalPolicy: approvalPolicy || undefined,
             fullAuto: fullAuto || undefined,
         }),
-        [model, sandbox, approvalPolicy, fullAuto],
+        [model, codexSandbox, approvalPolicy, fullAuto],
+    );
+
+    const buildGeminiOptions = useCallback(
+        (): AgentLaunchOptions => ({
+            type: "gemini",
+            approvalMode: approvalMode === "default" ? undefined : approvalMode,
+            sandbox: geminiSandbox || undefined,
+            model: model || undefined,
+        }),
+        [approvalMode, geminiSandbox, model],
     );
 
     const buildGenericOptions = useCallback((): AgentLaunchOptions => {
@@ -217,17 +242,6 @@ function AgentOptionsPanel({
                 fullAccess: fullAccess || undefined,
                 dontAskQuestions: dontAskQuestions || undefined,
                 model: model || undefined,
-            };
-        }
-        if (agentType === "gemini") {
-            return {
-                type: "gemini",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-                model:
-                    model === "default"
-                        ? undefined
-                        : (model as "auto" | "pro" | "flash" | "flash-lite"),
             };
         }
         if (agentType === "cursor") {
@@ -245,8 +259,9 @@ function AgentOptionsPanel({
     const buildOptions = useCallback((): AgentLaunchOptions => {
         if (agentType === "claude") return buildClaudeOptions();
         if (agentType === "codex") return buildCodexOptions();
+        if (agentType === "gemini") return buildGeminiOptions();
         return buildGenericOptions();
-    }, [agentType, buildClaudeOptions, buildCodexOptions, buildGenericOptions]);
+    }, [agentType, buildClaudeOptions, buildCodexOptions, buildGeminiOptions, buildGenericOptions]);
 
     const emitChange = useCallback(() => {
         const cb = onChangeRef.current;
@@ -283,13 +298,24 @@ function AgentOptionsPanel({
             ) : agentType === "codex" ? (
                 <CodexOptions
                     modelValue={model}
-                    sandbox={sandbox}
+                    sandbox={codexSandbox}
                     approvalPolicy={approvalPolicy}
                     fullAuto={fullAuto}
                     onModelChange={setModel}
-                    onSandboxChange={(v) => setSandbox(v as CodexSandboxMode)}
+                    onSandboxChange={(v) => setCodexSandbox(v as CodexSandboxMode)}
                     onApprovalPolicyChange={(v) => setApprovalPolicy(v as CodexApprovalPolicy)}
                     onFullAutoChange={setFullAuto}
+                />
+            ) : agentType === "gemini" ? (
+                <GeminiOptions
+                    modelValue={model}
+                    approvalMode={approvalMode ?? "default"}
+                    sandbox={geminiSandbox}
+                    onModelChange={setModel}
+                    onApprovalModeChange={(v) =>
+                        setApprovalMode(v as NonNullable<GeminiLaunchOptions["approvalMode"]>)
+                    }
+                    onSandboxChange={setGeminiSandbox}
                 />
             ) : (
                 <div className="flex flex-col gap-3 p-3">
@@ -314,26 +340,6 @@ function AgentOptionsPanel({
                             Don&apos;t ask questions
                         </Label>
                     </div>
-                </div>
-            )}
-
-            {agentType === "gemini" && (
-                <div className="flex flex-col gap-1 px-3 pb-3">
-                    <Label htmlFor="agent-model" className="text-xs">
-                        Model
-                    </Label>
-                    <Select value={model} onValueChange={setModel}>
-                        <SelectTrigger id="agent-model" className="h-7 text-xs">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="default">Default</SelectItem>
-                            <SelectItem value="auto">Auto</SelectItem>
-                            <SelectItem value="pro">Pro</SelectItem>
-                            <SelectItem value="flash">Flash</SelectItem>
-                            <SelectItem value="flash-lite">Flash Lite</SelectItem>
-                        </SelectContent>
-                    </Select>
                 </div>
             )}
 
