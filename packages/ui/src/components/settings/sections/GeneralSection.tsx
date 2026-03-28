@@ -1,5 +1,7 @@
+import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TruncatedText } from "@/components/ui/truncated-text";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface DataDirInfo {
     dataDir: string;
@@ -24,12 +26,17 @@ function GeneralSection({
     onResetDataDir,
 }: GeneralSectionProps) {
     return (
-        <div className="hover:bg-island-base mx-1 flex flex-col gap-2 rounded-md px-3 py-3 transition-colors">
-            <div>
+        <div className="hover:bg-island-base flex flex-col gap-3 rounded-md px-3 py-3 transition-colors">
+            <div className="flex items-center gap-1.5">
                 <div className="text-secondary-foreground text-[13px] font-medium">Data Folder</div>
-                <div className="text-muted-foreground text-[11px]">
-                    Location where projects, tasks, and session data are stored
-                </div>
+                <Tooltip>
+                    <TooltipTrigger>
+                        <Info className="text-muted-foreground h-3 w-3 shrink-0" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                        Location where projects, tasks, and session data are stored
+                    </TooltipContent>
+                </Tooltip>
             </div>
             <TruncatedText
                 as="code"

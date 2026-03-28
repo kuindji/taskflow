@@ -38,7 +38,6 @@ function normalizeAgentOptions(
             return {
                 type: "opencode",
                 model: agentOptions.model,
-                agent: agentOptions.agent,
                 variant: agentOptions.variant,
                 autoApprove: agentOptions.autoApprove || undefined,
             };

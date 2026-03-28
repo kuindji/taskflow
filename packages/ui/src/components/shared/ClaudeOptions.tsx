@@ -63,7 +63,7 @@ function ClaudeOptions({
         <>
             <SettingRow label={l.model} hint={l.modelHint}>
                 <Select value={modelValue} onValueChange={onModelChange}>
-                    <SelectTrigger className="h-8 text-[13px]">
+                    <SelectTrigger size="sm" className="text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -76,7 +76,7 @@ function ClaudeOptions({
             </SettingRow>
             <SettingRow label={l.effort} hint={l.effortHint}>
                 <Select value={effortValue} onValueChange={onEffortChange}>
-                    <SelectTrigger className="h-8 text-[13px]">
+                    <SelectTrigger size="sm" className="text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -88,7 +88,7 @@ function ClaudeOptions({
                     </SelectContent>
                 </Select>
             </SettingRow>
-            <SettingRow label={l.skipPermissions} hint={l.skipPermissionsHint}>
+            <SettingRow label={l.skipPermissions} hint={l.skipPermissionsHint} className="h-8">
                 <div className="flex items-center gap-2.5">
                     <Switch
                         id="claude-skip-permissions"
@@ -104,7 +104,7 @@ function ClaudeOptions({
             </SettingRow>
             <SettingRow label={l.permissionMode} hint={l.permissionModeHint}>
                 <Select value={permissionMode} onValueChange={onPermissionModeChange}>
-                    <SelectTrigger className="h-8 text-[13px]">
+                    <SelectTrigger size="sm" className="text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

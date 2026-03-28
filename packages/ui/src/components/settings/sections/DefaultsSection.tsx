@@ -1,3 +1,4 @@
+import { Info } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -7,6 +8,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
     getShellDisplayName,
     getTerminalShellSummary,
@@ -66,7 +68,7 @@ function DefaultsSection({
                 label="Internal Editor"
                 hint="Opens files when clicking paths in the terminal">
                 <Select value={settings.editor.internalEditor} onValueChange={onInternalEditor}>
-                    <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                    <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -85,7 +87,7 @@ function DefaultsSection({
                 label="External Editor"
                 hint="Opens files when Cmd+clicking paths in the terminal">
                 <Select value={settings.editor.externalEditor} onValueChange={onExternalEditor}>
-                    <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                    <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -104,7 +106,7 @@ function DefaultsSection({
                 label="Default Agent"
                 hint="Pre-selected for new tasks, titles, and commits">
                 <Select value={settings.general.defaultAgent} onValueChange={onDefaultAgent}>
-                    <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                    <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -120,14 +122,19 @@ function DefaultsSection({
                     </SelectContent>
                 </Select>
             </SettingRow>
-            <div className="hover:bg-island-base mx-1 flex flex-col gap-1 rounded-md px-5 py-3 transition-colors">
-                <div>
+            <div className="hover:bg-island-base flex flex-col gap-1 rounded-md transition-colors">
+                <div className="flex items-center gap-1.5">
                     <div className="text-secondary-foreground text-[13px] font-medium">
                         Toolbar Agents
                     </div>
-                    <div className="text-muted-foreground text-[11px] leading-snug">
-                        Favorited agents appear as buttons in the workspace toolbar
-                    </div>
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <Info className="text-muted-foreground h-3 w-3 shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                            Favorited agents appear as buttons in the workspace toolbar
+                        </TooltipContent>
+                    </Tooltip>
                 </div>
                 {ALL_AGENT_TYPES.filter((agent) => isAgentAvailable(agents, agent)).map((agent) => (
                     <div key={agent} className="flex items-center justify-between py-0.5">
@@ -152,7 +159,7 @@ function DefaultsSection({
                         configuredShellAvailable ? settings.terminal.defaultShell : "__missing__"
                     }
                     onValueChange={onDefaultShell}>
-                    <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                    <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -188,7 +195,7 @@ function DefaultsSection({
                             : "__missing__"
                     }
                     onValueChange={onDefaultRuntime}>
-                    <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                    <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

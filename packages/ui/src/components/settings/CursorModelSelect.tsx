@@ -75,7 +75,8 @@ function CursorModelSelect({ value, onChange }: CursorModelSelectProps) {
                 value={value === "default" ? "" : value}
                 placeholder="default"
                 onChange={(e) => onChange(e.target.value || "default")}
-                className="h-8 text-[13px]"
+                size="sm"
+                className="text-[13px]"
             />
         );
     }
@@ -86,7 +87,8 @@ function CursorModelSelect({ value, onChange }: CursorModelSelectProps) {
                 <PopoverTrigger asChild>
                     <Button
                         variant="outline"
-                        className="h-8 w-full min-w-0 justify-between overflow-hidden text-[13px] font-normal">
+                        size="sm"
+                        className="w-full min-w-0 justify-between overflow-hidden text-[13px] font-normal">
                         <span className="min-w-0 flex-1 truncate text-left">{displayLabel}</span>
                         <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
                     </Button>

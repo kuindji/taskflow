@@ -356,17 +356,14 @@ printf '{}'
         expect(config.permission).toBeUndefined();
     });
 
-    it("passes --agent and --variant for OpenCode", () => {
+    it("passes --variant for OpenCode", () => {
         const spec = buildAgentLaunchSpec("opencode", "Do it", "/tmp/ignored/SKILL.md", {
             type: "opencode",
             model: "openrouter/anthropic/claude-sonnet-4.6",
-            agent: "build",
             variant: "high",
         });
         expect(spec.args).toContain("--model");
         expect(spec.args).toContain("openrouter/anthropic/claude-sonnet-4.6");
-        expect(spec.args).toContain("--agent");
-        expect(spec.args).toContain("build");
         expect(spec.args).toContain("--variant");
         expect(spec.args).toContain("high");
     });

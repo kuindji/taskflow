@@ -351,13 +351,6 @@ function SettingsModal() {
         [updateSettings],
     );
 
-    const handleOpencodeAgent = useCallback(
-        (defaultAgent: string) => {
-            void updateSettings({ opencode: { defaultAgent } });
-        },
-        [updateSettings],
-    );
-
     const handleOpencodeVariant = useCallback(
         (defaultVariant: string) => {
             void updateSettings({ opencode: { defaultVariant } });
@@ -458,7 +451,7 @@ function SettingsModal() {
                     </nav>
 
                     {/* Content */}
-                    <div className="bg-background h-full min-h-0 min-w-0 flex-1 overflow-hidden rounded-[10px] py-1">
+                    <div className="bg-background h-full min-h-0 min-w-0 flex-1 overflow-hidden rounded-[10px]">
                         {section === "general" && (
                             <GeneralSection
                                 dataDirInfo={dataDirInfo}
@@ -470,7 +463,7 @@ function SettingsModal() {
                         )}
 
                         {section === "defaults" && (
-                            <div className="h-full overflow-y-auto px-3">
+                            <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
                                 <DefaultsSection
                                     settings={settings}
                                     shells={shells}
@@ -489,7 +482,7 @@ function SettingsModal() {
                         )}
 
                         {section === "claude" && (
-                            <div className="px-3">
+                            <div className="flex flex-col gap-3 p-3">
                                 <ClaudeOptions
                                     mode="defaults"
                                     modelValue={settings.claude.defaultModel}
@@ -507,7 +500,7 @@ function SettingsModal() {
                         )}
 
                         {section === "codex" && (
-                            <div className="px-3">
+                            <div className="flex flex-col gap-3 p-3">
                                 <CodexSection
                                     defaultModel={settings.codex.defaultModel}
                                     sandbox={settings.codex.sandbox}
@@ -522,14 +515,12 @@ function SettingsModal() {
                         )}
 
                         {section === "opencode" && (
-                            <div className="px-3">
+                            <div className="flex flex-col gap-3 p-3">
                                 <OpenCodeSection
                                     defaultModel={settings.opencode.defaultModel}
-                                    defaultAgent={settings.opencode.defaultAgent}
                                     defaultVariant={settings.opencode.defaultVariant}
                                     autoApprove={settings.opencode.autoApprove}
                                     onModelChange={handleOpencodeModel}
-                                    onAgentChange={handleOpencodeAgent}
                                     onVariantChange={handleOpencodeVariant}
                                     onAutoApproveChange={handleOpencodeAutoApprove}
                                 />
@@ -537,7 +528,7 @@ function SettingsModal() {
                         )}
 
                         {section === "gemini" && (
-                            <div className="px-3">
+                            <div className="flex flex-col gap-3 p-3">
                                 <GeminiSection
                                     defaultModel={settings.gemini.defaultModel}
                                     approvalMode={settings.gemini.approvalMode}
@@ -550,7 +541,7 @@ function SettingsModal() {
                         )}
 
                         {section === "cursor" && (
-                            <div className="px-3">
+                            <div className="flex flex-col gap-3 p-3">
                                 <CursorOptions
                                     mode="defaults"
                                     modelValue={settings.cursor.defaultModel}
@@ -562,7 +553,7 @@ function SettingsModal() {
                         )}
 
                         {section === "remote-agent" && (
-                            <div className="px-3">
+                            <div className="flex flex-col gap-3 p-3">
                                 <RemoteSection
                                     settings={settings.remoteAgent}
                                     remoteAgent={remoteAgent}

@@ -43,7 +43,7 @@ function CursorOptions({
                     <CursorModelSelect value={modelValue} onChange={onModelChange} />
                 </div>
             </SettingRow>
-            <SettingRow label={l.yolo} hint={l.yoloHint}>
+            <SettingRow label={l.yolo} hint={l.yoloHint} className="h-8">
                 <div className="flex items-center gap-2.5">
                     <Switch id="cursor-yolo" checked={yolo} onCheckedChange={onYoloChange} />
                     <Label

@@ -30,7 +30,6 @@ export interface CodexSettings {
 
 export interface OpenCodeSettings {
     defaultModel: string;
-    defaultAgent: string;
     defaultVariant: string;
     autoApprove: boolean;
 }

@@ -1046,23 +1046,45 @@ case "$cmd" in
         agent_prompt=""
         agent_task_id=""
         agent_label=""
-        agent_full_access=""
         agent_model=""
-        agent_no_questions=""
+        # Claude-specific
         agent_permission_mode=""
         agent_effort=""
         agent_skip_permissions=""
+        # Codex-specific
+        agent_sandbox=""
+        agent_approval_policy=""
+        agent_full_auto=""
+        # OpenCode-specific
+        agent_variant=""
+        agent_auto_approve=""
+        # Gemini-specific
+        agent_approval_mode=""
+        agent_gemini_sandbox=""
+        # Cursor-specific
+        agent_yolo=""
         while [ $# -gt 0 ]; do
           case "$1" in
             --prompt) agent_prompt="${2:-}"; shift 2 ;;
             --task) agent_task_id="${2:-}"; shift 2 ;;
             --label) agent_label="${2:-}"; shift 2 ;;
-            --full-access) agent_full_access="true"; shift ;;
-            --no-questions) agent_no_questions="true"; shift ;;
+            --model) agent_model="${2:-}"; shift 2 ;;
+            # Claude
             --dangerously-skip-permissions) agent_skip_permissions="true"; shift ;;
             --permission-mode) agent_permission_mode="${2:-}"; shift 2 ;;
             --effort) agent_effort="${2:-}"; shift 2 ;;
-            --model) agent_model="${2:-}"; shift 2 ;;
+            # Codex
+            --sandbox) agent_sandbox="${2:-}"; shift 2 ;;
+            --approval-policy) agent_approval_policy="${2:-}"; shift 2 ;;
+            --full-auto) agent_full_auto="true"; shift ;;
+            # OpenCode
+            --variant) agent_variant="${2:-}"; shift 2 ;;
+            --auto-approve) agent_auto_approve="true"; shift ;;
+            # Gemini
+            --approval-mode) agent_approval_mode="${2:-}"; shift 2 ;;
+            --gemini-sandbox) agent_gemini_sandbox="true"; shift ;;
+            # Cursor
+            --yolo) agent_yolo="true"; shift ;;
             *) shift ;;
           esac
         done
@@ -1093,38 +1115,42 @@ case "$cmd" in
           fi
         }
         if [ "$agent_type" = "claude" ]; then
-          # Claude uses its own CLI-specific fields
-          if [ -n "$agent_skip_permissions" ] || [ -n "$agent_full_access" ]; then
+          if [ -n "$agent_skip_permissions" ]; then
             _append_opt '"dangerouslySkipPermissions":true'
           fi
           if [ -n "$agent_permission_mode" ]; then
             _append_opt "$(printf '"permissionMode":%s' "$(json_string "$agent_permission_mode")")"
-          elif [ -n "$agent_no_questions" ]; then
-            _append_opt '"permissionMode":"dontAsk"'
           fi
           if [ -n "$agent_effort" ]; then
             _append_opt "$(printf '"effort":%s' "$(json_string "$agent_effort")")"
           fi
         elif [ "$agent_type" = "codex" ]; then
-          # Codex uses its own CLI flag names
-          if [ -n "$agent_full_access" ]; then
+          if [ -n "$agent_full_auto" ]; then
             _append_opt '"fullAuto":true'
           fi
-          if [ -n "$agent_no_questions" ]; then
-            _append_opt '"approvalPolicy":"never"'
+          if [ -n "$agent_sandbox" ]; then
+            _append_opt "$(printf '"sandbox":%s' "$(json_string "$agent_sandbox")")"
+          fi
+          if [ -n "$agent_approval_policy" ]; then
+            _append_opt "$(printf '"approvalPolicy":%s' "$(json_string "$agent_approval_policy")")"
+          fi
+        elif [ "$agent_type" = "opencode" ]; then
+          if [ -n "$agent_variant" ]; then
+            _append_opt "$(printf '"variant":%s' "$(json_string "$agent_variant")")"
+          fi
+          if [ -n "$agent_auto_approve" ]; then
+            _append_opt '"autoApprove":true'
+          fi
+        elif [ "$agent_type" = "gemini" ]; then
+          if [ -n "$agent_approval_mode" ]; then
+            _append_opt "$(printf '"approvalMode":%s' "$(json_string "$agent_approval_mode")")"
+          fi
+          if [ -n "$agent_gemini_sandbox" ]; then
+            _append_opt '"sandbox":true'
           fi
         elif [ "$agent_type" = "cursor" ]; then
-          # Cursor uses yolo
-          if [ -n "$agent_full_access" ] || [ -n "$agent_no_questions" ]; then
+          if [ -n "$agent_yolo" ]; then
             _append_opt '"yolo":true'
-          fi
-        else
-          # Other agents use generic fullAccess/dontAskQuestions
-          if [ -n "$agent_full_access" ]; then
-            _append_opt '"fullAccess":true'
-          fi
-          if [ -n "$agent_no_questions" ]; then
-            _append_opt '"dontAskQuestions":true'
           fi
         fi
         if [ -n "$agent_model" ]; then

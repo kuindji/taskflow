@@ -20,6 +20,9 @@ import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { ChevronRight, Info } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
 
@@ -60,6 +63,7 @@ export function NewTaskDialog({
     const [startWith, setStartWith] = useState("none");
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
     const [startWithFlowId, setStartWithFlowId] = useState("");
+    const [agentOptionsOpen, setAgentOptionsOpen] = useState(false);
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
     const isSubtask = !!parentId;
 
@@ -90,6 +94,7 @@ export function NewTaskDialog({
         setStartWith("none");
         setAgentOptions(undefined);
         setStartWithFlowId("");
+        setAgentOptionsOpen(false);
     }, []);
 
     const handleProjectChange = useCallback((nextProjectId: string) => {
@@ -200,12 +205,12 @@ export function NewTaskDialog({
                     <DialogTitle>{isSubtask ? "New Subtask" : "New Task"}</DialogTitle>
                 </DialogHeader>
 
-                <div className="flex flex-col gap-3">
+                <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pr-1">
                     {!isSubtask && (
                         <div className="flex flex-col gap-1.5">
                             <Label htmlFor="new-task-project">Project</Label>
                             <Select value={projectId} onValueChange={handleProjectChange}>
-                                <SelectTrigger id="new-task-project" className="w-full">
+                                <SelectTrigger id="new-task-project" size="sm" className="w-full">
                                     <SelectValue placeholder="Select a project" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -233,14 +238,20 @@ export function NewTaskDialog({
                     </div>
 
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="new-task-title">
-                            Title{" "}
-                            <span className="text-muted-foreground/60 text-xs tracking-normal normal-case">
-                                (optional — auto-generated from description)
-                            </span>
-                        </Label>
+                        <div className="flex items-center gap-1.5">
+                            <Label htmlFor="new-task-title">Title</Label>
+                            <Tooltip>
+                                <TooltipTrigger>
+                                    <Info className="text-muted-foreground h-3 w-3 shrink-0" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top">
+                                    Optional — auto-generated from description
+                                </TooltipContent>
+                            </Tooltip>
+                        </div>
                         <Input
                             id="new-task-title"
+                            size="sm"
                             placeholder="Short task name..."
                             value={title}
                             onChange={(e) => setTitle(e.target.value)}
@@ -264,14 +275,20 @@ export function NewTaskDialog({
 
                     {!isSubtask && worktree && (
                         <div className="flex flex-col gap-1.5">
-                            <Label htmlFor="new-task-init-command">
-                                Init command{" "}
-                                <span className="text-muted-foreground/60 text-xs tracking-normal normal-case">
-                                    (optional — project default runs when empty)
-                                </span>
-                            </Label>
+                            <div className="flex items-center gap-1.5">
+                                <Label htmlFor="new-task-init-command">Init command</Label>
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <Info className="text-muted-foreground h-3 w-3 shrink-0" />
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">
+                                        Optional — project default runs when empty
+                                    </TooltipContent>
+                                </Tooltip>
+                            </div>
                             <Input
                                 id="new-task-init-command"
+                                size="sm"
                                 placeholder={defaultInitCommandPlaceholder}
                                 value={initCommand}
                                 onChange={(e) => setInitCommand(e.target.value)}
@@ -282,7 +299,7 @@ export function NewTaskDialog({
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="new-task-start-with">Start immediately with</Label>
                         <Select value={startWith} onValueChange={handleStartWithChange}>
-                            <SelectTrigger id="new-task-start-with" className="w-full">
+                            <SelectTrigger id="new-task-start-with" size="sm" className="w-full">
                                 <SelectValue placeholder="Don't start" />
                             </SelectTrigger>
                             <SelectContent>
@@ -309,9 +326,19 @@ export function NewTaskDialog({
 
                     {startWith === "flow" && flows.length > 0 && (
                         <div className="flex flex-col gap-1.5">
-                            <Label htmlFor="new-task-flow">Flow</Label>
+                            <div className="flex items-center gap-1.5">
+                                <Label htmlFor="new-task-flow">Flow</Label>
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <Info className="text-muted-foreground h-3 w-3 shrink-0" />
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">
+                                        Starts immediately after task creation
+                                    </TooltipContent>
+                                </Tooltip>
+                            </div>
                             <Select value={startWithFlowId} onValueChange={setStartWithFlowId}>
-                                <SelectTrigger id="new-task-flow" className="w-full">
+                                <SelectTrigger id="new-task-flow" size="sm" className="w-full">
                                     <SelectValue placeholder="Select a flow" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -322,9 +349,6 @@ export function NewTaskDialog({
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <p className="text-muted-foreground text-xs">
-                                Select a flow to start immediately after task creation.
-                            </p>
                         </div>
                     )}
 
@@ -333,17 +357,31 @@ export function NewTaskDialog({
                         startWith === "opencode" ||
                         startWith === "gemini" ||
                         startWith === "cursor") && (
-                        <div className="border-border rounded-md border p-1">
-                            <AgentOptionsPanel agentType={startWith} onChange={setAgentOptions} />
-                        </div>
+                        <Collapsible open={agentOptionsOpen} onOpenChange={setAgentOptionsOpen}>
+                            <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1 text-sm transition-colors">
+                                <ChevronRight
+                                    className={`h-4 w-4 transition-transform ${agentOptionsOpen ? "rotate-90" : ""}`}
+                                />
+                                Agent Options
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                                <div className="border-border mt-1.5 rounded-md border p-3">
+                                    <AgentOptionsPanel
+                                        agentType={startWith}
+                                        onChange={setAgentOptions}
+                                    />
+                                </div>
+                            </CollapsibleContent>
+                        </Collapsible>
                     )}
                 </div>
 
                 <DialogFooter>
-                    <Button variant="secondary" onClick={() => handleOpenChange(false)}>
+                    <Button variant="secondary" size="sm" onClick={() => handleOpenChange(false)}>
                         Cancel
                     </Button>
                     <Button
+                        size="sm"
                         onClick={handleSubmit}
                         disabled={!canSubmit}
                         className="bg-accent text-accent-foreground hover:bg-accent/90">

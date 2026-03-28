@@ -55,7 +55,8 @@ function GeminiOptions({
         <>
             <SettingRow label={l.model} hint={l.modelHint}>
                 <Input
-                    className="h-8 w-[180px] text-[13px]"
+                    size="sm"
+                    className="w-[180px] text-[13px]"
                     placeholder="default"
                     value={modelValue}
                     onChange={(e) => onModelChange(e.target.value)}
@@ -63,7 +64,7 @@ function GeminiOptions({
             </SettingRow>
             <SettingRow label={l.approvalMode} hint={l.approvalModeHint}>
                 <Select value={approvalMode} onValueChange={onApprovalModeChange}>
-                    <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                    <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -74,7 +75,7 @@ function GeminiOptions({
                     </SelectContent>
                 </Select>
             </SettingRow>
-            <SettingRow label={l.sandbox} hint={l.sandboxHint}>
+            <SettingRow label={l.sandbox} hint={l.sandboxHint} className="h-8">
                 <div className="flex items-center gap-2.5">
                     <Switch
                         id="gemini-sandbox"

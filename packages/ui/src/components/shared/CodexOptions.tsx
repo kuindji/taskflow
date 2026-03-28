@@ -63,13 +63,14 @@ function CodexOptions({
         <>
             <SettingRow label={l.model} hint={l.modelHint}>
                 <Input
-                    className="h-8 w-[180px] text-[13px]"
+                    size="sm"
+                    className="w-[180px] text-[13px]"
                     placeholder="e.g. o3, o4-mini"
                     value={modelValue}
                     onChange={(e) => onModelChange(e.target.value)}
                 />
             </SettingRow>
-            <SettingRow label={l.fullAuto} hint={l.fullAutoHint}>
+            <SettingRow label={l.fullAuto} hint={l.fullAutoHint} className="h-8">
                 <div className="flex items-center gap-2.5">
                     <Switch
                         id="codex-full-auto"
@@ -85,7 +86,7 @@ function CodexOptions({
             </SettingRow>
             <SettingRow label={l.sandbox} hint={l.sandboxHint}>
                 <Select value={sandbox} onValueChange={onSandboxChange} disabled={fullAuto}>
-                    <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                    <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -100,7 +101,7 @@ function CodexOptions({
                     value={approvalPolicy}
                     onValueChange={onApprovalPolicyChange}
                     disabled={fullAuto}>
-                    <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                    <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

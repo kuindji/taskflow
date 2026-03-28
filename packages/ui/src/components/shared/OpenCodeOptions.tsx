@@ -8,16 +8,13 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { OpenCodeModelSelect } from "@/components/settings/OpenCodeModelSelect";
-import { OpenCodeAgentSelect } from "@/components/settings/OpenCodeAgentSelect";
 import { SettingRow } from "@/components/settings/sections/SettingRow";
 
 interface OpenCodeOptionsProps {
     modelValue: string;
-    agentValue: string;
     variantValue: string;
     autoApprove: boolean;
     onModelChange: (value: string) => void;
-    onAgentChange: (value: string) => void;
     onVariantChange: (value: string) => void;
     onAutoApproveChange: (value: boolean) => void;
     /** "defaults" shows "Default Model" etc. "session" shows "Model" etc. */
@@ -28,8 +25,6 @@ const LABELS = {
     defaults: {
         model: "Default Model",
         modelHint: "Pre-selected model when running OpenCode sessions",
-        agent: "Default Agent",
-        agentHint: "Which OpenCode agent to use by default",
         variant: "Default Variant",
         variantHint: "Model variant / reasoning effort level",
         autoApprove: "Auto-approve",
@@ -38,8 +33,6 @@ const LABELS = {
     session: {
         model: "Model",
         modelHint: "Model for OpenCode session (--model)",
-        agent: "Agent",
-        agentHint: "Which OpenCode agent to use (--agent)",
         variant: "Variant",
         variantHint: "Reasoning effort level (--variant)",
         autoApprove: "Auto-approve",
@@ -49,11 +42,9 @@ const LABELS = {
 
 function OpenCodeOptions({
     modelValue,
-    agentValue,
     variantValue,
     autoApprove,
     onModelChange,
-    onAgentChange,
     onVariantChange,
     onAutoApproveChange,
     mode = "session",
@@ -63,20 +54,13 @@ function OpenCodeOptions({
     return (
         <>
             <SettingRow label={l.model} hint={l.modelHint}>
-                <div className="w-[260px]">
-                    <OpenCodeModelSelect value={modelValue} onChange={onModelChange} />
-                </div>
-            </SettingRow>
-            <SettingRow label={l.agent} hint={l.agentHint}>
-                <div className="w-[180px]">
-                    <OpenCodeAgentSelect value={agentValue} onChange={onAgentChange} />
-                </div>
+                <OpenCodeModelSelect value={modelValue} onChange={onModelChange} />
             </SettingRow>
             <SettingRow label={l.variant} hint={l.variantHint}>
                 <Select
                     value={variantValue || "none"}
                     onValueChange={(v) => onVariantChange(v === "none" ? "" : v)}>
-                    <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                    <SelectTrigger size="sm" className="text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -87,7 +71,7 @@ function OpenCodeOptions({
                     </SelectContent>
                 </Select>
             </SettingRow>
-            <SettingRow label={l.autoApprove} hint={l.autoApproveHint}>
+            <SettingRow label={l.autoApprove} hint={l.autoApproveHint} className="h-8">
                 <div className="flex items-center gap-2.5">
                     <Switch
                         id="opencode-auto-approve"

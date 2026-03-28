@@ -79,10 +79,6 @@ function AgentOptionsPanel({
             : (codexSettings?.approvalPolicy ?? "on-request");
 
     // --- OpenCode-specific defaults ---
-    const defaultOcAgent =
-        matchingValue?.type === "opencode"
-            ? (matchingValue.agent ?? opencodeSettings?.defaultAgent ?? "")
-            : (opencodeSettings?.defaultAgent ?? "");
     const defaultOcVariant =
         matchingValue?.type === "opencode"
             ? (matchingValue.variant ?? opencodeSettings?.defaultVariant ?? "")
@@ -146,7 +142,6 @@ function AgentOptionsPanel({
     const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(defaultCodexSandbox);
     const [approvalPolicy, setApprovalPolicy] =
         useState<CodexApprovalPolicy>(defaultApprovalPolicy);
-    const [ocAgent, setOcAgent] = useState(defaultOcAgent);
     const [ocVariant, setOcVariant] = useState(defaultOcVariant);
     const [ocAutoApprove, setOcAutoApprove] = useState(defaultOcAutoApprove);
     const [approvalMode, setApprovalMode] = useState(defaultApprovalMode);
@@ -173,7 +168,6 @@ function AgentOptionsPanel({
             setApprovalPolicy(defaultApprovalPolicy);
             setModel(defaultModel);
         } else if (agentType === "opencode") {
-            setOcAgent(defaultOcAgent);
             setOcVariant(defaultOcVariant);
             setOcAutoApprove(defaultOcAutoApprove);
             setModel(defaultModel);
@@ -193,7 +187,6 @@ function AgentOptionsPanel({
         defaultFullAuto,
         defaultCodexSandbox,
         defaultApprovalPolicy,
-        defaultOcAgent,
         defaultOcVariant,
         defaultOcAutoApprove,
         defaultApprovalMode,
@@ -229,11 +222,10 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "opencode",
             model: model || undefined,
-            agent: ocAgent || undefined,
             variant: ocVariant || undefined,
             autoApprove: ocAutoApprove || undefined,
         }),
-        [model, ocAgent, ocVariant, ocAutoApprove],
+        [model, ocVariant, ocAutoApprove],
     );
 
     const buildGeminiOptions = useCallback(
@@ -291,7 +283,7 @@ function AgentOptionsPanel({
     }, [buildOptions, onRun]);
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-3">
             {agentType === "claude" ? (
                 <ClaudeOptions
                     modelValue={model}
@@ -317,11 +309,9 @@ function AgentOptionsPanel({
             ) : agentType === "opencode" ? (
                 <OpenCodeOptions
                     modelValue={model}
-                    agentValue={ocAgent}
                     variantValue={ocVariant}
                     autoApprove={ocAutoApprove}
                     onModelChange={setModel}
-                    onAgentChange={setOcAgent}
                     onVariantChange={setOcVariant}
                     onAutoApproveChange={setOcAutoApprove}
                 />
@@ -346,12 +336,10 @@ function AgentOptionsPanel({
             ) : null}
 
             {onRun && (
-                <div className="pb-3">
-                    <Button size="sm" className="w-full" onClick={handleRun}>
-                        <Play className="mr-1 h-3 w-3" />
-                        Run
-                    </Button>
-                </div>
+                <Button size="sm" className="w-full" onClick={handleRun}>
+                    <Play className="mr-1 h-3 w-3" />
+                    Run
+                </Button>
             )}
         </div>
     );

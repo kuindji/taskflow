@@ -205,7 +205,6 @@ export function buildAgentLaunchSpec(
         const args: string[] = [];
         if (agentOptions?.type === "opencode") {
             if (agentOptions.model) args.push("--model", agentOptions.model);
-            if (agentOptions.agent) args.push("--agent", agentOptions.agent);
             if (agentOptions.variant) args.push("--variant", agentOptions.variant);
         }
         if (prompt) args.push("--prompt", prompt);

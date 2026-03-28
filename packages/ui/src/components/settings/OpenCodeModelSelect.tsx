@@ -83,7 +83,8 @@ function OpenCodeModelSelect({ value, onChange }: OpenCodeModelSelectProps) {
                 value={value}
                 placeholder="e.g. anthropic/claude-sonnet-4-20250514"
                 onChange={(e) => onChange(e.target.value)}
-                className="h-8 text-[13px]"
+                size="sm"
+                className="text-[13px]"
             />
         );
     }
@@ -94,7 +95,8 @@ function OpenCodeModelSelect({ value, onChange }: OpenCodeModelSelectProps) {
                 <PopoverTrigger asChild>
                     <Button
                         variant="outline"
-                        className="h-8 w-full min-w-0 justify-between overflow-hidden text-[13px] font-normal">
+                        size="sm"
+                        className="w-full min-w-0 justify-between overflow-hidden text-[13px] font-normal">
                         <span className="min-w-0 flex-1 truncate text-left">
                             {displayLabel || "Select model..."}
                         </span>

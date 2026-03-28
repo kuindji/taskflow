@@ -1,10 +1,12 @@
 import { useState, useCallback, useMemo } from "react";
 import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
+import { Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
     Select,
     SelectTrigger,
@@ -60,7 +62,6 @@ function normalizeAgentOptions(
             return {
                 type: "opencode",
                 model: opts?.model,
-                agent: opts?.agent,
                 variant: opts?.variant,
                 autoApprove: opts?.autoApprove || undefined,
             };
@@ -178,6 +179,7 @@ function ActionEditor({
                         </Label>
                         <Input
                             id="action-name"
+                            size="sm"
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             placeholder="e.g., Plan Review"
@@ -192,7 +194,7 @@ function ActionEditor({
                         <Select
                             value={projectId ?? "__global__"}
                             onValueChange={(v) => setProjectId(v === "__global__" ? undefined : v)}>
-                            <SelectTrigger>
+                            <SelectTrigger size="sm">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -212,7 +214,7 @@ function ActionEditor({
                             Session Type
                         </Label>
                         <Select value={sessionType} onValueChange={handleSessionTypeChange}>
-                            <SelectTrigger>
+                            <SelectTrigger size="sm">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -234,27 +236,34 @@ function ActionEditor({
                         <Label htmlFor="action-standalone" className="cursor-pointer">
                             Standalone
                         </Label>
-                        <span className="text-muted-foreground text-xs">
-                            — available in the Run menu
-                        </span>
+                        <Tooltip>
+                            <TooltipTrigger>
+                                <Info className="text-muted-foreground h-3 w-3 shrink-0" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Available in the Run menu</TooltipContent>
+                        </Tooltip>
                     </div>
                     <div className="flex flex-col gap-1.5">
                         <Label
                             htmlFor="action-prompt"
                             className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
-                            Prompt
+                            {sessionType === "shell" ? "Command" : "Prompt"}
                         </Label>
                         <ExpandableTextarea
                             id="action-prompt"
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
-                            placeholder="Instructions for the agent..."
+                            placeholder={
+                                sessionType === "shell"
+                                    ? "Command to run in the terminal..."
+                                    : "Instructions for the agent..."
+                            }
                             className="min-h-[200px] text-sm"
                             dialogTitle="Action Prompt"
                         />
                     </div>
                     {sessionType !== "shell" && (
-                        <div className="border-border rounded-md border p-1">
+                        <div className="border-border rounded-md border p-3">
                             <AgentOptionsPanel
                                 key={`${action?.id ?? "new-action"}-${sessionType}`}
                                 agentType={sessionType}

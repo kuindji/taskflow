@@ -14,7 +14,6 @@ import {
     detectAgents,
     fetchCursorModels,
     fetchOpenCodeModels,
-    fetchOpenCodeAgents,
 } from "./services/runtime-detector";
 import { registerProjectHandlers } from "./handlers/project";
 import { registerTaskHandlers } from "./handlers/task";
@@ -382,9 +381,7 @@ async function main() {
         router.register(MSG.OPENCODE_MODELS, async () => ({
             models: await fetchOpenCodeModels(),
         }));
-        router.register(MSG.OPENCODE_AGENTS, async () => ({
-            agents: await fetchOpenCodeAgents(),
-        }));
+
         console.log(`Detected shells: ${shells.map((s) => s.name).join(", ") || "none"}`);
         console.log(
             `Detected runtimes: ${runtimes.map((r) => r.name + " " + r.version).join(", ") || "none"}`,

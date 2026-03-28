@@ -4,7 +4,6 @@ import type {
     AgentType,
     CursorModel,
     OpenCodeModelInfo,
-    OpenCodeAgentInfo,
 } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 
@@ -124,18 +123,4 @@ export async function fetchOpenCodeModels(): Promise<OpenCodeModelInfo[]> {
             const provider = id.split("/")[0];
             return { id, provider };
         });
-}
-
-export async function fetchOpenCodeAgents(): Promise<OpenCodeAgentInfo[]> {
-    const output = await runCliCommand("opencode", ["agent", "list"]);
-    if (!output) return [];
-    const results: OpenCodeAgentInfo[] = [];
-    const lines = output.split("\n");
-    for (const line of lines) {
-        const match = line.match(/^(\w[\w-]*)\s+\((\w+)\)/);
-        if (match) {
-            results.push({ name: match[1], kind: match[2] });
-        }
-    }
-    return results;
 }

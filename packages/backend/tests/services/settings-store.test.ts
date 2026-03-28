@@ -41,7 +41,6 @@ const DEFAULT_CODEX = {
 };
 const DEFAULT_OPENCODE = {
     defaultModel: "",
-    defaultAgent: "",
     defaultVariant: "",
     autoApprove: false,
 };

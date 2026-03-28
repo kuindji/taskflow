@@ -4,12 +4,7 @@ import type { SessionRef, SessionStatus, Task, TaskLogEntry, TaskWorktree } from
 import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus, ChangeStats } from "./git";
 import type { SystemInfo } from "./system";
-import type {
-    AgentLaunchOptions,
-    AgentAvailability,
-    OpenCodeModelInfo,
-    OpenCodeAgentInfo,
-} from "./agent";
+import type { AgentLaunchOptions, AgentAvailability, OpenCodeModelInfo } from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
 
 // Base message types
@@ -239,10 +234,6 @@ export interface CursorModelsResponse {
 
 export interface OpenCodeModelsResponse {
     models: OpenCodeModelInfo[];
-}
-
-export interface OpenCodeAgentsResponse {
-    agents: OpenCodeAgentInfo[];
 }
 
 // File messages

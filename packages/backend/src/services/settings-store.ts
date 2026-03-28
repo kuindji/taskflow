@@ -63,7 +63,6 @@ const DEFAULTS: AppSettings = {
     },
     opencode: {
         defaultModel: "",
-        defaultAgent: "",
         defaultVariant: "",
         autoApprove: false,
     },

@@ -252,7 +252,7 @@ function ScheduleForm({
                     <div className="space-y-1.5">
                         <Label className="text-xs">Project</Label>
                         <Select value={projectId} onValueChange={setProjectId}>
-                            <SelectTrigger className="text-xs">
+                            <SelectTrigger size="sm" className="text-xs">
                                 <SelectValue placeholder="Select project" />
                             </SelectTrigger>
                             <SelectContent>
@@ -273,7 +273,7 @@ function ScheduleForm({
                         <Select
                             value={actionId || "__none__"}
                             onValueChange={(v) => setActionId(v === "__none__" ? "" : v)}>
-                            <SelectTrigger className="text-xs">
+                            <SelectTrigger size="sm" className="text-xs">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -308,6 +308,7 @@ function ScheduleForm({
                     <div className="space-y-1.5">
                         <Label className="text-xs">Name (optional)</Label>
                         <Input
+                            size="sm"
                             className="text-xs"
                             value={name}
                             onChange={(e) => setName(e.target.value)}
@@ -337,7 +338,7 @@ function ScheduleForm({
                         <Select
                             value={expressionType}
                             onValueChange={(v) => setExpressionType(v as "cron" | "rate")}>
-                            <SelectTrigger className="w-24 text-xs">
+                            <SelectTrigger size="sm" className="w-24 text-xs">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -346,6 +347,7 @@ function ScheduleForm({
                             </SelectContent>
                         </Select>
                         <Input
+                            size="sm"
                             className="flex-1 text-xs"
                             value={expression}
                             onChange={(e) => setExpression(e.target.value)}
@@ -368,7 +370,7 @@ function ScheduleForm({
                         <Select
                             value={agentType || "__default__"}
                             onValueChange={handleAgentTypeChange}>
-                            <SelectTrigger className="text-xs">
+                            <SelectTrigger size="sm" className="text-xs">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -385,7 +387,7 @@ function ScheduleForm({
 
                 {/* Agent options — hidden when action selected */}
                 {!useAction && agentType && (
-                    <div className="border-border rounded-md border">
+                    <div className="border-border rounded-md border p-3">
                         <AgentOptionsPanel
                             key={`${schedule?.id ?? "new"}-${agentType}`}
                             agentType={agentType}
@@ -400,6 +402,7 @@ function ScheduleForm({
                 <div className="space-y-1.5">
                     <Label className="text-xs">Timeout (minutes)</Label>
                     <Input
+                        size="sm"
                         className="block w-24 text-xs"
                         type="number"
                         min={1}

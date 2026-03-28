@@ -59,7 +59,7 @@ function AgentSection({
                     label="Default Model"
                     hint={`Pre-selected model when running ${agentKey} sessions`}>
                     <Select value={modelValue} onValueChange={onModelChange}>
-                        <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                        <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -77,7 +77,8 @@ function AgentSection({
                     label="Default Model"
                     hint={`Pre-selected model when running ${agentKey} sessions`}>
                     <Input
-                        className="h-8 w-[180px] text-[13px]"
+                        size="sm"
+                        className="w-[180px] text-[13px]"
                         placeholder={modelInputPlaceholder ?? "default"}
                         value={modelValue}
                         onChange={onModelInputChange}
@@ -89,7 +90,7 @@ function AgentSection({
                     label="Default Effort"
                     hint={`Pre-selected effort level when running ${agentKey} sessions`}>
                     <Select value={effortValue} onValueChange={onEffortChange}>
-                        <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                        <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

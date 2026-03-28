@@ -20,7 +20,10 @@ interface RemoteSectionProps {
 function RemoteSection({ settings, remoteAgent, onUpdate }: RemoteSectionProps) {
     return (
         <>
-            <SettingRow label="Auto Start" hint="Start remote agent when Taskflow launches">
+            <SettingRow
+                label="Auto Start"
+                hint="Start remote agent when Taskflow launches"
+                className="h-8">
                 <div className="flex items-center gap-2.5">
                     <Switch
                         id="remote-auto-start"
@@ -36,13 +39,14 @@ function RemoteSection({ settings, remoteAgent, onUpdate }: RemoteSectionProps) 
             </SettingRow>
             <SettingRow label="App Name" hint="Display name for this instance on remote apps">
                 <Input
-                    className="h-8 w-[180px] text-[13px]"
+                    size="sm"
+                    className="w-[180px] text-[13px]"
                     placeholder="Auto-generated"
                     value={settings.appName}
                     onChange={(e) => onUpdate({ appName: e.target.value })}
                 />
             </SettingRow>
-            <SettingRow label="Headless" hint="Run without showing a session tab">
+            <SettingRow label="Headless" hint="Run without showing a session tab" className="h-8">
                 <div className="flex items-center gap-2.5">
                     <Switch
                         id="remote-headless"

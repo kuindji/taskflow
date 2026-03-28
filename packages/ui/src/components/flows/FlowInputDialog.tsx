@@ -58,6 +58,7 @@ function FlowInputDialog({ open, flowName, inputs, onSubmit, onCancel }: FlowInp
                             <div className="flex gap-2">
                                 <Input
                                     id={`flow-input-${input.id}`}
+                                    size="sm"
                                     value={values[input.id] ?? ""}
                                     onChange={(e) => updateValue(input.id, e.target.value)}
                                     placeholder={
@@ -68,7 +69,7 @@ function FlowInputDialog({ open, flowName, inputs, onSubmit, onCancel }: FlowInp
                                 {input.type === "filepath" && (
                                     <Button
                                         variant="outline"
-                                        size="icon"
+                                        size="icon-sm"
                                         onClick={() => void handleFilePick(input.id)}
                                         title="Browse...">
                                         <FolderOpen className="h-4 w-4" />
@@ -79,10 +80,10 @@ function FlowInputDialog({ open, flowName, inputs, onSubmit, onCancel }: FlowInp
                     ))}
                 </div>
                 <DialogFooter>
-                    <Button variant="secondary" onClick={onCancel}>
+                    <Button variant="secondary" size="sm" onClick={onCancel}>
                         Cancel
                     </Button>
-                    <Button onClick={handleSubmit} disabled={!allFilled}>
+                    <Button size="sm" onClick={handleSubmit} disabled={!allFilled}>
                         Start Flow
                     </Button>
                 </DialogFooter>
