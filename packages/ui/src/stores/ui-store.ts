@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 const SIDEBAR_MIN = 180;
-const SIDEBAR_MAX = 350;
+export const SIDEBAR_MAX = 350;
 const FILE_EXPLORER_MIN = 150;
 const FILE_EXPLORER_MAX = 500;
 const TASK_INFO_MIN = 150;
