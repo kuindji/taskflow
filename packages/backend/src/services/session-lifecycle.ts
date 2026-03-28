@@ -1,7 +1,8 @@
 import { MSG } from "@taskflow/shared";
-import type { SessionRef, WsEvent } from "@taskflow/shared";
+import type { AgentLaunchOptions, AgentType, AppSettings, SessionRef, WsEvent } from "@taskflow/shared";
 import type { PtyManager } from "./pty-manager";
 import type { TaskStore } from "./task-store";
+import type { SettingsStore } from "./settings-store";
 import {
     buildAgentLaunchSpec,
     buildProjectContextBlock,
@@ -67,10 +68,62 @@ function isAutonomousAgent(
 interface SessionLifecycleDeps {
     ptyManager: PtyManager;
     taskStore: TaskStore;
+    settingsStore: SettingsStore;
     broadcast: (event: WsEvent, opts?: { dropOnBackpressure?: boolean }) => void;
     getPort: () => number;
     detectedEditors: import("@taskflow/shared").EditorInfo[];
     trayStateTracker: TrayStateTracker;
+}
+
+function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLaunchOptions {
+    switch (type) {
+        case "claude": {
+            const s = settings.claude;
+            return {
+                type: "claude",
+                dangerouslySkipPermissions: s.dangerouslySkipPermissions || undefined,
+                permissionMode: s.permissionMode === "default" ? undefined : s.permissionMode,
+                model: s.defaultModel === "default" ? undefined : s.defaultModel || undefined,
+                effort: s.defaultEffort === "default" ? undefined : s.defaultEffort,
+            };
+        }
+        case "codex": {
+            const s = settings.codex;
+            return {
+                type: "codex",
+                model: s.defaultModel || undefined,
+                sandbox: s.sandbox,
+                approvalPolicy: s.approvalPolicy,
+                fullAuto: s.fullAuto || undefined,
+            };
+        }
+        case "opencode": {
+            const s = settings.opencode;
+            return {
+                type: "opencode",
+                model: s.defaultModel || undefined,
+                variant: s.defaultVariant || undefined,
+                autoApprove: s.autoApprove || undefined,
+            };
+        }
+        case "gemini": {
+            const s = settings.gemini;
+            return {
+                type: "gemini",
+                model: s.defaultModel || undefined,
+                approvalMode: s.approvalMode === "default" ? undefined : s.approvalMode,
+                sandbox: s.sandbox || undefined,
+            };
+        }
+        case "cursor": {
+            const s = settings.cursor;
+            return {
+                type: "cursor",
+                model: s.defaultModel === "default" ? undefined : s.defaultModel || undefined,
+                yolo: s.yolo || undefined,
+            };
+        }
+    }
 }
 
 function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
@@ -84,7 +137,7 @@ function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
 }
 
 function createSessionLifecycle(deps: SessionLifecycleDeps) {
-    const { ptyManager, taskStore, broadcast, getPort, detectedEditors, trayStateTracker } = deps;
+    const { ptyManager, taskStore, settingsStore, broadcast, getPort, detectedEditors, trayStateTracker } = deps;
 
     async function removeSessionFromOwner(sessionId: string, owner?: SessionOwner): Promise<void> {
         const targetTask = owner?.taskId ? await taskStore.getTask(owner.taskId) : null;
@@ -229,8 +282,15 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             if (!shell) throw new Error("shell path is required for shell sessions");
             command = shell;
         } else {
+            // Merge user-configured defaults under any explicit options
+            let resolvedOptions = agentOptions;
+            if (!resolvedOptions) {
+                const settings = await settingsStore.get();
+                resolvedOptions = settingsToAgentOptions(type, settings);
+            }
+
             let effectiveSystemPrompt = systemPrompt;
-            if (isAutonomousAgent(agentOptions, type)) {
+            if (isAutonomousAgent(resolvedOptions, type)) {
                 effectiveSystemPrompt = effectiveSystemPrompt
                     ? `${effectiveSystemPrompt}\n\n${PROMPT_AUTONOMOUS}`
                     : PROMPT_AUTONOMOUS;
@@ -272,7 +332,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 type,
                 prompt,
                 skillPath,
-                agentOptions,
+                resolvedOptions,
                 effectiveSystemPrompt,
                 !task,
                 !!flow,

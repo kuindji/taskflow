@@ -92,6 +92,7 @@ async function main() {
         const sessionLifecycle = createSessionLifecycle({
             ptyManager,
             taskStore: store,
+            settingsStore,
             broadcast: server.broadcast,
             getPort: () => serverPort,
             detectedEditors: editors,

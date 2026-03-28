@@ -11,6 +11,7 @@ import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 import { GitService } from "../../src/services/git-service";
 import { TrayStateTracker } from "../../src/services/tray-state-tracker";
+import { SettingsStore } from "../../src/services/settings-store";
 
 class FakePtyManager {
     private nextId = 0;
@@ -102,6 +103,7 @@ describe("session handlers", () => {
         const sessionLifecycle = createSessionLifecycle({
             ptyManager: ptyManager as never,
             taskStore: store,
+            settingsStore: new SettingsStore(join(tempDir, "settings.json")),
             broadcast: (event) => {
                 events.push(event);
             },
