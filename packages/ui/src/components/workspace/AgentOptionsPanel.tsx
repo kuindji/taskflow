@@ -369,7 +369,7 @@ function AgentOptionsPanel({
             )}
 
             {onRun && (
-                <div className="px-3 pb-3">
+                <div className="pb-3">
                     <Button size="sm" className="w-full" onClick={handleRun}>
                         <Play className="mr-1 h-3 w-3" />
                         Run
