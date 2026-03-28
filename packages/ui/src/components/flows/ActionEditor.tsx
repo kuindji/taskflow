@@ -38,22 +38,35 @@ function normalizeAgentOptions(
     if (sessionType === "shell") return undefined;
 
     const matchingOptions = agentOptions?.type === sessionType ? agentOptions : undefined;
-    const base = {
-        fullAccess: matchingOptions?.fullAccess || undefined,
-        dontAskQuestions: matchingOptions?.dontAskQuestions || undefined,
-    };
-    const model =
-        matchingOptions && "model" in matchingOptions && matchingOptions.model
-            ? matchingOptions.model
-            : undefined;
 
     switch (sessionType) {
-        case "claude":
-            return { ...base, type: sessionType, model: model as ClaudeLaunchOptions["model"] };
-        case "codex":
-            return { ...base, type: sessionType };
-        case "cursor":
-            return { ...base, type: sessionType, model };
+        case "claude": {
+            const opts = matchingOptions?.type === "claude" ? matchingOptions : undefined;
+            return {
+                type: "claude",
+                dangerouslySkipPermissions: opts?.dangerouslySkipPermissions || undefined,
+                permissionMode: opts?.permissionMode,
+                model: opts?.model,
+                effort: opts?.effort,
+            };
+        }
+        case "codex": {
+            const opts = matchingOptions?.type === "codex" ? matchingOptions : undefined;
+            return {
+                type: "codex",
+                fullAccess: opts?.fullAccess || undefined,
+                dontAskQuestions: opts?.dontAskQuestions || undefined,
+            };
+        }
+        case "cursor": {
+            const opts = matchingOptions?.type === "cursor" ? matchingOptions : undefined;
+            return {
+                type: "cursor",
+                fullAccess: opts?.fullAccess || undefined,
+                dontAskQuestions: opts?.dontAskQuestions || undefined,
+                model: opts?.model,
+            };
+        }
         default:
             return undefined;
     }

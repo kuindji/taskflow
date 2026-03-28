@@ -31,6 +31,7 @@ import { useRemoteAgentStatus } from "@/hooks/useRemoteAgentStatus";
 import { GeneralSection } from "./sections/GeneralSection";
 import { DefaultsSection } from "./sections/DefaultsSection";
 import { AgentSection } from "./sections/AgentSection";
+import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { RemoteSection } from "./sections/RemoteSection";
 
 type SectionKey =
@@ -277,27 +278,31 @@ function SettingsModal() {
 
     const handleClaudeModel = useCallback(
         (defaultModel: string) => {
+            void updateSettings({ claude: { defaultModel } });
+        },
+        [updateSettings],
+    );
+
+    const handleClaudeEffort = useCallback(
+        (defaultEffort: string) => {
             void updateSettings({
-                claude: { defaultModel: defaultModel as ClaudeSettings["defaultModel"] },
+                claude: { defaultEffort: defaultEffort as ClaudeSettings["defaultEffort"] },
             });
         },
         [updateSettings],
     );
 
-    const handleClaudeFullAccess = useCallback(
-        (fullAccess: boolean) => {
-            void updateSettings({ claude: { fullAccess } });
+    const handleClaudeSkipPermissions = useCallback(
+        (dangerouslySkipPermissions: boolean) => {
+            void updateSettings({ claude: { dangerouslySkipPermissions } });
         },
         [updateSettings],
     );
 
-    const handleClaudeDontAsk = useCallback(
-        (dontAskQuestions: boolean) => {
+    const handleClaudePermissionMode = useCallback(
+        (permissionMode: string) => {
             void updateSettings({
-                claude: {
-                    dontAskQuestions,
-                    ...(dontAskQuestions ? { fullAccess: true } : {}),
-                },
+                claude: { permissionMode: permissionMode as ClaudeSettings["permissionMode"] },
             });
         },
         [updateSettings],
@@ -463,7 +468,7 @@ function SettingsModal() {
                         )}
 
                         {section === "defaults" && (
-                            <div className="h-full overflow-y-auto">
+                            <div className="h-full overflow-y-auto px-3">
                                 <DefaultsSection
                                     settings={settings}
                                     shells={shells}
@@ -482,24 +487,23 @@ function SettingsModal() {
                         )}
 
                         {section === "claude" && (
-                            <AgentSection
-                                agentKey="claude"
-                                fullAccess={settings.claude.fullAccess}
-                                dontAskQuestions={settings.claude.dontAskQuestions}
-                                onFullAccess={handleClaudeFullAccess}
-                                onDontAsk={handleClaudeDontAsk}
+                            <div className="px-3">
+                            <ClaudeOptions
+                                mode="defaults"
                                 modelValue={settings.claude.defaultModel}
-                                modelOptions={[
-                                    { value: "default", label: "Default" },
-                                    { value: "opus", label: "Opus" },
-                                    { value: "sonnet", label: "Sonnet" },
-                                    { value: "haiku", label: "Haiku" },
-                                ]}
+                                effortValue={settings.claude.defaultEffort}
+                                dangerouslySkipPermissions={settings.claude.dangerouslySkipPermissions}
+                                permissionMode={settings.claude.permissionMode}
                                 onModelChange={handleClaudeModel}
+                                onEffortChange={handleClaudeEffort}
+                                onSkipPermissions={handleClaudeSkipPermissions}
+                                onPermissionModeChange={handleClaudePermissionMode}
                             />
+                            </div>
                         )}
 
                         {section === "codex" && (
+                            <div className="px-3">
                             <AgentSection
                                 agentKey="codex"
                                 fullAccess={settings.codex.fullAccess}
@@ -508,9 +512,11 @@ function SettingsModal() {
                                 onDontAsk={handleCodexDontAsk}
                                 fullAccessHint="Run in full-auto mode by default"
                             />
+                            </div>
                         )}
 
                         {section === "opencode" && (
+                            <div className="px-3">
                             <AgentSection
                                 agentKey="opencode"
                                 fullAccess={settings.opencode.fullAccess}
@@ -522,9 +528,11 @@ function SettingsModal() {
                                 onModelInputChange={handleOpencodeModel}
                                 fullAccessHint="Auto-approve all tool permissions by default"
                             />
+                            </div>
                         )}
 
                         {section === "gemini" && (
+                            <div className="px-3">
                             <AgentSection
                                 agentKey="gemini"
                                 fullAccess={settings.gemini.fullAccess}
@@ -542,9 +550,11 @@ function SettingsModal() {
                                 onModelChange={handleGeminiModel}
                                 fullAccessHint="Auto-approve all actions by default"
                             />
+                            </div>
                         )}
 
                         {section === "cursor" && (
+                            <div className="px-3">
                             <AgentSection
                                 agentKey="cursor"
                                 fullAccess={settings.cursor.fullAccess}
@@ -560,14 +570,17 @@ function SettingsModal() {
                                 onModelInputChange={(e) => handleCursorModel(e.target.value)}
                                 fullAccessHint="Run in yolo mode by default (auto-approve commands)"
                             />
+                            </div>
                         )}
 
                         {section === "remote-agent" && (
+                            <div className="px-3">
                             <RemoteSection
                                 settings={settings.remoteAgent}
                                 remoteAgent={remoteAgent}
                                 onUpdate={handleRemoteUpdate}
                             />
+                            </div>
                         )}
                     </div>
                 </div>

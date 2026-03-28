@@ -117,10 +117,12 @@ export function buildAgentLaunchSpec(
     if (type === "claude") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "claude") {
-            if (agentOptions.fullAccess || agentOptions.dontAskQuestions)
+            if (agentOptions.dangerouslySkipPermissions)
                 optionArgs.push("--dangerously-skip-permissions");
-            if (agentOptions.dontAskQuestions) optionArgs.push("--permission-mode", "dontAsk");
+            if (agentOptions.permissionMode && agentOptions.permissionMode !== "default")
+                optionArgs.push("--permission-mode", agentOptions.permissionMode);
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
+            if (agentOptions.effort) optionArgs.push("--effort", agentOptions.effort);
         }
         return {
             command: "claude",

@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { AgentLaunchOptions, AgentType } from "@taskflow/shared";
+import type {
+    AgentLaunchOptions,
+    AgentType,
+    ClaudePermissionMode,
+    ClaudeEffortLevel,
+} from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -13,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Play } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
+import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 
 interface AgentOptionsPanelProps {
     agentType: AgentType;
@@ -36,28 +42,51 @@ function AgentOptionsPanel({
     const cursorSettings = useSettingsStore((s) => s.settings?.cursor);
 
     const matchingValue = value?.type === agentType ? value : undefined;
+
+    // --- Claude-specific defaults ---
+    const defaultDangerouslySkipPermissions =
+        agentType === "claude" && matchingValue?.type === "claude"
+            ? (matchingValue.dangerouslySkipPermissions ?? claudeSettings?.dangerouslySkipPermissions ?? false)
+            : agentType === "claude"
+              ? (claudeSettings?.dangerouslySkipPermissions ?? false)
+              : false;
+
+    const defaultPermissionMode =
+        agentType === "claude" && matchingValue?.type === "claude"
+            ? (matchingValue.permissionMode ?? claudeSettings?.permissionMode ?? "default")
+            : agentType === "claude"
+              ? (claudeSettings?.permissionMode ?? "default")
+              : "default";
+
+    const defaultEffort =
+        agentType === "claude" && matchingValue?.type === "claude"
+            ? (matchingValue.effort ?? claudeSettings?.defaultEffort ?? "default")
+            : agentType === "claude"
+              ? (claudeSettings?.defaultEffort ?? "default")
+              : "default";
+
+    // --- Generic defaults for non-Claude agents ---
     const defaultFullAccess =
-        matchingValue?.fullAccess ??
-        (agentType === "claude"
-            ? (claudeSettings?.fullAccess ?? false)
+        matchingValue && matchingValue.type !== "claude" && "fullAccess" in matchingValue
+            ? (matchingValue.fullAccess ?? false)
             : agentType === "opencode"
               ? (opencodeSettings?.fullAccess ?? false)
               : agentType === "gemini"
                 ? (geminiSettings?.fullAccess ?? false)
                 : agentType === "cursor"
                   ? (cursorSettings?.fullAccess ?? false)
-                  : (codexSettings?.fullAccess ?? false));
+                  : (codexSettings?.fullAccess ?? false);
     const defaultDontAskQuestions =
-        matchingValue?.dontAskQuestions ??
-        (agentType === "claude"
-            ? (claudeSettings?.dontAskQuestions ?? false)
+        matchingValue && matchingValue.type !== "claude" && "dontAskQuestions" in matchingValue
+            ? (matchingValue.dontAskQuestions ?? false)
             : agentType === "opencode"
               ? (opencodeSettings?.dontAskQuestions ?? false)
               : agentType === "gemini"
                 ? (geminiSettings?.dontAskQuestions ?? false)
                 : agentType === "cursor"
                   ? (cursorSettings?.dontAskQuestions ?? false)
-                  : (codexSettings?.dontAskQuestions ?? false));
+                  : (codexSettings?.dontAskQuestions ?? false);
+
     const defaultModel =
         agentType === "claude" && matchingValue?.type === "claude"
             ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
@@ -77,6 +106,10 @@ function AgentOptionsPanel({
                           ? (cursorSettings?.defaultModel ?? "default")
                           : "default";
 
+    // --- State ---
+    const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(defaultDangerouslySkipPermissions);
+    const [permissionMode, setPermissionMode] = useState<string>(defaultPermissionMode);
+    const [effort, setEffort] = useState<string>(defaultEffort);
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [dontAskQuestions, setDontAskQuestions] = useState(defaultDontAskQuestions);
     const [model, setModel] = useState<string>(defaultModel);
@@ -89,60 +122,69 @@ function AgentOptionsPanel({
     }, [onChange]);
 
     useEffect(() => {
-        setFullAccess(defaultFullAccess);
-        setDontAskQuestions(defaultDontAskQuestions);
-        if (
-            agentType === "claude" ||
-            agentType === "opencode" ||
-            agentType === "gemini" ||
-            agentType === "cursor"
-        ) {
-            setModel(defaultModel);
-        }
-    }, [agentType, defaultFullAccess, defaultDontAskQuestions, defaultModel]);
-
-    const emitChange = useCallback(() => {
-        const cb = onChangeRef.current;
-        if (!cb) return;
         if (agentType === "claude") {
-            cb({
-                type: "claude",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-                model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
-            });
-        } else if (agentType === "opencode") {
-            cb({
+            setDangerouslySkipPermissions(defaultDangerouslySkipPermissions);
+            setPermissionMode(defaultPermissionMode);
+            setEffort(defaultEffort);
+            setModel(defaultModel);
+        } else {
+            setFullAccess(defaultFullAccess);
+            setDontAskQuestions(defaultDontAskQuestions);
+            if (
+                agentType === "opencode" ||
+                agentType === "gemini" ||
+                agentType === "cursor"
+            ) {
+                setModel(defaultModel);
+            }
+        }
+    }, [agentType, defaultDangerouslySkipPermissions, defaultPermissionMode, defaultEffort, defaultFullAccess, defaultDontAskQuestions, defaultModel]);
+
+    const buildClaudeOptions = useCallback((): AgentLaunchOptions => ({
+        type: "claude",
+        dangerouslySkipPermissions: dangerouslySkipPermissions || undefined,
+        permissionMode: permissionMode === "default" ? undefined : (permissionMode as ClaudePermissionMode),
+        model: model === "default" ? undefined : model || undefined,
+        effort: effort === "default" ? undefined : (effort as ClaudeEffortLevel),
+    }), [dangerouslySkipPermissions, permissionMode, model, effort]);
+
+    const buildNonClaudeOptions = useCallback((): AgentLaunchOptions => {
+        if (agentType === "opencode") {
+            return {
                 type: "opencode",
                 fullAccess: fullAccess || undefined,
                 dontAskQuestions: dontAskQuestions || undefined,
                 model: model || undefined,
-            });
-        } else if (agentType === "gemini") {
-            cb({
+            };
+        }
+        if (agentType === "gemini") {
+            return {
                 type: "gemini",
                 fullAccess: fullAccess || undefined,
                 dontAskQuestions: dontAskQuestions || undefined,
-                model:
-                    model === "default"
-                        ? undefined
-                        : (model as "auto" | "pro" | "flash" | "flash-lite"),
-            });
-        } else if (agentType === "cursor") {
-            cb({
+                model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
+            };
+        }
+        if (agentType === "cursor") {
+            return {
                 type: "cursor",
                 fullAccess: fullAccess || undefined,
                 dontAskQuestions: dontAskQuestions || undefined,
                 model: model === "default" ? undefined : model,
-            });
-        } else {
-            cb({
-                type: "codex",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-            });
+            };
         }
+        return {
+            type: "codex",
+            fullAccess: fullAccess || undefined,
+            dontAskQuestions: dontAskQuestions || undefined,
+        };
     }, [agentType, fullAccess, dontAskQuestions, model]);
+
+    const emitChange = useCallback(() => {
+        const cb = onChangeRef.current;
+        if (!cb) return;
+        cb(agentType === "claude" ? buildClaudeOptions() : buildNonClaudeOptions());
+    }, [agentType, buildClaudeOptions, buildNonClaudeOptions]);
 
     useEffect(() => {
         if (isFirstRender.current) {
@@ -154,87 +196,46 @@ function AgentOptionsPanel({
 
     const handleRun = useCallback(() => {
         if (!onRun) return;
-        if (agentType === "claude") {
-            onRun({
-                type: "claude",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-                model: model === "default" ? undefined : (model as "opus" | "sonnet" | "haiku"),
-            });
-        } else if (agentType === "opencode") {
-            onRun({
-                type: "opencode",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-                model: model || undefined,
-            });
-        } else if (agentType === "gemini") {
-            onRun({
-                type: "gemini",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-                model:
-                    model === "default"
-                        ? undefined
-                        : (model as "auto" | "pro" | "flash" | "flash-lite"),
-            });
-        } else if (agentType === "cursor") {
-            onRun({
-                type: "cursor",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-                model: model === "default" ? undefined : model,
-            });
-        } else {
-            onRun({
-                type: "codex",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
-            });
-        }
-    }, [agentType, fullAccess, dontAskQuestions, model, onRun]);
+        onRun(agentType === "claude" ? buildClaudeOptions() : buildNonClaudeOptions());
+    }, [agentType, buildClaudeOptions, buildNonClaudeOptions, onRun]);
 
     return (
-        <div className="flex flex-col gap-3 p-3">
-            <div className="flex items-center gap-2">
-                <Switch
-                    id="agent-full-access"
-                    checked={fullAccess || dontAskQuestions}
-                    onCheckedChange={setFullAccess}
-                    disabled={dontAskQuestions}
+        <div className="flex flex-col">
+            {agentType === "claude" ? (
+                <ClaudeOptions
+                    modelValue={model}
+                    effortValue={effort}
+                    dangerouslySkipPermissions={dangerouslySkipPermissions}
+                    permissionMode={permissionMode}
+                    onModelChange={setModel}
+                    onEffortChange={setEffort}
+                    onSkipPermissions={setDangerouslySkipPermissions}
+                    onPermissionModeChange={setPermissionMode}
                 />
-                <Label htmlFor="agent-full-access" className="cursor-pointer text-xs">
-                    Full access
-                </Label>
-            </div>
-            <div className="flex items-center gap-2">
-                <Switch
-                    id="agent-dont-ask"
-                    checked={dontAskQuestions}
-                    onCheckedChange={setDontAskQuestions}
-                />
-                <Label htmlFor="agent-dont-ask" className="cursor-pointer text-xs">
-                    Don&apos;t ask questions
-                </Label>
-            </div>
-
-            {agentType === "claude" && (
-                <div className="flex flex-col gap-1">
-                    <Label htmlFor="agent-model" className="text-xs">
-                        Model
-                    </Label>
-                    <Select value={model} onValueChange={setModel}>
-                        <SelectTrigger id="agent-model" className="h-7 text-xs">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="default">Default</SelectItem>
-                            <SelectItem value="opus">Opus</SelectItem>
-                            <SelectItem value="sonnet">Sonnet</SelectItem>
-                            <SelectItem value="haiku">Haiku</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
+            ) : (
+                <>
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            id="agent-full-access"
+                            checked={fullAccess || dontAskQuestions}
+                            onCheckedChange={setFullAccess}
+                            disabled={dontAskQuestions}
+                        />
+                        <Label htmlFor="agent-full-access" className="cursor-pointer text-xs">
+                            Full access
+                        </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            id="agent-dont-ask"
+                            checked={dontAskQuestions}
+                            onCheckedChange={setDontAskQuestions}
+                        />
+                        <Label htmlFor="agent-dont-ask" className="cursor-pointer text-xs">
+                            Don&apos;t ask questions
+                        </Label>
+                    </div>
+                </>
             )}
 
             {agentType === "gemini" && (

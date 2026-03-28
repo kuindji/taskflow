@@ -10,11 +10,22 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     cursor: "Cursor",
 };
 
+type ClaudePermissionMode =
+    | "default"
+    | "acceptEdits"
+    | "bypassPermissions"
+    | "dontAsk"
+    | "plan"
+    | "auto";
+
+type ClaudeEffortLevel = "low" | "medium" | "high" | "max";
+
 interface ClaudeLaunchOptions {
     type: Extract<AgentType, "claude">;
-    fullAccess?: boolean;
-    dontAskQuestions?: boolean;
-    model?: "opus" | "sonnet" | "haiku";
+    dangerouslySkipPermissions?: boolean;
+    permissionMode?: ClaudePermissionMode;
+    model?: string;
+    effort?: ClaudeEffortLevel;
 }
 
 interface CodexLaunchOptions {
@@ -62,6 +73,8 @@ export { ALL_AGENT_TYPES, AGENT_DISPLAY_NAMES };
 
 export type {
     AgentType,
+    ClaudePermissionMode,
+    ClaudeEffortLevel,
     ClaudeLaunchOptions,
     CodexLaunchOptions,
     OpenCodeLaunchOptions,

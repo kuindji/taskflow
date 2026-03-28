@@ -14,36 +14,44 @@ function normalizeAgentOptions(
     if (!agentType || agentType === "shell") return undefined;
     if (!agentOptions || agentOptions.type !== agentType) return undefined;
 
-    const base = {
-        fullAccess: agentOptions.fullAccess || undefined,
-        dontAskQuestions: agentOptions.dontAskQuestions || undefined,
-    };
-
     switch (agentType) {
         case "claude":
             return {
-                ...base,
                 type: "claude",
+                dangerouslySkipPermissions:
+                    agentOptions.type === "claude"
+                        ? agentOptions.dangerouslySkipPermissions || undefined
+                        : undefined,
+                permissionMode:
+                    agentOptions.type === "claude" ? agentOptions.permissionMode : undefined,
                 model: agentOptions.type === "claude" ? agentOptions.model : undefined,
+                effort: agentOptions.type === "claude" ? agentOptions.effort : undefined,
             };
         case "codex":
-            return { ...base, type: "codex" };
+            return {
+                type: "codex",
+                fullAccess: agentOptions.type === "codex" ? agentOptions.fullAccess || undefined : undefined,
+                dontAskQuestions: agentOptions.type === "codex" ? agentOptions.dontAskQuestions || undefined : undefined,
+            };
         case "opencode":
             return {
-                ...base,
                 type: "opencode",
+                fullAccess: agentOptions.type === "opencode" ? agentOptions.fullAccess || undefined : undefined,
+                dontAskQuestions: agentOptions.type === "opencode" ? agentOptions.dontAskQuestions || undefined : undefined,
                 model: agentOptions.type === "opencode" ? agentOptions.model : undefined,
             };
         case "gemini":
             return {
-                ...base,
                 type: "gemini",
+                fullAccess: agentOptions.type === "gemini" ? agentOptions.fullAccess || undefined : undefined,
+                dontAskQuestions: agentOptions.type === "gemini" ? agentOptions.dontAskQuestions || undefined : undefined,
                 model: agentOptions.type === "gemini" ? agentOptions.model : undefined,
             };
         case "cursor":
             return {
-                ...base,
                 type: "cursor",
+                fullAccess: agentOptions.type === "cursor" ? agentOptions.fullAccess || undefined : undefined,
+                dontAskQuestions: agentOptions.type === "cursor" ? agentOptions.dontAskQuestions || undefined : undefined,
                 model: agentOptions.type === "cursor" ? agentOptions.model : undefined,
             };
         default:

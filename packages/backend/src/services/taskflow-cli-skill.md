@@ -68,6 +68,10 @@ All run commands also accept --label "<label>", --full-access, --no-questions, a
 --full-access enables full access (dangerously skip permissions) for the agent session.
 --no-questions enables autonomous mode (agent won't ask permission questions, auto-accepts all).
 --model sets the model (e.g. "opus", "sonnet", "haiku" for Claude; "pro", "flash" for Gemini).
+Claude-specific flags: --dangerously-skip-permissions, --permission-mode "<mode>", --effort "<level>".
+--dangerously-skip-permissions bypasses all permission checks for Claude.
+--permission-mode sets permission mode (acceptEdits, bypassPermissions, default, dontAsk, plan, auto).
+--effort sets the effort level for Claude sessions (low, medium, high, max).
 Without --task agent will be started on project level. Within task context by default pass --task.
 
 ## Action commands

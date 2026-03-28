@@ -1053,6 +1053,9 @@ case "$cmd" in
         agent_full_access=""
         agent_model=""
         agent_no_questions=""
+        agent_permission_mode=""
+        agent_effort=""
+        agent_skip_permissions=""
         while [ $# -gt 0 ]; do
           case "$1" in
             --prompt) agent_prompt="${2:-}"; shift 2 ;;
@@ -1060,6 +1063,9 @@ case "$cmd" in
             --label) agent_label="${2:-}"; shift 2 ;;
             --full-access) agent_full_access="true"; shift ;;
             --no-questions) agent_no_questions="true"; shift ;;
+            --dangerously-skip-permissions) agent_skip_permissions="true"; shift ;;
+            --permission-mode) agent_permission_mode="${2:-}"; shift 2 ;;
+            --effort) agent_effort="${2:-}"; shift 2 ;;
             --model) agent_model="${2:-}"; shift 2 ;;
             *) shift ;;
           esac
@@ -1078,33 +1084,45 @@ case "$cmd" in
         if [ -n "$agent_label" ]; then
           payload=$(printf '%s,"label":%s' "$payload" "$(json_string "$agent_label")")
         fi
-        # Build agentOptions if --full-access, --no-questions, or --model was provided
-        if [ -n "$agent_full_access" ] || [ -n "$agent_no_questions" ] || [ -n "$agent_model" ]; then
-          agent_opts=""
-          if [ -n "$agent_type" ]; then
-            agent_opts=$(printf '"type":%s' "$(json_string "$agent_type")")
+        # Build agentOptions based on agent type
+        agent_opts=""
+        if [ -n "$agent_type" ]; then
+          agent_opts=$(printf '"type":%s' "$(json_string "$agent_type")")
+        fi
+        _append_opt() {
+          if [ -n "$agent_opts" ]; then
+            agent_opts=$(printf '%s,%s' "$agent_opts" "$1")
+          else
+            agent_opts="$1"
           fi
+        }
+        if [ "$agent_type" = "claude" ]; then
+          # Claude uses its own CLI-specific fields
+          if [ -n "$agent_skip_permissions" ] || [ -n "$agent_full_access" ]; then
+            _append_opt '"dangerouslySkipPermissions":true'
+          fi
+          if [ -n "$agent_permission_mode" ]; then
+            _append_opt "$(printf '"permissionMode":%s' "$(json_string "$agent_permission_mode")")"
+          elif [ -n "$agent_no_questions" ]; then
+            _append_opt '"permissionMode":"dontAsk"'
+          fi
+          if [ -n "$agent_effort" ]; then
+            _append_opt "$(printf '"effort":%s' "$(json_string "$agent_effort")")"
+          fi
+        else
+          # Non-Claude agents use generic fullAccess/dontAskQuestions
           if [ -n "$agent_full_access" ]; then
-            if [ -n "$agent_opts" ]; then
-              agent_opts=$(printf '%s,"fullAccess":true' "$agent_opts")
-            else
-              agent_opts='"fullAccess":true'
-            fi
+            _append_opt '"fullAccess":true'
           fi
           if [ -n "$agent_no_questions" ]; then
-            if [ -n "$agent_opts" ]; then
-              agent_opts=$(printf '%s,"dontAskQuestions":true' "$agent_opts")
-            else
-              agent_opts='"dontAskQuestions":true'
-            fi
+            _append_opt '"dontAskQuestions":true'
           fi
-          if [ -n "$agent_model" ]; then
-            if [ -n "$agent_opts" ]; then
-              agent_opts=$(printf '%s,"model":%s' "$agent_opts" "$(json_string "$agent_model")")
-            else
-              agent_opts=$(printf '"model":%s' "$(json_string "$agent_model")")
-            fi
-          fi
+        fi
+        if [ -n "$agent_model" ]; then
+          _append_opt "$(printf '"model":%s' "$(json_string "$agent_model")")"
+        fi
+        # Only add agentOptions if we have more than just the type field
+        if [ -n "$agent_opts" ]; then
           payload=$(printf '%s,"agentOptions":{%s}' "$payload" "$agent_opts")
         fi
 
