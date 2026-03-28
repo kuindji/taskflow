@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Play } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
+import { CodexOptions } from "@/components/shared/CodexOptions";
 
 interface AgentOptionsPanelProps {
     agentType: AgentType;
@@ -280,73 +281,16 @@ function AgentOptionsPanel({
                     onPermissionModeChange={setPermissionMode}
                 />
             ) : agentType === "codex" ? (
-                <div className="flex flex-col gap-3 p-3">
-                    <div className="flex items-center gap-2">
-                        <Switch
-                            id="agent-full-auto"
-                            checked={fullAuto}
-                            onCheckedChange={setFullAuto}
-                        />
-                        <Label htmlFor="agent-full-auto" className="cursor-pointer text-xs">
-                            Full auto
-                        </Label>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor="agent-sandbox" className="text-xs">
-                            Sandbox
-                        </Label>
-                        <Select
-                            value={sandbox}
-                            onValueChange={(v) => setSandbox(v as CodexSandboxMode)}
-                            disabled={fullAuto}
-                        >
-                            <SelectTrigger id="agent-sandbox" className="h-7 text-xs">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="read-only">Read only</SelectItem>
-                                <SelectItem value="workspace-write">Workspace write</SelectItem>
-                                <SelectItem value="danger-full-access">
-                                    Full access (dangerous)
-                                </SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor="agent-approval" className="text-xs">
-                            Approval policy
-                        </Label>
-                        <Select
-                            value={approvalPolicy}
-                            onValueChange={(v) => setApprovalPolicy(v as CodexApprovalPolicy)}
-                            disabled={fullAuto}
-                        >
-                            <SelectTrigger id="agent-approval" className="h-7 text-xs">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="always">Always</SelectItem>
-                                <SelectItem value="unless-allow-listed">
-                                    Unless allow-listed
-                                </SelectItem>
-                                <SelectItem value="on-request">On request</SelectItem>
-                                <SelectItem value="never">Never</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor="agent-model" className="text-xs">
-                            Model
-                        </Label>
-                        <Input
-                            id="agent-model"
-                            className="h-7 text-xs"
-                            value={model}
-                            placeholder="e.g. o3, o4-mini"
-                            onChange={(e) => setModel(e.target.value)}
-                        />
-                    </div>
-                </div>
+                <CodexOptions
+                    modelValue={model}
+                    sandbox={sandbox}
+                    approvalPolicy={approvalPolicy}
+                    fullAuto={fullAuto}
+                    onModelChange={setModel}
+                    onSandboxChange={(v) => setSandbox(v as CodexSandboxMode)}
+                    onApprovalPolicyChange={(v) => setApprovalPolicy(v as CodexApprovalPolicy)}
+                    onFullAutoChange={setFullAuto}
+                />
             ) : (
                 <div className="flex flex-col gap-3 p-3">
                     <div className="flex items-center gap-2">
