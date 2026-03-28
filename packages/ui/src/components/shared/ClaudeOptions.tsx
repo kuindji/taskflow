@@ -29,7 +29,8 @@ const LABELS = {
         effort: "Default Effort",
         effortHint: "Pre-selected effort level when running Claude sessions",
         skipPermissions: "Skip Permissions",
-        skipPermissionsHint: "Bypass all permission checks by default (--dangerously-skip-permissions)",
+        skipPermissionsHint:
+            "Bypass all permission checks by default (--dangerously-skip-permissions)",
         permissionMode: "Permission Mode",
         permissionModeHint: "Default permission mode for Claude sessions",
     },

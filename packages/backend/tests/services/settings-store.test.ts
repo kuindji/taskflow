@@ -29,8 +29,9 @@ const DEFAULT_LAYOUT = {
 
 const DEFAULT_CLAUDE = {
     defaultModel: "default" as const,
-    fullAccess: false,
-    dontAskQuestions: false,
+    defaultEffort: "default" as const,
+    dangerouslySkipPermissions: false,
+    permissionMode: "default" as const,
 };
 const DEFAULT_CODEX = { fullAccess: false, dontAskQuestions: false };
 const DEFAULT_OPENCODE = { defaultModel: "", fullAccess: false, dontAskQuestions: false };

@@ -1,10 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import type {
-    ActionDefinition,
-    AgentLaunchOptions,
-    ClaudeLaunchOptions,
-    SessionType,
-} from "@taskflow/shared";
+import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";

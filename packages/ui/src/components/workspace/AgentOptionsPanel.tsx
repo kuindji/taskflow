@@ -46,7 +46,9 @@ function AgentOptionsPanel({
     // --- Claude-specific defaults ---
     const defaultDangerouslySkipPermissions =
         agentType === "claude" && matchingValue?.type === "claude"
-            ? (matchingValue.dangerouslySkipPermissions ?? claudeSettings?.dangerouslySkipPermissions ?? false)
+            ? (matchingValue.dangerouslySkipPermissions ??
+              claudeSettings?.dangerouslySkipPermissions ??
+              false)
             : agentType === "claude"
               ? (claudeSettings?.dangerouslySkipPermissions ?? false)
               : false;
@@ -107,7 +109,9 @@ function AgentOptionsPanel({
                           : "default";
 
     // --- State ---
-    const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(defaultDangerouslySkipPermissions);
+    const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(
+        defaultDangerouslySkipPermissions,
+    );
     const [permissionMode, setPermissionMode] = useState<string>(defaultPermissionMode);
     const [effort, setEffort] = useState<string>(defaultEffort);
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
@@ -130,23 +134,31 @@ function AgentOptionsPanel({
         } else {
             setFullAccess(defaultFullAccess);
             setDontAskQuestions(defaultDontAskQuestions);
-            if (
-                agentType === "opencode" ||
-                agentType === "gemini" ||
-                agentType === "cursor"
-            ) {
+            if (agentType === "opencode" || agentType === "gemini" || agentType === "cursor") {
                 setModel(defaultModel);
             }
         }
-    }, [agentType, defaultDangerouslySkipPermissions, defaultPermissionMode, defaultEffort, defaultFullAccess, defaultDontAskQuestions, defaultModel]);
+    }, [
+        agentType,
+        defaultDangerouslySkipPermissions,
+        defaultPermissionMode,
+        defaultEffort,
+        defaultFullAccess,
+        defaultDontAskQuestions,
+        defaultModel,
+    ]);
 
-    const buildClaudeOptions = useCallback((): AgentLaunchOptions => ({
-        type: "claude",
-        dangerouslySkipPermissions: dangerouslySkipPermissions || undefined,
-        permissionMode: permissionMode === "default" ? undefined : (permissionMode as ClaudePermissionMode),
-        model: model === "default" ? undefined : model || undefined,
-        effort: effort === "default" ? undefined : (effort as ClaudeEffortLevel),
-    }), [dangerouslySkipPermissions, permissionMode, model, effort]);
+    const buildClaudeOptions = useCallback(
+        (): AgentLaunchOptions => ({
+            type: "claude",
+            dangerouslySkipPermissions: dangerouslySkipPermissions || undefined,
+            permissionMode:
+                permissionMode === "default" ? undefined : (permissionMode as ClaudePermissionMode),
+            model: model === "default" ? undefined : model || undefined,
+            effort: effort === "default" ? undefined : (effort as ClaudeEffortLevel),
+        }),
+        [dangerouslySkipPermissions, permissionMode, model, effort],
+    );
 
     const buildNonClaudeOptions = useCallback((): AgentLaunchOptions => {
         if (agentType === "opencode") {
@@ -162,7 +174,10 @@ function AgentOptionsPanel({
                 type: "gemini",
                 fullAccess: fullAccess || undefined,
                 dontAskQuestions: dontAskQuestions || undefined,
-                model: model === "default" ? undefined : (model as "auto" | "pro" | "flash" | "flash-lite"),
+                model:
+                    model === "default"
+                        ? undefined
+                        : (model as "auto" | "pro" | "flash" | "flash-lite"),
             };
         }
         if (agentType === "cursor") {

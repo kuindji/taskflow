@@ -30,28 +30,52 @@ function normalizeAgentOptions(
         case "codex":
             return {
                 type: "codex",
-                fullAccess: agentOptions.type === "codex" ? agentOptions.fullAccess || undefined : undefined,
-                dontAskQuestions: agentOptions.type === "codex" ? agentOptions.dontAskQuestions || undefined : undefined,
+                fullAccess:
+                    agentOptions.type === "codex"
+                        ? agentOptions.fullAccess || undefined
+                        : undefined,
+                dontAskQuestions:
+                    agentOptions.type === "codex"
+                        ? agentOptions.dontAskQuestions || undefined
+                        : undefined,
             };
         case "opencode":
             return {
                 type: "opencode",
-                fullAccess: agentOptions.type === "opencode" ? agentOptions.fullAccess || undefined : undefined,
-                dontAskQuestions: agentOptions.type === "opencode" ? agentOptions.dontAskQuestions || undefined : undefined,
+                fullAccess:
+                    agentOptions.type === "opencode"
+                        ? agentOptions.fullAccess || undefined
+                        : undefined,
+                dontAskQuestions:
+                    agentOptions.type === "opencode"
+                        ? agentOptions.dontAskQuestions || undefined
+                        : undefined,
                 model: agentOptions.type === "opencode" ? agentOptions.model : undefined,
             };
         case "gemini":
             return {
                 type: "gemini",
-                fullAccess: agentOptions.type === "gemini" ? agentOptions.fullAccess || undefined : undefined,
-                dontAskQuestions: agentOptions.type === "gemini" ? agentOptions.dontAskQuestions || undefined : undefined,
+                fullAccess:
+                    agentOptions.type === "gemini"
+                        ? agentOptions.fullAccess || undefined
+                        : undefined,
+                dontAskQuestions:
+                    agentOptions.type === "gemini"
+                        ? agentOptions.dontAskQuestions || undefined
+                        : undefined,
                 model: agentOptions.type === "gemini" ? agentOptions.model : undefined,
             };
         case "cursor":
             return {
                 type: "cursor",
-                fullAccess: agentOptions.type === "cursor" ? agentOptions.fullAccess || undefined : undefined,
-                dontAskQuestions: agentOptions.type === "cursor" ? agentOptions.dontAskQuestions || undefined : undefined,
+                fullAccess:
+                    agentOptions.type === "cursor"
+                        ? agentOptions.fullAccess || undefined
+                        : undefined,
+                dontAskQuestions:
+                    agentOptions.type === "cursor"
+                        ? agentOptions.dontAskQuestions || undefined
+                        : undefined,
                 model: agentOptions.type === "cursor" ? agentOptions.model : undefined,
             };
         default:

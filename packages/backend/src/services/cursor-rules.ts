@@ -29,9 +29,7 @@ export async function ensureCursorRulesFile(cwd: string, additionalPrompt?: stri
     const dirPath = join(cwd, CURSOR_RULES_DIR);
     const filePath = join(dirPath, CURSOR_RULES_FILE);
     const rulesContent = buildCursorRulesContent();
-    const content = additionalPrompt
-        ? `${rulesContent}\n${additionalPrompt}\n`
-        : rulesContent;
+    const content = additionalPrompt ? `${rulesContent}\n${additionalPrompt}\n` : rulesContent;
     await mkdir(dirPath, { recursive: true });
     await writeFile(filePath, content, "utf-8");
 }

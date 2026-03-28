@@ -488,98 +488,100 @@ function SettingsModal() {
 
                         {section === "claude" && (
                             <div className="px-3">
-                            <ClaudeOptions
-                                mode="defaults"
-                                modelValue={settings.claude.defaultModel}
-                                effortValue={settings.claude.defaultEffort}
-                                dangerouslySkipPermissions={settings.claude.dangerouslySkipPermissions}
-                                permissionMode={settings.claude.permissionMode}
-                                onModelChange={handleClaudeModel}
-                                onEffortChange={handleClaudeEffort}
-                                onSkipPermissions={handleClaudeSkipPermissions}
-                                onPermissionModeChange={handleClaudePermissionMode}
-                            />
+                                <ClaudeOptions
+                                    mode="defaults"
+                                    modelValue={settings.claude.defaultModel}
+                                    effortValue={settings.claude.defaultEffort}
+                                    dangerouslySkipPermissions={
+                                        settings.claude.dangerouslySkipPermissions
+                                    }
+                                    permissionMode={settings.claude.permissionMode}
+                                    onModelChange={handleClaudeModel}
+                                    onEffortChange={handleClaudeEffort}
+                                    onSkipPermissions={handleClaudeSkipPermissions}
+                                    onPermissionModeChange={handleClaudePermissionMode}
+                                />
                             </div>
                         )}
 
                         {section === "codex" && (
                             <div className="px-3">
-                            <AgentSection
-                                agentKey="codex"
-                                fullAccess={settings.codex.fullAccess}
-                                dontAskQuestions={settings.codex.dontAskQuestions}
-                                onFullAccess={handleCodexFullAccess}
-                                onDontAsk={handleCodexDontAsk}
-                                fullAccessHint="Run in full-auto mode by default"
-                            />
+                                <AgentSection
+                                    agentKey="codex"
+                                    fullAccess={settings.codex.fullAccess}
+                                    dontAskQuestions={settings.codex.dontAskQuestions}
+                                    onFullAccess={handleCodexFullAccess}
+                                    onDontAsk={handleCodexDontAsk}
+                                    fullAccessHint="Run in full-auto mode by default"
+                                />
                             </div>
                         )}
 
                         {section === "opencode" && (
                             <div className="px-3">
-                            <AgentSection
-                                agentKey="opencode"
-                                fullAccess={settings.opencode.fullAccess}
-                                dontAskQuestions={settings.opencode.dontAskQuestions}
-                                onFullAccess={handleOpencodeFullAccess}
-                                onDontAsk={handleOpencodeDontAsk}
-                                modelValue={settings.opencode.defaultModel}
-                                modelInputPlaceholder="e.g. anthropic/claude-sonnet-4-20250514"
-                                onModelInputChange={handleOpencodeModel}
-                                fullAccessHint="Auto-approve all tool permissions by default"
-                            />
+                                <AgentSection
+                                    agentKey="opencode"
+                                    fullAccess={settings.opencode.fullAccess}
+                                    dontAskQuestions={settings.opencode.dontAskQuestions}
+                                    onFullAccess={handleOpencodeFullAccess}
+                                    onDontAsk={handleOpencodeDontAsk}
+                                    modelValue={settings.opencode.defaultModel}
+                                    modelInputPlaceholder="e.g. anthropic/claude-sonnet-4-20250514"
+                                    onModelInputChange={handleOpencodeModel}
+                                    fullAccessHint="Auto-approve all tool permissions by default"
+                                />
                             </div>
                         )}
 
                         {section === "gemini" && (
                             <div className="px-3">
-                            <AgentSection
-                                agentKey="gemini"
-                                fullAccess={settings.gemini.fullAccess}
-                                dontAskQuestions={settings.gemini.dontAskQuestions}
-                                onFullAccess={handleGeminiFullAccess}
-                                onDontAsk={handleGeminiDontAsk}
-                                modelValue={settings.gemini.defaultModel}
-                                modelOptions={[
-                                    { value: "default", label: "Default" },
-                                    { value: "auto", label: "Auto" },
-                                    { value: "pro", label: "Pro" },
-                                    { value: "flash", label: "Flash" },
-                                    { value: "flash-lite", label: "Flash Lite" },
-                                ]}
-                                onModelChange={handleGeminiModel}
-                                fullAccessHint="Auto-approve all actions by default"
-                            />
+                                <AgentSection
+                                    agentKey="gemini"
+                                    fullAccess={settings.gemini.fullAccess}
+                                    dontAskQuestions={settings.gemini.dontAskQuestions}
+                                    onFullAccess={handleGeminiFullAccess}
+                                    onDontAsk={handleGeminiDontAsk}
+                                    modelValue={settings.gemini.defaultModel}
+                                    modelOptions={[
+                                        { value: "default", label: "Default" },
+                                        { value: "auto", label: "Auto" },
+                                        { value: "pro", label: "Pro" },
+                                        { value: "flash", label: "Flash" },
+                                        { value: "flash-lite", label: "Flash Lite" },
+                                    ]}
+                                    onModelChange={handleGeminiModel}
+                                    fullAccessHint="Auto-approve all actions by default"
+                                />
                             </div>
                         )}
 
                         {section === "cursor" && (
                             <div className="px-3">
-                            <AgentSection
-                                agentKey="cursor"
-                                fullAccess={settings.cursor.fullAccess}
-                                dontAskQuestions={settings.cursor.dontAskQuestions}
-                                onFullAccess={handleCursorFullAccess}
-                                onDontAsk={handleCursorDontAsk}
-                                modelValue={
-                                    settings.cursor.defaultModel === "default"
-                                        ? ""
-                                        : settings.cursor.defaultModel
-                                }
-                                modelInputPlaceholder="default"
-                                onModelInputChange={(e) => handleCursorModel(e.target.value)}
-                                fullAccessHint="Run in yolo mode by default (auto-approve commands)"
-                            />
+                                <AgentSection
+                                    agentKey="cursor"
+                                    fullAccess={settings.cursor.fullAccess}
+                                    dontAskQuestions={settings.cursor.dontAskQuestions}
+                                    onFullAccess={handleCursorFullAccess}
+                                    onDontAsk={handleCursorDontAsk}
+                                    modelValue={
+                                        settings.cursor.defaultModel === "default"
+                                            ? ""
+                                            : settings.cursor.defaultModel
+                                    }
+                                    modelInputPlaceholder="default"
+                                    onModelInputChange={(e) => handleCursorModel(e.target.value)}
+                                    fullAccessHint="Run in yolo mode by default (auto-approve commands)"
+                                />
                             </div>
                         )}
 
                         {section === "remote-agent" && (
                             <div className="px-3">
-                            <RemoteSection
-                                settings={settings.remoteAgent}
-                                remoteAgent={remoteAgent}
-                                onUpdate={handleRemoteUpdate}
-                            />
+                                <RemoteSection
+                                    settings={settings.remoteAgent}
+                                    remoteAgent={remoteAgent}
+                                    onUpdate={handleRemoteUpdate}
+                                />
                             </div>
                         )}
                     </div>

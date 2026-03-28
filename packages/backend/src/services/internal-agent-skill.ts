@@ -67,7 +67,6 @@ export function buildSystemPrompt(isProjectScope: boolean, isFlowScope?: boolean
     return `${PROMPT_BASE}\n${skill}\n${scopeBlock}${flowBlock}`;
 }
 
-
 function escapeTomlBasicString(value: string): string {
     return value
         .replaceAll("\\", "\\\\")

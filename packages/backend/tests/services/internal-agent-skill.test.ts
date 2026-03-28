@@ -6,7 +6,7 @@ import {
     PROMPT_AUTONOMOUS,
 } from "../../src/services/internal-agent-skill";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
-import { join } from "path";
+import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { spawnSync } from "child_process";
 
@@ -82,6 +82,8 @@ describe("internal agent skill", () => {
 
         expect(spec.command).toBe("claude");
         expect(spec.args).toEqual([
+            "--allowedTools",
+            `Read(/${dirname("/tmp/ignored/SKILL.md")}/**)`,
             "--allowedTools",
             "Bash(taskflow-cli*)",
             "--append-system-prompt",

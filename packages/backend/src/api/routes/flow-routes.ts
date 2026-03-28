@@ -25,14 +25,7 @@ interface FlowRouteDeps {
 }
 
 function registerFlowRoutes(deps: FlowRouteDeps): void {
-    const {
-        apiRouter,
-        taskStore,
-        flowStore,
-        flowRunner,
-        agents,
-        sessionLifecycle,
-    } = deps;
+    const { apiRouter, taskStore, flowStore, flowRunner, agents, sessionLifecycle } = deps;
 
     const availableAgentTypes = new Set(agents.filter((a) => a.available).map((a) => a.type));
 
