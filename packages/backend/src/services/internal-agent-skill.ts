@@ -1,15 +1,46 @@
 import { chmod, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import cliScript from "./taskflow-cli.sh" with { type: "text" };
 import skillMarkdown from "./taskflow-cli-skill.md" with { type: "text" };
+import taskCommandsMd from "./taskflow-cli-task-commands.md" with { type: "text" };
+import projectCommandsMd from "./taskflow-cli-project-commands.md" with { type: "text" };
+import flowCommandsMd from "./taskflow-cli-flow-commands.md" with { type: "text" };
+import actionCommandsMd from "./taskflow-cli-action-commands.md" with { type: "text" };
+import flowContextCommandsMd from "./taskflow-cli-flow-context-commands.md" with { type: "text" };
+import agentCommandsMd from "./taskflow-cli-agent-commands.md" with { type: "text" };
+import scheduleCommandsMd from "./taskflow-cli-schedule-commands.md" with { type: "text" };
+import sessionCommandsMd from "./taskflow-cli-session-commands.md" with { type: "text" };
+import browserCommandsMd from "./taskflow-cli-browser-commands.md" with { type: "text" };
+import otherCommandsMd from "./taskflow-cli-other-commands.md" with { type: "text" };
 import type { AgentLaunchOptions, LinkedProject } from "@taskflow/shared";
+
+const COMMAND_FILES: Record<string, string> = {
+    "taskflow-cli-task-commands.md": taskCommandsMd,
+    "taskflow-cli-project-commands.md": projectCommandsMd,
+    "taskflow-cli-flow-commands.md": flowCommandsMd,
+    "taskflow-cli-action-commands.md": actionCommandsMd,
+    "taskflow-cli-flow-context-commands.md": flowContextCommandsMd,
+    "taskflow-cli-agent-commands.md": agentCommandsMd,
+    "taskflow-cli-schedule-commands.md": scheduleCommandsMd,
+    "taskflow-cli-session-commands.md": sessionCommandsMd,
+    "taskflow-cli-browser-commands.md": browserCommandsMd,
+    "taskflow-cli-other-commands.md": otherCommandsMd,
+};
 
 const SKILL_DIR_NAME = "taskflow-internal-api";
 const SKILL_FILE_NAME = "SKILL.md";
 
+let resolvedSkillDir: string | undefined;
+
 const PROMPT_BASE = `
-You are running inside Taskflow application that orchestrates ai agent and terminal sessions based on tasks and projects. Use taskflow-cli to interact with host app data layer when needed. Any user mention of tasks, projects and flows is more likely to refer to taskflow cli than to your internal tools.`;
+You are running inside Taskflow application that orchestrates ai agents and terminal sessions based on tasks and projects. Use taskflow-cli to interact with host app data layer when needed. Any user mention of tasks, projects, flows, actions, schedules, sessions and agents is more likely to refer to taskflow cli than to your internal tools. You may need to read referenced docs to get full list of commands.\n
+Project is usually a repo but can be a plain folder.
+Task is self explanatory. Tasks can be executed in worktrees.
+Action is a prefedined prompt with various agent settings.
+Flow is a set of Actions executed one after another.
+Session is a cli process running an agent.
+Schedule is a recurring cli process running an agent.`;
 
 const PROMPT_TASK_SCOPE = `
 This session is scoped to a specific task.
@@ -22,19 +53,20 @@ const PROMPT_PROJECT_SCOPE = `
 This session is scoped to a project, not a specific task.`;
 
 const PROMPT_FLOW = `
-This session is scoped to a flow step. Expect instructions that imply or specify taskflow-cli usage.`;
+This session is scoped to a flow step. Expect instructions that imply or specify flow context commands.`;
 
 export const PROMPT_AUTONOMOUS =
     "Do not ask clarifying questions. Do not ask for confirmation. Make reasonable assumptions and proceed autonomously. If something is ambiguous, choose the most likely interpretation and act on it.";
 
 export function buildSystemPrompt(isProjectScope: boolean, isFlowScope?: boolean): string {
+    const skill = resolvedSkillDir
+        ? resolveSkillReferences(skillMarkdown, resolvedSkillDir)
+        : skillMarkdown;
     const scopeBlock = isProjectScope ? PROMPT_PROJECT_SCOPE : PROMPT_TASK_SCOPE;
     const flowBlock = isFlowScope ? `\n${PROMPT_FLOW}` : "";
-    return `${PROMPT_BASE}\n${skillMarkdown}\n${scopeBlock}${flowBlock}`;
+    return `${PROMPT_BASE}\n${skill}\n${scopeBlock}${flowBlock}`;
 }
 
-/** @deprecated Use buildSystemPrompt() instead. Kept for tests that assert on common content. */
-export const INTERNAL_AGENT_SYSTEM_PROMPT = buildSystemPrompt(false);
 
 function escapeTomlBasicString(value: string): string {
     return value
@@ -47,20 +79,44 @@ function escapeTomlBasicString(value: string): string {
         .replaceAll('"', '\\"');
 }
 
+function resolveSkillReferences(markdown: string, skillDir: string): string {
+    return markdown.replace(/^@(taskflow-cli-[\w-]+\.md)$/gm, (_match, filename: string) => {
+        return join(skillDir, filename);
+    });
+}
+
 export async function ensureInternalAgentSkillFile(baseDir: string): Promise<string> {
-    const writeSkillFile = async (rootDir: string): Promise<string> => {
+    const writeSkillFiles = async (rootDir: string): Promise<string> => {
         const skillDir = join(rootDir, SKILL_DIR_NAME);
         const skillPath = join(skillDir, SKILL_FILE_NAME);
         await mkdir(skillDir, { recursive: true });
-        await writeFile(skillPath, skillMarkdown, "utf8");
+
+        // Write each split command file
+        const writeOps = Object.entries(COMMAND_FILES).map(([filename, content]) =>
+            writeFile(join(skillDir, filename), content, "utf8"),
+        );
+
+        // Write main skill file with resolved absolute paths
+        const resolved = resolveSkillReferences(skillMarkdown, skillDir);
+        writeOps.push(writeFile(skillPath, resolved, "utf8"));
+
+        await Promise.all(writeOps);
+        resolvedSkillDir = skillDir;
         return skillPath;
     };
 
     try {
-        return await writeSkillFile(baseDir);
+        return await writeSkillFiles(baseDir);
     } catch {
-        return writeSkillFile(join(tmpdir(), "taskflow-agent-skills"));
+        return writeSkillFiles(join(tmpdir(), "taskflow-agent-skills"));
     }
+}
+
+export function getResolvedCliHelp(): string {
+    return skillMarkdown.replace(
+        /^@(taskflow-cli-[\w-]+\.md)$/gm,
+        (_match, filename: string) => COMMAND_FILES[filename] ?? filename,
+    );
 }
 
 export async function ensureCliScript(binDir: string): Promise<void> {
@@ -128,6 +184,8 @@ export function buildAgentLaunchSpec(
             command: "claude",
             args: [
                 ...optionArgs,
+                "--allowedTools",
+                `Read(/${dirname(skillPath)}/**)`,
                 "--allowedTools",
                 "Bash(taskflow-cli*)",
                 "--append-system-prompt",
