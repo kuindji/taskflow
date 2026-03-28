@@ -39,7 +39,12 @@ const DEFAULT_CODEX = {
     approvalPolicy: "on-request" as const,
     fullAuto: false,
 };
-const DEFAULT_OPENCODE = { defaultModel: "", defaultAgent: "", defaultVariant: "", autoApprove: false };
+const DEFAULT_OPENCODE = {
+    defaultModel: "",
+    defaultAgent: "",
+    defaultVariant: "",
+    autoApprove: false,
+};
 const DEFAULT_GEMINI = {
     defaultModel: "",
     approvalMode: "default" as const,

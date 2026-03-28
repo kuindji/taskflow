@@ -43,7 +43,8 @@ const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "gemini", "cur
 
 // Strip ANSI escape codes from terminal output
 function stripAnsi(str: string): string {
-    return str.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+    const ESC = String.fromCharCode(0x1b);
+    return str.replace(new RegExp(ESC + "\\[[0-?]*[ -/]*[@-~]", "g"), "");
 }
 
 export async function fetchCursorModels(): Promise<CursorModel[]> {

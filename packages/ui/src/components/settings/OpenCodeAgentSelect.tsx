@@ -125,9 +125,7 @@ function OpenCodeAgentSelect({ value, onChange }: OpenCodeAgentSelectProps) {
                                     key={a.name}
                                     type="button"
                                     className={`hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-left text-sm outline-hidden ${
-                                        a.name === value
-                                            ? "bg-accent text-accent-foreground"
-                                            : ""
+                                        a.name === value ? "bg-accent text-accent-foreground" : ""
                                     }`}
                                     onClick={() => handleSelect(a.name)}>
                                     <span className="truncate">

@@ -31,7 +31,6 @@ import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailabi
 import { useRemoteAgentStatus } from "@/hooks/useRemoteAgentStatus";
 import { GeneralSection } from "./sections/GeneralSection";
 import { DefaultsSection } from "./sections/DefaultsSection";
-import { AgentSection } from "./sections/AgentSection";
 import { CodexSection } from "./sections/CodexSection";
 import { GeminiSection } from "./sections/GeminiSection";
 import { OpenCodeSection } from "./sections/OpenCodeSection";

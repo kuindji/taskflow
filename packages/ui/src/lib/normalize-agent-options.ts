@@ -19,8 +19,7 @@ function normalizeAgentOptions(
             if (agentOptions.type !== "claude") return undefined;
             return {
                 type: "claude",
-                dangerouslySkipPermissions:
-                    agentOptions.dangerouslySkipPermissions || undefined,
+                dangerouslySkipPermissions: agentOptions.dangerouslySkipPermissions || undefined,
                 permissionMode: agentOptions.permissionMode,
                 model: agentOptions.model,
                 effort: agentOptions.effort,
