@@ -1,5 +1,11 @@
 import { MSG } from "@taskflow/shared";
-import type { AgentLaunchOptions, AgentType, AppSettings, SessionRef, WsEvent } from "@taskflow/shared";
+import type {
+    AgentLaunchOptions,
+    AgentType,
+    AppSettings,
+    SessionRef,
+    WsEvent,
+} from "@taskflow/shared";
 import type { PtyManager } from "./pty-manager";
 import type { TaskStore } from "./task-store";
 import type { SettingsStore } from "./settings-store";
@@ -137,7 +143,15 @@ function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
 }
 
 function createSessionLifecycle(deps: SessionLifecycleDeps) {
-    const { ptyManager, taskStore, settingsStore, broadcast, getPort, detectedEditors, trayStateTracker } = deps;
+    const {
+        ptyManager,
+        taskStore,
+        settingsStore,
+        broadcast,
+        getPort,
+        detectedEditors,
+        trayStateTracker,
+    } = deps;
 
     async function removeSessionFromOwner(sessionId: string, owner?: SessionOwner): Promise<void> {
         const targetTask = owner?.taskId ? await taskStore.getTask(owner.taskId) : null;
