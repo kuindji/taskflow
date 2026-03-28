@@ -29,8 +29,6 @@ import {
     DropdownMenuSubContent,
     DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AgentOptionsPanel } from "./AgentOptionsPanel";
 import { AgentOptionsDialog } from "./AgentOptionsDialog";
 import { RunMenuItems } from "@/components/shared/RunMenuItems";
 import type { MenuComponents } from "@/components/shared/RunMenuItems";
@@ -104,8 +102,8 @@ function AgentDropdownMenu({
 }: AgentDropdownMenuProps) {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
-    const [openAgentPopover, setOpenAgentPopover] = useState<AgentType | null>(null);
     const [runOptionsAgent, setRunOptionsAgent] = useState<AgentType | null>(null);
+    const [runOptionsContext, setRunOptionsContext] = useState<"newTab" | "runTab" | null>(null);
     const agents = useAgentAvailability();
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
@@ -175,7 +173,10 @@ function AgentDropdownMenu({
             onStartFlow,
             onRunAction,
             onRunTab: (type) => onRunTab(type),
-            onRunTabWithOptions: (type) => setRunOptionsAgent(type),
+            onRunTabWithOptions: (type) => {
+                setRunOptionsAgent(type);
+                setRunOptionsContext("runTab");
+            },
         });
 
         await showNativeMenuAndRun(items, actions, getElementMenuPosition(target, "start"));
@@ -290,22 +291,16 @@ function AgentDropdownMenu({
                                                     {label}
                                                     {!available ? " (not installed)" : ""}
                                                 </DropdownMenuItem>
-                                                <DropdownMenuSub>
-                                                    <DropdownMenuSubTrigger disabled={!available}>
+                                                {available && (
+                                                    <DropdownMenuItem
+                                                        onClick={() => {
+                                                            setRunOptionsAgent(agentType);
+                                                            setRunOptionsContext("runTab");
+                                                        }}>
                                                         <Icon className="mr-2 h-4 w-4" />
-                                                        {label} with options
-                                                    </DropdownMenuSubTrigger>
-                                                    {available && (
-                                                        <DropdownMenuSubContent className="p-0">
-                                                            <AgentOptionsPanel
-                                                                agentType={agentType}
-                                                                onRun={(options) =>
-                                                                    onRunTab(agentType, options)
-                                                                }
-                                                            />
-                                                        </DropdownMenuSubContent>
-                                                    )}
-                                                </DropdownMenuSub>
+                                                        {label} with options...
+                                                    </DropdownMenuItem>
+                                                )}
                                             </Fragment>
                                         );
                                     })}
@@ -322,47 +317,30 @@ function AgentDropdownMenu({
                         const Icon = meta.icon;
                         const label = AGENT_DISPLAY_NAMES[agentType];
                         return (
-                            <Popover
+                            <Button
                                 key={agentType}
-                                open={openAgentPopover === agentType}
-                                onOpenChange={(open) =>
-                                    setOpenAgentPopover(open ? agentType : null)
-                                }>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon-xs"
-                                        className={meta.colorClass}
-                                        disabled={!available}
-                                        onClick={(e) => {
-                                            e.preventDefault();
-                                            if (!available) return;
-                                            if (e.shiftKey) {
-                                                setOpenAgentPopover(agentType);
-                                            } else {
-                                                onNewTab(agentType);
-                                            }
-                                        }}
-                                        aria-label={`New ${label} session`}
-                                        tooltip={
-                                            available
-                                                ? `New ${label} session (Shift+click for options)`
-                                                : `${label} CLI not installed`
-                                        }
-                                        tooltipSide="bottom">
-                                        <Icon className="h-3.5 w-3.5" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-56 p-0">
-                                    <AgentOptionsPanel
-                                        agentType={agentType}
-                                        onRun={(options) => {
-                                            setOpenAgentPopover(null);
-                                            onNewTab(agentType, undefined, options);
-                                        }}
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                                variant="ghost"
+                                size="icon-xs"
+                                className={meta.colorClass}
+                                disabled={!available}
+                                onClick={(e) => {
+                                    if (!available) return;
+                                    if (e.shiftKey) {
+                                        setRunOptionsAgent(agentType);
+                                        setRunOptionsContext("newTab");
+                                    } else {
+                                        onNewTab(agentType);
+                                    }
+                                }}
+                                aria-label={`New ${label} session`}
+                                tooltip={
+                                    available
+                                        ? `New ${label} session (Shift+click for options)`
+                                        : `${label} CLI not installed`
+                                }
+                                tooltipSide="bottom">
+                                <Icon className="h-3.5 w-3.5" />
+                            </Button>
                         );
                     })}
                 </>
@@ -483,9 +461,18 @@ function AgentDropdownMenu({
                 }
                 agentType={runOptionsAgent}
                 onOpenChange={(open) => {
-                    if (!open) setRunOptionsAgent(null);
+                    if (!open) {
+                        setRunOptionsAgent(null);
+                        setRunOptionsContext(null);
+                    }
                 }}
-                onRun={(agentType, options) => onRunTab(agentType, options)}
+                onRun={(agentType, options) => {
+                    if (runOptionsContext === "newTab") {
+                        onNewTab(agentType, undefined, options);
+                    } else {
+                        onRunTab(agentType, options);
+                    }
+                }}
             />
         </>
     );
