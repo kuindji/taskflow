@@ -650,18 +650,14 @@ case "$cmd" in
           -H "Content-Type: application/json" \
           -d "{\"actionIndex\":$action_index}"
         ;;
-      run)
+      status)
         owner_id=$(resolve_owner_id) || exit 1
         flow_id="${1:-}"
         if [ -z "$flow_id" ]; then
-          echo "Usage: taskflow-cli flow run <flowId>" >&2
-          exit 1
+          curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id"
+        else
+          curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id/$flow_id"
         fi
-        curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id/$flow_id"
-        ;;
-      runs)
-        owner_id=$(resolve_owner_id) || exit 1
-        curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id"
         ;;
       get)
         flow_id="${1:-}"
@@ -1053,6 +1049,9 @@ case "$cmd" in
         agent_full_access=""
         agent_model=""
         agent_no_questions=""
+        agent_permission_mode=""
+        agent_effort=""
+        agent_skip_permissions=""
         while [ $# -gt 0 ]; do
           case "$1" in
             --prompt) agent_prompt="${2:-}"; shift 2 ;;
@@ -1060,6 +1059,9 @@ case "$cmd" in
             --label) agent_label="${2:-}"; shift 2 ;;
             --full-access) agent_full_access="true"; shift ;;
             --no-questions) agent_no_questions="true"; shift ;;
+            --dangerously-skip-permissions) agent_skip_permissions="true"; shift ;;
+            --permission-mode) agent_permission_mode="${2:-}"; shift 2 ;;
+            --effort) agent_effort="${2:-}"; shift 2 ;;
             --model) agent_model="${2:-}"; shift 2 ;;
             *) shift ;;
           esac
@@ -1078,43 +1080,53 @@ case "$cmd" in
         if [ -n "$agent_label" ]; then
           payload=$(printf '%s,"label":%s' "$payload" "$(json_string "$agent_label")")
         fi
-        # Build agentOptions if --full-access, --no-questions, or --model was provided
-        if [ -n "$agent_full_access" ] || [ -n "$agent_no_questions" ] || [ -n "$agent_model" ]; then
-          agent_opts=""
-          if [ -n "$agent_type" ]; then
-            agent_opts=$(printf '"type":%s' "$(json_string "$agent_type")")
-          fi
-          # Codex uses its own CLI flag names
-          if [ "$agent_type" = "codex" ]; then
-            if [ -n "$agent_full_access" ]; then
-              agent_opts=$(printf '%s,"fullAuto":true' "$agent_opts")
-            fi
-            if [ -n "$agent_no_questions" ]; then
-              agent_opts=$(printf '%s,"approvalPolicy":"never"' "$agent_opts")
-            fi
+        # Build agentOptions based on agent type
+        agent_opts=""
+        if [ -n "$agent_type" ]; then
+          agent_opts=$(printf '"type":%s' "$(json_string "$agent_type")")
+        fi
+        _append_opt() {
+          if [ -n "$agent_opts" ]; then
+            agent_opts=$(printf '%s,%s' "$agent_opts" "$1")
           else
-            if [ -n "$agent_full_access" ]; then
-              if [ -n "$agent_opts" ]; then
-                agent_opts=$(printf '%s,"fullAccess":true' "$agent_opts")
-              else
-                agent_opts='"fullAccess":true'
-              fi
-            fi
-            if [ -n "$agent_no_questions" ]; then
-              if [ -n "$agent_opts" ]; then
-                agent_opts=$(printf '%s,"dontAskQuestions":true' "$agent_opts")
-              else
-                agent_opts='"dontAskQuestions":true'
-              fi
-            fi
+            agent_opts="$1"
           fi
-          if [ -n "$agent_model" ]; then
-            if [ -n "$agent_opts" ]; then
-              agent_opts=$(printf '%s,"model":%s' "$agent_opts" "$(json_string "$agent_model")")
-            else
-              agent_opts=$(printf '"model":%s' "$(json_string "$agent_model")")
-            fi
+        }
+        if [ "$agent_type" = "claude" ]; then
+          # Claude uses its own CLI-specific fields
+          if [ -n "$agent_skip_permissions" ] || [ -n "$agent_full_access" ]; then
+            _append_opt '"dangerouslySkipPermissions":true'
           fi
+          if [ -n "$agent_permission_mode" ]; then
+            _append_opt "$(printf '"permissionMode":%s' "$(json_string "$agent_permission_mode")")"
+          elif [ -n "$agent_no_questions" ]; then
+            _append_opt '"permissionMode":"dontAsk"'
+          fi
+          if [ -n "$agent_effort" ]; then
+            _append_opt "$(printf '"effort":%s' "$(json_string "$agent_effort")")"
+          fi
+        elif [ "$agent_type" = "codex" ]; then
+          # Codex uses its own CLI flag names
+          if [ -n "$agent_full_access" ]; then
+            _append_opt '"fullAuto":true'
+          fi
+          if [ -n "$agent_no_questions" ]; then
+            _append_opt '"approvalPolicy":"never"'
+          fi
+        else
+          # Other agents use generic fullAccess/dontAskQuestions
+          if [ -n "$agent_full_access" ]; then
+            _append_opt '"fullAccess":true'
+          fi
+          if [ -n "$agent_no_questions" ]; then
+            _append_opt '"dontAskQuestions":true'
+          fi
+        fi
+        if [ -n "$agent_model" ]; then
+          _append_opt "$(printf '"model":%s' "$(json_string "$agent_model")")"
+        fi
+        # Only add agentOptions if we have more than just the type field
+        if [ -n "$agent_opts" ]; then
           payload=$(printf '%s,"agentOptions":{%s}' "$payload" "$agent_opts")
         fi
 
@@ -1251,37 +1263,12 @@ case "$cmd" in
     curl -sf "$TASKFLOW_API_URL/api/app-name"
     ;;
 
+  help|--help|-h)
+    curl -sf "$TASKFLOW_API_URL/api/cli-help"
+    ;;
+
   *)
-    echo "Usage: taskflow-cli [--task <id>] [--project-id <id>] <command>" >&2
-    echo "" >&2
-    echo "Global flags:" >&2
-    echo "  --task <id>                                   Set task ID for this invocation" >&2
-    echo "  --project-id <id>                             Set project ID for this invocation" >&2
-    echo "" >&2
-    echo "Commands:" >&2
-    echo "  task                                          Get task context and log" >&2
-    echo "  task list                                     List all tasks in the project" >&2
-    echo "  task list-archived                            List archived tasks" >&2
-    echo "  task create <desc> [--title t] [--worktree] [--init cmd]  Create a new task" >&2
-    echo "  task update [--title t] [--pin] [--unpin]     Update task fields" >&2
-    echo "  task archive                                  Archive the current task" >&2
-    echo "  task unarchive                                Unarchive the current task" >&2
-    echo "  task delete [--delete-worktree]               Delete the current task" >&2
-    echo "  task worktree --disable                       Disable worktree after merge" >&2
-    echo "  log <type> <message> [--hash h]               Log to task" >&2
-    echo "  browser <url> [--label l] [--project]         Open a browser tab" >&2
-    echo "  project <list|add|remove|update|fork>         Manage projects" >&2
-    echo "  session <rename|snapshot|close>               Manage sessions" >&2
-    echo "  action <list|get|create|update|delete|run>     Manage and run actions" >&2
-    echo "  action complete                               Signal flow action completion" >&2
-    echo "  flow <list|get|create|update|delete|...>      Manage and run flows" >&2
-    echo "  artifact <save|list|get>                      Manage flow artifacts" >&2
-    echo "  schedule <list|create|update|delete|trigger>  Manage schedules" >&2
-    echo "  agent <list|run>                              Manage agents" >&2
-    echo "  notify <message>                              Send a desktop notification" >&2
-    echo "  settings get                                  Get current settings" >&2
-    echo "  app-name                                     Get the application display name" >&2
-    echo "  system <info|shells|runtimes>                 System information" >&2
+    curl -sf "$TASKFLOW_API_URL/api/cli-help" >&2
     exit 1
     ;;
 esac

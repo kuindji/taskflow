@@ -6,7 +6,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { updateCollapsedProjectIds, useUIStore } from "@/stores/ui-store";
+import { SIDEBAR_MAX, updateCollapsedProjectIds, useUIStore } from "@/stores/ui-store";
 import { useWsStatus } from "@/providers/ws-context";
 import { useSidebarNavigation } from "./hooks/useSidebarNavigation";
 import { ProjectGroup } from "./ProjectGroup";
@@ -18,7 +18,7 @@ import { useSidebarData } from "./hooks/useSidebarData";
 import { UpdateDialog } from "./UpdateDialog";
 import type { UpdateStatus } from "./UpdateDialog";
 import { SidebarToolbar } from "./SidebarToolbar";
-import { Bell, Monitor, Plus } from "lucide-react";
+import { Bell, FolderPlus, Monitor, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
 
@@ -27,6 +27,8 @@ export function TaskSidebar() {
     const { addProject } = useProjectStore();
     const { activeTaskId, setActiveTask } = useTaskStore();
     const setShowArchive = useTaskStore((s) => s.setShowArchive);
+    const sidebarWidth = useUIStore((s) => s.sidebarWidth);
+    const narrowSidebar = sidebarWidth <= Math.round(SIDEBAR_MAX * 0.55);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
     const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
@@ -221,14 +223,22 @@ export function TaskSidebar() {
                         </span>
                     ) : (
                         <>
-                            <NewTaskControl tooltipSide="bottom" />
+                            <NewTaskControl tooltipSide="bottom" iconOnly={narrowSidebar} />
                             <Button
                                 variant="ghost"
-                                size="xs"
+                                size={narrowSidebar ? "icon-xs" : "xs"}
                                 onClick={() => handleOpenProjectDialog()}
+                                tooltip={narrowSidebar ? "New project" : undefined}
+                                tooltipSide="bottom"
                                 className="[-webkit-app-region:no-drag]">
-                                <Plus className="h-4 w-4" />
-                                Project
+                                {narrowSidebar ? (
+                                    <FolderPlus className="h-4 w-4" />
+                                ) : (
+                                    <>
+                                        <Plus className="h-4 w-4" />
+                                        Project
+                                    </>
+                                )}
                             </Button>
                         </>
                     )}

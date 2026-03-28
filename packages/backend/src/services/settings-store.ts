@@ -51,8 +51,9 @@ const DEFAULTS: AppSettings = {
     },
     claude: {
         defaultModel: "default",
-        fullAccess: false,
-        dontAskQuestions: false,
+        defaultEffort: "default",
+        dangerouslySkipPermissions: false,
+        permissionMode: "default",
     },
     codex: {
         defaultModel: "",

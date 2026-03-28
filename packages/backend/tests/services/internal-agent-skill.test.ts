@@ -6,7 +6,7 @@ import {
     PROMPT_AUTONOMOUS,
 } from "../../src/services/internal-agent-skill";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
-import { join } from "path";
+import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { spawnSync } from "child_process";
 
@@ -82,6 +82,8 @@ describe("internal agent skill", () => {
 
         expect(spec.command).toBe("claude");
         expect(spec.args).toEqual([
+            "--allowedTools",
+            `Read(/${dirname("/tmp/ignored/SKILL.md")}/**)`,
             "--allowedTools",
             "Bash(taskflow-cli*)",
             "--append-system-prompt",
@@ -189,14 +191,74 @@ printf '{}'
         });
     });
 
-    it("dontAskQuestions forces --dangerously-skip-permissions and --permission-mode dontAsk for Claude", () => {
+    it("dangerouslySkipPermissions passes --dangerously-skip-permissions for Claude", () => {
         const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
             type: "claude",
-            dontAskQuestions: true,
+            dangerouslySkipPermissions: true,
+        });
+        expect(spec.args).toContain("--dangerously-skip-permissions");
+    });
+
+    it("permissionMode passes --permission-mode for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            permissionMode: "dontAsk",
+        });
+        expect(spec.args).toContain("--permission-mode");
+        expect(spec.args).toContain("dontAsk");
+        expect(spec.args).not.toContain("--dangerously-skip-permissions");
+    });
+
+    it("permissionMode auto passes --permission-mode auto for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            permissionMode: "auto",
+        });
+        expect(spec.args).toContain("--permission-mode");
+        expect(spec.args).toContain("auto");
+    });
+
+    it("permissionMode default does not pass --permission-mode for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            permissionMode: "default",
+        });
+        expect(spec.args).not.toContain("--permission-mode");
+    });
+
+    it("effort passes --effort for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            effort: "high",
+        });
+        expect(spec.args).toContain("--effort");
+        expect(spec.args).toContain("high");
+    });
+
+    it("passes full model name for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            model: "claude-sonnet-4-6",
+        });
+        expect(spec.args).toContain("--model");
+        expect(spec.args).toContain("claude-sonnet-4-6");
+    });
+
+    it("combines all Claude-specific flags", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            dangerouslySkipPermissions: true,
+            permissionMode: "auto",
+            model: "opus",
+            effort: "max",
         });
         expect(spec.args).toContain("--dangerously-skip-permissions");
         expect(spec.args).toContain("--permission-mode");
-        expect(spec.args).toContain("dontAsk");
+        expect(spec.args).toContain("auto");
+        expect(spec.args).toContain("--model");
+        expect(spec.args).toContain("opus");
+        expect(spec.args).toContain("--effort");
+        expect(spec.args).toContain("max");
     });
 
     it("fullAuto passes --full-auto for Codex", () => {

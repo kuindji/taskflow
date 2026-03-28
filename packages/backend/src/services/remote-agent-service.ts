@@ -80,8 +80,7 @@ class RemoteAgentService {
             sessionName: appName,
             agentOptions: {
                 type: "claude",
-                fullAccess: true,
-                dontAskQuestions: true,
+                dangerouslySkipPermissions: true,
             },
             systemPrompt: REMOTE_AGENT_SYSTEM_PROMPT,
             prompt: "/remote-control",
