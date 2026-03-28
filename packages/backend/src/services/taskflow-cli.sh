@@ -650,18 +650,14 @@ case "$cmd" in
           -H "Content-Type: application/json" \
           -d "{\"actionIndex\":$action_index}"
         ;;
-      run)
+      status)
         owner_id=$(resolve_owner_id) || exit 1
         flow_id="${1:-}"
         if [ -z "$flow_id" ]; then
-          echo "Usage: taskflow-cli flow run <flowId>" >&2
-          exit 1
+          curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id"
+        else
+          curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id/$flow_id"
         fi
-        curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id/$flow_id"
-        ;;
-      runs)
-        owner_id=$(resolve_owner_id) || exit 1
-        curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id"
         ;;
       get)
         flow_id="${1:-}"
@@ -1241,37 +1237,12 @@ case "$cmd" in
     curl -sf "$TASKFLOW_API_URL/api/app-name"
     ;;
 
+  help|--help|-h)
+    curl -sf "$TASKFLOW_API_URL/api/cli-help"
+    ;;
+
   *)
-    echo "Usage: taskflow-cli [--task <id>] [--project-id <id>] <command>" >&2
-    echo "" >&2
-    echo "Global flags:" >&2
-    echo "  --task <id>                                   Set task ID for this invocation" >&2
-    echo "  --project-id <id>                             Set project ID for this invocation" >&2
-    echo "" >&2
-    echo "Commands:" >&2
-    echo "  task                                          Get task context and log" >&2
-    echo "  task list                                     List all tasks in the project" >&2
-    echo "  task list-archived                            List archived tasks" >&2
-    echo "  task create <desc> [--title t] [--worktree] [--init cmd]  Create a new task" >&2
-    echo "  task update [--title t] [--pin] [--unpin]     Update task fields" >&2
-    echo "  task archive                                  Archive the current task" >&2
-    echo "  task unarchive                                Unarchive the current task" >&2
-    echo "  task delete [--delete-worktree]               Delete the current task" >&2
-    echo "  task worktree --disable                       Disable worktree after merge" >&2
-    echo "  log <type> <message> [--hash h]               Log to task" >&2
-    echo "  browser <url> [--label l] [--project]         Open a browser tab" >&2
-    echo "  project <list|add|remove|update|fork>         Manage projects" >&2
-    echo "  session <rename|snapshot|close>               Manage sessions" >&2
-    echo "  action <list|get|create|update|delete|run>     Manage and run actions" >&2
-    echo "  action complete                               Signal flow action completion" >&2
-    echo "  flow <list|get|create|update|delete|...>      Manage and run flows" >&2
-    echo "  artifact <save|list|get>                      Manage flow artifacts" >&2
-    echo "  schedule <list|create|update|delete|trigger>  Manage schedules" >&2
-    echo "  agent <list|run>                              Manage agents" >&2
-    echo "  notify <message>                              Send a desktop notification" >&2
-    echo "  settings get                                  Get current settings" >&2
-    echo "  app-name                                     Get the application display name" >&2
-    echo "  system <info|shells|runtimes>                 System information" >&2
+    curl -sf "$TASKFLOW_API_URL/api/cli-help" >&2
     exit 1
     ;;
 esac
