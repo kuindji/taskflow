@@ -47,6 +47,9 @@ function InlineActionEditor({
                 <SelectContent>
                     <SelectItem value="claude">Claude</SelectItem>
                     <SelectItem value="codex">Codex</SelectItem>
+                    <SelectItem value="opencode">OpenCode</SelectItem>
+                    <SelectItem value="gemini">Gemini</SelectItem>
+                    <SelectItem value="cursor">Cursor</SelectItem>
                     <SelectItem value="shell">Shell</SelectItem>
                 </SelectContent>
             </Select>
@@ -57,7 +60,7 @@ function InlineActionEditor({
                 className="min-h-[120px] text-sm"
                 dialogTitle="Inline Action Prompt"
             />
-            {(inline.sessionType === "claude" || inline.sessionType === "codex") && (
+            {inline.sessionType !== "shell" && (
                 <div className="border-border rounded-md border p-1">
                     <AgentOptionsPanel
                         key={`${entryId}-${inline.sessionType}`}

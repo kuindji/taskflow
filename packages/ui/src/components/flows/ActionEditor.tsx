@@ -218,6 +218,9 @@ function ActionEditor({
                             <SelectContent>
                                 <SelectItem value="claude">Claude</SelectItem>
                                 <SelectItem value="codex">Codex</SelectItem>
+                                <SelectItem value="opencode">OpenCode</SelectItem>
+                                <SelectItem value="gemini">Gemini</SelectItem>
+                                <SelectItem value="cursor">Cursor</SelectItem>
                                 <SelectItem value="shell">Shell</SelectItem>
                             </SelectContent>
                         </Select>
@@ -250,7 +253,7 @@ function ActionEditor({
                             dialogTitle="Action Prompt"
                         />
                     </div>
-                    {(sessionType === "claude" || sessionType === "codex") && (
+                    {sessionType !== "shell" && (
                         <div className="border-border rounded-md border p-1">
                             <AgentOptionsPanel
                                 key={`${action?.id ?? "new-action"}-${sessionType}`}
