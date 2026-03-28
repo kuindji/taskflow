@@ -35,9 +35,9 @@ const DEFAULT_CLAUDE = {
 const DEFAULT_CODEX = { fullAccess: false, dontAskQuestions: false };
 const DEFAULT_OPENCODE = { defaultModel: "", fullAccess: false, dontAskQuestions: false };
 const DEFAULT_GEMINI = {
-    defaultModel: "default" as const,
-    fullAccess: false,
-    dontAskQuestions: false,
+    defaultModel: "",
+    approvalMode: "default" as const,
+    sandbox: false,
 };
 const DEFAULT_CURSOR = { defaultModel: "default", fullAccess: false, dontAskQuestions: false };
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };

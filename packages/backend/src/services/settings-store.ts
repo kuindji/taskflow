@@ -64,9 +64,9 @@ const DEFAULTS: AppSettings = {
         dontAskQuestions: false,
     },
     gemini: {
-        defaultModel: "default",
-        fullAccess: false,
-        dontAskQuestions: false,
+        defaultModel: "",
+        approvalMode: "default",
+        sandbox: false,
     },
     cursor: {
         defaultModel: "default",

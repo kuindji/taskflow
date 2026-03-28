@@ -14,37 +14,45 @@ function normalizeAgentOptions(
     if (!agentType || agentType === "shell") return undefined;
     if (!agentOptions || agentOptions.type !== agentType) return undefined;
 
-    const base = {
-        fullAccess: agentOptions.fullAccess || undefined,
-        dontAskQuestions: agentOptions.dontAskQuestions || undefined,
-    };
-
     switch (agentType) {
         case "claude":
+            if (agentOptions.type !== "claude") return undefined;
             return {
-                ...base,
                 type: "claude",
-                model: agentOptions.type === "claude" ? agentOptions.model : undefined,
+                fullAccess: agentOptions.fullAccess || undefined,
+                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
+                model: agentOptions.model,
             };
         case "codex":
-            return { ...base, type: "codex" };
-        case "opencode":
+            if (agentOptions.type !== "codex") return undefined;
             return {
-                ...base,
+                type: "codex",
+                fullAccess: agentOptions.fullAccess || undefined,
+                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
+            };
+        case "opencode":
+            if (agentOptions.type !== "opencode") return undefined;
+            return {
                 type: "opencode",
-                model: agentOptions.type === "opencode" ? agentOptions.model : undefined,
+                fullAccess: agentOptions.fullAccess || undefined,
+                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
+                model: agentOptions.model,
             };
         case "gemini":
+            if (agentOptions.type !== "gemini") return undefined;
             return {
-                ...base,
                 type: "gemini",
-                model: agentOptions.type === "gemini" ? agentOptions.model : undefined,
+                approvalMode: agentOptions.approvalMode,
+                sandbox: agentOptions.sandbox,
+                model: agentOptions.model,
             };
         case "cursor":
+            if (agentOptions.type !== "cursor") return undefined;
             return {
-                ...base,
                 type: "cursor",
-                model: agentOptions.type === "cursor" ? agentOptions.model : undefined,
+                fullAccess: agentOptions.fullAccess || undefined,
+                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
+                model: agentOptions.model,
             };
         default:
             return undefined;

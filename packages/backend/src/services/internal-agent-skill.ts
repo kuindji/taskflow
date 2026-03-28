@@ -162,7 +162,9 @@ export function buildAgentLaunchSpec(
     if (type === "gemini") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "gemini") {
-            if (agentOptions.fullAccess || agentOptions.dontAskQuestions) optionArgs.push("--yolo");
+            if (agentOptions.approvalMode && agentOptions.approvalMode !== "default")
+                optionArgs.push("--approval-mode", agentOptions.approvalMode);
+            if (agentOptions.sandbox) optionArgs.push("--sandbox");
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
         }
         return {

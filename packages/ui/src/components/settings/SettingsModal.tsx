@@ -31,6 +31,7 @@ import { useRemoteAgentStatus } from "@/hooks/useRemoteAgentStatus";
 import { GeneralSection } from "./sections/GeneralSection";
 import { DefaultsSection } from "./sections/DefaultsSection";
 import { AgentSection } from "./sections/AgentSection";
+import { GeminiSection } from "./sections/GeminiSection";
 import { RemoteSection } from "./sections/RemoteSection";
 
 type SectionKey =
@@ -349,29 +350,24 @@ function SettingsModal() {
     );
 
     const handleGeminiModel = useCallback(
-        (defaultModel: string) => {
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            void updateSettings({ gemini: { defaultModel: e.target.value } });
+        },
+        [updateSettings],
+    );
+
+    const handleGeminiApprovalMode = useCallback(
+        (approvalMode: string) => {
             void updateSettings({
-                gemini: { defaultModel: defaultModel as GeminiSettings["defaultModel"] },
+                gemini: { approvalMode: approvalMode as GeminiSettings["approvalMode"] },
             });
         },
         [updateSettings],
     );
 
-    const handleGeminiFullAccess = useCallback(
-        (fullAccess: boolean) => {
-            void updateSettings({ gemini: { fullAccess } });
-        },
-        [updateSettings],
-    );
-
-    const handleGeminiDontAsk = useCallback(
-        (dontAskQuestions: boolean) => {
-            void updateSettings({
-                gemini: {
-                    dontAskQuestions,
-                    ...(dontAskQuestions ? { fullAccess: true } : {}),
-                },
-            });
+    const handleGeminiSandbox = useCallback(
+        (sandbox: boolean) => {
+            void updateSettings({ gemini: { sandbox } });
         },
         [updateSettings],
     );
@@ -525,22 +521,11 @@ function SettingsModal() {
                         )}
 
                         {section === "gemini" && (
-                            <AgentSection
-                                agentKey="gemini"
-                                fullAccess={settings.gemini.fullAccess}
-                                dontAskQuestions={settings.gemini.dontAskQuestions}
-                                onFullAccess={handleGeminiFullAccess}
-                                onDontAsk={handleGeminiDontAsk}
-                                modelValue={settings.gemini.defaultModel}
-                                modelOptions={[
-                                    { value: "default", label: "Default" },
-                                    { value: "auto", label: "Auto" },
-                                    { value: "pro", label: "Pro" },
-                                    { value: "flash", label: "Flash" },
-                                    { value: "flash-lite", label: "Flash Lite" },
-                                ]}
+                            <GeminiSection
+                                settings={settings.gemini}
                                 onModelChange={handleGeminiModel}
-                                fullAccessHint="Auto-approve all actions by default"
+                                onApprovalModeChange={handleGeminiApprovalMode}
+                                onSandboxChange={handleGeminiSandbox}
                             />
                         )}
 
