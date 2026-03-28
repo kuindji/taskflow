@@ -59,6 +59,7 @@ function isAutonomousAgent(
 ): boolean {
     if (!opts || type === "claude") return false;
     if (opts.type === "gemini") return opts.approvalMode === "yolo";
+    if (opts.type === "codex") return opts.approvalPolicy === "never";
     return "dontAskQuestions" in opts && !!opts.dontAskQuestions;
 }
 

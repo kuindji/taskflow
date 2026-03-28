@@ -8,11 +8,11 @@ import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { usePanelActivation } from "@/hooks/usePanelActivation";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
-import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Toolbar } from "@/components/ui/toolbar";
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { EditedFilesList } from "@/components/panels/EditedFilesList";
 import { LinkedProjectsSection } from "@/components/panels/LinkedProjectsSection";
 
@@ -423,13 +423,21 @@ function TaskInfoPanel() {
                             <span className="text-muted-foreground text-xs font-medium">
                                 Branch
                             </span>
-                            <div className="mt-1 flex items-center gap-1">
-                                <Badge variant="outline" colorScheme="active">
-                                    {task.worktree.branch}
-                                </Badge>
+                            <div className="mt-1 flex min-w-0 items-center gap-1">
+                                <div className="border-border flex min-w-0 flex-1 items-center rounded-md border py-0.5 pr-1 pl-2">
+                                    <TruncatedText
+                                        as="div"
+                                        tooltip
+                                        tooltipSide="bottom"
+                                        tooltipContent={task.worktree.branch}
+                                        className="flex-1 text-xs">
+                                        {task.worktree.branch}
+                                    </TruncatedText>
+                                </div>
                                 <CopyButton
                                     value={task.worktree.branch}
                                     tooltip="Copy branch name"
+                                    className="shrink-0"
                                 />
                             </div>
                         </div>

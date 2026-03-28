@@ -2,7 +2,6 @@ import type { ApiRouter } from "../router";
 import type { TaskStore } from "../../services/task-store";
 import type { FlowStore } from "../../services/flow-store";
 import type { FlowRunner } from "../../services/flow-runner";
-import type { SchedulerService } from "../../services/scheduler-service";
 import type {
     ActionDefinition,
     AgentAvailability,
@@ -20,22 +19,13 @@ interface FlowRouteDeps {
     flowRunner: FlowRunner;
     broadcast: (event: WsEvent) => void;
     agents: AgentAvailability[];
-    schedulerService: SchedulerService;
     sessionLifecycle: {
         createSession: (opts: CreateSessionOpts) => Promise<string>;
     };
 }
 
 function registerFlowRoutes(deps: FlowRouteDeps): void {
-    const {
-        apiRouter,
-        taskStore,
-        flowStore,
-        flowRunner,
-        agents,
-        sessionLifecycle,
-        schedulerService,
-    } = deps;
+    const { apiRouter, taskStore, flowStore, flowRunner, agents, sessionLifecycle } = deps;
 
     const availableAgentTypes = new Set(agents.filter((a) => a.available).map((a) => a.type));
 
@@ -65,30 +55,6 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
 
         try {
             await flowRunner.handleActionComplete(ownerId, flowId, sessionId);
-            return jsonResponse({ success: true });
-        } catch (err) {
-            const message = err instanceof Error ? err.message : "Unknown error";
-            return errorResponse(message, 500);
-        }
-    });
-
-    // --- Schedule completion ---
-
-    apiRouter.register("POST", "/api/schedules/complete", async (req) => {
-        let body: Record<string, unknown>;
-        try {
-            body = (await req.json()) as Record<string, unknown>;
-        } catch {
-            return errorResponse("Invalid JSON body", 400);
-        }
-
-        const { sessionId } = body;
-        if (typeof sessionId !== "string") {
-            return errorResponse("sessionId is required as a string", 400);
-        }
-
-        try {
-            await schedulerService.handleComplete(sessionId);
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";

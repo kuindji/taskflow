@@ -1,4 +1,10 @@
-import type { AgentType } from "./agent";
+import type {
+    AgentType,
+    ClaudePermissionMode,
+    ClaudeEffortLevel,
+    CodexSandboxMode,
+    CodexApprovalPolicy,
+} from "./agent";
 
 export interface GeneralSettings {
     fontFamily: string;
@@ -9,14 +15,17 @@ export interface GeneralSettings {
 }
 
 export interface ClaudeSettings {
-    defaultModel: "default" | "opus" | "sonnet" | "haiku";
-    fullAccess: boolean;
-    dontAskQuestions: boolean;
+    defaultModel: string;
+    defaultEffort: ClaudeEffortLevel | "default";
+    dangerouslySkipPermissions: boolean;
+    permissionMode: ClaudePermissionMode | "default";
 }
 
 export interface CodexSettings {
-    fullAccess: boolean;
-    dontAskQuestions: boolean;
+    defaultModel: string;
+    sandbox: CodexSandboxMode;
+    approvalPolicy: CodexApprovalPolicy;
+    fullAuto: boolean;
 }
 
 export interface OpenCodeSettings {

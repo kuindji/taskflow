@@ -19,16 +19,20 @@ function normalizeAgentOptions(
             if (agentOptions.type !== "claude") return undefined;
             return {
                 type: "claude",
-                fullAccess: agentOptions.fullAccess || undefined,
-                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
+                dangerouslySkipPermissions:
+                    agentOptions.dangerouslySkipPermissions || undefined,
+                permissionMode: agentOptions.permissionMode,
                 model: agentOptions.model,
+                effort: agentOptions.effort,
             };
         case "codex":
             if (agentOptions.type !== "codex") return undefined;
             return {
                 type: "codex",
-                fullAccess: agentOptions.fullAccess || undefined,
-                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
+                model: agentOptions.model,
+                sandbox: agentOptions.sandbox,
+                approvalPolicy: agentOptions.approvalPolicy,
+                fullAuto: agentOptions.fullAuto || undefined,
             };
         case "opencode":
             if (agentOptions.type !== "opencode") return undefined;

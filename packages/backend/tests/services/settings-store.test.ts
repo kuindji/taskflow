@@ -29,10 +29,16 @@ const DEFAULT_LAYOUT = {
 
 const DEFAULT_CLAUDE = {
     defaultModel: "default" as const,
-    fullAccess: false,
-    dontAskQuestions: false,
+    defaultEffort: "default" as const,
+    dangerouslySkipPermissions: false,
+    permissionMode: "default" as const,
 };
-const DEFAULT_CODEX = { fullAccess: false, dontAskQuestions: false };
+const DEFAULT_CODEX = {
+    defaultModel: "",
+    sandbox: "workspace-write" as const,
+    approvalPolicy: "on-request" as const,
+    fullAuto: false,
+};
 const DEFAULT_OPENCODE = { defaultModel: "", fullAccess: false, dontAskQuestions: false };
 const DEFAULT_GEMINI = {
     defaultModel: "",
