@@ -21,8 +21,9 @@ export interface CodexSettings {
 
 export interface OpenCodeSettings {
     defaultModel: string;
-    fullAccess: boolean;
-    dontAskQuestions: boolean;
+    defaultAgent: string;
+    defaultVariant: string;
+    autoApprove: boolean;
 }
 
 export interface GeminiSettings {

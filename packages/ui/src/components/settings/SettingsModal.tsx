@@ -31,6 +31,7 @@ import { useRemoteAgentStatus } from "@/hooks/useRemoteAgentStatus";
 import { GeneralSection } from "./sections/GeneralSection";
 import { DefaultsSection } from "./sections/DefaultsSection";
 import { AgentSection } from "./sections/AgentSection";
+import { OpenCodeSection } from "./sections/OpenCodeSection";
 import { RemoteSection } from "./sections/RemoteSection";
 
 type SectionKey =
@@ -323,27 +324,29 @@ function SettingsModal() {
     );
 
     const handleOpencodeModel = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
-            void updateSettings({ opencode: { defaultModel: e.target.value } });
+        (defaultModel: string) => {
+            void updateSettings({ opencode: { defaultModel } });
         },
         [updateSettings],
     );
 
-    const handleOpencodeFullAccess = useCallback(
-        (fullAccess: boolean) => {
-            void updateSettings({ opencode: { fullAccess } });
+    const handleOpencodeAgent = useCallback(
+        (defaultAgent: string) => {
+            void updateSettings({ opencode: { defaultAgent } });
         },
         [updateSettings],
     );
 
-    const handleOpencodeDontAsk = useCallback(
-        (dontAskQuestions: boolean) => {
-            void updateSettings({
-                opencode: {
-                    dontAskQuestions,
-                    ...(dontAskQuestions ? { fullAccess: true } : {}),
-                },
-            });
+    const handleOpencodeVariant = useCallback(
+        (defaultVariant: string) => {
+            void updateSettings({ opencode: { defaultVariant } });
+        },
+        [updateSettings],
+    );
+
+    const handleOpencodeAutoApprove = useCallback(
+        (autoApprove: boolean) => {
+            void updateSettings({ opencode: { autoApprove } });
         },
         [updateSettings],
     );
@@ -511,16 +514,15 @@ function SettingsModal() {
                         )}
 
                         {section === "opencode" && (
-                            <AgentSection
-                                agentKey="opencode"
-                                fullAccess={settings.opencode.fullAccess}
-                                dontAskQuestions={settings.opencode.dontAskQuestions}
-                                onFullAccess={handleOpencodeFullAccess}
-                                onDontAsk={handleOpencodeDontAsk}
+                            <OpenCodeSection
                                 modelValue={settings.opencode.defaultModel}
-                                modelInputPlaceholder="e.g. anthropic/claude-sonnet-4-20250514"
-                                onModelInputChange={handleOpencodeModel}
-                                fullAccessHint="Auto-approve all tool permissions by default"
+                                agentValue={settings.opencode.defaultAgent}
+                                variantValue={settings.opencode.defaultVariant}
+                                autoApprove={settings.opencode.autoApprove}
+                                onModelChange={handleOpencodeModel}
+                                onAgentChange={handleOpencodeAgent}
+                                onVariantChange={handleOpencodeVariant}
+                                onAutoApproveChange={handleOpencodeAutoApprove}
                             />
                         )}
 

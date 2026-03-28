@@ -9,7 +9,12 @@ import { GitService } from "./services/git-service";
 import { FileWatcher } from "./services/file-watcher";
 import { detectEditors } from "./services/editor-detector";
 import { detectShells, resolveSystemShellPath } from "./services/shell-detector";
-import { detectRuntimes, detectAgents } from "./services/runtime-detector";
+import {
+    detectRuntimes,
+    detectAgents,
+    fetchOpenCodeModels,
+    fetchOpenCodeAgents,
+} from "./services/runtime-detector";
 import { registerProjectHandlers } from "./handlers/project";
 import { registerTaskHandlers } from "./handlers/task";
 import { registerSessionHandlers } from "./handlers/session";
@@ -372,6 +377,12 @@ async function main() {
         }));
         router.register(MSG.RUNTIMES_LIST, async () => ({ runtimes }));
         router.register(MSG.AGENTS_LIST, async () => ({ agents }));
+        router.register(MSG.OPENCODE_MODELS, async () => ({
+            models: await fetchOpenCodeModels(),
+        }));
+        router.register(MSG.OPENCODE_AGENTS, async () => ({
+            agents: await fetchOpenCodeAgents(),
+        }));
         console.log(`Detected shells: ${shells.map((s) => s.name).join(", ") || "none"}`);
         console.log(
             `Detected runtimes: ${runtimes.map((r) => r.name + " " + r.version).join(", ") || "none"}`,

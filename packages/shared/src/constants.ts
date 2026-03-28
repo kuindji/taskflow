@@ -35,6 +35,8 @@ export const MSG = {
     RUNTIMES_LIST: "runtimes:list",
     AGENTS_LIST: "agents:list",
     AGENT_COMMANDS_LIST: "agent-commands:list",
+    OPENCODE_MODELS: "opencode:models",
+    OPENCODE_AGENTS: "opencode:agents",
 
     // Terminal
     TERMINAL_OUTPUT: "terminal:output",

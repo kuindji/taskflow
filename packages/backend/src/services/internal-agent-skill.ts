@@ -139,16 +139,15 @@ export function buildAgentLaunchSpec(
         const config: Record<string, unknown> = {
             instructions: [skillPath],
         };
-        if (
-            agentOptions?.type === "opencode" &&
-            (agentOptions.fullAccess || agentOptions.dontAskQuestions)
-        ) {
+        if (agentOptions?.type === "opencode" && agentOptions.autoApprove) {
             config.permission = { edit: "allow", bash: "allow", write: "allow" };
         }
 
         const args: string[] = [];
-        if (agentOptions?.type === "opencode" && agentOptions.model) {
-            args.push("--model", agentOptions.model);
+        if (agentOptions?.type === "opencode") {
+            if (agentOptions.model) args.push("--model", agentOptions.model);
+            if (agentOptions.agent) args.push("--agent", agentOptions.agent);
+            if (agentOptions.variant) args.push("--variant", agentOptions.variant);
         }
         if (prompt) args.push("--prompt", prompt);
 

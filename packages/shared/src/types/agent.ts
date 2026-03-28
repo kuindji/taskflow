@@ -25,9 +25,20 @@ interface CodexLaunchOptions {
 
 interface OpenCodeLaunchOptions {
     type: Extract<AgentType, "opencode">;
-    fullAccess?: boolean;
-    dontAskQuestions?: boolean;
     model?: string;
+    agent?: string;
+    variant?: string;
+    autoApprove?: boolean;
+}
+
+interface OpenCodeModelInfo {
+    id: string;
+    provider: string;
+}
+
+interface OpenCodeAgentInfo {
+    name: string;
+    kind: string;
 }
 
 interface GeminiLaunchOptions {
@@ -69,4 +80,6 @@ export type {
     CursorLaunchOptions,
     AgentLaunchOptions,
     AgentAvailability,
+    OpenCodeModelInfo,
+    OpenCodeAgentInfo,
 };

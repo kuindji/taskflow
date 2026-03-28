@@ -60,8 +60,9 @@ const DEFAULTS: AppSettings = {
     },
     opencode: {
         defaultModel: "",
-        fullAccess: false,
-        dontAskQuestions: false,
+        defaultAgent: "",
+        defaultVariant: "",
+        autoApprove: false,
     },
     gemini: {
         defaultModel: "default",

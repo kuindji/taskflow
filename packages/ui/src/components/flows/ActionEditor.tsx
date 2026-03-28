@@ -38,10 +38,6 @@ function normalizeAgentOptions(
     if (sessionType === "shell") return undefined;
 
     const matchingOptions = agentOptions?.type === sessionType ? agentOptions : undefined;
-    const base = {
-        fullAccess: matchingOptions?.fullAccess || undefined,
-        dontAskQuestions: matchingOptions?.dontAskQuestions || undefined,
-    };
     const model =
         matchingOptions && "model" in matchingOptions && matchingOptions.model
             ? matchingOptions.model
@@ -49,11 +45,40 @@ function normalizeAgentOptions(
 
     switch (sessionType) {
         case "claude":
-            return { ...base, type: sessionType, model: model as ClaudeLaunchOptions["model"] };
+            return {
+                type: sessionType,
+                fullAccess: matchingOptions?.type === "claude" ? matchingOptions.fullAccess : undefined,
+                dontAskQuestions: matchingOptions?.type === "claude" ? matchingOptions.dontAskQuestions : undefined,
+                model: model as ClaudeLaunchOptions["model"],
+            };
         case "codex":
-            return { ...base, type: sessionType };
+            return {
+                type: sessionType,
+                fullAccess: matchingOptions?.type === "codex" ? matchingOptions.fullAccess : undefined,
+                dontAskQuestions: matchingOptions?.type === "codex" ? matchingOptions.dontAskQuestions : undefined,
+            };
+        case "opencode":
+            return {
+                type: sessionType,
+                model: matchingOptions?.type === "opencode" ? matchingOptions.model : undefined,
+                agent: matchingOptions?.type === "opencode" ? matchingOptions.agent : undefined,
+                variant: matchingOptions?.type === "opencode" ? matchingOptions.variant : undefined,
+                autoApprove: matchingOptions?.type === "opencode" ? matchingOptions.autoApprove : undefined,
+            };
+        case "gemini":
+            return {
+                type: sessionType,
+                fullAccess: matchingOptions?.type === "gemini" ? matchingOptions.fullAccess : undefined,
+                dontAskQuestions: matchingOptions?.type === "gemini" ? matchingOptions.dontAskQuestions : undefined,
+                model: model as "auto" | "pro" | "flash" | "flash-lite" | undefined,
+            };
         case "cursor":
-            return { ...base, type: sessionType, model };
+            return {
+                type: sessionType,
+                fullAccess: matchingOptions?.type === "cursor" ? matchingOptions.fullAccess : undefined,
+                dontAskQuestions: matchingOptions?.type === "cursor" ? matchingOptions.dontAskQuestions : undefined,
+                model,
+            };
         default:
             return undefined;
     }

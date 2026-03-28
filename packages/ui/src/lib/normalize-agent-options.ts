@@ -14,36 +14,43 @@ function normalizeAgentOptions(
     if (!agentType || agentType === "shell") return undefined;
     if (!agentOptions || agentOptions.type !== agentType) return undefined;
 
-    const base = {
-        fullAccess: agentOptions.fullAccess || undefined,
-        dontAskQuestions: agentOptions.dontAskQuestions || undefined,
-    };
-
     switch (agentType) {
         case "claude":
             return {
-                ...base,
                 type: "claude",
+                fullAccess: agentOptions.fullAccess || undefined,
+                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
                 model: agentOptions.type === "claude" ? agentOptions.model : undefined,
             };
         case "codex":
-            return { ...base, type: "codex" };
+            return {
+                type: "codex",
+                fullAccess: agentOptions.fullAccess || undefined,
+                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
+            };
         case "opencode":
             return {
-                ...base,
                 type: "opencode",
                 model: agentOptions.type === "opencode" ? agentOptions.model : undefined,
+                agent: agentOptions.type === "opencode" ? agentOptions.agent : undefined,
+                variant: agentOptions.type === "opencode" ? agentOptions.variant : undefined,
+                autoApprove:
+                    agentOptions.type === "opencode"
+                        ? (agentOptions.autoApprove || undefined)
+                        : undefined,
             };
         case "gemini":
             return {
-                ...base,
                 type: "gemini",
+                fullAccess: agentOptions.fullAccess || undefined,
+                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
                 model: agentOptions.type === "gemini" ? agentOptions.model : undefined,
             };
         case "cursor":
             return {
-                ...base,
                 type: "cursor",
+                fullAccess: agentOptions.fullAccess || undefined,
+                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
                 model: agentOptions.type === "cursor" ? agentOptions.model : undefined,
             };
         default:

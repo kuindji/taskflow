@@ -223,15 +223,38 @@ printf '{}'
         expect(spec.args).toContain("--yolo");
     });
 
-    it("dontAskQuestions forces permission allow for OpenCode", () => {
+    it("autoApprove forces permission allow for OpenCode", () => {
         const spec = buildAgentLaunchSpec("opencode", "Do it", "/tmp/ignored/SKILL.md", {
             type: "opencode",
-            dontAskQuestions: true,
+            autoApprove: true,
         });
         const config = JSON.parse(spec.env!.OPENCODE_CONFIG_CONTENT) as {
             permission: Record<string, string>;
         };
         expect(config.permission).toEqual({ edit: "allow", bash: "allow", write: "allow" });
+    });
+
+    it("omits permission config for OpenCode when autoApprove is not set", () => {
+        const spec = buildAgentLaunchSpec("opencode", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "opencode",
+        });
+        const config = JSON.parse(spec.env!.OPENCODE_CONFIG_CONTENT) as Record<string, unknown>;
+        expect(config.permission).toBeUndefined();
+    });
+
+    it("passes --agent and --variant for OpenCode", () => {
+        const spec = buildAgentLaunchSpec("opencode", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "opencode",
+            model: "openrouter/anthropic/claude-sonnet-4.6",
+            agent: "build",
+            variant: "high",
+        });
+        expect(spec.args).toContain("--model");
+        expect(spec.args).toContain("openrouter/anthropic/claude-sonnet-4.6");
+        expect(spec.args).toContain("--agent");
+        expect(spec.args).toContain("build");
+        expect(spec.args).toContain("--variant");
+        expect(spec.args).toContain("high");
     });
 
     it("PROMPT_AUTONOMOUS is exported and contains expected content", () => {
