@@ -70,8 +70,7 @@ const DEFAULTS: AppSettings = {
     },
     cursor: {
         defaultModel: "default",
-        fullAccess: false,
-        dontAskQuestions: false,
+        yolo: false,
     },
     appearance: {
         theme: DEFAULT_THEME_ID,

@@ -39,8 +39,7 @@ interface GeminiLaunchOptions {
 
 interface CursorLaunchOptions {
     type: Extract<AgentType, "cursor">;
-    fullAccess?: boolean;
-    dontAskQuestions?: boolean;
+    yolo?: boolean;
     model?: string;
 }
 

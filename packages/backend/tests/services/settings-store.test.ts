@@ -39,7 +39,7 @@ const DEFAULT_GEMINI = {
     fullAccess: false,
     dontAskQuestions: false,
 };
-const DEFAULT_CURSOR = { defaultModel: "default", fullAccess: false, dontAskQuestions: false };
+const DEFAULT_CURSOR = { defaultModel: "default", yolo: false };
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
 const DEFAULT_REMOTE_AGENT = { autoStart: false, appName: "", headless: false };
 

@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Play } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
+import { CursorModelSelect } from "@/components/settings/CursorModelSelect";
 
 interface AgentOptionsPanelProps {
     agentType: AgentType;
@@ -37,27 +38,35 @@ function AgentOptionsPanel({
 
     const matchingValue = value?.type === agentType ? value : undefined;
     const defaultFullAccess =
-        matchingValue?.fullAccess ??
-        (agentType === "claude"
-            ? (claudeSettings?.fullAccess ?? false)
-            : agentType === "opencode"
-              ? (opencodeSettings?.fullAccess ?? false)
-              : agentType === "gemini"
-                ? (geminiSettings?.fullAccess ?? false)
-                : agentType === "cursor"
-                  ? (cursorSettings?.fullAccess ?? false)
-                  : (codexSettings?.fullAccess ?? false));
+        agentType === "cursor"
+            ? false
+            : (matchingValue && "fullAccess" in matchingValue
+                  ? matchingValue.fullAccess
+                  : undefined) ??
+              (agentType === "claude"
+                  ? (claudeSettings?.fullAccess ?? false)
+                  : agentType === "opencode"
+                    ? (opencodeSettings?.fullAccess ?? false)
+                    : agentType === "gemini"
+                      ? (geminiSettings?.fullAccess ?? false)
+                      : (codexSettings?.fullAccess ?? false));
     const defaultDontAskQuestions =
-        matchingValue?.dontAskQuestions ??
-        (agentType === "claude"
-            ? (claudeSettings?.dontAskQuestions ?? false)
-            : agentType === "opencode"
-              ? (opencodeSettings?.dontAskQuestions ?? false)
-              : agentType === "gemini"
-                ? (geminiSettings?.dontAskQuestions ?? false)
-                : agentType === "cursor"
-                  ? (cursorSettings?.dontAskQuestions ?? false)
-                  : (codexSettings?.dontAskQuestions ?? false));
+        agentType === "cursor"
+            ? false
+            : (matchingValue && "dontAskQuestions" in matchingValue
+                  ? matchingValue.dontAskQuestions
+                  : undefined) ??
+              (agentType === "claude"
+                  ? (claudeSettings?.dontAskQuestions ?? false)
+                  : agentType === "opencode"
+                    ? (opencodeSettings?.dontAskQuestions ?? false)
+                    : agentType === "gemini"
+                      ? (geminiSettings?.dontAskQuestions ?? false)
+                      : (codexSettings?.dontAskQuestions ?? false));
+    const defaultYolo =
+        matchingValue?.type === "cursor"
+            ? (matchingValue.yolo ?? cursorSettings?.yolo ?? false)
+            : (cursorSettings?.yolo ?? false);
     const defaultModel =
         agentType === "claude" && matchingValue?.type === "claude"
             ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
@@ -79,6 +88,7 @@ function AgentOptionsPanel({
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [dontAskQuestions, setDontAskQuestions] = useState(defaultDontAskQuestions);
+    const [yolo, setYolo] = useState(defaultYolo);
     const [model, setModel] = useState<string>(defaultModel);
 
     const isFirstRender = useRef(true);
@@ -91,6 +101,7 @@ function AgentOptionsPanel({
     useEffect(() => {
         setFullAccess(defaultFullAccess);
         setDontAskQuestions(defaultDontAskQuestions);
+        setYolo(defaultYolo);
         if (
             agentType === "claude" ||
             agentType === "opencode" ||
@@ -99,7 +110,7 @@ function AgentOptionsPanel({
         ) {
             setModel(defaultModel);
         }
-    }, [agentType, defaultFullAccess, defaultDontAskQuestions, defaultModel]);
+    }, [agentType, defaultFullAccess, defaultDontAskQuestions, defaultYolo, defaultModel]);
 
     const emitChange = useCallback(() => {
         const cb = onChangeRef.current;
@@ -131,8 +142,7 @@ function AgentOptionsPanel({
         } else if (agentType === "cursor") {
             cb({
                 type: "cursor",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
+                yolo: yolo || undefined,
                 model: model === "default" ? undefined : model,
             });
         } else {
@@ -142,7 +152,7 @@ function AgentOptionsPanel({
                 dontAskQuestions: dontAskQuestions || undefined,
             });
         }
-    }, [agentType, fullAccess, dontAskQuestions, model]);
+    }, [agentType, fullAccess, dontAskQuestions, yolo, model]);
 
     useEffect(() => {
         if (isFirstRender.current) {
@@ -181,8 +191,7 @@ function AgentOptionsPanel({
         } else if (agentType === "cursor") {
             onRun({
                 type: "cursor",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
+                yolo: yolo || undefined,
                 model: model === "default" ? undefined : model,
             });
         } else {
@@ -192,31 +201,46 @@ function AgentOptionsPanel({
                 dontAskQuestions: dontAskQuestions || undefined,
             });
         }
-    }, [agentType, fullAccess, dontAskQuestions, model, onRun]);
+    }, [agentType, fullAccess, dontAskQuestions, yolo, model, onRun]);
 
     return (
         <div className="flex flex-col gap-3 p-3">
-            <div className="flex items-center gap-2">
-                <Switch
-                    id="agent-full-access"
-                    checked={fullAccess || dontAskQuestions}
-                    onCheckedChange={setFullAccess}
-                    disabled={dontAskQuestions}
-                />
-                <Label htmlFor="agent-full-access" className="cursor-pointer text-xs">
-                    Full access
-                </Label>
-            </div>
-            <div className="flex items-center gap-2">
-                <Switch
-                    id="agent-dont-ask"
-                    checked={dontAskQuestions}
-                    onCheckedChange={setDontAskQuestions}
-                />
-                <Label htmlFor="agent-dont-ask" className="cursor-pointer text-xs">
-                    Don&apos;t ask questions
-                </Label>
-            </div>
+            {agentType === "cursor" ? (
+                <div className="flex items-center gap-2">
+                    <Switch
+                        id="agent-yolo"
+                        checked={yolo}
+                        onCheckedChange={setYolo}
+                    />
+                    <Label htmlFor="agent-yolo" className="cursor-pointer text-xs">
+                        Yolo
+                    </Label>
+                </div>
+            ) : (
+                <>
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            id="agent-full-access"
+                            checked={fullAccess || dontAskQuestions}
+                            onCheckedChange={setFullAccess}
+                            disabled={dontAskQuestions}
+                        />
+                        <Label htmlFor="agent-full-access" className="cursor-pointer text-xs">
+                            Full access
+                        </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            id="agent-dont-ask"
+                            checked={dontAskQuestions}
+                            onCheckedChange={setDontAskQuestions}
+                        />
+                        <Label htmlFor="agent-dont-ask" className="cursor-pointer text-xs">
+                            Don&apos;t ask questions
+                        </Label>
+                    </div>
+                </>
+            )}
 
             {agentType === "claude" && (
                 <div className="flex flex-col gap-1">
@@ -259,16 +283,8 @@ function AgentOptionsPanel({
 
             {agentType === "cursor" && (
                 <div className="flex flex-col gap-1">
-                    <Label htmlFor="agent-model" className="text-xs">
-                        Model
-                    </Label>
-                    <Input
-                        id="agent-model"
-                        className="h-7 text-xs"
-                        value={model === "default" ? "" : model}
-                        placeholder="default"
-                        onChange={(e) => setModel(e.target.value || "default")}
-                    />
+                    <Label className="text-xs">Model</Label>
+                    <CursorModelSelect value={model} onChange={setModel} />
                 </div>
             )}
 

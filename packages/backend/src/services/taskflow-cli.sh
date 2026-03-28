@@ -1084,18 +1084,29 @@ case "$cmd" in
           if [ -n "$agent_type" ]; then
             agent_opts=$(printf '"type":%s' "$(json_string "$agent_type")")
           fi
-          if [ -n "$agent_full_access" ]; then
-            if [ -n "$agent_opts" ]; then
-              agent_opts=$(printf '%s,"fullAccess":true' "$agent_opts")
-            else
-              agent_opts='"fullAccess":true'
+          # Cursor uses "yolo" instead of "fullAccess"/"dontAskQuestions"
+          if [ "$agent_type" = "cursor" ]; then
+            if [ -n "$agent_full_access" ] || [ -n "$agent_no_questions" ]; then
+              if [ -n "$agent_opts" ]; then
+                agent_opts=$(printf '%s,"yolo":true' "$agent_opts")
+              else
+                agent_opts='"yolo":true'
+              fi
             fi
-          fi
-          if [ -n "$agent_no_questions" ]; then
-            if [ -n "$agent_opts" ]; then
-              agent_opts=$(printf '%s,"dontAskQuestions":true' "$agent_opts")
-            else
-              agent_opts='"dontAskQuestions":true'
+          else
+            if [ -n "$agent_full_access" ]; then
+              if [ -n "$agent_opts" ]; then
+                agent_opts=$(printf '%s,"fullAccess":true' "$agent_opts")
+              else
+                agent_opts='"fullAccess":true'
+              fi
+            fi
+            if [ -n "$agent_no_questions" ]; then
+              if [ -n "$agent_opts" ]; then
+                agent_opts=$(printf '%s,"dontAskQuestions":true' "$agent_opts")
+              else
+                agent_opts='"dontAskQuestions":true'
+              fi
             fi
           fi
           if [ -n "$agent_model" ]; then

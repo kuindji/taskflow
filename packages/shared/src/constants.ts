@@ -35,6 +35,7 @@ export const MSG = {
     RUNTIMES_LIST: "runtimes:list",
     AGENTS_LIST: "agents:list",
     AGENT_COMMANDS_LIST: "agent-commands:list",
+    CURSOR_MODELS: "cursor:models",
 
     // Terminal
     TERMINAL_OUTPUT: "terminal:output",

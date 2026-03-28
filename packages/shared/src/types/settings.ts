@@ -33,8 +33,7 @@ export interface GeminiSettings {
 
 export interface CursorSettings {
     defaultModel: string;
-    fullAccess: boolean;
-    dontAskQuestions: boolean;
+    yolo: boolean;
 }
 
 export interface TerminalSettings {

@@ -38,10 +38,6 @@ function normalizeAgentOptions(
     if (sessionType === "shell") return undefined;
 
     const matchingOptions = agentOptions?.type === sessionType ? agentOptions : undefined;
-    const base = {
-        fullAccess: matchingOptions?.fullAccess || undefined,
-        dontAskQuestions: matchingOptions?.dontAskQuestions || undefined,
-    };
     const model =
         matchingOptions && "model" in matchingOptions && matchingOptions.model
             ? matchingOptions.model
@@ -49,11 +45,24 @@ function normalizeAgentOptions(
 
     switch (sessionType) {
         case "claude":
-            return { ...base, type: sessionType, model: model as ClaudeLaunchOptions["model"] };
+            return {
+                type: sessionType,
+                fullAccess: matchingOptions?.type === "claude" ? matchingOptions.fullAccess || undefined : undefined,
+                dontAskQuestions: matchingOptions?.type === "claude" ? matchingOptions.dontAskQuestions || undefined : undefined,
+                model: model as ClaudeLaunchOptions["model"],
+            };
         case "codex":
-            return { ...base, type: sessionType };
+            return {
+                type: sessionType,
+                fullAccess: matchingOptions?.type === "codex" ? matchingOptions.fullAccess || undefined : undefined,
+                dontAskQuestions: matchingOptions?.type === "codex" ? matchingOptions.dontAskQuestions || undefined : undefined,
+            };
         case "cursor":
-            return { ...base, type: sessionType, model };
+            return {
+                type: sessionType,
+                yolo: matchingOptions?.type === "cursor" ? matchingOptions.yolo || undefined : undefined,
+                model,
+            };
         default:
             return undefined;
     }

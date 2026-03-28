@@ -174,7 +174,7 @@ export function buildAgentLaunchSpec(
     if (type === "cursor") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "cursor") {
-            if (agentOptions.fullAccess || agentOptions.dontAskQuestions) optionArgs.push("--yolo");
+            if (agentOptions.yolo) optionArgs.push("--yolo");
             if (agentOptions.model && agentOptions.model !== "default")
                 optionArgs.push("--model", agentOptions.model);
         }

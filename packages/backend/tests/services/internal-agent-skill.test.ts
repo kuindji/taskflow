@@ -215,10 +215,10 @@ printf '{}'
         expect(spec.args).toContain("--yolo");
     });
 
-    it("dontAskQuestions forces --yolo for Cursor", () => {
+    it("yolo flag passes --yolo for Cursor", () => {
         const spec = buildAgentLaunchSpec("cursor", "Do it", "/tmp/ignored/SKILL.md", {
             type: "cursor",
-            dontAskQuestions: true,
+            yolo: true,
         });
         expect(spec.args).toContain("--yolo");
     });

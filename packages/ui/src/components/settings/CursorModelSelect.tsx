@@ -1,0 +1,152 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ChevronDownIcon } from "lucide-react";
+import { sendRequest } from "@/hooks/useWebSocket";
+import { MSG } from "@taskflow/shared";
+import type { CursorModel, CursorModelsResponse } from "@taskflow/shared";
+
+interface CursorModelSelectProps {
+    value: string;
+    onChange: (model: string) => void;
+}
+
+function CursorModelSelect({ value, onChange }: CursorModelSelectProps) {
+    const [open, setOpen] = useState(false);
+    const [models, setModels] = useState<CursorModel[] | null>(null);
+    const [search, setSearch] = useState("");
+    const [fetchFailed, setFetchFailed] = useState(false);
+    const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (!open || models !== null || fetchFailed) return;
+        sendRequest<CursorModelsResponse>(MSG.CURSOR_MODELS, {})
+            .then((res) => {
+                setModels(res.models);
+            })
+            .catch(() => {
+                setFetchFailed(true);
+            });
+    }, [open, models, fetchFailed]);
+
+    useEffect(() => {
+        setPortalContainer(
+            containerRef.current?.closest<HTMLElement>("[data-slot='dialog-content']") ?? null,
+        );
+    }, []);
+
+    const handleOpenChange = useCallback((nextOpen: boolean) => {
+        if (nextOpen) {
+            setSearch("");
+            requestAnimationFrame(() => searchRef.current?.focus());
+        }
+        setOpen(nextOpen);
+    }, []);
+
+    const filtered = useMemo(() => {
+        if (!models) return [];
+        if (!search) return models;
+        const lower = search.toLowerCase();
+        return models.filter(
+            (m) => m.id.toLowerCase().includes(lower) || m.label.toLowerCase().includes(lower),
+        );
+    }, [models, search]);
+
+    const handleSelect = useCallback(
+        (model: string) => {
+            onChange(model);
+            setOpen(false);
+        },
+        [onChange],
+    );
+
+    const displayLabel = useMemo(() => {
+        if (!value || value === "default") return "Default";
+        const match = models?.find((m) => m.id === value);
+        return match ? match.label : value;
+    }, [value, models]);
+
+    if (fetchFailed) {
+        return (
+            <Input
+                value={value === "default" ? "" : value}
+                placeholder="default"
+                onChange={(e) => onChange(e.target.value || "default")}
+                className="h-8 text-[13px]"
+            />
+        );
+    }
+
+    return (
+        <div ref={containerRef} className="min-w-0">
+            <Popover open={open} onOpenChange={handleOpenChange}>
+                <PopoverTrigger asChild>
+                    <Button
+                        variant="outline"
+                        className="h-8 w-full min-w-0 justify-between overflow-hidden text-[13px] font-normal">
+                        <span className="min-w-0 flex-1 truncate text-left">{displayLabel}</span>
+                        <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                    container={portalContainer ?? undefined}
+                    className="w-[--radix-popover-trigger-width] min-w-72 p-0"
+                    align="start">
+                    <div className="border-border border-b p-2">
+                        <Input
+                            ref={searchRef}
+                            placeholder="Search models..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            className="h-7 text-sm"
+                        />
+                    </div>
+                    <div className="max-h-60 overflow-y-auto p-1">
+                        {models === null ? (
+                            <div className="text-muted-foreground px-2 py-4 text-center text-sm">
+                                Loading models...
+                            </div>
+                        ) : filtered.length === 0 ? (
+                            <div className="text-muted-foreground px-2 py-4 text-center text-sm">
+                                No models found
+                            </div>
+                        ) : (
+                            <>
+                                {!search && (
+                                    <button
+                                        type="button"
+                                        className={`hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-left text-sm outline-hidden ${
+                                            !value || value === "default"
+                                                ? "bg-accent text-accent-foreground"
+                                                : ""
+                                        }`}
+                                        onClick={() => handleSelect("default")}>
+                                        <span className="truncate">Default</span>
+                                    </button>
+                                )}
+                                {filtered.map((m) => (
+                                    <button
+                                        key={m.id}
+                                        type="button"
+                                        className={`hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-left text-sm outline-hidden ${
+                                            m.id === value
+                                                ? "bg-accent text-accent-foreground"
+                                                : ""
+                                        }`}
+                                        onClick={() => handleSelect(m.id)}>
+                                        <span className="truncate">{m.label}</span>
+                                    </button>
+                                ))}
+                            </>
+                        )}
+                    </div>
+                </PopoverContent>
+            </Popover>
+        </div>
+    );
+}
+
+export { CursorModelSelect };

@@ -31,6 +31,7 @@ import { useRemoteAgentStatus } from "@/hooks/useRemoteAgentStatus";
 import { GeneralSection } from "./sections/GeneralSection";
 import { DefaultsSection } from "./sections/DefaultsSection";
 import { AgentSection } from "./sections/AgentSection";
+import { CursorSection } from "./sections/CursorSection";
 import { RemoteSection } from "./sections/RemoteSection";
 
 type SectionKey =
@@ -383,21 +384,9 @@ function SettingsModal() {
         [updateSettings],
     );
 
-    const handleCursorFullAccess = useCallback(
-        (fullAccess: boolean) => {
-            void updateSettings({ cursor: { fullAccess } });
-        },
-        [updateSettings],
-    );
-
-    const handleCursorDontAsk = useCallback(
-        (dontAskQuestions: boolean) => {
-            void updateSettings({
-                cursor: {
-                    dontAskQuestions,
-                    ...(dontAskQuestions ? { fullAccess: true } : {}),
-                },
-            });
+    const handleCursorYolo = useCallback(
+        (yolo: boolean) => {
+            void updateSettings({ cursor: { yolo } });
         },
         [updateSettings],
     );
@@ -545,20 +534,11 @@ function SettingsModal() {
                         )}
 
                         {section === "cursor" && (
-                            <AgentSection
-                                agentKey="cursor"
-                                fullAccess={settings.cursor.fullAccess}
-                                dontAskQuestions={settings.cursor.dontAskQuestions}
-                                onFullAccess={handleCursorFullAccess}
-                                onDontAsk={handleCursorDontAsk}
-                                modelValue={
-                                    settings.cursor.defaultModel === "default"
-                                        ? ""
-                                        : settings.cursor.defaultModel
-                                }
-                                modelInputPlaceholder="default"
-                                onModelInputChange={(e) => handleCursorModel(e.target.value)}
-                                fullAccessHint="Run in yolo mode by default (auto-approve commands)"
+                            <CursorSection
+                                yolo={settings.cursor.yolo}
+                                modelValue={settings.cursor.defaultModel}
+                                onYolo={handleCursorYolo}
+                                onModelChange={handleCursorModel}
                             />
                         )}
 
