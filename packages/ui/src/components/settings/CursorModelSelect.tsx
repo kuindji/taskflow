@@ -109,6 +109,10 @@ function CursorModelSelect({ value, onChange }: CursorModelSelectProps) {
                             <div className="text-muted-foreground px-2 py-4 text-center text-sm">
                                 Loading models...
                             </div>
+                        ) : models.length === 0 ? (
+                            <div className="text-muted-foreground px-2 py-4 text-center text-sm">
+                                No models available for this account
+                            </div>
                         ) : filtered.length === 0 ? (
                             <div className="text-muted-foreground px-2 py-4 text-center text-sm">
                                 No models found
