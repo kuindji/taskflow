@@ -67,7 +67,7 @@ When running in task context, the following commands work as is. When running in
 All run commands also accept --label "<label>", --full-access, --no-questions, and --model "<model>" arguments.
 --full-access enables full access (dangerously skip permissions) for the agent session.
 --no-questions enables autonomous mode (agent won't ask permission questions, auto-accepts all).
---model sets the model (e.g. "opus", "sonnet", "haiku" for Claude; "pro", "flash" for Gemini).
+--model sets the model (e.g. "opus", "sonnet", "haiku" for Claude; "pro", "flash" for Gemini; "o3", "o4-mini" for Codex).
 Without --task agent will be started on project level. Within task context by default pass --task.
 
 ## Action commands

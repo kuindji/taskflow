@@ -31,6 +31,7 @@ import { useRemoteAgentStatus } from "@/hooks/useRemoteAgentStatus";
 import { GeneralSection } from "./sections/GeneralSection";
 import { DefaultsSection } from "./sections/DefaultsSection";
 import { AgentSection } from "./sections/AgentSection";
+import { CodexSection } from "./sections/CodexSection";
 import { RemoteSection } from "./sections/RemoteSection";
 
 type SectionKey =
@@ -303,21 +304,30 @@ function SettingsModal() {
         [updateSettings],
     );
 
-    const handleCodexFullAccess = useCallback(
-        (fullAccess: boolean) => {
-            void updateSettings({ codex: { fullAccess } });
+    const handleCodexFullAuto = useCallback(
+        (fullAuto: boolean) => {
+            void updateSettings({ codex: { fullAuto } });
         },
         [updateSettings],
     );
 
-    const handleCodexDontAsk = useCallback(
-        (dontAskQuestions: boolean) => {
-            void updateSettings({
-                codex: {
-                    dontAskQuestions,
-                    ...(dontAskQuestions ? { fullAccess: true } : {}),
-                },
-            });
+    const handleCodexSandbox = useCallback(
+        (sandbox: string) => {
+            void updateSettings({ codex: { sandbox } });
+        },
+        [updateSettings],
+    );
+
+    const handleCodexApprovalPolicy = useCallback(
+        (approvalPolicy: string) => {
+            void updateSettings({ codex: { approvalPolicy } });
+        },
+        [updateSettings],
+    );
+
+    const handleCodexModel = useCallback(
+        (defaultModel: string) => {
+            void updateSettings({ codex: { defaultModel } });
         },
         [updateSettings],
     );
@@ -500,13 +510,15 @@ function SettingsModal() {
                         )}
 
                         {section === "codex" && (
-                            <AgentSection
-                                agentKey="codex"
-                                fullAccess={settings.codex.fullAccess}
-                                dontAskQuestions={settings.codex.dontAskQuestions}
-                                onFullAccess={handleCodexFullAccess}
-                                onDontAsk={handleCodexDontAsk}
-                                fullAccessHint="Run in full-auto mode by default"
+                            <CodexSection
+                                defaultModel={settings.codex.defaultModel}
+                                sandbox={settings.codex.sandbox}
+                                approvalPolicy={settings.codex.approvalPolicy}
+                                fullAuto={settings.codex.fullAuto}
+                                onModelChange={handleCodexModel}
+                                onSandboxChange={handleCodexSandbox}
+                                onApprovalPolicyChange={handleCodexApprovalPolicy}
+                                onFullAutoChange={handleCodexFullAuto}
                             />
                         )}
 

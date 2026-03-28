@@ -32,7 +32,12 @@ const DEFAULT_CLAUDE = {
     fullAccess: false,
     dontAskQuestions: false,
 };
-const DEFAULT_CODEX = { fullAccess: false, dontAskQuestions: false };
+const DEFAULT_CODEX = {
+    defaultModel: "",
+    sandbox: "workspace-write" as const,
+    approvalPolicy: "on-request" as const,
+    fullAuto: false,
+};
 const DEFAULT_OPENCODE = { defaultModel: "", fullAccess: false, dontAskQuestions: false };
 const DEFAULT_GEMINI = {
     defaultModel: "default" as const,

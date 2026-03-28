@@ -186,8 +186,14 @@ export function buildAgentLaunchSpec(
 
     const optionArgs: string[] = [];
     if (agentOptions?.type === "codex") {
-        if (agentOptions.fullAccess || agentOptions.dontAskQuestions)
+        if (agentOptions.fullAuto) {
             optionArgs.push("--full-auto");
+        } else {
+            if (agentOptions.sandbox) optionArgs.push("--sandbox", agentOptions.sandbox);
+            if (agentOptions.approvalPolicy)
+                optionArgs.push("--ask-for-approval", agentOptions.approvalPolicy);
+        }
+        if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
     }
     return {
         command: "codex",

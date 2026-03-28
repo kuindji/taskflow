@@ -1084,18 +1084,28 @@ case "$cmd" in
           if [ -n "$agent_type" ]; then
             agent_opts=$(printf '"type":%s' "$(json_string "$agent_type")")
           fi
-          if [ -n "$agent_full_access" ]; then
-            if [ -n "$agent_opts" ]; then
-              agent_opts=$(printf '%s,"fullAccess":true' "$agent_opts")
-            else
-              agent_opts='"fullAccess":true'
+          # Codex uses its own CLI flag names
+          if [ "$agent_type" = "codex" ]; then
+            if [ -n "$agent_full_access" ]; then
+              agent_opts=$(printf '%s,"fullAuto":true' "$agent_opts")
             fi
-          fi
-          if [ -n "$agent_no_questions" ]; then
-            if [ -n "$agent_opts" ]; then
-              agent_opts=$(printf '%s,"dontAskQuestions":true' "$agent_opts")
-            else
-              agent_opts='"dontAskQuestions":true'
+            if [ -n "$agent_no_questions" ]; then
+              agent_opts=$(printf '%s,"approvalPolicy":"never"' "$agent_opts")
+            fi
+          else
+            if [ -n "$agent_full_access" ]; then
+              if [ -n "$agent_opts" ]; then
+                agent_opts=$(printf '%s,"fullAccess":true' "$agent_opts")
+              else
+                agent_opts='"fullAccess":true'
+              fi
+            fi
+            if [ -n "$agent_no_questions" ]; then
+              if [ -n "$agent_opts" ]; then
+                agent_opts=$(printf '%s,"dontAskQuestions":true' "$agent_opts")
+              else
+                agent_opts='"dontAskQuestions":true'
+              fi
             fi
           fi
           if [ -n "$agent_model" ]; then

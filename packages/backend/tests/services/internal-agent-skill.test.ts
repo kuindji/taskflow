@@ -199,12 +199,46 @@ printf '{}'
         expect(spec.args).toContain("dontAsk");
     });
 
-    it("dontAskQuestions forces --full-auto for Codex", () => {
+    it("fullAuto passes --full-auto for Codex", () => {
         const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
             type: "codex",
-            dontAskQuestions: true,
+            fullAuto: true,
         });
         expect(spec.args).toContain("--full-auto");
+    });
+
+    it("passes Codex sandbox and approvalPolicy flags", () => {
+        const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "codex",
+            sandbox: "danger-full-access",
+            approvalPolicy: "never",
+        });
+        expect(spec.args).toContain("--sandbox");
+        expect(spec.args).toContain("danger-full-access");
+        expect(spec.args).toContain("--ask-for-approval");
+        expect(spec.args).toContain("never");
+        expect(spec.args).not.toContain("--full-auto");
+    });
+
+    it("fullAuto skips individual sandbox/approvalPolicy for Codex", () => {
+        const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "codex",
+            fullAuto: true,
+            sandbox: "read-only",
+            approvalPolicy: "always",
+        });
+        expect(spec.args).toContain("--full-auto");
+        expect(spec.args).not.toContain("--sandbox");
+        expect(spec.args).not.toContain("--ask-for-approval");
+    });
+
+    it("passes Codex model via --model", () => {
+        const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "codex",
+            model: "o4-mini",
+        });
+        expect(spec.args).toContain("--model");
+        expect(spec.args).toContain("o4-mini");
     });
 
     it("dontAskQuestions forces --yolo for Gemini", () => {

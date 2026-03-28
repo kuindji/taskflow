@@ -17,10 +17,15 @@ interface ClaudeLaunchOptions {
     model?: "opus" | "sonnet" | "haiku";
 }
 
+type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+type CodexApprovalPolicy = "always" | "unless-allow-listed" | "on-request" | "never";
+
 interface CodexLaunchOptions {
     type: Extract<AgentType, "codex">;
-    fullAccess?: boolean;
-    dontAskQuestions?: boolean;
+    model?: string;
+    sandbox?: CodexSandboxMode;
+    approvalPolicy?: CodexApprovalPolicy;
+    fullAuto?: boolean;
 }
 
 interface OpenCodeLaunchOptions {
@@ -64,6 +69,8 @@ export type {
     AgentType,
     ClaudeLaunchOptions,
     CodexLaunchOptions,
+    CodexSandboxMode,
+    CodexApprovalPolicy,
     OpenCodeLaunchOptions,
     GeminiLaunchOptions,
     CursorLaunchOptions,

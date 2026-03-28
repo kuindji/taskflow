@@ -55,8 +55,10 @@ const DEFAULTS: AppSettings = {
         dontAskQuestions: false,
     },
     codex: {
-        fullAccess: false,
-        dontAskQuestions: false,
+        defaultModel: "",
+        sandbox: "workspace-write",
+        approvalPolicy: "on-request",
+        fullAuto: false,
     },
     opencode: {
         defaultModel: "",

@@ -219,7 +219,11 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             command = shell;
         } else {
             let effectiveSystemPrompt = systemPrompt;
-            if (agentOptions?.dontAskQuestions && type !== "claude") {
+            const isAutonomous =
+                agentOptions?.type === "codex"
+                    ? agentOptions.approvalPolicy === "never"
+                    : agentOptions?.type !== "claude" && agentOptions?.dontAskQuestions;
+            if (isAutonomous) {
                 effectiveSystemPrompt = effectiveSystemPrompt
                     ? `${effectiveSystemPrompt}\n\n${PROMPT_AUTONOMOUS}`
                     : PROMPT_AUTONOMOUS;

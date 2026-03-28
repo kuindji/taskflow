@@ -1,4 +1,4 @@
-import type { AgentType } from "./agent";
+import type { AgentType, CodexSandboxMode, CodexApprovalPolicy } from "./agent";
 
 export interface GeneralSettings {
     fontFamily: string;
@@ -15,8 +15,10 @@ export interface ClaudeSettings {
 }
 
 export interface CodexSettings {
-    fullAccess: boolean;
-    dontAskQuestions: boolean;
+    defaultModel: string;
+    sandbox: CodexSandboxMode;
+    approvalPolicy: CodexApprovalPolicy;
+    fullAuto: boolean;
 }
 
 export interface OpenCodeSettings {

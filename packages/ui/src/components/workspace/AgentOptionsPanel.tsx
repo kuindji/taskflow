@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { AgentLaunchOptions, AgentType } from "@taskflow/shared";
+import type {
+    AgentLaunchOptions,
+    AgentType,
+    CodexSandboxMode,
+    CodexApprovalPolicy,
+} from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -36,49 +41,78 @@ function AgentOptionsPanel({
     const cursorSettings = useSettingsStore((s) => s.settings?.cursor);
 
     const matchingValue = value?.type === agentType ? value : undefined;
+
+    // Non-codex agents use fullAccess/dontAskQuestions
     const defaultFullAccess =
-        matchingValue?.fullAccess ??
-        (agentType === "claude"
-            ? (claudeSettings?.fullAccess ?? false)
-            : agentType === "opencode"
-              ? (opencodeSettings?.fullAccess ?? false)
-              : agentType === "gemini"
-                ? (geminiSettings?.fullAccess ?? false)
-                : agentType === "cursor"
-                  ? (cursorSettings?.fullAccess ?? false)
-                  : (codexSettings?.fullAccess ?? false));
+        agentType === "codex"
+            ? false
+            : (matchingValue && "fullAccess" in matchingValue
+                  ? matchingValue.fullAccess
+                  : undefined) ??
+              (agentType === "claude"
+                  ? (claudeSettings?.fullAccess ?? false)
+                  : agentType === "opencode"
+                    ? (opencodeSettings?.fullAccess ?? false)
+                    : agentType === "gemini"
+                      ? (geminiSettings?.fullAccess ?? false)
+                      : (cursorSettings?.fullAccess ?? false));
     const defaultDontAskQuestions =
-        matchingValue?.dontAskQuestions ??
-        (agentType === "claude"
-            ? (claudeSettings?.dontAskQuestions ?? false)
-            : agentType === "opencode"
-              ? (opencodeSettings?.dontAskQuestions ?? false)
-              : agentType === "gemini"
-                ? (geminiSettings?.dontAskQuestions ?? false)
-                : agentType === "cursor"
-                  ? (cursorSettings?.dontAskQuestions ?? false)
-                  : (codexSettings?.dontAskQuestions ?? false));
+        agentType === "codex"
+            ? false
+            : (matchingValue && "dontAskQuestions" in matchingValue
+                  ? matchingValue.dontAskQuestions
+                  : undefined) ??
+              (agentType === "claude"
+                  ? (claudeSettings?.dontAskQuestions ?? false)
+                  : agentType === "opencode"
+                    ? (opencodeSettings?.dontAskQuestions ?? false)
+                    : agentType === "gemini"
+                      ? (geminiSettings?.dontAskQuestions ?? false)
+                      : (cursorSettings?.dontAskQuestions ?? false));
+
+    // Codex-specific defaults
+    const defaultFullAuto =
+        matchingValue?.type === "codex"
+            ? (matchingValue.fullAuto ?? codexSettings?.fullAuto ?? false)
+            : (codexSettings?.fullAuto ?? false);
+    const defaultSandbox: CodexSandboxMode =
+        matchingValue?.type === "codex"
+            ? (matchingValue.sandbox ?? codexSettings?.sandbox ?? "workspace-write")
+            : (codexSettings?.sandbox ?? "workspace-write");
+    const defaultApprovalPolicy: CodexApprovalPolicy =
+        matchingValue?.type === "codex"
+            ? (matchingValue.approvalPolicy ?? codexSettings?.approvalPolicy ?? "on-request")
+            : (codexSettings?.approvalPolicy ?? "on-request");
+
     const defaultModel =
-        agentType === "claude" && matchingValue?.type === "claude"
-            ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
-            : agentType === "opencode" && matchingValue?.type === "opencode"
-              ? (matchingValue.model ?? opencodeSettings?.defaultModel ?? "")
-              : agentType === "gemini" && matchingValue?.type === "gemini"
-                ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "default")
-                : agentType === "cursor" && matchingValue?.type === "cursor"
-                  ? (matchingValue.model ?? cursorSettings?.defaultModel ?? "default")
-                  : agentType === "claude"
-                    ? (claudeSettings?.defaultModel ?? "default")
-                    : agentType === "opencode"
-                      ? (opencodeSettings?.defaultModel ?? "")
-                      : agentType === "gemini"
-                        ? (geminiSettings?.defaultModel ?? "default")
-                        : agentType === "cursor"
-                          ? (cursorSettings?.defaultModel ?? "default")
-                          : "default";
+        agentType === "codex" && matchingValue?.type === "codex"
+            ? (matchingValue.model ?? codexSettings?.defaultModel ?? "")
+            : agentType === "claude" && matchingValue?.type === "claude"
+              ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
+              : agentType === "opencode" && matchingValue?.type === "opencode"
+                ? (matchingValue.model ?? opencodeSettings?.defaultModel ?? "")
+                : agentType === "gemini" && matchingValue?.type === "gemini"
+                  ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "default")
+                  : agentType === "cursor" && matchingValue?.type === "cursor"
+                    ? (matchingValue.model ?? cursorSettings?.defaultModel ?? "default")
+                    : agentType === "codex"
+                      ? (codexSettings?.defaultModel ?? "")
+                      : agentType === "claude"
+                        ? (claudeSettings?.defaultModel ?? "default")
+                        : agentType === "opencode"
+                          ? (opencodeSettings?.defaultModel ?? "")
+                          : agentType === "gemini"
+                            ? (geminiSettings?.defaultModel ?? "default")
+                            : agentType === "cursor"
+                              ? (cursorSettings?.defaultModel ?? "default")
+                              : "default";
 
     const [fullAccess, setFullAccess] = useState(defaultFullAccess);
     const [dontAskQuestions, setDontAskQuestions] = useState(defaultDontAskQuestions);
+    const [fullAuto, setFullAuto] = useState(defaultFullAuto);
+    const [sandbox, setSandbox] = useState<CodexSandboxMode>(defaultSandbox);
+    const [approvalPolicy, setApprovalPolicy] =
+        useState<CodexApprovalPolicy>(defaultApprovalPolicy);
     const [model, setModel] = useState<string>(defaultModel);
 
     const isFirstRender = useRef(true);
@@ -91,15 +125,19 @@ function AgentOptionsPanel({
     useEffect(() => {
         setFullAccess(defaultFullAccess);
         setDontAskQuestions(defaultDontAskQuestions);
-        if (
-            agentType === "claude" ||
-            agentType === "opencode" ||
-            agentType === "gemini" ||
-            agentType === "cursor"
-        ) {
-            setModel(defaultModel);
-        }
-    }, [agentType, defaultFullAccess, defaultDontAskQuestions, defaultModel]);
+        setFullAuto(defaultFullAuto);
+        setSandbox(defaultSandbox);
+        setApprovalPolicy(defaultApprovalPolicy);
+        setModel(defaultModel);
+    }, [
+        agentType,
+        defaultFullAccess,
+        defaultDontAskQuestions,
+        defaultFullAuto,
+        defaultSandbox,
+        defaultApprovalPolicy,
+        defaultModel,
+    ]);
 
     const emitChange = useCallback(() => {
         const cb = onChangeRef.current;
@@ -138,11 +176,13 @@ function AgentOptionsPanel({
         } else {
             cb({
                 type: "codex",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
+                model: model || undefined,
+                sandbox: sandbox || undefined,
+                approvalPolicy: approvalPolicy || undefined,
+                fullAuto: fullAuto || undefined,
             });
         }
-    }, [agentType, fullAccess, dontAskQuestions, model]);
+    }, [agentType, fullAccess, dontAskQuestions, model, fullAuto, sandbox, approvalPolicy]);
 
     useEffect(() => {
         if (isFirstRender.current) {
@@ -188,35 +228,109 @@ function AgentOptionsPanel({
         } else {
             onRun({
                 type: "codex",
-                fullAccess: fullAccess || undefined,
-                dontAskQuestions: dontAskQuestions || undefined,
+                model: model || undefined,
+                sandbox: sandbox || undefined,
+                approvalPolicy: approvalPolicy || undefined,
+                fullAuto: fullAuto || undefined,
             });
         }
-    }, [agentType, fullAccess, dontAskQuestions, model, onRun]);
+    }, [agentType, fullAccess, dontAskQuestions, model, fullAuto, sandbox, approvalPolicy, onRun]);
 
     return (
         <div className="flex flex-col gap-3 p-3">
-            <div className="flex items-center gap-2">
-                <Switch
-                    id="agent-full-access"
-                    checked={fullAccess || dontAskQuestions}
-                    onCheckedChange={setFullAccess}
-                    disabled={dontAskQuestions}
-                />
-                <Label htmlFor="agent-full-access" className="cursor-pointer text-xs">
-                    Full access
-                </Label>
-            </div>
-            <div className="flex items-center gap-2">
-                <Switch
-                    id="agent-dont-ask"
-                    checked={dontAskQuestions}
-                    onCheckedChange={setDontAskQuestions}
-                />
-                <Label htmlFor="agent-dont-ask" className="cursor-pointer text-xs">
-                    Don&apos;t ask questions
-                </Label>
-            </div>
+            {agentType === "codex" ? (
+                <>
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            id="agent-full-auto"
+                            checked={fullAuto}
+                            onCheckedChange={setFullAuto}
+                        />
+                        <Label htmlFor="agent-full-auto" className="cursor-pointer text-xs">
+                            Full auto
+                        </Label>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <Label htmlFor="agent-sandbox" className="text-xs">
+                            Sandbox
+                        </Label>
+                        <Select
+                            value={sandbox}
+                            onValueChange={(v) => setSandbox(v as CodexSandboxMode)}
+                            disabled={fullAuto}
+                        >
+                            <SelectTrigger id="agent-sandbox" className="h-7 text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="read-only">Read only</SelectItem>
+                                <SelectItem value="workspace-write">Workspace write</SelectItem>
+                                <SelectItem value="danger-full-access">
+                                    Full access (dangerous)
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <Label htmlFor="agent-approval" className="text-xs">
+                            Approval policy
+                        </Label>
+                        <Select
+                            value={approvalPolicy}
+                            onValueChange={(v) => setApprovalPolicy(v as CodexApprovalPolicy)}
+                            disabled={fullAuto}
+                        >
+                            <SelectTrigger id="agent-approval" className="h-7 text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="always">Always</SelectItem>
+                                <SelectItem value="unless-allow-listed">
+                                    Unless allow-listed
+                                </SelectItem>
+                                <SelectItem value="on-request">On request</SelectItem>
+                                <SelectItem value="never">Never</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <Label htmlFor="agent-model" className="text-xs">
+                            Model
+                        </Label>
+                        <Input
+                            id="agent-model"
+                            className="h-7 text-xs"
+                            value={model}
+                            placeholder="e.g. o3, o4-mini"
+                            onChange={(e) => setModel(e.target.value)}
+                        />
+                    </div>
+                </>
+            ) : (
+                <>
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            id="agent-full-access"
+                            checked={fullAccess || dontAskQuestions}
+                            onCheckedChange={setFullAccess}
+                            disabled={dontAskQuestions}
+                        />
+                        <Label htmlFor="agent-full-access" className="cursor-pointer text-xs">
+                            Full access
+                        </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            id="agent-dont-ask"
+                            checked={dontAskQuestions}
+                            onCheckedChange={setDontAskQuestions}
+                        />
+                        <Label htmlFor="agent-dont-ask" className="cursor-pointer text-xs">
+                            Don&apos;t ask questions
+                        </Label>
+                    </div>
+                </>
+            )}
 
             {agentType === "claude" && (
                 <div className="flex flex-col gap-1">
