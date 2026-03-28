@@ -27,7 +27,7 @@ function buildDataPaths(dataDir: string) {
         tasksDir: join(dataDir, "tasks"),
         archiveDir: join(dataDir, "archive"),
         taskLogsDir: join(dataDir, "task-logs"),
-        agentSkillsDir: join(dataDir, "agent-skills"),
+        agentSkillsDir: join(BASE_DIR, "agent-skills"),
         themesDir: join(dataDir, "themes"),
         flowsDir: join(dataDir, "flows"),
         flowRunsDir: join(dataDir, "flow-runs"),

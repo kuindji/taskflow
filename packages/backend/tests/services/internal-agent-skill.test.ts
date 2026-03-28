@@ -6,7 +6,7 @@ import {
     PROMPT_AUTONOMOUS,
 } from "../../src/services/internal-agent-skill";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
-import { join } from "path";
+import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { spawnSync } from "child_process";
 
@@ -83,6 +83,8 @@ describe("internal agent skill", () => {
         expect(spec.command).toBe("claude");
         expect(spec.args).toEqual([
             "--allowedTools",
+            `Read(/${dirname("/tmp/ignored/SKILL.md")}/**)`,
+            "--allowedTools",
             "Bash(taskflow-cli*)",
             "--append-system-prompt",
             taskPrompt,
@@ -106,12 +108,29 @@ describe("internal agent skill", () => {
     it("passes Gemini agent options through", () => {
         const spec = buildAgentLaunchSpec("gemini", "Do stuff", "/tmp/ignored/SKILL.md", {
             type: "gemini",
-            fullAccess: true,
-            model: "pro",
+            approvalMode: "yolo",
+            model: "gemini-2.5-pro",
         });
-        expect(spec.args).toContain("--yolo");
+        expect(spec.args).toContain("--approval-mode");
+        expect(spec.args).toContain("yolo");
         expect(spec.args).toContain("--model");
-        expect(spec.args).toContain("pro");
+        expect(spec.args).toContain("gemini-2.5-pro");
+    });
+
+    it("omits --approval-mode for Gemini when set to default", () => {
+        const spec = buildAgentLaunchSpec("gemini", "Do stuff", "/tmp/ignored/SKILL.md", {
+            type: "gemini",
+            approvalMode: "default",
+        });
+        expect(spec.args).not.toContain("--approval-mode");
+    });
+
+    it("passes --sandbox for Gemini when sandbox is true", () => {
+        const spec = buildAgentLaunchSpec("gemini", "Do stuff", "/tmp/ignored/SKILL.md", {
+            type: "gemini",
+            sandbox: true,
+        });
+        expect(spec.args).toContain("--sandbox");
     });
 
     it("passes project scope through to the system prompt", () => {
@@ -189,30 +208,125 @@ printf '{}'
         });
     });
 
-    it("dontAskQuestions forces --dangerously-skip-permissions and --permission-mode dontAsk for Claude", () => {
+    it("dangerouslySkipPermissions passes --dangerously-skip-permissions for Claude", () => {
         const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
             type: "claude",
-            dontAskQuestions: true,
+            dangerouslySkipPermissions: true,
+        });
+        expect(spec.args).toContain("--dangerously-skip-permissions");
+    });
+
+    it("permissionMode passes --permission-mode for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            permissionMode: "dontAsk",
+        });
+        expect(spec.args).toContain("--permission-mode");
+        expect(spec.args).toContain("dontAsk");
+        expect(spec.args).not.toContain("--dangerously-skip-permissions");
+    });
+
+    it("permissionMode auto passes --permission-mode auto for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            permissionMode: "auto",
+        });
+        expect(spec.args).toContain("--permission-mode");
+        expect(spec.args).toContain("auto");
+    });
+
+    it("permissionMode default does not pass --permission-mode for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            permissionMode: "default",
+        });
+        expect(spec.args).not.toContain("--permission-mode");
+    });
+
+    it("effort passes --effort for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            effort: "high",
+        });
+        expect(spec.args).toContain("--effort");
+        expect(spec.args).toContain("high");
+    });
+
+    it("passes full model name for Claude", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            model: "claude-sonnet-4-6",
+        });
+        expect(spec.args).toContain("--model");
+        expect(spec.args).toContain("claude-sonnet-4-6");
+    });
+
+    it("combines all Claude-specific flags", () => {
+        const spec = buildAgentLaunchSpec("claude", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "claude",
+            dangerouslySkipPermissions: true,
+            permissionMode: "auto",
+            model: "opus",
+            effort: "max",
         });
         expect(spec.args).toContain("--dangerously-skip-permissions");
         expect(spec.args).toContain("--permission-mode");
-        expect(spec.args).toContain("dontAsk");
+        expect(spec.args).toContain("auto");
+        expect(spec.args).toContain("--model");
+        expect(spec.args).toContain("opus");
+        expect(spec.args).toContain("--effort");
+        expect(spec.args).toContain("max");
     });
 
-    it("dontAskQuestions forces --full-auto for Codex", () => {
+    it("fullAuto passes --full-auto for Codex", () => {
         const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
             type: "codex",
-            dontAskQuestions: true,
+            fullAuto: true,
         });
         expect(spec.args).toContain("--full-auto");
     });
 
-    it("dontAskQuestions forces --yolo for Gemini", () => {
+    it("passes Codex sandbox and approvalPolicy flags", () => {
+        const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "codex",
+            sandbox: "danger-full-access",
+            approvalPolicy: "never",
+        });
+        expect(spec.args).toContain("--sandbox");
+        expect(spec.args).toContain("danger-full-access");
+        expect(spec.args).toContain("--ask-for-approval");
+        expect(spec.args).toContain("never");
+        expect(spec.args).not.toContain("--full-auto");
+    });
+
+    it("fullAuto skips individual sandbox/approvalPolicy for Codex", () => {
+        const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "codex",
+            fullAuto: true,
+            sandbox: "read-only",
+            approvalPolicy: "always",
+        });
+        expect(spec.args).toContain("--full-auto");
+        expect(spec.args).not.toContain("--sandbox");
+        expect(spec.args).not.toContain("--ask-for-approval");
+    });
+
+    it("passes Codex model via --model", () => {
+        const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "codex",
+            model: "o4-mini",
+        });
+        expect(spec.args).toContain("--model");
+        expect(spec.args).toContain("o4-mini");
+    });
+
+    it("passes --approval-mode auto_edit for Gemini", () => {
         const spec = buildAgentLaunchSpec("gemini", "Do it", "/tmp/ignored/SKILL.md", {
             type: "gemini",
-            dontAskQuestions: true,
+            approvalMode: "auto_edit",
         });
-        expect(spec.args).toContain("--yolo");
+        expect(spec.args).toContain("--approval-mode");
+        expect(spec.args).toContain("auto_edit");
     });
 
     it("yolo flag passes --yolo for Cursor", () => {

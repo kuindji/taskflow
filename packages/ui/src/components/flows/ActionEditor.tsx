@@ -1,10 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import type {
-    ActionDefinition,
-    AgentLaunchOptions,
-    ClaudeLaunchOptions,
-    SessionType,
-} from "@taskflow/shared";
+import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";
@@ -38,31 +33,36 @@ function normalizeAgentOptions(
     if (sessionType === "shell") return undefined;
 
     const matchingOptions = agentOptions?.type === sessionType ? agentOptions : undefined;
-    const model =
-        matchingOptions && "model" in matchingOptions && matchingOptions.model
-            ? matchingOptions.model
-            : undefined;
 
     switch (sessionType) {
-        case "claude":
+        case "claude": {
+            const opts = matchingOptions?.type === "claude" ? matchingOptions : undefined;
             return {
-                type: sessionType,
-                fullAccess: matchingOptions?.type === "claude" ? matchingOptions.fullAccess || undefined : undefined,
-                dontAskQuestions: matchingOptions?.type === "claude" ? matchingOptions.dontAskQuestions || undefined : undefined,
-                model: model as ClaudeLaunchOptions["model"],
+                type: "claude",
+                dangerouslySkipPermissions: opts?.dangerouslySkipPermissions || undefined,
+                permissionMode: opts?.permissionMode,
+                model: opts?.model,
+                effort: opts?.effort,
             };
-        case "codex":
+        }
+        case "codex": {
+            const opts = matchingOptions?.type === "codex" ? matchingOptions : undefined;
             return {
-                type: sessionType,
-                fullAccess: matchingOptions?.type === "codex" ? matchingOptions.fullAccess || undefined : undefined,
-                dontAskQuestions: matchingOptions?.type === "codex" ? matchingOptions.dontAskQuestions || undefined : undefined,
+                type: "codex",
+                model: opts?.model,
+                sandbox: opts?.sandbox,
+                approvalPolicy: opts?.approvalPolicy,
+                fullAuto: opts?.fullAuto || undefined,
             };
-        case "cursor":
+        }
+        case "cursor": {
+            const opts = matchingOptions?.type === "cursor" ? matchingOptions : undefined;
             return {
-                type: sessionType,
-                yolo: matchingOptions?.type === "cursor" ? matchingOptions.yolo || undefined : undefined,
-                model,
+                type: "cursor",
+                yolo: opts?.yolo || undefined,
+                model: opts?.model,
             };
+        }
         default:
             return undefined;
     }

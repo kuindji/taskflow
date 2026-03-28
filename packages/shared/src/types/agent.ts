@@ -10,17 +10,33 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     cursor: "Cursor",
 };
 
+type ClaudePermissionMode =
+    | "default"
+    | "acceptEdits"
+    | "bypassPermissions"
+    | "dontAsk"
+    | "plan"
+    | "auto";
+
+type ClaudeEffortLevel = "low" | "medium" | "high" | "max";
+
 interface ClaudeLaunchOptions {
     type: Extract<AgentType, "claude">;
-    fullAccess?: boolean;
-    dontAskQuestions?: boolean;
-    model?: "opus" | "sonnet" | "haiku";
+    dangerouslySkipPermissions?: boolean;
+    permissionMode?: ClaudePermissionMode;
+    model?: string;
+    effort?: ClaudeEffortLevel;
 }
+
+type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+type CodexApprovalPolicy = "always" | "unless-allow-listed" | "on-request" | "never";
 
 interface CodexLaunchOptions {
     type: Extract<AgentType, "codex">;
-    fullAccess?: boolean;
-    dontAskQuestions?: boolean;
+    model?: string;
+    sandbox?: CodexSandboxMode;
+    approvalPolicy?: CodexApprovalPolicy;
+    fullAuto?: boolean;
 }
 
 interface OpenCodeLaunchOptions {
@@ -32,9 +48,9 @@ interface OpenCodeLaunchOptions {
 
 interface GeminiLaunchOptions {
     type: Extract<AgentType, "gemini">;
-    fullAccess?: boolean;
-    dontAskQuestions?: boolean;
-    model?: "auto" | "pro" | "flash" | "flash-lite";
+    approvalMode?: "default" | "auto_edit" | "yolo" | "plan";
+    sandbox?: boolean;
+    model?: string;
 }
 
 interface CursorLaunchOptions {
@@ -61,8 +77,12 @@ export { ALL_AGENT_TYPES, AGENT_DISPLAY_NAMES };
 
 export type {
     AgentType,
+    ClaudePermissionMode,
+    ClaudeEffortLevel,
     ClaudeLaunchOptions,
     CodexLaunchOptions,
+    CodexSandboxMode,
+    CodexApprovalPolicy,
     OpenCodeLaunchOptions,
     GeminiLaunchOptions,
     CursorLaunchOptions,

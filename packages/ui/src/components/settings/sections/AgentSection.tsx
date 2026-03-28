@@ -27,6 +27,9 @@ interface AgentSectionProps {
     onModelChange?: (value: string) => void;
     onModelInputChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
     fullAccessHint?: string;
+    effortValue?: string;
+    effortOptions?: ModelOption[];
+    onEffortChange?: (value: string) => void;
 }
 
 function AgentSection({
@@ -41,9 +44,13 @@ function AgentSection({
     onModelChange,
     onModelInputChange,
     fullAccessHint = "Skip permission prompts by default",
+    effortValue,
+    effortOptions,
+    onEffortChange,
 }: AgentSectionProps) {
     const hasSelectModel = modelOptions && onModelChange;
     const hasInputModel = onModelInputChange;
+    const hasEffort = effortOptions && onEffortChange;
 
     return (
         <>
@@ -75,6 +82,24 @@ function AgentSection({
                         value={modelValue}
                         onChange={onModelInputChange}
                     />
+                </SettingRow>
+            )}
+            {hasEffort && (
+                <SettingRow
+                    label="Default Effort"
+                    hint={`Pre-selected effort level when running ${agentKey} sessions`}>
+                    <Select value={effortValue} onValueChange={onEffortChange}>
+                        <SelectTrigger className="h-8 w-[180px] text-[13px]">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {effortOptions.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </SettingRow>
             )}
             <SettingRow label="Full Access" hint={fullAccessHint}>

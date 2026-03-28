@@ -10,6 +10,7 @@ import type {
     SettingsUpdatePayload,
 } from "@taskflow/shared";
 import { jsonResponse, errorResponse } from "./response-helpers";
+import { getResolvedCliHelp } from "../../services/internal-agent-skill";
 
 interface SettingsRouteDeps {
     apiRouter: ApiRouter;
@@ -43,6 +44,12 @@ function registerSettingsRoutes(deps: SettingsRouteDeps): void {
     apiRouter.register("GET", "/api/app-name", async () => {
         const name = await remoteAgentService.getAppName();
         return jsonResponse({ name });
+    });
+
+    apiRouter.register("GET", "/api/cli-help", async () => {
+        return new Response(getResolvedCliHelp(), {
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
     });
 
     apiRouter.register("GET", "/api/tray-state", async () => {

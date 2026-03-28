@@ -16,37 +16,46 @@ function normalizeAgentOptions(
 
     switch (agentType) {
         case "claude":
+            if (agentOptions.type !== "claude") return undefined;
             return {
                 type: "claude",
-                fullAccess: agentOptions.type === "claude" ? agentOptions.fullAccess || undefined : undefined,
-                dontAskQuestions: agentOptions.type === "claude" ? agentOptions.dontAskQuestions || undefined : undefined,
-                model: agentOptions.type === "claude" ? agentOptions.model : undefined,
+                dangerouslySkipPermissions:
+                    agentOptions.dangerouslySkipPermissions || undefined,
+                permissionMode: agentOptions.permissionMode,
+                model: agentOptions.model,
+                effort: agentOptions.effort,
             };
         case "codex":
+            if (agentOptions.type !== "codex") return undefined;
             return {
                 type: "codex",
-                fullAccess: agentOptions.type === "codex" ? agentOptions.fullAccess || undefined : undefined,
-                dontAskQuestions: agentOptions.type === "codex" ? agentOptions.dontAskQuestions || undefined : undefined,
+                model: agentOptions.model,
+                sandbox: agentOptions.sandbox,
+                approvalPolicy: agentOptions.approvalPolicy,
+                fullAuto: agentOptions.fullAuto || undefined,
             };
         case "opencode":
+            if (agentOptions.type !== "opencode") return undefined;
             return {
                 type: "opencode",
-                fullAccess: agentOptions.type === "opencode" ? agentOptions.fullAccess || undefined : undefined,
-                dontAskQuestions: agentOptions.type === "opencode" ? agentOptions.dontAskQuestions || undefined : undefined,
-                model: agentOptions.type === "opencode" ? agentOptions.model : undefined,
+                fullAccess: agentOptions.fullAccess || undefined,
+                dontAskQuestions: agentOptions.dontAskQuestions || undefined,
+                model: agentOptions.model,
             };
         case "gemini":
+            if (agentOptions.type !== "gemini") return undefined;
             return {
                 type: "gemini",
-                fullAccess: agentOptions.type === "gemini" ? agentOptions.fullAccess || undefined : undefined,
-                dontAskQuestions: agentOptions.type === "gemini" ? agentOptions.dontAskQuestions || undefined : undefined,
-                model: agentOptions.type === "gemini" ? agentOptions.model : undefined,
+                approvalMode: agentOptions.approvalMode,
+                sandbox: agentOptions.sandbox,
+                model: agentOptions.model,
             };
         case "cursor":
+            if (agentOptions.type !== "cursor") return undefined;
             return {
                 type: "cursor",
-                yolo: agentOptions.type === "cursor" ? agentOptions.yolo || undefined : undefined,
-                model: agentOptions.type === "cursor" ? agentOptions.model : undefined,
+                yolo: agentOptions.yolo || undefined,
+                model: agentOptions.model,
             };
         default:
             return undefined;
