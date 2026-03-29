@@ -50,6 +50,7 @@ export function Workspace() {
     const addTab = useSessionStore((s) => s.addTab);
     const sendInput = useSessionStore((s) => s.sendInput);
     const renameTab = useSessionStore((s) => s.renameTab);
+    const reorderTabs = useSessionStore((s) => s.reorderTabs);
     const updateTask = useTaskStore((s) => s.updateTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
@@ -311,6 +312,11 @@ export function Workspace() {
                             renameTab(workspace.workspaceKey, id, newLabel);
                         }
                     }}
+                    onTabReorder={(activeId, overId) => {
+                        if (workspace.workspaceKey) {
+                            reorderTabs(workspace.workspaceKey, activeId, overId);
+                        }
+                    }}
                     onNewTab={handleNewTab}
                     onRunTab={() => {}}
                     onRunScript={() => {}}
@@ -471,6 +477,11 @@ export function Workspace() {
                         onTabRename={(id, newLabel) => {
                             if (workspace.workspaceKey) {
                                 renameTab(workspace.workspaceKey, id, newLabel);
+                            }
+                        }}
+                        onTabReorder={(activeId, overId) => {
+                            if (workspace.workspaceKey) {
+                                reorderTabs(workspace.workspaceKey, activeId, overId);
                             }
                         }}
                         onNewTab={handleNewTab}
