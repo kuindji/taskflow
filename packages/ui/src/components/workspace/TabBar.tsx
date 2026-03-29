@@ -77,9 +77,7 @@ export function TabBar({
     const focusedPanel = useUIStore((s) => s.focusedPanel);
     const showBadges = cmdHeld && focusedPanel === "workspace";
 
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    );
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
     const tabIds = useMemo(() => tabs.map((tab) => tab.id), [tabs]);
 
