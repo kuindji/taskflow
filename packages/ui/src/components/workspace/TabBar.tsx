@@ -7,6 +7,9 @@ import type {
     FlowRun,
 } from "@taskflow/shared";
 import type { AgentType } from "@taskflow/shared";
+import { DndContext, closestCenter } from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui-store";
 import { AgentDropdownMenu } from "./AgentDropdownMenu";
@@ -19,6 +22,7 @@ interface TabBarProps {
     onTabClick: (tabId: string) => void;
     onTabClose: (tabId: string) => void;
     onTabRename: (tabId: string, newLabel: string) => void;
+    onTabReorder: (activeId: string, overId: string) => void;
     onNewTab: (
         type: AgentType | "browser" | "shell",
         shellPath?: string,
@@ -49,6 +53,7 @@ export function TabBar({
     onTabClick,
     onTabClose,
     onTabRename,
+    onTabReorder,
     onNewTab,
     onRunTab,
     onRunScript,
@@ -70,6 +75,15 @@ export function TabBar({
     const cmdHeld = useUIStore((s) => s.cmdHeld);
     const focusedPanel = useUIStore((s) => s.focusedPanel);
     const showBadges = cmdHeld && focusedPanel === "workspace";
+
+    const tabIds = tabs.map((tab) => tab.id);
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (over && active.id !== over.id) {
+            onTabReorder(active.id as string, over.id as string);
+        }
+    };
 
     return (
         <div
@@ -97,23 +111,29 @@ export function TabBar({
                     allowSessionTabs={allowSessionTabs}
                 />
             </div>
-            <div
-                className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag]"
-                style={{ scrollbarWidth: "none" }}>
-                {tabs.map((tab, index) => (
-                    <TabItem
-                        key={tab.id}
-                        tab={tab}
-                        isActive={tab.id === activeTabId}
-                        index={index}
-                        cmdHeld={showBadges}
-                        projectPath={projectPath}
-                        onTabClick={onTabClick}
-                        onTabClose={onTabClose}
-                        onTabRename={onTabRename}
-                    />
-                ))}
-            </div>
+            <DndContext
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}>
+                <SortableContext items={tabIds} strategy={horizontalListSortingStrategy}>
+                    <div
+                        className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag]"
+                        style={{ scrollbarWidth: "none" }}>
+                        {tabs.map((tab, index) => (
+                            <TabItem
+                                key={tab.id}
+                                tab={tab}
+                                isActive={tab.id === activeTabId}
+                                index={index}
+                                cmdHeld={showBadges}
+                                projectPath={projectPath}
+                                onTabClick={onTabClick}
+                                onTabClose={onTabClose}
+                                onTabRename={onTabRename}
+                            />
+                        ))}
+                    </div>
+                </SortableContext>
+            </DndContext>
         </div>
     );
 }
