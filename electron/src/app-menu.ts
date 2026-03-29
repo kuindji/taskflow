@@ -122,6 +122,7 @@ function buildAppMenu(): void {
                         mainWindow?.webContents.send("open-schedules");
                     },
                 },
+                { type: "separator" },
                 {
                     id: "check-for-updates",
                     label: downloadedVersion
