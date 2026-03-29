@@ -1,4 +1,6 @@
 import { useMemo, useState, useRef, useCallback } from "react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
 import { Button } from "@/components/ui/button";
@@ -53,6 +55,15 @@ function TabItem({
     const [editValue, setEditValue] = useState(tab.label);
     const inputRef = useRef<HTMLInputElement>(null);
 
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+        id: tab.id,
+    });
+
+    const sortableStyle = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+    };
+
     const commitRename = useCallback(() => {
         const trimmed = editValue.trim();
         setIsEditing(false);
@@ -65,6 +76,10 @@ function TabItem({
 
     const tabElement = (
         <div
+            ref={setNodeRef}
+            style={sortableStyle}
+            {...attributes}
+            {...listeners}
             role="button"
             tabIndex={0}
             onClick={() => onTabClick(tab.id)}
