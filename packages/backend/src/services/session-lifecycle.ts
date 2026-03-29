@@ -153,6 +153,26 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         trayStateTracker,
     } = deps;
 
+    async function broadcastTaskUpdate(taskId: string): Promise<void> {
+        const updated = await taskStore.getTask(taskId);
+        if (updated) {
+            broadcast({
+                type: MSG.TASK_UPDATED,
+                payload: filterTaskSessions(updated, config.instanceId),
+            });
+        }
+    }
+
+    async function broadcastProjectUpdate(projectId: string): Promise<void> {
+        const updated = await taskStore.getProject(projectId);
+        if (updated) {
+            broadcast({
+                type: MSG.PROJECT_UPDATED,
+                payload: filterProjectSessions(updated, config.instanceId),
+            });
+        }
+    }
+
     async function removeSessionFromOwner(sessionId: string, owner?: SessionOwner): Promise<void> {
         const targetTask = owner?.taskId ? await taskStore.getTask(owner.taskId) : null;
         if (targetTask?.sessions.some((session) => session.id === sessionId)) {
@@ -160,6 +180,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 sessions: task.sessions.filter((session) => session.id !== sessionId),
             }));
             await taskStore.deleteSessionHistory(targetTask.id, sessionId);
+            await broadcastTaskUpdate(targetTask.id);
             return;
         }
 
@@ -169,6 +190,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 sessions: project.sessions.filter((session) => session.id !== sessionId),
             }));
             await taskStore.deleteSessionHistory(targetProject.id, sessionId);
+            await broadcastProjectUpdate(targetProject.id);
             return;
         }
 
@@ -180,6 +202,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 sessions: task.sessions.filter((session) => session.id !== sessionId),
             }));
             await taskStore.deleteSessionHistory(activeOwner.id, sessionId);
+            await broadcastTaskUpdate(activeOwner.id);
             return;
         }
 
@@ -191,6 +214,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 sessions: project.sessions.filter((session) => session.id !== sessionId),
             }));
             await taskStore.deleteSessionHistory(activeProjectOwner.id, sessionId);
+            await broadcastProjectUpdate(activeProjectOwner.id);
             return;
         }
 
