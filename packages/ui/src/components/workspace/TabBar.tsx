@@ -7,9 +7,10 @@ import type {
     FlowRun,
 } from "@taskflow/shared";
 import type { AgentType } from "@taskflow/shared";
-import { DndContext, closestCenter } from "@dnd-kit/core";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
+import { useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui-store";
 import { AgentDropdownMenu } from "./AgentDropdownMenu";
@@ -76,14 +77,21 @@ export function TabBar({
     const focusedPanel = useUIStore((s) => s.focusedPanel);
     const showBadges = cmdHeld && focusedPanel === "workspace";
 
-    const tabIds = tabs.map((tab) => tab.id);
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    );
 
-    const handleDragEnd = (event: DragEndEvent) => {
-        const { active, over } = event;
-        if (over && active.id !== over.id) {
-            onTabReorder(active.id as string, over.id as string);
-        }
-    };
+    const tabIds = useMemo(() => tabs.map((tab) => tab.id), [tabs]);
+
+    const handleDragEnd = useCallback(
+        (event: DragEndEvent) => {
+            const { active, over } = event;
+            if (over && active.id !== over.id) {
+                onTabReorder(String(active.id), String(over.id));
+            }
+        },
+        [onTabReorder],
+    );
 
     return (
         <div
@@ -112,6 +120,7 @@ export function TabBar({
                 />
             </div>
             <DndContext
+                sensors={sensors}
                 collisionDetection={closestCenter}
                 onDragEnd={handleDragEnd}>
                 <SortableContext items={tabIds} strategy={horizontalListSortingStrategy}>
