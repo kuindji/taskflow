@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { arrayMove } from "@dnd-kit/sortable";
 import type { AgentLaunchOptions, SessionRef, Task, SessionStatus } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, sendFireAndForget } from "../hooks/useWebSocket";
@@ -39,6 +40,7 @@ interface SessionStore {
     setSessionStatus(sessionId: string, status?: SessionStatus): void;
     getTaskStatus(taskId: string): SessionStatus | undefined;
     renameTab(workspaceKey: string, tabId: string, newLabel: string): void;
+    reorderTabs(workspaceKey: string, activeId: string, overId: string): void;
     updateAutoTitle(workspaceKey: string, tabId: string, title: string): void;
     getTabs(workspaceKey: string): Tab[];
     getActiveTab(workspaceKey: string): Tab | undefined;
@@ -235,6 +237,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 label: newLabel,
             });
         }
+    },
+    reorderTabs(workspaceKey, activeId, overId) {
+        set((s) => {
+            const tabs = s.tabsByWorkspace[workspaceKey];
+            if (!tabs) return s;
+            const oldIndex = tabs.findIndex((t) => t.id === activeId);
+            const newIndex = tabs.findIndex((t) => t.id === overId);
+            if (oldIndex === -1 || newIndex === -1) return s;
+            return {
+                tabsByWorkspace: {
+                    ...s.tabsByWorkspace,
+                    [workspaceKey]: arrayMove(tabs, oldIndex, newIndex),
+                },
+            };
+        });
     },
     updateAutoTitle(workspaceKey, tabId, title) {
         const tabs = get().tabsByWorkspace[workspaceKey] ?? [];
