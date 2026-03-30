@@ -92,12 +92,19 @@ async function createWindow(): Promise<void> {
     }
 
     let lastNonMaximizedBounds = mainWindow.getBounds();
+    const broadcastFullscreenState = () => {
+        mainWindow?.webContents.send("window-fullscreen-changed", {
+            fullscreen: mainWindow.isFullScreen(),
+        });
+    };
     mainWindow.on("focus", () => {
         mainWindow?.webContents.send("window-focus-changed", { focused: true });
     });
     mainWindow.on("blur", () => {
         mainWindow?.webContents.send("window-focus-changed", { focused: false });
     });
+    mainWindow.on("enter-full-screen", broadcastFullscreenState);
+    mainWindow.on("leave-full-screen", broadcastFullscreenState);
 
     mainWindow.on("moved", () => {
         if (mainWindow && !mainWindow.isMaximized()) {

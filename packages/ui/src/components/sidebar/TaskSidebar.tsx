@@ -29,6 +29,8 @@ export function TaskSidebar() {
     const setShowArchive = useTaskStore((s) => s.setShowArchive);
     const sidebarWidth = useUIStore((s) => s.sidebarWidth);
     const narrowSidebar = sidebarWidth <= Math.round(SIDEBAR_MAX * 0.55);
+    const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
+    const useIconOnlyActionButtons = narrowSidebar && !isWindowFullscreen;
     const activeProjectId = useUIStore((s) => s.activeProjectId);
     const setActiveProject = useUIStore((s) => s.setActiveProject);
     const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
@@ -104,6 +106,25 @@ export function TaskSidebar() {
             });
         });
         return cleanup;
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        void window.taskflow?.getWindowFullscreen?.().then((fullscreen) => {
+            if (!cancelled) {
+                setIsWindowFullscreen(fullscreen);
+            }
+        });
+
+        const cleanup = window.taskflow?.onWindowFullscreenChanged?.((fullscreen) => {
+            setIsWindowFullscreen(fullscreen);
+        });
+
+        return () => {
+            cancelled = true;
+            cleanup?.();
+        };
     }, []);
 
     const handleOpenProjectDialog = useCallback(() => {
@@ -223,15 +244,18 @@ export function TaskSidebar() {
                         </span>
                     ) : (
                         <>
-                            <NewTaskControl tooltipSide="bottom" iconOnly={narrowSidebar} />
+                            <NewTaskControl
+                                tooltipSide="bottom"
+                                iconOnly={useIconOnlyActionButtons}
+                            />
                             <Button
                                 variant="ghost"
-                                size={narrowSidebar ? "icon-xs" : "xs"}
+                                size={useIconOnlyActionButtons ? "icon-xs" : "xs"}
                                 onClick={() => handleOpenProjectDialog()}
-                                tooltip={narrowSidebar ? "New project" : undefined}
+                                tooltip={useIconOnlyActionButtons ? "New project" : undefined}
                                 tooltipSide="bottom"
                                 className="[-webkit-app-region:no-drag]">
-                                {narrowSidebar ? (
+                                {useIconOnlyActionButtons ? (
                                     <FolderPlus className="h-4 w-4" />
                                 ) : (
                                     <>

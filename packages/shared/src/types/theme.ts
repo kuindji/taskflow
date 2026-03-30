@@ -73,6 +73,7 @@ export interface CssVariables {
     "--ring": string;
     "--island-base": string;
     "--dialog-shell": string;
+    "--window-shell-fullscreen": string;
     "--chart-1": string;
     "--chart-2": string;
     "--chart-3": string;

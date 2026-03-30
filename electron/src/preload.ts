@@ -171,6 +171,15 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("window-focus-changed", listener);
         };
     },
+    getWindowFullscreen: () => ipcRenderer.invoke("get-window-fullscreen") as Promise<boolean>,
+    onWindowFullscreenChanged: (callback: (fullscreen: boolean) => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, payload: { fullscreen: boolean }) =>
+            callback(payload.fullscreen);
+        ipcRenderer.on("window-fullscreen-changed", listener);
+        return () => {
+            ipcRenderer.removeListener("window-fullscreen-changed", listener);
+        };
+    },
     onFocusPanelLeft: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("focus-panel-left", listener);

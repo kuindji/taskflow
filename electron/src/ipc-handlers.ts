@@ -81,6 +81,14 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
         deps.updateTrayIcon();
     });
 
+    ipcMain.handle("get-window-fullscreen", (event) => {
+        const senderWindow =
+            BrowserWindow.fromWebContents(event.sender) ??
+            BrowserWindow.getFocusedWindow() ??
+            deps.getMainWindow();
+        return senderWindow?.isFullScreen() ?? false;
+    });
+
     ipcMain.on("show-item-in-folder", (_event, filePath: string) => {
         if (!filePath.startsWith("/") || filePath.includes("..")) return;
         shell.showItemInFolder(filePath);

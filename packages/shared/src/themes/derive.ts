@@ -35,6 +35,7 @@ export function deriveTheme(source: ThemeSource): ResolvedTheme {
         "--ring": ansi.blue,
         "--island-base": hexToRgba(ansi.black, 0.5),
         "--dialog-shell": darken(ansi.black, 0.4),
+        "--window-shell-fullscreen": darken(ansi.black, 0.5),
         "--chart-1": ansi.blue,
         "--chart-2": ansi.green,
         "--chart-3": ansi.yellow,

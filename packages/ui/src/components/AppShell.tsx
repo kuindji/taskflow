@@ -122,6 +122,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
     const registerPanel = useUIStore((s) => s.registerPanel);
     const unregisterPanel = useUIStore((s) => s.unregisterPanel);
     const isElectron = useIsElectron();
+    const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
 
     // Register/unregister conditional panels so cycleFocus skips hidden ones.
     // Sidebar and workspace are always registered (initial state in ui-store).
@@ -139,11 +140,36 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
         }
     }, [taskInfoOpen, registerPanel, unregisterPanel]);
 
+    useEffect(() => {
+        if (!isElectron) return;
+
+        let cancelled = false;
+
+        void window.taskflow?.getWindowFullscreen?.().then((fullscreen) => {
+            if (!cancelled) {
+                setIsWindowFullscreen(fullscreen);
+            }
+        });
+
+        const cleanup = window.taskflow?.onWindowFullscreenChanged?.((fullscreen) => {
+            setIsWindowFullscreen(fullscreen);
+        });
+
+        return () => {
+            cancelled = true;
+            cleanup?.();
+        };
+    }, [isElectron]);
+
     return (
         <div
             className={cn(
                 "flex h-screen flex-col overflow-hidden",
-                isElectron ? "bg-(--window-shell)" : "bg-[#2a2a2a]",
+                isElectron
+                    ? isWindowFullscreen
+                        ? "bg-(--window-shell-fullscreen)"
+                        : "bg-(--window-shell)"
+                    : "bg-[#2a2a2a]",
             )}>
             <div className="flex flex-1 overflow-hidden" style={{ padding: panelGap }}>
                 <div

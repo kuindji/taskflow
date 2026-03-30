@@ -49,6 +49,8 @@ interface TaskflowBridge {
     onFocusPanelLeft(callback: () => void): () => void;
     onFocusPanelRight(callback: () => void): () => void;
     onWindowFocusChanged(callback: (focused: boolean) => void): () => void;
+    getWindowFullscreen(): Promise<boolean>;
+    onWindowFullscreenChanged(callback: (fullscreen: boolean) => void): () => void;
     onUpdateStatus(callback: (payload: { status: string; version?: string }) => void): () => void;
     quitAndInstallUpdate(): void;
     sendTrayState(status: string | null): void;

@@ -108,6 +108,7 @@
     --radius-xl: calc(var(--radius) + 4px);
     --color-island-base: var(--island-base);
     --color-dialog-shell: var(--dialog-shell);
+    --color-window-shell-fullscreen: var(--window-shell-fullscreen);
     --text-xxs: 0.625rem;
 }
 
@@ -158,6 +159,7 @@
     --island-base: rgba(24, 24, 37, 0.5);
     --dialog-shell: #11111b;
     --window-shell: color-mix(in srgb, var(--card) 25%, transparent);
+    --window-shell-fullscreen: #0c0c13;
 }
 
 html,
