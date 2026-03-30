@@ -1,3 +1,4 @@
+import { useState, useCallback } from "react";
 import type { ActionInline, SessionType, AgentLaunchOptions } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
@@ -31,6 +32,13 @@ function InlineActionEditor({
     onUpdate,
     onSessionTypeChange,
 }: InlineActionEditorProps) {
+    const [resetCounter, setResetCounter] = useState(0);
+
+    const handleResetAgentOptions = useCallback(() => {
+        onUpdate(entryId, { agentOptions: undefined });
+        setResetCounter((c) => c + 1);
+    }, [entryId, onUpdate]);
+
     return (
         <div className="border-border mt-3 flex flex-col gap-2 border-t pt-3">
             <Input
@@ -68,11 +76,12 @@ function InlineActionEditor({
             {inline.sessionType !== "shell" && (
                 <div className="border-border rounded-md border p-1">
                     <AgentOptionsPanel
-                        key={`${entryId}-${inline.sessionType}`}
+                        key={`${entryId}-${inline.sessionType}-${resetCounter}`}
                         agentType={inline.sessionType}
                         value={inline.agentOptions}
                         emitOnMount
                         onChange={(options) => onUpdate(entryId, { agentOptions: options })}
+                        onReset={handleResetAgentOptions}
                     />
                 </div>
             )}

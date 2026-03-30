@@ -107,6 +107,7 @@ function ActionEditor({
     const [agentOptions, setAgentOptions] = useState(action?.agentOptions);
     const [standalone, setStandalone] = useState(action?.standalone ?? false);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [resetCounter, setResetCounter] = useState(0);
 
     const handleSessionTypeChange = useCallback((value: string) => {
         const nextSessionType = value as SessionType;
@@ -134,6 +135,11 @@ function ActionEditor({
 
     const handleAgentOptionsChange = useCallback((options: AgentLaunchOptions) => {
         setAgentOptions(options);
+    }, []);
+
+    const handleResetAgentOptions = useCallback(() => {
+        setAgentOptions(undefined);
+        setResetCounter((c) => c + 1);
     }, []);
 
     const isValid = name.trim() !== "" && prompt.trim() !== "";
@@ -265,11 +271,12 @@ function ActionEditor({
                     {sessionType !== "shell" && (
                         <div className="border-border rounded-md border p-3">
                             <AgentOptionsPanel
-                                key={`${action?.id ?? "new-action"}-${sessionType}`}
+                                key={`${action?.id ?? "new-action"}-${sessionType}-${resetCounter}`}
                                 agentType={sessionType}
                                 value={agentOptions}
                                 emitOnMount
                                 onChange={handleAgentOptionsChange}
+                                onReset={handleResetAgentOptions}
                             />
                         </div>
                     )}

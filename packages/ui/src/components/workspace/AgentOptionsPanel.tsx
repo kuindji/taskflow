@@ -9,7 +9,7 @@ import type {
     GeminiLaunchOptions,
 } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
-import { Play } from "lucide-react";
+import { Play, RotateCcw } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { CodexOptions } from "@/components/shared/CodexOptions";
@@ -23,6 +23,7 @@ interface AgentOptionsPanelProps {
     emitOnMount?: boolean;
     onRun?: (options: AgentLaunchOptions) => void;
     onChange?: (options: AgentLaunchOptions) => void;
+    onReset?: () => void;
 }
 
 function AgentOptionsPanel({
@@ -31,6 +32,7 @@ function AgentOptionsPanel({
     emitOnMount = false,
     onRun,
     onChange,
+    onReset,
 }: AgentOptionsPanelProps) {
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
@@ -334,6 +336,17 @@ function AgentOptionsPanel({
                     onYoloChange={setYolo}
                 />
             ) : null}
+
+            {onReset && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground w-full text-xs"
+                    onClick={onReset}>
+                    <RotateCcw className="mr-1 h-3 w-3" />
+                    Reset to defaults
+                </Button>
+            )}
 
             {onRun && (
                 <Button size="sm" className="w-full" onClick={handleRun}>

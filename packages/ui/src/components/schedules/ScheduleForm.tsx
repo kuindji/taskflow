@@ -68,6 +68,7 @@ function ScheduleForm({
     );
     const [timeout, setTimeout] = useState(String(schedule?.timeout ?? 30));
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [resetCounter, setResetCounter] = useState(0);
 
     const availableActions = useMemo(
         () => filterByProject(actions, projectId).filter((action) => action.standalone),
@@ -97,6 +98,11 @@ function ScheduleForm({
 
     const handleAgentOptionsChange = useCallback((options: AgentLaunchOptions) => {
         setAgentOptions(options);
+    }, []);
+
+    const handleResetAgentOptions = useCallback(() => {
+        setAgentOptions(undefined);
+        setResetCounter((c) => c + 1);
     }, []);
 
     const nextRunPreview = useMemo(
@@ -389,11 +395,12 @@ function ScheduleForm({
                 {!useAction && agentType && (
                     <div className="border-border rounded-md border p-3">
                         <AgentOptionsPanel
-                            key={`${schedule?.id ?? "new"}-${agentType}`}
+                            key={`${schedule?.id ?? "new"}-${agentType}-${resetCounter}`}
                             agentType={agentType}
                             value={agentOptions}
                             emitOnMount
                             onChange={handleAgentOptionsChange}
+                            onReset={handleResetAgentOptions}
                         />
                     </div>
                 )}
