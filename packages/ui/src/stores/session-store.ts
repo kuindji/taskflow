@@ -135,11 +135,29 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                     },
                 };
             }
+
+            const nextTabs = {
+                ...s.tabsByWorkspace,
+                [workspaceKey]: [...existing, tab],
+            };
+
+            // If the session was placed in a split pane (:right key) but a
+            // broadcast-driven sync already added it to the sibling pane (or
+            // vice-versa), remove the duplicate from the sibling.
+            if (tab.sessionId) {
+                const siblingKey = workspaceKey.endsWith(":right")
+                    ? workspaceKey.slice(0, -":right".length)
+                    : `${workspaceKey}:right`;
+                const siblingTabs = nextTabs[siblingKey];
+                if (siblingTabs?.some((t) => t.sessionId === tab.sessionId)) {
+                    nextTabs[siblingKey] = siblingTabs.filter(
+                        (t) => t.sessionId !== tab.sessionId,
+                    );
+                }
+            }
+
             return {
-                tabsByWorkspace: {
-                    ...s.tabsByWorkspace,
-                    [workspaceKey]: [...existing, tab],
-                },
+                tabsByWorkspace: nextTabs,
                 activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: tab.id },
             };
         });

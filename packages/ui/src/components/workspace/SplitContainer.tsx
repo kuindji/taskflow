@@ -123,6 +123,7 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
                 tabs={leftTabs}
                 activeTabId={leftActiveTabId}
                 style={isOpen ? { flex: `0 0 ${ratio * 100}%` } : undefined}
+                className={isOpen ? "border-border border-r" : undefined}
                 externalDnd={isOpen}
             />
             {isOpen && (
@@ -131,8 +132,7 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
                         onResize={handleResize}
                         panelGap={6}
                         orientation="vertical"
-                        align="start"
-                        className="border-border border-l"
+                        className="-mx-[3px] z-10"
                     />
                     <WorkspacePane
                         {...sharedProps}
