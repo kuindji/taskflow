@@ -184,11 +184,16 @@ function useWorkspaceKeyboardShortcuts({
                         workspaceKey
                     ) {
                         e.preventDefault();
-                        const tabs = useSessionStore.getState().tabsByWorkspace[workspaceKey];
+                        const split = state.splitByWorkspace[workspaceKey];
+                        const targetKey =
+                            split?.open && split.activePane === "right"
+                                ? `${workspaceKey}:right`
+                                : workspaceKey;
+                        const tabs = useSessionStore.getState().tabsByWorkspace[targetKey];
                         if (tabs && digit <= tabs.length) {
                             useSessionStore
                                 .getState()
-                                .setActiveTab(workspaceKey, tabs[digit - 1].id);
+                                .setActiveTab(targetKey, tabs[digit - 1].id);
                         }
                     }
                 }

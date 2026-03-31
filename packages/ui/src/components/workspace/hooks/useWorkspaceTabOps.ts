@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 import type { ShellListResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useTaskStore } from "@/stores/task-store";
@@ -16,7 +15,6 @@ type Workspace = ReturnType<typeof useActiveWorkspace>;
 
 interface TabOpsParams {
     workspace: Workspace;
-    activeTab: Tab | undefined;
     defaultShellPath: string | null;
     configuredShell: string;
 }
@@ -30,7 +28,6 @@ interface TabOpsResult {
 
 function useWorkspaceTabOps({
     workspace,
-    activeTab,
     defaultShellPath,
     configuredShell,
 }: TabOpsParams): TabOpsResult {
@@ -43,22 +40,28 @@ function useWorkspaceTabOps({
     const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
 
     const handleCloseActiveTab = useCallback(() => {
-        if (activeTab && workspace.workspaceKey) {
-            if (activeTab.sessionId) destroyTerminal(activeTab.sessionId);
-            void closeTab(workspace.workspaceKey, activeTab.id);
+        if (!workspace.workspaceKey) {
+            if (workspace.scope === "task") setActiveTask(null);
+            else if (workspace.scope === "project") setActiveProject(null);
+            return;
+        }
+
+        const split = useUIStore.getState().splitByWorkspace[workspace.workspaceKey];
+        const targetKey =
+            split?.open && split.activePane === "right"
+                ? `${workspace.workspaceKey}:right`
+                : workspace.workspaceKey;
+        const targetActiveTab = useSessionStore.getState().getActiveTab(targetKey);
+
+        if (targetActiveTab) {
+            if (targetActiveTab.sessionId) destroyTerminal(targetActiveTab.sessionId);
+            void closeTab(targetKey, targetActiveTab.id);
         } else if (workspace.scope === "task") {
             setActiveTask(null);
         } else if (workspace.scope === "project") {
             setActiveProject(null);
         }
-    }, [
-        activeTab,
-        workspace.workspaceKey,
-        workspace.scope,
-        closeTab,
-        setActiveTask,
-        setActiveProject,
-    ]);
+    }, [workspace.workspaceKey, workspace.scope, closeTab, setActiveTask, setActiveProject]);
 
     const handleOpenNewTask = useCallback(() => {
         requestNewTask();
