@@ -36,6 +36,14 @@ import { useSessionSync } from "./hooks/useSessionSync";
 import { useWorkspaceKeyboardShortcuts } from "./hooks/useWorkspaceKeyboardShortcuts";
 import { useWorkspaceTabOps } from "./hooks/useWorkspaceTabOps";
 
+function getFocusedWorkspaceKey(baseKey: string): string {
+    const split = useUIStore.getState().splitByWorkspace[baseKey];
+    if (split?.open && split.activePane === "right") {
+        return `${baseKey}:right`;
+    }
+    return baseKey;
+}
+
 export function Workspace() {
     const isElectron = useIsElectron();
     const workspace = useActiveWorkspace();
@@ -64,7 +72,6 @@ export function Workspace() {
     const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
 
     const {
-        activeTab,
         scripts,
         agentCommands,
         defaultShellPath,
@@ -82,7 +89,6 @@ export function Workspace() {
         handleOpenDefaultAgent,
     } = useWorkspaceTabOps({
         workspace,
-        activeTab,
         defaultShellPath,
         configuredShell,
     });
@@ -188,7 +194,7 @@ export function Workspace() {
         }
         if (type === "browser") {
             setFocusedPanel("workspace");
-            addTab(workspace.workspaceKey, {
+            addTab(getFocusedWorkspaceKey(workspace.workspaceKey), {
                 id: crypto.randomUUID(),
                 type: "browser",
                 label: "New Tab",
@@ -196,7 +202,7 @@ export function Workspace() {
             });
         } else if (type === "shell" && shellPath) {
             setFocusedPanel("workspace");
-            await createSession(
+            const sessionId = await createSession(
                 workspace.scope === "task"
                     ? { taskId: workspace.task.id }
                     : workspace.scope === "project"
@@ -207,9 +213,13 @@ export function Workspace() {
                 undefined,
                 shellPath,
             );
+            const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
+            if (focusedKey !== workspace.workspaceKey) {
+                useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
+            }
         } else {
             setFocusedPanel("workspace");
-            await createSession(
+            const sessionId = await createSession(
                 workspace.scope === "task"
                     ? { taskId: workspace.task.id }
                     : workspace.scope === "project"
@@ -221,6 +231,10 @@ export function Workspace() {
                 undefined,
                 agentOptions,
             );
+            const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
+            if (focusedKey !== workspace.workspaceKey) {
+                useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
+            }
         }
     };
 
@@ -232,7 +246,11 @@ export function Workspace() {
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        await createSession(owner, "claude", command.name, `/${command.name}`);
+        const sessionId = await createSession(owner, "claude", command.name, `/${command.name}`);
+        const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
+        if (focusedKey !== workspace.workspaceKey) {
+            useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
+        }
     };
 
     const handleRunAction = async (action: ActionDefinition) => {
@@ -243,7 +261,7 @@ export function Workspace() {
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        await createSession(
+        const sessionId = await createSession(
             owner,
             action.sessionType,
             action.name,
@@ -251,6 +269,10 @@ export function Workspace() {
             undefined,
             action.sessionType !== "shell" ? action.agentOptions : undefined,
         );
+        const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
+        if (focusedKey !== workspace.workspaceKey) {
+            useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
+        }
     };
 
     const handleStartFlow = (flowId: string) => {
@@ -353,7 +375,7 @@ export function Workspace() {
             }
         }
         setFocusedPanel("workspace");
-        await createSession(
+        const sessionId = await createSession(
             { taskId: workspace.task.id },
             type,
             undefined,
@@ -361,6 +383,10 @@ export function Workspace() {
             undefined,
             agentOptions,
         );
+        const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
+        if (focusedKey !== workspace.workspaceKey) {
+            useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
+        }
     };
 
     const handleFlowInputSubmit = (values: Record<string, string>) => {
@@ -386,6 +412,10 @@ export function Workspace() {
                 : { projectId: workspace.project.id };
         setFocusedPanel("workspace");
         const sessionId = await createSession(owner, "shell", scriptName, undefined, shell);
+        const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
+        if (focusedKey !== workspace.workspaceKey) {
+            useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
+        }
         sendInput(sessionId, `${defaultRuntime} run ${scriptName}\r`);
     };
 
