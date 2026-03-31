@@ -13,6 +13,14 @@ import type { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 
 type Workspace = ReturnType<typeof useActiveWorkspace>;
 
+function getFocusedKey(baseKey: string): string {
+    const split = useUIStore.getState().splitByWorkspace[baseKey];
+    if (split?.open && split.activePane === "right") {
+        return `${baseKey}:right`;
+    }
+    return baseKey;
+}
+
 interface TabOpsParams {
     workspace: Workspace;
     defaultShellPath: string | null;
@@ -84,14 +92,8 @@ function useWorkspaceTabOps({
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        const sessionId = await createSession(owner, "shell", getShellSessionLabel(shell), undefined, shell);
-        if (workspace.workspaceKey) {
-            const split = useUIStore.getState().splitByWorkspace[workspace.workspaceKey];
-            if (split?.open && split.activePane === "right") {
-                const focusedKey = `${workspace.workspaceKey}:right`;
-                useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
-            }
-        }
+        const targetKey = workspace.workspaceKey ? getFocusedKey(workspace.workspaceKey) : undefined;
+        await createSession(owner, "shell", getShellSessionLabel(shell), undefined, shell, undefined, undefined, undefined, targetKey);
     }, [
         configuredShell,
         createSession,
@@ -113,14 +115,8 @@ function useWorkspaceTabOps({
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        const sessionId = await createSession(owner, defaultAgent);
-        if (workspace.workspaceKey) {
-            const split = useUIStore.getState().splitByWorkspace[workspace.workspaceKey];
-            if (split?.open && split.activePane === "right") {
-                const focusedKey = `${workspace.workspaceKey}:right`;
-                useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
-            }
-        }
+        const targetKey = workspace.workspaceKey ? getFocusedKey(workspace.workspaceKey) : undefined;
+        await createSession(owner, defaultAgent, undefined, undefined, undefined, undefined, undefined, undefined, targetKey);
     }, [
         createSession,
         defaultAgent,

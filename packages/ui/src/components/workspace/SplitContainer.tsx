@@ -42,13 +42,15 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
 
     const handleResize = useCallback(
         (delta: number) => {
-            if (!containerRef.current || !split) return;
+            if (!containerRef.current) return;
+            const currentSplit = useUIStore.getState().splitByWorkspace[workspaceKey];
+            if (!currentSplit) return;
             const containerWidth = containerRef.current.offsetWidth;
             if (containerWidth === 0) return;
-            const newRatio = split.ratio + delta / containerWidth;
+            const newRatio = currentSplit.ratio + delta / containerWidth;
             setSplitRatio(workspaceKey, newRatio);
         },
-        [split, setSplitRatio, workspaceKey],
+        [setSplitRatio, workspaceKey],
     );
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -127,9 +129,10 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
                 <>
                     <ResizeHandle
                         onResize={handleResize}
-                        panelGap={1}
+                        panelGap={6}
                         orientation="vertical"
-                        align="center"
+                        align="start"
+                        className="border-border border-l"
                     />
                     <WorkspacePane
                         {...sharedProps}

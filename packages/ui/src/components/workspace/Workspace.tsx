@@ -202,7 +202,7 @@ export function Workspace() {
             });
         } else if (type === "shell" && shellPath) {
             setFocusedPanel("workspace");
-            const sessionId = await createSession(
+            await createSession(
                 workspace.scope === "task"
                     ? { taskId: workspace.task.id }
                     : workspace.scope === "project"
@@ -212,14 +212,14 @@ export function Workspace() {
                 getShellSessionLabel(shellPath),
                 undefined,
                 shellPath,
+                undefined,
+                undefined,
+                undefined,
+                getFocusedWorkspaceKey(workspace.workspaceKey),
             );
-            const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
-            if (focusedKey !== workspace.workspaceKey) {
-                useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
-            }
         } else {
             setFocusedPanel("workspace");
-            const sessionId = await createSession(
+            await createSession(
                 workspace.scope === "task"
                     ? { taskId: workspace.task.id }
                     : workspace.scope === "project"
@@ -230,15 +230,15 @@ export function Workspace() {
                 undefined,
                 undefined,
                 agentOptions,
+                undefined,
+                undefined,
+                getFocusedWorkspaceKey(workspace.workspaceKey),
             );
-            const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
-            if (focusedKey !== workspace.workspaceKey) {
-                useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
-            }
         }
     };
 
     const handleRunAgentCommand = async (command: AgentCommand) => {
+        if (!workspace.workspaceKey) return;
         const owner =
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
@@ -246,14 +246,15 @@ export function Workspace() {
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        const sessionId = await createSession(owner, "claude", command.name, `/${command.name}`);
-        const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
-        if (focusedKey !== workspace.workspaceKey) {
-            useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
-        }
+        await createSession(
+            owner, "claude", command.name, `/${command.name}`,
+            undefined, undefined, undefined, undefined,
+            getFocusedWorkspaceKey(workspace.workspaceKey),
+        );
     };
 
     const handleRunAction = async (action: ActionDefinition) => {
+        if (!workspace.workspaceKey) return;
         const owner =
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
@@ -261,18 +262,17 @@ export function Workspace() {
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        const sessionId = await createSession(
+        await createSession(
             owner,
             action.sessionType,
             action.name,
             action.prompt,
             undefined,
             action.sessionType !== "shell" ? action.agentOptions : undefined,
+            undefined,
+            undefined,
+            getFocusedWorkspaceKey(workspace.workspaceKey),
         );
-        const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
-        if (focusedKey !== workspace.workspaceKey) {
-            useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
-        }
     };
 
     const handleStartFlow = (flowId: string) => {
@@ -375,18 +375,17 @@ export function Workspace() {
             }
         }
         setFocusedPanel("workspace");
-        const sessionId = await createSession(
+        await createSession(
             { taskId: workspace.task.id },
             type,
             undefined,
             workspace.task.description || undefined,
             undefined,
             agentOptions,
+            undefined,
+            undefined,
+            getFocusedWorkspaceKey(workspace.workspaceKey),
         );
-        const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
-        if (focusedKey !== workspace.workspaceKey) {
-            useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
-        }
     };
 
     const handleFlowInputSubmit = (values: Record<string, string>) => {
@@ -411,11 +410,8 @@ export function Workspace() {
                 ? { taskId: workspace.task.id }
                 : { projectId: workspace.project.id };
         setFocusedPanel("workspace");
-        const sessionId = await createSession(owner, "shell", scriptName, undefined, shell);
         const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
-        if (focusedKey !== workspace.workspaceKey) {
-            useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
-        }
+        const sessionId = await createSession(owner, "shell", scriptName, undefined, shell, undefined, undefined, undefined, focusedKey);
         sendInput(sessionId, `${defaultRuntime} run ${scriptName}\r`);
     };
 

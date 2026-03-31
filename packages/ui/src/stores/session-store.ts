@@ -30,6 +30,7 @@ interface SessionStore {
         agentOptions?: AgentLaunchOptions,
         editorOpts?: { editorId: string; filePath: string; line?: number },
         cwd?: string,
+        targetWorkspaceKey?: string,
     ): Promise<string>;
     closeSession(sessionId: string): Promise<void>;
     sendInput(sessionId: string, data: string): void;
@@ -59,7 +60,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     activeTabByWorkspace: {},
     sessionStatus: {},
     lastTerminalSize: null,
-    async createSession(owner, type, label, prompt, shell, agentOptions, editorOpts, cwd) {
+    async createSession(owner, type, label, prompt, shell, agentOptions, editorOpts, cwd, targetWorkspaceKey) {
         const ownerId = owner.taskId ?? owner.projectId;
         if (!ownerId && !owner.master)
             throw new Error("Either taskId, projectId, or master is required");
@@ -88,11 +89,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             ...(type === "shell" && { autoTitle: true }),
             ...(editorOpts && { filePath: editorOpts.filePath }),
         };
-        const workspaceKey = owner.taskId
-            ? getTaskWorkspaceKey(owner.taskId)
-            : ownerId
-              ? getProjectWorkspaceKey(ownerId)
-              : "master";
+        const workspaceKey = targetWorkspaceKey
+            ?? (owner.taskId
+                ? getTaskWorkspaceKey(owner.taskId)
+                : ownerId
+                  ? getProjectWorkspaceKey(ownerId)
+                  : "master");
         get().addTab(workspaceKey, tab);
         await Promise.all([
             owner.taskId ? useTaskStore.getState().fetchTasks() : Promise.resolve(),
