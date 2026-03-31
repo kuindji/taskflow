@@ -256,9 +256,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
         set((s) => {
             const existing = s.splitByWorkspace[workspaceKey];
             if (existing) {
-                const next = { ...s.splitByWorkspace };
-                delete next[workspaceKey];
-                return { splitByWorkspace: next };
+                const { [workspaceKey]: _, ...rest } = s.splitByWorkspace;
+                return { splitByWorkspace: rest };
             }
             return {
                 splitByWorkspace: {

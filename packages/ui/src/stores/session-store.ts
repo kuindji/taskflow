@@ -567,8 +567,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 }
             }
 
-            const nextTabsByWorkspace = { ...state.tabsByWorkspace };
-            const nextActiveTabByWorkspace = { ...state.activeTabByWorkspace };
+            // Build result by removing stale keys and adding current ones
+            const {
+                [workspaceKey]: _wt,
+                [rightKey]: _rt,
+                ...restTabs
+            } = state.tabsByWorkspace;
+            const {
+                [workspaceKey]: _wa,
+                [rightKey]: _ra,
+                ...restActive
+            } = state.activeTabByWorkspace;
+
+            const nextTabsByWorkspace: Record<string, Tab[]> = { ...restTabs };
+            const nextActiveTabByWorkspace: Record<string, string> = { ...restActive };
 
             if (rightTabs.length > 0) {
                 nextTabsByWorkspace[rightKey] = rightTabs;
@@ -578,14 +590,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 )
                     ? currentRightActiveId
                     : rightTabs[0].id;
-            } else {
-                delete nextTabsByWorkspace[rightKey];
-                delete nextActiveTabByWorkspace[rightKey];
             }
 
             if (tabs.length === 0) {
-                delete nextTabsByWorkspace[workspaceKey];
-                delete nextActiveTabByWorkspace[workspaceKey];
                 return {
                     tabsByWorkspace: nextTabsByWorkspace,
                     activeTabByWorkspace: nextActiveTabByWorkspace,

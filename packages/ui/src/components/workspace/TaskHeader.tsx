@@ -97,9 +97,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
 
     const splitOpen = useUIStore((s) =>
         task
-            ? s.splitByWorkspace[`task:${task.id}`]?.open
+            ? (s.splitByWorkspace[`task:${task.id}`]?.open ?? false)
             : project
-              ? s.splitByWorkspace[`project:${project.id}`]?.open
+              ? (s.splitByWorkspace[`project:${project.id}`]?.open ?? false)
               : false,
     );
     const toggleSplit = useUIStore((s) => s.toggleSplit);
@@ -496,7 +496,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         variant={splitOpen ? "secondary" : "ghost"}
                         size="icon-xs"
                         onClick={handleToggleSplit}
-                        aria-pressed={!!splitOpen}
+                        aria-pressed={splitOpen}
                         aria-label={splitOpen ? "Close split view" : "Split view"}
                         tooltip={splitOpen ? "Close split view" : "Split view"}
                         tooltipSide="bottom"

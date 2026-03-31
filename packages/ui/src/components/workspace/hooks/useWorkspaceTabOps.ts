@@ -84,7 +84,14 @@ function useWorkspaceTabOps({
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        await createSession(owner, "shell", getShellSessionLabel(shell), undefined, shell);
+        const sessionId = await createSession(owner, "shell", getShellSessionLabel(shell), undefined, shell);
+        if (workspace.workspaceKey) {
+            const split = useUIStore.getState().splitByWorkspace[workspace.workspaceKey];
+            if (split?.open && split.activePane === "right") {
+                const focusedKey = `${workspace.workspaceKey}:right`;
+                useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
+            }
+        }
     }, [
         configuredShell,
         createSession,
@@ -93,6 +100,7 @@ function useWorkspaceTabOps({
         workspace.project,
         workspace.scope,
         workspace.task,
+        workspace.workspaceKey,
     ]);
 
     const handleOpenDefaultAgent = useCallback(async () => {
@@ -105,7 +113,14 @@ function useWorkspaceTabOps({
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        await createSession(owner, defaultAgent);
+        const sessionId = await createSession(owner, defaultAgent);
+        if (workspace.workspaceKey) {
+            const split = useUIStore.getState().splitByWorkspace[workspace.workspaceKey];
+            if (split?.open && split.activePane === "right") {
+                const focusedKey = `${workspace.workspaceKey}:right`;
+                useSessionStore.getState().moveTabToPane(workspace.workspaceKey, focusedKey, sessionId);
+            }
+        }
     }, [
         createSession,
         defaultAgent,
@@ -113,6 +128,7 @@ function useWorkspaceTabOps({
         workspace.project,
         workspace.scope,
         workspace.task,
+        workspace.workspaceKey,
     ]);
 
     return {
