@@ -1,5 +1,12 @@
 import { useCallback, useRef, useState } from "react";
-import { DndContext, DragOverlay, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import {
+    DndContext,
+    DragOverlay,
+    closestCenter,
+    PointerSensor,
+    useSensor,
+    useSensors,
+} from "@dnd-kit/core";
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -12,7 +19,15 @@ import { TabItemOverlay } from "./TabItem";
 
 type SharedPaneProps = Omit<
     WorkspacePaneProps,
-    "workspaceKey" | "paneId" | "isFocused" | "onFocus" | "tabs" | "activeTabId" | "className" | "style" | "externalDnd"
+    | "workspaceKey"
+    | "paneId"
+    | "isFocused"
+    | "onFocus"
+    | "tabs"
+    | "activeTabId"
+    | "className"
+    | "style"
+    | "externalDnd"
 >;
 
 interface SplitContainerProps extends SharedPaneProps {
@@ -29,15 +44,11 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
     const setActivePane = useUIStore((s) => s.setActivePane);
 
     const leftTabs = useSessionStore((s) => s.tabsByWorkspace[workspaceKey] ?? emptyTabs);
-    const leftActiveTabId = useSessionStore(
-        (s) => s.activeTabByWorkspace[workspaceKey] ?? "",
-    );
+    const leftActiveTabId = useSessionStore((s) => s.activeTabByWorkspace[workspaceKey] ?? "");
 
     const rightKey = `${workspaceKey}:right`;
     const rightTabs = useSessionStore((s) => s.tabsByWorkspace[rightKey] ?? emptyTabs);
-    const rightActiveTabId = useSessionStore(
-        (s) => s.activeTabByWorkspace[rightKey] ?? "",
-    );
+    const rightActiveTabId = useSessionStore((s) => s.activeTabByWorkspace[rightKey] ?? "");
 
     const containerRef = useRef<HTMLDivElement>(null);
     const [draggedTab, setDraggedTab] = useState<Tab | null>(null);
@@ -63,7 +74,8 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
             const store = useSessionStore.getState();
             const lTabs = store.tabsByWorkspace[workspaceKey] ?? [];
             const rTabs = store.tabsByWorkspace[rightKey] ?? [];
-            const tab = lTabs.find((t) => t.id === activeId) ?? rTabs.find((t) => t.id === activeId);
+            const tab =
+                lTabs.find((t) => t.id === activeId) ?? rTabs.find((t) => t.id === activeId);
             setDraggedTab(tab ?? null);
         },
         [workspaceKey, rightKey],
@@ -116,7 +128,12 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
             } else {
                 const targetTabs = store.tabsByWorkspace[targetKey] ?? [];
                 const insertIndex = targetTabs.findIndex((t) => t.id === overId);
-                store.moveTabToPane(sourceKey, targetKey, activeId, insertIndex >= 0 ? insertIndex : undefined);
+                store.moveTabToPane(
+                    sourceKey,
+                    targetKey,
+                    activeId,
+                    insertIndex >= 0 ? insertIndex : undefined,
+                );
                 const targetPane: PaneId = targetKey.endsWith(":right") ? "right" : "left";
                 setActivePane(workspaceKey, targetPane);
             }
@@ -150,7 +167,7 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
                         onResize={handleResize}
                         panelGap={6}
                         orientation="vertical"
-                        className="-mx-[3px] z-10"
+                        className="z-10 -mx-[3px]"
                     />
                     <WorkspacePane
                         {...sharedProps}
@@ -181,9 +198,7 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
                 onDragCancel={handleDragCancel}>
                 {content}
                 <DragOverlay dropAnimation={null}>
-                    {draggedTab && (
-                        <TabItemOverlay tab={draggedTab} isActive={draggedIsActive} />
-                    )}
+                    {draggedTab && <TabItemOverlay tab={draggedTab} isActive={draggedIsActive} />}
                 </DragOverlay>
             </DndContext>
         );

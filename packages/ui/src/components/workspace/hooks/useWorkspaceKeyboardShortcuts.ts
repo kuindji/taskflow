@@ -223,9 +223,7 @@ function useWorkspaceKeyboardShortcuts({
                                 : workspaceKey;
                         const tabs = useSessionStore.getState().tabsByWorkspace[targetKey];
                         if (tabs && digit <= tabs.length) {
-                            useSessionStore
-                                .getState()
-                                .setActiveTab(targetKey, tabs[digit - 1].id);
+                            useSessionStore.getState().setActiveTab(targetKey, tabs[digit - 1].id);
                         }
                     }
                 }

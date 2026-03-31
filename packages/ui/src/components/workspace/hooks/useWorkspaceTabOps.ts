@@ -92,8 +92,20 @@ function useWorkspaceTabOps({
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        const targetKey = workspace.workspaceKey ? getFocusedKey(workspace.workspaceKey) : undefined;
-        await createSession(owner, "shell", getShellSessionLabel(shell), undefined, shell, undefined, undefined, undefined, targetKey);
+        const targetKey = workspace.workspaceKey
+            ? getFocusedKey(workspace.workspaceKey)
+            : undefined;
+        await createSession(
+            owner,
+            "shell",
+            getShellSessionLabel(shell),
+            undefined,
+            shell,
+            undefined,
+            undefined,
+            undefined,
+            targetKey,
+        );
     }, [
         configuredShell,
         createSession,
@@ -115,8 +127,20 @@ function useWorkspaceTabOps({
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        const targetKey = workspace.workspaceKey ? getFocusedKey(workspace.workspaceKey) : undefined;
-        await createSession(owner, defaultAgent, undefined, undefined, undefined, undefined, undefined, undefined, targetKey);
+        const targetKey = workspace.workspaceKey
+            ? getFocusedKey(workspace.workspaceKey)
+            : undefined;
+        await createSession(
+            owner,
+            defaultAgent,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            targetKey,
+        );
     }, [
         createSession,
         defaultAgent,

@@ -68,7 +68,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     activeTabByWorkspace: {},
     sessionStatus: {},
     lastTerminalSize: null,
-    async createSession(owner, type, label, prompt, shell, agentOptions, editorOpts, cwd, targetWorkspaceKey) {
+    async createSession(
+        owner,
+        type,
+        label,
+        prompt,
+        shell,
+        agentOptions,
+        editorOpts,
+        cwd,
+        targetWorkspaceKey,
+    ) {
         const ownerId = owner.taskId ?? owner.projectId;
         if (!ownerId && !owner.master)
             throw new Error("Either taskId, projectId, or master is required");
@@ -105,8 +115,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             ...(type === "shell" && { autoTitle: true }),
             ...(editorOpts && { filePath: editorOpts.filePath }),
         };
-        const workspaceKey = targetWorkspaceKey
-            ?? (owner.taskId
+        const workspaceKey =
+            targetWorkspaceKey ??
+            (owner.taskId
                 ? getTaskWorkspaceKey(owner.taskId)
                 : ownerId
                   ? getProjectWorkspaceKey(ownerId)
@@ -167,9 +178,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                     : `${workspaceKey}:right`;
                 const siblingTabs = nextTabs[siblingKey];
                 if (siblingTabs?.some((t) => t.sessionId === tab.sessionId)) {
-                    nextTabs[siblingKey] = siblingTabs.filter(
-                        (t) => t.sessionId !== tab.sessionId,
-                    );
+                    nextTabs[siblingKey] = siblingTabs.filter((t) => t.sessionId !== tab.sessionId);
                 }
             }
 
@@ -351,11 +360,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             const targetTabs = s.tabsByWorkspace[targetKey] ?? [];
             const newTargetTabs =
                 insertIndex !== undefined
-                    ? [
-                          ...targetTabs.slice(0, insertIndex),
-                          tab,
-                          ...targetTabs.slice(insertIndex),
-                      ]
+                    ? [...targetTabs.slice(0, insertIndex), tab, ...targetTabs.slice(insertIndex)]
                     : [...targetTabs, tab];
 
             const currentSourceActive = s.activeTabByWorkspace[sourceKey];
@@ -441,7 +446,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 if (!pendingSessionCreates.has(task.id)) {
                     for (const session of task.sessions) {
                         const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
-                        const alreadyInRight = rightTabs.some((tab) => tab.sessionId === session.id);
+                        const alreadyInRight = rightTabs.some(
+                            (tab) => tab.sessionId === session.id,
+                        );
                         if (!alreadyInBase && !alreadyInRight) {
                             tabs.push(createSessionTab(session));
                         }
@@ -534,7 +541,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 if (!pendingSessionCreates.has(project.id)) {
                     for (const session of project.sessions) {
                         const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
-                        const alreadyInRight = rightTabs.some((tab) => tab.sessionId === session.id);
+                        const alreadyInRight = rightTabs.some(
+                            (tab) => tab.sessionId === session.id,
+                        );
                         if (!alreadyInBase && !alreadyInRight) {
                             tabs.push(createSessionTab(session));
                         }
@@ -611,11 +620,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             }
 
             // Build result by removing stale keys and adding current ones
-            const {
-                [workspaceKey]: _wt,
-                [rightKey]: _rt,
-                ...restTabs
-            } = state.tabsByWorkspace;
+            const { [workspaceKey]: _wt, [rightKey]: _rt, ...restTabs } = state.tabsByWorkspace;
             const {
                 [workspaceKey]: _wa,
                 [rightKey]: _ra,

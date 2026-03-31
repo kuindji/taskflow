@@ -201,11 +201,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     }, [project, requestNewTask]);
 
     const handleToggleSplit = useCallback(() => {
-        const workspaceKey = task
-            ? `task:${task.id}`
-            : project
-              ? `project:${project.id}`
-              : null;
+        const workspaceKey = task ? `task:${task.id}` : project ? `project:${project.id}` : null;
         if (!workspaceKey) return;
         if (splitOpen) {
             mergeSplitTabs(workspaceKey);

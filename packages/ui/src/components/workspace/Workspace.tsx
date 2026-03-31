@@ -247,8 +247,14 @@ export function Workspace() {
                   : { master: true as const };
         setFocusedPanel("workspace");
         await createSession(
-            owner, "claude", command.name, `/${command.name}`,
-            undefined, undefined, undefined, undefined,
+            owner,
+            "claude",
+            command.name,
+            `/${command.name}`,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
             getFocusedWorkspaceKey(workspace.workspaceKey),
         );
     };
@@ -411,7 +417,17 @@ export function Workspace() {
                 : { projectId: workspace.project.id };
         setFocusedPanel("workspace");
         const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
-        const sessionId = await createSession(owner, "shell", scriptName, undefined, shell, undefined, undefined, undefined, focusedKey);
+        const sessionId = await createSession(
+            owner,
+            "shell",
+            scriptName,
+            undefined,
+            shell,
+            undefined,
+            undefined,
+            undefined,
+            focusedKey,
+        );
         sendInput(sessionId, `${defaultRuntime} run ${scriptName}\r`);
     };
 

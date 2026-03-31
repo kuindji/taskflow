@@ -193,7 +193,8 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
             for (const key of [workspaceKey, `${workspaceKey}:right`]) {
                 const tabs = sessionStore.tabsByWorkspace[key] ?? [];
                 const attentionTab = tabs.find(
-                    (tab) => tab.sessionId && sessionStore.sessionStatus[tab.sessionId] === "attention",
+                    (tab) =>
+                        tab.sessionId && sessionStore.sessionStatus[tab.sessionId] === "attention",
                 );
                 if (attentionTab) {
                     sessionStore.setActiveTab(key, attentionTab.id);
@@ -209,7 +210,8 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
             for (const key of [workspaceKey, `${workspaceKey}:right`]) {
                 const tabs = sessionStore.tabsByWorkspace[key] ?? [];
                 const attentionTab = tabs.find(
-                    (tab) => tab.sessionId && sessionStore.sessionStatus[tab.sessionId] === "attention",
+                    (tab) =>
+                        tab.sessionId && sessionStore.sessionStatus[tab.sessionId] === "attention",
                 );
                 if (attentionTab) {
                     sessionStore.setActiveTab(key, attentionTab.id);
