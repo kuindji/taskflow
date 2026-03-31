@@ -16,6 +16,14 @@ import type { Tab } from "./session-helpers";
 import { markInteraction } from "./session-activity";
 import { initSessionSubscriptions } from "./session-subscriptions";
 
+/**
+ * Owner IDs with an in-flight createSession call that targets a non-default
+ * workspace key (e.g. a split right pane). While a create is pending,
+ * syncWithTasks/syncWithProjects must not auto-place new sessions for that
+ * owner — the createSession caller will place the tab explicitly.
+ */
+const pendingSessionCreates = new Set<string>();
+
 interface SessionStore {
     tabsByWorkspace: Record<string, Tab[]>;
     activeTabByWorkspace: Record<string, string>;
@@ -64,6 +72,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const ownerId = owner.taskId ?? owner.projectId;
         if (!ownerId && !owner.master)
             throw new Error("Either taskId, projectId, or master is required");
+
+        // When targeting a non-default workspace key (e.g. split right pane),
+        // block syncWithTasks from auto-placing the session while we await.
+        const pendingKey = ownerId ?? (owner.master ? "master" : undefined);
+        if (targetWorkspaceKey && pendingKey) {
+            pendingSessionCreates.add(pendingKey);
+        }
+
         const lastTerminalSize = get().lastTerminalSize;
         const { sessionId } = await sendRequest<{ sessionId: string }>(MSG.SESSION_CREATE, {
             ...owner,
@@ -96,6 +112,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                   ? getProjectWorkspaceKey(ownerId)
                   : "master");
         get().addTab(workspaceKey, tab);
+        if (pendingKey) pendingSessionCreates.delete(pendingKey);
         await Promise.all([
             owner.taskId ? useTaskStore.getState().fetchTasks() : Promise.resolve(),
             owner.projectId ? useProjectStore.getState().fetchProjects() : Promise.resolve(),
@@ -421,11 +438,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                         };
                     });
 
-                for (const session of task.sessions) {
-                    const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
-                    const alreadyInRight = rightTabs.some((tab) => tab.sessionId === session.id);
-                    if (!alreadyInBase && !alreadyInRight) {
-                        tabs.push(createSessionTab(session));
+                if (!pendingSessionCreates.has(task.id)) {
+                    for (const session of task.sessions) {
+                        const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
+                        const alreadyInRight = rightTabs.some((tab) => tab.sessionId === session.id);
+                        if (!alreadyInBase && !alreadyInRight) {
+                            tabs.push(createSessionTab(session));
+                        }
                     }
                 }
 
@@ -512,11 +531,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                         };
                     });
 
-                for (const session of project.sessions) {
-                    const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
-                    const alreadyInRight = rightTabs.some((tab) => tab.sessionId === session.id);
-                    if (!alreadyInBase && !alreadyInRight) {
-                        tabs.push(createSessionTab(session));
+                if (!pendingSessionCreates.has(project.id)) {
+                    for (const session of project.sessions) {
+                        const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
+                        const alreadyInRight = rightTabs.some((tab) => tab.sessionId === session.id);
+                        if (!alreadyInBase && !alreadyInRight) {
+                            tabs.push(createSessionTab(session));
+                        }
                     }
                 }
 
@@ -579,11 +600,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                     };
                 });
 
-            for (const session of sessions) {
-                const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
-                const alreadyInRight = rightTabs.some((tab) => tab.sessionId === session.id);
-                if (!alreadyInBase && !alreadyInRight) {
-                    tabs.push(createSessionTab(session));
+            if (!pendingSessionCreates.has("master")) {
+                for (const session of sessions) {
+                    const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
+                    const alreadyInRight = rightTabs.some((tab) => tab.sessionId === session.id);
+                    if (!alreadyInBase && !alreadyInRight) {
+                        tabs.push(createSessionTab(session));
+                    }
                 }
             }
 
