@@ -22,6 +22,26 @@ interface TabItemProps {
     onTabRename: (tabId: string, newLabel: string) => void;
 }
 
+/**
+ * Static tab clone rendered inside DragOverlay (no sortable hooks).
+ */
+function TabItemOverlay({ tab, isActive }: { tab: Tab; isActive: boolean }) {
+    const classes = cn(tabVariants({ type: tab.type, active: isActive }));
+    const status = useSessionStore((s) =>
+        tab.sessionId ? s.sessionStatus[tab.sessionId] : undefined,
+    );
+
+    return (
+        <div className={classes}>
+            {tab.sessionId && <StatusDot status={status} className="mr-1" />}
+            <span>{tab.label}</span>
+            <div className="ml-0.5 flex h-[18px] w-[18px] items-center justify-center">
+                <X className="size-3 opacity-50" />
+            </div>
+        </div>
+    );
+}
+
 function TabItem({
     tab,
     isActive,
@@ -153,5 +173,5 @@ function TabItem({
     );
 }
 
-export { TabItem };
+export { TabItem, TabItemOverlay };
 export type { TabItemProps };

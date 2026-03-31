@@ -1,6 +1,6 @@
-import { useCallback, useRef } from "react";
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
-import type { DragEndEvent } from "@dnd-kit/core";
+import { useCallback, useRef, useState } from "react";
+import { DndContext, DragOverlay, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUIStore } from "@/stores/ui-store";
@@ -8,6 +8,7 @@ import type { PaneId } from "@/stores/ui-store";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { WorkspacePane } from "./WorkspacePane";
 import type { WorkspacePaneProps } from "./WorkspacePane";
+import { TabItemOverlay } from "./TabItem";
 
 type SharedPaneProps = Omit<
     WorkspacePaneProps,
@@ -39,6 +40,7 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
     );
 
     const containerRef = useRef<HTMLDivElement>(null);
+    const [draggedTab, setDraggedTab] = useState<Tab | null>(null);
 
     const handleResize = useCallback(
         (delta: number) => {
@@ -55,8 +57,22 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
+    const handleDragStart = useCallback(
+        (event: DragStartEvent) => {
+            const activeId = String(event.active.id);
+            const store = useSessionStore.getState();
+            const lTabs = store.tabsByWorkspace[workspaceKey] ?? [];
+            const rTabs = store.tabsByWorkspace[rightKey] ?? [];
+            const tab = lTabs.find((t) => t.id === activeId) ?? rTabs.find((t) => t.id === activeId);
+            setDraggedTab(tab ?? null);
+        },
+        [workspaceKey, rightKey],
+    );
+
     const handleDragEnd = useCallback(
         (event: DragEndEvent) => {
+            setDraggedTab(null);
+
             const { active, over } = event;
             if (!over) return;
 
@@ -108,6 +124,8 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
         [workspaceKey, rightKey, setActivePane],
     );
 
+    const handleDragCancel = useCallback(() => setDraggedTab(null), []);
+
     const isOpen = split?.open ?? false;
     const ratio = split?.ratio ?? 0.5;
     const activePane = split?.activePane ?? "left";
@@ -150,12 +168,23 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
     );
 
     if (isOpen) {
+        const draggedIsActive = draggedTab
+            ? draggedTab.id === leftActiveTabId || draggedTab.id === rightActiveTabId
+            : false;
+
         return (
             <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}>
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDragCancel={handleDragCancel}>
                 {content}
+                <DragOverlay dropAnimation={null}>
+                    {draggedTab && (
+                        <TabItemOverlay tab={draggedTab} isActive={draggedIsActive} />
+                    )}
+                </DragOverlay>
             </DndContext>
         );
     }
