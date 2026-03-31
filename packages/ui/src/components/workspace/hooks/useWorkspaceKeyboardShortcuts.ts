@@ -104,6 +104,24 @@ function useWorkspaceKeyboardShortcuts({
             );
         }
 
+        const onToggleSplit = isElectron ? window.taskflow?.onToggleSplit : undefined;
+
+        if (onToggleSplit) {
+            cleanupFns.push(
+                onToggleSplit(
+                    runIfNoDialogOpen(() => {
+                        if (!workspaceKey) return;
+                        const uiState = useUIStore.getState();
+                        const split = uiState.splitByWorkspace[workspaceKey];
+                        if (split) {
+                            useSessionStore.getState().mergeSplitTabs(workspaceKey);
+                        }
+                        uiState.toggleSplit(workspaceKey);
+                    }),
+                ),
+            );
+        }
+
         const needsCloseTabFallback = !onCloseTab;
         const needsNewTaskFallback = !onNewTask;
         const needsNewTerminalFallback = !onNewTerminal;
@@ -111,6 +129,7 @@ function useWorkspaceKeyboardShortcuts({
         const needsFileExplorerFallback = !window.taskflow?.onToggleFileExplorer;
         const needsTaskInfoFallback = !window.taskflow?.onToggleTaskInfo;
         const needsMarkdownInputFallback = !onToggleMarkdownInput;
+        const needsSplitFallback = !onToggleSplit;
 
         // Capture-phase listener for Cmd+J so it fires before Monaco/xterm
         // can swallow the event.
@@ -156,6 +175,19 @@ function useWorkspaceKeyboardShortcuts({
                     if (activeTab?.sessionId) {
                         useMarkdownInputStore.getState().toggle(activeTab.sessionId);
                     }
+                }
+                return;
+            }
+
+            if (e.shiftKey && needsSplitFallback && e.code === "KeyS") {
+                e.preventDefault();
+                if (workspaceKey) {
+                    const uiState = useUIStore.getState();
+                    const split = uiState.splitByWorkspace[workspaceKey];
+                    if (split) {
+                        useSessionStore.getState().mergeSplitTabs(workspaceKey);
+                    }
+                    uiState.toggleSplit(workspaceKey);
                 }
                 return;
             }

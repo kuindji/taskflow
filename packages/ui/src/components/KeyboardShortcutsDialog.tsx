@@ -271,6 +271,16 @@ function KeyboardShortcutsDialog() {
                                 <>
                                     <Kbd>&#8984;</Kbd>
                                     <Kbd>&#8679;</Kbd>
+                                    <Kbd>S</Kbd>
+                                </>
+                            }
+                            description="Toggle split workspace"
+                        />
+                        <ShortcutRow
+                            keys={
+                                <>
+                                    <Kbd>&#8984;</Kbd>
+                                    <Kbd>&#8679;</Kbd>
                                     <Kbd>C</Kbd>
                                 </>
                             }

@@ -140,6 +140,13 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("toggle-markdown-input", listener);
         };
     },
+    onToggleSplit: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("toggle-workspace-split", listener);
+        return () => {
+            ipcRenderer.removeListener("toggle-workspace-split", listener);
+        };
+    },
     onToggleWordWrap: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("toggle-word-wrap", listener);

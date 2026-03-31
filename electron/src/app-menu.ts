@@ -267,6 +267,13 @@ function buildAppMenu(): void {
                         mainWindow?.webContents.send("new-agent");
                     },
                 },
+                {
+                    label: "Toggle Split",
+                    accelerator: "CmdOrCtrl+Shift+S",
+                    click: () => {
+                        mainWindow?.webContents.send("toggle-workspace-split");
+                    },
+                },
                 { type: "separator" },
                 {
                     label: "Close Tab",
