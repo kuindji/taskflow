@@ -8,19 +8,14 @@ import type {
     ShellListResponse,
 } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
-import { useSessionStore, isSessionExited } from "@/stores/session-store";
+import { useSessionStore } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { TaskHeader } from "./TaskHeader";
-import { TabBar } from "./TabBar";
-import { TabContent } from "./TabContent";
+import { SplitContainer } from "./SplitContainer";
 import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
-
-import { destroyTerminal } from "@/components/panes/TerminalPane";
-import { isEditorDirty, clearEditorDirty } from "@/components/panes/editor-dirty-state";
-import { confirm } from "@/stores/dialog-store";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import { useFlowStore } from "@/stores/flow-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -44,13 +39,9 @@ import { useWorkspaceTabOps } from "./hooks/useWorkspaceTabOps";
 export function Workspace() {
     const isElectron = useIsElectron();
     const workspace = useActiveWorkspace();
-    const setActiveTab = useSessionStore((s) => s.setActiveTab);
-    const closeTab = useSessionStore((s) => s.closeTab);
     const createSession = useSessionStore((s) => s.createSession);
     const addTab = useSessionStore((s) => s.addTab);
     const sendInput = useSessionStore((s) => s.sendInput);
-    const renameTab = useSessionStore((s) => s.renameTab);
-    const reorderTabs = useSessionStore((s) => s.reorderTabs);
     const updateTask = useTaskStore((s) => s.updateTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
@@ -73,7 +64,6 @@ export function Workspace() {
     const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
 
     const {
-        tabs: visibleTabs,
         activeTab,
         scripts,
         agentCommands,
@@ -290,33 +280,9 @@ export function Workspace() {
     if (workspace.scope === "master") {
         return (
             <>
-                <TabBar
-                    className={isElectron ? "[-webkit-app-region:drag]" : undefined}
-                    tabs={visibleTabs}
-                    activeTabId={activeTab?.id ?? ""}
+                <SplitContainer
+                    workspaceKey={workspace.workspaceKey}
                     projectPath={workspace.workingDir}
-                    onTabClick={(id) =>
-                        workspace.workspaceKey && setActiveTab(workspace.workspaceKey, id)
-                    }
-                    onTabClose={(id) => {
-                        if (!workspace.workspaceKey) return;
-                        const tab = visibleTabs.find((t) => t.id === id);
-                        const doClose = () => {
-                            if (tab?.sessionId) destroyTerminal(tab.sessionId);
-                            void closeTab(workspace.workspaceKey, id);
-                        };
-                        doClose();
-                    }}
-                    onTabRename={(id, newLabel) => {
-                        if (workspace.workspaceKey) {
-                            renameTab(workspace.workspaceKey, id, newLabel);
-                        }
-                    }}
-                    onTabReorder={(activeId, overId) => {
-                        if (workspace.workspaceKey) {
-                            reorderTabs(workspace.workspaceKey, activeId, overId);
-                        }
-                    }}
                     onNewTab={handleNewTab}
                     onRunTab={() => {}}
                     onRunScript={() => {}}
@@ -337,20 +303,34 @@ export function Workspace() {
                     }
                     showAgentOptions={false}
                     allowSessionTabs={true}
+                    isElectron={isElectron}
                 />
-                <TabContent tabs={visibleTabs} activeTabId={activeTab?.id ?? ""} />
             </>
         );
     }
 
     const handleDiffTab = () => {
         if (!workspace.workspaceKey) return;
-        const existingChangesTab = visibleTabs.find((tab) => tab.type === "changes");
+        const store = useSessionStore.getState();
+        const rightKey = `${workspace.workspaceKey}:right`;
+        const allTabs = [
+            ...(store.tabsByWorkspace[workspace.workspaceKey] ?? []),
+            ...(store.tabsByWorkspace[rightKey] ?? []),
+        ];
+        const existingChangesTab = allTabs.find((tab) => tab.type === "changes");
         if (existingChangesTab) {
-            setActiveTab(workspace.workspaceKey, existingChangesTab.id);
+            const rightTabs = store.tabsByWorkspace[rightKey] ?? [];
+            if (rightTabs.some((t) => t.id === existingChangesTab.id)) {
+                store.setActiveTab(rightKey, existingChangesTab.id);
+            } else {
+                store.setActiveTab(workspace.workspaceKey, existingChangesTab.id);
+            }
             return;
         }
-        addTab(workspace.workspaceKey, {
+        const split = useUIStore.getState().splitByWorkspace[workspace.workspaceKey];
+        const targetKey =
+            split?.open && split.activePane === "right" ? rightKey : workspace.workspaceKey;
+        store.addTab(targetKey, {
             id: crypto.randomUUID(),
             type: "changes",
             label: "Changes",
@@ -422,93 +402,33 @@ export function Workspace() {
                     Setting up worktree...
                 </div>
             ) : (
-                <>
-                    <TabBar
-                        tabs={visibleTabs}
-                        activeTabId={activeTab?.id ?? ""}
-                        projectPath={workspace.workingDir}
-                        onTabClick={(id) =>
-                            workspace.workspaceKey && setActiveTab(workspace.workspaceKey, id)
-                        }
-                        onTabClose={(id) => {
-                            if (!workspace.workspaceKey) return;
-                            const tab = visibleTabs.find((t) => t.id === id);
-
-                            const doClose = () => {
-                                if (tab?.filePath) clearEditorDirty(tab.filePath);
-                                if (tab?.sessionId) destroyTerminal(tab.sessionId);
-                                void closeTab(workspace.workspaceKey, id);
-                            };
-
-                            if (
-                                tab?.type === "editor" &&
-                                tab.filePath &&
-                                isEditorDirty(tab.filePath)
-                            ) {
-                                void confirm({
-                                    title: "Unsaved Changes",
-                                    description: `"${tab.filePath.split("/").pop()}" has unsaved changes that will be lost.`,
-                                    confirmLabel: "Close Without Saving",
-                                    cancelLabel: "Cancel",
-                                    variant: "destructive",
-                                    onConfirm: async () => doClose(),
-                                });
-                                return;
-                            }
-
-                            if (
-                                tab?.type === "editor" &&
-                                tab.sessionId &&
-                                !isSessionExited(tab.sessionId)
-                            ) {
-                                void confirm({
-                                    title: "Editor Still Running",
-                                    description: `"${tab.label}" is still running. Unsaved changes will be lost.`,
-                                    confirmLabel: "Close Editor",
-                                    cancelLabel: "Cancel",
-                                    variant: "destructive",
-                                    onConfirm: async () => doClose(),
-                                });
-                                return;
-                            }
-
-                            doClose();
-                        }}
-                        onTabRename={(id, newLabel) => {
-                            if (workspace.workspaceKey) {
-                                renameTab(workspace.workspaceKey, id, newLabel);
-                            }
-                        }}
-                        onTabReorder={(activeId, overId) => {
-                            if (workspace.workspaceKey) {
-                                reorderTabs(workspace.workspaceKey, activeId, overId);
-                            }
-                        }}
-                        onNewTab={handleNewTab}
-                        onRunTab={handleRunTab}
-                        onRunScript={handleRunScript}
-                        onRunAction={handleRunAction}
-                        onRunAgentCommand={handleRunAgentCommand}
-                        onStartFlow={handleStartFlow}
-                        onManageFlows={toggleFlowManagement}
-                        scripts={scripts}
-                        defaultRuntime={defaultRuntime}
-                        flows={flowRunsReady ? flowDefinitions : []}
-                        standaloneActions={standaloneActions}
-                        agentCommands={agentCommands}
-                        activeFlowRun={activeFlowRun ?? null}
-                        showRunButton={
-                            workspace.scope === "task" ||
-                            hasScripts ||
-                            standaloneActions.length > 0 ||
-                            agentCommands.length > 0 ||
-                            (flowRunsReady && flowDefinitions.length > 0)
-                        }
-                        showAgentOptions={workspace.scope === "task"}
-                        allowSessionTabs={true}
-                    />
-                    <TabContent tabs={visibleTabs} activeTabId={activeTab?.id ?? ""} />
-                </>
+                <SplitContainer
+                    workspaceKey={workspace.workspaceKey}
+                    projectPath={workspace.workingDir}
+                    onNewTab={handleNewTab}
+                    onRunTab={handleRunTab}
+                    onRunScript={handleRunScript}
+                    onRunAction={handleRunAction}
+                    onRunAgentCommand={handleRunAgentCommand}
+                    onStartFlow={handleStartFlow}
+                    onManageFlows={toggleFlowManagement}
+                    scripts={scripts}
+                    defaultRuntime={defaultRuntime}
+                    flows={flowRunsReady ? flowDefinitions : []}
+                    standaloneActions={standaloneActions}
+                    agentCommands={agentCommands}
+                    activeFlowRun={activeFlowRun ?? null}
+                    showRunButton={
+                        workspace.scope === "task" ||
+                        hasScripts ||
+                        standaloneActions.length > 0 ||
+                        agentCommands.length > 0 ||
+                        (flowRunsReady && flowDefinitions.length > 0)
+                    }
+                    showAgentOptions={workspace.scope === "task"}
+                    allowSessionTabs={true}
+                    isElectron={isElectron}
+                />
             )}
             <AlertDialog
                 open={cursorRulesDialog !== null}

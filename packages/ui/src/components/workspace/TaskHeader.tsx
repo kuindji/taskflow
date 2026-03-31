@@ -4,6 +4,7 @@ import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
+import { useSessionStore } from "@/stores/session-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
@@ -35,6 +36,7 @@ import {
     ArchiveRestore,
     ArrowDownToLine,
     ArrowUpFromLine,
+    Columns2,
     Diff,
     Ellipsis,
     FolderTree,
@@ -92,6 +94,16 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const hideProject = useProjectStore((s) => s.hideProject);
     const removeProject = useProjectStore((s) => s.removeProject);
     const [removeOpen, setRemoveOpen] = useState(false);
+
+    const splitOpen = useUIStore((s) =>
+        task
+            ? s.splitByWorkspace[`task:${task.id}`]?.open
+            : project
+              ? s.splitByWorkspace[`project:${project.id}`]?.open
+              : false,
+    );
+    const toggleSplit = useUIStore((s) => s.toggleSplit);
+    const mergeSplitTabs = useSessionStore((s) => s.mergeSplitTabs);
 
     const isElectron = useIsElectron();
     const [commitOpen, setCommitOpen] = useState(false);
@@ -187,6 +199,19 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
         if (!project) return;
         requestNewTask(project.id);
     }, [project, requestNewTask]);
+
+    const handleToggleSplit = useCallback(() => {
+        const workspaceKey = task
+            ? `task:${task.id}`
+            : project
+              ? `project:${project.id}`
+              : null;
+        if (!workspaceKey) return;
+        if (splitOpen) {
+            mergeSplitTabs(workspaceKey);
+        }
+        toggleSplit(workspaceKey);
+    }, [task, project, splitOpen, mergeSplitTabs, toggleSplit]);
 
     const openTaskActions = useCallback(
         async (target: HTMLElement) => {
@@ -467,6 +492,17 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                             </DropdownMenu>
                         )
                     ) : null}
+                    <Button
+                        variant={splitOpen ? "secondary" : "ghost"}
+                        size="icon-xs"
+                        onClick={handleToggleSplit}
+                        aria-pressed={!!splitOpen}
+                        aria-label={splitOpen ? "Close split view" : "Split view"}
+                        tooltip={splitOpen ? "Close split view" : "Split view"}
+                        tooltipSide="bottom"
+                        className="[-webkit-app-region:no-drag]">
+                        <Columns2 className="h-4 w-4" />
+                    </Button>
                     <Button
                         variant={taskInfoOpen ? "secondary" : "ghost"}
                         size="icon-xs"
