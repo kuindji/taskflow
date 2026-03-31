@@ -93,10 +93,13 @@ function isSessionFocused(
             : null;
     if (!workspaceKey) return false;
     const store = getSessionState();
-    const activeTabId = store.activeTabByWorkspace[workspaceKey];
-    const tabs = store.tabsByWorkspace[workspaceKey] ?? [];
-    const activeTab = tabs.find((t) => t.id === activeTabId);
-    return activeTab?.sessionId === sessionId;
+    for (const key of [workspaceKey, `${workspaceKey}:right`]) {
+        const activeTabId = store.activeTabByWorkspace[key];
+        const tabs = store.tabsByWorkspace[key] ?? [];
+        const activeTab = tabs.find((t) => t.id === activeTabId);
+        if (activeTab?.sessionId === sessionId) return true;
+    }
+    return false;
 }
 
 function getSessionTab(
