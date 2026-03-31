@@ -1,12 +1,14 @@
 import type { AgentLaunchOptions, AgentType } from "./agent";
 
+type ScheduleSessionType = AgentType | "shell";
+
 interface Schedule {
     id: string;
     projectId: string;
     name: string;
     prompt: string;
     actionId?: string;
-    agentType?: AgentType;
+    agentType?: ScheduleSessionType;
     agentOptions?: AgentLaunchOptions;
 
     expression: string;
@@ -28,7 +30,7 @@ interface ScheduleCreatePayload {
     name?: string;
     prompt?: string;
     actionId?: string;
-    agentType?: AgentType;
+    agentType?: ScheduleSessionType;
     agentOptions?: AgentLaunchOptions;
     expression: string;
     expressionType: "cron" | "rate";
@@ -41,7 +43,7 @@ interface ScheduleUpdatePayload {
     name?: string;
     prompt?: string;
     actionId?: string | null;
-    agentType?: AgentType | null;
+    agentType?: ScheduleSessionType | null;
     agentOptions?: AgentLaunchOptions | null;
     expression?: string;
     expressionType?: "cron" | "rate";
@@ -63,6 +65,7 @@ interface ScheduleTriggerPayload {
 
 export type {
     Schedule,
+    ScheduleSessionType,
     ScheduleCreatePayload,
     ScheduleUpdatePayload,
     ScheduleDeletePayload,

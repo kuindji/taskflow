@@ -3,9 +3,14 @@ import type { Schedule, WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import type { ScheduleStore } from "./schedule-store";
 
+interface SpawnResult {
+    sessionId: string;
+    isShell: boolean;
+}
+
 interface SchedulerDeps {
     scheduleStore: ScheduleStore;
-    spawnSession: (schedule: Schedule) => Promise<string>;
+    spawnSession: (schedule: Schedule) => Promise<SpawnResult>;
     closeSession: (sessionId: string) => void;
     broadcast: (event: WsEvent) => void;
 }
@@ -54,7 +59,7 @@ class SchedulerService {
     private deps: SchedulerDeps;
     private timers = new Map<string, ReturnType<typeof setTimeout>>();
     private timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
-    private runningSessions = new Map<string, string>(); // scheduleId -> sessionId
+    private runningSessions = new Map<string, SpawnResult>(); // scheduleId -> session info
 
     constructor(deps: SchedulerDeps) {
         this.deps = deps;
@@ -131,9 +136,9 @@ class SchedulerService {
         // Skip if already running
         if (this.runningSessions.has(scheduleId)) return;
 
-        let sessionId: string;
+        let result: SpawnResult;
         try {
-            sessionId = await this.deps.spawnSession(schedule);
+            result = await this.deps.spawnSession(schedule);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
@@ -147,11 +152,11 @@ class SchedulerService {
             return;
         }
 
-        this.runningSessions.set(scheduleId, sessionId);
+        this.runningSessions.set(scheduleId, result);
 
         const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
             ...s,
-            runningSessionId: sessionId,
+            runningSessionId: result.sessionId,
             lastRunAt: new Date().toISOString(),
             lastError: null,
             nextRunAt: null,
@@ -198,12 +203,18 @@ class SchedulerService {
         if (!schedule) return;
 
         this.clearTimeoutTimer(schedule.id);
+        const runInfo = this.runningSessions.get(schedule.id);
         this.runningSessions.delete(schedule.id);
+
+        // Shell sessions complete via exit code (0 = success)
+        const isShellSuccess = runInfo?.isShell && exitCode === 0;
 
         const updated = await this.deps.scheduleStore.update(schedule.id, (s) => ({
             ...s,
             runningSessionId: null,
-            lastError: `Agent exited unexpectedly with code ${exitCode}`,
+            lastError: isShellSuccess
+                ? null
+                : `${runInfo?.isShell ? "Shell" : "Agent"} exited unexpectedly with code ${exitCode}`,
             updatedAt: new Date().toISOString(),
         }));
         this.broadcastUpdated(updated);
@@ -214,11 +225,11 @@ class SchedulerService {
     private async handleTimeout(scheduleId: string): Promise<void> {
         this.clearTimeoutTimer(scheduleId);
 
-        const sessionId = this.runningSessions.get(scheduleId);
-        if (!sessionId) return;
+        const runInfo = this.runningSessions.get(scheduleId);
+        if (!runInfo) return;
 
         this.runningSessions.delete(scheduleId);
-        this.deps.closeSession(sessionId);
+        this.deps.closeSession(runInfo.sessionId);
 
         const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
             ...s,
@@ -293,8 +304,8 @@ class SchedulerService {
         this.timeoutTimers.clear();
 
         // Kill all running sessions
-        for (const [scheduleId, sessionId] of this.runningSessions) {
-            this.deps.closeSession(sessionId);
+        for (const [scheduleId, runInfo] of this.runningSessions) {
+            this.deps.closeSession(runInfo.sessionId);
             this.runningSessions.delete(scheduleId);
         }
     }

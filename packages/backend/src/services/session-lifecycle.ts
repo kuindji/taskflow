@@ -12,6 +12,7 @@ import type { SettingsStore } from "./settings-store";
 import {
     buildAgentLaunchSpec,
     buildProjectContextBlock,
+    buildSystemPrompt,
     ensureInternalAgentSkillFile,
     PROMPT_AUTONOMOUS,
 } from "./internal-agent-skill";
@@ -293,6 +294,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         const args: string[] = [];
         let specEnv: Record<string, string> | undefined;
         let geminiSystemPath: string | undefined;
+        let shellSystemPrompt: string | undefined;
         if (type === "editor") {
             if (!editorId || !filePath) {
                 throw new Error("editorId and filePath are required for editor sessions");
@@ -316,22 +318,21 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             } else {
                 args.push(filePath);
             }
-        } else if (type === "shell") {
-            if (!shell) throw new Error("shell path is required for shell sessions");
-            command = shell;
         } else {
-            // Merge user-configured defaults under any explicit options
-            let resolvedOptions = agentOptions;
-            if (!resolvedOptions) {
-                const settings = await settingsStore.get();
-                resolvedOptions = settingsToAgentOptions(type, settings);
-            }
-
+            // Build effective system prompt for both shell and agent sessions
             let effectiveSystemPrompt = systemPrompt;
-            if (isAutonomousAgent(resolvedOptions, type)) {
-                effectiveSystemPrompt = effectiveSystemPrompt
-                    ? `${effectiveSystemPrompt}\n\n${PROMPT_AUTONOMOUS}`
-                    : PROMPT_AUTONOMOUS;
+            let resolvedAgentOptions = agentOptions;
+            if (type !== "shell") {
+                // Merge user-configured defaults under any explicit options
+                if (!resolvedAgentOptions) {
+                    const settings = await settingsStore.get();
+                    resolvedAgentOptions = settingsToAgentOptions(type, settings);
+                }
+                if (isAutonomousAgent(resolvedAgentOptions, type)) {
+                    effectiveSystemPrompt = effectiveSystemPrompt
+                        ? `${effectiveSystemPrompt}\n\n${PROMPT_AUTONOMOUS}`
+                        : PROMPT_AUTONOMOUS;
+                }
             }
             if (project && (project.prompt || project.linkedProjects?.length)) {
                 const resolvedProjects: Record<string, { name: string; path: string }> = {};
@@ -355,32 +356,43 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                         : projectBlock;
                 }
             }
-            const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
-            if (type === "cursor" && !master && effectiveSystemPrompt) {
-                await ensureCursorRulesFile(cwd, effectiveSystemPrompt);
-            }
-            if (type === "gemini") {
-                geminiSystemPath = await ensureGeminiSystemFile(
-                    config.agentSkillsDir,
-                    !task,
+
+            if (type === "shell") {
+                if (!shell) throw new Error("shell path is required for shell sessions");
+                command = shell;
+                // Assemble full system prompt and expose via env var
+                const basePrompt = buildSystemPrompt(!task, !!flow);
+                shellSystemPrompt = effectiveSystemPrompt
+                    ? `${basePrompt}\n\n${effectiveSystemPrompt}`
+                    : basePrompt;
+            } else {
+                const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
+                if (type === "cursor" && !master && effectiveSystemPrompt) {
+                    await ensureCursorRulesFile(cwd, effectiveSystemPrompt);
+                }
+                if (type === "gemini") {
+                    geminiSystemPath = await ensureGeminiSystemFile(
+                        config.agentSkillsDir,
+                        !task,
+                        effectiveSystemPrompt,
+                    );
+                }
+                const spec = buildAgentLaunchSpec(
+                    type,
+                    prompt,
+                    skillPath,
+                    resolvedAgentOptions,
                     effectiveSystemPrompt,
+                    !task,
+                    !!flow,
                 );
+                command = spec.command;
+                if (opts.sessionName && type === "claude") {
+                    args.push("--name", opts.sessionName);
+                }
+                args.push(...spec.args);
+                specEnv = spec.env;
             }
-            const spec = buildAgentLaunchSpec(
-                type,
-                prompt,
-                skillPath,
-                resolvedOptions,
-                effectiveSystemPrompt,
-                !task,
-                !!flow,
-            );
-            command = spec.command;
-            if (opts.sessionName && type === "claude") {
-                args.push("--name", opts.sessionName);
-            }
-            args.push(...spec.args);
-            specEnv = spec.env;
         }
 
         const sessionId = crypto.randomUUID();
@@ -396,6 +408,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         }
         if (geminiSystemPath) {
             taskflowEnv.GEMINI_SYSTEM_MD = geminiSystemPath;
+        }
+        if (shellSystemPrompt) {
+            taskflowEnv.TASKFLOW_SYSTEM_PROMPT = shellSystemPrompt;
         }
 
         if (!opts.internal && !opts.trayExclude) {

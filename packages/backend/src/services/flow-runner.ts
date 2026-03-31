@@ -524,9 +524,6 @@ class FlowRunner {
         sessionType: SessionType,
         isProjectScope: boolean,
     ): { prompt: string; systemPrompt?: string } {
-        if (sessionType === "shell") {
-            return { prompt: actionPrompt };
-        }
         const descriptionHeader = isProjectScope ? "Project Description" : "Task Description";
         const systemPrompt = [
             `## ${descriptionHeader}\n\n${ownerDescription}`,

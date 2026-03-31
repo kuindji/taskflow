@@ -3,8 +3,8 @@ import type {
     Schedule,
     ScheduleCreatePayload,
     ScheduleUpdatePayload,
+    ScheduleSessionType,
     Project,
-    AgentType,
     AgentLaunchOptions,
     ActionDefinition,
 } from "@taskflow/shared";
@@ -62,7 +62,7 @@ function ScheduleForm({
         schedule?.expressionType ?? "rate",
     );
     const [expression, setExpression] = useState(schedule?.expression ?? "rate(30 minutes)");
-    const [agentType, setAgentType] = useState<AgentType | "">(schedule?.agentType ?? "");
+    const [agentType, setAgentType] = useState<ScheduleSessionType | "">(schedule?.agentType ?? "");
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(
         schedule?.agentOptions,
     );
@@ -88,10 +88,10 @@ function ScheduleForm({
     const useAction = !!selectedAction;
 
     const handleAgentTypeChange = useCallback((value: string) => {
-        const next = value === "__default__" ? "" : (value as AgentType);
+        const next = value === "__default__" ? "" : (value as ScheduleSessionType);
         setAgentType(next);
         setAgentOptions((current) => {
-            if (!next) return undefined;
+            if (!next || next === "shell") return undefined;
             return current?.type === next ? current : undefined;
         });
     }, []);
@@ -309,6 +309,29 @@ function ScheduleForm({
                     </div>
                 )}
 
+                {/* Session type — hidden when action selected */}
+                {!useAction && (
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Type</Label>
+                        <Select
+                            value={agentType || "__default__"}
+                            onValueChange={handleAgentTypeChange}>
+                            <SelectTrigger size="sm" className="text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="__default__">Default</SelectItem>
+                                {ALL_AGENT_TYPES.map((t) => (
+                                    <SelectItem key={t} value={t}>
+                                        {AGENT_DISPLAY_NAMES[t]}
+                                    </SelectItem>
+                                ))}
+                                <SelectItem value="shell">Shell</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
+
                 {/* Name — hidden when action selected */}
                 {!useAction && (
                     <div className="space-y-1.5">
@@ -326,13 +349,19 @@ function ScheduleForm({
                 {/* Prompt — hidden when action selected */}
                 {!useAction && (
                     <div className="space-y-1.5">
-                        <Label className="text-xs">Prompt</Label>
+                        <Label className="text-xs">
+                            {agentType === "shell" ? "Command" : "Prompt"}
+                        </Label>
                         <ExpandableTextarea
                             className="min-h-[80px] text-xs"
-                            dialogTitle="Schedule Prompt"
+                            dialogTitle={agentType === "shell" ? "Shell Command" : "Schedule Prompt"}
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
-                            placeholder="What should the agent do?"
+                            placeholder={
+                                agentType === "shell"
+                                    ? "Shell command to run"
+                                    : "What should the agent do?"
+                            }
                         />
                     </div>
                 )}
@@ -369,30 +398,8 @@ function ScheduleForm({
                     )}
                 </div>
 
-                {/* Agent type — hidden when action selected */}
-                {!useAction && (
-                    <div className="space-y-1.5">
-                        <Label className="text-xs">Agent Type</Label>
-                        <Select
-                            value={agentType || "__default__"}
-                            onValueChange={handleAgentTypeChange}>
-                            <SelectTrigger size="sm" className="text-xs">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="__default__">Default</SelectItem>
-                                {ALL_AGENT_TYPES.map((t) => (
-                                    <SelectItem key={t} value={t}>
-                                        {AGENT_DISPLAY_NAMES[t]}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                )}
-
-                {/* Agent options — hidden when action selected */}
-                {!useAction && agentType && (
+                {/* Agent options — hidden when action selected or shell */}
+                {!useAction && agentType && agentType !== "shell" && (
                     <div className="border-border rounded-md border p-3">
                         <AgentOptionsPanel
                             key={`${schedule?.id ?? "new"}-${agentType}-${resetCounter}`}

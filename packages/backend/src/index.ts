@@ -117,7 +117,9 @@ async function main() {
                     }
                 }
 
-                return sessionLifecycle.createSession({
+                const isShell = agentType === "shell";
+
+                const sessionId = await sessionLifecycle.createSession({
                     owner: { projectId: schedule.projectId },
                     type: agentType as
                         | "claude"
@@ -128,13 +130,15 @@ async function main() {
                         | "shell",
                     label: `[Scheduled] ${schedule.name}`,
                     prompt,
-                    systemPrompt: SYSTEM_PROMPT_ADDON,
+                    systemPrompt: isShell ? undefined : SYSTEM_PROMPT_ADDON,
                     agentOptions,
                     internal: true,
                     onSessionExited: (sessionId, exitCode) => {
                         void schedulerService.handleSessionExit(sessionId, exitCode);
                     },
                 });
+
+                return { sessionId, isShell };
             },
             closeSession: (sessionId) => {
                 ptyManager.close(sessionId);

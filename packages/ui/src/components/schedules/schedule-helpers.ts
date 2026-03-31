@@ -1,4 +1,4 @@
-import type { AgentType, AgentLaunchOptions } from "@taskflow/shared";
+import type { ScheduleSessionType, AgentLaunchOptions } from "@taskflow/shared";
 import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
 
 function computeNextRunPreview(expression: string, expressionType: "cron" | "rate"): string | null {
@@ -48,7 +48,7 @@ function serializeScheduleState({
     prompt: string | undefined;
     expression: string;
     expressionType: "cron" | "rate";
-    agentType: AgentType | "";
+    agentType: ScheduleSessionType | "";
     agentOptions: AgentLaunchOptions | undefined;
     timeout: string | number | undefined;
     useAction: boolean;
