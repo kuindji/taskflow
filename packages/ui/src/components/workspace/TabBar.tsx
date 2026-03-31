@@ -45,6 +45,7 @@ interface TabBarProps {
     showAgentOptions: boolean;
     allowSessionTabs: boolean;
     className?: string;
+    externalDnd?: boolean;
 }
 
 export function TabBar({
@@ -72,6 +73,7 @@ export function TabBar({
     showAgentOptions,
     allowSessionTabs,
     className,
+    externalDnd,
 }: TabBarProps) {
     const cmdHeld = useUIStore((s) => s.cmdHeld);
     const focusedPanel = useUIStore((s) => s.focusedPanel);
@@ -117,10 +119,7 @@ export function TabBar({
                     allowSessionTabs={allowSessionTabs}
                 />
             </div>
-            <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}>
+            {externalDnd ? (
                 <SortableContext items={tabIds} strategy={horizontalListSortingStrategy}>
                     <div
                         className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag]"
@@ -140,7 +139,32 @@ export function TabBar({
                         ))}
                     </div>
                 </SortableContext>
-            </DndContext>
+            ) : (
+                <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}>
+                    <SortableContext items={tabIds} strategy={horizontalListSortingStrategy}>
+                        <div
+                            className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag]"
+                            style={{ scrollbarWidth: "none" }}>
+                            {tabs.map((tab, index) => (
+                                <TabItem
+                                    key={tab.id}
+                                    tab={tab}
+                                    isActive={tab.id === activeTabId}
+                                    index={index}
+                                    cmdHeld={showBadges}
+                                    projectPath={projectPath}
+                                    onTabClick={onTabClick}
+                                    onTabClose={onTabClose}
+                                    onTabRename={onTabRename}
+                                />
+                            ))}
+                        </div>
+                    </SortableContext>
+                </DndContext>
+            )}
         </div>
     );
 }

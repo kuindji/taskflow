@@ -1,0 +1,88 @@
+import { useCallback, useRef } from "react";
+import type { Tab } from "@/stores/session-store";
+import { useSessionStore } from "@/stores/session-store";
+import { useUIStore } from "@/stores/ui-store";
+import { ResizeHandle } from "@/components/ResizeHandle";
+import { WorkspacePane } from "./WorkspacePane";
+import type { WorkspacePaneProps } from "./WorkspacePane";
+
+type SharedPaneProps = Omit<
+    WorkspacePaneProps,
+    "workspaceKey" | "paneId" | "isFocused" | "onFocus" | "tabs" | "activeTabId" | "className" | "style" | "externalDnd"
+>;
+
+interface SplitContainerProps extends SharedPaneProps {
+    workspaceKey: string;
+}
+
+export type { SplitContainerProps };
+
+const emptyTabs: Tab[] = [];
+
+export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerProps) {
+    const split = useUIStore((s) => s.splitByWorkspace[workspaceKey]);
+    const setSplitRatio = useUIStore((s) => s.setSplitRatio);
+    const setActivePane = useUIStore((s) => s.setActivePane);
+
+    const leftTabs = useSessionStore((s) => s.tabsByWorkspace[workspaceKey] ?? emptyTabs);
+    const leftActiveTabId = useSessionStore(
+        (s) => s.activeTabByWorkspace[workspaceKey] ?? "",
+    );
+
+    const rightKey = `${workspaceKey}:right`;
+    const rightTabs = useSessionStore((s) => s.tabsByWorkspace[rightKey] ?? emptyTabs);
+    const rightActiveTabId = useSessionStore(
+        (s) => s.activeTabByWorkspace[rightKey] ?? "",
+    );
+
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    const handleResize = useCallback(
+        (delta: number) => {
+            if (!containerRef.current || !split) return;
+            const containerWidth = containerRef.current.offsetWidth;
+            if (containerWidth === 0) return;
+            const newRatio = split.ratio + delta / containerWidth;
+            setSplitRatio(workspaceKey, newRatio);
+        },
+        [split, setSplitRatio, workspaceKey],
+    );
+
+    const isOpen = split?.open ?? false;
+    const ratio = split?.ratio ?? 0.5;
+    const activePane = split?.activePane ?? "left";
+
+    return (
+        <div ref={containerRef} className="flex min-w-0 flex-1 flex-row">
+            <WorkspacePane
+                {...sharedProps}
+                workspaceKey={workspaceKey}
+                paneId="left"
+                isFocused={!isOpen || activePane === "left"}
+                onFocus={() => isOpen && setActivePane(workspaceKey, "left")}
+                tabs={leftTabs}
+                activeTabId={leftActiveTabId}
+                style={isOpen ? { flex: `0 0 ${ratio * 100}%` } : undefined}
+            />
+            {isOpen && (
+                <>
+                    <ResizeHandle
+                        onResize={handleResize}
+                        panelGap={1}
+                        orientation="vertical"
+                        align="center"
+                    />
+                    <WorkspacePane
+                        {...sharedProps}
+                        workspaceKey={rightKey}
+                        paneId="right"
+                        isFocused={activePane === "right"}
+                        onFocus={() => setActivePane(workspaceKey, "right")}
+                        tabs={rightTabs}
+                        activeTabId={rightActiveTabId}
+                    />
+                </>
+            )}
+        </div>
+    );
+}
