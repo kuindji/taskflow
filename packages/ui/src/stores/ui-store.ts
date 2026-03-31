@@ -29,6 +29,15 @@ export function updateCollapsedProjectIds(
 type PanelId = "sidebar" | "fileexplorer" | "workspace" | "taskinfo";
 export type { PanelId };
 
+type PaneId = "left" | "right";
+export type { PaneId };
+
+interface WorkspaceSplit {
+    open: boolean;
+    ratio: number;
+    activePane: PaneId;
+}
+
 /** Static ordering used by cycleFocus to determine panel cycle direction. */
 const PANEL_ORDER: readonly PanelId[] = ["sidebar", "fileexplorer", "workspace", "taskinfo"];
 
@@ -61,6 +70,7 @@ interface UIStore {
     flowPanelWidth: number;
     panelGap: number;
     collapsedProjectIds: string[];
+    splitByWorkspace: Record<string, WorkspaceSplit>;
     toggleFileExplorer(): void;
     toggleTaskInfo(): void;
     openSettings(): void;
@@ -96,9 +106,13 @@ interface UIStore {
         flowPanelWidth?: number;
         collapsedProjectIds?: string[];
     }): void;
+    toggleSplit(workspaceKey: string): void;
+    setSplitRatio(workspaceKey: string, ratio: number): void;
+    setActivePane(workspaceKey: string, pane: PaneId): void;
+    getSplit(workspaceKey: string): WorkspaceSplit | undefined;
 }
 
-export const useUIStore = create<UIStore>((set) => ({
+export const useUIStore = create<UIStore>((set, get) => ({
     activeProjectId: null,
     masterWorkspaceActive: false,
     fileExplorerOpen: false,
@@ -121,6 +135,7 @@ export const useUIStore = create<UIStore>((set) => ({
     flowPanelWidth: 220,
     panelGap: 6,
     collapsedProjectIds: [],
+    splitByWorkspace: {},
     toggleFileExplorer() {
         set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen }));
     },
@@ -236,5 +251,48 @@ export const useUIStore = create<UIStore>((set) => ({
             flowPanelWidth: clamp(panels.flowPanelWidth ?? 220, FLOW_PANEL_MIN, FLOW_PANEL_MAX),
             collapsedProjectIds: panels.collapsedProjectIds ?? [],
         });
+    },
+    toggleSplit(workspaceKey) {
+        set((s) => {
+            const existing = s.splitByWorkspace[workspaceKey];
+            if (existing) {
+                const next = { ...s.splitByWorkspace };
+                delete next[workspaceKey];
+                return { splitByWorkspace: next };
+            }
+            return {
+                splitByWorkspace: {
+                    ...s.splitByWorkspace,
+                    [workspaceKey]: { open: true, ratio: 0.5, activePane: "left" as PaneId },
+                },
+            };
+        });
+    },
+    setSplitRatio(workspaceKey, ratio) {
+        set((s) => {
+            const existing = s.splitByWorkspace[workspaceKey];
+            if (!existing) return s;
+            return {
+                splitByWorkspace: {
+                    ...s.splitByWorkspace,
+                    [workspaceKey]: { ...existing, ratio: clamp(ratio, 0.2, 0.8) },
+                },
+            };
+        });
+    },
+    setActivePane(workspaceKey, pane) {
+        set((s) => {
+            const existing = s.splitByWorkspace[workspaceKey];
+            if (!existing) return s;
+            return {
+                splitByWorkspace: {
+                    ...s.splitByWorkspace,
+                    [workspaceKey]: { ...existing, activePane: pane },
+                },
+            };
+        });
+    },
+    getSplit(workspaceKey) {
+        return get().splitByWorkspace[workspaceKey];
     },
 }));
