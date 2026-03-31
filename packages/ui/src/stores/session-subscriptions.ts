@@ -190,12 +190,14 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
         // Task activated → switch to attention tab if any, then clear its attention
         if (state.activeTaskId) {
             const workspaceKey = getTaskWorkspaceKey(state.activeTaskId);
-            const tabs = sessionStore.tabsByWorkspace[workspaceKey] ?? [];
-            const attentionTab = tabs.find(
-                (tab) => tab.sessionId && sessionStore.sessionStatus[tab.sessionId] === "attention",
-            );
-            if (attentionTab) {
-                sessionStore.setActiveTab(workspaceKey, attentionTab.id);
+            for (const key of [workspaceKey, `${workspaceKey}:right`]) {
+                const tabs = sessionStore.tabsByWorkspace[key] ?? [];
+                const attentionTab = tabs.find(
+                    (tab) => tab.sessionId && sessionStore.sessionStatus[tab.sessionId] === "attention",
+                );
+                if (attentionTab) {
+                    sessionStore.setActiveTab(key, attentionTab.id);
+                }
             }
             return;
         }
@@ -204,12 +206,14 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
         const activeProjectId = useUIStore.getState().activeProjectId;
         if (activeProjectId) {
             const workspaceKey = getProjectWorkspaceKey(activeProjectId);
-            const tabs = sessionStore.tabsByWorkspace[workspaceKey] ?? [];
-            const attentionTab = tabs.find(
-                (tab) => tab.sessionId && sessionStore.sessionStatus[tab.sessionId] === "attention",
-            );
-            if (attentionTab) {
-                sessionStore.setActiveTab(workspaceKey, attentionTab.id);
+            for (const key of [workspaceKey, `${workspaceKey}:right`]) {
+                const tabs = sessionStore.tabsByWorkspace[key] ?? [];
+                const attentionTab = tabs.find(
+                    (tab) => tab.sessionId && sessionStore.sessionStatus[tab.sessionId] === "attention",
+                );
+                if (attentionTab) {
+                    sessionStore.setActiveTab(key, attentionTab.id);
+                }
             }
         }
     });
@@ -221,12 +225,14 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
 
         const sessionStore = store.getState();
         const workspaceKey = getProjectWorkspaceKey(state.activeProjectId);
-        const tabs = sessionStore.tabsByWorkspace[workspaceKey] ?? [];
-        const attentionTab = tabs.find(
-            (tab) => tab.sessionId && sessionStore.sessionStatus[tab.sessionId] === "attention",
-        );
-        if (attentionTab) {
-            sessionStore.setActiveTab(workspaceKey, attentionTab.id);
+        for (const key of [workspaceKey, `${workspaceKey}:right`]) {
+            const tabs = sessionStore.tabsByWorkspace[key] ?? [];
+            const attentionTab = tabs.find(
+                (tab) => tab.sessionId && sessionStore.sessionStatus[tab.sessionId] === "attention",
+            );
+            if (attentionTab) {
+                sessionStore.setActiveTab(key, attentionTab.id);
+            }
         }
     });
 
