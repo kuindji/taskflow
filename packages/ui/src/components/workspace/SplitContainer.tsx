@@ -56,7 +56,7 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
     const handleDragEnd = useCallback(
         (event: DragEndEvent) => {
             const { active, over } = event;
-            if (!over || active.id === over.id) return;
+            if (!over) return;
 
             const activeId = String(active.id);
             const overId = String(over.id);
@@ -64,6 +64,24 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
             const store = useSessionStore.getState();
             const lTabs = store.tabsByWorkspace[workspaceKey] ?? [];
             const rTabs = store.tabsByWorkspace[rightKey] ?? [];
+
+            // Handle drop on pane content area
+            if (overId.startsWith("pane-drop:")) {
+                const targetKey = overId.slice("pane-drop:".length);
+                const sourceKey = lTabs.some((t) => t.id === activeId)
+                    ? workspaceKey
+                    : rTabs.some((t) => t.id === activeId)
+                      ? rightKey
+                      : null;
+                if (sourceKey && sourceKey !== targetKey) {
+                    store.moveTabToPane(sourceKey, targetKey, activeId);
+                    const targetPane: PaneId = targetKey.endsWith(":right") ? "right" : "left";
+                    setActivePane(workspaceKey, targetPane);
+                }
+                return;
+            }
+
+            if (activeId === overId) return;
 
             const activeInLeft = lTabs.some((t) => t.id === activeId);
             const overInLeft = lTabs.some((t) => t.id === overId);

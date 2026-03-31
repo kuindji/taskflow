@@ -159,7 +159,7 @@ export function WorkspacePane({
                 className={tabBarClassName}
                 externalDnd={externalDnd}
             />
-            <TabContent tabs={tabs} activeTabId={activeTabId} />
+            <TabContent tabs={tabs} activeTabId={activeTabId} workspaceKey={workspaceKey} />
         </div>
     );
 }

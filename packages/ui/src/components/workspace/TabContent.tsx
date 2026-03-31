@@ -8,10 +8,12 @@ import { BrowserPane } from "@/components/panes/BrowserPane";
 import { MarkdownPane } from "@/components/panes/MarkdownPane";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { cn } from "@/lib/utils";
+import { useDroppable } from "@dnd-kit/core";
 
 interface TabContentProps {
     tabs: Tab[];
     activeTabId: string;
+    workspaceKey?: string;
 }
 
 /** Tab types that stay mounted when inactive (never display:none) */
@@ -28,21 +30,24 @@ function isAlwaysMounted(tab: Tab): boolean {
     );
 }
 
-function TabContent({ tabs, activeTabId }: TabContentProps) {
+function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
     const workspace = useActiveWorkspace();
+    const { setNodeRef: setDropRef } = useDroppable({
+        id: workspaceKey ? `pane-drop:${workspaceKey}` : "pane-drop",
+    });
 
     if (tabs.length === 0) {
         return (
-            <div className="flex flex-1 overflow-hidden rounded-md">
+            <div ref={setDropRef} className="flex flex-1 overflow-hidden rounded-md">
                 <div className="text-muted-foreground flex flex-1 items-center justify-center">
-                    No active tab. Create a session with +
+                    No active tab. Create a session with + or drag a tab here
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="relative flex flex-1 overflow-hidden rounded-md">
+        <div ref={setDropRef} className="relative flex flex-1 overflow-hidden rounded-md">
             {tabs.map((tab) => {
                 const isActive = tab.id === activeTabId;
 
