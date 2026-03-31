@@ -1,7 +1,10 @@
 import { useCallback, useRef } from "react";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
 import type { Tab } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUIStore } from "@/stores/ui-store";
+import type { PaneId } from "@/stores/ui-store";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { WorkspacePane } from "./WorkspacePane";
 import type { WorkspacePaneProps } from "./WorkspacePane";
@@ -48,11 +51,48 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
         [split, setSplitRatio, workspaceKey],
     );
 
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+    const handleDragEnd = useCallback(
+        (event: DragEndEvent) => {
+            const { active, over } = event;
+            if (!over || active.id === over.id) return;
+
+            const activeId = String(active.id);
+            const overId = String(over.id);
+
+            const store = useSessionStore.getState();
+            const lTabs = store.tabsByWorkspace[workspaceKey] ?? [];
+            const rTabs = store.tabsByWorkspace[rightKey] ?? [];
+
+            const activeInLeft = lTabs.some((t) => t.id === activeId);
+            const overInLeft = lTabs.some((t) => t.id === overId);
+            const activeInRight = rTabs.some((t) => t.id === activeId);
+            const overInRight = rTabs.some((t) => t.id === overId);
+
+            const sourceKey = activeInLeft ? workspaceKey : activeInRight ? rightKey : null;
+            const targetKey = overInLeft ? workspaceKey : overInRight ? rightKey : null;
+
+            if (!sourceKey || !targetKey) return;
+
+            if (sourceKey === targetKey) {
+                store.reorderTabs(sourceKey, activeId, overId);
+            } else {
+                const targetTabs = store.tabsByWorkspace[targetKey] ?? [];
+                const insertIndex = targetTabs.findIndex((t) => t.id === overId);
+                store.moveTabToPane(sourceKey, targetKey, activeId, insertIndex >= 0 ? insertIndex : undefined);
+                const targetPane: PaneId = targetKey.endsWith(":right") ? "right" : "left";
+                setActivePane(workspaceKey, targetPane);
+            }
+        },
+        [workspaceKey, rightKey, setActivePane],
+    );
+
     const isOpen = split?.open ?? false;
     const ratio = split?.ratio ?? 0.5;
     const activePane = split?.activePane ?? "left";
 
-    return (
+    const content = (
         <div ref={containerRef} className="flex min-w-0 flex-1 flex-row">
             <WorkspacePane
                 {...sharedProps}
@@ -63,6 +103,7 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
                 tabs={leftTabs}
                 activeTabId={leftActiveTabId}
                 style={isOpen ? { flex: `0 0 ${ratio * 100}%` } : undefined}
+                externalDnd={isOpen}
             />
             {isOpen && (
                 <>
@@ -80,9 +121,23 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
                         onFocus={() => setActivePane(workspaceKey, "right")}
                         tabs={rightTabs}
                         activeTabId={rightActiveTabId}
+                        externalDnd
                     />
                 </>
             )}
         </div>
     );
+
+    if (isOpen) {
+        return (
+            <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}>
+                {content}
+            </DndContext>
+        );
+    }
+
+    return content;
 }
