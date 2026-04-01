@@ -6,6 +6,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useMarkdownInputStore, getEditor } from "@/stores/markdown-input-store";
 import { usePanelActivation } from "@/hooks/usePanelActivation";
+import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
@@ -61,6 +62,9 @@ function TerminalPane({
     const sendInput = useSessionStore((s) => s.sendInput);
     const resizeTerminal = useSessionStore((s) => s.resizeTerminal);
     const focusedPanel = useUIStore((s) => s.focusedPanel);
+    const { workingDir } = useActiveWorkspace();
+    const workingDirRef = useRef(workingDir);
+    workingDirRef.current = workingDir;
 
     // Stable callback for sendInput so we can use it in the data handler
     const sendInputRef = useRef(sendInput);
@@ -393,6 +397,14 @@ function TerminalPane({
             }
         }
 
+        function toRelative(absolutePath: string): string {
+            const root = workingDirRef.current;
+            if (root && absolutePath.startsWith(root + "/")) {
+                return absolutePath.slice(root.length + 1);
+            }
+            return absolutePath;
+        }
+
         function onDrop(e: DragEvent) {
             e.preventDefault();
             e.stopPropagation();
@@ -407,8 +419,9 @@ function TerminalPane({
             // Internal file tree drop
             const taskflowPath = e.dataTransfer.getData("application/x-taskflow-path");
             if (taskflowPath) {
-                console.debug("[drop] taskflow path:", taskflowPath);
-                sendInputRef.current(sessionId, shellQuote(taskflowPath));
+                const relative = toRelative(taskflowPath);
+                console.debug("[drop] taskflow path:", taskflowPath, "->", relative);
+                sendInputRef.current(sessionId, shellQuote(relative));
                 return;
             }
 
@@ -420,7 +433,7 @@ function TerminalPane({
                     const file = files[i];
                     const filePath = window.taskflow?.getPathForFile(file) ?? "";
                     console.debug("[drop] file:", file.name, "path:", filePath);
-                    if (filePath) paths.push(shellQuote(filePath));
+                    if (filePath) paths.push(shellQuote(toRelative(filePath)));
                 }
                 if (paths.length > 0) {
                     console.debug("[drop] sending paths:", paths);
@@ -438,7 +451,10 @@ function TerminalPane({
                     .map((uri) => decodeURIComponent(new URL(uri).pathname));
                 if (filePaths.length > 0) {
                     console.debug("[drop] uri-list paths:", filePaths);
-                    sendInputRef.current(sessionId, filePaths.map(shellQuote).join(" "));
+                    sendInputRef.current(
+                        sessionId,
+                        filePaths.map((p) => shellQuote(toRelative(p))).join(" "),
+                    );
                     return;
                 }
             }
