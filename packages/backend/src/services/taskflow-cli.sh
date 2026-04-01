@@ -1093,8 +1093,9 @@ case "$cmd" in
         if [ -n "$agent_type" ]; then
           payload=$(printf '%s,"type":%s' "$payload" "$(json_string "$agent_type")")
         fi
-        if [ -n "$agent_task_id" ]; then
-          payload=$(printf '%s,"taskId":%s' "$payload" "$(json_string "$agent_task_id")")
+        resolved_task_id="${agent_task_id:-$TASKFLOW_TASK_ID}"
+        if [ -n "$resolved_task_id" ]; then
+          payload=$(printf '%s,"taskId":%s' "$payload" "$(json_string "$resolved_task_id")")
         fi
         if [ -n "$agent_prompt" ]; then
           payload=$(printf '%s,"prompt":%s' "$payload" "$(json_string "$agent_prompt")")
