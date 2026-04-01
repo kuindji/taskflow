@@ -281,7 +281,7 @@ export function ProjectGroup({
                         {project.name}
                     </span>
                     {!locationInvalid && branch && (
-                        <span className="text-foreground/40 shrink-0 truncate text-xs">
+                        <span className="text-foreground/40 min-w-0 truncate text-xs">
                             ({branch})
                         </span>
                     )}
