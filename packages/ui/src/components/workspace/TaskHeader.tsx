@@ -122,6 +122,9 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
         diffKey ? (s.hasChangesByProject[diffKey] ?? false) : false,
     );
     const behind = useDiffStore((s) => (diffKey ? (s.behindByProject[diffKey] ?? 0) : 0));
+    const projectBranch = useDiffStore((s) =>
+        project ? (s.branchByProject[project.id] ?? null) : null,
+    );
 
     const [pulling, setPulling] = useState(false);
     const infoLabel = task ? "task" : "project";
@@ -310,6 +313,25 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                 {task.worktree.pr && <PrLink pr={task.worktree.pr} />}
                                 <CopyButton
                                     value={task.worktree.branch}
+                                    tooltip="Copy branch name"
+                                    variant="transparent"
+                                    size="icon-2xs"
+                                    className="text-muted-foreground hover:text-foreground shrink-0 px-0 [-webkit-app-region:no-drag]"
+                                />
+                            </div>
+                        )}
+                        {!task?.worktree?.branch && projectBranch && (
+                            <div className="border-border flex min-w-0 shrink-3 items-center gap-1 rounded-md border py-0.5 pr-1 pl-2 [-webkit-app-region:no-drag]">
+                                <TruncatedText
+                                    as="div"
+                                    tooltip
+                                    tooltipSide="bottom"
+                                    className="flex-1 text-xs"
+                                    tooltipContent={projectBranch}>
+                                    {projectBranch}
+                                </TruncatedText>
+                                <CopyButton
+                                    value={projectBranch}
                                     tooltip="Copy branch name"
                                     variant="transparent"
                                     size="icon-2xs"
