@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
 import useIsElectron from "@/hooks/useIsElectron";
 import { FileTree } from "./FileTree";
+import { MoveFileDialog } from "./MoveFileDialog";
 import { useFileExplorerNavigation } from "./hooks/useFileExplorerNavigation";
 
 function FileExplorer() {
@@ -106,11 +107,49 @@ function FileExplorer() {
     );
 
     const setOnOpenFile = useFileStore((s) => s.setOnOpenFile);
+    const pendingMove = useFileStore((s) => s.pendingMove);
+    const clearPendingMove = useFileStore((s) => s.clearPendingMove);
+    const setPendingMove = useFileStore((s) => s.setPendingMove);
+    const setDragOverPath = useFileStore((s) => s.setDragOverPath);
 
     useEffect(() => {
         setOnOpenFile(handleFileClick);
         return () => setOnOpenFile(null);
     }, [handleFileClick, setOnOpenFile]);
+
+    const handleRootDragOver = useCallback(
+        (e: React.DragEvent) => {
+            if (!workingDir) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            setDragOverPath(workingDir);
+        },
+        [workingDir, setDragOverPath],
+    );
+
+    const handleRootDrop = useCallback(
+        (e: React.DragEvent) => {
+            e.preventDefault();
+            setDragOverPath(null);
+            if (!workingDir) return;
+            const sourcePath = e.dataTransfer.getData("application/x-taskflow-path");
+            if (!sourcePath) return;
+            const sourceParent = sourcePath.slice(0, sourcePath.lastIndexOf("/"));
+            if (sourceParent === workingDir) return;
+            if (sourcePath === workingDir) return;
+            setPendingMove({ sourcePath, destinationDir: workingDir });
+        },
+        [workingDir, setDragOverPath, setPendingMove],
+    );
+
+    const handleRootDragLeave = useCallback(
+        (e: React.DragEvent) => {
+            const related = e.relatedTarget as Node | null;
+            if (related && (e.currentTarget as Node).contains(related)) return;
+            setDragOverPath(null);
+        },
+        [setDragOverPath],
+    );
 
     return (
         <div className="flex h-full flex-col">
@@ -130,7 +169,11 @@ function FileExplorer() {
                     <X className="h-3 w-3" />
                 </Button>
             </Toolbar>
-            <div className="flex-1 overflow-x-auto overflow-y-auto py-1">
+            <div
+                className="flex-1 overflow-x-auto overflow-y-auto py-1"
+                onDragOver={handleRootDragOver}
+                onDrop={handleRootDrop}
+                onDragLeave={handleRootDragLeave}>
                 {tree && treePath === workingDir ? (
                     <div className="w-max min-w-full">
                         <FileTree
@@ -147,6 +190,16 @@ function FileExplorer() {
                     </div>
                 )}
             </div>
+            {pendingMove && (
+                <MoveFileDialog
+                    open={true}
+                    onOpenChange={(open) => {
+                        if (!open) clearPendingMove();
+                    }}
+                    sourcePath={pendingMove.sourcePath}
+                    destinationDir={pendingMove.destinationDir}
+                />
+            )}
         </div>
     );
 }

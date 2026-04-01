@@ -67,6 +67,9 @@ function FileTree({
     const isFocused = useFileStore((s) => s.focusedPath === node.path);
     const isContextMenuActive = useFileStore((s) => s.contextMenuPath === node.path);
     const setFocusedPath = useFileStore((s) => s.setFocusedPath);
+    const isDragOver = useFileStore((s) => s.dragOverPath === node.path);
+    const setDragOverPath = useFileStore((s) => s.setDragOverPath);
+    const setPendingMove = useFileStore((s) => s.setPendingMove);
     const isLoading = node.type === "directory" && loadingDirs.has(node.path);
 
     const handleOpenChange = useCallback(() => {
@@ -109,9 +112,51 @@ function FileTree({
         (e: React.DragEvent) => {
             e.dataTransfer.setData("text/plain", node.path);
             e.dataTransfer.setData("application/x-taskflow-path", node.path);
-            e.dataTransfer.effectAllowed = "copy";
+            e.dataTransfer.effectAllowed = "move";
         },
         [node.path],
+    );
+
+    const handleDragOver = useCallback(
+        (e: React.DragEvent) => {
+            if (node.type !== "directory") return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "move";
+            setDragOverPath(node.path);
+        },
+        [node.type, node.path, setDragOverPath],
+    );
+
+    const handleDragLeave = useCallback(
+        (e: React.DragEvent) => {
+            e.stopPropagation();
+            // Only clear if we're actually leaving this element, not entering a child
+            const related = e.relatedTarget as Node | null;
+            if (related && (e.currentTarget as Node).contains(related)) return;
+            setDragOverPath(null);
+        },
+        [setDragOverPath],
+    );
+
+    const handleDrop = useCallback(
+        (e: React.DragEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDragOverPath(null);
+            if (node.type !== "directory") return;
+            const sourcePath = e.dataTransfer.getData("application/x-taskflow-path");
+            if (!sourcePath) return;
+            // Cannot drop onto itself
+            if (sourcePath === node.path) return;
+            // Cannot drop a directory onto one of its descendants
+            if (node.path.startsWith(sourcePath + "/")) return;
+            // Cannot drop onto its current parent directory
+            const sourceParent = sourcePath.slice(0, sourcePath.lastIndexOf("/"));
+            if (sourceParent === node.path) return;
+            setPendingMove({ sourcePath, destinationDir: node.path });
+        },
+        [node.type, node.path, setDragOverPath, setPendingMove],
     );
 
     if (node.type === "file") {
@@ -147,10 +192,14 @@ function FileTree({
                 <CollapsibleTrigger
                     draggable
                     onDragStart={handleDragStart}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
                     onClick={() => setFocusedPath(node.path)}
                     className={cn(
                         directoryClasses,
                         (isFocused || isContextMenuActive) && "bg-accent/20 ring-accent/40 ring-1",
+                        isDragOver && "bg-accent/30 ring-accent/60 ring-1",
                     )}
                     style={{ paddingLeft: rowPaddingLeft }}>
                     <span className="flex h-4 w-4 shrink-0 items-center justify-center">

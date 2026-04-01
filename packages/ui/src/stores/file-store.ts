@@ -39,6 +39,11 @@ function isDirLoaded(root: FileNode, dirPath: string): boolean {
     return false;
 }
 
+interface PendingMove {
+    sourcePath: string;
+    destinationDir: string;
+}
+
 interface FileStore {
     tree: FileNode | null;
     treePath: string | null;
@@ -52,6 +57,8 @@ interface FileStore {
     focusedPath: string | null;
     contextMenuPath: string | null;
     onOpenFile: ((path: string) => void) | null;
+    dragOverPath: string | null;
+    pendingMove: PendingMove | null;
     fetchTree(path: string): Promise<void>;
     fetchDir(dirPath: string): Promise<void>;
     fetchGitStatus(path: string): Promise<void>;
@@ -73,6 +80,9 @@ interface FileStore {
     setFocusedPath(path: string | null): void;
     setContextMenuPath(path: string | null): void;
     setOnOpenFile(callback: ((path: string) => void) | null): void;
+    setDragOverPath(path: string | null): void;
+    setPendingMove(move: PendingMove): void;
+    clearPendingMove(): void;
 }
 
 let fileChangeSubscriptionReady = false;
@@ -97,6 +107,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
     focusedPath: null,
     contextMenuPath: null,
     onOpenFile: null,
+    dragOverPath: null,
+    pendingMove: null,
     async fetchTree(path) {
         const requestId = ++treeRequestId;
         set((state) => ({
@@ -331,5 +343,14 @@ export const useFileStore = create<FileStore>((set, get) => ({
     },
     setOnOpenFile(callback) {
         set({ onOpenFile: callback });
+    },
+    setDragOverPath(path) {
+        set({ dragOverPath: path });
+    },
+    setPendingMove(move) {
+        set({ pendingMove: move, dragOverPath: null });
+    },
+    clearPendingMove() {
+        set({ pendingMove: null });
     },
 }));
