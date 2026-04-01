@@ -354,7 +354,9 @@ function ScheduleForm({
                         </Label>
                         <ExpandableTextarea
                             className="min-h-[80px] text-xs"
-                            dialogTitle={agentType === "shell" ? "Shell Command" : "Schedule Prompt"}
+                            dialogTitle={
+                                agentType === "shell" ? "Shell Command" : "Schedule Prompt"
+                            }
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
                             placeholder={
