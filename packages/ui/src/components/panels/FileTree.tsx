@@ -112,7 +112,7 @@ function FileTree({
         (e: React.DragEvent) => {
             e.dataTransfer.setData("text/plain", node.path);
             e.dataTransfer.setData("application/x-taskflow-path", node.path);
-            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.effectAllowed = "copyMove";
         },
         [node.path],
     );
