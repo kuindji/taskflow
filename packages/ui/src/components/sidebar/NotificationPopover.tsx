@@ -81,6 +81,10 @@ function NotificationPopover({
         void deleteAll();
     }
 
+    function handleDialogOpenChange(open: boolean) {
+        if (!open) setSelectedNotification(null);
+    }
+
     function handleDialogNavigate() {
         if (selectedNotification) {
             onNavigate(selectedNotification);
@@ -157,9 +161,7 @@ function NotificationPopover({
             </Popover>
             <Dialog
                 open={selectedNotification !== null}
-                onOpenChange={(open) => {
-                    if (!open) setSelectedNotification(null);
-                }}>
+                onOpenChange={handleDialogOpenChange}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="text-sm font-medium">
@@ -172,7 +174,7 @@ function NotificationPopover({
                         </DialogDescription>
                     </DialogHeader>
                     <p className="text-foreground whitespace-pre-wrap text-sm">
-                        {selectedNotification?.message}
+                        {selectedNotification ? selectedNotification.message : ""}
                     </p>
                     <DialogFooter className="sm:justify-between">
                         <span className="text-muted-foreground text-xs">
