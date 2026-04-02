@@ -44,6 +44,7 @@ import { TrayStateTracker } from "./services/tray-state-tracker";
 import { NotificationStore } from "./services/notification-store";
 import { registerNotificationHandlers } from "./handlers/notification";
 import { RemoteAgentService } from "./services/remote-agent-service";
+import { ConnectivityService } from "./services/connectivity-service";
 import { registerRemoteAgentHandlers } from "./handlers/remote-agent";
 import { registerTypeScriptHandlers } from "./handlers/typescript";
 import { writeFile } from "fs/promises";
@@ -99,6 +100,9 @@ async function main() {
             trayStateTracker,
         });
 
+        const connectivityService = new ConnectivityService();
+        await connectivityService.init();
+
         const scheduleStore = new ScheduleStore(config.schedulesFile);
         const schedulerService = new SchedulerService({
             scheduleStore,
@@ -144,6 +148,7 @@ async function main() {
                 ptyManager.close(sessionId);
             },
             broadcast: server.broadcast,
+            isOnline: () => connectivityService.isOnline,
         });
 
         async function logToTask(
@@ -336,6 +341,7 @@ async function main() {
             sessionLifecycle,
             broadcast: server.broadcast,
             agents,
+            isOnline: () => connectivityService.isOnline,
         });
         registerRemoteAgentHandlers({ router, remoteAgentService });
 
@@ -386,6 +392,20 @@ async function main() {
         router.register(MSG.OPENCODE_MODELS, async () => ({
             models: await fetchOpenCodeModels(),
         }));
+        router.register(MSG.CONNECTIVITY_STATUS, async () => ({
+            online: connectivityService.isOnline,
+        }));
+
+        connectivityService.onChange((online) => {
+            server.broadcast({
+                type: MSG.CONNECTIVITY_STATUS_CHANGED,
+                payload: { online },
+            });
+            if (online) {
+                void schedulerService.resumeDeferred();
+                void remoteAgentService.retryAutoStartIfEnabled();
+            }
+        });
 
         console.log(`Detected shells: ${shells.map((s) => s.name).join(", ") || "none"}`);
         console.log(
@@ -431,6 +451,7 @@ async function main() {
         }
 
         const shutdown = () => {
+            connectivityService.shutdown();
             schedulerService.shutdown();
             changeTracker.dispose();
             ptyManager.closeAll();

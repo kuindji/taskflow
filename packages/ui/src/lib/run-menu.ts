@@ -19,6 +19,7 @@ interface RunMenuData {
     activeFlowRun: FlowRun | null;
     agents: AgentAvailability[];
     showAgentOptions: boolean;
+    online: boolean;
 }
 
 interface RunMenuCallbacks {
@@ -68,14 +69,18 @@ function buildNativeRunMenuItems(
         items.push({
             type: "submenu",
             label: ".claude",
+            enabled: data.online,
             submenu: data.agentCommands.map((cmd) => ({
                 id: `agent-command:${cmd.source}:${cmd.name}`,
                 label: `${cmd.name} (${cmd.source})`,
+                enabled: data.online,
             })),
         });
-        for (const cmd of data.agentCommands) {
-            actions[`agent-command:${cmd.source}:${cmd.name}`] = () =>
-                callbacks.onRunAgentCommand(cmd);
+        if (data.online) {
+            for (const cmd of data.agentCommands) {
+                actions[`agent-command:${cmd.source}:${cmd.name}`] = () =>
+                    callbacks.onRunAgentCommand(cmd);
+            }
         }
     }
 
@@ -84,13 +89,17 @@ function buildNativeRunMenuItems(
         items.push({
             type: "submenu",
             label: "Flows",
+            enabled: data.online,
             submenu: data.flows.map((flow) => ({
                 id: `flow:${flow.id}`,
                 label: flow.name,
+                enabled: data.online,
             })),
         });
-        for (const flow of data.flows) {
-            actions[`flow:${flow.id}`] = () => callbacks.onStartFlow(flow.id);
+        if (data.online) {
+            for (const flow of data.flows) {
+                actions[`flow:${flow.id}`] = () => callbacks.onStartFlow(flow.id);
+            }
         }
     }
 
@@ -101,13 +110,17 @@ function buildNativeRunMenuItems(
         items.push({
             type: "submenu",
             label: "Actions",
+            enabled: data.online,
             submenu: data.standaloneActions.map((action) => ({
                 id: `action:${action.id}`,
                 label: `${action.name} (${action.sessionType})`,
+                enabled: data.online,
             })),
         });
-        for (const action of data.standaloneActions) {
-            actions[`action:${action.id}`] = () => callbacks.onRunAction(action);
+        if (data.online) {
+            for (const action of data.standaloneActions) {
+                actions[`action:${action.id}`] = () => callbacks.onRunAction(action);
+            }
         }
     }
 
@@ -129,6 +142,7 @@ function buildNativeRunMenuItems(
         for (const agentType of ALL_AGENT_TYPES) {
             const available = isAgentAvailable(data.agents, agentType);
             const label = AGENT_DISPLAY_NAMES[agentType];
+            const enabled = available && data.online;
 
             if (!available) {
                 items.push({
@@ -138,24 +152,31 @@ function buildNativeRunMenuItems(
                 continue;
             }
 
-            const submenu: NativeMenuItem[] = [{ id: `run:${agentType}`, label: "Run" }];
+            const submenu: NativeMenuItem[] = [{ id: `run:${agentType}`, label: "Run", enabled }];
             if (callbacks.onRunTabWithOptions) {
-                submenu.push({ id: `run-options:${agentType}`, label: "Run with options..." });
+                submenu.push({
+                    id: `run-options:${agentType}`,
+                    label: "Run with options...",
+                    enabled,
+                });
             }
 
             items.push({
                 type: "submenu",
-                label,
+                label: enabled ? label : `${label} (offline)`,
                 submenu,
+                enabled,
             });
 
-            if (callbacks.onRunTab) {
-                const onRunTab = callbacks.onRunTab;
-                actions[`run:${agentType}`] = () => onRunTab(agentType);
-            }
-            if (callbacks.onRunTabWithOptions) {
-                const onRunTabWithOptions = callbacks.onRunTabWithOptions;
-                actions[`run-options:${agentType}`] = () => onRunTabWithOptions(agentType);
+            if (enabled) {
+                if (callbacks.onRunTab) {
+                    const onRunTab = callbacks.onRunTab;
+                    actions[`run:${agentType}`] = () => onRunTab(agentType);
+                }
+                if (callbacks.onRunTabWithOptions) {
+                    const onRunTabWithOptions = callbacks.onRunTabWithOptions;
+                    actions[`run-options:${agentType}`] = () => onRunTabWithOptions(agentType);
+                }
             }
         }
     }

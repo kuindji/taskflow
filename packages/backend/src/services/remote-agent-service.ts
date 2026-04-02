@@ -20,6 +20,7 @@ interface RemoteAgentServiceDeps {
     };
     broadcast: (event: WsEvent) => void;
     agents: AgentAvailability[];
+    isOnline: () => boolean;
 }
 
 class RemoteAgentService {
@@ -59,6 +60,10 @@ class RemoteAgentService {
     async start(): Promise<RemoteAgentStatusPayload> {
         if (this.currentSessionId) {
             return this.getStatus();
+        }
+
+        if (!this.deps.isOnline()) {
+            throw new Error("Cannot start remote agent while offline");
         }
 
         if (!this.isClaudeAvailable()) {
@@ -119,6 +124,7 @@ class RemoteAgentService {
     }
 
     async autoStartIfEnabled(): Promise<void> {
+        if (!this.deps.isOnline()) return;
         if (!this.isClaudeAvailable()) return;
 
         const settings = await this.deps.settingsStore.get();
@@ -135,6 +141,11 @@ class RemoteAgentService {
         return this.deps.agents.some((a) => a.type === "claude" && a.available);
     }
 
+    async retryAutoStartIfEnabled(): Promise<void> {
+        if (this.explicitlyStopped) return;
+        await this.autoStartIfEnabled();
+    }
+
     private handleSessionExit(): void {
         this.currentSessionId = null;
         this.stopInactivityMonitor();
@@ -142,7 +153,9 @@ class RemoteAgentService {
 
         if (this.explicitlyStopped) return;
 
-        // Auto-restart if not explicitly stopped
+        // Auto-restart if not explicitly stopped and online
+        if (!this.deps.isOnline()) return;
+
         void this.deps.settingsStore.get().then((settings) => {
             if (settings.remoteAgent.autoStart && !this.explicitlyStopped) {
                 this.scheduleRestart();

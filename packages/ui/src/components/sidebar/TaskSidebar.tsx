@@ -17,6 +17,7 @@ import NotificationPopover from "./NotificationPopover";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { UpdateDialog } from "./UpdateDialog";
 import type { UpdateStatus } from "./UpdateDialog";
+import { OfflineIndicator } from "./OfflineIndicator";
 import { SidebarToolbar } from "./SidebarToolbar";
 import { Bell, FolderPlus, Monitor, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -375,6 +376,7 @@ export function TaskSidebar() {
                             </Button>
                         </NotificationPopover>
                     )}
+                    <OfflineIndicator />
                     <UpdateDialog
                         updateStatus={updateStatus}
                         dialogOpen={updateDialogOpen}

@@ -143,6 +143,10 @@ export const MSG = {
     REMOTE_AGENT_STATUS: "remote-agent:status",
     REMOTE_AGENT_STATUS_CHANGED: "remote-agent:status-changed",
 
+    // Connectivity
+    CONNECTIVITY_STATUS: "connectivity:status",
+    CONNECTIVITY_STATUS_CHANGED: "connectivity:status-changed",
+
     // System
     SYSTEM_INFO: "system:info",
 } as const;

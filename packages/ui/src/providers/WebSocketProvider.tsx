@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { connectWebSocket, onStatusChange } from "../hooks/useWebSocket";
+import { initConnectivity } from "../hooks/useConnectivity";
 import { WsContext } from "./ws-context";
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
@@ -35,6 +36,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
                     throw new Error(`Invalid backend port: ${port}`);
                 }
                 await connectWebSocket(port);
+                initConnectivity();
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Connection failed");
             }

@@ -93,6 +93,13 @@ function NotificationPopover({
         }
     }
 
+    function handleDialogDismiss() {
+        if (selectedNotification) {
+            void deleteNotification(selectedNotification.id);
+            setSelectedNotification(null);
+        }
+    }
+
     return (
         <>
             <Popover open={open} onOpenChange={onOpenChange}>
@@ -180,9 +187,14 @@ function NotificationPopover({
                                 ? formatRelativeTime(selectedNotification.createdAt)
                                 : ""}
                         </span>
-                        <Button variant="outline" size="sm" onClick={handleDialogNavigate}>
-                            Go to session
-                        </Button>
+                        <div className="flex gap-2">
+                            <Button variant="ghost" size="sm" onClick={handleDialogDismiss}>
+                                Dismiss
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={handleDialogNavigate}>
+                                Go to session
+                            </Button>
+                        </div>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

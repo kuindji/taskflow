@@ -510,6 +510,11 @@ export interface NotificationDeletedEvent {
     all?: boolean;
 }
 
+// Connectivity messages
+export interface ConnectivityStatusPayload {
+    online: boolean;
+}
+
 // Remote Agent messages
 export interface RemoteAgentStatusPayload {
     running: boolean;

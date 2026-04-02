@@ -18,6 +18,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { resolveTerminalShellPath } from "@/lib/terminal-shells";
 import { hasRunMenuItems, type RunMenuData, type RunMenuCallbacks } from "@/lib/run-menu";
+import { useConnectivity } from "@/hooks/useConnectivity";
 
 const emptyScripts: Record<string, string> = {};
 const emptyAgentCommands: AgentCommand[] = [];
@@ -62,6 +63,7 @@ function useRunMenu({
     const [runOptionsAgent, setRunOptionsAgent] = useState<AgentType | null>(null);
 
     const agents = useAgentAvailability();
+    const online = useConnectivity();
     const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
@@ -126,6 +128,7 @@ function useRunMenu({
             activeFlowRun,
             agents,
             showAgentOptions,
+            online,
         }),
         [
             scripts,
@@ -136,6 +139,7 @@ function useRunMenu({
             activeFlowRun,
             agents,
             showAgentOptions,
+            online,
         ],
     );
 

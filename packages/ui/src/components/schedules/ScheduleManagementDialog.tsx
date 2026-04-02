@@ -20,6 +20,7 @@ import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Plus, Play, MoreHorizontal, CalendarClock } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
 import { useScheduleStore } from "@/stores/schedule-store";
+import { useConnectivity } from "@/hooks/useConnectivity";
 import { useProjectStore } from "@/stores/project-store";
 import { useFlowStore } from "@/stores/flow-store";
 import { ScheduleForm } from "./ScheduleForm";
@@ -72,6 +73,7 @@ function ScheduleManagementDialog() {
     const [projectFilter, setProjectFilter] = useState<string>(activeProjectId ?? "all");
     const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
     const nativeMenus = supportsNativeMenus();
+    const online = useConnectivity();
 
     useEffect(() => {
         if (!open) return;
@@ -239,7 +241,10 @@ function ScheduleManagementDialog() {
                                                             [
                                                                 {
                                                                     id: "run-now",
-                                                                    label: "Run now",
+                                                                    label: online
+                                                                        ? "Run now"
+                                                                        : "Run now (offline)",
+                                                                    enabled: online,
                                                                 },
                                                                 {
                                                                     id: "delete",
@@ -271,11 +276,14 @@ function ScheduleManagementDialog() {
                                                     </DropdownMenuTrigger>
                                                     <DropdownMenuContent align="start">
                                                         <DropdownMenuItem
+                                                            disabled={!online}
                                                             onClick={() =>
-                                                                void handleTrigger(s.id)
+                                                                online && void handleTrigger(s.id)
                                                             }>
                                                             <Play className="mr-2 h-3.5 w-3.5" />
-                                                            Run now
+                                                            {online
+                                                                ? "Run now"
+                                                                : "Run now (offline)"}
                                                         </DropdownMenuItem>
                                                         <DropdownMenuItem
                                                             className="text-destructive"

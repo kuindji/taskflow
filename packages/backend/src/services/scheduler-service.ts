@@ -13,6 +13,7 @@ interface SchedulerDeps {
     spawnSession: (schedule: Schedule) => Promise<SpawnResult>;
     closeSession: (sessionId: string) => void;
     broadcast: (event: WsEvent) => void;
+    isOnline: () => boolean;
 }
 
 const SYSTEM_PROMPT_ADDON = `You are running as a scheduled job. When you have completed your work, you MUST call the following command to signal completion:
@@ -60,6 +61,7 @@ class SchedulerService {
     private timers = new Map<string, ReturnType<typeof setTimeout>>();
     private timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private runningSessions = new Map<string, SpawnResult>(); // scheduleId -> session info
+    private deferredSchedules = new Set<string>();
 
     constructor(deps: SchedulerDeps) {
         this.deps = deps;
@@ -80,9 +82,13 @@ class SchedulerService {
             }
         }
 
-        // Schedule all enabled schedules
+        // Schedule all enabled schedules (defer if offline)
         for (const schedule of schedules) {
             if (schedule.enabled) {
+                if (!this.deps.isOnline()) {
+                    this.deferredSchedules.add(schedule.id);
+                    continue;
+                }
                 try {
                     await this.scheduleNext(schedule.id);
                 } catch (err) {
@@ -132,6 +138,19 @@ class SchedulerService {
 
         const schedule = await this.deps.scheduleStore.getById(scheduleId);
         if (!schedule || !schedule.enabled) return;
+
+        // Defer if offline
+        if (!this.deps.isOnline()) {
+            this.deferredSchedules.add(scheduleId);
+            const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
+                ...s,
+                lastError: "Skipped: offline",
+                nextRunAt: null,
+                updatedAt: new Date().toISOString(),
+            }));
+            this.broadcastUpdated(updated);
+            return;
+        }
 
         // Skip if already running
         if (this.runningSessions.has(scheduleId)) return;
@@ -279,6 +298,10 @@ class SchedulerService {
     }
 
     async triggerNow(scheduleId: string): Promise<void> {
+        if (!this.deps.isOnline()) {
+            throw new Error("Cannot trigger schedule while offline");
+        }
+
         const schedule = await this.deps.scheduleStore.getById(scheduleId);
         if (!schedule) throw new Error(`Schedule not found: ${scheduleId}`);
 
@@ -288,6 +311,18 @@ class SchedulerService {
         }
 
         await this.execute(scheduleId);
+    }
+
+    async resumeDeferred(): Promise<void> {
+        const ids = [...this.deferredSchedules];
+        this.deferredSchedules.clear();
+        for (const id of ids) {
+            try {
+                await this.scheduleNext(id);
+            } catch (err) {
+                console.error(`Failed to resume deferred schedule ${id}:`, err);
+            }
+        }
     }
 
     shutdown(): void {

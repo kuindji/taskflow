@@ -60,7 +60,7 @@ function RunMenuItems({ data, callbacks, components }: RunMenuItemsProps) {
             )}
             {data.agentCommands.length > 0 && hasClaudeAgent && (
                 <Sub>
-                    <SubTrigger>
+                    <SubTrigger disabled={!data.online}>
                         <ClaudeIcon className="mr-2 h-4 w-4" />
                         .claude
                     </SubTrigger>
@@ -83,7 +83,7 @@ function RunMenuItems({ data, callbacks, components }: RunMenuItemsProps) {
                 <>
                     {(scriptNames.length > 0 || data.agentCommands.length > 0) && <Separator />}
                     <Sub>
-                        <SubTrigger>
+                        <SubTrigger disabled={!data.online}>
                             <Workflow className="mr-2 h-4 w-4" />
                             Flows
                         </SubTrigger>
@@ -102,7 +102,7 @@ function RunMenuItems({ data, callbacks, components }: RunMenuItemsProps) {
                     {(scriptNames.length > 0 || data.agentCommands.length > 0) &&
                         data.flows.length === 0 && <Separator />}
                     <Sub>
-                        <SubTrigger>
+                        <SubTrigger disabled={!data.online}>
                             <Zap className="mr-2 h-4 w-4" />
                             Actions
                         </SubTrigger>
@@ -129,20 +129,25 @@ function RunMenuItems({ data, callbacks, components }: RunMenuItemsProps) {
                     {ALL_AGENT_TYPES.map((agentType) => {
                         const meta = AGENT_META[agentType];
                         const available = isAgentAvailable(data.agents, agentType);
+                        const enabled = available && data.online;
                         const Icon = meta.icon;
                         const label = AGENT_DISPLAY_NAMES[agentType];
                         return (
                             <Fragment key={agentType}>
                                 <Item
-                                    disabled={!available}
+                                    disabled={!enabled}
                                     onSelect={() => {
-                                        if (available) callbacks.onRunTab?.(agentType);
+                                        if (enabled) callbacks.onRunTab?.(agentType);
                                     }}>
                                     <Icon className="mr-2 h-4 w-4" />
                                     {label}
-                                    {!available ? " (not installed)" : ""}
+                                    {!available
+                                        ? " (not installed)"
+                                        : !data.online
+                                          ? " (offline)"
+                                          : ""}
                                 </Item>
-                                {available && callbacks.onRunTabWithOptions && (
+                                {enabled && callbacks.onRunTabWithOptions && (
                                     <Item
                                         onSelect={() => callbacks.onRunTabWithOptions?.(agentType)}>
                                         <Icon className="mr-2 h-4 w-4" />

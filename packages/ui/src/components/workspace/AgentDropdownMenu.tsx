@@ -34,6 +34,7 @@ import { RunMenuItems } from "@/components/shared/RunMenuItems";
 import type { MenuComponents } from "@/components/shared/RunMenuItems";
 import { Play, Terminal, Globe, ChevronDown } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useConnectivity } from "@/hooks/useConnectivity";
 import {
     getShellDisplayName,
     getShellNameFromPath,
@@ -105,6 +106,7 @@ function AgentDropdownMenu({
     const [runOptionsAgent, setRunOptionsAgent] = useState<AgentType | null>(null);
     const [runOptionsContext, setRunOptionsContext] = useState<"newTab" | "runTab" | null>(null);
     const agents = useAgentAvailability();
+    const online = useConnectivity();
     const configuredShell = useSettingsStore(
         (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
@@ -153,6 +155,7 @@ function AgentDropdownMenu({
             activeFlowRun,
             agents,
             showAgentOptions,
+            online,
         }),
         [
             scripts,
@@ -163,6 +166,7 @@ function AgentDropdownMenu({
             activeFlowRun,
             agents,
             showAgentOptions,
+            online,
         ],
     );
 
@@ -189,14 +193,17 @@ function AgentDropdownMenu({
         if (allowSessionTabs) {
             for (const agentType of nonFavoriteAgents) {
                 const available = isAgentAvailable(agents, agentType);
+                const agentEnabled = available && online;
                 items.push({
                     id: `new-agent:${agentType}`,
-                    label: available
-                        ? AGENT_DISPLAY_NAMES[agentType]
-                        : `${AGENT_DISPLAY_NAMES[agentType]} (not installed)`,
-                    enabled: available,
+                    label: !available
+                        ? `${AGENT_DISPLAY_NAMES[agentType]} (not installed)`
+                        : !online
+                          ? `${AGENT_DISPLAY_NAMES[agentType]} (offline)`
+                          : AGENT_DISPLAY_NAMES[agentType],
+                    enabled: agentEnabled,
                 });
-                if (available) {
+                if (agentEnabled) {
                     actions[`new-agent:${agentType}`] = () => onNewTab(agentType);
                 }
             }
@@ -278,20 +285,25 @@ function AgentDropdownMenu({
                                     {ALL_AGENT_TYPES.map((agentType) => {
                                         const meta = AGENT_META[agentType];
                                         const available = isAgentAvailable(agents, agentType);
+                                        const agentEnabled = available && online;
                                         const Icon = meta.icon;
                                         const label = AGENT_DISPLAY_NAMES[agentType];
                                         return (
                                             <Fragment key={agentType}>
                                                 <DropdownMenuItem
-                                                    disabled={!available}
+                                                    disabled={!agentEnabled}
                                                     onClick={() =>
-                                                        available && onRunTab(agentType)
+                                                        agentEnabled && onRunTab(agentType)
                                                     }>
                                                     <Icon className="mr-2 h-4 w-4" />
                                                     {label}
-                                                    {!available ? " (not installed)" : ""}
+                                                    {!available
+                                                        ? " (not installed)"
+                                                        : !online
+                                                          ? " (offline)"
+                                                          : ""}
                                                 </DropdownMenuItem>
-                                                {available && (
+                                                {agentEnabled && (
                                                     <DropdownMenuItem
                                                         onClick={() => {
                                                             setRunOptionsAgent(agentType);
@@ -314,6 +326,7 @@ function AgentDropdownMenu({
                     {favoriteAgents.map((agentType) => {
                         const meta = AGENT_META[agentType];
                         const available = isAgentAvailable(agents, agentType);
+                        const enabled = available && online;
                         const Icon = meta.icon;
                         const label = AGENT_DISPLAY_NAMES[agentType];
                         return (
@@ -322,9 +335,9 @@ function AgentDropdownMenu({
                                 variant="ghost"
                                 size="icon-xs"
                                 className={meta.colorClass}
-                                disabled={!available}
+                                disabled={!enabled}
                                 onClick={(e) => {
-                                    if (!available) return;
+                                    if (!enabled) return;
                                     if (e.shiftKey) {
                                         setRunOptionsAgent(agentType);
                                         setRunOptionsContext("newTab");
@@ -334,9 +347,11 @@ function AgentDropdownMenu({
                                 }}
                                 aria-label={`New ${label} session`}
                                 tooltip={
-                                    available
-                                        ? `New ${label} session (Shift+click for options)`
-                                        : `${label} CLI not installed`
+                                    !available
+                                        ? `${label} CLI not installed`
+                                        : !online
+                                          ? "No internet connection"
+                                          : `New ${label} session (Shift+click for options)`
                                 }
                                 tooltipSide="bottom">
                                 <Icon className="h-3.5 w-3.5" />
@@ -398,21 +413,26 @@ function AgentDropdownMenu({
                                 nonFavoriteAgents.map((agentType) => {
                                     const meta = AGENT_META[agentType];
                                     const available = isAgentAvailable(agents, agentType);
+                                    const agentEnabled = available && online;
                                     const Icon = meta.icon;
                                     return (
                                         <DropdownMenuItem
                                             key={agentType}
-                                            disabled={!available}
+                                            disabled={!agentEnabled}
                                             onClick={() => {
-                                                if (available) onNewTab(agentType);
+                                                if (agentEnabled) onNewTab(agentType);
                                             }}>
                                             <Icon className="mr-2 h-4 w-4" />
                                             {AGENT_DISPLAY_NAMES[agentType]}
-                                            {!available && (
+                                            {!available ? (
                                                 <span className="text-muted-foreground ml-auto text-xs">
                                                     not installed
                                                 </span>
-                                            )}
+                                            ) : !online ? (
+                                                <span className="text-muted-foreground ml-auto text-xs">
+                                                    offline
+                                                </span>
+                                            ) : null}
                                         </DropdownMenuItem>
                                     );
                                 })}
