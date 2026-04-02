@@ -197,7 +197,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
     const diffRequestIdRef = useRef(0);
 
     const containerClasses = useMemo(
-        () => cn("flex-1 flex flex-col overflow-hidden", className),
+        () => cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className),
         [className],
     );
 
@@ -385,11 +385,11 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
             </div>
 
             {/* Diff view */}
-            <div className="flex-1 overflow-y-auto p-3">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
                 {diffLoading ? (
                     <div className="text-muted-foreground text-sm">Loading diff...</div>
                 ) : diff && (diff.staged || diff.unstaged) ? (
-                    <pre className="m-0">
+                    <div className="m-0 font-mono">
                         {diff.staged && (
                             <>
                                 <div className="text-accent bg-accent/10 mb-1 rounded px-1 py-0.5 text-xs font-semibold">
@@ -425,7 +425,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                                 ))}
                             </>
                         )}
-                    </pre>
+                    </div>
                 ) : selectedFile ? (
                     <div className="text-muted-foreground text-sm">
                         No textual diff available for this file

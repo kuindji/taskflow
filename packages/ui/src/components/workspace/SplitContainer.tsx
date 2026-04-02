@@ -148,7 +148,7 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
     const activePane = split?.activePane ?? "left";
 
     const content = (
-        <div ref={containerRef} className="flex min-w-0 flex-1 flex-row">
+        <div ref={containerRef} className="flex min-h-0 min-w-0 flex-1 flex-row">
             <WorkspacePane
                 {...sharedProps}
                 workspaceKey={workspaceKey}

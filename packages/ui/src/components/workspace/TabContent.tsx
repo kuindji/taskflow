@@ -38,7 +38,7 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
 
     if (tabs.length === 0) {
         return (
-            <div ref={setDropRef} className="flex flex-1 overflow-hidden rounded-md">
+            <div ref={setDropRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-md">
                 <div className="text-muted-foreground flex flex-1 items-center justify-center">
                     No active tab. Create a session with + or drag a tab here
                 </div>
@@ -47,7 +47,9 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
     }
 
     return (
-        <div ref={setDropRef} className="relative flex flex-1 overflow-hidden rounded-md">
+        <div
+            ref={setDropRef}
+            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-md">
             {tabs.map((tab) => {
                 const isActive = tab.id === activeTabId;
 

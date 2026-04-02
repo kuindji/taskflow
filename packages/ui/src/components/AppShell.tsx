@@ -171,7 +171,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                         : "bg-(--window-shell)"
                     : "bg-[#2a2a2a]",
             )}>
-            <div className="flex flex-1 overflow-hidden" style={{ padding: panelGap }}>
+            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden" style={{ padding: panelGap }}>
                 <div
                     className={cn(
                         "mt-px flex shrink-0 flex-col overflow-hidden rounded-(--window-radius)",
@@ -236,13 +236,13 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                     />
                 )}
 
-                <div
-                    className={cn(
-                        "bg-card border-border/50 panel-shadow flex flex-1 flex-col overflow-hidden rounded-(--window-radius) border",
-                        (showOutline || navigationMode) &&
-                            focusedPanel === "workspace" &&
-                            "ring-accent/50 ring-1 transition-shadow duration-500",
-                    )}
+                    <div
+                        className={cn(
+                            "bg-card border-border/50 panel-shadow flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-(--window-radius) border",
+                            (showOutline || navigationMode) &&
+                                focusedPanel === "workspace" &&
+                                "ring-accent/50 ring-1 transition-shadow duration-500",
+                        )}
                     data-panel="workspace"
                     onPointerDown={handlePanelPointerDown}
                     onClick={() => handlePanelClick("workspace")}>
