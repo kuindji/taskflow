@@ -2,12 +2,17 @@ import { resolve } from "dns";
 
 const DNS_HOSTS = ["dns.google", "one.one.one.one", "dns.quad9.net"];
 const POLL_INTERVAL_MS = 15_000;
+const TIMEOUT_MS = 5_000;
 
 type ChangeListener = (online: boolean) => void;
 
 function checkHost(hostname: string): Promise<boolean> {
     return new Promise((res) => {
-        resolve(hostname, (err) => res(!err));
+        const timer = setTimeout(() => res(false), TIMEOUT_MS);
+        resolve(hostname, (err) => {
+            clearTimeout(timer);
+            res(!err);
+        });
     });
 }
 
