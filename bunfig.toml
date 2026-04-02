@@ -3,3 +3,6 @@ peer = false
 
 [workspace]
 packages = ["packages/*", "electron"]
+
+[test]
+preload = ["./packages/backend/tests/preload.ts"]
