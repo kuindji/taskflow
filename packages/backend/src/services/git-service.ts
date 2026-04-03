@@ -2,6 +2,7 @@ import type { GitStatusResult, GitFileStatus, GitDiffResult, GitDiffFile } from 
 import { rm } from "fs/promises";
 import { dirname, join } from "path";
 import { git } from "./git-helpers";
+import { getNullDevice } from "./platform";
 import type { NumstatEntry } from "./git-helpers";
 import {
     createWorktree as createWorktreeImpl,
@@ -168,7 +169,7 @@ export class GitService {
     ): Promise<string[]> {
         if (file.status === "untracked") {
             const diff = await git(
-                ["diff", "--no-index", "--", "/dev/null", join(repoPath, file.path)],
+                ["diff", "--no-index", "--", getNullDevice(), join(repoPath, file.path)],
                 repoPath,
                 { allowExitCodes: [1] },
             );
