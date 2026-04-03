@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { PtyManager } from "../../src/services/pty-manager";
+import { tmpdir } from "os";
+
+const isWindows = process.platform === "win32";
+const testCwd = isWindows ? tmpdir() : "/tmp";
+const testShell = isWindows ? (process.env.COMSPEC ?? "cmd.exe") : "/bin/cat";
 
 describe("PtyManager.getSnapshot", () => {
     const manager = new PtyManager();
@@ -17,16 +22,18 @@ describe("PtyManager.getSnapshot", () => {
     it("returns serialized snapshot of active session output", async () => {
         let output = "";
         const sessionId = manager.spawn({
-            command: "/bin/cat",
+            command: testShell,
             args: [],
-            cwd: "/tmp",
+            cwd: testCwd,
             onData: (data) => {
                 output += data;
             },
             onExit: () => {},
         });
 
-        manager.write(sessionId, "snapshot-test\n");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const input = isWindows ? "echo snapshot-test\r\n" : "snapshot-test\n";
+        manager.write(sessionId, input);
         await new Promise((resolve) => setTimeout(resolve, 1000));
         expect(output).toContain("snapshot-test");
 
@@ -39,17 +46,19 @@ describe("PtyManager.getSnapshot", () => {
 
     it("returns null snapshot after session exits", async () => {
         let exited = false;
+        const command = isWindows ? testShell : "echo";
+        const args = isWindows ? ["/c", "echo", "exits-quickly"] : ["exits-quickly"];
         manager.spawn({
-            command: "echo",
-            args: ["exits-quickly"],
-            cwd: "/tmp",
+            command,
+            args,
+            cwd: testCwd,
             onData: () => {},
             onExit: () => {
                 exited = true;
             },
         });
 
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
         expect(exited).toBe(true);
     });
 });

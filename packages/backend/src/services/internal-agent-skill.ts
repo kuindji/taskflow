@@ -1,4 +1,4 @@
-import { chmod, mkdir, writeFile } from "fs/promises";
+import { access, chmod, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import cliScript from "./taskflow-cli.sh" with { type: "text" };
@@ -123,9 +123,18 @@ export async function ensureCliScript(binDir: string): Promise<void> {
     await mkdir(binDir, { recursive: true });
 
     if (isWindows()) {
-        // Write a .bat wrapper that calls the compiled binary on Windows
+        const exePath = join(binDir, "taskflow-cli.exe");
         const batPath = join(binDir, "taskflow-cli.bat");
-        const batContent = '@echo off\r\n"%~dp0taskflow-cli.exe" %*\r\n';
+        let batContent: string;
+        try {
+            await access(exePath);
+            // Packaged mode — exe exists, delegate to it
+            batContent = '@echo off\r\n"%~dp0taskflow-cli.exe" %*\r\n';
+        } catch {
+            // Dev mode — call bun run on the TS source directly
+            const tsPath = join(import.meta.dir, "taskflow-cli-bin.ts");
+            batContent = `@echo off\r\nbun run "${tsPath}" %*\r\n`;
+        }
         await writeFile(batPath, batContent, "utf8");
     } else {
         const scriptPath = join(binDir, "taskflow-cli");

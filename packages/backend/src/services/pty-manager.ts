@@ -1,10 +1,11 @@
 import { randomUUID } from "crypto";
-import type { Subprocess, Terminal } from "bun";
+import type { Terminal } from "bun";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { TERMINAL_SCROLLBACK } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 import { isWindows } from "./platform";
+import { WindowsPtySession } from "./pty-session-win";
 
 interface SpawnOptions {
     command: string;
@@ -82,9 +83,14 @@ class DataBatcher {
     }
 }
 
+interface PtyHandle {
+    write(data: string): void;
+    resize(cols: number, rows: number): void;
+    kill(): void;
+}
+
 interface Session {
-    proc: Subprocess;
-    terminal: Terminal | null;
+    pty: PtyHandle;
     scrollback: string[];
     lastSequence: number;
     headless: HeadlessTerminal;
@@ -96,8 +102,6 @@ interface ScrollbackSnapshot {
     lastSequence: number;
 }
 
-type PtySubprocess = Subprocess & { terminal?: Terminal | null };
-
 export class PtyManager {
     private sessions = new Map<string, Session>();
 
@@ -107,7 +111,6 @@ export class PtyManager {
         const cols = options.cols ?? 80;
         const rows = options.rows ?? 24;
 
-        const decoder = new TextDecoder("utf-8", { fatal: false });
         const scrollback: string[] = [];
         let scrollbackLen = 0;
         let lastSequence = 0;
@@ -135,31 +138,20 @@ export class PtyManager {
             options.onData(batchedData, lastSequence);
         });
 
-        const proc = Bun.spawn([options.command, ...options.args], {
-            cwd: options.cwd,
-            env: {
-                ...cleanEnv,
-                PATH: buildShellPath(),
-                TERM: "xterm-256color",
-                TERM_PROGRAM: "xterm-256color",
-                COLORTERM: "truecolor",
-                ...(isWindows() ? {} : {
-                    LANG: cleanEnv.LANG || "en_US.UTF-8",
-                    LC_ALL: cleanEnv.LC_ALL || "en_US.UTF-8",
-                }),
-                ...options.env,
-            },
-            terminal: {
-                rows,
-                cols,
-                data: (term: Terminal, data: Uint8Array) => {
-                    if (sessionEntry) sessionEntry.terminal = term;
-                    batcher.add(decoder.decode(data, { stream: true }));
-                },
-            },
-        }) as PtySubprocess;
+        const env: Record<string, string> = {
+            ...cleanEnv,
+            PATH: buildShellPath(),
+            TERM: "xterm-256color",
+            TERM_PROGRAM: "xterm-256color",
+            COLORTERM: "truecolor",
+            ...(isWindows() ? {} : {
+                LANG: cleanEnv.LANG || "en_US.UTF-8",
+                LC_ALL: cleanEnv.LC_ALL || "en_US.UTF-8",
+            }),
+            ...options.env,
+        };
 
-        void proc.exited.then((exitCode) => {
+        const cleanup = (exitCode: number) => {
             batcher.flush();
             batcher.dispose();
             const session = this.sessions.get(id);
@@ -169,11 +161,51 @@ export class PtyManager {
             }
             this.sessions.delete(id);
             options.onExit(exitCode);
-        });
+        };
+
+        let pty: PtyHandle;
+
+        if (isWindows()) {
+            const winSession = new WindowsPtySession({
+                command: options.command,
+                args: options.args,
+                cwd: options.cwd,
+                env,
+                cols,
+                rows,
+                onData: (data: string) => {
+                    batcher.add(data);
+                },
+                onExit: cleanup,
+            });
+            pty = winSession;
+        } else {
+            const decoder = new TextDecoder("utf-8", { fatal: false });
+            let terminal: Terminal | null = null;
+            const proc = Bun.spawn([options.command, ...options.args], {
+                cwd: options.cwd,
+                env,
+                terminal: {
+                    rows,
+                    cols,
+                    data: (term: Terminal, data: Uint8Array) => {
+                        terminal = term;
+                        batcher.add(decoder.decode(data, { stream: true }));
+                    },
+                },
+            });
+
+            pty = {
+                write: (d: string) => terminal?.write(d),
+                resize: (c: number, r: number) => terminal?.resize(c, r),
+                kill: () => proc.kill(),
+            };
+
+            void proc.exited.then(cleanup);
+        }
 
         sessionEntry = {
-            proc,
-            terminal: proc.terminal ?? null,
+            pty,
             scrollback,
             lastSequence,
             headless,
@@ -187,13 +219,13 @@ export class PtyManager {
     write(id: string, data: string): void {
         const session = this.sessions.get(id);
         if (!session) throw new Error(`Session not found: ${id}`);
-        session.terminal?.write(data);
+        session.pty.write(data);
     }
 
     resize(id: string, cols: number, rows: number): void {
         const session = this.sessions.get(id);
         if (!session) return;
-        session.terminal?.resize(cols, rows);
+        session.pty.resize(cols, rows);
         session.headless.resize(cols, rows);
     }
 
@@ -202,7 +234,7 @@ export class PtyManager {
         if (session) {
             session.serializer.dispose();
             session.headless.dispose();
-            session.proc.kill();
+            session.pty.kill();
             this.sessions.delete(id);
         }
     }

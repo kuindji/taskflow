@@ -56,7 +56,9 @@
         "win": {
             "target": ["nsis", "portable"],
             "extraResources": [
-                { "from": "../packages/backend/dist/taskflow-backend.exe", "to": "backend/taskflow-backend.exe" }
+                { "from": "../packages/backend/dist/taskflow-backend.exe", "to": "backend/taskflow-backend.exe" },
+                { "from": "../packages/backend/src/services/pty-bridge.mjs", "to": "backend/pty-bridge.mjs" },
+                { "from": "../packages/backend/node_modules/.bun/node-pty@1.1.0/node_modules/node-pty", "to": "backend/node_modules/node-pty" }
             ]
         }
     },
