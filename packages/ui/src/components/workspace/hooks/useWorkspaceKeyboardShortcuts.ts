@@ -28,6 +28,7 @@ function useWorkspaceKeyboardShortcuts({
     const toggleScheduleManagement = useUIStore((s) => s.toggleScheduleManagement);
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
+    const toggleSearchPanel = useUIStore((s) => s.toggleSearchPanel);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
 
     useEffect(() => {
@@ -128,6 +129,7 @@ function useWorkspaceKeyboardShortcuts({
         const needsNewAgentFallback = !onNewAgent;
         const needsFileExplorerFallback = !window.taskflow?.onToggleFileExplorer;
         const needsTaskInfoFallback = !window.taskflow?.onToggleTaskInfo;
+        const needsSearchPanelFallback = !window.taskflow?.onToggleSearchPanel;
         const needsMarkdownInputFallback = !onToggleMarkdownInput;
         const needsSplitFallback = !onToggleSplit;
 
@@ -192,6 +194,12 @@ function useWorkspaceKeyboardShortcuts({
                 return;
             }
 
+            if (e.shiftKey && needsSearchPanelFallback && e.key.toLowerCase() === "f") {
+                e.preventDefault();
+                toggleSearchPanel();
+                return;
+            }
+
             if (needsFileExplorerFallback && !e.shiftKey && e.key.toLowerCase() === "e") {
                 e.preventDefault();
                 toggleFileExplorer();
@@ -250,6 +258,7 @@ function useWorkspaceKeyboardShortcuts({
         toggleFlowManagement,
         toggleScheduleManagement,
         toggleFileExplorer,
+        toggleSearchPanel,
         toggleTaskInfo,
         workspaceKey,
     ]);
