@@ -1,7 +1,8 @@
 import { spawnSync } from "child_process";
 import { readFileSync, readdirSync, statSync } from "fs";
-import { join } from "path";
+import { delimiter, join } from "path";
 import { config } from "../config";
+import { isWindows, getHomeDir, getDefaultShell, getEnsurePaths } from "./platform";
 
 function resolveNvmNodeBin(home: string): string | null {
     const nvmDir = join(home, ".nvm");
@@ -36,7 +37,9 @@ function resolveVoltaBin(home: string): string | null {
 }
 
 function resolveFnmNodeBin(home: string): string | null {
-    const binDir = join(home, ".fnm", "aliases", "default", "bin");
+    const binDir = isWindows()
+        ? join(home, ".fnm", "aliases", "default")
+        : join(home, ".fnm", "aliases", "default", "bin");
     try {
         statSync(binDir);
         return binDir;
@@ -51,7 +54,10 @@ function resolveFnmNodeBin(home: string): string | null {
  * Falls back to process.env.PATH on failure.
  */
 function resolveLoginShellPath(): string {
-    const shell = process.env.SHELL || "/bin/zsh";
+    if (isWindows()) {
+        return process.env.PATH ?? "";
+    }
+    const shell = getDefaultShell();
     try {
         const result = spawnSync(shell, ["-l", "-c", "echo $PATH"], {
             encoding: "utf8",
@@ -77,7 +83,7 @@ let cachedPath: string | null = null;
 export function buildShellPath(): string {
     if (cachedPath) return cachedPath;
 
-    const home = process.env.HOME ?? "";
+    const home = getHomeDir();
 
     // Start with the user's full login shell PATH (not the minimal Electron PATH)
     const loginPath = resolveLoginShellPath();
@@ -86,14 +92,7 @@ export function buildShellPath(): string {
     const prependPaths = [config.binDir];
 
     // Paths to ensure are present (appended if missing from login PATH)
-    const ensurePaths = [
-        `${home}/.local/bin`,
-        `${home}/.bun/bin`,
-        `${home}/.cargo/bin`,
-        "/usr/local/bin",
-        "/opt/homebrew/bin",
-        "/opt/homebrew/sbin",
-    ];
+    const ensurePaths = getEnsurePaths();
 
     // Detect node version managers so that tools with #!/usr/bin/env node work
     const nodeResolvers = [resolveNvmNodeBin, resolveVoltaBin, resolveFnmNodeBin];
@@ -105,7 +104,7 @@ export function buildShellPath(): string {
         }
     }
 
-    const loginParts = loginPath.split(":");
+    const loginParts = loginPath.split(delimiter);
     const seen = new Set(loginParts);
 
     // Append any ensurePaths not already in the login PATH
@@ -126,6 +125,6 @@ export function buildShellPath(): string {
     }
     finalParts.push(...loginParts);
 
-    cachedPath = finalParts.join(":");
+    cachedPath = finalParts.join(delimiter);
     return cachedPath;
 }
