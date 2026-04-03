@@ -3,6 +3,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { MSG } from "@taskflow/shared";
 import type { EditorInfo, SystemInfoResponse } from "@taskflow/shared";
+import { setPendingLine } from "@/components/panes/editor-dirty-state";
 
 /** Module-level cache of detected editors for synchronous availability checks. */
 let cachedEditors: EditorInfo[] = [];
@@ -43,13 +44,24 @@ async function openFileInApp(
     );
 
     if (internalEditor === "monaco" || !editorAvailable) {
-        // Existing Monaco behavior
+        // Monaco editor path
+        if (line !== undefined) {
+            setPendingLine(filePath, line);
+        }
         const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
         const existing = existingTabs.find(
             (t) => t.type === "editor" && t.filePath === filePath && !t.sessionId,
         );
         if (existing) {
             store.setActiveTab(workspaceKey, existing.id);
+            // Notify already-mounted editor to navigate to the line
+            if (line !== undefined) {
+                window.dispatchEvent(
+                    new CustomEvent("editor-navigate", {
+                        detail: { filePath, line },
+                    }),
+                );
+            }
             return;
         }
         const label = filePath.split("/").pop() ?? filePath;

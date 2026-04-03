@@ -64,7 +64,7 @@ function MatchLine({
 
     return (
         <div
-            className="group hover:bg-muted/50 flex cursor-pointer items-center gap-1 py-0.5 pr-1"
+            className="group hover:bg-muted/50 relative flex cursor-pointer items-center gap-1 py-0.5 pr-1"
             style={{ paddingLeft: 32 }}
             onClick={() => onFileClick(filePath, match.line)}>
             <span className="text-muted-foreground w-8 shrink-0 text-right text-xs tabular-nums">
@@ -77,22 +77,26 @@ function MatchLine({
                     matchLength={match.matchLength}
                 />
             </span>
-            <Button
-                variant="ghost"
-                size="icon-2xs"
-                onClick={handleReplace}
-                aria-label="Replace this match"
-                className="shrink-0 opacity-0 group-hover:opacity-100">
-                <Replace className="h-3 w-3" />
-            </Button>
-            <Button
-                variant="ghost"
-                size="icon-2xs"
-                onClick={handleDismiss}
-                aria-label="Dismiss this match"
-                className="shrink-0 opacity-0 group-hover:opacity-100">
-                <X className="h-3 w-3" />
-            </Button>
+            <div className="bg-muted/80 absolute right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                <Button
+                    variant="ghost"
+                    size="icon-2xs"
+                    onClick={handleReplace}
+                    aria-label="Replace this match"
+                    tooltip="Replace"
+                    tooltipSide="bottom">
+                    <Replace className="h-3 w-3" />
+                </Button>
+                <Button
+                    variant="ghost"
+                    size="icon-2xs"
+                    onClick={handleDismiss}
+                    aria-label="Dismiss this match"
+                    tooltip="Dismiss"
+                    tooltipSide="bottom">
+                    <X className="h-3 w-3" />
+                </Button>
+            </div>
         </div>
     );
 }
@@ -142,7 +146,7 @@ function FileGroup({
     return (
         <div>
             <div
-                className="group hover:bg-muted/50 flex cursor-pointer items-center gap-1 px-1 py-0.5"
+                className="group hover:bg-muted/50 relative flex cursor-pointer items-center gap-1 px-1 py-0.5"
                 onClick={handleToggle}>
                 {expanded ? (
                     <ChevronDown className="h-3 w-3 shrink-0" />
@@ -159,22 +163,26 @@ function FileGroup({
                 <span className="bg-muted text-muted-foreground ml-auto shrink-0 rounded-full px-1.5 text-xs tabular-nums">
                     {file.matches.length}
                 </span>
-                <Button
-                    variant="ghost"
-                    size="icon-2xs"
-                    onClick={handleReplaceInFile}
-                    aria-label="Replace all in file"
-                    className="shrink-0 opacity-0 group-hover:opacity-100">
-                    <ReplaceAll className="h-3 w-3" />
-                </Button>
-                <Button
-                    variant="ghost"
-                    size="icon-2xs"
-                    onClick={handleDismissFile}
-                    aria-label="Dismiss file"
-                    className="shrink-0 opacity-0 group-hover:opacity-100">
-                    <X className="h-3 w-3" />
-                </Button>
+                <div className="bg-muted/80 absolute right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                    <Button
+                        variant="ghost"
+                        size="icon-2xs"
+                        onClick={handleReplaceInFile}
+                        aria-label="Replace all in file"
+                        tooltip="Replace all in file"
+                        tooltipSide="bottom">
+                        <ReplaceAll className="h-3 w-3" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon-2xs"
+                        onClick={handleDismissFile}
+                        aria-label="Dismiss file"
+                        tooltip="Dismiss file"
+                        tooltipSide="bottom">
+                        <X className="h-3 w-3" />
+                    </Button>
+                </div>
             </div>
             {expanded &&
                 file.matches.map((match, idx) => (
