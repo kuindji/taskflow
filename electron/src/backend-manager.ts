@@ -23,7 +23,8 @@ function getBackendPath(): { binary: string; args: string[] } {
     }
 
     if (app.isPackaged) {
-        const binary = join(process.resourcesPath, "backend", "taskflow-backend");
+        const binaryName = process.platform === "win32" ? "taskflow-backend.exe" : "taskflow-backend";
+        const binary = join(process.resourcesPath, "backend", binaryName);
         return { binary, args: [] };
     }
 
