@@ -460,7 +460,9 @@ async function main() {
             process.exit(0);
         };
         process.on("SIGINT", shutdown);
-        process.on("SIGTERM", shutdown);
+        if (process.platform !== "win32") {
+            process.on("SIGTERM", shutdown);
+        }
     } catch (error) {
         stop?.();
         throw error;
