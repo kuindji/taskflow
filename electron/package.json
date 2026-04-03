@@ -27,10 +27,6 @@
         ],
         "extraResources": [
             {
-                "from": "../packages/backend/dist/taskflow-backend",
-                "to": "backend/taskflow-backend"
-            },
-            {
                 "from": "../packages/ui/dist",
                 "to": "ui"
             }
@@ -51,6 +47,15 @@
             "target": [
                 "dmg",
                 "zip"
+            ],
+            "extraResources": [
+                { "from": "../packages/backend/dist/taskflow-backend", "to": "backend/taskflow-backend" }
+            ]
+        },
+        "win": {
+            "target": ["nsis", "portable"],
+            "extraResources": [
+                { "from": "../packages/backend/dist/taskflow-backend.exe", "to": "backend/taskflow-backend.exe" }
             ]
         }
     },

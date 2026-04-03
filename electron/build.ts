@@ -15,8 +15,9 @@ try {
 }
 
 function commandExists(command: string): boolean {
+    const whichCmd = process.platform === "win32" ? "where" : "which";
     try {
-        execFileSync("which", [command], {
+        execFileSync(whichCmd, [command], {
             stdio: "ignore",
             timeout: 3000,
         });
