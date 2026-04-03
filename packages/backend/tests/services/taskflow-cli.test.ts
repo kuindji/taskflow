@@ -128,7 +128,8 @@ describe("taskflow-cli", () => {
 
         expect(result.status).toBe(0);
         expect(result.stdout).toBe('{"id":"task-1"}');
-        await expect(stat(captureFile)).resolves.toBeTruthy();
+        const fileStat = await stat(captureFile);
+        expect(fileStat).toBeTruthy();
 
         expect(await readCapturedRequest(captureFile)).toEqual({
             method: "GET",
@@ -171,15 +172,11 @@ describe("taskflow-cli", () => {
 
     it("posts task logs with session and commit metadata", async () => {
         const { cliPath, captureFile, env } = await setupCliHarness();
-        const result = runCli(
-            cliPath,
-            ["log", "commit", "Created fix", "--hash", "abc123"],
-            {
-                ...env,
-                TASKFLOW_TASK_ID: "task-1",
-                TASKFLOW_SESSION_ID: "session-1",
-            },
-        );
+        const result = runCli(cliPath, ["log", "commit", "Created fix", "--hash", "abc123"], {
+            ...env,
+            TASKFLOW_TASK_ID: "task-1",
+            TASKFLOW_SESSION_ID: "session-1",
+        });
 
         expect(result.status).toBe(0);
 
@@ -241,6 +238,12 @@ describe("taskflow-cli", () => {
 
         expect(result.status).toBe(1);
         expect(result.stderr).toContain("TASKFLOW_TASK_ID is not set");
-        await expect(stat(captureFile)).rejects.toThrow();
+        let threw = false;
+        try {
+            await stat(captureFile);
+        } catch {
+            threw = true;
+        }
+        expect(threw).toBe(true);
     });
 });
