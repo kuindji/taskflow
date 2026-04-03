@@ -83,11 +83,15 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
         }
         const matches = fileMap.get(filePath)!;
 
+        // Convert byte offsets from rg to character offsets for JS string operations
+        const lineBytes = Buffer.from(lineContent, "utf-8");
         for (const sub of data.submatches) {
+            const charStart = lineBytes.slice(0, sub.start).toString("utf-8").length;
+            const charEnd = lineBytes.slice(0, sub.end).toString("utf-8").length;
             matches.push({
                 line: data.line_number,
-                column: sub.start + 1,
-                matchLength: sub.end - sub.start,
+                column: charStart + 1,
+                matchLength: charEnd - charStart,
                 lineContent,
             });
             totalMatches++;
@@ -260,6 +264,7 @@ export function registerSearchHandlers(deps: SearchHandlerDeps): void {
         let filesModified = 0;
 
         for (const file of filesToProcess) {
+            await assertMutableWorkspacePath(taskStore, file.path);
             const count = await replaceInFile(
                 file.path,
                 p.query,
