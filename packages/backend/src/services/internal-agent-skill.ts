@@ -2,6 +2,7 @@ import { chmod, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import cliScript from "./taskflow-cli.sh" with { type: "text" };
+import { isWindows } from "./platform";
 import skillMarkdown from "./taskflow-cli-skill.md" with { type: "text" };
 import taskCommandsMd from "./taskflow-cli-task-commands.md" with { type: "text" };
 import projectCommandsMd from "./taskflow-cli-project-commands.md" with { type: "text" };
@@ -119,10 +120,18 @@ export function getResolvedCliHelp(): string {
 }
 
 export async function ensureCliScript(binDir: string): Promise<void> {
-    const scriptPath = join(binDir, "taskflow-cli");
     await mkdir(binDir, { recursive: true });
-    await writeFile(scriptPath, cliScript, "utf8");
-    await chmod(scriptPath, 0o755);
+
+    if (isWindows()) {
+        // Write a .bat wrapper that calls the compiled binary on Windows
+        const batPath = join(binDir, "taskflow-cli.bat");
+        const batContent = '@echo off\r\n"%~dp0taskflow-cli.exe" %*\r\n';
+        await writeFile(batPath, batContent, "utf8");
+    } else {
+        const scriptPath = join(binDir, "taskflow-cli");
+        await writeFile(scriptPath, cliScript, "utf8");
+        await chmod(scriptPath, 0o755);
+    }
 }
 
 export interface ProjectContext {
