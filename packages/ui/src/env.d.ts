@@ -43,6 +43,7 @@ interface TaskflowBridge {
     sendFileExplorerState(open: boolean): void;
     onToggleTaskInfo(callback: () => void): () => void;
     sendTaskInfoState(open: boolean): void;
+    onToggleSearchPanel(callback: () => void): () => void;
     onToggleMarkdownInput(callback: () => void): () => void;
     onToggleSplit(callback: () => void): () => void;
     onToggleWordWrap(callback: () => void): () => void;

@@ -51,6 +51,7 @@ interface UIStore {
     activeProjectId: string | null;
     masterWorkspaceActive: boolean;
     fileExplorerOpen: boolean;
+    searchPanelOpen: boolean;
     taskInfoOpen: boolean;
     settingsOpen: boolean;
     flowPanelOpen: boolean;
@@ -72,6 +73,7 @@ interface UIStore {
     collapsedProjectIds: string[];
     splitByWorkspace: Record<string, WorkspaceSplit>;
     toggleFileExplorer(): void;
+    toggleSearchPanel(): void;
     toggleTaskInfo(): void;
     openSettings(): void;
     toggleSettings(): void;
@@ -116,6 +118,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
     activeProjectId: null,
     masterWorkspaceActive: false,
     fileExplorerOpen: false,
+    searchPanelOpen: false,
     taskInfoOpen: false,
     settingsOpen: false,
     flowPanelOpen: false,
@@ -137,7 +140,16 @@ export const useUIStore = create<UIStore>((set, get) => ({
     collapsedProjectIds: [],
     splitByWorkspace: {},
     toggleFileExplorer() {
-        set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen }));
+        set((s) => ({
+            fileExplorerOpen: !s.fileExplorerOpen,
+            ...(!s.fileExplorerOpen ? { searchPanelOpen: false } : {}),
+        }));
+    },
+    toggleSearchPanel() {
+        set((s) => ({
+            searchPanelOpen: !s.searchPanelOpen,
+            ...(!s.searchPanelOpen ? { fileExplorerOpen: false } : {}),
+        }));
     },
     toggleTaskInfo() {
         set((s) => ({ taskInfoOpen: !s.taskInfoOpen }));

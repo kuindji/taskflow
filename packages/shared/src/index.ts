@@ -14,3 +14,4 @@ export * from "./constants";
 export * from "./themes/color-utils";
 export * from "./themes/derive";
 export { bundledThemes } from "./themes/index";
+export * from "./types/search";

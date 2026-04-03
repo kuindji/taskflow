@@ -47,6 +47,7 @@ import { RemoteAgentService } from "./services/remote-agent-service";
 import { ConnectivityService } from "./services/connectivity-service";
 import { registerRemoteAgentHandlers } from "./handlers/remote-agent";
 import { registerTypeScriptHandlers } from "./handlers/typescript";
+import { registerSearchHandlers } from "./handlers/search";
 import { writeFile } from "fs/promises";
 import { homedir } from "os";
 
@@ -289,6 +290,10 @@ async function main() {
             changeTracker,
         });
         registerTypeScriptHandlers({
+            router,
+            taskStore: store,
+        });
+        registerSearchHandlers({
             router,
             taskStore: store,
         });

@@ -44,6 +44,22 @@ monaco.editor.defineTheme(THEME_NAME, {
         "editorLineNumber.foreground": "#585b70",
         "editorLineNumber.activeForeground": "#cdd6f4",
         "editorLink.activeForeground": "#89b4fa",
+        "widget.shadow": "#00000026",
+        "scrollbar.shadow": "#00000026",
+        "editorWidget.shadow": "#00000026",
+        "editorWidget.background": "#181825",
+        "editorWidget.foreground": "#cdd6f4",
+        "editorWidget.border": "#313244",
+        "input.background": "#1e1e2e",
+        "input.foreground": "#cdd6f4",
+        "input.border": "#313244",
+        "input.placeholderForeground": "#585b70",
+        "inputOption.activeBorder": "#89b4fa",
+        "inputOption.activeBackground": "#89b4fa4d",
+        "inputOption.activeForeground": "#cdd6f4",
+        "editor.findMatchBackground": "#89b4fa4d",
+        "editor.findMatchHighlightBackground": "#89b4fa26",
+        focusBorder: "#89b4fa",
     },
 });
 
@@ -171,6 +187,43 @@ function updateMonacoTheme(resolved: ResolvedTheme): void {
                 FALLBACKS.foreground,
             ),
             "editorLink.activeForeground": toMonacoColor(css["--accent"], FALLBACKS.keyword),
+
+            // Shadows – reduce opacity by half
+            "widget.shadow": "#00000026",
+            "scrollbar.shadow": "#00000026",
+            "editorWidget.shadow": "#00000026",
+
+            // Find / replace widget
+            "editorWidget.background": toMonacoColor(css["--card"], FALLBACKS.lineHighlight),
+            "editorWidget.foreground": toMonacoColor(css["--foreground"], FALLBACKS.foreground),
+            "editorWidget.border": toMonacoColor(css["--border"], "#313244"),
+
+            // Input fields inside find widget
+            "input.background": toMonacoColor(css["--background"], FALLBACKS.background),
+            "input.foreground": toMonacoColor(css["--foreground"], FALLBACKS.foreground),
+            "input.border": toMonacoColor(css["--border"], "#313244"),
+            "input.placeholderForeground": toMonacoColor(
+                css["--muted-foreground"],
+                FALLBACKS.comment,
+            ),
+            "inputOption.activeBorder": toMonacoColor(css["--accent"], FALLBACKS.keyword),
+            "inputOption.activeBackground": toMonacoColor(css["--accent"], FALLBACKS.keyword, 0.3),
+            "inputOption.activeForeground": toMonacoColor(
+                css["--foreground"],
+                FALLBACKS.foreground,
+            ),
+            "inputOption.hoverBackground": toMonacoColor(css["--secondary"], "#313244", 0.8),
+
+            // Find match highlights
+            "editor.findMatchBackground": toMonacoColor(css["--accent"], FALLBACKS.keyword, 0.3),
+            "editor.findMatchHighlightBackground": toMonacoColor(
+                css["--accent"],
+                FALLBACKS.keyword,
+                0.15,
+            ),
+
+            // Focus outline inside the widget
+            focusBorder: toMonacoColor(css["--accent"], FALLBACKS.keyword),
         },
     });
 

@@ -48,7 +48,7 @@ function getLanguage(path: string): string {
     return EXT_TO_LANGUAGE[ext] ?? "plaintext";
 }
 
-import { dirtyModels, viewStates } from "./editor-dirty-state";
+import { dirtyModels, viewStates, consumePendingLine } from "./editor-dirty-state";
 
 const jsxCompilerOptions: monaco.languages.typescript.CompilerOptions = {
     jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
@@ -160,10 +160,20 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             }
         };
 
+        const navigateToPendingLine = () => {
+            const pendingLine = consumePendingLine(filePath);
+            if (pendingLine !== undefined) {
+                editor.revealLineInCenter(pendingLine);
+                editor.setPosition({ lineNumber: pendingLine, column: 1 });
+                editor.focus();
+            }
+        };
+
         if (isDirty) {
             // Model has unsaved edits from a previous mount — skip disk reload
             editorReadyRef.current = true;
             restoreViewState();
+            navigateToPendingLine();
             setDirty(true);
             setLoading(false);
         } else {
@@ -173,6 +183,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                     editor.setValue(content);
                     editorReadyRef.current = true;
                     restoreViewState();
+                    navigateToPendingLine();
                     setDirty(false);
                     setLoading(false);
                 })
@@ -219,6 +230,23 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             }
         };
     }, [filePath, readFile, writeFile]);
+
+    // Listen for line-navigation requests from search results or other sources
+    useEffect(() => {
+        function handleNavigate(e: Event) {
+            const { filePath: targetPath, line } = (
+                e as CustomEvent<{ filePath: string; line: number }>
+            ).detail;
+            const editor = editorRef.current;
+            if (targetPath === filePath && editor && editorReadyRef.current) {
+                editor.revealLineInCenter(line);
+                editor.setPosition({ lineNumber: line, column: 1 });
+                editor.focus();
+            }
+        }
+        window.addEventListener("editor-navigate", handleNavigate);
+        return () => window.removeEventListener("editor-navigate", handleNavigate);
+    }, [filePath]);
 
     useEffect(() => {
         const editor = editorRef.current;
