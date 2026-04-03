@@ -2,9 +2,10 @@ import { execFileSync } from "child_process";
 import { readFileSync } from "fs";
 import { mkdir, writeFile, access } from "fs/promises";
 import { join } from "path";
-import { homedir, tmpdir } from "os";
+import { tmpdir } from "os";
+import { getConfigBaseDir } from "./services/platform";
 
-const BASE_DIR = join(homedir(), ".config", "taskflow");
+const BASE_DIR = getConfigBaseDir();
 const DATA_LOCATION_FILE = join(BASE_DIR, "data-location.json");
 
 function readDataDir(): string {
