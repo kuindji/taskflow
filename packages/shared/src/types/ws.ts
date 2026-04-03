@@ -6,6 +6,7 @@ import type { GitStatusResult, GitDiffResult, GitFileStatus, ChangeStats } from 
 import type { SystemInfo } from "./system";
 import type { AgentLaunchOptions, AgentAvailability, OpenCodeModelInfo } from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
+import type { SearchFileResult, SearchMatch, SearchResult } from "./search";
 
 // Base message types
 export interface WsRequest<T = unknown> {
@@ -299,6 +300,57 @@ export interface FileMkdirPayload {
 }
 
 export type FileChangedEvent = FileChangeEvent;
+
+// Search messages
+export interface SearchQueryPayload {
+    path: string;
+    query: string;
+    caseSensitive: boolean;
+    wholeWord: boolean;
+    useRegex: boolean;
+    includePattern: string;
+    excludePattern: string;
+}
+
+export interface SearchQueryResponse {
+    result: SearchResult;
+}
+
+export interface SearchCancelPayload {
+    searchId: string;
+}
+
+export interface SearchReplacePayload {
+    path: string;
+    filePath: string;
+    query: string;
+    replacement: string;
+    caseSensitive: boolean;
+    wholeWord: boolean;
+    useRegex: boolean;
+    matches: SearchMatch[];
+}
+
+export interface SearchReplaceResponse {
+    replacedCount: number;
+}
+
+export interface SearchReplaceAllPayload {
+    path: string;
+    query: string;
+    replacement: string;
+    caseSensitive: boolean;
+    wholeWord: boolean;
+    useRegex: boolean;
+    includePattern: string;
+    excludePattern: string;
+    filePath?: string;
+}
+
+export interface SearchReplaceAllResponse {
+    replacedCount: number;
+    filesModified: number;
+}
 
 // Git messages
 export interface GitStatusPayload {

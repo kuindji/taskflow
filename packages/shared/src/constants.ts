@@ -63,6 +63,12 @@ export const MSG = {
     TS_RESOLVE_TSCONFIG: "ts:resolve-tsconfig",
     TS_RESOLVE_IMPORT: "ts:resolve-import",
 
+    // Search
+    SEARCH_QUERY: "search:query",
+    SEARCH_CANCEL: "search:cancel",
+    SEARCH_REPLACE: "search:replace",
+    SEARCH_REPLACE_ALL: "search:replace-all",
+
     // Git
     GIT_STATUS: "git:status",
     GIT_DIFF: "git:diff",
