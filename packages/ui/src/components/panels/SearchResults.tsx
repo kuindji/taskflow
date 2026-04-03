@@ -12,7 +12,11 @@ interface SearchResultsProps {
     onFileClick: (path: string, line: number) => void;
 }
 
-function HighlightedLine({ lineContent, column, matchLength }: {
+function HighlightedLine({
+    lineContent,
+    column,
+    matchLength,
+}: {
     lineContent: string;
     column: number;
     matchLength: number;
@@ -24,7 +28,7 @@ function HighlightedLine({ lineContent, column, matchLength }: {
     return (
         <span className="whitespace-pre">
             {before}
-            <span className="bg-accent/30 text-accent-foreground font-semibold rounded-sm">
+            <span className="bg-accent/30 text-accent-foreground rounded-sm font-semibold">
                 {match}
             </span>
             {after}
@@ -64,8 +68,7 @@ function MatchLine({
 
     return (
         <div
-            className="group hover:bg-muted/50 relative flex cursor-pointer items-center gap-1 py-0.5 pr-1"
-            style={{ paddingLeft: 32 }}
+            className="group hover:bg-muted/50 relative flex cursor-pointer items-center gap-1 py-0.5 pr-1 pl-4"
             onClick={() => onFileClick(filePath, match.line)}>
             <span className="text-muted-foreground w-8 shrink-0 text-right text-xs tabular-nums">
                 {match.line}
@@ -77,7 +80,7 @@ function MatchLine({
                     matchLength={match.matchLength}
                 />
             </span>
-            <div className="bg-muted/80 absolute right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+            <div className="bg-muted absolute right-1 flex items-center gap-0.5 px-2 opacity-0 group-hover:opacity-100">
                 <Button
                     variant="ghost"
                     size="icon-2xs"
@@ -163,7 +166,7 @@ function FileGroup({
                 <span className="bg-muted text-muted-foreground ml-auto shrink-0 rounded-full px-1.5 text-xs tabular-nums">
                     {file.matches.length}
                 </span>
-                <div className="bg-muted/80 absolute right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                <div className="bg-muted absolute right-1 flex items-center gap-0.5 px-2 opacity-0 group-hover:opacity-100">
                     <Button
                         variant="ghost"
                         size="icon-2xs"

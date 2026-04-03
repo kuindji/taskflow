@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-    X,
-    CaseSensitive,
-    WholeWord,
-    Regex,
-    Filter,
-    ReplaceAll,
-} from "lucide-react";
+import { X, CaseSensitive, WholeWord, Regex, Filter, ReplaceAll } from "lucide-react";
 import { useSearchStore } from "@/stores/search-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
@@ -69,7 +62,16 @@ function SearchPanel() {
         return () => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
         };
-    }, [query, caseSensitive, wholeWord, useRegex, includePattern, excludePattern, workingDir, search]);
+    }, [
+        query,
+        caseSensitive,
+        wholeWord,
+        useRegex,
+        includePattern,
+        excludePattern,
+        workingDir,
+        search,
+    ]);
 
     // Focus search input on mount
     useEffect(() => {
@@ -140,7 +142,7 @@ function SearchPanel() {
 
             <div className="flex flex-col gap-1.5 p-2">
                 {/* Search input */}
-                <div className="border-border bg-background flex items-center rounded-md border">
+                <div className="border-border bg-background flex items-center rounded-md border pr-1">
                     <input
                         ref={searchInputRef}
                         type="text"
@@ -180,7 +182,7 @@ function SearchPanel() {
                 </div>
 
                 {/* Replace input */}
-                <div className="border-border bg-background flex items-center rounded-md border">
+                <div className="border-border bg-background flex items-center rounded-md border pr-1">
                     <input
                         type="text"
                         value={replacement}
@@ -231,12 +233,8 @@ function SearchPanel() {
                 )}
 
                 {/* Status */}
-                {searching && (
-                    <div className="text-muted-foreground text-xs">Searching...</div>
-                )}
-                {error && (
-                    <div className="text-destructive text-xs">{error}</div>
-                )}
+                {searching && <div className="text-muted-foreground text-xs">Searching...</div>}
+                {error && <div className="text-destructive text-xs">{error}</div>}
             </div>
 
             {/* Results */}

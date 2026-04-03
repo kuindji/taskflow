@@ -29,7 +29,14 @@ function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
 }
 
-export function AppShell({ sidebar, fileExplorer, searchPanel, flowPanel, workspace, taskInfo }: AppShellProps) {
+export function AppShell({
+    sidebar,
+    fileExplorer,
+    searchPanel,
+    flowPanel,
+    workspace,
+    taskInfo,
+}: AppShellProps) {
     const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
     const searchPanelOpen = useUIStore((s) => s.searchPanelOpen);
     const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);

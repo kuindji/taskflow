@@ -108,7 +108,12 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
     return { files, totalMatches };
 }
 
-function buildSearchRegex(query: string, caseSensitive: boolean, wholeWord: boolean, useRegex: boolean): RegExp {
+function buildSearchRegex(
+    query: string,
+    caseSensitive: boolean,
+    wholeWord: boolean,
+    useRegex: boolean,
+): RegExp {
     let pattern = useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     if (wholeWord) {
         pattern = `\\b${pattern}\\b`;
@@ -140,9 +145,7 @@ async function replaceInFile(
             const colIdx = match.column - 1;
             if (colIdx < 0 || colIdx > line.length) continue;
             lines[lineIdx] =
-                line.slice(0, colIdx) +
-                replacement +
-                line.slice(colIdx + match.matchLength);
+                line.slice(0, colIdx) + replacement + line.slice(colIdx + match.matchLength);
             replacedCount++;
         }
     } else {

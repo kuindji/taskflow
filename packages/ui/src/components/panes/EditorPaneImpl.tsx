@@ -234,7 +234,9 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     // Listen for line-navigation requests from search results or other sources
     useEffect(() => {
         function handleNavigate(e: Event) {
-            const { filePath: targetPath, line } = (e as CustomEvent<{ filePath: string; line: number }>).detail;
+            const { filePath: targetPath, line } = (
+                e as CustomEvent<{ filePath: string; line: number }>
+            ).detail;
             const editor = editorRef.current;
             if (targetPath === filePath && editor && editorReadyRef.current) {
                 editor.revealLineInCenter(line);

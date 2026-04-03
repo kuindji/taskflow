@@ -31,4 +31,12 @@ function consumePendingLine(filePath: string): number | undefined {
     return line;
 }
 
-export { dirtyModels, isEditorDirty, clearEditorDirty, viewStates, pendingLines, setPendingLine, consumePendingLine };
+export {
+    dirtyModels,
+    isEditorDirty,
+    clearEditorDirty,
+    viewStates,
+    pendingLines,
+    setPendingLine,
+    consumePendingLine,
+};
