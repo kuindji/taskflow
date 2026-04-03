@@ -33,15 +33,22 @@ function getMenuBarIcon2xPath(): string {
 }
 
 function createMenuBarIcon(): Electron.NativeImage {
-    const image = nativeImage.createFromPath(getMenuBarIconPath());
-    image.setTemplateImage(true);
-    return image;
+    if (process.platform === "darwin") {
+        const image = nativeImage.createFromPath(getMenuBarIcon2xPath());
+        image.setTemplateImage(true);
+        return image;
+    }
+    // Windows/Linux: use the regular icon
+    return nativeImage.createFromPath(getMenuBarIconPath());
 }
 
 const TRAY_DOT_ATTENTION: [number, number, number] = [255, 183, 3];
 const TRAY_DOT_WORKING: [number, number, number] = [59, 130, 246];
 
 function createIconWithDot(color: [number, number, number]): Electron.NativeImage {
+    if (process.platform !== "darwin") {
+        return nativeImage.createFromPath(getMenuBarIconPath());
+    }
     const image = nativeImage.createFromPath(getMenuBarIcon2xPath());
     if (image.isEmpty()) return createMenuBarIcon();
 
@@ -109,7 +116,7 @@ function getMenuBarTooltip(): string {
 }
 
 function setupMenuBarTray(): void {
-    if (process.platform !== "darwin" || menuBarTray) return;
+    if (menuBarTray) return;
     let icon: Electron.NativeImage;
 
     const iconPath = getMenuBarIconPath();
