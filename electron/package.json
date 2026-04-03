@@ -11,6 +11,7 @@
         "typecheck": "bunx tsc --noEmit",
         "pack": "SKIP_NOTARIZE=true electron-builder --dir",
         "dist": "electron-builder",
+        "dist:win": "electron-builder --win",
         "publish": "electron-builder --publish always"
     },
     "build": {
