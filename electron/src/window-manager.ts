@@ -59,16 +59,25 @@ async function createWindow(): Promise<void> {
     const saved = await fetchSavedLayout();
     const validBounds = saved ? validateBounds(saved) : null;
 
+    const macOptions: Partial<Electron.BrowserWindowConstructorOptions> =
+        process.platform === "darwin"
+            ? {
+                  titleBarStyle: "hiddenInset",
+                  backgroundColor: "#00000000",
+                  vibrancy: "under-window",
+                  visualEffectState: "active",
+              }
+            : {
+                  backgroundColor: "#1e1e1e",
+              };
+
     const windowOptions: Electron.BrowserWindowConstructorOptions = {
         width: validBounds?.width ?? 1400,
         height: validBounds?.height ?? 900,
         ...(validBounds ? { x: validBounds.x, y: validBounds.y } : {}),
         minWidth: 800,
         minHeight: 600,
-        titleBarStyle: "hiddenInset",
-        backgroundColor: "#00000000",
-        vibrancy: "under-window",
-        visualEffectState: "active",
+        ...macOptions,
         webPreferences: {
             preload: join(appPath, "dist", "preload.js"),
             contextIsolation: true,
