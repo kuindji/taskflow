@@ -8,6 +8,7 @@
         "start": "bun run src/index.ts",
         "build": "bun build src/index.ts --outdir dist --target bun",
         "build:bin": "bun build src/index.ts --compile --outfile dist/taskflow-backend",
+        "build:cli": "bun build src/services/taskflow-cli-bin.ts --compile --outfile dist/taskflow-cli",
         "test": "bun test",
         "typecheck": "bunx tsc --noEmit"
     },

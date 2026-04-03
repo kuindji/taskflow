@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+
+const isWindows = process.platform === "win32";
+const testShell = isWindows ? (process.env.COMSPEC ?? "cmd.exe") : "/bin/sh";
 import { registerSessionHandlers } from "../../src/handlers/session";
 import { registerTaskHandlers } from "../../src/handlers/task";
 import { registerProjectHandlers } from "../../src/handlers/project";
@@ -190,13 +193,13 @@ describe("session handlers", () => {
         const created = (await router.handle(MSG.SESSION_CREATE, {
             taskId: task.id,
             type: "shell",
-            shell: "/bin/sh",
+            shell: testShell,
         })) as { sessionId: string };
 
         expect(ptyManager.spawns).toContainEqual({
             id: created.sessionId,
             cwd: join(tempDir, "project", ".worktrees", "task"),
-            command: "/bin/sh",
+            command: testShell,
             args: [],
         });
     });

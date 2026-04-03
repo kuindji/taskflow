@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "fs/promises";
-import { join } from "path";
+import { join, delimiter } from "path";
 import { tmpdir } from "os";
 import { spawnSync } from "child_process";
 import { ensureCliScript } from "../../src/services/internal-agent-skill";
@@ -79,7 +79,7 @@ printf '%s' "$CURL_RESPONSE"
         captureFile,
         env: {
             ...process.env,
-            PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+            PATH: `${fakeBinDir}${delimiter}${process.env.PATH ?? ""}`,
             CAPTURE_FILE: captureFile,
             TASKFLOW_API_URL: "http://localhost:1234",
             CURL_RESPONSE: "{}",
