@@ -69,6 +69,7 @@ async function createWindow(): Promise<void> {
               }
             : {
                   backgroundColor: "#1e1e1e",
+                  autoHideMenuBar: true,
               };
 
     const windowOptions: Electron.BrowserWindowConstructorOptions = {
