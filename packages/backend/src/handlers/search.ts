@@ -11,7 +11,7 @@ import type {
 import type { SearchFileResult, SearchMatch } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
-import { assertWorkspacePath } from "../utils/path-validation";
+import { assertWorkspacePath, assertMutableWorkspacePath } from "../utils/path-validation";
 import { readFile, writeFile } from "fs/promises";
 import { spawn, type ChildProcess } from "child_process";
 import { buildShellPath } from "../services/shell-path";
@@ -207,6 +207,7 @@ export function registerSearchHandlers(deps: SearchHandlerDeps): void {
     router.register(MSG.SEARCH_REPLACE, async (payload) => {
         const p = payload as SearchReplacePayload;
         await assertWorkspacePath(taskStore, p.path);
+        await assertMutableWorkspacePath(taskStore, p.filePath);
 
         const replacedCount = await replaceInFile(
             p.filePath,
