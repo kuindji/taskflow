@@ -46,6 +46,7 @@ import {
     NotebookText,
     Pin,
     Plus,
+    Search,
     Trash2,
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
@@ -85,6 +86,8 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
     const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
+    const searchPanelOpen = useUIStore((s) => s.searchPanelOpen);
+    const toggleSearchPanel = useUIStore((s) => s.toggleSearchPanel);
     const archiveTask = useTaskStore((s) => s.archiveTask);
     const unarchiveTask = useTaskStore((s) => s.unarchiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
@@ -292,6 +295,17 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         tooltipSide="bottom"
                         className="[-webkit-app-region:no-drag]">
                         <FolderTree className="h-4 w-4" />
+                    </Button>
+                    <Button
+                        variant={searchPanelOpen ? "secondary" : "ghost"}
+                        size="icon-xs"
+                        onClick={toggleSearchPanel}
+                        aria-pressed={searchPanelOpen}
+                        aria-label={searchPanelOpen ? "Hide search" : "Show search"}
+                        tooltip={searchPanelOpen ? "Hide search" : "Show search"}
+                        tooltipSide="bottom"
+                        className="[-webkit-app-region:no-drag]">
+                        <Search className="h-4 w-4" />
                     </Button>
                     <div className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden">
                         <TruncatedText

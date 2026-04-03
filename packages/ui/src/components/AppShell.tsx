@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 interface AppShellProps {
     sidebar: ReactNode;
     fileExplorer: ReactNode;
+    searchPanel: ReactNode;
     flowPanel?: ReactNode;
     workspace: ReactNode;
     taskInfo: ReactNode;
@@ -28,8 +29,9 @@ function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
 }
 
-export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo }: AppShellProps) {
+export function AppShell({ sidebar, fileExplorer, searchPanel, flowPanel, workspace, taskInfo }: AppShellProps) {
     const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
+    const searchPanelOpen = useUIStore((s) => s.searchPanelOpen);
     const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
     const sidebarWidth = useUIStore((s) => s.sidebarWidth);
     const fileExplorerWidth = useUIStore((s) => s.fileExplorerWidth);
@@ -127,11 +129,11 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
     // Register/unregister conditional panels so cycleFocus skips hidden ones.
     // Sidebar and workspace are always registered (initial state in ui-store).
     useEffect(() => {
-        if (fileExplorerOpen) {
+        if (fileExplorerOpen || searchPanelOpen) {
             registerPanel("fileexplorer");
             return () => unregisterPanel("fileexplorer");
         }
-    }, [fileExplorerOpen, registerPanel, unregisterPanel]);
+    }, [fileExplorerOpen, searchPanelOpen, registerPanel, unregisterPanel]);
 
     useEffect(() => {
         if (taskInfoOpen) {
@@ -198,7 +200,7 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                     align="end"
                 />
 
-                {fileExplorerOpen && (
+                {(fileExplorerOpen || searchPanelOpen) && (
                     <div
                         className={cn(
                             "bg-card border-border/50 panel-shadow flex shrink-0 flex-col overflow-hidden rounded-(--window-radius) border",
@@ -210,11 +212,11 @@ export function AppShell({ sidebar, fileExplorer, flowPanel, workspace, taskInfo
                         onPointerDown={handlePanelPointerDown}
                         onClick={() => handlePanelClick("fileexplorer")}
                         style={{ width: fileExplorerWidth }}>
-                        {fileExplorer}
+                        {fileExplorerOpen ? fileExplorer : searchPanel}
                     </div>
                 )}
 
-                {fileExplorerOpen && (
+                {(fileExplorerOpen || searchPanelOpen) && (
                     <ResizeHandle
                         onResize={handleFileExplorerResize}
                         onResizeEnd={handleResizeEnd}
