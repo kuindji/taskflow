@@ -4,6 +4,7 @@ import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { TERMINAL_SCROLLBACK } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
+import { isWindows } from "./platform";
 
 interface SpawnOptions {
     command: string;
@@ -142,8 +143,10 @@ export class PtyManager {
                 TERM: "xterm-256color",
                 TERM_PROGRAM: "xterm-256color",
                 COLORTERM: "truecolor",
-                LANG: cleanEnv.LANG || "en_US.UTF-8",
-                LC_ALL: cleanEnv.LC_ALL || "en_US.UTF-8",
+                ...(isWindows() ? {} : {
+                    LANG: cleanEnv.LANG || "en_US.UTF-8",
+                    LC_ALL: cleanEnv.LC_ALL || "en_US.UTF-8",
+                }),
                 ...options.env,
             },
             terminal: {
