@@ -1,6 +1,7 @@
 import { execFileSync } from "child_process";
-import { mkdirSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
 import { join } from "path";
+import sharp from "sharp";
 
 let branch: string;
 try {
@@ -27,7 +28,7 @@ function commandExists(command: string): boolean {
     }
 }
 
-function buildMenuBarIconPng(size: 18 | 36, outFile: string) {
+async function buildMenuBarIconPng(size: 18 | 36, outFile: string) {
     const source = join(import.meta.dir, "build", "menubar-icon.svg");
 
     if (commandExists("rsvg-convert")) {
@@ -58,9 +59,9 @@ function buildMenuBarIconPng(size: 18 | 36, outFile: string) {
         return;
     }
 
-    throw new Error(
-        "Failed to build menu bar icon assets: install rsvg-convert or build on macOS with sips available.",
-    );
+    // Fallback: use sharp for SVG to PNG conversion (works on all platforms)
+    const svgBuffer = readFileSync(source);
+    await sharp(svgBuffer).resize(size, size).png().toFile(outFile);
 }
 
 const mainResult = await Bun.build({
@@ -115,7 +116,7 @@ if (!browserPreloadResult.success) {
 }
 
 mkdirSync("dist", { recursive: true });
-buildMenuBarIconPng(18, join(import.meta.dir, "dist", "menubar-icon.png"));
-buildMenuBarIconPng(36, join(import.meta.dir, "dist", "menubar-icon@2x.png"));
+await buildMenuBarIconPng(18, join(import.meta.dir, "dist", "menubar-icon.png"));
+await buildMenuBarIconPng(36, join(import.meta.dir, "dist", "menubar-icon@2x.png"));
 
 console.log(`Electron build complete (branch: ${branch})`);

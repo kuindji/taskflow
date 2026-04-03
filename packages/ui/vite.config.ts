@@ -4,8 +4,11 @@ import tailwindcss from "@tailwindcss/vite";
 import monacoEditorModule from "vite-plugin-monaco-editor";
 import path from "path";
 
-// CJS module with exports.default
-const monacoEditor = (monacoEditorModule as { default: typeof monacoEditorModule }).default;
+// Handle CJS/ESM interop - some bundlers wrap in .default, others don't
+const monacoEditor =
+    typeof (monacoEditorModule as { default?: typeof monacoEditorModule }).default === "function"
+        ? (monacoEditorModule as { default: typeof monacoEditorModule }).default
+        : monacoEditorModule;
 
 export default defineConfig({
     plugins: [

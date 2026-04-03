@@ -17,6 +17,10 @@ function shouldIgnoreEntry(name: string): boolean {
     return IGNORED_NAMES.has(name);
 }
 
+function normalizePath(p: string): string {
+    return p.replace(/\\/g, "/");
+}
+
 interface ActiveWatcher {
     watcher: FSWatcher;
 }
@@ -32,7 +36,7 @@ export class FileWatcher {
     async buildTree(dirPath: string, depth = 0): Promise<BuildTreeResult> {
         const name = basename(dirPath);
         const children: FileNode[] = [];
-        const node: FileNode = { name, path: dirPath, type: "directory", children };
+        const node: FileNode = { name, path: normalizePath(dirPath), type: "directory", children };
 
         let gitignorePatterns: string[] = [];
 
@@ -48,7 +52,7 @@ export class FileWatcher {
                     const { tree: childTree } = await this.buildTree(fullPath, depth + 1);
                     children.push(childTree);
                 } else {
-                    children.push({ name: entry.name, path: fullPath, type: "file" });
+                    children.push({ name: entry.name, path: normalizePath(fullPath), type: "file" });
                 }
             }
             children.sort((a, b) => {
@@ -79,7 +83,7 @@ export class FileWatcher {
             const dirEntries = await readdir(dirPath, { withFileTypes: true });
             for (const entry of dirEntries) {
                 if (shouldIgnoreEntry(entry.name)) continue;
-                const fullPath = join(dirPath, entry.name);
+                const fullPath = normalizePath(join(dirPath, entry.name));
                 entries.push({
                     name: entry.name,
                     path: fullPath,
@@ -121,11 +125,11 @@ export class FileWatcher {
             persistent: true,
         });
 
-        watcher.on("add", (path) => onChange({ type: "create", path }));
-        watcher.on("addDir", (path) => onChange({ type: "create", path }));
-        watcher.on("change", (path) => onChange({ type: "modify", path }));
-        watcher.on("unlink", (path) => onChange({ type: "delete", path }));
-        watcher.on("unlinkDir", (path) => onChange({ type: "delete", path }));
+        watcher.on("add", (path) => onChange({ type: "create", path: normalizePath(path) }));
+        watcher.on("addDir", (path) => onChange({ type: "create", path: normalizePath(path) }));
+        watcher.on("change", (path) => onChange({ type: "modify", path: normalizePath(path) }));
+        watcher.on("unlink", (path) => onChange({ type: "delete", path: normalizePath(path) }));
+        watcher.on("unlinkDir", (path) => onChange({ type: "delete", path: normalizePath(path) }));
 
         await new Promise<void>((resolve, reject) => {
             watcher.once("ready", () => resolve());

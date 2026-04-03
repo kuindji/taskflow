@@ -40,8 +40,11 @@ export function getEnsurePaths(): string[] {
     const home = homedir();
     if (isWindows()) {
         return [
+            join(home, ".local", "bin"),
             join(home, ".bun", "bin"),
             join(home, ".cargo", "bin"),
+            join(home, "AppData", "Roaming", "npm"),
+            "C:\\Program Files\\nodejs",
         ];
     }
     return [

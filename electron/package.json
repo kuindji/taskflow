@@ -12,6 +12,7 @@
         "pack": "SKIP_NOTARIZE=true electron-builder --dir",
         "dist": "electron-builder",
         "dist:win": "electron-builder --win --x64",
+        "dist:win-arm64": "electron-builder --win --arm64",
         "publish": "electron-builder --publish always"
     },
     "build": {
@@ -50,22 +51,35 @@
                 "zip"
             ],
             "extraResources": [
-                { "from": "../packages/backend/dist/taskflow-backend", "to": "backend/taskflow-backend" }
+                {
+                    "from": "../packages/backend/dist/taskflow-backend",
+                    "to": "backend/taskflow-backend"
+                }
             ]
         },
         "win": {
             "target": ["nsis", "portable"],
             "extraResources": [
-                { "from": "../packages/backend/dist/taskflow-backend.exe", "to": "backend/taskflow-backend.exe" },
-                { "from": "../packages/backend/src/services/pty-bridge.mjs", "to": "backend/pty-bridge.mjs" },
-                { "from": "../packages/backend/node_modules/.bun/node-pty@1.1.0/node_modules/node-pty", "to": "backend/node_modules/node-pty" }
+                {
+                    "from": "../packages/backend/dist/taskflow-backend.exe",
+                    "to": "backend/taskflow-backend.exe"
+                },
+                {
+                    "from": "../packages/backend/src/services/pty-bridge.mjs",
+                    "to": "backend/pty-bridge.mjs"
+                },
+                {
+                    "from": "../packages/backend/node_modules/node-pty",
+                    "to": "backend/node_modules/node-pty"
+                }
             ]
         }
     },
     "devDependencies": {
         "@electron/notarize": "^3.1.1",
         "electron": "^33.0.0",
-        "electron-builder": "^26.8.1"
+        "electron-builder": "^26.8.1",
+        "sharp": "^0.34.5"
     },
     "dependencies": {
         "electron-updater": "^6.8.3"
