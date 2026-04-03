@@ -36,13 +36,11 @@ function MatchLine({
     match,
     filePath,
     rootPath,
-    replacement,
     onFileClick,
 }: {
     match: SearchMatch;
     filePath: string;
     rootPath: string;
-    replacement: string;
     onFileClick: (path: string, line: number) => void;
 }) {
     const replaceMatch = useSearchStore((s) => s.replaceMatch);
@@ -102,12 +100,10 @@ function MatchLine({
 function FileGroup({
     file,
     rootPath,
-    replacement,
     onFileClick,
 }: {
     file: SearchFileResult;
     rootPath: string;
-    replacement: string;
     onFileClick: (path: string, line: number) => void;
 }) {
     const expanded = useSearchStore((s) => s.expandedFiles.has(file.path));
@@ -187,7 +183,6 @@ function FileGroup({
                         match={match}
                         filePath={file.path}
                         rootPath={rootPath}
-                        replacement={replacement}
                         onFileClick={onFileClick}
                     />
                 ))}
@@ -196,8 +191,6 @@ function FileGroup({
 }
 
 function SearchResults({ rootPath, results, totalMatches, onFileClick }: SearchResultsProps) {
-    const replacement = useSearchStore((s) => s.replacement);
-
     if (results.length === 0) return null;
 
     return (
@@ -212,7 +205,6 @@ function SearchResults({ rootPath, results, totalMatches, onFileClick }: SearchR
                         key={file.path}
                         file={file}
                         rootPath={rootPath}
-                        replacement={replacement}
                         onFileClick={onFileClick}
                     />
                 ))}

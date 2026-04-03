@@ -66,9 +66,9 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
 
     for (const line of stdout.split("\n")) {
         if (!line) continue;
-        let parsed: { type: string; data: RgMatchData };
+        let parsed: { type: string; data: RgMatchData } | undefined;
         try {
-            parsed = JSON.parse(line);
+            parsed = JSON.parse(line) as { type: string; data: RgMatchData };
         } catch {
             continue;
         }
@@ -78,16 +78,17 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
         const filePath = data.path.text;
         const lineContent = data.lines.text.replace(/\n$/, "");
 
-        if (!fileMap.has(filePath)) {
-            fileMap.set(filePath, []);
+        let matches = fileMap.get(filePath);
+        if (!matches) {
+            matches = [];
+            fileMap.set(filePath, matches);
         }
-        const matches = fileMap.get(filePath)!;
 
         // Convert byte offsets from rg to character offsets for JS string operations
         const lineBytes = Buffer.from(lineContent, "utf-8");
         for (const sub of data.submatches) {
-            const charStart = lineBytes.slice(0, sub.start).toString("utf-8").length;
-            const charEnd = lineBytes.slice(0, sub.end).toString("utf-8").length;
+            const charStart = lineBytes.subarray(0, sub.start).toString("utf-8").length;
+            const charEnd = lineBytes.subarray(0, sub.end).toString("utf-8").length;
             matches.push({
                 line: data.line_number,
                 column: charStart + 1,

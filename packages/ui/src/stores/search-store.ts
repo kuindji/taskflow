@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SearchFileResult, SearchMatch, SearchResult } from "@taskflow/shared";
+import type { SearchFileResult, SearchMatch } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "../hooks/useWebSocket";
 import type {

@@ -6,7 +6,7 @@ import type { GitStatusResult, GitDiffResult, GitFileStatus, ChangeStats } from 
 import type { SystemInfo } from "./system";
 import type { AgentLaunchOptions, AgentAvailability, OpenCodeModelInfo } from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
-import type { SearchFileResult, SearchMatch, SearchResult } from "./search";
+import type { SearchMatch, SearchResult } from "./search";
 
 // Base message types
 export interface WsRequest<T = unknown> {
