@@ -167,7 +167,7 @@ function NotificationPopover({
                 </PopoverContent>
             </Popover>
             <Dialog open={selectedNotification !== null} onOpenChange={handleDialogOpenChange}>
-                <DialogContent className="sm:max-w-md">
+                <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="text-sm font-medium">
                             {selectedNotification
@@ -178,7 +178,7 @@ function NotificationPopover({
                             Notification details
                         </DialogDescription>
                     </DialogHeader>
-                    <p className="text-foreground text-sm whitespace-pre-wrap">
+                    <p className="text-foreground min-h-0 flex-1 overflow-y-auto text-sm whitespace-pre-wrap">
                         {selectedNotification ? selectedNotification.message : ""}
                     </p>
                     <DialogFooter className="sm:justify-between">
