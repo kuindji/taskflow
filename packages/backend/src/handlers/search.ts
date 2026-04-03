@@ -15,6 +15,7 @@ import { assertWorkspacePath, assertMutableWorkspacePath } from "../utils/path-v
 import { readFile, writeFile } from "fs/promises";
 import { spawn, type ChildProcess } from "child_process";
 import { buildShellPath } from "../services/shell-path";
+import { getRgPath } from "../services/ripgrep";
 import { randomUUID } from "crypto";
 
 interface SearchHandlerDeps {
@@ -24,8 +25,12 @@ interface SearchHandlerDeps {
 
 const activeSearches = new Map<string, ChildProcess>();
 
+function toForwardSlash(p: string): string {
+    return p.replace(/\\/g, "/");
+}
+
 function buildRgArgs(payload: SearchQueryPayload): string[] {
-    const args = ["--json", "--line-number", "--column"];
+    const args = ["--json", "--line-number", "--column", "--path-separator", "/"];
 
     if (!payload.caseSensitive) {
         args.push("--ignore-case");
@@ -75,7 +80,7 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
         if (parsed.type !== "match") continue;
 
         const data = parsed.data;
-        const filePath = data.path.text;
+        const filePath = toForwardSlash(data.path.text);
         const lineContent = data.lines.text.replace(/\n$/, "");
 
         let matches = fileMap.get(filePath);
@@ -178,7 +183,7 @@ export function registerSearchHandlers(deps: SearchHandlerDeps): void {
         const args = buildRgArgs(payload as SearchQueryPayload);
 
         return new Promise<SearchQueryResponse>((resolve) => {
-            const child = spawn("rg", args, {
+            const child = spawn(getRgPath(), args, {
                 env: { ...process.env, PATH: buildShellPath() },
                 stdio: ["ignore", "pipe", "pipe"],
             });
@@ -244,7 +249,7 @@ export function registerSearchHandlers(deps: SearchHandlerDeps): void {
         });
 
         const searchResult = await new Promise<{ files: SearchFileResult[] }>((resolve) => {
-            const child = spawn("rg", args, {
+            const child = spawn(getRgPath(), args, {
                 env: { ...process.env, PATH: buildShellPath() },
                 stdio: ["ignore", "pipe", "pipe"],
             });

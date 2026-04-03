@@ -118,9 +118,11 @@ function FileGroup({
     const replaceInFile = useSearchStore((s) => s.replaceInFile);
     const removeFile = useSearchStore((s) => s.removeFile);
 
-    const relativePath = file.path.startsWith(rootPath + "/")
-        ? file.path.slice(rootPath.length + 1)
-        : file.path;
+    const normalRoot = rootPath.replace(/\\/g, "/");
+    const normalFile = file.path.replace(/\\/g, "/");
+    const relativePath = normalFile.startsWith(normalRoot + "/")
+        ? normalFile.slice(normalRoot.length + 1)
+        : normalFile;
     const fileName = relativePath.split("/").pop() ?? relativePath;
     const dirPath = relativePath.includes("/")
         ? relativePath.slice(0, relativePath.lastIndexOf("/"))

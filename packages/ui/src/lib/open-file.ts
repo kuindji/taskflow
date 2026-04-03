@@ -64,7 +64,7 @@ async function openFileInApp(
             }
             return;
         }
-        const label = filePath.split("/").pop() ?? filePath;
+        const label = filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
         store.addTab(workspaceKey, {
             id: crypto.randomUUID(),
             type: "editor",
@@ -73,7 +73,7 @@ async function openFileInApp(
         });
     } else if (owner) {
         // CLI editor: spawn terminal session
-        const basename = filePath.split("/").pop() ?? filePath;
+        const basename = filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
         const label = `${internalEditor}: ${basename}`;
         void store.createSession(owner, "editor", label, undefined, undefined, undefined, {
             editorId: internalEditor,
