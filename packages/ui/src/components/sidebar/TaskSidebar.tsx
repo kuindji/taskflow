@@ -4,6 +4,7 @@ import { getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
+import { useNotificationStore } from "@/stores/notification-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { SIDEBAR_MAX, updateCollapsedProjectIds, useUIStore } from "@/stores/ui-store";
@@ -230,10 +231,12 @@ export function TaskSidebar() {
 
     useEffect(() => {
         const cleanup = window.taskflow?.onNotificationClicked?.((payload) => {
-            handleNotificationNavigate(payload);
+            if (!payload.id) return;
+            void useNotificationStore.getState().markAsRead(payload.id);
+            useNotificationStore.getState().setSelectedNotificationId(payload.id);
         });
         return cleanup;
-    }, [handleNotificationNavigate]);
+    }, []);
 
     return (
         <>

@@ -367,7 +367,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
 
             <div className="flex-1" />
             {(task || project) && (
-                <>
+                <div className="flex flex-row items-center">
                     {showGitButtons && behind > 0 && (
                         <Button
                             variant="ghost"
@@ -552,7 +552,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                         className="[-webkit-app-region:no-drag]">
                         <NotebookText className="h-4 w-4" />
                     </Button>
-                </>
+                </div>
             )}
             {showCommitButton && (
                 <CommitDialog
