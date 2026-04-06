@@ -12,6 +12,7 @@ export default tseslint.config(
             "**/dist/",
             "**/node_modules/",
             "**/*.js",
+            "**/*.mjs",
             "!eslint.config.js",
             "**/vite.config.ts",
             "**/.worktrees/",

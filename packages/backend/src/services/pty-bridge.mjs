@@ -83,7 +83,11 @@ rl.on("line", (line) => {
             pty?.write(msg.data);
             break;
         case "resize":
-            try { pty?.resize(msg.cols, msg.rows); } catch { /* ignore resize errors */ }
+            try {
+                pty?.resize(msg.cols, msg.rows);
+            } catch {
+                /* ignore resize errors */
+            }
             break;
         case "kill":
             pty?.kill();
@@ -93,7 +97,11 @@ rl.on("line", (line) => {
 
 // Parent died — clean up
 rl.on("close", () => {
-    try { pty?.kill(); } catch { /* ignore */ }
+    try {
+        pty?.kill();
+    } catch {
+        /* ignore */
+    }
     process.exit(0);
 });
 

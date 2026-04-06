@@ -144,10 +144,12 @@ export class PtyManager {
             TERM: "xterm-256color",
             TERM_PROGRAM: "xterm-256color",
             COLORTERM: "truecolor",
-            ...(isWindows() ? {} : {
-                LANG: cleanEnv.LANG || "en_US.UTF-8",
-                LC_ALL: cleanEnv.LC_ALL || "en_US.UTF-8",
-            }),
+            ...(isWindows()
+                ? {}
+                : {
+                      LANG: cleanEnv.LANG || "en_US.UTF-8",
+                      LC_ALL: cleanEnv.LC_ALL || "en_US.UTF-8",
+                  }),
             ...options.env,
         };
 
@@ -181,19 +183,19 @@ export class PtyManager {
             pty = winSession;
         } else {
             const decoder = new TextDecoder("utf-8", { fatal: false });
-            let terminal: Terminal | null = null;
             const proc = Bun.spawn([options.command, ...options.args], {
                 cwd: options.cwd,
                 env,
                 terminal: {
                     rows,
                     cols,
-                    data: (term: Terminal, data: Uint8Array) => {
-                        terminal = term;
+                    data: (_term: Terminal, data: Uint8Array) => {
                         batcher.add(decoder.decode(data, { stream: true }));
                     },
                 },
             });
+
+            const terminal = (proc as unknown as { terminal?: Terminal }).terminal ?? null;
 
             pty = {
                 write: (d: string) => terminal?.write(d),

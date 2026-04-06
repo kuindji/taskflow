@@ -57,22 +57,25 @@ describe("PtyManager", () => {
         manager.close(sessionId);
     });
 
-    it.skipIf(isWindows)("applies early resize requests before the first screen update", async () => {
-        let output = "";
-        const sessionId = manager.spawn({
-            command: testShell,
-            args: ["-lc", "sleep 0.2; stty size"],
-            cwd: testCwd,
-            onData: (data) => {
-                output += data;
-            },
-            onExit: () => {},
-        });
+    it.skipIf(isWindows)(
+        "applies early resize requests before the first screen update",
+        async () => {
+            let output = "";
+            const sessionId = manager.spawn({
+                command: testShell,
+                args: ["-lc", "sleep 0.2; stty size"],
+                cwd: testCwd,
+                onData: (data) => {
+                    output += data;
+                },
+                onExit: () => {},
+            });
 
-        manager.resize(sessionId, 80, 24);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        expect(output).toContain("24 80");
-    });
+            manager.resize(sessionId, 80, 24);
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            expect(output).toContain("24 80");
+        },
+    );
 
     it.skipIf(isWindows)("sets COLORTERM=truecolor for PTY sessions", async () => {
         let output = "";

@@ -71,7 +71,10 @@ function resolveRgPath(): string {
 
     // 3. Probe known monorepo locations
     //    Walk up from this file (or dist/) to find the project root.
-    const startDir = typeof __dirname !== "undefined" ? __dirname : dirname(import.meta.url.replace("file:///", ""));
+    const startDir =
+        typeof __dirname !== "undefined"
+            ? __dirname
+            : dirname(import.meta.url.replace("file:///", ""));
     let dir = resolve(startDir);
     for (let i = 0; i < 8; i++) {
         // Standard node_modules location
@@ -79,7 +82,16 @@ function resolveRgPath(): string {
         if (canAccess(standard)) return standard;
 
         // packages/backend/node_modules (monorepo workspace)
-        const workspace = join(dir, "packages", "backend", "node_modules", "@vscode", "ripgrep", "bin", rgBinary);
+        const workspace = join(
+            dir,
+            "packages",
+            "backend",
+            "node_modules",
+            "@vscode",
+            "ripgrep",
+            "bin",
+            rgBinary,
+        );
         if (canAccess(workspace)) return workspace;
 
         // Bun hoisted location

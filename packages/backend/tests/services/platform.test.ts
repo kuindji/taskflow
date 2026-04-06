@@ -44,9 +44,7 @@ describe("platform utilities", () => {
 
     it("getDefaultShellEnvVar() returns a string or undefined", () => {
         const shellEnv = getDefaultShellEnvVar();
-        expect(
-            shellEnv === undefined || typeof shellEnv === "string",
-        ).toBe(true);
+        expect(shellEnv === undefined || typeof shellEnv === "string").toBe(true);
     });
 
     it("getEnsurePaths() returns an array of strings", () => {

@@ -52,7 +52,11 @@ export class FileWatcher {
                     const { tree: childTree } = await this.buildTree(fullPath, depth + 1);
                     children.push(childTree);
                 } else {
-                    children.push({ name: entry.name, path: normalizePath(fullPath), type: "file" });
+                    children.push({
+                        name: entry.name,
+                        path: normalizePath(fullPath),
+                        type: "file",
+                    });
                 }
             }
             children.sort((a, b) => {

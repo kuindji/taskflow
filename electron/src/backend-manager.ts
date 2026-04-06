@@ -32,7 +32,16 @@ function resolveRgPathForBackend(): string | undefined {
     // Non-packaged: try to find in monorepo node_modules
     const projectRoot = join(__dirname, "..", "..");
     const candidates = [
-        join(projectRoot, "packages", "backend", "node_modules", "@vscode", "ripgrep", "bin", rgBinary),
+        join(
+            projectRoot,
+            "packages",
+            "backend",
+            "node_modules",
+            "@vscode",
+            "ripgrep",
+            "bin",
+            rgBinary,
+        ),
         join(projectRoot, "node_modules", "@vscode", "ripgrep", "bin", rgBinary),
     ];
     for (const candidate of candidates) {
@@ -53,7 +62,8 @@ function getBackendPath(): { binary: string; args: string[] } {
     }
 
     if (app.isPackaged) {
-        const binaryName = process.platform === "win32" ? "taskflow-backend.exe" : "taskflow-backend";
+        const binaryName =
+            process.platform === "win32" ? "taskflow-backend.exe" : "taskflow-backend";
         const binary = join(process.resourcesPath, "backend", binaryName);
         return { binary, args: [] };
     }

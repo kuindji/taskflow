@@ -15,7 +15,12 @@ const actionEntryId = process.env.TASKFLOW_ACTION_ENTRY_ID ?? "";
 
 // --- Helpers ---
 
-async function api(method: string, path: string, body?: Record<string, unknown>, extraHeaders?: Record<string, string>): Promise<string> {
+async function api(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+    extraHeaders?: Record<string, string>,
+): Promise<string> {
     const url = `${API_URL}${path}`;
     const headers: Record<string, string> = {};
     if (body !== undefined) {
@@ -118,7 +123,10 @@ const rest = rawArgs.slice(argIndex + 1);
 
 // --- Flag parsing helpers ---
 
-function consumeFlags(args: string[], spec: Record<string, "string" | "boolean">): { flags: Record<string, string | boolean>; positional: string[] } {
+function consumeFlags(
+    args: string[],
+    spec: Record<string, "string" | "boolean">,
+): { flags: Record<string, string | boolean>; positional: string[] } {
     const flags: Record<string, string | boolean> = {};
     const positional: string[] = [];
     let i = 0;
@@ -154,7 +162,9 @@ async function handleTask(args: string[]): Promise<void> {
         requireTaskId();
         const { flags } = consumeFlags(args.slice(1), { disable: "boolean" });
         if (flags.disable) {
-            process.stdout.write(await api("PATCH", `/api/tasks/${taskId}/worktree`, { enabled: false }));
+            process.stdout.write(
+                await api("PATCH", `/api/tasks/${taskId}/worktree`, { enabled: false }),
+            );
         } else {
             process.stderr.write("Usage: taskflow-cli task worktree --disable\n");
             process.exit(1);
@@ -168,10 +178,16 @@ async function handleTask(args: string[]): Promise<void> {
         requireProjectId();
         const description = args[1] ?? "";
         if (!description) {
-            process.stderr.write("Usage: taskflow-cli task create <description> [--title <title>] [--worktree] [--init <command>]\n");
+            process.stderr.write(
+                "Usage: taskflow-cli task create <description> [--title <title>] [--worktree] [--init <command>]\n",
+            );
             process.exit(1);
         }
-        const { flags } = consumeFlags(args.slice(2), { title: "string", worktree: "boolean", init: "string" });
+        const { flags } = consumeFlags(args.slice(2), {
+            title: "string",
+            worktree: "boolean",
+            init: "string",
+        });
         const body: Record<string, unknown> = { description };
         if (flags.title) body.title = flags.title;
         if (flags.worktree) body.worktree = true;
@@ -193,7 +209,9 @@ async function handleTask(args: string[]): Promise<void> {
         if (flags.pin) body.pinned = true;
         if (flags.unpin) body.pinned = false;
         if (Object.keys(body).length === 0) {
-            process.stderr.write("Usage: taskflow-cli task update [--title t] [--description d] [--notes n] [--pin] [--unpin]\n");
+            process.stderr.write(
+                "Usage: taskflow-cli task update [--title t] [--description d] [--notes n] [--pin] [--unpin]\n",
+            );
             process.exit(1);
         }
         process.stdout.write(await api("PATCH", `/api/tasks/${taskId}`, body));
@@ -207,7 +225,9 @@ async function handleTask(args: string[]): Promise<void> {
         requireTaskId();
         const { flags } = consumeFlags(args.slice(1), { "delete-worktree": "boolean" });
         if (flags["delete-worktree"]) {
-            process.stdout.write(await api("DELETE", `/api/tasks/${taskId}`, { deleteWorktree: true }));
+            process.stdout.write(
+                await api("DELETE", `/api/tasks/${taskId}`, { deleteWorktree: true }),
+            );
         } else {
             process.stdout.write(await api("DELETE", `/api/tasks/${taskId}`));
         }
@@ -267,11 +287,13 @@ async function handleAction(args: string[]): Promise<void> {
         case "complete": {
             requireFlowId();
             const of = ownerField();
-            process.stdout.write(await api("POST", "/api/flow/action-complete", {
-                ...of,
-                flowId,
-                sessionId,
-            }));
+            process.stdout.write(
+                await api("POST", "/api/flow/action-complete", {
+                    ...of,
+                    flowId,
+                    sessionId,
+                }),
+            );
             break;
         }
         case "list":
@@ -283,7 +305,7 @@ async function handleAction(args: string[]): Promise<void> {
                 process.stderr.write("Usage: taskflow-cli action get <id>\n");
                 process.exit(1);
             }
-            const allActions: ParsedItem[] = JSON.parse(await api("GET", "/api/flow-actions"));
+            const allActions = JSON.parse(await api("GET", "/api/flow-actions")) as ParsedItem[];
             const action = findById(allActions, actionId, "Action");
             process.stdout.write(JSON.stringify(action));
             break;
@@ -296,7 +318,9 @@ async function handleAction(args: string[]): Promise<void> {
                 standalone: "boolean",
             });
             if (!flags.name || !flags.prompt) {
-                process.stderr.write("Usage: taskflow-cli action create --name <name> --prompt <prompt> [--session-type claude] [--standalone]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli action create --name <name> --prompt <prompt> [--session-type claude] [--standalone]\n",
+                );
                 process.exit(1);
             }
             const now = new Date().toISOString();
@@ -316,10 +340,12 @@ async function handleAction(args: string[]): Promise<void> {
         case "update": {
             const actionId = subArgs[0] ?? "";
             if (!actionId) {
-                process.stderr.write("Usage: taskflow-cli action update <id> [--name n] [--prompt p] [--session-type t] [--standalone] [--no-standalone]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli action update <id> [--name n] [--prompt p] [--session-type t] [--standalone] [--no-standalone]\n",
+                );
                 process.exit(1);
             }
-            const allActions: ParsedItem[] = JSON.parse(await api("GET", "/api/flow-actions"));
+            const allActions = JSON.parse(await api("GET", "/api/flow-actions")) as ParsedItem[];
             const existing = findById(allActions, actionId, "Action");
             const { flags } = consumeFlags(subArgs.slice(1), {
                 name: "string",
@@ -355,7 +381,9 @@ async function handleAction(args: string[]): Promise<void> {
         case "run": {
             const actionId = subArgs[0] ?? "";
             if (!actionId) {
-                process.stderr.write("Usage: taskflow-cli action run <id> [--prompt <prompt>] [--label <label>]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli action run <id> [--prompt <prompt>] [--label <label>]\n",
+                );
                 process.exit(1);
             }
             const { flags } = consumeFlags(subArgs.slice(1), { prompt: "string", label: "string" });
@@ -366,7 +394,9 @@ async function handleAction(args: string[]): Promise<void> {
             break;
         }
         default:
-            process.stderr.write("Usage: taskflow-cli action <complete|list|get|create|update|delete|run>\n");
+            process.stderr.write(
+                "Usage: taskflow-cli action <complete|list|get|create|update|delete|run>\n",
+            );
             process.exit(1);
     }
 }
@@ -382,7 +412,9 @@ async function handleArtifact(args: string[]): Promise<void> {
         case "save": {
             const artifactType = subArgs[0] ?? "";
             if (!artifactType) {
-                process.stderr.write("Usage: taskflow-cli artifact save <type> --path <path> | --text <text>\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli artifact save <type> --path <path> | --text <text>\n",
+                );
                 process.exit(1);
             }
             const { flags } = consumeFlags(subArgs.slice(1), { path: "string", text: "string" });
@@ -415,7 +447,9 @@ async function handleArtifact(args: string[]): Promise<void> {
                 process.stderr.write("Usage: taskflow-cli artifact get <type>\n");
                 process.exit(1);
             }
-            process.stdout.write(await api("GET", `/api/flow/artifact/${ownerId}/${flowId}/${artifactType}`));
+            process.stdout.write(
+                await api("GET", `/api/flow/artifact/${ownerId}/${flowId}/${artifactType}`),
+            );
             break;
         }
         default:
@@ -434,7 +468,9 @@ async function handleFlow(args: string[]): Promise<void> {
             const ownerId = resolveOwnerId();
             const inputId = subArgs[0] ?? "";
             if (inputId) {
-                process.stdout.write(await api("GET", `/api/flow/input/${ownerId}/${flowId}/${inputId}`));
+                process.stdout.write(
+                    await api("GET", `/api/flow/input/${ownerId}/${flowId}/${inputId}`),
+                );
             } else {
                 process.stdout.write(await api("GET", `/api/flow/input/${ownerId}/${flowId}`));
             }
@@ -449,7 +485,9 @@ async function handleFlow(args: string[]): Promise<void> {
         case "start": {
             const startFlowId = subArgs[0] ?? "";
             if (!startFlowId) {
-                process.stderr.write("Usage: taskflow-cli flow start <flowId> [--input key=value ...]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli flow start <flowId> [--input key=value ...]\n",
+                );
                 process.exit(1);
             }
             resolveOwnerId(); // validates
@@ -481,28 +519,40 @@ async function handleFlow(args: string[]): Promise<void> {
         case "stop": {
             const ownerId = resolveOwnerId();
             const fId = subArgs[0] ?? "";
-            if (!fId) { process.stderr.write("Usage: taskflow-cli flow stop <flowId>\n"); process.exit(1); }
+            if (!fId) {
+                process.stderr.write("Usage: taskflow-cli flow stop <flowId>\n");
+                process.exit(1);
+            }
             process.stdout.write(await api("POST", `/api/flows/${ownerId}/${fId}/stop`));
             break;
         }
         case "pause": {
             const ownerId = resolveOwnerId();
             const fId = subArgs[0] ?? "";
-            if (!fId) { process.stderr.write("Usage: taskflow-cli flow pause <flowId>\n"); process.exit(1); }
+            if (!fId) {
+                process.stderr.write("Usage: taskflow-cli flow pause <flowId>\n");
+                process.exit(1);
+            }
             process.stdout.write(await api("POST", `/api/flows/${ownerId}/${fId}/pause`));
             break;
         }
         case "resume": {
             const ownerId = resolveOwnerId();
             const fId = subArgs[0] ?? "";
-            if (!fId) { process.stderr.write("Usage: taskflow-cli flow resume <flowId>\n"); process.exit(1); }
+            if (!fId) {
+                process.stderr.write("Usage: taskflow-cli flow resume <flowId>\n");
+                process.exit(1);
+            }
             process.stdout.write(await api("POST", `/api/flows/${ownerId}/${fId}/resume`));
             break;
         }
         case "skip": {
             const ownerId = resolveOwnerId();
             const fId = subArgs[0] ?? "";
-            if (!fId) { process.stderr.write("Usage: taskflow-cli flow skip <flowId>\n"); process.exit(1); }
+            if (!fId) {
+                process.stderr.write("Usage: taskflow-cli flow skip <flowId>\n");
+                process.exit(1);
+            }
             process.stdout.write(await api("POST", `/api/flows/${ownerId}/${fId}/skip`));
             break;
         }
@@ -519,7 +569,9 @@ async function handleFlow(args: string[]): Promise<void> {
                 process.stderr.write("Error: actionIndex must be a non-negative integer\n");
                 process.exit(1);
             }
-            process.stdout.write(await api("POST", `/api/flows/${ownerId}/${fId}/jump`, { actionIndex: idx }));
+            process.stdout.write(
+                await api("POST", `/api/flows/${ownerId}/${fId}/jump`, { actionIndex: idx }),
+            );
             break;
         }
         case "status": {
@@ -538,13 +590,13 @@ async function handleFlow(args: string[]): Promise<void> {
                 process.stderr.write("Usage: taskflow-cli flow get <id>\n");
                 process.exit(1);
             }
-            const allFlows: ParsedItem[] = JSON.parse(await api("GET", "/api/flows"));
+            const allFlows = JSON.parse(await api("GET", "/api/flows")) as ParsedItem[];
             const flow = findById(allFlows, fId, "Flow");
             process.stdout.write(JSON.stringify(flow));
             break;
         }
         case "create": {
-            const { flags, positional } = consumeFlags(subArgs, {
+            const { flags } = consumeFlags(subArgs, {
                 name: "string",
                 description: "string",
             });
@@ -560,7 +612,9 @@ async function handleFlow(args: string[]): Promise<void> {
                 }
             }
             if (!flags.name) {
-                process.stderr.write("Usage: taskflow-cli flow create --name <name> --description <desc> [--action <actionId> ...]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli flow create --name <name> --description <desc> [--action <actionId> ...]\n",
+                );
                 process.exit(1);
             }
             const now = new Date().toISOString();
@@ -583,10 +637,12 @@ async function handleFlow(args: string[]): Promise<void> {
         case "update": {
             const fId = subArgs[0] ?? "";
             if (!fId) {
-                process.stderr.write("Usage: taskflow-cli flow update <id> [--name n] [--description d]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli flow update <id> [--name n] [--description d]\n",
+                );
                 process.exit(1);
             }
-            const allFlows: ParsedItem[] = JSON.parse(await api("GET", "/api/flows"));
+            const allFlows = JSON.parse(await api("GET", "/api/flows")) as ParsedItem[];
             const existing = findById(allFlows, fId, "Flow");
             const { flags } = consumeFlags(subArgs.slice(1), {
                 name: "string",
@@ -614,7 +670,9 @@ async function handleFlow(args: string[]): Promise<void> {
             break;
         }
         default:
-            process.stderr.write("Usage: taskflow-cli flow <list|get|actions|create|update|delete|start|stop|pause|resume|skip|jump|run|runs|input>\n");
+            process.stderr.write(
+                "Usage: taskflow-cli flow <list|get|actions|create|update|delete|start|stop|pause|resume|skip|jump|run|runs|input>\n",
+            );
             process.exit(1);
     }
 }
@@ -669,7 +727,9 @@ async function handleProject(args: string[]): Promise<void> {
         case "update": {
             const projId = subArgs[0] ?? "";
             if (!projId) {
-                process.stderr.write("Usage: taskflow-cli project update <id> [--name n] [--path p] [--hidden] [--visible]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli project update <id> [--name n] [--path p] [--hidden] [--visible]\n",
+                );
                 process.exit(1);
             }
             const { flags } = consumeFlags(subArgs.slice(1), {
@@ -694,7 +754,9 @@ async function handleProject(args: string[]): Promise<void> {
             const projId = subArgs[0] ?? "";
             const branch = subArgs[1] ?? "";
             if (!projId || !branch) {
-                process.stderr.write("Usage: taskflow-cli project fork <id> <branch> [--folder <name>]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli project fork <id> <branch> [--folder <name>]\n",
+                );
                 process.exit(1);
             }
             const { flags } = consumeFlags(subArgs.slice(2), { folder: "string" });
@@ -738,7 +800,9 @@ async function handleSchedule(args: string[]): Promise<void> {
                 agent: "string",
             });
             if (!flags.expression) {
-                process.stderr.write("Usage: taskflow-cli schedule create --expression <expr> [--type cron|rate] [--prompt p] [--name n] [--timeout m] [--agent type]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli schedule create --expression <expr> [--type cron|rate] [--prompt p] [--name n] [--timeout m] [--agent type]\n",
+                );
                 process.exit(1);
             }
             const body: Record<string, unknown> = {
@@ -763,7 +827,9 @@ async function handleSchedule(args: string[]): Promise<void> {
         case "update": {
             const schedId = subArgs[0] ?? "";
             if (!schedId) {
-                process.stderr.write("Usage: taskflow-cli schedule update <id> [--name n] [--prompt p] [--expression e] [--type cron|rate] [--timeout m] [--enable] [--disable]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli schedule update <id> [--name n] [--prompt p] [--expression e] [--type cron|rate] [--timeout m] [--enable] [--disable]\n",
+                );
                 process.exit(1);
             }
             const { flags } = consumeFlags(subArgs.slice(1), {
@@ -816,7 +882,9 @@ async function handleSchedule(args: string[]): Promise<void> {
             break;
         }
         default:
-            process.stderr.write("Usage: taskflow-cli schedule <complete|list|create|update|delete|trigger>\n");
+            process.stderr.write(
+                "Usage: taskflow-cli schedule <complete|list|create|update|delete|trigger>\n",
+            );
             process.exit(1);
     }
 }
@@ -875,13 +943,16 @@ async function handleAgent(args: string[]): Promise<void> {
             if (agentType) agentOptions.type = agentType;
 
             if (agentType === "claude") {
-                if (flags["dangerously-skip-permissions"]) agentOptions.dangerouslySkipPermissions = true;
-                if (flags["permission-mode"]) agentOptions.permissionMode = flags["permission-mode"];
+                if (flags["dangerously-skip-permissions"])
+                    agentOptions.dangerouslySkipPermissions = true;
+                if (flags["permission-mode"])
+                    agentOptions.permissionMode = flags["permission-mode"];
                 if (flags.effort) agentOptions.effort = flags.effort;
             } else if (agentType === "codex") {
                 if (flags["full-auto"]) agentOptions.fullAuto = true;
                 if (flags.sandbox) agentOptions.sandbox = flags.sandbox;
-                if (flags["approval-policy"]) agentOptions.approvalPolicy = flags["approval-policy"];
+                if (flags["approval-policy"])
+                    agentOptions.approvalPolicy = flags["approval-policy"];
             } else if (agentType === "opencode") {
                 if (flags.variant) agentOptions.variant = flags.variant;
                 if (flags["auto-approve"]) agentOptions.autoApprove = true;
@@ -935,7 +1006,9 @@ async function handleSession(args: string[]): Promise<void> {
             const sessId = subArgs[0] || sessionId;
             if (!sessId) {
                 process.stderr.write("Usage: taskflow-cli session close [sessionId]\n");
-                process.stderr.write("  If no sessionId is provided, closes the current session (using TASKFLOW_SESSION_ID).\n");
+                process.stderr.write(
+                    "  If no sessionId is provided, closes the current session (using TASKFLOW_SESSION_ID).\n",
+                );
                 process.exit(1);
             }
             process.stdout.write(await api("POST", `/api/sessions/${sessId}/done`));
@@ -964,10 +1037,14 @@ async function handleSession(args: string[]): Promise<void> {
             }
             const sessMsg = msgParts.join(" ");
             if (!sessId || !sessMsg) {
-                process.stderr.write("Usage: taskflow-cli session input <sessionId> <message> [--raw]\n");
+                process.stderr.write(
+                    "Usage: taskflow-cli session input <sessionId> <message> [--raw]\n",
+                );
                 process.exit(1);
             }
-            process.stdout.write(await api("POST", `/api/sessions/${sessId}/input`, { data: sessMsg, raw: rawFlag }));
+            process.stdout.write(
+                await api("POST", `/api/sessions/${sessId}/input`, { data: sessMsg, raw: rawFlag }),
+            );
             break;
         }
         case "tail": {
@@ -982,7 +1059,9 @@ async function handleSession(args: string[]): Promise<void> {
             break;
         }
         default:
-            process.stderr.write("Usage: taskflow-cli session <rename|snapshot|close|status|input|tail>\n");
+            process.stderr.write(
+                "Usage: taskflow-cli session <rename|snapshot|close|status|input|tail>\n",
+            );
             process.exit(1);
     }
 }

@@ -36,6 +36,8 @@ function resolveBridgeScript(): string {
 
 class WindowsPtySession {
     private proc: ReturnType<typeof Bun.spawn>;
+    private stdout: ReadableStream<Uint8Array>;
+    private stdinSink: { write(data: Uint8Array): number };
     private encoder = new TextEncoder();
     private alive = true;
 
@@ -54,6 +56,8 @@ class WindowsPtySession {
             stderr: "inherit",
             cwd: opts.cwd,
         });
+        this.stdout = this.proc.stdout as ReadableStream<Uint8Array>;
+        this.stdinSink = this.proc.stdin as unknown as { write(data: Uint8Array): number };
 
         this.send({
             type: "spawn",
@@ -65,7 +69,7 @@ class WindowsPtySession {
             rows: opts.rows,
         });
 
-        this.readLoop(opts.onData, opts.onExit);
+        void this.readLoop(opts.onData, opts.onExit);
 
         void this.proc.exited.then((code) => {
             if (this.alive) {
@@ -80,7 +84,7 @@ class WindowsPtySession {
         onExit: (exitCode: number) => void,
     ): Promise<void> {
         const decoder = new TextDecoder();
-        const reader = this.proc.stdout.getReader();
+        const reader = this.stdout.getReader();
         let buffer = "";
 
         try {
@@ -119,7 +123,7 @@ class WindowsPtySession {
     private send(msg: Record<string, unknown>): void {
         if (!this.alive) return;
         try {
-            this.proc.stdin.write(this.encoder.encode(JSON.stringify(msg) + "\n"));
+            this.stdinSink.write(this.encoder.encode(JSON.stringify(msg) + "\n"));
         } catch {
             // stdin closed
         }
@@ -138,7 +142,11 @@ class WindowsPtySession {
         this.alive = false;
         this.send({ type: "kill" });
         setTimeout(() => {
-            try { this.proc.kill(); } catch { /* already dead */ }
+            try {
+                this.proc.kill();
+            } catch {
+                /* already dead */
+            }
         }, 500);
     }
 }
