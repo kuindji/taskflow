@@ -14,6 +14,7 @@
         "dist:win": "electron-builder --win --x64",
         "dist:win-arm64": "electron-builder --win --arm64",
         "dist:win:portable": "electron-builder --win portable --x64",
+        "dist:win-arm64:portable": "electron-builder --win portable --arm64",
         "publish": "electron-builder --publish always"
     },
     "build": {
