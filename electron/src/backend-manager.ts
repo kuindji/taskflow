@@ -1,6 +1,6 @@
 import { app } from "electron";
 import { spawn, type ChildProcess } from "child_process";
-import { constants } from "fs";
+import { accessSync, constants } from "fs";
 import { access, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -14,6 +14,36 @@ let backendStderrBuffer = "";
 
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveRgPathForBackend(): string | undefined {
+    const rgBinary = process.platform === "win32" ? "rg.exe" : "rg";
+
+    if (app.isPackaged) {
+        const candidate = join(process.resourcesPath, "backend", rgBinary);
+        try {
+            accessSync(candidate, constants.F_OK);
+            return candidate;
+        } catch {
+            return undefined;
+        }
+    }
+
+    // Non-packaged: try to find in monorepo node_modules
+    const projectRoot = join(__dirname, "..", "..");
+    const candidates = [
+        join(projectRoot, "packages", "backend", "node_modules", "@vscode", "ripgrep", "bin", rgBinary),
+        join(projectRoot, "node_modules", "@vscode", "ripgrep", "bin", rgBinary),
+    ];
+    for (const candidate of candidates) {
+        try {
+            accessSync(candidate, constants.F_OK);
+            return candidate;
+        } catch {
+            continue;
+        }
+    }
+    return undefined;
 }
 
 function getBackendPath(): { binary: string; args: string[] } {
@@ -69,6 +99,7 @@ async function startBackend(devBranch: string | null): Promise<number> {
     backendPortFile = join(tmpdir(), `taskflow-port-${process.pid}-${Date.now()}`);
 
     const { binary, args } = getBackendPath();
+    const rgPath = resolveRgPathForBackend();
 
     const { CLAUDECODE: _cc, CLAUDE_CODE_ENTRYPOINT: _cce, ...safeEnv } = process.env;
 
@@ -78,6 +109,7 @@ async function startBackend(devBranch: string | null): Promise<number> {
             ...safeEnv,
             TASKFLOW_PORT_FILE: backendPortFile,
             ...(devBranch ? { TASKFLOW_DEV_BRANCH: devBranch } : {}),
+            ...(rgPath ? { TASKFLOW_RG_PATH: rgPath } : {}),
         },
     });
 

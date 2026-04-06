@@ -81,7 +81,7 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
 
         const data = parsed.data;
         const filePath = toForwardSlash(data.path.text);
-        const lineContent = data.lines.text.replace(/\n$/, "");
+        const lineContent = data.lines.text.replace(/\r?\n$/, "");
 
         let matches = fileMap.get(filePath);
         if (!matches) {

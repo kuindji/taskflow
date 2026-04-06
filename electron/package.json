@@ -71,6 +71,10 @@
                 {
                     "from": "../packages/backend/node_modules/node-pty",
                     "to": "backend/node_modules/node-pty"
+                },
+                {
+                    "from": "../packages/backend/node_modules/@vscode/ripgrep/bin/rg.exe",
+                    "to": "backend/rg.exe"
                 }
             ]
         }
