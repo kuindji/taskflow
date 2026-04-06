@@ -11,16 +11,19 @@ import { sendRequest, onEvent } from "../hooks/useWebSocket";
 interface NotificationStoreState {
     notifications: Notification[];
     loading: boolean;
+    selectedNotificationId: string | null;
 
     fetchNotifications(): Promise<void>;
     markAsRead(id: string): Promise<void>;
     deleteNotification(id: string): Promise<void>;
     deleteAll(): Promise<void>;
+    setSelectedNotificationId(id: string | null): void;
 }
 
 const useNotificationStore = create<NotificationStoreState>((set) => ({
     notifications: [],
     loading: false,
+    selectedNotificationId: null,
 
     async fetchNotifications() {
         set({ loading: true });
@@ -45,6 +48,10 @@ const useNotificationStore = create<NotificationStoreState>((set) => ({
 
     async deleteAll() {
         await sendRequest(MSG.NOTIFICATION_DELETED, { all: true });
+    },
+
+    setSelectedNotificationId(id) {
+        set({ selectedNotificationId: id });
     },
 }));
 

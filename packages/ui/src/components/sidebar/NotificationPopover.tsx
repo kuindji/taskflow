@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo } from "react";
 import type { ReactNode } from "react";
 import type { Notification } from "@taskflow/shared";
 import { useNotificationStore } from "../../stores/notification-store";
@@ -46,7 +46,12 @@ function NotificationPopover({
     const deleteAll = useNotificationStore((s) => s.deleteAll);
     const projects = useProjectStore((s) => s.projects);
 
-    const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
+    const selectedNotificationId = useNotificationStore((s) => s.selectedNotificationId);
+    const setSelectedNotificationId = useNotificationStore((s) => s.setSelectedNotificationId);
+    const selectedNotification = useMemo(
+        () => notifications.find((n) => n.id === selectedNotificationId) ?? null,
+        [notifications, selectedNotificationId],
+    );
 
     const sorted = [...notifications].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
@@ -60,7 +65,7 @@ function NotificationPopover({
         if (!notification.read) {
             void markAsRead(notification.id);
         }
-        setSelectedNotification(notification);
+        setSelectedNotificationId(notification.id);
     }
 
     function handleNavigate(e: React.MouseEvent, notification: Notification) {
@@ -82,13 +87,13 @@ function NotificationPopover({
     }
 
     function handleDialogOpenChange(open: boolean) {
-        if (!open) setSelectedNotification(null);
+        if (!open) setSelectedNotificationId(null);
     }
 
     function handleDialogNavigate() {
         if (selectedNotification) {
             onNavigate(selectedNotification);
-            setSelectedNotification(null);
+            setSelectedNotificationId(null);
             onOpenChange(false);
         }
     }
@@ -96,7 +101,7 @@ function NotificationPopover({
     function handleDialogDismiss() {
         if (selectedNotification) {
             void deleteNotification(selectedNotification.id);
-            setSelectedNotification(null);
+            setSelectedNotificationId(null);
         }
     }
 
