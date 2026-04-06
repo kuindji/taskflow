@@ -13,6 +13,7 @@
         "dist": "electron-builder",
         "dist:win": "electron-builder --win --x64",
         "dist:win-arm64": "electron-builder --win --arm64",
+        "dist:win:portable": "electron-builder --win portable --x64",
         "publish": "electron-builder --publish always"
     },
     "build": {
@@ -58,7 +59,8 @@
             ]
         },
         "win": {
-            "target": ["nsis", "portable"],
+            "target": ["nsis"],
+            "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
             "extraResources": [
                 {
                     "from": "../packages/backend/dist/taskflow-backend.exe",
