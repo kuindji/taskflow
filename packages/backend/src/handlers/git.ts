@@ -3,6 +3,7 @@ import type {
     GitStatusPayload,
     GitDiffPayload,
     GitDiffFilePayload,
+    GitDiffFileContentPayload,
     GitRevertFilePayload,
     GitWorktreeCreatePayload,
     GitCommitPayload,
@@ -55,6 +56,13 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
         const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
         assertRepoFilePath(repoPath, filePath);
         return await git.diffFile(repoPath, filePath);
+    });
+
+    router.register(MSG.GIT_DIFF_FILE_CONTENT, async (payload) => {
+        const { repoPath: rawRepoPath, filePath } = payload as GitDiffFileContentPayload;
+        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        assertRepoFilePath(repoPath, filePath);
+        return await git.getFileContentsForDiff(repoPath, filePath);
     });
 
     router.register(MSG.GIT_REVERT_FILE, async (payload) => {

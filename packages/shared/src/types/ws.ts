@@ -374,6 +374,11 @@ export interface GitDiffFilePayload {
     filePath: string;
 }
 
+export interface GitDiffFileContentPayload {
+    repoPath: string;
+    filePath: string;
+}
+
 export interface GitDiffFileResponse {
     staged?: string;
     unstaged?: string;

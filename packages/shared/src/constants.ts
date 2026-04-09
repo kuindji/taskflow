@@ -73,6 +73,7 @@ export const MSG = {
     GIT_STATUS: "git:status",
     GIT_DIFF: "git:diff",
     GIT_DIFF_FILE: "git:diff-file",
+    GIT_DIFF_FILE_CONTENT: "git:diff-file-content",
     GIT_REVERT_FILE: "git:revert-file",
     GIT_STAGE: "git:stage",
     GIT_UNSTAGE: "git:unstage",

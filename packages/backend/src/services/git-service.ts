@@ -1,4 +1,12 @@
-import type { GitStatusResult, GitFileStatus, GitDiffResult, GitDiffFile } from "@taskflow/shared";
+import type {
+    GitStatusResult,
+    GitFileStatus,
+    GitDiffResult,
+    GitDiffFile,
+    GitFileContentPair,
+    GitDiffFileContentResult,
+} from "@taskflow/shared";
+import { readFile } from "fs/promises";
 import { rm } from "fs/promises";
 import { dirname, join } from "path";
 import { git } from "./git-helpers";
@@ -262,6 +270,75 @@ export class GitService {
         }
 
         return result;
+    }
+
+    async getFileContent(
+        repoPath: string,
+        filePath: string,
+        ref: "HEAD" | "index" | "working",
+    ): Promise<string | null> {
+        if (ref === "working") {
+            try {
+                return await readFile(join(repoPath, filePath), "utf-8");
+            } catch {
+                return null;
+            }
+        }
+
+        const refSpec = ref === "HEAD" ? `HEAD:${filePath}` : `:${filePath}`;
+        try {
+            return await git(["show", refSpec], repoPath, { allowExitCodes: [128] });
+        } catch {
+            return null;
+        }
+    }
+
+    async getFileContentsForDiff(
+        repoPath: string,
+        filePath: string,
+    ): Promise<GitDiffFileContentResult> {
+        const resolved = await this.resolveFileStatus(repoPath, filePath);
+        let staged: GitFileContentPair | null = null;
+        let unstaged: GitFileContentPair | null = null;
+
+        if (resolved.staged) {
+            const origPath =
+                resolved.staged.status === "renamed" && resolved.staged.previousPath
+                    ? resolved.staged.previousPath
+                    : filePath;
+            const original =
+                resolved.staged.status === "new"
+                    ? ""
+                    : ((await this.getFileContent(repoPath, origPath, "HEAD")) ?? "");
+            const modified =
+                resolved.staged.status === "deleted"
+                    ? ""
+                    : ((await this.getFileContent(repoPath, filePath, "index")) ?? "");
+            staged = { original, modified };
+        }
+
+        if (resolved.unstaged) {
+            if (resolved.unstaged.status === "untracked") {
+                const modified = (await this.getFileContent(repoPath, filePath, "working")) ?? "";
+                unstaged = { original: "", modified };
+            } else {
+                const origPath =
+                    resolved.unstaged.status === "renamed" && resolved.unstaged.previousPath
+                        ? resolved.unstaged.previousPath
+                        : filePath;
+                // If there are staged changes, the base for unstaged is the index version
+                const baseRef = resolved.staged ? "index" : "HEAD";
+                const original =
+                    (await this.getFileContent(repoPath, origPath, baseRef)) ?? "";
+                const modified =
+                    resolved.unstaged.status === "deleted"
+                        ? ""
+                        : ((await this.getFileContent(repoPath, filePath, "working")) ?? "");
+                unstaged = { original, modified };
+            }
+        }
+
+        return { staged, unstaged };
     }
 
     async revertFile(

@@ -26,6 +26,16 @@ export interface GitDiffFile {
     staged: boolean;
 }
 
+export interface GitFileContentPair {
+    original: string;
+    modified: string;
+}
+
+export interface GitDiffFileContentResult {
+    staged: GitFileContentPair | null;
+    unstaged: GitFileContentPair | null;
+}
+
 export interface ChangeStats {
     additions: number;
     deletions: number;

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { cva } from "class-variance-authority";
-import type { GitStatusResult, GitFileStatus } from "@taskflow/shared";
+import type { GitStatusResult, GitFileStatus, GitDiffFileContentResult } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { confirm } from "@/stores/dialog-store";
@@ -8,29 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Undo2, Plus, Minus, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getLanguage } from "@/lib/editor-language";
+import { MonacoDiffViewer } from "./MonacoDiffViewer";
 
 type BadgeColorScheme = "claude" | "codex" | "gemini" | "active" | "archived";
-
-const diffLineVariants = cva("font-mono text-sm leading-relaxed whitespace-pre-wrap", {
-    variants: {
-        type: {
-            added: "text-success",
-            removed: "text-destructive",
-            hunk: "text-accent",
-            context: "text-secondary-foreground",
-        },
-    },
-    defaultVariants: {
-        type: "context",
-    },
-});
-
-function getDiffLineType(line: string): "added" | "removed" | "hunk" | "context" {
-    if (line.startsWith("+")) return "added";
-    if (line.startsWith("-")) return "removed";
-    if (line.startsWith("@@")) return "hunk";
-    return "context";
-}
 
 function gitStatusToColorScheme(status: GitFileStatus["status"]): BadgeColorScheme | undefined {
     if (status === "new" || status === "untracked") return "claude";
@@ -189,8 +169,9 @@ interface ChangesPaneProps {
 function ChangesPane({ repoPath, className }: ChangesPaneProps) {
     const [status, setStatus] = useState<GitStatusResult | null>(null);
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
-    const [diff, setDiff] = useState<{ staged?: string; unstaged?: string } | null>(null);
+    const [diffContent, setDiffContent] = useState<GitDiffFileContentResult | null>(null);
     const [diffLoading, setDiffLoading] = useState(false);
+    const [diffTab, setDiffTab] = useState<"staged" | "unstaged">("unstaged");
     const [stagedCollapsed, setStagedCollapsed] = useState(false);
     const [unstagedCollapsed, setUnstagedCollapsed] = useState(false);
     const repoVersionRef = useRef(0);
@@ -221,20 +202,23 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
         const repoVersion = ++repoVersionRef.current;
         diffRequestIdRef.current += 1;
         setSelectedFile(null);
-        setDiff(null);
+        setDiffContent(null);
         setDiffLoading(false);
         void fetchStatus(repoVersion);
     }, [repoPath, fetchStatus]);
 
-    async function showDiff(filePath: string) {
+    async function showDiff(filePath: string, fromStaged?: boolean) {
         const repoVersion = repoVersionRef.current;
         const requestId = ++diffRequestIdRef.current;
         setSelectedFile(filePath);
-        setDiff(null);
+        setDiffContent(null);
         setDiffLoading(true);
+        if (fromStaged !== undefined) {
+            setDiffTab(fromStaged ? "staged" : "unstaged");
+        }
         try {
-            const result = await sendRequest<{ staged?: string; unstaged?: string }>(
-                MSG.GIT_DIFF_FILE,
+            const result = await sendRequest<GitDiffFileContentResult>(
+                MSG.GIT_DIFF_FILE_CONTENT,
                 {
                     repoPath,
                     filePath,
@@ -242,12 +226,18 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
             );
             if (repoVersion !== repoVersionRef.current) return;
             if (requestId !== diffRequestIdRef.current) return;
-            setDiff(result);
+            setDiffContent(result);
+            // If the requested tab has no content, switch to the other
+            if (fromStaged && !result.staged && result.unstaged) {
+                setDiffTab("unstaged");
+            } else if (!fromStaged && !result.unstaged && result.staged) {
+                setDiffTab("staged");
+            }
         } catch (err: unknown) {
             if (repoVersion !== repoVersionRef.current) return;
             if (requestId !== diffRequestIdRef.current) return;
             console.error("Failed to fetch diff:", err);
-            setDiff(null);
+            setDiffContent(null);
         } finally {
             if (repoVersion === repoVersionRef.current && requestId === diffRequestIdRef.current) {
                 setDiffLoading(false);
@@ -313,7 +303,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                 if (repoVersion !== repoVersionRef.current) return;
                 if (selectedFile === file.path) {
                     setSelectedFile(null);
-                    setDiff(null);
+                    setDiffContent(null);
                     setDiffLoading(false);
                 }
             },
@@ -322,6 +312,12 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
 
     const hasNoChanges =
         status && status.stagedFiles.length === 0 && status.unstagedFiles.length === 0;
+
+    const activeDiffPair =
+        diffContent &&
+        (diffTab === "staged" && diffContent.staged
+            ? diffContent.staged
+            : (diffContent.unstaged ?? diffContent.staged));
 
     return (
         <div className={containerClasses}>
@@ -352,7 +348,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                                     file={file}
                                     staged
                                     isSelected={file.path === selectedFile}
-                                    onSelect={showDiff}
+                                    onSelect={(path) => showDiff(path, true)}
                                     onStageToggle={unstageFile}
                                 />
                             ))}
@@ -375,7 +371,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                                     file={file}
                                     staged={false}
                                     isSelected={file.path === selectedFile}
-                                    onSelect={showDiff}
+                                    onSelect={(path) => showDiff(path, false)}
                                     onRevert={revertFile}
                                     onStageToggle={stageFile}
                                 />
@@ -385,53 +381,49 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
             </div>
 
             {/* Diff view */}
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <div className="flex min-h-0 flex-1 flex-col">
                 {diffLoading ? (
-                    <div className="text-muted-foreground text-sm">Loading diff...</div>
-                ) : diff && (diff.staged || diff.unstaged) ? (
-                    <div className="m-0 font-mono">
-                        {diff.staged && (
-                            <>
-                                <div className="text-accent bg-accent/10 mb-1 rounded px-1 py-0.5 text-xs font-semibold">
-                                    Staged Changes
-                                </div>
-                                {diff.staged.split("\n").map((line, i) => (
-                                    <div
-                                        key={`s-${i}-${line.slice(0, 20)}`}
-                                        className={diffLineVariants({
-                                            type: getDiffLineType(line),
-                                        })}>
-                                        {line}
-                                    </div>
-                                ))}
-                            </>
+                    <div className="text-muted-foreground p-3 text-sm">Loading diff...</div>
+                ) : diffContent && (diffContent.staged || diffContent.unstaged) ? (
+                    <>
+                        {diffContent.staged && diffContent.unstaged && (
+                            <div className="border-border flex gap-1 border-b px-3 py-1">
+                                <button
+                                    onClick={() => setDiffTab("staged")}
+                                    className={cn(
+                                        "rounded px-2 py-0.5 text-xs font-medium transition-colors",
+                                        diffTab === "staged"
+                                            ? "bg-accent/20 text-accent"
+                                            : "text-muted-foreground hover:text-foreground",
+                                    )}>
+                                    Staged
+                                </button>
+                                <button
+                                    onClick={() => setDiffTab("unstaged")}
+                                    className={cn(
+                                        "rounded px-2 py-0.5 text-xs font-medium transition-colors",
+                                        diffTab === "unstaged"
+                                            ? "bg-accent/20 text-accent"
+                                            : "text-muted-foreground hover:text-foreground",
+                                    )}>
+                                    Unstaged
+                                </button>
+                            </div>
                         )}
-                        {diff.staged && diff.unstaged && (
-                            <div className="border-border my-2 border-t" />
-                        )}
-                        {diff.unstaged && (
-                            <>
-                                <div className="text-muted-foreground bg-muted mb-1 rounded px-1 py-0.5 text-xs font-semibold">
-                                    Unstaged Changes
-                                </div>
-                                {diff.unstaged.split("\n").map((line, i) => (
-                                    <div
-                                        key={`u-${i}-${line.slice(0, 20)}`}
-                                        className={diffLineVariants({
-                                            type: getDiffLineType(line),
-                                        })}>
-                                        {line}
-                                    </div>
-                                ))}
-                            </>
-                        )}
-                    </div>
+                        <div className="min-h-0 flex-1">
+                            <MonacoDiffViewer
+                                original={activeDiffPair?.original ?? ""}
+                                modified={activeDiffPair?.modified ?? ""}
+                                language={selectedFile ? getLanguage(selectedFile) : "plaintext"}
+                            />
+                        </div>
+                    </>
                 ) : selectedFile ? (
-                    <div className="text-muted-foreground text-sm">
+                    <div className="text-muted-foreground p-3 text-sm">
                         No textual diff available for this file
                     </div>
                 ) : (
-                    <div className="text-muted-foreground text-sm">
+                    <div className="text-muted-foreground p-3 text-sm">
                         Click a file to see its diff
                     </div>
                 )}
