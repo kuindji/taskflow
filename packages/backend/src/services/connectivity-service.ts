@@ -1,24 +1,28 @@
-import { lookup } from "dns";
-
-const DNS_HOSTS = ["dns.google", "one.one.one.one", "dns.quad9.net"];
+const CHECK_URLS = [
+    "https://dns.google/resolve?name=example.com&type=A",
+    "https://1.1.1.1/dns-query?name=example.com&type=A",
+    "https://dns.quad9.net/dns-query?name=example.com&type=A",
+];
 const POLL_INTERVAL_MS = 15_000;
 const TIMEOUT_MS = 5_000;
 
 type ChangeListener = (online: boolean) => void;
 
-function checkHost(hostname: string): Promise<boolean> {
-    return new Promise((res) => {
-        const timer = setTimeout(() => res(false), TIMEOUT_MS);
-        lookup(hostname, (err) => {
-            clearTimeout(timer);
-            res(!err);
+async function checkEndpoint(url: string): Promise<boolean> {
+    try {
+        const response = await fetch(url, {
+            method: "HEAD",
+            signal: AbortSignal.timeout(TIMEOUT_MS),
         });
-    });
+        return response.ok;
+    } catch {
+        return false;
+    }
 }
 
 async function checkConnectivity(): Promise<boolean> {
-    for (const host of DNS_HOSTS) {
-        if (await checkHost(host)) return true;
+    for (const url of CHECK_URLS) {
+        if (await checkEndpoint(url)) return true;
     }
     return false;
 }
