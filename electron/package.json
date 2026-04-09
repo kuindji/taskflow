@@ -59,7 +59,6 @@
                 }
             ]
         },
-
         "portable": {
             "artifactName": "${productName}-Portable-${version}-${arch}.${ext}"
         },
