@@ -1,4 +1,4 @@
-import { Resolver } from "dns";
+import { lookup } from "dns";
 
 const DNS_HOSTS = ["dns.google", "one.one.one.one", "dns.quad9.net"];
 const POLL_INTERVAL_MS = 15_000;
@@ -9,8 +9,7 @@ type ChangeListener = (online: boolean) => void;
 function checkHost(hostname: string): Promise<boolean> {
     return new Promise((res) => {
         const timer = setTimeout(() => res(false), TIMEOUT_MS);
-        const resolver = new Resolver();
-        resolver.resolve(hostname, (err) => {
+        lookup(hostname, (err) => {
             clearTimeout(timer);
             res(!err);
         });
