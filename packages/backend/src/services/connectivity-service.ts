@@ -1,31 +1,25 @@
-const CHECK_URLS = [
-    "https://dns.google/resolve?name=example.com&type=A",
-    "https://one.one.one.one/dns-query?name=example.com&type=A",
-    "https://httpbin.org/status/200",
-];
+import { Resolver } from "dns";
+
+const DNS_HOSTS = ["dns.google", "one.one.one.one", "dns.quad9.net"];
 const POLL_INTERVAL_MS = 15_000;
 const TIMEOUT_MS = 5_000;
 
 type ChangeListener = (online: boolean) => void;
 
-async function checkUrl(url: string): Promise<boolean> {
-    try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-        const resp = await fetch(url, {
-            method: "HEAD",
-            signal: controller.signal,
+function checkHost(hostname: string): Promise<boolean> {
+    return new Promise((res) => {
+        const timer = setTimeout(() => res(false), TIMEOUT_MS);
+        const resolver = new Resolver();
+        resolver.resolve(hostname, (err) => {
+            clearTimeout(timer);
+            res(!err);
         });
-        clearTimeout(timer);
-        return resp.ok;
-    } catch {
-        return false;
-    }
+    });
 }
 
 async function checkConnectivity(): Promise<boolean> {
-    for (const url of CHECK_URLS) {
-        if (await checkUrl(url)) return true;
+    for (const host of DNS_HOSTS) {
+        if (await checkHost(host)) return true;
     }
     return false;
 }
