@@ -14,6 +14,7 @@ import {
     detectAgents,
     fetchCursorModels,
     fetchOpenCodeModels,
+    fetchPiModels,
 } from "./services/runtime-detector";
 import { registerProjectHandlers } from "./handlers/project";
 import { registerTaskHandlers } from "./handlers/task";
@@ -396,6 +397,9 @@ async function main() {
         router.register(MSG.CURSOR_MODELS, async () => ({ models: await fetchCursorModels() }));
         router.register(MSG.OPENCODE_MODELS, async () => ({
             models: await fetchOpenCodeModels(),
+        }));
+        router.register(MSG.PI_MODELS, async () => ({
+            models: await fetchPiModels(),
         }));
         router.register(MSG.CONNECTIVITY_STATUS, async () => ({
             online: connectivityService.isOnline,
