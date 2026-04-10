@@ -1099,6 +1099,10 @@ async function handleSettings(args: string[]): Promise<void> {
 // --- Main dispatch ---
 
 async function main(): Promise<void> {
+    if (rawArgs.some((a) => a === "--help" || a === "-h")) {
+        process.stdout.write(await api("GET", "/api/cli-help"));
+        return;
+    }
     switch (cmd) {
         case "task":
             await handleTask(rest);

@@ -47,6 +47,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+for arg in "$@"; do
+  case "$arg" in
+    --help|-h)
+      curl -sf "$TASKFLOW_API_URL/api/cli-help"
+      exit 0
+      ;;
+  esac
+done
+
 cmd="${1:-}"
 shift 2>/dev/null || true
 
