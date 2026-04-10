@@ -116,8 +116,8 @@ function AgentOptionsPanel({
     // --- Pi-specific defaults ---
     const defaultPiThinking: PiThinkingLevel =
         matchingValue?.type === "pi"
-            ? ((matchingValue.thinking ?? piSettings?.thinking ?? "off") as PiThinkingLevel)
-            : ((piSettings?.thinking ?? "off") as PiThinkingLevel);
+            ? (matchingValue.thinking ?? piSettings?.thinking ?? "off")
+            : (piSettings?.thinking ?? "off");
     const defaultPiTools =
         matchingValue?.type === "pi"
             ? (matchingValue.tools ?? piSettings?.tools ?? "")
