@@ -16,9 +16,13 @@ async function getRuntimeVersion(path: string): Promise<string> {
             stdout: "pipe",
             stderr: "pipe",
         });
-        const output = await new Response(proc.stdout).text();
+        const [stdout, stderr] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+        ]);
         await proc.exited;
-        const version = output.trim().replace(/^v/, "");
+        // Some CLIs (e.g. pi) print --version on stderr. Merge both streams.
+        const version = (stdout.trim() || stderr.trim()).replace(/^v/, "");
         return version || "unknown";
     } catch {
         return "unknown";
@@ -105,9 +109,14 @@ async function runCliCommand(command: string, args: string[]): Promise<string> {
             stderr: "pipe",
             env: { ...process.env, PATH },
         });
-        const output = await new Response(proc.stdout).text();
+        const [stdout, stderr] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+        ]);
         await proc.exited;
-        return output.trim();
+        // Some CLIs (e.g. pi) print informational output like --list-models on
+        // stderr. Prefer stdout when present, fall back to stderr.
+        return (stdout.trim() || stderr.trim());
     } catch {
         return "";
     }

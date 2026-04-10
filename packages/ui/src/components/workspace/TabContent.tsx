@@ -25,6 +25,7 @@ function isAlwaysMounted(tab: Tab): boolean {
         tab.type === "opencode" ||
         tab.type === "gemini" ||
         tab.type === "cursor" ||
+        tab.type === "pi" ||
         tab.type === "shell" ||
         tab.type === "browser"
     );
@@ -64,6 +65,7 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
                     case "opencode":
                     case "gemini":
                     case "cursor":
+                    case "pi":
                     case "shell":
                         label = `${tab.type} terminal`;
                         pane = tab.sessionId ? (
