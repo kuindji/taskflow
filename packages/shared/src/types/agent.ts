@@ -1,6 +1,13 @@
-type AgentType = "claude" | "codex" | "opencode" | "gemini" | "cursor";
+type AgentType = "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi";
 
-const ALL_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor"];
+const ALL_AGENT_TYPES: AgentType[] = [
+    "claude",
+    "codex",
+    "opencode",
+    "gemini",
+    "cursor",
+    "pi",
+];
 
 const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     claude: "Claude",
@@ -8,6 +15,7 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     opencode: "OpenCode",
     gemini: "Gemini",
     cursor: "Cursor",
+    pi: "Pi",
 };
 
 type ClaudePermissionMode =
@@ -64,12 +72,35 @@ interface CursorLaunchOptions {
     model?: string;
 }
 
+type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+interface PiLaunchOptions {
+    type: Extract<AgentType, "pi">;
+    /** Assembled as `${provider}/${id}` — passed verbatim to `--model`. */
+    model?: string;
+    thinking?: PiThinkingLevel;
+    /** Comma-separated tool list; empty/undefined omits the `--tools` flag. */
+    tools?: string;
+}
+
+interface PiModelInfo {
+    provider: string;
+    id: string;
+    /** Display-only string, e.g. "272K". */
+    contextWindow: string;
+    /** Display-only string, e.g. "128K". */
+    maxOutput: string;
+    supportsThinking: boolean;
+    supportsImages: boolean;
+}
+
 type AgentLaunchOptions =
     | ClaudeLaunchOptions
     | CodexLaunchOptions
     | OpenCodeLaunchOptions
     | GeminiLaunchOptions
-    | CursorLaunchOptions;
+    | CursorLaunchOptions
+    | PiLaunchOptions;
 
 interface AgentAvailability {
     type: AgentType;
@@ -91,6 +122,9 @@ export type {
     OpenCodeLaunchOptions,
     GeminiLaunchOptions,
     CursorLaunchOptions,
+    PiThinkingLevel,
+    PiLaunchOptions,
+    PiModelInfo,
     AgentLaunchOptions,
     AgentAvailability,
     OpenCodeModelInfo,

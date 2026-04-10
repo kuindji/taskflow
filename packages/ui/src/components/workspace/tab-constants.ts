@@ -5,6 +5,7 @@ import { CodexIcon } from "@/components/icons/CodexIcon";
 import { OpenCodeIcon } from "@/components/icons/OpenCodeIcon";
 import { GeminiIcon } from "@/components/icons/GeminiIcon";
 import { CursorIcon } from "@/components/icons/CursorIcon";
+import { PiIcon } from "@/components/icons/PiIcon";
 
 const AGENT_META: Record<
     AgentType,
@@ -18,6 +19,7 @@ const AGENT_META: Record<
     opencode: { icon: OpenCodeIcon, colorClass: "text-opencode" },
     gemini: { icon: GeminiIcon, colorClass: "text-primary" },
     cursor: { icon: CursorIcon, colorClass: "text-cursor-agent" },
+    pi: { icon: PiIcon, colorClass: "text-primary" },
 };
 
 const tabVariants = cva(
@@ -30,6 +32,7 @@ const tabVariants = cva(
                 opencode: "text-opencode",
                 gemini: "text-primary",
                 cursor: "text-cursor-agent",
+                pi: "text-primary",
                 shell: "text-info",
                 editor: "text-muted-foreground",
                 changes: "text-muted-foreground",

@@ -34,7 +34,7 @@ interface SessionOwner {
 
 interface CreateSessionOpts {
     owner: SessionOwner;
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "shell" | "editor";
+    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "shell" | "editor";
     label?: string;
     prompt?: string;
     systemPrompt?: string;
@@ -130,6 +130,15 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
                 yolo: s.yolo || undefined,
             };
         }
+        case "pi": {
+            const s = settings.pi;
+            return {
+                type: "pi",
+                model: s.defaultModel || undefined,
+                thinking: s.thinking === "off" ? undefined : s.thinking,
+                tools: s.tools || undefined,
+            };
+        }
     }
 }
 
@@ -139,6 +148,7 @@ function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
     if (type === "opencode") return "OpenCode";
     if (type === "gemini") return "Gemini";
     if (type === "cursor") return "Cursor";
+    if (type === "pi") return "Pi";
     if (type === "editor") return "Editor";
     return `${type} session`;
 }

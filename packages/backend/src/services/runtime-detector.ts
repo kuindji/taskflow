@@ -4,6 +4,7 @@ import type {
     AgentType,
     CursorModel,
     OpenCodeModelInfo,
+    PiModelInfo,
 } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 
@@ -15,9 +16,13 @@ async function getRuntimeVersion(path: string): Promise<string> {
             stdout: "pipe",
             stderr: "pipe",
         });
-        const output = await new Response(proc.stdout).text();
+        const [stdout, stderr] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+        ]);
         await proc.exited;
-        const version = output.trim().replace(/^v/, "");
+        // Some CLIs (e.g. pi) print --version on stderr. Merge both streams.
+        const version = (stdout.trim() || stderr.trim()).replace(/^v/, "");
         return version || "unknown";
     } catch {
         return "unknown";
@@ -38,7 +43,7 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
     return runtimes;
 }
 
-const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor"];
+const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor", "pi"];
 
 // Strip ANSI escape codes from terminal output
 function stripAnsi(str: string): string {
@@ -104,9 +109,14 @@ async function runCliCommand(command: string, args: string[]): Promise<string> {
             stderr: "pipe",
             env: { ...process.env, PATH },
         });
-        const output = await new Response(proc.stdout).text();
+        const [stdout, stderr] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+        ]);
         await proc.exited;
-        return output.trim();
+        // Some CLIs (e.g. pi) print informational output like --list-models on
+        // stderr. Prefer stdout when present, fall back to stderr.
+        return (stdout.trim() || stderr.trim());
     } catch {
         return "";
     }
@@ -123,4 +133,33 @@ export async function fetchOpenCodeModels(): Promise<OpenCodeModelInfo[]> {
             const provider = id.split("/")[0];
             return { id, provider };
         });
+}
+
+export function parsePiModelsOutput(output: string): PiModelInfo[] {
+    const lines = output
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+    if (lines.length < 2) return [];
+    // Skip the header row: "provider  model  context  max-out  thinking  images".
+    return lines
+        .slice(1)
+        .map((line) => {
+            const cols = line.split(/\s{2,}/);
+            const [provider, id, contextWindow, maxOutput, thinking, images] = cols;
+            return {
+                provider: provider ?? "",
+                id: id ?? "",
+                contextWindow: contextWindow ?? "",
+                maxOutput: maxOutput ?? "",
+                supportsThinking: thinking === "yes",
+                supportsImages: images === "yes",
+            };
+        })
+        .filter((m) => m.provider && m.id);
+}
+
+export async function fetchPiModels(): Promise<PiModelInfo[]> {
+    const output = await runCliCommand("pi", ["--list-models"]);
+    return parsePiModelsOutput(output);
 }

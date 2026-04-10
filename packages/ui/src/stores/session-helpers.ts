@@ -11,6 +11,7 @@ interface Tab {
         | "opencode"
         | "gemini"
         | "cursor"
+        | "pi"
         | "shell"
         | "editor"
         | "changes"
@@ -30,6 +31,7 @@ function getDefaultSessionLabel(type: Tab["type"]): string {
     if (type === "opencode") return "OpenCode";
     if (type === "gemini") return "Gemini";
     if (type === "cursor") return "Cursor";
+    if (type === "pi") return "Pi";
     if (type === "editor") return "Editor";
     return `${type} session`;
 }
@@ -124,7 +126,8 @@ function usesTerminalActivityStatus(
         type === "codex" ||
         type === "opencode" ||
         type === "gemini" ||
-        type === "cursor"
+        type === "cursor" ||
+        type === "pi"
     );
 }
 

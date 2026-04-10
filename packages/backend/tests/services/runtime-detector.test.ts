@@ -1,5 +1,9 @@
 import { describe, it, expect } from "bun:test";
-import { detectRuntimes, detectAgents } from "../../src/services/runtime-detector";
+import {
+    detectRuntimes,
+    detectAgents,
+    parsePiModelsOutput,
+} from "../../src/services/runtime-detector";
 
 describe("detectRuntimes", () => {
     it("returns at least one runtime on a dev machine", async () => {
@@ -50,5 +54,48 @@ describe("detectAgents", () => {
                 expect(agent.path).toBe("");
             }
         }
+    });
+});
+
+describe("parsePiModelsOutput", () => {
+    const FIXTURE = [
+        "provider      model                context  max-out  thinking  images",
+        "openai-codex  gpt-5.1              272K     128K     yes       yes   ",
+        "openai-codex  gpt-5.3-codex-spark  128K     128K     yes       no    ",
+        "anthropic     claude-sonnet-4.5    200K     64K      no        yes   ",
+    ].join("\n");
+
+    it("parses columns into PiModelInfo objects and skips the header", () => {
+        const models = parsePiModelsOutput(FIXTURE);
+        expect(models).toHaveLength(3);
+        expect(models[0]).toEqual({
+            provider: "openai-codex",
+            id: "gpt-5.1",
+            contextWindow: "272K",
+            maxOutput: "128K",
+            supportsThinking: true,
+            supportsImages: true,
+        });
+    });
+
+    it("converts yes/no columns to booleans", () => {
+        const models = parsePiModelsOutput(FIXTURE);
+        expect(models[1].supportsThinking).toBe(true);
+        expect(models[1].supportsImages).toBe(false);
+        expect(models[2].supportsThinking).toBe(false);
+        expect(models[2].supportsImages).toBe(true);
+    });
+
+    it("returns empty array for empty input", () => {
+        expect(parsePiModelsOutput("")).toEqual([]);
+        expect(parsePiModelsOutput("   \n   ")).toEqual([]);
+    });
+
+    it("returns empty array for header-only input", () => {
+        expect(
+            parsePiModelsOutput(
+                "provider  model  context  max-out  thinking  images",
+            ),
+        ).toEqual([]);
     });
 });

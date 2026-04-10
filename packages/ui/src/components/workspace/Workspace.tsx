@@ -172,7 +172,7 @@ export function Workspace() {
     }
 
     const handleNewTab = async (
-        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "browser" | "shell",
+        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "browser" | "shell",
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
         skipCursorRulesCheck?: boolean,
@@ -366,7 +366,7 @@ export function Workspace() {
     };
 
     const handleRunTab = async (
-        type: "claude" | "codex" | "opencode" | "gemini" | "cursor",
+        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi",
         agentOptions?: AgentLaunchOptions,
         skipCursorRulesCheck?: boolean,
     ) => {

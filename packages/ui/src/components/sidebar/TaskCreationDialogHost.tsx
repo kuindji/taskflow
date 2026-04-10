@@ -11,7 +11,7 @@ import { NewTaskDialog } from "./NewTaskDialog";
 
 interface PendingSession {
     taskId: string;
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor";
+    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi";
     description: string;
     agentOptions?: AgentLaunchOptions;
 }
@@ -103,7 +103,7 @@ export function TaskCreationDialogHost() {
             description: string;
             worktree: boolean;
             parentId?: string;
-            startWith?: "claude" | "codex" | "opencode" | "gemini" | "cursor";
+            startWith?: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi";
             agentOptions?: AgentLaunchOptions;
             startWithFlowId?: string;
             initCommand?: string;

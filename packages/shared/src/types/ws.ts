@@ -4,7 +4,12 @@ import type { SessionRef, SessionStatus, Task, TaskLogEntry, TaskWorktree } from
 import type { FileNode, FileChangeEvent } from "./file";
 import type { GitStatusResult, GitDiffResult, GitFileStatus, ChangeStats } from "./git";
 import type { SystemInfo } from "./system";
-import type { AgentLaunchOptions, AgentAvailability, OpenCodeModelInfo } from "./agent";
+import type {
+    AgentLaunchOptions,
+    AgentAvailability,
+    OpenCodeModelInfo,
+    PiModelInfo,
+} from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
 import type { SearchMatch, SearchResult } from "./search";
 
@@ -122,7 +127,7 @@ export interface SessionCreatePayload {
     taskId?: string;
     projectId?: string;
     master?: boolean;
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "shell" | "editor";
+    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "shell" | "editor";
     label?: string;
     prompt?: string;
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
@@ -235,6 +240,10 @@ export interface CursorModelsResponse {
 
 export interface OpenCodeModelsResponse {
     models: OpenCodeModelInfo[];
+}
+
+export interface PiModelsResponse {
+    models: PiModelInfo[];
 }
 
 // File messages

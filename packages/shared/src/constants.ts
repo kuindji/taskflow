@@ -37,6 +37,7 @@ export const MSG = {
     AGENT_COMMANDS_LIST: "agent-commands:list",
     CURSOR_MODELS: "cursor:models",
     OPENCODE_MODELS: "opencode:models",
+    PI_MODELS: "pi:models",
 
     // Terminal
     TERMINAL_OUTPUT: "terminal:output",

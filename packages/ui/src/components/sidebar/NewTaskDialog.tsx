@@ -39,7 +39,7 @@ interface NewTaskDialogProps {
         description: string;
         worktree: boolean;
         parentId?: string;
-        startWith?: "claude" | "codex" | "opencode" | "gemini" | "cursor";
+        startWith?: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi";
         agentOptions?: AgentLaunchOptions;
         startWithFlowId?: string;
         initCommand?: string;
