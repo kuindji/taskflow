@@ -14,6 +14,7 @@ import {
     type ClaudeSettings,
     type CodexSettings,
     type GeminiSettings,
+    type PiThinkingLevel,
     type EditorInfo,
     type SystemInfoResponse,
 } from "@taskflow/shared";
@@ -34,6 +35,7 @@ import { DefaultsSection } from "./sections/DefaultsSection";
 import { CodexSection } from "./sections/CodexSection";
 import { GeminiSection } from "./sections/GeminiSection";
 import { OpenCodeSection } from "./sections/OpenCodeSection";
+import { PiSection } from "./sections/PiSection";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { CursorOptions } from "@/components/shared/CursorOptions";
 import { RemoteSection } from "./sections/RemoteSection";
@@ -46,6 +48,7 @@ type SectionKey =
     | "opencode"
     | "gemini"
     | "cursor"
+    | "pi"
     | "remote-agent";
 
 function SettingsModal() {
@@ -250,7 +253,8 @@ function SettingsModal() {
                 value === "codex" ||
                 value === "opencode" ||
                 value === "gemini" ||
-                value === "cursor"
+                value === "cursor" ||
+                value === "pi"
             ) {
                 void updateSettings({ general: { defaultAgent: value } });
             }
@@ -402,6 +406,27 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handlePiModel = useCallback(
+        (defaultModel: string) => {
+            void updateSettings({ pi: { defaultModel } });
+        },
+        [updateSettings],
+    );
+
+    const handlePiThinking = useCallback(
+        (thinking: PiThinkingLevel) => {
+            void updateSettings({ pi: { thinking } });
+        },
+        [updateSettings],
+    );
+
+    const handlePiTools = useCallback(
+        (tools: string) => {
+            void updateSettings({ pi: { tools } });
+        },
+        [updateSettings],
+    );
+
     // --- Remote section handler ---
 
     const handleRemoteUpdate = useCallback(
@@ -421,6 +446,7 @@ function SettingsModal() {
         { key: "opencode", label: "OpenCode" },
         { key: "gemini", label: "Gemini" },
         { key: "cursor", label: "Cursor" },
+        { key: "pi", label: "Pi" },
         ...(claudeAvailable ? [{ key: "remote-agent" as const, label: "Remote Agent" }] : []),
     ];
 
@@ -548,6 +574,19 @@ function SettingsModal() {
                                     yolo={settings.cursor.yolo}
                                     onModelChange={handleCursorModel}
                                     onYoloChange={handleCursorYolo}
+                                />
+                            </div>
+                        )}
+
+                        {section === "pi" && (
+                            <div className="flex flex-col gap-3 p-3">
+                                <PiSection
+                                    defaultModel={settings.pi.defaultModel}
+                                    thinking={settings.pi.thinking}
+                                    tools={settings.pi.tools}
+                                    onModelChange={handlePiModel}
+                                    onThinkingChange={handlePiThinking}
+                                    onToolsChange={handlePiTools}
                                 />
                             </div>
                         )}
