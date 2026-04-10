@@ -133,6 +133,7 @@ async function main() {
                         | "opencode"
                         | "gemini"
                         | "cursor"
+                        | "pi"
                         | "shell",
                     label: `[Scheduled] ${schedule.name}`,
                     prompt,
