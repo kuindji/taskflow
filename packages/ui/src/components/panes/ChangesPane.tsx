@@ -217,13 +217,10 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
             setDiffTab(fromStaged ? "staged" : "unstaged");
         }
         try {
-            const result = await sendRequest<GitDiffFileContentResult>(
-                MSG.GIT_DIFF_FILE_CONTENT,
-                {
-                    repoPath,
-                    filePath,
-                },
-            );
+            const result = await sendRequest<GitDiffFileContentResult>(MSG.GIT_DIFF_FILE_CONTENT, {
+                repoPath,
+                filePath,
+            });
             if (repoVersion !== repoVersionRef.current) return;
             if (requestId !== diffRequestIdRef.current) return;
             setDiffContent(result);

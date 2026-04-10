@@ -328,8 +328,7 @@ export class GitService {
                         : filePath;
                 // If there are staged changes, the base for unstaged is the index version
                 const baseRef = resolved.staged ? "index" : "HEAD";
-                const original =
-                    (await this.getFileContent(repoPath, origPath, baseRef)) ?? "";
+                const original = (await this.getFileContent(repoPath, origPath, baseRef)) ?? "";
                 const modified =
                     resolved.unstaged.status === "deleted"
                         ? ""
