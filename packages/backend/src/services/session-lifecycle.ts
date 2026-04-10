@@ -98,7 +98,7 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
             const s = settings.codex;
             return {
                 type: "codex",
-                model: s.defaultModel || undefined,
+                model: s.defaultModel === "default" ? undefined : s.defaultModel || undefined,
                 sandbox: s.sandbox,
                 approvalPolicy: s.approvalPolicy,
                 fullAuto: s.fullAuto || undefined,
@@ -117,7 +117,7 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
             const s = settings.gemini;
             return {
                 type: "gemini",
-                model: s.defaultModel || undefined,
+                model: s.defaultModel === "default" ? undefined : s.defaultModel || undefined,
                 approvalMode: s.approvalMode === "default" ? undefined : s.approvalMode,
                 sandbox: s.sandbox || undefined,
             };
@@ -367,7 +367,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     : basePrompt;
             } else {
                 const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
-                if (type === "cursor" && !master && effectiveSystemPrompt) {
+                if (type === "cursor" && !master) {
                     await ensureCursorRulesFile(cwd, effectiveSystemPrompt);
                 }
                 if (type === "gemini") {

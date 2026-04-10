@@ -58,7 +58,7 @@ describe("internal agent skill", () => {
     });
 
     it("configures Codex to load the Taskflow internal skill", () => {
-        const taskPrompt = buildSystemPrompt(false);
+        const codexPrompt = buildSystemPrompt(false, undefined, false);
         const spec = buildAgentLaunchSpec(
             "codex",
             "Investigate the failing build",
@@ -68,12 +68,72 @@ describe("internal agent skill", () => {
         expect(spec.command).toBe("codex");
         expect(spec.args).toEqual([
             "-c",
-            `developer_instructions="${escapeTomlBasicString(taskPrompt)}"`,
+            `developer_instructions="${escapeTomlBasicString(codexPrompt)}"`,
             "-c",
             'skills.config=[{path="/tmp/taskflow-internal-api/SKILL.md", enabled=true}]',
             "--",
             "Investigate the failing build",
         ]);
+    });
+
+    it("Codex developer_instructions does not duplicate the skill body", () => {
+        const fullPrompt = buildSystemPrompt(false);
+        const codexPrompt = buildSystemPrompt(false, undefined, false);
+        const spec = buildAgentLaunchSpec(
+            "codex",
+            undefined,
+            "/tmp/taskflow-internal-api/SKILL.md",
+        );
+
+        // Sanity — the skill-less prompt is strictly smaller than the full prompt.
+        expect(codexPrompt.length).toBeLessThan(fullPrompt.length);
+
+        const devInstructionsArg = spec.args.find((arg) =>
+            arg.startsWith("developer_instructions="),
+        );
+        expect(devInstructionsArg).toBeDefined();
+        // Skill H1 heading should appear exactly zero times in the embedded prompt.
+        expect(devInstructionsArg).not.toContain("# Taskflow CLI");
+        // But the base framing must still be present.
+        expect(devInstructionsArg).toContain("taskflow-cli");
+        // And the skill is still registered as a separate codex skill.
+        expect(spec.args).toContain(
+            'skills.config=[{path="/tmp/taskflow-internal-api/SKILL.md", enabled=true}]',
+        );
+    });
+
+    it("Codex does not forward --model when set to the 'default' sentinel", () => {
+        const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "codex",
+            model: "default",
+        });
+        const modelIdx = spec.args.indexOf("--model");
+        if (modelIdx >= 0) {
+            expect(spec.args[modelIdx + 1]).not.toBe("default");
+        }
+        expect(spec.args).not.toContain("default");
+    });
+
+    it("Gemini does not forward --model when set to the 'default' sentinel", () => {
+        const spec = buildAgentLaunchSpec("gemini", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "gemini",
+            model: "default",
+        });
+        const modelIdx = spec.args.indexOf("--model");
+        if (modelIdx >= 0) {
+            expect(spec.args[modelIdx + 1]).not.toBe("default");
+        }
+        expect(spec.args).not.toContain("default");
+    });
+
+    it("buildSystemPrompt omits the skill body when includeSkill is false", () => {
+        const withSkill = buildSystemPrompt(false);
+        const withoutSkill = buildSystemPrompt(false, undefined, false);
+        expect(withSkill).toContain("# Taskflow CLI");
+        expect(withoutSkill).not.toContain("# Taskflow CLI");
+        // Both retain the base framing and scope block.
+        expect(withoutSkill).toContain("taskflow-cli");
+        expect(withoutSkill).toContain("scoped to a specific task");
     });
 
     it("appends the Taskflow internal API prompt for Claude", () => {
