@@ -7,6 +7,7 @@ import type {
     CodexSandboxMode,
     CodexApprovalPolicy,
     GeminiLaunchOptions,
+    PiThinkingLevel,
 } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Play, RotateCcw } from "lucide-react";
@@ -16,6 +17,7 @@ import { CodexOptions } from "@/components/shared/CodexOptions";
 import { GeminiOptions } from "@/components/shared/GeminiOptions";
 import { CursorOptions } from "@/components/shared/CursorOptions";
 import { OpenCodeOptions } from "@/components/shared/OpenCodeOptions";
+import { PiOptions } from "@/components/shared/PiOptions";
 
 interface AgentOptionsPanelProps {
     agentType: AgentType;
@@ -39,6 +41,7 @@ function AgentOptionsPanel({
     const opencodeSettings = useSettingsStore((s) => s.settings?.opencode);
     const geminiSettings = useSettingsStore((s) => s.settings?.gemini);
     const cursorSettings = useSettingsStore((s) => s.settings?.cursor);
+    const piSettings = useSettingsStore((s) => s.settings?.pi);
 
     const matchingValue = value?.type === agentType ? value : undefined;
 
@@ -110,6 +113,16 @@ function AgentOptionsPanel({
             ? (matchingValue.yolo ?? cursorSettings?.yolo ?? false)
             : (cursorSettings?.yolo ?? false);
 
+    // --- Pi-specific defaults ---
+    const defaultPiThinking: PiThinkingLevel =
+        matchingValue?.type === "pi"
+            ? ((matchingValue.thinking ?? piSettings?.thinking ?? "off") as PiThinkingLevel)
+            : ((piSettings?.thinking ?? "off") as PiThinkingLevel);
+    const defaultPiTools =
+        matchingValue?.type === "pi"
+            ? (matchingValue.tools ?? piSettings?.tools ?? "")
+            : (piSettings?.tools ?? "");
+
     // --- Model defaults (shared across agents) ---
     const defaultModel =
         agentType === "codex" && matchingValue?.type === "codex"
@@ -122,17 +135,21 @@ function AgentOptionsPanel({
                   ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "")
                   : agentType === "cursor" && matchingValue?.type === "cursor"
                     ? (matchingValue.model ?? cursorSettings?.defaultModel ?? "default")
-                    : agentType === "codex"
-                      ? (codexSettings?.defaultModel ?? "")
-                      : agentType === "claude"
-                        ? (claudeSettings?.defaultModel ?? "default")
-                        : agentType === "opencode"
-                          ? (opencodeSettings?.defaultModel ?? "")
-                          : agentType === "gemini"
-                            ? (geminiSettings?.defaultModel ?? "")
-                            : agentType === "cursor"
-                              ? (cursorSettings?.defaultModel ?? "default")
-                              : "default";
+                    : agentType === "pi" && matchingValue?.type === "pi"
+                      ? (matchingValue.model ?? piSettings?.defaultModel ?? "")
+                      : agentType === "codex"
+                        ? (codexSettings?.defaultModel ?? "")
+                        : agentType === "claude"
+                          ? (claudeSettings?.defaultModel ?? "default")
+                          : agentType === "opencode"
+                            ? (opencodeSettings?.defaultModel ?? "")
+                            : agentType === "gemini"
+                              ? (geminiSettings?.defaultModel ?? "")
+                              : agentType === "cursor"
+                                ? (cursorSettings?.defaultModel ?? "default")
+                                : agentType === "pi"
+                                  ? (piSettings?.defaultModel ?? "")
+                                  : "default";
 
     // --- State ---
     const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(
@@ -150,6 +167,8 @@ function AgentOptionsPanel({
     const [geminiSandbox, setGeminiSandbox] = useState(defaultGeminiSandbox);
     const [yolo, setYolo] = useState(defaultYolo);
     const [model, setModel] = useState<string>(defaultModel);
+    const [piThinking, setPiThinking] = useState<PiThinkingLevel>(defaultPiThinking);
+    const [piTools, setPiTools] = useState<string>(defaultPiTools);
 
     const isFirstRender = useRef(true);
     const onChangeRef = useRef(onChange);
@@ -180,6 +199,10 @@ function AgentOptionsPanel({
         } else if (agentType === "cursor") {
             setYolo(defaultYolo);
             setModel(defaultModel);
+        } else if (agentType === "pi") {
+            setPiThinking(defaultPiThinking);
+            setPiTools(defaultPiTools);
+            setModel(defaultModel);
         }
     }, [
         agentType,
@@ -194,6 +217,8 @@ function AgentOptionsPanel({
         defaultApprovalMode,
         defaultGeminiSandbox,
         defaultYolo,
+        defaultPiThinking,
+        defaultPiTools,
         defaultModel,
     ]);
 
@@ -249,12 +274,23 @@ function AgentOptionsPanel({
         [yolo, model],
     );
 
+    const buildPiOptions = useCallback(
+        (): AgentLaunchOptions => ({
+            type: "pi",
+            model: model || undefined,
+            thinking: piThinking === "off" ? undefined : piThinking,
+            tools: piTools.trim() || undefined,
+        }),
+        [model, piThinking, piTools],
+    );
+
     const buildOptions = useCallback((): AgentLaunchOptions => {
         if (agentType === "claude") return buildClaudeOptions();
         if (agentType === "codex") return buildCodexOptions();
         if (agentType === "opencode") return buildOpenCodeOptions();
         if (agentType === "gemini") return buildGeminiOptions();
         if (agentType === "cursor") return buildCursorOptions();
+        if (agentType === "pi") return buildPiOptions();
         return { type: "codex" };
     }, [
         agentType,
@@ -263,6 +299,7 @@ function AgentOptionsPanel({
         buildOpenCodeOptions,
         buildGeminiOptions,
         buildCursorOptions,
+        buildPiOptions,
     ]);
 
     const emitChange = useCallback(() => {
@@ -334,6 +371,15 @@ function AgentOptionsPanel({
                     yolo={yolo}
                     onModelChange={setModel}
                     onYoloChange={setYolo}
+                />
+            ) : agentType === "pi" ? (
+                <PiOptions
+                    modelValue={model}
+                    thinkingValue={piThinking}
+                    toolsValue={piTools}
+                    onModelChange={setModel}
+                    onThinkingChange={setPiThinking}
+                    onToolsChange={setPiTools}
                 />
             ) : null}
 
