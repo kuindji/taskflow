@@ -59,13 +59,17 @@ This session is scoped to a flow step. Expect instructions that imply or specify
 export const PROMPT_AUTONOMOUS =
     "Do not ask clarifying questions. Do not ask for confirmation. Make reasonable assumptions and proceed autonomously. If something is ambiguous, choose the most likely interpretation and act on it.";
 
-export function buildSystemPrompt(isProjectScope: boolean, isFlowScope?: boolean): string {
-    const skill = resolvedSkillDir
-        ? resolveSkillReferences(skillMarkdown, resolvedSkillDir)
-        : skillMarkdown;
+export function buildSystemPrompt(
+    isProjectScope: boolean,
+    isFlowScope?: boolean,
+    includeSkill = true,
+): string {
+    const skillBlock = includeSkill
+        ? `\n${resolvedSkillDir ? resolveSkillReferences(skillMarkdown, resolvedSkillDir) : skillMarkdown}`
+        : "";
     const scopeBlock = isProjectScope ? PROMPT_PROJECT_SCOPE : PROMPT_TASK_SCOPE;
     const flowBlock = isFlowScope ? `\n${PROMPT_FLOW}` : "";
-    return `${PROMPT_BASE}\n${skill}\n${scopeBlock}${flowBlock}`;
+    return `${PROMPT_BASE}${skillBlock}\n${scopeBlock}${flowBlock}`;
 }
 
 function escapeTomlBasicString(value: string): string {
@@ -182,7 +186,9 @@ export function buildAgentLaunchSpec(
     isProjectScope?: boolean,
     isFlowScope?: boolean,
 ): { command: string; args: string[]; env?: Record<string, string> } {
-    const basePrompt = buildSystemPrompt(isProjectScope ?? false, isFlowScope);
+    // Codex registers the taskflow skill separately via `skills.config`, so exclude
+    // it from the embedded prompt to avoid duplicating the skill content.
+    const basePrompt = buildSystemPrompt(isProjectScope ?? false, isFlowScope, type !== "codex");
     const systemPrompt = additionalSystemPrompt
         ? `${basePrompt}\n\n${additionalSystemPrompt}`
         : basePrompt;
@@ -240,7 +246,8 @@ export function buildAgentLaunchSpec(
             if (agentOptions.approvalMode && agentOptions.approvalMode !== "default")
                 optionArgs.push("--approval-mode", agentOptions.approvalMode);
             if (agentOptions.sandbox) optionArgs.push("--sandbox");
-            if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
+            if (agentOptions.model && agentOptions.model !== "default")
+                optionArgs.push("--model", agentOptions.model);
         }
         return {
             command: "gemini",
@@ -290,7 +297,8 @@ export function buildAgentLaunchSpec(
             if (agentOptions.approvalPolicy)
                 optionArgs.push("--ask-for-approval", agentOptions.approvalPolicy);
         }
-        if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
+        if (agentOptions.model && agentOptions.model !== "default")
+            optionArgs.push("--model", agentOptions.model);
     }
     return {
         command: "codex",
