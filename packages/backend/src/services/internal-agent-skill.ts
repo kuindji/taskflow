@@ -174,7 +174,7 @@ export function buildProjectContextBlock(context: ProjectContext): string | unde
 }
 
 export function buildAgentLaunchSpec(
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor",
+    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi",
     prompt: string | undefined,
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
@@ -258,6 +258,26 @@ export function buildAgentLaunchSpec(
         return {
             command: "cursor",
             args: ["agent", ...optionArgs, ...(prompt ? ["--", prompt] : [])],
+        };
+    }
+
+    if (type === "pi") {
+        const optionArgs: string[] = [];
+        if (agentOptions?.type === "pi") {
+            if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
+            if (agentOptions.thinking && agentOptions.thinking !== "off")
+                optionArgs.push("--thinking", agentOptions.thinking);
+            if (agentOptions.tools?.trim())
+                optionArgs.push("--tools", agentOptions.tools.trim());
+        }
+        return {
+            command: "pi",
+            args: [
+                ...optionArgs,
+                "--append-system-prompt",
+                systemPrompt,
+                ...(prompt ? [prompt] : []),
+            ],
         };
     }
 

@@ -50,6 +50,11 @@ const DEFAULT_GEMINI = {
     sandbox: false,
 };
 const DEFAULT_CURSOR = { defaultModel: "default", yolo: false };
+const DEFAULT_PI = {
+    defaultModel: "",
+    thinking: "off" as const,
+    tools: "read,bash,edit,write,grep,find,ls",
+};
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
 const DEFAULT_REMOTE_AGENT = { autoStart: false, appName: "", headless: false };
 
@@ -96,6 +101,7 @@ describe("SettingsStore", () => {
             opencode: DEFAULT_OPENCODE,
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
+            pi: DEFAULT_PI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
         });
@@ -128,6 +134,7 @@ describe("SettingsStore", () => {
             opencode: DEFAULT_OPENCODE,
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
+            pi: DEFAULT_PI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
         });
@@ -168,6 +175,7 @@ describe("SettingsStore", () => {
             opencode: DEFAULT_OPENCODE,
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
+            pi: DEFAULT_PI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
         });
@@ -198,6 +206,7 @@ describe("SettingsStore", () => {
             opencode: DEFAULT_OPENCODE,
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
+            pi: DEFAULT_PI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
         });

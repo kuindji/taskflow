@@ -75,6 +75,11 @@ const DEFAULTS: AppSettings = {
         defaultModel: "default",
         yolo: false,
     },
+    pi: {
+        defaultModel: "",
+        thinking: "off",
+        tools: "read,bash,edit,write,grep,find,ls",
+    },
     appearance: {
         theme: DEFAULT_THEME_ID,
     },
@@ -99,6 +104,7 @@ function createDefaultSettings(): AppSettings {
         opencode: { ...DEFAULTS.opencode },
         gemini: { ...DEFAULTS.gemini },
         cursor: { ...DEFAULTS.cursor },
+        pi: { ...DEFAULTS.pi },
         appearance: { ...DEFAULTS.appearance },
         remoteAgent: { ...DEFAULTS.remoteAgent },
     };
@@ -151,6 +157,7 @@ export class SettingsStore {
                 opencode: { ...defaults.opencode, ...parsed.opencode },
                 gemini: { ...defaults.gemini, ...parsed.gemini },
                 cursor: { ...defaults.cursor, ...parsed.cursor },
+                pi: { ...defaults.pi, ...parsed.pi },
                 appearance: { ...defaults.appearance, ...parsed.appearance },
                 remoteAgent: { ...defaults.remoteAgent, ...parsed.remoteAgent },
             };
@@ -197,6 +204,9 @@ export class SettingsStore {
         }
         if (partial.cursor) {
             applyNullable(current.cursor, partial.cursor);
+        }
+        if (partial.pi) {
+            applyNullable(current.pi, partial.pi);
         }
         if (partial.appearance) {
             applyNullable(current.appearance, partial.appearance);
