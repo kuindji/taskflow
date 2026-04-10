@@ -56,6 +56,14 @@ function normalizeAgentOptions(
                 yolo: agentOptions.yolo || undefined,
                 model: agentOptions.model,
             };
+        case "pi":
+            if (agentOptions.type !== "pi") return undefined;
+            return {
+                type: "pi",
+                model: agentOptions.model,
+                thinking: agentOptions.thinking,
+                tools: agentOptions.tools,
+            };
         default:
             return undefined;
     }

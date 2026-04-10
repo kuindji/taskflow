@@ -11,6 +11,7 @@ interface Tab {
         | "opencode"
         | "gemini"
         | "cursor"
+        | "pi"
         | "shell"
         | "editor"
         | "changes"
