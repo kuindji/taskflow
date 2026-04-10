@@ -125,7 +125,8 @@ function usesTerminalActivityStatus(
         type === "codex" ||
         type === "opencode" ||
         type === "gemini" ||
-        type === "cursor"
+        type === "cursor" ||
+        type === "pi"
     );
 }
 
