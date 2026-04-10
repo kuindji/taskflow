@@ -4,6 +4,7 @@ import type {
     ClaudeEffortLevel,
     CodexSandboxMode,
     CodexApprovalPolicy,
+    PiThinkingLevel,
 } from "./agent";
 
 export interface GeneralSettings {
@@ -43,6 +44,12 @@ export interface GeminiSettings {
 export interface CursorSettings {
     defaultModel: string;
     yolo: boolean;
+}
+
+export interface PiSettings {
+    defaultModel: string;
+    thinking: PiThinkingLevel;
+    tools: string;
 }
 
 export interface TerminalSettings {
@@ -103,6 +110,7 @@ export interface AppSettings {
     opencode: OpenCodeSettings;
     gemini: GeminiSettings;
     cursor: CursorSettings;
+    pi: PiSettings;
     appearance: AppearanceSettings;
     remoteAgent: RemoteAgentSettings;
 }
@@ -122,6 +130,7 @@ export interface SettingsUpdatePayload {
     opencode?: NullablePartial<OpenCodeSettings>;
     gemini?: NullablePartial<GeminiSettings>;
     cursor?: NullablePartial<CursorSettings>;
+    pi?: NullablePartial<PiSettings>;
     appearance?: NullablePartial<AppearanceSettings>;
     remoteAgent?: NullablePartial<RemoteAgentSettings>;
 }

@@ -1,6 +1,6 @@
 import type { AgentLaunchOptions } from "./agent";
 
-type SessionType = "claude" | "codex" | "opencode" | "gemini" | "cursor" | "shell";
+type SessionType = "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "shell";
 
 interface ActionDefinition {
     id: string;
