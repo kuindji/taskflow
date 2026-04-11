@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import {
@@ -331,6 +331,38 @@ describe("SettingsStore", () => {
             height: 800,
             isMaximized: true,
         });
+    });
+
+    it("drops unknown agent values from defaultAgent and favoriteAgents", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({
+                general: {
+                    defaultAgent: "futureagent",
+                    favoriteAgents: ["claude", "futureagent", "codex"],
+                },
+            }),
+        );
+
+        const settings = await store.get();
+
+        expect(settings.general.defaultAgent).toBe("claude");
+        expect(settings.general.favoriteAgents).toEqual(["claude", "codex"]);
+    });
+
+    it("does not rewrite the settings file when sanitizing unknown agents", async () => {
+        const onDisk = JSON.stringify({
+            general: {
+                defaultAgent: "futureagent",
+                favoriteAgents: ["claude", "futureagent"],
+            },
+        });
+        await writeFile(settingsFile, onDisk);
+
+        await store.get();
+
+        const after = await readFile(settingsFile, "utf-8");
+        expect(after).toBe(onDisk);
     });
 
     it("persists defaultAgent and defaultRuntime settings", async () => {

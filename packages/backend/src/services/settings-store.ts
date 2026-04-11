@@ -12,11 +12,16 @@ import {
     DEFAULT_THEME_ID,
 } from "@taskflow/shared";
 import type {
+    AgentType,
     AppSettings,
     EditorSettings,
     GeneralSettings,
     SettingsUpdatePayload,
 } from "@taskflow/shared";
+
+function isAgentType(value: unknown): value is AgentType {
+    return typeof value === "string" && (ALL_AGENT_TYPES as readonly string[]).includes(value);
+}
 
 const DEFAULTS: AppSettings = {
     general: {
@@ -144,7 +149,7 @@ export class SettingsStore {
                 needsMigration = true;
             }
 
-            const result = {
+            const result: AppSettings = {
                 general: { ...defaults.general, ...parsed.general },
                 terminal: { ...defaults.terminal, ...parsed.terminal },
                 editor: { ...defaults.editor, ...parsed.editor },
@@ -161,6 +166,17 @@ export class SettingsStore {
                 appearance: { ...defaults.appearance, ...parsed.appearance },
                 remoteAgent: { ...defaults.remoteAgent, ...parsed.remoteAgent },
             };
+
+            // Tolerate agent values written by newer builds: drop unknown
+            // entries instead of crashing downstream consumers that narrow on
+            // the closed AgentType union. The on-disk file is left untouched
+            // so the newer build keeps its authoritative values.
+            if (!isAgentType(result.general.defaultAgent)) {
+                result.general.defaultAgent = defaults.general.defaultAgent;
+            }
+            if (Array.isArray(result.general.favoriteAgents)) {
+                result.general.favoriteAgents = result.general.favoriteAgents.filter(isAgentType);
+            }
 
             // Persist migration so it only runs once
             if (needsMigration) {
