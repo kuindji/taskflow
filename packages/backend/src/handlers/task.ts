@@ -210,7 +210,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         }
         changeTracker?.untrack(id);
 
-        // Only clean up worktree for top-level tasks
+        // Clean up worktree in the background — don't block the response
         if (
             !task.parentId &&
             deleteWorktree &&
@@ -218,15 +218,17 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             task.worktree.path &&
             task.worktree.branch
         ) {
-            const project = await store.getProject(task.projectId);
-            if (project) {
-                try {
-                    await gitService.removeWorktree(project.path, task.worktree.path);
-                    await gitService.deleteBranch(project.path, task.worktree.branch);
-                } catch (error) {
-                    console.error(`Failed to clean up worktree for task ${id}:`, error);
-                }
-            }
+            const worktreePath = task.worktree.path;
+            const branch = task.worktree.branch;
+            void store.getProject(task.projectId).then((project) => {
+                if (!project) return;
+                gitService
+                    .removeWorktree(project.path, worktreePath)
+                    .then(() => gitService.deleteBranch(project.path, branch))
+                    .catch((error: unknown) =>
+                        console.error(`Failed to clean up worktree for task ${id}:`, error),
+                    );
+            });
         }
 
         return { success: true };

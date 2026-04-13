@@ -440,7 +440,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             }
             changeTracker?.untrack(params.taskId);
 
-            // Clean up worktree if requested
+            // Clean up worktree in the background — don't block the response
             if (
                 !task.parentId &&
                 deleteWorktree &&
@@ -448,18 +448,20 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
                 task.worktree.path &&
                 task.worktree.branch
             ) {
-                const project = await taskStore.getProject(task.projectId);
-                if (project) {
-                    try {
-                        await gitService.removeWorktree(project.path, task.worktree.path);
-                        await gitService.deleteBranch(project.path, task.worktree.branch);
-                    } catch (error) {
-                        console.error(
-                            `Failed to clean up worktree for task ${params.taskId}:`,
-                            error,
+                const worktreePath = task.worktree.path;
+                const branch = task.worktree.branch;
+                void taskStore.getProject(task.projectId).then((project) => {
+                    if (!project) return;
+                    gitService
+                        .removeWorktree(project.path, worktreePath)
+                        .then(() => gitService.deleteBranch(project.path, branch))
+                        .catch((error: unknown) =>
+                            console.error(
+                                `Failed to clean up worktree for task ${params.taskId}:`,
+                                error,
+                            ),
                         );
-                    }
-                }
+                });
             }
 
             return jsonResponse({ success: true });
