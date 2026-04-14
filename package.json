@@ -27,6 +27,7 @@
         "dist": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run dist",
         "dist:win": "bun run build:backend:bin:win && bun run build:ui && bun run build:electron && cd electron && bun run dist:win",
         "dist:win-arm64": "bun run build:backend:bin:win-arm64 && bun run build:ui && bun run build:electron && cd electron && bun run dist:win-arm64",
+        "dist:win:all": "bun run dist:win && mv electron/release/latest.yml electron/release/latest-x64.yml && bun run dist:win-arm64 && bun run electron/scripts/merge-win-latest.mjs",
         "dist:win-arm64:portable": "bun run build:backend:bin:win-arm64 && bun run build:ui && bun run build:electron && cd electron && bun run dist:win-arm64:portable",
         "release": "bun run build:backend:bin && bun run build:ui && bun run build:electron && cd electron && bun run publish",
         "open": "open --env TASKFLOW_DEV=1 electron/release/mac-arm64/Taskflow.app",
