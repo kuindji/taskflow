@@ -40,14 +40,7 @@ const LABELS = {
     },
 };
 
-const THINKING_OPTIONS: PiThinkingLevel[] = [
-    "off",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-];
+const THINKING_OPTIONS: PiThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
 function PiOptions({
     modelValue,
@@ -75,7 +68,9 @@ function PiOptions({
                     <SelectContent>
                         {THINKING_OPTIONS.map((level) => (
                             <SelectItem key={level} value={level}>
-                                {level === "off" ? "Off" : level.charAt(0).toUpperCase() + level.slice(1)}
+                                {level === "off"
+                                    ? "Off"
+                                    : level.charAt(0).toUpperCase() + level.slice(1)}
                             </SelectItem>
                         ))}
                     </SelectContent>

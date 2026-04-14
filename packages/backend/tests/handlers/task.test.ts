@@ -11,6 +11,16 @@ import type { Task } from "@taskflow/shared";
 import { writeFile } from "fs/promises";
 import type { GitService } from "../../src/services/git-service";
 
+async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+    const start = Date.now();
+    while (!predicate()) {
+        if (Date.now() - start > timeoutMs) {
+            throw new Error("waitFor timed out");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+}
+
 class FakeGitService {
     removedWorktrees: Array<{ repoPath: string; worktreePath: string }> = [];
     deletedBranches: Array<{ repoPath: string; branch: string }> = [];
@@ -206,6 +216,8 @@ describe("task handlers", () => {
         });
 
         await router.handle(MSG.TASK_DELETE, { id: task.id, deleteWorktree: true });
+
+        await waitFor(() => gitService.deletedBranches.length > 0);
 
         expect(gitService.removedWorktrees).toEqual([
             {

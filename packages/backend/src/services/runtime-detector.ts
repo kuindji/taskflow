@@ -116,7 +116,7 @@ async function runCliCommand(command: string, args: string[]): Promise<string> {
         await proc.exited;
         // Some CLIs (e.g. pi) print informational output like --list-models on
         // stderr. Prefer stdout when present, fall back to stderr.
-        return (stdout.trim() || stderr.trim());
+        return stdout.trim() || stderr.trim();
     } catch {
         return "";
     }

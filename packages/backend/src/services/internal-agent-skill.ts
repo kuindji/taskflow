@@ -274,8 +274,7 @@ export function buildAgentLaunchSpec(
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
             if (agentOptions.thinking && agentOptions.thinking !== "off")
                 optionArgs.push("--thinking", agentOptions.thinking);
-            if (agentOptions.tools?.trim())
-                optionArgs.push("--tools", agentOptions.tools.trim());
+            if (agentOptions.tools?.trim()) optionArgs.push("--tools", agentOptions.tools.trim());
         }
         return {
             command: "pi",

@@ -1,13 +1,6 @@
 type AgentType = "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi";
 
-const ALL_AGENT_TYPES: AgentType[] = [
-    "claude",
-    "codex",
-    "opencode",
-    "gemini",
-    "cursor",
-    "pi",
-];
+const ALL_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor", "pi"];
 
 const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     claude: "Claude",

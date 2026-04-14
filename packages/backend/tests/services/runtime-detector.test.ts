@@ -92,10 +92,8 @@ describe("parsePiModelsOutput", () => {
     });
 
     it("returns empty array for header-only input", () => {
-        expect(
-            parsePiModelsOutput(
-                "provider  model  context  max-out  thinking  images",
-            ),
-        ).toEqual([]);
+        expect(parsePiModelsOutput("provider  model  context  max-out  thinking  images")).toEqual(
+            [],
+        );
     });
 });
