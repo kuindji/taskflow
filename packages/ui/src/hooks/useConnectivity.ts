@@ -46,8 +46,14 @@ function initConnectivity(): void {
     });
 }
 
+async function recheckConnectivity(): Promise<boolean> {
+    const payload = await sendRequest<ConnectivityStatusPayload>(MSG.CONNECTIVITY_RECHECK);
+    setOnline(payload.online);
+    return payload.online;
+}
+
 function useConnectivity(): boolean {
     return useSyncExternalStore(subscribe, getSnapshot);
 }
 
-export { useConnectivity, initConnectivity };
+export { useConnectivity, initConnectivity, recheckConnectivity };

@@ -405,6 +405,9 @@ async function main() {
         router.register(MSG.CONNECTIVITY_STATUS, async () => ({
             online: connectivityService.isOnline,
         }));
+        router.register(MSG.CONNECTIVITY_RECHECK, async () => ({
+            online: await connectivityService.refresh(),
+        }));
 
         connectivityService.onChange((online) => {
             server.broadcast({

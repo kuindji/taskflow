@@ -153,6 +153,7 @@ export const MSG = {
 
     // Connectivity
     CONNECTIVITY_STATUS: "connectivity:status",
+    CONNECTIVITY_RECHECK: "connectivity:recheck",
     CONNECTIVITY_STATUS_CHANGED: "connectivity:status-changed",
 
     // System
