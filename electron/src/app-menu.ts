@@ -3,6 +3,7 @@ import { autoUpdater } from "electron-updater";
 
 interface AppMenuDeps {
     getMainWindow: () => BrowserWindow | null;
+    markExitConfirmed: () => void;
 }
 
 let manualCheckInProgress = false;
@@ -135,6 +136,7 @@ function buildAppMenu(): void {
                     enabled: !downloadingVersion && !manualCheckInProgress,
                     click: () => {
                         if (downloadedVersion) {
+                            deps.markExitConfirmed();
                             autoUpdater.quitAndInstall();
                             return;
                         }

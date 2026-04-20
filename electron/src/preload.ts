@@ -157,6 +157,9 @@ contextBridge.exposeInMainWorld("taskflow", {
     sendWordWrapState: (enabled: boolean) => {
         ipcRenderer.send("word-wrap-state-changed", enabled);
     },
+    sendConfirmBeforeExitState: (enabled: boolean) => {
+        ipcRenderer.send("confirm-before-exit-changed", enabled);
+    },
     onUpdateStatus: (callback: (payload: { status: string; version?: string }) => void) => {
         const listener = (
             _event: Electron.IpcRendererEvent,

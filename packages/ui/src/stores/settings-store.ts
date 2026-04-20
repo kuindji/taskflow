@@ -37,10 +37,14 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
                 );
         }
         window.taskflow?.sendCompactSidebarState(settings.layout?.panels?.compactSidebar ?? false);
+        window.taskflow?.sendConfirmBeforeExitState(settings.general.confirmBeforeExit);
     },
     async updateSettings(partial) {
         const settings = await sendRequest<AppSettings>(MSG.SETTINGS_UPDATE, partial);
         set({ settings });
+        if (partial.general && "confirmBeforeExit" in partial.general) {
+            window.taskflow?.sendConfirmBeforeExitState(settings.general.confirmBeforeExit);
+        }
     },
     async fetchDataDir() {
         const dataDirInfo = await sendRequest<DataDirInfo>(MSG.SETTINGS_GET_DATA_DIR);

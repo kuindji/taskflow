@@ -48,6 +48,7 @@ interface TaskflowBridge {
     onToggleSplit(callback: () => void): () => void;
     onToggleWordWrap(callback: () => void): () => void;
     sendWordWrapState(enabled: boolean): void;
+    sendConfirmBeforeExitState(enabled: boolean): void;
     onFocusPanelLeft(callback: () => void): () => void;
     onFocusPanelRight(callback: () => void): () => void;
     onWindowFocusChanged(callback: (focused: boolean) => void): () => void;

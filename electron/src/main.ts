@@ -55,6 +55,8 @@ import { registerIpcHandlers } from "./ipc-handlers";
 declare const BUILD_GIT_BRANCH: string;
 
 let quitting = false;
+let confirmBeforeExit = false;
+let exitConfirmed = false;
 let devBranch: string | null = null;
 
 nativeTheme.themeSource = "dark";
@@ -105,6 +107,9 @@ initTrayManager({
 
 initAppMenu({
     getMainWindow,
+    markExitConfirmed: () => {
+        exitConfirmed = true;
+    },
 });
 
 initAutoUpdater({
@@ -131,6 +136,12 @@ registerIpcHandlers({
     setFileExplorerChecked,
     setTaskInfoChecked,
     setWordWrapChecked,
+    setConfirmBeforeExit: (value) => {
+        confirmBeforeExit = value;
+    },
+    markExitConfirmed: () => {
+        exitConfirmed = true;
+    },
 });
 
 // --- App lifecycle ---
@@ -172,6 +183,31 @@ app.on("activate", () => {
 
 app.on("before-quit", (e) => {
     if (quitting) return;
+    if (confirmBeforeExit && !exitConfirmed) {
+        const mainWindow = getMainWindow();
+        const result = mainWindow
+            ? dialog.showMessageBoxSync(mainWindow, {
+                  type: "question",
+                  buttons: ["Quit", "Cancel"],
+                  defaultId: 0,
+                  cancelId: 1,
+                  title: "Quit Taskflow?",
+                  message: "Are you sure you want to quit Taskflow?",
+              })
+            : dialog.showMessageBoxSync({
+                  type: "question",
+                  buttons: ["Quit", "Cancel"],
+                  defaultId: 0,
+                  cancelId: 1,
+                  title: "Quit Taskflow?",
+                  message: "Are you sure you want to quit Taskflow?",
+              });
+        if (result === 1) {
+            e.preventDefault();
+            return;
+        }
+        exitConfirmed = true;
+    }
     stopTrayStatePolling();
     stopNotificationPolling();
     const savePromise = getWindowSavePromise();

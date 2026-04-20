@@ -282,6 +282,13 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleConfirmBeforeExit = useCallback(
+        (confirmBeforeExit: boolean) => {
+            void updateSettings({ general: { confirmBeforeExit } });
+        },
+        [updateSettings],
+    );
+
     // --- Agent section handlers ---
 
     const handleClaudeModel = useCallback(
@@ -483,8 +490,10 @@ function SettingsModal() {
                                 dataDirInfo={dataDirInfo}
                                 migrating={migrating}
                                 migrationError={migrationError}
+                                confirmBeforeExit={settings.general.confirmBeforeExit}
                                 onChangeDataDir={() => void handleChangeDataDir()}
                                 onResetDataDir={() => void handleResetDataDir()}
+                                onConfirmBeforeExitChange={handleConfirmBeforeExit}
                             />
                         )}
 

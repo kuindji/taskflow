@@ -30,6 +30,7 @@ const DEFAULTS: AppSettings = {
         defaultAgent: "claude",
         defaultRuntime: "bun",
         favoriteAgents: [...ALL_AGENT_TYPES],
+        confirmBeforeExit: false,
     },
     terminal: {
         fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,

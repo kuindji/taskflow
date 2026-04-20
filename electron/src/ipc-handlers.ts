@@ -15,6 +15,8 @@ interface IpcHandlersDeps {
     setFileExplorerChecked: (value: boolean) => void;
     setTaskInfoChecked: (value: boolean) => void;
     setWordWrapChecked: (value: boolean) => void;
+    setConfirmBeforeExit: (value: boolean) => void;
+    markExitConfirmed: () => void;
 }
 
 interface NativeMenuItem {
@@ -179,6 +181,7 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
     );
 
     ipcMain.on("quit-and-install-update", () => {
+        deps.markExitConfirmed();
         autoUpdater.quitAndInstall();
     });
 
@@ -269,6 +272,10 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
 
     ipcMain.on("word-wrap-state-changed", (_event, enabled: boolean) => {
         deps.setWordWrapChecked(enabled);
+    });
+
+    ipcMain.on("confirm-before-exit-changed", (_event, enabled: boolean) => {
+        deps.setConfirmBeforeExit(enabled);
     });
 }
 

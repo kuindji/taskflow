@@ -13,6 +13,7 @@ export interface GeneralSettings {
     defaultAgent: AgentType;
     defaultRuntime: string;
     favoriteAgents: AgentType[];
+    confirmBeforeExit: boolean;
 }
 
 export interface ClaudeSettings {
