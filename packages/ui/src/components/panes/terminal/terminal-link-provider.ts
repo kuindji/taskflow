@@ -18,9 +18,20 @@ const REL_PATH_RE =
     /(?<![/\w.@+-])((?:\.\.?\/)?[\w.@+-]+\/[\w.@+\-/]*[\w.@+-](?::(\d+)(?::(\d+))?)?)/g;
 
 // Bare filenames: dotfiles (.gitignore, .env.local) or files with extensions (package.json, CLAUDE.md).
-// Bounded by whitespace or line edges to avoid false positives on embedded substrings.
+// Bounded by whitespace, sentence punctuation, or line edges to avoid false positives on embedded substrings.
 // Does NOT match extensionless names (src, LICENSE) — too many false positives.
-const BARE_NAME_RE = /(?<=^|\s)(\.[\w.@+-]+|[\w@+-][\w.@+-]*\.[\w@+-]{1,15})(?=\s|$)/g;
+const BARE_NAME_RE =
+    /(?<=^|\s)(\.[\w.@+-]+|[\w@+-][\w.@+-]*\.[\w@+-]{1,15})(?=[\s.,;:!?)\]}'"]|$)/g;
+
+// Sentence-ending punctuation that should be stripped off the right edge of a
+// matched path so the path itself stays clickable (e.g. "file.md." → "file.md").
+const TRAILING_PUNCT_RE = /[.,;:!?'")\]}]+$/;
+
+function trimTrailingPunctuation(match: string): string {
+    // A :line[:col] suffix ends in a digit — leave those intact.
+    if (/\d$/.test(match)) return match;
+    return match.replace(TRAILING_PUNCT_RE, "");
+}
 
 /** Collapse `.` and `..` segments in an absolute path without filesystem I/O. */
 function normalizePath(absolute: string): string {
@@ -109,28 +120,30 @@ function createFilePathLinkProvider(
                 re.lastIndex = 0;
                 let match: RegExpExecArray | null;
                 while ((match = re.exec(lineText)) !== null) {
-                    const fullMatch = match[1];
-                    const matchIndex = match.index + (match[0].length - fullMatch.length);
+                    const rawMatch = match[1];
+                    const trimmed = trimTrailingPunctuation(rawMatch);
+                    if (trimmed.length === 0) continue;
+                    const matchIndex = match.index + (match[0].length - rawMatch.length);
 
                     // Deduplicate overlapping matches
-                    const key = `${matchIndex}:${fullMatch.length}`;
+                    const key = `${matchIndex}:${trimmed.length}`;
                     if (seen.has(key)) continue;
                     seen.add(key);
 
-                    const resolved = resolvePath(fullMatch, workingDir);
+                    const resolved = resolvePath(trimmed, workingDir);
                     if (!resolved) continue;
 
                     const range = getWrappedRangeForMatch(
                         term,
                         wrappedLine.startLineIndex,
                         matchIndex,
-                        fullMatch.length,
+                        trimmed.length,
                     );
                     if (!range) continue;
 
                     links.push({
                         range,
-                        text: fullMatch,
+                        text: trimmed,
                         activate(event: MouseEvent, text: string) {
                             void handlePathActivation(
                                 text,
@@ -156,14 +169,16 @@ function createFilePathLinkProvider(
             BARE_NAME_RE.lastIndex = 0;
             let bareMatch: RegExpExecArray | null;
             while ((bareMatch = BARE_NAME_RE.exec(lineText)) !== null) {
-                const fullMatch = bareMatch[1];
-                const matchIndex = bareMatch.index + (bareMatch[0].length - fullMatch.length);
+                const rawMatch = bareMatch[1];
+                const trimmed = trimTrailingPunctuation(rawMatch);
+                if (trimmed.length === 0) continue;
+                const matchIndex = bareMatch.index + (bareMatch[0].length - rawMatch.length);
 
-                const key = `${matchIndex}:${fullMatch.length}`;
+                const key = `${matchIndex}:${trimmed.length}`;
                 if (seen.has(key)) continue;
                 seen.add(key);
 
-                const resolved = normalizePath(workingDir + "/" + fullMatch);
+                const resolved = normalizePath(workingDir + "/" + trimmed);
                 // Reject paths that escape workingDir
                 if (resolved !== workingDir && !resolved.startsWith(workingDir + "/")) continue;
 
@@ -171,7 +186,7 @@ function createFilePathLinkProvider(
                     term,
                     wrappedLine.startLineIndex,
                     matchIndex,
-                    fullMatch.length,
+                    trimmed.length,
                 );
                 if (!range) continue;
 
@@ -179,7 +194,7 @@ function createFilePathLinkProvider(
                     resolved,
                     link: {
                         range,
-                        text: fullMatch,
+                        text: trimmed,
                         activate(event: MouseEvent, text: string) {
                             void handlePathActivation(text, workingDir, workspaceKey, event);
                         },
