@@ -175,11 +175,10 @@ async function handleTask(args: string[]): Promise<void> {
     } else if (subcmd === "list-archived") {
         process.stdout.write(await api("GET", "/api/tasks/archived"));
     } else if (subcmd === "create") {
-        requireProjectId();
         const description = args[1] ?? "";
         if (!description) {
             process.stderr.write(
-                "Usage: taskflow-cli task create <description> [--title <title>] [--worktree] [--init <command>]\n",
+                "Usage: taskflow-cli task create <description> [--title <title>] [--worktree] [--init <command>] [--parent <taskId>]\n",
             );
             process.exit(1);
         }
@@ -187,12 +186,46 @@ async function handleTask(args: string[]): Promise<void> {
             title: "string",
             worktree: "boolean",
             init: "string",
+            parent: "string",
         });
+
+        const parentFlag = typeof flags.parent === "string" ? flags.parent : "";
+        let parentId: string | undefined;
+        let targetProjectId: string;
+
+        if (taskId) {
+            if (parentFlag && parentFlag !== taskId) {
+                process.stderr.write(
+                    "Error: cannot create a subtask under a different task while running in task context\n",
+                );
+                process.exit(1);
+            }
+            parentId = taskId;
+            targetProjectId = requireProjectId();
+        } else if (parentFlag) {
+            const parentRaw = await api("GET", `/api/tasks/${parentFlag}`);
+            const parent = (JSON.parse(parentRaw) as { task?: { projectId?: string } }).task;
+            if (!parent?.projectId) {
+                process.stderr.write(`Error: parent task not found or missing project: ${parentFlag}\n`);
+                process.exit(1);
+            }
+            parentId = parentFlag;
+            targetProjectId = parent.projectId;
+        } else {
+            targetProjectId = requireProjectId();
+        }
+
+        if (parentId && flags.worktree) {
+            process.stderr.write("Error: --worktree is not allowed when creating a subtask\n");
+            process.exit(1);
+        }
+
         const body: Record<string, unknown> = { description };
         if (flags.title) body.title = flags.title;
         if (flags.worktree) body.worktree = true;
         if (flags.init) body.initCommand = flags.init;
-        process.stdout.write(await api("POST", `/api/projects/${projectId}/tasks`, body));
+        if (parentId) body.parentId = parentId;
+        process.stdout.write(await api("POST", `/api/projects/${targetProjectId}/tasks`, body));
     } else if (subcmd === "update") {
         requireTaskId();
         const { flags } = consumeFlags(args.slice(1), {
