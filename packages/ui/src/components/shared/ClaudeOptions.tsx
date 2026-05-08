@@ -84,6 +84,7 @@ function ClaudeOptions({
                         <SelectItem value="low">Low</SelectItem>
                         <SelectItem value="medium">Medium</SelectItem>
                         <SelectItem value="high">High</SelectItem>
+                        <SelectItem value="xhigh">Extra High</SelectItem>
                         <SelectItem value="max">Max</SelectItem>
                     </SelectContent>
                 </Select>

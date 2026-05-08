@@ -19,7 +19,7 @@ type ClaudePermissionMode =
     | "plan"
     | "auto";
 
-type ClaudeEffortLevel = "low" | "medium" | "high" | "max";
+type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
 interface ClaudeLaunchOptions {
     type: Extract<AgentType, "claude">;
