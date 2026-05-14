@@ -124,6 +124,7 @@ async function main() {
                 }
 
                 const isShell = agentType === "shell";
+                const foreground = schedule.executionMode === "foreground";
 
                 const sessionId = await sessionLifecycle.createSession({
                     owner: { projectId: schedule.projectId },
@@ -139,7 +140,7 @@ async function main() {
                     prompt,
                     systemPrompt: isShell ? undefined : SYSTEM_PROMPT_ADDON,
                     agentOptions,
-                    internal: true,
+                    internal: !foreground,
                     onSessionExited: (sessionId, exitCode) => {
                         void schedulerService.handleSessionExit(sessionId, exitCode);
                     },

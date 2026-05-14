@@ -78,6 +78,10 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
             expressionType,
             timeout: typeof body.timeout === "number" ? body.timeout : 30,
             enabled: typeof body.enabled === "boolean" ? body.enabled : true,
+            executionMode:
+                body.executionMode === "foreground" || body.executionMode === "background"
+                    ? body.executionMode
+                    : "background",
             lastRunAt: null,
             lastError: null,
             nextRunAt: null,
@@ -125,6 +129,8 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
                     next.expressionType = body.expressionType;
                 if (typeof body.timeout === "number") next.timeout = body.timeout;
                 if (typeof body.enabled === "boolean") next.enabled = body.enabled;
+                if (body.executionMode === "foreground" || body.executionMode === "background")
+                    next.executionMode = body.executionMode;
                 if ("agentType" in body)
                     next.agentType =
                         typeof body.agentType === "string"

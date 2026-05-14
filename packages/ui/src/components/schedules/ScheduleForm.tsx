@@ -4,6 +4,7 @@ import type {
     ScheduleCreatePayload,
     ScheduleUpdatePayload,
     ScheduleSessionType,
+    ScheduleExecutionMode,
     Project,
     AgentLaunchOptions,
     ActionDefinition,
@@ -67,6 +68,9 @@ function ScheduleForm({
         schedule?.agentOptions,
     );
     const [timeout, setTimeout] = useState(String(schedule?.timeout ?? 30));
+    const [executionMode, setExecutionMode] = useState<ScheduleExecutionMode>(
+        schedule?.executionMode ?? "background",
+    );
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [resetCounter, setResetCounter] = useState(0);
 
@@ -122,6 +126,7 @@ function ScheduleForm({
                 agentType: schedule?.agentType ?? "",
                 agentOptions: schedule?.agentOptions,
                 timeout: schedule?.timeout ?? 30,
+                executionMode: schedule?.executionMode ?? "background",
                 useAction: Boolean(schedule?.actionId),
             }),
         [defaultProjectId, isEditing, schedule],
@@ -139,12 +144,14 @@ function ScheduleForm({
                 agentType,
                 agentOptions,
                 timeout,
+                executionMode,
                 useAction,
             }),
         [
             actionId,
             agentOptions,
             agentType,
+            executionMode,
             expression,
             expressionType,
             isEditing,
@@ -180,6 +187,7 @@ function ScheduleForm({
                     agentType: useAction ? null : agentType || null,
                     agentOptions: useAction ? null : agentType ? agentOptions : null,
                     timeout: effectiveTimeout,
+                    executionMode,
                 };
                 await onSave(payload);
             } else {
@@ -193,6 +201,7 @@ function ScheduleForm({
                     agentType: useAction ? undefined : agentType || undefined,
                     agentOptions: useAction ? undefined : agentType ? agentOptions : undefined,
                     timeout: effectiveTimeout,
+                    executionMode,
                 };
                 await onSave(payload);
             }
@@ -214,6 +223,7 @@ function ScheduleForm({
         agentType,
         agentOptions,
         timeout,
+        executionMode,
         projectId,
         onSave,
     ]);
@@ -413,6 +423,25 @@ function ScheduleForm({
                         />
                     </div>
                 )}
+
+                {/* Execution mode */}
+                <div className="space-y-1.5">
+                    <Label className="text-xs">Execution mode</Label>
+                    <Select
+                        value={executionMode}
+                        onValueChange={(v) => setExecutionMode(v as ScheduleExecutionMode)}>
+                        <SelectTrigger size="sm" className="w-40 text-xs">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="background">Background</SelectItem>
+                            <SelectItem value="foreground">Foreground</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <p className="text-muted-foreground text-[11px]">
+                        Foreground opens a new tab when the schedule fires.
+                    </p>
+                </div>
 
                 {/* Timeout */}
                 <div className="space-y-1.5">

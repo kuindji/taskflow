@@ -831,10 +831,12 @@ async function handleSchedule(args: string[]): Promise<void> {
                 name: "string",
                 timeout: "string",
                 agent: "string",
+                foreground: "boolean",
+                background: "boolean",
             });
             if (!flags.expression) {
                 process.stderr.write(
-                    "Usage: taskflow-cli schedule create --expression <expr> [--type cron|rate] [--prompt p] [--name n] [--timeout m] [--agent type]\n",
+                    "Usage: taskflow-cli schedule create --expression <expr> [--type cron|rate] [--prompt p] [--name n] [--timeout m] [--agent type] [--foreground]\n",
                 );
                 process.exit(1);
             }
@@ -854,6 +856,8 @@ async function handleSchedule(args: string[]): Promise<void> {
                 body.timeout = t;
             }
             if (flags.agent) body.agentType = flags.agent;
+            if (flags.foreground) body.executionMode = "foreground";
+            else if (flags.background) body.executionMode = "background";
             process.stdout.write(await api("POST", "/api/schedules", body));
             break;
         }
@@ -861,7 +865,7 @@ async function handleSchedule(args: string[]): Promise<void> {
             const schedId = subArgs[0] ?? "";
             if (!schedId) {
                 process.stderr.write(
-                    "Usage: taskflow-cli schedule update <id> [--name n] [--prompt p] [--expression e] [--type cron|rate] [--timeout m] [--enable] [--disable]\n",
+                    "Usage: taskflow-cli schedule update <id> [--name n] [--prompt p] [--expression e] [--type cron|rate] [--timeout m] [--enable] [--disable] [--foreground] [--background]\n",
                 );
                 process.exit(1);
             }
@@ -873,6 +877,8 @@ async function handleSchedule(args: string[]): Promise<void> {
                 timeout: "string",
                 enable: "boolean",
                 disable: "boolean",
+                foreground: "boolean",
+                background: "boolean",
             });
             const body: Record<string, unknown> = {};
             if (flags.name !== undefined) body.name = flags.name;
@@ -889,6 +895,8 @@ async function handleSchedule(args: string[]): Promise<void> {
             }
             if (flags.enable) body.enabled = true;
             if (flags.disable) body.enabled = false;
+            if (flags.foreground) body.executionMode = "foreground";
+            else if (flags.background) body.executionMode = "background";
             if (Object.keys(body).length === 0) {
                 process.stderr.write("No update fields provided\n");
                 process.exit(1);

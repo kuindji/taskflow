@@ -2,6 +2,8 @@ import type { AgentLaunchOptions, AgentType } from "./agent";
 
 type ScheduleSessionType = AgentType | "shell";
 
+type ScheduleExecutionMode = "background" | "foreground";
+
 interface Schedule {
     id: string;
     projectId: string;
@@ -15,6 +17,7 @@ interface Schedule {
     expressionType: "cron" | "rate";
     timeout: number;
     enabled: boolean;
+    executionMode?: ScheduleExecutionMode;
 
     lastRunAt: string | null;
     lastError: string | null;
@@ -36,6 +39,7 @@ interface ScheduleCreatePayload {
     expressionType: "cron" | "rate";
     timeout?: number;
     enabled?: boolean;
+    executionMode?: ScheduleExecutionMode;
 }
 
 interface ScheduleUpdatePayload {
@@ -49,6 +53,7 @@ interface ScheduleUpdatePayload {
     expressionType?: "cron" | "rate";
     timeout?: number;
     enabled?: boolean;
+    executionMode?: ScheduleExecutionMode;
 }
 
 interface ScheduleDeletePayload {
@@ -66,6 +71,7 @@ interface ScheduleTriggerPayload {
 export type {
     Schedule,
     ScheduleSessionType,
+    ScheduleExecutionMode,
     ScheduleCreatePayload,
     ScheduleUpdatePayload,
     ScheduleDeletePayload,

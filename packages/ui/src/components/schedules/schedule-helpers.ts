@@ -1,4 +1,8 @@
-import type { ScheduleSessionType, AgentLaunchOptions } from "@taskflow/shared";
+import type {
+    ScheduleSessionType,
+    ScheduleExecutionMode,
+    AgentLaunchOptions,
+} from "@taskflow/shared";
 import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
 
 function computeNextRunPreview(expression: string, expressionType: "cron" | "rate"): string | null {
@@ -39,6 +43,7 @@ function serializeScheduleState({
     agentType,
     agentOptions,
     timeout,
+    executionMode,
     useAction,
 }: {
     includeProjectId: boolean;
@@ -51,6 +56,7 @@ function serializeScheduleState({
     agentType: ScheduleSessionType | "";
     agentOptions: AgentLaunchOptions | undefined;
     timeout: string | number | undefined;
+    executionMode: ScheduleExecutionMode;
     useAction: boolean;
 }) {
     return JSON.stringify({
@@ -63,6 +69,7 @@ function serializeScheduleState({
         agentType: useAction ? undefined : agentType || undefined,
         agentOptions: useAction ? undefined : normalizeAgentOptions(agentType, agentOptions),
         timeout: normalizeTimeout(timeout),
+        executionMode,
     });
 }
 

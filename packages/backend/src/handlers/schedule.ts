@@ -75,6 +75,7 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
                 expressionType: payload.expressionType,
                 timeout: payload.timeout ?? 30,
                 enabled: payload.enabled ?? true,
+                executionMode: payload.executionMode ?? "background",
                 lastRunAt: null,
                 lastError: null,
                 nextRunAt: null,
@@ -114,6 +115,8 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
                     next.expressionType = payload.expressionType;
                 if (payload.timeout !== undefined) next.timeout = payload.timeout;
                 if (payload.enabled !== undefined) next.enabled = payload.enabled;
+                if (payload.executionMode !== undefined)
+                    next.executionMode = payload.executionMode;
                 if ("agentType" in payload) next.agentType = payload.agentType ?? undefined;
                 if ("agentOptions" in payload)
                     next.agentOptions = payload.agentOptions ?? undefined;
