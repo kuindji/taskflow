@@ -10,18 +10,28 @@ import { buildShellPath } from "./shell-path";
 
 const KNOWN_RUNTIMES = ["bun", "node"] as const;
 
-// Cap how long we wait for a CLI to report its version / model list. Some
-// agent shims (e.g. a `cursor` CLI with no IDE installed) never close their
-// output streams, which would otherwise hang backend startup indefinitely.
-const CLI_OUTPUT_TIMEOUT_MS = 5_000;
+// `--version` probes run during startup and must stay fast: a hanging agent
+// shim (e.g. a `cursor` CLI with no IDE installed) never closes its output
+// streams and would otherwise block backend startup indefinitely.
+const VERSION_TIMEOUT_MS = 5_000;
+// Model-list queries are user-triggered and may hit the network, so they get a
+// far more generous cap that still guards against an indefinite hang.
+const MODEL_LIST_TIMEOUT_MS = 60_000;
+
+interface CaptureCliOptions {
+    env?: Record<string, string | undefined>;
+    /** Kill the process and return null if it runs longer than this. */
+    timeoutMs?: number;
+}
 
 /**
  * Spawn a CLI command and capture stdout/stderr, killing the process and
- * returning null if it does not finish within {@link CLI_OUTPUT_TIMEOUT_MS}.
+ * returning null if it does not finish within `timeoutMs`. Callers pick a
+ * timeout that matches how long the command is expected to run.
  */
 async function captureCliOutput(
     cmd: string[],
-    env: Record<string, string | undefined> = process.env,
+    { env = process.env, timeoutMs = VERSION_TIMEOUT_MS }: CaptureCliOptions = {},
 ): Promise<{ stdout: string; stderr: string } | null> {
     const proc = Bun.spawn(cmd, {
         stdin: "ignore",
@@ -34,7 +44,7 @@ async function captureCliOutput(
         new Response(proc.stderr).text(),
     ]).then(([stdout, stderr]) => ({ stdout, stderr }));
     const timeout = new Promise<null>((resolve) => {
-        setTimeout(resolve, CLI_OUTPUT_TIMEOUT_MS, null);
+        setTimeout(resolve, timeoutMs, null);
     });
     const result = await Promise.race([read, timeout]);
     if (!result) {
@@ -86,8 +96,8 @@ export async function fetchCursorModels(): Promise<CursorModel[]> {
 
     try {
         const result = await captureCliOutput([cursorPath, "agent", "--list-models"], {
-            ...process.env,
-            PATH,
+            env: { ...process.env, PATH },
+            timeoutMs: MODEL_LIST_TIMEOUT_MS,
         });
         if (!result) return [];
 
@@ -131,7 +141,10 @@ async function runCliCommand(command: string, args: string[]): Promise<string> {
     const resolved = Bun.which(command, { PATH });
     if (!resolved) return "";
     try {
-        const result = await captureCliOutput([resolved, ...args], { ...process.env, PATH });
+        const result = await captureCliOutput([resolved, ...args], {
+            env: { ...process.env, PATH },
+            timeoutMs: MODEL_LIST_TIMEOUT_MS,
+        });
         if (!result) return "";
         // Some CLIs (e.g. pi) print informational output like --list-models on
         // stderr. Prefer stdout when present, fall back to stderr.
