@@ -206,7 +206,9 @@ async function handleTask(args: string[]): Promise<void> {
             const parentRaw = await api("GET", `/api/tasks/${parentFlag}`);
             const parent = (JSON.parse(parentRaw) as { task?: { projectId?: string } }).task;
             if (!parent?.projectId) {
-                process.stderr.write(`Error: parent task not found or missing project: ${parentFlag}\n`);
+                process.stderr.write(
+                    `Error: parent task not found or missing project: ${parentFlag}\n`,
+                );
                 process.exit(1);
             }
             parentId = parentFlag;

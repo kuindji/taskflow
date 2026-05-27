@@ -80,11 +80,7 @@ export function createWorktreeSetup(deps: WorktreeSetupDeps) {
         clearTimeout(timer);
 
         if (result === "timeout") {
-            await logToTask?.(
-                taskId,
-                "warning",
-                `Init command timed out after 5m: ${initCommand}`,
-            );
+            await logToTask?.(taskId, "warning", `Init command timed out after 5m: ${initCommand}`);
         } else if (result !== 0) {
             await logToTask?.(
                 taskId,

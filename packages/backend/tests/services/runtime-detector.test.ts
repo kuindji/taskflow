@@ -41,20 +41,24 @@ describe("detectAgents", () => {
         { timeout: 15000 },
     );
 
-    it("returns correct shape for each agent", async () => {
-        const agents = await detectAgents();
-        for (const agent of agents) {
-            expect(typeof agent.type).toBe("string");
-            expect(typeof agent.available).toBe("boolean");
-            expect(typeof agent.path).toBe("string");
-            expect(typeof agent.version).toBe("string");
-            if (agent.available) {
-                expect(agent.path).toBeTruthy();
-            } else {
-                expect(agent.path).toBe("");
+    it(
+        "returns correct shape for each agent",
+        async () => {
+            const agents = await detectAgents();
+            for (const agent of agents) {
+                expect(typeof agent.type).toBe("string");
+                expect(typeof agent.available).toBe("boolean");
+                expect(typeof agent.path).toBe("string");
+                expect(typeof agent.version).toBe("string");
+                if (agent.available) {
+                    expect(agent.path).toBeTruthy();
+                } else {
+                    expect(agent.path).toBe("");
+                }
             }
-        }
-    });
+        },
+        { timeout: 15000 },
+    );
 });
 
 describe("parsePiModelsOutput", () => {
