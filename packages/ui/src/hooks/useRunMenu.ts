@@ -191,18 +191,36 @@ function useRunMenu({
     const onRunAction = useCallback(
         (action: ActionDefinition) => {
             navigate(true);
-            void useSessionStore
-                .getState()
-                .createSession(
-                    owner,
-                    action.sessionType,
-                    action.name,
-                    action.prompt,
-                    undefined,
-                    action.sessionType !== "shell" ? action.agentOptions : undefined,
-                );
+            if (action.sessionType === "shell") {
+                void (async () => {
+                    const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
+                    const shell = resolveTerminalShellPath(
+                        res.shells,
+                        res.systemShellPath,
+                        configuredShell,
+                    );
+                    if (!shell) return;
+                    const sessionId = await useSessionStore
+                        .getState()
+                        .createSession(owner, "shell", action.name, undefined, shell);
+                    if (action.prompt) {
+                        useSessionStore.getState().sendInput(sessionId, `${action.prompt}\r`);
+                    }
+                })();
+            } else {
+                void useSessionStore
+                    .getState()
+                    .createSession(
+                        owner,
+                        action.sessionType,
+                        action.name,
+                        action.prompt,
+                        undefined,
+                        action.agentOptions,
+                    );
+            }
         },
-        [navigate, owner],
+        [navigate, owner, configuredShell],
     );
 
     const onStartFlow = useCallback(
