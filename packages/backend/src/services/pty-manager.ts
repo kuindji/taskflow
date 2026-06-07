@@ -203,7 +203,9 @@ export class PtyManager {
                 kill: () => proc.kill(),
             };
 
-            void proc.exited.then(cleanup);
+            void proc.exited.then(cleanup).catch((err: unknown) => {
+                console.error(`[pty] Exit cleanup failed for session ${id}:`, err);
+            });
         }
 
         sessionEntry = {

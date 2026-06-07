@@ -429,6 +429,8 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
 
         const ownerId = master ? "master" : (task?.id ?? resolvedProjectId);
 
+        let appendErrorLogged = false;
+
         ptyManager.spawn({
             id: sessionId,
             command,
@@ -438,7 +440,12 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             cols,
             rows,
             onData: (data, sequence) => {
-                void taskStore.appendSessionOutput(ownerId, sessionId, sequence, data);
+                void taskStore.appendSessionOutput(ownerId, sessionId, sequence, data).catch((err: unknown) => {
+                    if (!appendErrorLogged) {
+                        appendErrorLogged = true;
+                        console.error(`[session] Failed to persist output for session ${sessionId}:`, err);
+                    }
+                });
                 trayStateTracker.markSessionActivity(sessionId);
                 opts.onSessionData?.(sessionId);
                 broadcast(
@@ -464,7 +471,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                                   taskId: task?.id,
                                   projectId: resolvedProjectId,
                               },
-                    );
+                    ).catch((err: unknown) => {
+                        console.error(`[session] Failed to remove session ${sessionId} from owner:`, err);
+                    });
                 }
                 onSessionExited?.(sessionId, exitCode);
             },

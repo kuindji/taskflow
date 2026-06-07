@@ -156,11 +156,16 @@ class RemoteAgentService {
         // Auto-restart if not explicitly stopped and online
         if (!this.deps.isOnline()) return;
 
-        void this.deps.settingsStore.get().then((settings) => {
-            if (settings.remoteAgent.autoStart && !this.explicitlyStopped) {
-                this.scheduleRestart();
-            }
-        });
+        void this.deps.settingsStore
+            .get()
+            .then((settings) => {
+                if (settings.remoteAgent.autoStart && !this.explicitlyStopped) {
+                    this.scheduleRestart();
+                }
+            })
+            .catch((err: unknown) => {
+                console.error("[remote-agent] Failed to read settings after session exit:", err);
+            });
     }
 
     private startInactivityMonitor(): void {

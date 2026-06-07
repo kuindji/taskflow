@@ -40,6 +40,7 @@ class WindowsPtySession {
     private stdinSink: { write(data: Uint8Array): number };
     private encoder = new TextEncoder();
     private alive = true;
+    private killTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(opts: WindowsPtySessionOptions) {
         const nodePath = resolveNodePath();
@@ -71,12 +72,20 @@ class WindowsPtySession {
 
         void this.readLoop(opts.onData, opts.onExit);
 
-        void this.proc.exited.then((code) => {
-            if (this.alive) {
-                this.alive = false;
-                opts.onExit(code ?? 1);
-            }
-        });
+        void this.proc.exited
+            .then((code) => {
+                if (this.killTimer !== null) {
+                    clearTimeout(this.killTimer);
+                    this.killTimer = null;
+                }
+                if (this.alive) {
+                    this.alive = false;
+                    opts.onExit(code ?? 1);
+                }
+            })
+            .catch((err: unknown) => {
+                console.error("[pty-win] Process exit handling failed:", err);
+            });
     }
 
     private async readLoop(
@@ -141,7 +150,8 @@ class WindowsPtySession {
         if (!this.alive) return;
         this.alive = false;
         this.send({ type: "kill" });
-        setTimeout(() => {
+        this.killTimer = setTimeout(() => {
+            this.killTimer = null;
             try {
                 this.proc.kill();
             } catch {
