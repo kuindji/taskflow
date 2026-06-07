@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import type { FlowDefinition, FlowRun, ActionDefinition } from "@taskflow/shared";
+import type {
+    FlowDefinition,
+    FlowRun,
+    ActionDefinition,
+    FlowDefinitionsListResponse,
+    FlowActionsListResponse,
+    FlowRunsListResponse,
+} from "@taskflow/shared";
 import { MSG, getFlowRunOwnerId } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 import { useSessionStore } from "./session-store";
@@ -65,7 +72,7 @@ const useFlowStore = create<FlowStore>((set) => ({
             loadingDefinitions: true,
         }));
         try {
-            const { flows } = await sendRequest<{ flows: FlowDefinition[] }>(
+            const { flows } = await sendRequest<FlowDefinitionsListResponse>(
                 MSG.FLOW_DEFINITIONS_LIST,
             );
             set({ flows });
@@ -86,9 +93,7 @@ const useFlowStore = create<FlowStore>((set) => ({
             loadingDefinitions: true,
         }));
         try {
-            const { actions } = await sendRequest<{ actions: ActionDefinition[] }>(
-                MSG.FLOW_ACTIONS_LIST,
-            );
+            const { actions } = await sendRequest<FlowActionsListResponse>(MSG.FLOW_ACTIONS_LIST);
             set({ actions });
         } finally {
             set((state) => {
@@ -161,7 +166,7 @@ const useFlowStore = create<FlowStore>((set) => ({
     },
 
     async fetchFlowRuns(ownerId) {
-        const { runs } = await sendRequest<{ runs: FlowRun[] }>(MSG.FLOW_RUNS_LIST, { ownerId });
+        const { runs } = await sendRequest<FlowRunsListResponse>(MSG.FLOW_RUNS_LIST, { ownerId });
         const activeRun = runs.find((r) => r.status === "running" || r.status === "paused");
         set((s) => {
             if (activeRun) {

@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import type {
     FileNode,
-    GitStatusResult,
     FileChangeEvent,
     FileListDirResponse,
+    GitStatusResult,
+    GitStatusResponse,
+    FileReadResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { onEvent, sendRequest } from "../hooks/useWebSocket";
@@ -172,7 +174,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
             gitStatus: state.gitStatusPath === path ? state.gitStatus : null,
             gitStatusPath: state.gitStatusPath === path ? state.gitStatusPath : null,
         }));
-        const { status } = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path });
+        const { status } = await sendRequest<GitStatusResponse>(MSG.GIT_STATUS, { path });
         if (requestId !== gitStatusRequestId) return;
         set({ gitStatus: status, gitStatusPath: path });
     },
@@ -276,7 +278,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
         set({ expandedDirs });
     },
     async readFile(path) {
-        const { content } = await sendRequest<{ content: string }>(MSG.FILE_READ, { path });
+        const { content } = await sendRequest<FileReadResponse>(MSG.FILE_READ, { path });
         return content;
     },
     async writeFile(path, content) {

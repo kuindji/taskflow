@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import type { Schedule, ScheduleCreatePayload, ScheduleUpdatePayload } from "@taskflow/shared";
+import type {
+    Schedule,
+    ScheduleCreatePayload,
+    ScheduleUpdatePayload,
+    ScheduleListResponse,
+} from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 
@@ -23,7 +28,7 @@ const useScheduleStore = create<ScheduleStore>((set) => ({
     async fetchSchedules(projectId) {
         set({ loading: true });
         try {
-            const { schedules } = await sendRequest<{ schedules: Schedule[] }>(MSG.SCHEDULE_LIST, {
+            const { schedules } = await sendRequest<ScheduleListResponse>(MSG.SCHEDULE_LIST, {
                 projectId,
             });
             set({ schedules });

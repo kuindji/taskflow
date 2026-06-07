@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GitStatusResult, GitFileStatus, GitDiffFileContentResult } from "@taskflow/shared";
+import type { GitStatusResult, GitFileStatus, GitDiffFileContentResult, GitStatusResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { confirm } from "@/stores/dialog-store";
@@ -185,7 +185,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
     const fetchStatus = useCallback(
         async (repoVersion = repoVersionRef.current) => {
             try {
-                const { status } = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, {
+                const { status } = await sendRequest<GitStatusResponse>(MSG.GIT_STATUS, {
                     path: repoPath,
                 });
                 if (repoVersion !== repoVersionRef.current) return;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import type { SessionRef, Task, TaskWorktreePr } from "@taskflow/shared";
+import type { Task, TaskWorktreePr, MasterSessionsListResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { prefetchHomedir } from "@/hooks/useActiveWorkspace";
@@ -64,7 +64,7 @@ function useSidebarData(connected: boolean) {
     // Fetch master sessions
     useEffect(() => {
         if (!connected) return;
-        sendRequest<{ sessions: SessionRef[] }>(MSG.MASTER_SESSIONS_LIST, {})
+        sendRequest<MasterSessionsListResponse>(MSG.MASTER_SESSIONS_LIST, {})
             .then((res) => syncWithMasterSessions(res.sessions))
             .catch(() => {});
     }, [connected, syncWithMasterSessions]);

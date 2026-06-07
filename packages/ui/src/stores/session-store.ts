@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { arrayMove } from "@dnd-kit/sortable";
-import type { AgentLaunchOptions, SessionRef, Task, SessionStatus } from "@taskflow/shared";
+import type { AgentLaunchOptions, SessionRef, Task, SessionStatus, SessionCreateResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, sendFireAndForget } from "../hooks/useWebSocket";
 import { useTaskStore } from "./task-store";
@@ -91,7 +91,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
 
         const lastTerminalSize = get().lastTerminalSize;
-        const { sessionId } = await sendRequest<{ sessionId: string }>(MSG.SESSION_CREATE, {
+        const { sessionId } = await sendRequest<SessionCreateResponse>(MSG.SESSION_CREATE, {
             ...owner,
             type,
             label,

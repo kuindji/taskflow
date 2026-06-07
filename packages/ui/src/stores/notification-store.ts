@@ -4,6 +4,7 @@ import type {
     NotificationCreatedEvent,
     NotificationUpdatedEvent,
     NotificationDeletedEvent,
+    NotificationListResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
@@ -28,7 +29,7 @@ const useNotificationStore = create<NotificationStoreState>((set) => ({
     async fetchNotifications() {
         set({ loading: true });
         try {
-            const { notifications } = await sendRequest<{ notifications: Notification[] }>(
+            const { notifications } = await sendRequest<NotificationListResponse>(
                 MSG.NOTIFICATION_LIST,
                 {},
             );

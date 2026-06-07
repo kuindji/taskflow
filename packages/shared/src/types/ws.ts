@@ -1,8 +1,8 @@
 import type { Notification } from "./notification";
 import type { LinkedProject, Project } from "./project";
 import type { SessionRef, SessionStatus, Task, TaskLogEntry, TaskWorktree } from "./task";
-import type { FileNode, FileChangeEvent } from "./file";
-import type { GitStatusResult, GitDiffResult, GitFileStatus, ChangeStats } from "./git";
+import type { FileNode } from "./file";
+import type { GitStatusResult, GitFileStatus, ChangeStats } from "./git";
 import type { SystemInfo } from "./system";
 import type {
     AgentLaunchOptions,
@@ -12,6 +12,8 @@ import type {
 } from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
 import type { SearchMatch, SearchResult } from "./search";
+import type { Schedule } from "./schedule";
+import type { ActionDefinition, FlowDefinition, FlowRun } from "./flow";
 
 // Base message types
 export interface WsRequest<T = unknown> {
@@ -251,11 +253,6 @@ export interface FileTreePayload {
     path: string;
 }
 
-export interface FileTreeResponse {
-    tree: FileNode;
-    gitignorePatterns: string[];
-}
-
 export interface FileListDirPayload {
     path: string;
 }
@@ -307,8 +304,6 @@ export interface FilePathPayload {
 export interface FileMkdirPayload {
     path: string;
 }
-
-export type FileChangedEvent = FileChangeEvent;
 
 // Search messages
 export interface SearchQueryPayload {
@@ -374,10 +369,6 @@ export interface GitDiffPayload {
     path: string;
 }
 
-export interface GitDiffResponse {
-    diff: GitDiffResult;
-}
-
 export interface GitDiffFilePayload {
     repoPath: string;
     filePath: string;
@@ -386,11 +377,6 @@ export interface GitDiffFilePayload {
 export interface GitDiffFileContentPayload {
     repoPath: string;
     filePath: string;
-}
-
-export interface GitDiffFileResponse {
-    staged?: string;
-    unstaged?: string;
 }
 
 export interface GitRevertFilePayload {
@@ -604,4 +590,22 @@ export interface TsResolveImportPayload {
 
 export interface TsResolveImportResponse {
     resolvedPath: string | null;
+}
+
+// Schedule messages
+export interface ScheduleListResponse {
+    schedules: Schedule[];
+}
+
+// Flow messages
+export interface FlowDefinitionsListResponse {
+    flows: FlowDefinition[];
+}
+
+export interface FlowActionsListResponse {
+    actions: ActionDefinition[];
+}
+
+export interface FlowRunsListResponse {
+    runs: FlowRun[];
 }

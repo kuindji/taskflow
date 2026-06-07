@@ -1,5 +1,11 @@
 import { create } from "zustand";
-import type { Task, TaskLogEntry, TaskLogAddedEvent } from "@taskflow/shared";
+import type {
+    Task,
+    TaskLogEntry,
+    TaskLogAddedEvent,
+    TaskListResponse,
+    TaskLogListResponse,
+} from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 
@@ -64,7 +70,7 @@ export const useTaskStore = create<TaskStore>((set) => ({
     async fetchTasks() {
         set({ loading: true });
         try {
-            const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST);
+            const { tasks } = await sendRequest<TaskListResponse>(MSG.TASK_LIST);
             const sortedTasks = sortTasksByCreatedAtDesc(tasks);
             set((state) => ({
                 tasks: sortedTasks,
@@ -78,7 +84,7 @@ export const useTaskStore = create<TaskStore>((set) => ({
         }
     },
     async fetchArchivedTasks() {
-        const { tasks } = await sendRequest<{ tasks: Task[] }>(MSG.TASK_LIST_ARCHIVED);
+        const { tasks } = await sendRequest<TaskListResponse>(MSG.TASK_LIST_ARCHIVED);
         set({ archivedTasks: sortTasksByCreatedAtDesc(tasks) });
     },
     setShowArchive(show) {
@@ -142,7 +148,7 @@ export const useTaskStore = create<TaskStore>((set) => ({
         set({ activeTaskId: id });
     },
     async fetchTaskLog(taskId) {
-        const { entries } = await sendRequest<{ entries: TaskLogEntry[] }>(MSG.TASK_LOG_LIST, {
+        const { entries } = await sendRequest<TaskLogListResponse>(MSG.TASK_LOG_LIST, {
             taskId,
         });
         set((s) => ({

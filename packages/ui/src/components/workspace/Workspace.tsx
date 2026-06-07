@@ -4,6 +4,7 @@ import type {
     AgentCommand,
     AgentLaunchOptions,
     CursorRulesCheckResponse,
+    FileStatResponse,
     FlowInputDefinition,
     ShellListResponse,
 } from "@taskflow/shared";
@@ -120,7 +121,7 @@ export function Workspace() {
         }
 
         let cancelled = false;
-        sendRequest<{ exists: boolean }>(MSG.FILE_STAT, { path: workspace.task.worktree.path })
+        sendRequest<FileStatResponse>(MSG.FILE_STAT, { path: workspace.task.worktree.path })
             .then(({ exists }) => {
                 if (!cancelled && !exists) {
                     setWorktreeMissingDialogOpen(true);

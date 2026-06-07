@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import type { GitStatusResult } from "@taskflow/shared";
+import type { GitStatusResponse, GitCreatePrResult, GitCommitResult } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { useSessionStore } from "@/stores/session-store";
@@ -64,7 +64,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     // Fetch git status when dialog opens to determine mode
     useEffect(() => {
         if (!open) return;
-        sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, { path: repoPath }).then(
+        sendRequest<GitStatusResponse>(MSG.GIT_STATUS, { path: repoPath }).then(
             (res) => {
                 const changed =
                     res.status.stagedFiles.length > 0 || res.status.unstagedFiles.length > 0;
@@ -99,11 +99,11 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
             if (prOnly) {
                 // PR-only mode — everything is committed and pushed
                 const prTitle = message.trim() || null;
-                const status = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, {
+                const status = await sendRequest<GitStatusResponse>(MSG.GIT_STATUS, {
                     path: repoPath,
                 });
                 const title = prTitle ?? status.status.branch ?? "update";
-                await sendRequest<{ url: string; number: number }>(MSG.GIT_CREATE_PR, {
+                await sendRequest<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
                     path: repoPath,
                     title,
                     taskId,
@@ -117,11 +117,11 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                 await sendRequest(MSG.GIT_PUSH, { path: repoPath });
                 if (createPr) {
                     // Use current branch name or a generic title
-                    const status = await sendRequest<{ status: GitStatusResult }>(MSG.GIT_STATUS, {
+                    const status = await sendRequest<GitStatusResponse>(MSG.GIT_STATUS, {
                         path: repoPath,
                     });
                     const branchName = status.status.branch ?? "update";
-                    await sendRequest<{ url: string; number: number }>(MSG.GIT_CREATE_PR, {
+                    await sendRequest<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
                         path: repoPath,
                         title: branchName,
                         taskId,
@@ -169,13 +169,13 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                 commitMessage = result.message;
             }
 
-            const commitResult = await sendRequest<{ hash: string; message: string }>(
+            const commitResult = await sendRequest<GitCommitResult>(
                 MSG.GIT_COMMIT,
                 { path: repoPath, message: commitMessage, push, includeUnstaged },
             );
 
             if (createPr) {
-                await sendRequest<{ url: string; number: number }>(MSG.GIT_CREATE_PR, {
+                await sendRequest<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
                     path: repoPath,
                     title: commitResult.message,
                     taskId,

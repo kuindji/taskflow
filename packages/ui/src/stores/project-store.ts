@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { LinkedProject, Project, ProjectForkResponse } from "@taskflow/shared";
+import type { LinkedProject, Project, ProjectForkResponse, ProjectListResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 import { useTaskStore } from "./task-store";
@@ -36,7 +36,7 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     async fetchProjects() {
         set({ loading: true });
         try {
-            const { projects } = await sendRequest<{ projects: Project[] }>(MSG.PROJECT_LIST);
+            const { projects } = await sendRequest<ProjectListResponse>(MSG.PROJECT_LIST);
             set({ projects, loading: false });
             const activeProjectId = useUIStore.getState().activeProjectId;
             if (activeProjectId && !projects.some((project) => project.id === activeProjectId)) {
