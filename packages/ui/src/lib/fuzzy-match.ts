@@ -22,13 +22,21 @@ function fuzzyMatch(query: string, text: string): FuzzyMatchResult | null {
     if (query.length === 0) return { score: 0, indices: [] };
 
     const q = query.toLowerCase();
-    const t = text.toLowerCase();
     const indices: number[] = [];
     let score = 0;
     let searchFrom = 0;
 
     for (const char of q) {
-        const idx = t.indexOf(char, searchFrom);
+        // Compare code unit by code unit against the original text so the
+        // returned indices stay aligned with it even when toLowerCase()
+        // changes a character's code-unit length (e.g. "İ").
+        let idx = -1;
+        for (let i = searchFrom; i < text.length; i++) {
+            if (text[i].toLowerCase() === char) {
+                idx = i;
+                break;
+            }
+        }
         if (idx === -1) return null;
 
         let charScore = 1;

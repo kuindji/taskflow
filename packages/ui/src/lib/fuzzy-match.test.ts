@@ -11,6 +11,7 @@ describe("fuzzyMatch", () => {
     it("returns null when the query is not a subsequence", () => {
         expect(fuzzyMatch("xyz", "deploy")).toBeNull();
         expect(fuzzyMatch("deployx", "deploy")).toBeNull();
+        expect(fuzzyMatch("a", "")).toBeNull();
     });
 
     it("matches everything with an empty query", () => {
@@ -22,6 +23,14 @@ describe("fuzzyMatch", () => {
         const result = fuzzyMatch("BD", "Build: Dev");
         expect(result).not.toBeNull();
         expect(result?.indices).toEqual([0, 4]);
+    });
+
+    it("keeps indices aligned with the original text for unicode that changes length under toLowerCase", () => {
+        // "İ".toLowerCase() is 2 code units; indices must still point into the original string
+        const result = fuzzyMatch("b", "AİB");
+        expect(result).not.toBeNull();
+        expect(result?.indices).toEqual([2]);
+        expect("AİB"[2]).toBe("B");
     });
 
     it("scores an exact contiguous match above a scattered match", () => {
