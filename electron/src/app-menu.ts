@@ -187,6 +187,14 @@ function buildAppMenu(): void {
             label: "View",
             submenu: [
                 {
+                    label: "Command Palette…",
+                    accelerator: "CmdOrCtrl+Shift+P",
+                    click: () => {
+                        mainWindow?.webContents.send("open-command-palette");
+                    },
+                },
+                { type: "separator" },
+                {
                     id: "toggle-archive",
                     label: "Show Archived Tasks",
                     type: "checkbox",

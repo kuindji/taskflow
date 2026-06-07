@@ -31,6 +31,7 @@ interface TaskflowBridge {
     onCloseTab(callback: () => void): () => void;
     onOpenSettings(callback: () => void): () => void;
     onOpenKeyboardShortcuts(callback: () => void): () => void;
+    onOpenCommandPalette(callback: () => void): () => void;
     onOpenAgentOperationsHelp(callback: () => void): () => void;
     onOpenAppearance(callback: () => void): () => void;
     onOpenFlows(callback: () => void): () => void;

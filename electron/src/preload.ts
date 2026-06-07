@@ -65,6 +65,13 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("open-keyboard-shortcuts", listener);
         };
     },
+    onOpenCommandPalette: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("open-command-palette", listener);
+        return () => {
+            ipcRenderer.removeListener("open-command-palette", listener);
+        };
+    },
     onOpenAgentOperationsHelp: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("open-agent-operations-help", listener);
