@@ -117,6 +117,10 @@ function CommandPaletteDialog() {
 
     const flatRows = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
 
+    // Data can refresh while open (scripts response, connectivity), shrinking
+    // the list below selectedIndex — clamp so highlight and Enter stay valid.
+    const activeIndex = Math.min(selectedIndex, Math.max(0, flatRows.length - 1));
+
     const runRow = useCallback(
         (row: PaletteRow) => {
             if (row.disabled) return;
@@ -144,18 +148,18 @@ function CommandPaletteDialog() {
                 }
             } else if (e.key === "Enter") {
                 e.preventDefault();
-                const row = flatRows[selectedIndex];
+                const row = flatRows[activeIndex];
                 if (row) runRow(row);
             }
         },
-        [flatRows, selectedIndex, runRow],
+        [flatRows, activeIndex, runRow],
     );
 
     // Keep the selected row visible while navigating with arrows
     useEffect(() => {
         const el = listRef.current?.querySelector("[data-selected='true']");
         el?.scrollIntoView({ block: "nearest" });
-    }, [selectedIndex, groups]);
+    }, [activeIndex, groups]);
 
     // Electron menu accelerator (CmdOrCtrl+Shift+P). The palette itself
     // renders a dialog-content, so isDialogOpen() is true while it is open —
@@ -210,12 +214,12 @@ function CommandPaletteDialog() {
                                     return (
                                         <div
                                             key={entryKey(row.entry)}
-                                            data-selected={index === selectedIndex}
-                                            onMouseMove={() => setSelectedIndex(index)}
+                                            data-selected={index === activeIndex}
+                                            onMouseEnter={() => setSelectedIndex(index)}
                                             onClick={() => runRow(row)}
                                             className={cn(
                                                 "text-muted-foreground flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm",
-                                                index === selectedIndex && "bg-accent text-accent-foreground",
+                                                index === activeIndex && "bg-accent text-accent-foreground",
                                                 row.disabled && "cursor-default opacity-50",
                                             )}>
                                             <Icon className="h-4 w-4 shrink-0" />
