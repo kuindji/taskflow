@@ -34,7 +34,8 @@ list of typed items so adding a group is additive.
     bridge (`electron/src/preload.ts`).
   - Native `keydown` listener on the web side so it works in browser/dev mode.
 - **Open state:** boolean + setter in `ui-store` (consistent with other
-  dialogs); the dialog is rendered from `DialogHost`.
+  dialogs); the dialog is mounted in `App.tsx` alongside the other app-level
+  dialogs (`KeyboardShortcutsDialog`, `SettingsModal`, …).
 
 ## Component & Behavior
 
