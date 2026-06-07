@@ -9,6 +9,7 @@ import { AppShell } from "@/components/AppShell";
 import { AgentOperationsHelpDialog } from "@/components/AgentOperationsHelpDialog";
 import { DialogHost } from "@/components/DialogHost";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
+import { CommandPaletteDialog } from "@/components/CommandPaletteDialog";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { FlowManagementDialog } from "@/components/flows/FlowManagementDialog";
 import { ScheduleManagementDialog } from "@/components/schedules/ScheduleManagementDialog";
@@ -134,6 +135,7 @@ export function App() {
                 <DialogHost />
                 <AgentOperationsHelpDialog />
                 <KeyboardShortcutsDialog />
+                <CommandPaletteDialog />
                 <SettingsModal />
                 <FlowManagementDialog />
                 <ScheduleManagementDialog />
