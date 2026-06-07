@@ -55,7 +55,7 @@ describe("fuzzyMatch", () => {
     it("matches a subsequence and returns its indices", () => {
         const result = fuzzyMatch("dpl", "deploy");
         expect(result).not.toBeNull();
-        expect(result?.indices).toEqual([0, 2, 4]);
+        expect(result?.indices).toEqual([0, 2, 3]);
     });
 
     it("returns null when the query is not a subsequence", () => {
@@ -68,9 +68,10 @@ describe("fuzzyMatch", () => {
     });
 
     it("is case-insensitive but reports indices of the original text", () => {
+        // Greedy: matches the lowercase "d" in "Build", not the "D" in "Dev"
         const result = fuzzyMatch("BD", "Build: Dev");
         expect(result).not.toBeNull();
-        expect(result?.indices).toEqual([0, 7]);
+        expect(result?.indices).toEqual([0, 4]);
     });
 
     it("scores an exact contiguous match above a scattered match", () => {
