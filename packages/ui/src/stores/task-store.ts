@@ -192,3 +192,11 @@ const _unsubTaskLogAdded = onEvent(MSG.TASK_LOG_ADDED, (payload) => {
         useTaskStore.getState().appendLogEntry(event.taskId, event.entry);
     }
 });
+
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        _unsubTaskUpdated();
+        _unsubTaskCreated();
+        _unsubTaskLogAdded();
+    });
+}

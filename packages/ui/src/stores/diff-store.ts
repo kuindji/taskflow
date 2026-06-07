@@ -77,5 +77,8 @@ const _unsubChangeStats = onEvent(MSG.GIT_CHANGE_STATS, (payload) => {
     }));
 });
 
-// Keep the export to prevent tree-shaking of the side-effect
-export { _unsubChangeStats };
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        _unsubChangeStats();
+    });
+}

@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { arrayMove } from "@dnd-kit/sortable";
-import type { AgentLaunchOptions, SessionRef, Task, SessionStatus, SessionCreateResponse } from "@taskflow/shared";
+import type {
+    AgentLaunchOptions,
+    SessionRef,
+    Task,
+    SessionStatus,
+    SessionCreateResponse,
+} from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, sendFireAndForget } from "../hooks/useWebSocket";
 import { useTaskStore } from "./task-store";
@@ -12,6 +18,7 @@ import {
     exitedSessions,
     isSessionExited,
 } from "./session-helpers";
+import { syncOwnerTabs } from "./session-sync";
 import type { Tab } from "./session-helpers";
 import { markInteraction } from "./session-activity";
 import { initSessionSubscriptions } from "./session-subscriptions";
@@ -384,190 +391,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         });
     },
     syncWithTasks(tasks) {
-        set((state) => {
-            const nextTabsByWorkspace: Record<string, Tab[]> = Object.fromEntries(
-                Object.entries(state.tabsByWorkspace).filter(([key]) => !key.startsWith("task:")),
-            );
-            const nextActiveTabByWorkspace: Record<string, string> = Object.fromEntries(
-                Object.entries(state.activeTabByWorkspace).filter(
-                    ([key]) => !key.startsWith("task:"),
-                ),
-            );
-
-            for (const task of tasks) {
-                const workspaceKey = getTaskWorkspaceKey(task.id);
-                const rightKey = `${workspaceKey}:right`;
-                const sessionsById = new Map(task.sessions.map((session) => [session.id, session]));
-
-                // Process right-pane tabs: filter by session existence only, no new sessions added
-                const existingRightTabs = state.tabsByWorkspace[rightKey] ?? [];
-                const rightTabs = existingRightTabs
-                    .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
-                    .map((tab) => {
-                        if (!tab.sessionId) return tab;
-                        const session = sessionsById.get(tab.sessionId);
-                        if (!session) return tab;
-                        return {
-                            ...tab,
-                            type: session.type,
-                            ...(tab.autoTitle !== true && {
-                                label: normalizeSessionLabel(session.type, session.label),
-                            }),
-                        };
-                    });
-
-                if (rightTabs.length > 0) {
-                    nextTabsByWorkspace[rightKey] = rightTabs;
-                    const currentRightActiveId = state.activeTabByWorkspace[rightKey];
-                    nextActiveTabByWorkspace[rightKey] = rightTabs.some(
-                        (tab) => tab.id === currentRightActiveId,
-                    )
-                        ? currentRightActiveId
-                        : rightTabs[0].id;
-                }
-
-                // Process base-pane tabs
-                const existingTabs = state.tabsByWorkspace[workspaceKey] ?? [];
-                const tabs = existingTabs
-                    .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
-                    .map((tab) => {
-                        if (!tab.sessionId) return tab;
-                        const session = sessionsById.get(tab.sessionId);
-                        if (!session) return tab;
-                        return {
-                            ...tab,
-                            type: session.type,
-                            ...(tab.autoTitle !== true && {
-                                label: normalizeSessionLabel(session.type, session.label),
-                            }),
-                        };
-                    });
-
-                if (!pendingSessionCreates.has(task.id)) {
-                    for (const session of task.sessions) {
-                        const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
-                        const alreadyInRight = rightTabs.some(
-                            (tab) => tab.sessionId === session.id,
-                        );
-                        if (!alreadyInBase && !alreadyInRight) {
-                            tabs.push(createSessionTab(session));
-                        }
-                    }
-                }
-
-                if (tabs.length === 0) {
-                    continue;
-                }
-
-                nextTabsByWorkspace[workspaceKey] = tabs;
-                const currentActiveId = state.activeTabByWorkspace[workspaceKey];
-                nextActiveTabByWorkspace[workspaceKey] = tabs.some(
-                    (tab) => tab.id === currentActiveId,
-                )
-                    ? currentActiveId
-                    : tabs[0].id;
-            }
-
-            return {
-                tabsByWorkspace: nextTabsByWorkspace,
-                activeTabByWorkspace: nextActiveTabByWorkspace,
-            };
-        });
+        set((state) =>
+            syncOwnerTabs({
+                owners: tasks,
+                keyPrefix: "task:",
+                getWorkspaceKey: getTaskWorkspaceKey,
+                pendingSessionCreates,
+                tabsByWorkspace: state.tabsByWorkspace,
+                activeTabByWorkspace: state.activeTabByWorkspace,
+            }),
+        );
     },
     syncWithProjects(projects) {
-        set((state) => {
-            const nextTabsByWorkspace: Record<string, Tab[]> = Object.fromEntries(
-                Object.entries(state.tabsByWorkspace).filter(
-                    ([key]) => !key.startsWith("project:"),
-                ),
-            );
-            const nextActiveTabByWorkspace: Record<string, string> = Object.fromEntries(
-                Object.entries(state.activeTabByWorkspace).filter(
-                    ([key]) => !key.startsWith("project:"),
-                ),
-            );
-
-            for (const project of projects) {
-                const workspaceKey = getProjectWorkspaceKey(project.id);
-                const rightKey = `${workspaceKey}:right`;
-                const sessionsById = new Map(
-                    project.sessions.map((session) => [session.id, session]),
-                );
-
-                // Process right-pane tabs: filter by session existence only, no new sessions added
-                const existingRightTabs = state.tabsByWorkspace[rightKey] ?? [];
-                const rightTabs = existingRightTabs
-                    .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
-                    .map((tab) => {
-                        if (!tab.sessionId) return tab;
-                        const session = sessionsById.get(tab.sessionId);
-                        if (!session) return tab;
-                        return {
-                            ...tab,
-                            type: session.type,
-                            ...(tab.autoTitle !== true && {
-                                label: normalizeSessionLabel(session.type, session.label),
-                            }),
-                        };
-                    });
-
-                if (rightTabs.length > 0) {
-                    nextTabsByWorkspace[rightKey] = rightTabs;
-                    const currentRightActiveId = state.activeTabByWorkspace[rightKey];
-                    nextActiveTabByWorkspace[rightKey] = rightTabs.some(
-                        (tab) => tab.id === currentRightActiveId,
-                    )
-                        ? currentRightActiveId
-                        : rightTabs[0].id;
-                }
-
-                // Process base-pane tabs
-                const existingTabs = state.tabsByWorkspace[workspaceKey] ?? [];
-                const tabs = existingTabs
-                    .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
-                    .map((tab) => {
-                        if (!tab.sessionId) return tab;
-                        const session = sessionsById.get(tab.sessionId);
-                        if (!session) return tab;
-                        return {
-                            ...tab,
-                            type: session.type,
-                            ...(tab.autoTitle !== true && {
-                                label: normalizeSessionLabel(session.type, session.label),
-                            }),
-                        };
-                    });
-
-                if (!pendingSessionCreates.has(project.id)) {
-                    for (const session of project.sessions) {
-                        const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
-                        const alreadyInRight = rightTabs.some(
-                            (tab) => tab.sessionId === session.id,
-                        );
-                        if (!alreadyInBase && !alreadyInRight) {
-                            tabs.push(createSessionTab(session));
-                        }
-                    }
-                }
-
-                if (tabs.length === 0) {
-                    continue;
-                }
-
-                nextTabsByWorkspace[workspaceKey] = tabs;
-                const currentActiveId = state.activeTabByWorkspace[workspaceKey];
-                nextActiveTabByWorkspace[workspaceKey] = tabs.some(
-                    (tab) => tab.id === currentActiveId,
-                )
-                    ? currentActiveId
-                    : tabs[0].id;
-            }
-
-            return {
-                tabsByWorkspace: nextTabsByWorkspace,
-                activeTabByWorkspace: nextActiveTabByWorkspace,
-            };
-        });
+        set((state) =>
+            syncOwnerTabs({
+                owners: projects,
+                keyPrefix: "project:",
+                getWorkspaceKey: getProjectWorkspaceKey,
+                pendingSessionCreates,
+                tabsByWorkspace: state.tabsByWorkspace,
+                activeTabByWorkspace: state.activeTabByWorkspace,
+            }),
+        );
     },
     syncWithMasterSessions(sessions) {
         set((state) => {

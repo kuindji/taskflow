@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import type { LinkedProject, Project, ProjectForkResponse, ProjectListResponse } from "@taskflow/shared";
+import type {
+    LinkedProject,
+    Project,
+    ProjectForkResponse,
+    ProjectListResponse,
+} from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 import { useTaskStore } from "./task-store";
@@ -120,3 +125,11 @@ const _unsubProjectUpdated = onEvent(MSG.PROJECT_UPDATED, (payload) => {
         });
     }
 });
+
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        _unsubProjectCreated();
+        _unsubProjectRemoved();
+        _unsubProjectUpdated();
+    });
+}

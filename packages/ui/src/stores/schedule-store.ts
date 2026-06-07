@@ -88,4 +88,10 @@ const _unsubScheduleUpdated = onEvent(MSG.SCHEDULE_UPDATED, (payload) => {
     }
 });
 
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        _unsubScheduleUpdated();
+    });
+}
+
 export { useScheduleStore };

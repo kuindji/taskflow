@@ -229,4 +229,10 @@ function focusRunningActionTab(run: FlowRun): void {
     }
 }
 
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        _unsubFlowRunUpdated();
+    });
+}
+
 export { useFlowStore, filterByProject };
