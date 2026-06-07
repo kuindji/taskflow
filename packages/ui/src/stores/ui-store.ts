@@ -60,6 +60,7 @@ interface UIStore {
     appearanceOpen: boolean;
     shortcutsDialogOpen: boolean;
     agentOperationsHelpOpen: boolean;
+    commandPaletteOpen: boolean;
     focusedPanel: PanelId;
     navigationMode: boolean;
     cmdHeld: boolean;
@@ -86,6 +87,8 @@ interface UIStore {
     toggleShortcutsDialog(): void;
     openAgentOperationsHelp(): void;
     setAgentOperationsHelpOpen(open: boolean): void;
+    setCommandPaletteOpen(open: boolean): void;
+    toggleCommandPalette(): void;
     setFocusedPanel(panel: PanelId): void;
     setNavigationMode(active: boolean): void;
     setCmdHeld(held: boolean): void;
@@ -127,6 +130,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
     appearanceOpen: false,
     shortcutsDialogOpen: false,
     agentOperationsHelpOpen: false,
+    commandPaletteOpen: false,
     focusedPanel: "workspace" as const,
     navigationMode: false,
     cmdHeld: false,
@@ -186,6 +190,12 @@ export const useUIStore = create<UIStore>((set, get) => ({
     },
     setAgentOperationsHelpOpen(open) {
         set({ agentOperationsHelpOpen: open });
+    },
+    setCommandPaletteOpen(open) {
+        set({ commandPaletteOpen: open });
+    },
+    toggleCommandPalette() {
+        set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen }));
     },
     setFocusedPanel(panel) {
         set({ focusedPanel: panel });
