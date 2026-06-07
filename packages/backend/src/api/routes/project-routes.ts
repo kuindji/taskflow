@@ -81,6 +81,7 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
             return jsonResponse(project, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/projects failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -105,6 +106,7 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] DELETE /api/projects/:id failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -157,6 +159,7 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             if (message.includes("not found")) return errorResponse(message, 404);
+            console.error("[api] PATCH /api/projects/:id failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -229,6 +232,7 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
             return jsonResponse({ project: newProject, targetPath, branch }, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/projects/:id/fork failed:", err);
             return errorResponse(message, 500);
         }
     });

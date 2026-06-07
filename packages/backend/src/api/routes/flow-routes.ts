@@ -58,6 +58,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flow/action-complete failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -119,6 +120,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             ) {
                 return errorResponse(message, 409);
             }
+            console.error("[api] POST /api/flow/artifact failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -181,6 +183,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse(body, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flows failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -197,6 +200,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse(body, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flow-actions failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -207,6 +211,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] DELETE /api/flows/:id failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -224,6 +229,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] DELETE /api/flow-actions/:id failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -290,6 +296,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse({ sessionId, actionId: action.id }, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flow-actions/:id/run failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -343,6 +350,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse(run, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flows/start failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -353,6 +361,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flows/:ownerId/:flowId/stop failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -363,6 +372,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flows/:ownerId/:flowId/pause failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -373,6 +383,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flows/:ownerId/:flowId/resume failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -383,6 +394,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flows/:ownerId/:flowId/skip failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -405,6 +417,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flows/:ownerId/:flowId/jump failed:", err);
             return errorResponse(message, 500);
         }
     });

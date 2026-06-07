@@ -92,6 +92,7 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
             return jsonResponse(schedule, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/schedules failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -139,6 +140,7 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             if (message.includes("not found")) return errorResponse(message, 404);
+            console.error("[api] PATCH /api/schedules/:id failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -153,6 +155,7 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] DELETE /api/schedules/:id failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -175,6 +178,7 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/schedules/complete failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -185,6 +189,7 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/schedules/:id/trigger failed:", err);
             return errorResponse(message, 500);
         }
     });

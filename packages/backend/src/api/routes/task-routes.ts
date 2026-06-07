@@ -119,6 +119,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             if (message.includes("not found")) {
                 return errorResponse(message, 404);
             }
+            console.error("[api] PATCH /api/tasks/:taskId failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -192,6 +193,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             return jsonResponse(filtered);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] PATCH /api/tasks/:taskId/worktree failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -213,6 +215,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             return jsonResponse({ task: filterTaskSessions(task, config.instanceId), log });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] GET /api/tasks/:taskId failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -297,6 +300,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             return jsonResponse({ entry }, 201);
         } catch (err) {
             const msg = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/tasks/:taskId/log failed:", err);
             return errorResponse(msg, 500);
         }
     });
@@ -364,6 +368,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             return jsonResponse(filtered);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/tasks/:taskId/archive failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -389,6 +394,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             if (message.includes("not found")) return errorResponse(message, 404);
+            console.error("[api] POST /api/tasks/:taskId/unarchive failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -467,6 +473,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             return jsonResponse({ success: true });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] DELETE /api/tasks/:taskId failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -481,6 +488,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] GET /api/projects/:projectId/tasks failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -543,6 +551,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             return jsonResponse(task, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/projects/:projectId/tasks failed:", err);
             return errorResponse(message, 500);
         }
     });

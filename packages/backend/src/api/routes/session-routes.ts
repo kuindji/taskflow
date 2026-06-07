@@ -190,6 +190,7 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
             return jsonResponse({ sessionId }, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/sessions failed:", err);
             return errorResponse(message, 500);
         }
     });
@@ -236,6 +237,7 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
             return errorResponse(`Session not found: ${sessionId}`, 404);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/sessions/:sessionId/rename failed:", err);
             return errorResponse(message, 500);
         }
     });

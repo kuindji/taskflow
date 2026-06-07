@@ -1,6 +1,8 @@
 // Taskflow CLI — cross-platform TypeScript reimplementation of taskflow-cli.sh
 // Compiled via `bun build --compile` to create a standalone binary.
 
+import { consumeFlags } from "./cli-flags";
+
 const API_URL = process.env.TASKFLOW_API_URL;
 if (!API_URL) {
     process.stderr.write("Error: TASKFLOW_API_URL is not set\n");
@@ -123,32 +125,14 @@ const rest = rawArgs.slice(argIndex + 1);
 
 // --- Flag parsing helpers ---
 
-function consumeFlags(
+function parseFlags(
     args: string[],
     spec: Record<string, "string" | "boolean">,
 ): { flags: Record<string, string | boolean>; positional: string[] } {
-    const flags: Record<string, string | boolean> = {};
-    const positional: string[] = [];
-    let i = 0;
-    while (i < args.length) {
-        const arg = args[i];
-        if (arg.startsWith("--")) {
-            const name = arg.slice(2);
-            const kind = spec[name];
-            if (kind === "boolean") {
-                flags[name] = true;
-                i++;
-            } else if (kind === "string") {
-                flags[name] = args[i + 1] ?? "";
-                i += 2;
-            } else {
-                // Unknown flag: skip
-                i++;
-            }
-        } else {
-            positional.push(arg);
-            i++;
-        }
+    const { flags, positional, unknown } = consumeFlags(args, spec);
+    if (unknown.length > 0) {
+        process.stderr.write(`Error: unknown flag "${unknown[0]}"\n`);
+        process.exit(1);
     }
     return { flags, positional };
 }
@@ -160,7 +144,7 @@ async function handleTask(args: string[]): Promise<void> {
 
     if (subcmd === "worktree") {
         requireTaskId();
-        const { flags } = consumeFlags(args.slice(1), { disable: "boolean" });
+        const { flags } = parseFlags(args.slice(1), { disable: "boolean" });
         if (flags.disable) {
             process.stdout.write(
                 await api("PATCH", `/api/tasks/${taskId}/worktree`, { enabled: false }),
@@ -182,7 +166,7 @@ async function handleTask(args: string[]): Promise<void> {
             );
             process.exit(1);
         }
-        const { flags } = consumeFlags(args.slice(2), {
+        const { flags } = parseFlags(args.slice(2), {
             title: "string",
             worktree: "boolean",
             init: "string",
@@ -230,7 +214,7 @@ async function handleTask(args: string[]): Promise<void> {
         process.stdout.write(await api("POST", `/api/projects/${targetProjectId}/tasks`, body));
     } else if (subcmd === "update") {
         requireTaskId();
-        const { flags } = consumeFlags(args.slice(1), {
+        const { flags } = parseFlags(args.slice(1), {
             title: "string",
             description: "string",
             notes: "string",
@@ -258,7 +242,7 @@ async function handleTask(args: string[]): Promise<void> {
         process.stdout.write(await api("POST", `/api/tasks/${taskId}/unarchive`));
     } else if (subcmd === "delete") {
         requireTaskId();
-        const { flags } = consumeFlags(args.slice(1), { "delete-worktree": "boolean" });
+        const { flags } = parseFlags(args.slice(1), { "delete-worktree": "boolean" });
         if (flags["delete-worktree"]) {
             process.stdout.write(
                 await api("DELETE", `/api/tasks/${taskId}`, { deleteWorktree: true }),
@@ -281,7 +265,7 @@ async function handleLog(args: string[]): Promise<void> {
         process.stderr.write("Usage: taskflow-cli log <type> <message> [--hash <hash>]\n");
         process.exit(1);
     }
-    const { flags } = consumeFlags(args.slice(2), { hash: "string" });
+    const { flags } = parseFlags(args.slice(2), { hash: "string" });
     const body: Record<string, unknown> = {
         type: logType,
         message: logMessage,
@@ -299,7 +283,7 @@ async function handleBrowser(args: string[]): Promise<void> {
         process.stderr.write("Usage: taskflow-cli browser <url> [--label <label>] [--project]\n");
         process.exit(1);
     }
-    const { flags } = consumeFlags(args.slice(1), { label: "string", project: "boolean" });
+    const { flags } = parseFlags(args.slice(1), { label: "string", project: "boolean" });
     const body: Record<string, unknown> = { url };
     if (flags.label) body.label = flags.label;
 
@@ -346,7 +330,7 @@ async function handleAction(args: string[]): Promise<void> {
             break;
         }
         case "create": {
-            const { flags } = consumeFlags(subArgs, {
+            const { flags } = parseFlags(subArgs, {
                 name: "string",
                 prompt: "string",
                 "session-type": "string",
@@ -382,7 +366,7 @@ async function handleAction(args: string[]): Promise<void> {
             }
             const allActions = JSON.parse(await api("GET", "/api/flow-actions")) as ParsedItem[];
             const existing = findById(allActions, actionId, "Action");
-            const { flags } = consumeFlags(subArgs.slice(1), {
+            const { flags } = parseFlags(subArgs.slice(1), {
                 name: "string",
                 prompt: "string",
                 "session-type": "string",
@@ -421,7 +405,7 @@ async function handleAction(args: string[]): Promise<void> {
                 );
                 process.exit(1);
             }
-            const { flags } = consumeFlags(subArgs.slice(1), { prompt: "string", label: "string" });
+            const { flags } = parseFlags(subArgs.slice(1), { prompt: "string", label: "string" });
             const body: Record<string, unknown> = ownerField();
             if (flags.prompt) body.prompt = flags.prompt;
             if (flags.label) body.label = flags.label;
@@ -452,7 +436,7 @@ async function handleArtifact(args: string[]): Promise<void> {
                 );
                 process.exit(1);
             }
-            const { flags } = consumeFlags(subArgs.slice(1), { path: "string", text: "string" });
+            const { flags } = parseFlags(subArgs.slice(1), { path: "string", text: "string" });
             if (flags.path && flags.text) {
                 process.stderr.write("Use either --path or --text, not both\n");
                 process.exit(1);
@@ -631,11 +615,11 @@ async function handleFlow(args: string[]): Promise<void> {
             break;
         }
         case "create": {
-            const { flags } = consumeFlags(subArgs, {
+            const { flags } = parseFlags(subArgs, {
                 name: "string",
                 description: "string",
             });
-            // Collect --action flags manually since consumeFlags doesn't handle repeated flags
+            // Collect --action flags manually since parseFlags doesn't handle repeated flags
             const actionIds: string[] = [];
             let j = 0;
             while (j < subArgs.length) {
@@ -679,7 +663,7 @@ async function handleFlow(args: string[]): Promise<void> {
             }
             const allFlows = JSON.parse(await api("GET", "/api/flows")) as ParsedItem[];
             const existing = findById(allFlows, fId, "Flow");
-            const { flags } = consumeFlags(subArgs.slice(1), {
+            const { flags } = parseFlags(subArgs.slice(1), {
                 name: "string",
                 description: "string",
             });
@@ -744,7 +728,7 @@ async function handleProject(args: string[]): Promise<void> {
                 process.stderr.write("Usage: taskflow-cli project add <path> [--name <name>]\n");
                 process.exit(1);
             }
-            const { flags } = consumeFlags(subArgs.slice(1), { name: "string" });
+            const { flags } = parseFlags(subArgs.slice(1), { name: "string" });
             const body: Record<string, unknown> = { path: projPath };
             if (flags.name) body.name = flags.name;
             process.stdout.write(await api("POST", "/api/projects", body));
@@ -767,7 +751,7 @@ async function handleProject(args: string[]): Promise<void> {
                 );
                 process.exit(1);
             }
-            const { flags } = consumeFlags(subArgs.slice(1), {
+            const { flags } = parseFlags(subArgs.slice(1), {
                 name: "string",
                 path: "string",
                 hidden: "boolean",
@@ -794,7 +778,7 @@ async function handleProject(args: string[]): Promise<void> {
                 );
                 process.exit(1);
             }
-            const { flags } = consumeFlags(subArgs.slice(2), { folder: "string" });
+            const { flags } = parseFlags(subArgs.slice(2), { folder: "string" });
             const body: Record<string, unknown> = { branch };
             if (flags.folder) body.folderName = flags.folder;
             process.stdout.write(await api("POST", `/api/projects/${projId}/fork`, body));
@@ -826,7 +810,7 @@ async function handleSchedule(args: string[]): Promise<void> {
         }
         case "create": {
             requireProjectId();
-            const { flags } = consumeFlags(subArgs, {
+            const { flags } = parseFlags(subArgs, {
                 expression: "string",
                 type: "string",
                 prompt: "string",
@@ -867,7 +851,7 @@ async function handleSchedule(args: string[]): Promise<void> {
                 );
                 process.exit(1);
             }
-            const { flags } = consumeFlags(subArgs.slice(1), {
+            const { flags } = parseFlags(subArgs.slice(1), {
                 name: "string",
                 prompt: "string",
                 expression: "string",
@@ -942,7 +926,7 @@ async function handleAgent(args: string[]): Promise<void> {
                 flagArgs = subArgs.slice(1);
             }
 
-            const { flags } = consumeFlags(flagArgs, {
+            const { flags } = parseFlags(flagArgs, {
                 prompt: "string",
                 task: "string",
                 label: "string",
@@ -1088,7 +1072,7 @@ async function handleSession(args: string[]): Promise<void> {
                 process.stderr.write("Usage: taskflow-cli session tail <sessionId> [--lines N]\n");
                 process.exit(1);
             }
-            const { flags } = consumeFlags(subArgs.slice(1), { lines: "string" });
+            const { flags } = parseFlags(subArgs.slice(1), { lines: "string" });
             const lines = flags.lines ? Number(flags.lines) : 100;
             process.stdout.write(await api("GET", `/api/sessions/${sessId}/tail?lines=${lines}`));
             break;
@@ -1187,6 +1171,9 @@ async function main(): Promise<void> {
             process.stdout.write(await api("GET", "/api/cli-help"));
             break;
         default:
+            if (cmd !== "") {
+                process.stderr.write(`Error: unknown command "${cmd}"\n\n`);
+            }
             process.stderr.write(await api("GET", "/api/cli-help"));
             process.exit(1);
     }
