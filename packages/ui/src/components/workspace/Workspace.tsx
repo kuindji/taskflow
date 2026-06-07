@@ -6,7 +6,6 @@ import type {
     CursorRulesCheckResponse,
     FileStatResponse,
     FlowInputDefinition,
-    ShellListResponse,
 } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
@@ -17,7 +16,8 @@ import { sendRequest } from "@/hooks/useWebSocket";
 import { TaskHeader } from "./TaskHeader";
 import { SplitContainer } from "./SplitContainer";
 import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
-import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
+import { getShellSessionLabel } from "@/lib/terminal-shells";
+import { runInShell } from "@/lib/run-in-shell";
 import { useFlowStore } from "@/stores/flow-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import useIsElectron from "@/hooks/useIsElectron";
@@ -50,7 +50,6 @@ export function Workspace() {
     const workspace = useActiveWorkspace();
     const createSession = useSessionStore((s) => s.createSession);
     const addTab = useSessionStore((s) => s.addTab);
-    const sendInput = useSessionStore((s) => s.sendInput);
     const updateTask = useTaskStore((s) => s.updateTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
     const setFocusedPanel = useUIStore((s) => s.setFocusedPanel);
@@ -269,17 +268,27 @@ export function Workspace() {
                   ? { projectId: workspace.project.id }
                   : { master: true as const };
         setFocusedPanel("workspace");
-        await createSession(
-            owner,
-            action.sessionType,
-            action.name,
-            action.prompt,
-            undefined,
-            action.sessionType !== "shell" ? action.agentOptions : undefined,
-            undefined,
-            undefined,
-            getFocusedWorkspaceKey(workspace.workspaceKey),
-        );
+        if (action.sessionType === "shell") {
+            await runInShell({
+                owner,
+                configuredShell,
+                label: action.name,
+                command: action.prompt ? `${action.prompt}\r` : undefined,
+                targetWorkspaceKey: getFocusedWorkspaceKey(workspace.workspaceKey),
+            });
+        } else {
+            await createSession(
+                owner,
+                action.sessionType,
+                action.name,
+                action.prompt,
+                undefined,
+                action.agentOptions,
+                undefined,
+                undefined,
+                getFocusedWorkspaceKey(workspace.workspaceKey),
+            );
+        }
     };
 
     const handleStartFlow = (flowId: string) => {
@@ -406,30 +415,18 @@ export function Workspace() {
 
     const handleRunScript = async (scriptName: string) => {
         if (!workspace.workspaceKey) return;
-        let shell = defaultShellPath;
-        if (!shell) {
-            const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
-            shell = resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell);
-        }
-        if (!shell) return;
         const owner =
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
                 : { projectId: workspace.project.id };
         setFocusedPanel("workspace");
-        const focusedKey = getFocusedWorkspaceKey(workspace.workspaceKey);
-        const sessionId = await createSession(
+        await runInShell({
             owner,
-            "shell",
-            scriptName,
-            undefined,
-            shell,
-            undefined,
-            undefined,
-            undefined,
-            focusedKey,
-        );
-        sendInput(sessionId, `${defaultRuntime} run ${scriptName}\r`);
+            configuredShell,
+            label: scriptName,
+            command: `${defaultRuntime} run ${scriptName}\r`,
+            targetWorkspaceKey: getFocusedWorkspaceKey(workspace.workspaceKey),
+        });
     };
 
     return (

@@ -6,7 +6,6 @@ import type {
     AgentLaunchOptions,
     FlowInputDefinition,
     ScriptsListResponse,
-    ShellListResponse,
 } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG, type AgentType } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
@@ -16,7 +15,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
-import { resolveTerminalShellPath } from "@/lib/terminal-shells";
+import { runInShell } from "@/lib/run-in-shell";
 import { hasRunMenuItems, type RunMenuData, type RunMenuCallbacks } from "@/lib/run-menu";
 import { useConnectivity } from "@/hooks/useConnectivity";
 
@@ -161,19 +160,12 @@ function useRunMenu({
     const onRunScript = useCallback(
         (name: string) => {
             navigate(true);
-            void (async () => {
-                const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
-                const shell = resolveTerminalShellPath(
-                    res.shells,
-                    res.systemShellPath,
-                    configuredShell,
-                );
-                if (!shell) return;
-                const sessionId = await useSessionStore
-                    .getState()
-                    .createSession(owner, "shell", name, undefined, shell);
-                useSessionStore.getState().sendInput(sessionId, `${defaultRuntime} run ${name}\r`);
-            })();
+            void runInShell({
+                owner,
+                configuredShell,
+                label: name,
+                command: `${defaultRuntime} run ${name}\r`,
+            });
         },
         [navigate, owner, configuredShell, defaultRuntime],
     );
@@ -192,21 +184,12 @@ function useRunMenu({
         (action: ActionDefinition) => {
             navigate(true);
             if (action.sessionType === "shell") {
-                void (async () => {
-                    const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
-                    const shell = resolveTerminalShellPath(
-                        res.shells,
-                        res.systemShellPath,
-                        configuredShell,
-                    );
-                    if (!shell) return;
-                    const sessionId = await useSessionStore
-                        .getState()
-                        .createSession(owner, "shell", action.name, undefined, shell);
-                    if (action.prompt) {
-                        useSessionStore.getState().sendInput(sessionId, `${action.prompt}\r`);
-                    }
-                })();
+                void runInShell({
+                    owner,
+                    configuredShell,
+                    label: action.name,
+                    command: action.prompt ? `${action.prompt}\r` : undefined,
+                });
             } else {
                 void useSessionStore
                     .getState()
