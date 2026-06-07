@@ -119,6 +119,16 @@ function usePanelNavigation() {
             }
 
             if (!(e.metaKey || e.ctrlKey)) return;
+
+            // Cmd+Shift+P: toggle command palette (also allowed while the
+            // palette itself is open so the shortcut closes it)
+            if (e.shiftKey && !e.altKey && e.key.toLowerCase() === "p") {
+                if (isDialogOpen() && !store.commandPaletteOpen) return;
+                e.preventDefault();
+                store.toggleCommandPalette();
+                return;
+            }
+
             if (isDialogOpen()) return;
 
             // Cmd+Shift+Left/Right: panel cycling
