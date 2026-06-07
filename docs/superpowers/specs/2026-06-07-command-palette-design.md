@@ -57,8 +57,11 @@ primitives (`packages/ui/src/components/ui/dialog.tsx`):
   hover moves selection; click runs. Search input stays focused throughout.
 - **Offline:** agent actions render disabled when offline (same condition the
   Run menu uses); scripts remain enabled.
-- **No task selected:** the palette opens and shows a "Select a task to run
-  actions" empty state instead of results.
+- **Scope:** the palette operates on the active task, or on the active
+  project when no task is selected (same owner semantics as the Run menu —
+  sessions land in the task or project workspace respectively). With neither
+  active (e.g. master workspace), it opens with a "Select a task or project
+  to run actions" empty state instead of results.
 
 ## Fuzzy Matching
 

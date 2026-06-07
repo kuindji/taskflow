@@ -56,14 +56,16 @@ function CommandPaletteDialog() {
     const listRef = useRef<HTMLDivElement>(null);
 
     const workspace = useActiveWorkspace();
-    const hasTask = workspace.scope === "task" && workspace.task !== null;
+    // Same owner semantics as the Run menu: actions and scripts run in the
+    // active task, or in the project workspace when only a project is active.
+    const hasContext = workspace.scope === "task" || workspace.scope === "project";
 
     const { data, callbacks } = useRunMenu({
         projectId: workspace.project?.id ?? "",
         projectPath: workspace.workingDir ?? "",
         taskId: workspace.task?.id,
         showAgentOptions: false,
-        enabled: open && hasTask,
+        enabled: open && hasContext,
     });
 
     // Reset transient state whenever the palette opens
@@ -79,7 +81,7 @@ function CommandPaletteDialog() {
     }, [query]);
 
     const groups: PaletteGroup[] = useMemo(() => {
-        if (!hasTask) return [];
+        if (!hasContext) return [];
 
         const filterRows = (rows: PaletteRow[]): PaletteRow[] => {
             if (!query) return rows;
@@ -113,7 +115,7 @@ function CommandPaletteDialog() {
             { title: "Actions", rows: filterRows(actionRows) },
             { title: "package.json", rows: filterRows(scriptRows) },
         ].filter((group) => group.rows.length > 0);
-    }, [hasTask, data.standaloneActions, data.scripts, data.defaultRuntime, data.online, query]);
+    }, [hasContext, data.standaloneActions, data.scripts, data.defaultRuntime, data.online, query]);
 
     const flatRows = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
 
@@ -193,9 +195,9 @@ function CommandPaletteDialog() {
                     className="placeholder:text-muted-foreground border-border w-full border-b bg-transparent px-4 py-3 text-sm outline-none"
                 />
                 <div ref={listRef} className="max-h-[50vh] overflow-y-auto p-1">
-                    {!hasTask ? (
+                    {!hasContext ? (
                         <p className="text-muted-foreground px-3 py-6 text-center text-sm">
-                            Select a task to run actions
+                            Select a task or project to run actions
                         </p>
                     ) : flatRows.length === 0 ? (
                         <p className="text-muted-foreground px-3 py-6 text-center text-sm">
