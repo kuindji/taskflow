@@ -198,6 +198,16 @@ function KeyboardShortcutsDialog() {
                             keys={
                                 <>
                                     <Kbd>&#8984;</Kbd>
+                                    <Kbd>&#8679;</Kbd>
+                                    <Kbd className="text-xs">P</Kbd>
+                                </>
+                            }
+                            description="Open command palette"
+                        />
+                        <ShortcutRow
+                            keys={
+                                <>
+                                    <Kbd>&#8984;</Kbd>
                                     <Kbd>,</Kbd>
                                 </>
                             }
