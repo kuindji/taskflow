@@ -89,9 +89,14 @@ function setWordWrapChecked(value: boolean): void {
     }
 }
 
-function buildAppMenu(): void {
-    const mainWindow = deps.getMainWindow();
+function sendToMainWindow(channel: string): void {
+    const win = deps.getMainWindow();
+    if (win && !win.isDestroyed()) {
+        win.webContents.send(channel);
+    }
+}
 
+function buildAppMenu(): void {
     const template: Electron.MenuItemConstructorOptions[] = [
         {
             role: "appMenu",
@@ -102,25 +107,25 @@ function buildAppMenu(): void {
                     label: "Settings",
                     accelerator: "CmdOrCtrl+,",
                     click: () => {
-                        mainWindow?.webContents.send("open-settings");
+                        sendToMainWindow("open-settings");
                     },
                 },
                 {
                     label: "Appearance",
                     click: () => {
-                        mainWindow?.webContents.send("open-appearance");
+                        sendToMainWindow("open-appearance");
                     },
                 },
                 {
                     label: "Actions and Flows",
                     click: () => {
-                        mainWindow?.webContents.send("open-flows");
+                        sendToMainWindow("open-flows");
                     },
                 },
                 {
                     label: "Schedules",
                     click: () => {
-                        mainWindow?.webContents.send("open-schedules");
+                        sendToMainWindow("open-schedules");
                     },
                 },
                 { type: "separator" },
@@ -178,7 +183,7 @@ function buildAppMenu(): void {
                     checked: wordWrapChecked,
                     accelerator: "Alt+Z",
                     click: () => {
-                        mainWindow?.webContents.send("toggle-word-wrap");
+                        sendToMainWindow("toggle-word-wrap");
                     },
                 },
             ],
@@ -190,7 +195,7 @@ function buildAppMenu(): void {
                     label: "Command Palette…",
                     accelerator: "CmdOrCtrl+Shift+P",
                     click: () => {
-                        mainWindow?.webContents.send("open-command-palette");
+                        sendToMainWindow("open-command-palette");
                     },
                 },
                 { type: "separator" },
@@ -200,7 +205,7 @@ function buildAppMenu(): void {
                     type: "checkbox",
                     checked: showArchiveChecked,
                     click: () => {
-                        mainWindow?.webContents.send("toggle-archive");
+                        sendToMainWindow("toggle-archive");
                     },
                 },
                 {
@@ -210,7 +215,7 @@ function buildAppMenu(): void {
                     checked: compactSidebarChecked,
                     accelerator: "CmdOrCtrl+Shift+C",
                     click: () => {
-                        mainWindow?.webContents.send("toggle-compact-sidebar");
+                        sendToMainWindow("toggle-compact-sidebar");
                     },
                 },
                 {
@@ -220,7 +225,7 @@ function buildAppMenu(): void {
                     checked: fileExplorerChecked,
                     accelerator: "CmdOrCtrl+E",
                     click: () => {
-                        mainWindow?.webContents.send("toggle-file-explorer");
+                        sendToMainWindow("toggle-file-explorer");
                     },
                 },
                 {
@@ -230,7 +235,7 @@ function buildAppMenu(): void {
                     checked: taskInfoChecked,
                     accelerator: "CmdOrCtrl+I",
                     click: () => {
-                        mainWindow?.webContents.send("toggle-task-info");
+                        sendToMainWindow("toggle-task-info");
                     },
                 },
                 {
@@ -238,7 +243,7 @@ function buildAppMenu(): void {
                     label: "Markdown Input",
                     accelerator: "CmdOrCtrl+Shift+E",
                     click: () => {
-                        mainWindow?.webContents.send("toggle-markdown-input");
+                        sendToMainWindow("toggle-markdown-input");
                     },
                 },
                 { type: "separator" },
@@ -260,28 +265,28 @@ function buildAppMenu(): void {
                     label: "New Task",
                     accelerator: "CmdOrCtrl+N",
                     click: () => {
-                        mainWindow?.webContents.send("new-task");
+                        sendToMainWindow("new-task");
                     },
                 },
                 {
                     label: "New Terminal",
                     accelerator: "CmdOrCtrl+T",
                     click: () => {
-                        mainWindow?.webContents.send("new-terminal");
+                        sendToMainWindow("new-terminal");
                     },
                 },
                 {
                     label: "New Agent",
                     accelerator: "CmdOrCtrl+J",
                     click: () => {
-                        mainWindow?.webContents.send("new-agent");
+                        sendToMainWindow("new-agent");
                     },
                 },
                 {
                     label: "Toggle Split",
                     accelerator: "CmdOrCtrl+Shift+S",
                     click: () => {
-                        mainWindow?.webContents.send("toggle-workspace-split");
+                        sendToMainWindow("toggle-workspace-split");
                     },
                 },
                 { type: "separator" },
@@ -289,21 +294,21 @@ function buildAppMenu(): void {
                     label: "Close Tab",
                     accelerator: "CmdOrCtrl+W",
                     click: () => {
-                        mainWindow?.webContents.send("close-tab");
+                        sendToMainWindow("close-tab");
                     },
                 },
                 {
                     label: "Focus Panel Left",
                     accelerator: "CmdOrCtrl+Shift+Left",
                     click: () => {
-                        mainWindow?.webContents.send("focus-panel-left");
+                        sendToMainWindow("focus-panel-left");
                     },
                 },
                 {
                     label: "Focus Panel Right",
                     accelerator: "CmdOrCtrl+Shift+Right",
                     click: () => {
-                        mainWindow?.webContents.send("focus-panel-right");
+                        sendToMainWindow("focus-panel-right");
                     },
                 },
                 { type: "separator" },
@@ -320,13 +325,13 @@ function buildAppMenu(): void {
                     label: "Keyboard Shortcuts",
                     accelerator: "CmdOrCtrl+/",
                     click: () => {
-                        mainWindow?.webContents.send("open-keyboard-shortcuts");
+                        sendToMainWindow("open-keyboard-shortcuts");
                     },
                 },
                 {
                     label: "What Agents Can Do",
                     click: () => {
-                        mainWindow?.webContents.send("open-agent-operations-help");
+                        sendToMainWindow("open-agent-operations-help");
                     },
                 },
             ],
