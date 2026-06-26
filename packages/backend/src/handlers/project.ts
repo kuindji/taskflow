@@ -4,7 +4,9 @@ import type {
     ProjectAddPayload,
     ProjectForkPayload,
     ProjectRemovePayload,
+    ProjectReorderPayload,
     ProjectUpdatePayload,
+    WsEvent,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
@@ -28,6 +30,7 @@ export function registerProjectHandlers(
     gitService: GitService,
     closeSession?: (sessionId: string) => void,
     changeTracker?: ChangeTracker,
+    broadcast?: (event: WsEvent) => void,
 ): void {
     router.register(MSG.PROJECT_LIST, async () => {
         const projects = await store.listProjects();
@@ -108,6 +111,13 @@ export function registerProjectHandlers(
             changeTracker?.track(id, path);
         }
         return filterProjectSessions(updated, config.instanceId);
+    });
+
+    router.register(MSG.PROJECT_REORDER, async (payload) => {
+        const { orderedIds } = payload as ProjectReorderPayload;
+        const projects = await store.reorderProjects(orderedIds);
+        broadcast?.({ type: MSG.PROJECT_REORDERED, payload: { orderedIds } });
+        return { projects: projects.map((p) => filterProjectSessions(p, config.instanceId)) };
     });
 
     router.register(MSG.PROJECT_FORK, async (payload) => {

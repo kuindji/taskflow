@@ -70,6 +70,10 @@ export interface ProjectForkResponse {
     branch: string;
 }
 
+export interface ProjectReorderPayload {
+    orderedIds: string[];
+}
+
 // Task messages
 export interface TaskListPayload {
     projectId?: string;

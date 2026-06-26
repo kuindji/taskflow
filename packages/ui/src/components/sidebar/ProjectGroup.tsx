@@ -1,4 +1,6 @@
 import { Fragment, useMemo, useState, type MouseEvent } from "react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { Project, SessionStatus, Task } from "@taskflow/shared";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
@@ -95,6 +97,15 @@ export function ProjectGroup({
         showAgentOptions: false,
         enabled: contextMenuOpen,
     });
+
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+        id: project.id,
+    });
+    const sortableStyle = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.6 : undefined,
+    };
 
     const { topLevelTasks, subtaskMap } = useMemo(() => {
         const topLevel: Task[] = [];
@@ -248,6 +259,8 @@ export function ProjectGroup({
                     />
                 </button>
                 <button
+                    {...attributes}
+                    {...listeners}
                     onClick={(e) => {
                         e.stopPropagation();
                         handleProjectClick();
@@ -330,6 +343,8 @@ export function ProjectGroup({
     return (
         <>
             <Collapsible
+                ref={setNodeRef}
+                style={sortableStyle}
                 open={open}
                 onOpenChange={onOpenChange}
                 className={cn(

@@ -6,7 +6,7 @@ import type {
     TaskLogEntryType,
     TaskWorktree,
 } from "@taskflow/shared";
-import { ARCHIVE_EXPIRY_DAYS } from "@taskflow/shared";
+import { ARCHIVE_EXPIRY_DAYS, orderProjectsByIds } from "@taskflow/shared";
 import {
     appendFile,
     readFile,
@@ -370,6 +370,16 @@ export class TaskStore {
             this.config.projectsFile,
             JSON.stringify(this.stripEphemeralFields(filtered), null, 2),
         );
+    }
+
+    async reorderProjects(orderedIds: string[]): Promise<Project[]> {
+        const projects = await this.listProjects();
+        const reordered = orderProjectsByIds(projects, orderedIds);
+        await writeFile(
+            this.config.projectsFile,
+            JSON.stringify(this.stripEphemeralFields(reordered), null, 2),
+        );
+        return reordered;
     }
 
     // --- Tasks ---

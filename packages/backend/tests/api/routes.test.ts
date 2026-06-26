@@ -374,3 +374,88 @@ describe("task creation routes", () => {
         expect(emptyBody.initCommand).toBe("bun install");
     });
 });
+
+describe("project reorder routes", () => {
+    let apiRouter: ApiRouter;
+    let tempDir: string;
+    let taskStore: TaskStore;
+    let events: WsEvent[];
+
+    beforeEach(async () => {
+        tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-project-reorder-"));
+        apiRouter = new ApiRouter();
+        events = [];
+        taskStore = new TaskStore({
+            projectsFile: join(tempDir, "projects.json"),
+            tasksDir: join(tempDir, "tasks"),
+            archiveDir: join(tempDir, "archive"),
+            sessionLogsDir: join(tempDir, "session-logs"),
+            taskLogsDir: join(tempDir, "task-logs"),
+        });
+        await taskStore.init();
+
+        registerApiRoutes({
+            apiRouter,
+            taskStore,
+            ptyManager: new FakePtyManager() as never,
+            broadcast: (event) => {
+                events.push(event);
+            },
+            settingsStore: new SettingsStore(join(tempDir, "settings.json")),
+            flowStore: {} as never,
+            flowRunner: {} as never,
+            gitService: {} as never,
+            agents: [],
+            ...sharedTestDeps,
+            trayStateTracker: new FakeTrayStateTracker() as never,
+            notificationStore: {} as never,
+        });
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("PATCH /api/projects/reorder reorders projects", async () => {
+        const pathA = await realpath(
+            await mkdir(join(tempDir, "proj-a"), { recursive: true }).then(() =>
+                join(tempDir, "proj-a"),
+            ),
+        );
+        const pathB = await realpath(
+            await mkdir(join(tempDir, "proj-b"), { recursive: true }).then(() =>
+                join(tempDir, "proj-b"),
+            ),
+        );
+        const projectA = await taskStore.addProject({ name: "a", path: pathA });
+        const projectB = await taskStore.addProject({ name: "b", path: pathB });
+
+        const res = await apiRouter.handle(
+            new Request("http://localhost/api/projects/reorder", {
+                method: "PATCH",
+                body: JSON.stringify({ orderedIds: [projectB.id, projectA.id] }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+        expect(res?.status).toBe(200);
+        const body = (await res?.json()) as { projects: Array<{ id: string }> };
+        expect(body.projects.map((p) => p.id)).toEqual([projectB.id, projectA.id]);
+        expect(events).toEqual([
+            {
+                type: MSG.PROJECT_REORDERED,
+                payload: { orderedIds: [projectB.id, projectA.id] },
+            },
+        ]);
+    });
+
+    it("PATCH /api/projects/reorder returns 400 for invalid body", async () => {
+        const res = await apiRouter.handle(
+            new Request("http://localhost/api/projects/reorder", {
+                method: "PATCH",
+                body: JSON.stringify({ orderedIds: "not-an-array" }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+        expect(res?.status).toBe(400);
+    });
+});

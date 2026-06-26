@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { TaskStore } from "../../src/services/task-store";
-import { access, mkdtemp, mkdir, rm, writeFile } from "fs/promises";
+import { access, mkdtemp, mkdir, realpath, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -404,5 +404,56 @@ describe("TaskStore", () => {
             const updatedTask = await store.getTask(task.id);
             expect(updatedTask!.sessions).toHaveLength(0);
         });
+    });
+});
+
+describe("TaskStore.reorderProjects", () => {
+    let store: TaskStore;
+    let tempDir: string;
+
+    beforeEach(async () => {
+        tempDir = await realpath(await mkdtemp(join(tmpdir(), "taskflow-test-")));
+        store = new TaskStore({
+            projectsFile: join(tempDir, "projects.json"),
+            tasksDir: join(tempDir, "tasks"),
+            archiveDir: join(tempDir, "archive"),
+            sessionLogsDir: join(tempDir, "session-logs"),
+            taskLogsDir: join(tempDir, "task-logs"),
+        });
+        await store.init();
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, { recursive: true, force: true });
+    });
+
+    async function addReorderProject(name: string): Promise<string> {
+        const dir = join(tempDir, name);
+        await mkdir(dir, { recursive: true });
+        const project = await store.addProject({ name, path: dir });
+        return project.id;
+    }
+
+    it("persists the requested order and returns the new full list", async () => {
+        const a = await addReorderProject("a");
+        const b = await addReorderProject("b");
+        const c = await addReorderProject("c");
+
+        const returned = await store.reorderProjects([c, a, b]);
+        expect(returned.map((p) => p.id)).toEqual([c, a, b]);
+
+        const ids = (await store.listProjects()).map((p) => p.id);
+        expect(ids).toEqual([c, a, b]);
+    });
+
+    it("appends projects missing from orderedIds", async () => {
+        const a = await addReorderProject("a");
+        const b = await addReorderProject("b");
+        const c = await addReorderProject("c");
+
+        await store.reorderProjects([c]);
+
+        const ids = (await store.listProjects()).map((p) => p.id);
+        expect(ids).toEqual([c, a, b]);
     });
 });

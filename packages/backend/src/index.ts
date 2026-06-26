@@ -252,6 +252,7 @@ async function main() {
                 ptyManager.close(sessionId);
             },
             changeTracker,
+            server.broadcast,
         );
         registerTaskHandlers({
             router,
