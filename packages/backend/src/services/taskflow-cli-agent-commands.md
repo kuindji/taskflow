@@ -5,7 +5,7 @@
 `taskflow-cli agent run --task <id> --prompt "<prompt>"` Start default agent session on a task with custom prompt
 `taskflow-cli agent run <agent> --task? --prompt?` Start a specific agent session
 All run commands also accept --label "<label>" and --model "<model>" arguments.
---model sets the model (e.g. "opus", "sonnet", "haiku" for Claude; "pro", "flash" for Gemini).
+--model sets the model (e.g. "fable", "opus", "sonnet", "haiku" for Claude; "pro", "flash" for Gemini).
 Without --task agent will be started on project level. Within task context by default pass --task.
 Claude-specific flags: --dangerously-skip-permissions, --permission-mode "<mode>", --effort "<level>".
 --dangerously-skip-permissions bypasses all permission checks for Claude.

@@ -68,6 +68,7 @@ function ClaudeOptions({
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="default">Default</SelectItem>
+                        <SelectItem value="fable">Fable</SelectItem>
                         <SelectItem value="opus">Opus</SelectItem>
                         <SelectItem value="sonnet">Sonnet</SelectItem>
                         <SelectItem value="haiku">Haiku</SelectItem>
