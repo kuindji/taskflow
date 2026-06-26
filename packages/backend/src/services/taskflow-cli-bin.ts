@@ -2,6 +2,7 @@
 // Compiled via `bun build --compile` to create a standalone binary.
 
 import { consumeFlags } from "./cli-flags";
+import { computeMovedOrder } from "./project-move";
 
 const API_URL = process.env.TASKFLOW_API_URL;
 if (!API_URL) {
@@ -784,8 +785,53 @@ async function handleProject(args: string[]): Promise<void> {
             process.stdout.write(await api("POST", `/api/projects/${projId}/fork`, body));
             break;
         }
+        case "move": {
+            const projId = subArgs[0] ?? "";
+            if (!projId) {
+                process.stderr.write(
+                    "Usage: taskflow-cli project move <id> (--to <n> | --before <id> | --after <id>)\n",
+                );
+                process.exit(1);
+            }
+            const { flags } = parseFlags(subArgs.slice(1), {
+                to: "string",
+                before: "string",
+                after: "string",
+            });
+            const target: { to?: number; before?: string; after?: string } = {};
+            if (typeof flags.to === "string") {
+                const n = Number.parseInt(flags.to, 10);
+                if (Number.isNaN(n)) {
+                    process.stderr.write("--to must be a number\n");
+                    process.exit(1);
+                }
+                target.to = n;
+            } else if (typeof flags.before === "string") {
+                target.before = flags.before;
+            } else if (typeof flags.after === "string") {
+                target.after = flags.after;
+            } else {
+                process.stderr.write("One of --to, --before, or --after is required\n");
+                process.exit(1);
+            }
+            const listed = JSON.parse(await api("GET", "/api/projects")) as {
+                projects: Array<{ id: string }>;
+            };
+            const orderedIds = listed.projects.map((p) => p.id);
+            let next: string[];
+            try {
+                next = computeMovedOrder(orderedIds, projId, target);
+            } catch (err) {
+                process.stderr.write(`${err instanceof Error ? err.message : "Error"}\n`);
+                process.exit(1);
+            }
+            process.stdout.write(
+                await api("PATCH", "/api/projects/reorder", { orderedIds: next }),
+            );
+            break;
+        }
         default:
-            process.stderr.write("Usage: taskflow-cli project <list|add|remove|update|fork>\n");
+            process.stderr.write("Usage: taskflow-cli project <list|add|remove|update|fork|move>\n");
             process.exit(1);
     }
 }
