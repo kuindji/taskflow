@@ -35,10 +35,12 @@ private struct TabDropDelegate: DropDelegate {
     func dropEntered(info: DropInfo) {
         guard let from = info.itemProviders(for: [.text]).first else { return }
         from.loadObject(ofClass: NSString.self) { obj, _ in
-            guard let raw = obj as? String, let dragged = PaneKind(rawValue: raw),
-                  dragged != item,
-                  let f = order.firstIndex(of: dragged), let t = order.firstIndex(of: item) else { return }
+            guard let raw = obj as? String,
+                  let dragged = PaneKind(rawValue: raw),
+                  dragged != item else { return }
             DispatchQueue.main.async {
+                guard let f = order.firstIndex(of: dragged),
+                      let t = order.firstIndex(of: item) else { return }
                 withAnimation { order.move(fromOffsets: IndexSet(integer: f),
                                            toOffset: t > f ? t + 1 : t) }
             }
