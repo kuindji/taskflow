@@ -1,4 +1,8 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { buildReorderedProjectIds } from "@taskflow/shared";
 import type { Notification } from "@taskflow/shared";
 import { getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { cn } from "@/lib/utils";
@@ -74,6 +78,30 @@ export function TaskSidebar() {
     const showBadges = cmdHeld && focusedPanel === "sidebar";
 
     useSidebarNavigation();
+
+    const reorderProjects = useProjectStore((s) => s.reorderProjects);
+    const allProjects = useProjectStore((s) => s.projects);
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    );
+    const visibleProjectIds = useMemo(
+        () => visibleProjects.map((p) => p.id),
+        [visibleProjects],
+    );
+
+    const handleProjectDragEnd = useCallback(
+        (event: DragEndEvent) => {
+            const { active, over } = event;
+            if (!over || active.id === over.id) return;
+            const oldIndex = visibleProjectIds.indexOf(String(active.id));
+            const newIndex = visibleProjectIds.indexOf(String(over.id));
+            if (oldIndex === -1 || newIndex === -1) return;
+            const reorderedVisible = arrayMove(visibleProjectIds, oldIndex, newIndex);
+            const fullIds = allProjects.map((p) => p.id);
+            void reorderProjects(buildReorderedProjectIds(fullIds, reorderedVisible));
+        },
+        [visibleProjectIds, allProjects, reorderProjects],
+    );
 
     useEffect(() => {
         const cleanup = window.taskflow?.onToggleArchive(() => {
@@ -288,59 +316,70 @@ export function TaskSidebar() {
                 {showArchive && displayTasks.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">No archived tasks.</div>
                 )}
-                {visibleProjects.map((project, index) => {
-                    const projectTasks = tasksByProject.get(project.id) ?? [];
-                    const projectOpen = !collapsedProjectIds.includes(project.id);
+                <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleProjectDragEnd}>
+                    <SortableContext
+                        items={visibleProjectIds}
+                        strategy={verticalListSortingStrategy}>
+                        {visibleProjects.map((project, index) => {
+                            const projectTasks = tasksByProject.get(project.id) ?? [];
+                            const projectOpen = !collapsedProjectIds.includes(project.id);
 
-                    let taskKeyBadges: Record<string, number> | undefined;
-                    let projectBadgeNumber: number | undefined;
+                            let taskKeyBadges: Record<string, number> | undefined;
+                            let projectBadgeNumber: number | undefined;
 
-                    if (showBadges) {
-                        if (!sidebarFocusedItem || sidebarFocusedItem.type === "project") {
-                            projectBadgeNumber = index < 9 ? index + 1 : undefined;
-                        } else if (sidebarFocusedItem.type === "task") {
-                            const focusedTask = displayTasks.find(
-                                (t) => t.id === sidebarFocusedItem.id,
-                            );
-                            if (focusedTask && focusedTask.projectId === project.id) {
-                                taskKeyBadges = {};
-                                let badgeIndex = 0;
-                                for (const task of projectTasks) {
-                                    if (!task.parentId) {
-                                        if (badgeIndex < 9) {
-                                            taskKeyBadges[task.id] = badgeIndex + 1;
+                            if (showBadges) {
+                                if (!sidebarFocusedItem || sidebarFocusedItem.type === "project") {
+                                    projectBadgeNumber = index < 9 ? index + 1 : undefined;
+                                } else if (sidebarFocusedItem.type === "task") {
+                                    const focusedTask = displayTasks.find(
+                                        (t) => t.id === sidebarFocusedItem.id,
+                                    );
+                                    if (focusedTask && focusedTask.projectId === project.id) {
+                                        taskKeyBadges = {};
+                                        let badgeIndex = 0;
+                                        for (const task of projectTasks) {
+                                            if (!task.parentId) {
+                                                if (badgeIndex < 9) {
+                                                    taskKeyBadges[task.id] = badgeIndex + 1;
+                                                }
+                                                badgeIndex++;
+                                            }
                                         }
-                                        badgeIndex++;
                                     }
                                 }
                             }
-                        }
-                    }
 
-                    return (
-                        <div key={project.id}>
-                            {index > 0 && <NoDragSpacer />}
-                            <ProjectGroup
-                                project={project}
-                                tasks={projectTasks}
-                                activeTaskId={activeTaskId}
-                                isActive={!activeTaskId && activeProjectId === project.id}
-                                diffStats={diffStatsByProject[project.id]}
-                                diffStatsByTask={diffStatsByProject}
-                                behind={behindByProject[project.id] ?? 0}
-                                behindByTask={behindByProject}
-                                keyBadgeNumber={projectBadgeNumber}
-                                taskKeyBadges={taskKeyBadges}
-                                onProjectClick={handleProjectClick}
-                                onTaskClick={handleTaskClick}
-                                archived={showArchive}
-                                compact={compactSidebar}
-                                open={projectOpen}
-                                onOpenChange={(open) => handleProjectOpenChange(project.id, open)}
-                            />
-                        </div>
-                    );
-                })}
+                            return (
+                                <div key={project.id}>
+                                    {index > 0 && <NoDragSpacer />}
+                                    <ProjectGroup
+                                        project={project}
+                                        tasks={projectTasks}
+                                        activeTaskId={activeTaskId}
+                                        isActive={!activeTaskId && activeProjectId === project.id}
+                                        diffStats={diffStatsByProject[project.id]}
+                                        diffStatsByTask={diffStatsByProject}
+                                        behind={behindByProject[project.id] ?? 0}
+                                        behindByTask={behindByProject}
+                                        keyBadgeNumber={projectBadgeNumber}
+                                        taskKeyBadges={taskKeyBadges}
+                                        onProjectClick={handleProjectClick}
+                                        onTaskClick={handleTaskClick}
+                                        archived={showArchive}
+                                        compact={compactSidebar}
+                                        open={projectOpen}
+                                        onOpenChange={(open) =>
+                                            handleProjectOpenChange(project.id, open)
+                                        }
+                                    />
+                                </div>
+                            );
+                        })}
+                    </SortableContext>
+                </DndContext>
             </div>
             {/* <Separator /> */}
             <Toolbar noBorder className="justify-between">

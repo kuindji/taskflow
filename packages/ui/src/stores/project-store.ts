@@ -5,7 +5,7 @@ import type {
     ProjectForkResponse,
     ProjectListResponse,
 } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import { MSG, orderProjectsByIds } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 import { useTaskStore } from "./task-store";
 import { useUIStore } from "./ui-store";
@@ -33,6 +33,7 @@ interface ProjectStore {
         branch: string,
         folderName?: string,
     ): Promise<ProjectForkResponse>;
+    reorderProjects(orderedIds: string[]): Promise<void>;
 }
 
 export const useProjectStore = create<ProjectStore>((set) => ({
@@ -90,6 +91,14 @@ export const useProjectStore = create<ProjectStore>((set) => ({
         set((s) => ({ projects: [...s.projects, response.project] }));
         return response;
     },
+    async reorderProjects(orderedIds) {
+        // Optimistic local reorder, then confirm with the server.
+        set((s) => ({ projects: orderProjectsByIds(s.projects, orderedIds) }));
+        const { projects } = await sendRequest<ProjectListResponse>(MSG.PROJECT_REORDER, {
+            orderedIds,
+        });
+        set({ projects });
+    },
 }));
 
 // Listen for new projects broadcast by the backend (e.g., added via CLI).
@@ -126,10 +135,22 @@ const _unsubProjectUpdated = onEvent(MSG.PROJECT_UPDATED, (payload) => {
     }
 });
 
+// Listen for project reorder broadcast from another window.
+const _unsubProjectReordered = onEvent(MSG.PROJECT_REORDERED, (payload) => {
+    if (payload && typeof payload === "object" && "orderedIds" in payload) {
+        const { orderedIds } = payload as { orderedIds: string[] };
+        const state = useProjectStore.getState();
+        useProjectStore.setState({
+            projects: orderProjectsByIds(state.projects, orderedIds),
+        });
+    }
+});
+
 if (import.meta.hot) {
     import.meta.hot.dispose(() => {
         _unsubProjectCreated();
         _unsubProjectRemoved();
         _unsubProjectUpdated();
+        _unsubProjectReordered();
     });
 }
