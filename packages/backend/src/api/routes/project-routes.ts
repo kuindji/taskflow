@@ -120,11 +120,11 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
         }
         if (
             !Array.isArray(body.orderedIds) ||
-            !body.orderedIds.every((id) => typeof id === "string")
+            !body.orderedIds.every((id): id is string => typeof id === "string")
         ) {
             return errorResponse("orderedIds must be an array of strings", 400);
         }
-        const orderedIds = body.orderedIds as string[];
+        const orderedIds = body.orderedIds;
         try {
             const projects = await taskStore.reorderProjects(orderedIds);
             broadcast({ type: MSG.PROJECT_REORDERED, payload: { orderedIds } });
