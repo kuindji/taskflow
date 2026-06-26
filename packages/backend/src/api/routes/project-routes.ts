@@ -111,6 +111,33 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
         }
     });
 
+    apiRouter.register("PATCH", "/api/projects/reorder", async (req) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+        if (
+            !Array.isArray(body.orderedIds) ||
+            !body.orderedIds.every((id) => typeof id === "string")
+        ) {
+            return errorResponse("orderedIds must be an array of strings", 400);
+        }
+        const orderedIds = body.orderedIds as string[];
+        try {
+            const projects = await taskStore.reorderProjects(orderedIds);
+            broadcast({ type: MSG.PROJECT_REORDERED, payload: { orderedIds } });
+            return jsonResponse({
+                projects: projects.map((p) => filterProjectSessions(p, config.instanceId)),
+            });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] PATCH /api/projects/reorder failed:", err);
+            return errorResponse(message, 500);
+        }
+    });
+
     apiRouter.register("PATCH", "/api/projects/:id", async (req, params) => {
         let body: Record<string, unknown>;
         try {
