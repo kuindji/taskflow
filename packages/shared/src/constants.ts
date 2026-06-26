@@ -9,6 +9,8 @@ export const MSG = {
     PROJECT_CREATED: "project:created",
     PROJECT_REMOVED: "project:removed",
     PROJECT_UPDATED: "project:updated",
+    PROJECT_REORDER: "project:reorder",
+    PROJECT_REORDERED: "project:reordered",
 
     // Tasks
     TASK_LIST: "task:list",
