@@ -29,5 +29,10 @@ let package = Package(
             ],
             path: "Sources/NativeSlice"
         ),
+        .testTarget(
+            name: "NativeSliceTests",
+            dependencies: ["NativeSlice"],
+            path: "Tests/NativeSliceTests"
+        ),
     ]
 )
