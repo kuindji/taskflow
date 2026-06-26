@@ -31,7 +31,10 @@ struct WorkspaceView: View {
         case .terminal:
             TerminalPane(workingDirectory: FileManager.default.currentDirectoryPath)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .editor:   Text("Editor pane — Task 8").frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .editor:
+            EditorPane(filePath: FileManager.default.currentDirectoryPath
+                + "/Sources/NativeSlice/UI/WorkspaceView.swift")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
