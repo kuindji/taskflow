@@ -5,5 +5,6 @@ struct WorkspaceView: View {
     var body: some View {
         Text(selectedTaskId.map { "Selected task: \($0)" } ?? "No task selected")
             .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
