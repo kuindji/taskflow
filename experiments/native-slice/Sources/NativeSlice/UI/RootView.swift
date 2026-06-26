@@ -12,7 +12,11 @@ final class AppModel: ObservableObject {
         self.taskStore = TaskStore(client: client)
     }
 
+    private var started = false
+
     func start() {
+        guard !started else { return }
+        started = true
         client.connect()
         taskStore.bindEvents()
         Task { await taskStore.load() }
