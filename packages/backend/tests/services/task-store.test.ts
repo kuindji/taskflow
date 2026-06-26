@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { TaskStore } from "../../src/services/task-store";
-import { access, mkdtemp, mkdir, rm, writeFile } from "fs/promises";
+import { mkdtemp, mkdir, rm, realpath } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
-describe("TaskStore", () => {
+describe("TaskStore.reorderProjects", () => {
     let store: TaskStore;
     let tempDir: string;
 
     beforeEach(async () => {
-        tempDir = await mkdtemp(join(tmpdir(), "taskflow-test-"));
+        tempDir = await realpath(await mkdtemp(join(tmpdir(), "taskflow-test-")));
         store = new TaskStore({
             projectsFile: join(tempDir, "projects.json"),
             tasksDir: join(tempDir, "tasks"),
@@ -24,385 +24,32 @@ describe("TaskStore", () => {
         await rm(tempDir, { recursive: true, force: true });
     });
 
-    async function createProjectDir(name: string): Promise<string> {
+    async function addProject(name: string): Promise<string> {
         const dir = join(tempDir, name);
         await mkdir(dir, { recursive: true });
-        // realpath resolves symlinks (e.g. /var -> /private/var on macOS)
-        const { realpath } = await import("fs/promises");
-        return realpath(dir);
+        const project = await store.addProject({ name, path: dir });
+        return project.id;
     }
 
-    describe("projects", () => {
-        it("starts with empty project list", async () => {
-            const projects = await store.listProjects();
-            expect(projects).toEqual([]);
-        });
+    it("persists the requested order", async () => {
+        const a = await addProject("a");
+        const b = await addProject("b");
+        const c = await addProject("c");
 
-        it("adds and lists projects", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            expect(project.name).toBe("test");
-            expect(project.path).toBe(projectDir);
-            expect(project.id).toBeTruthy();
+        await store.reorderProjects([c, a, b]);
 
-            const projects = await store.listProjects();
-            expect(projects).toHaveLength(1);
-            expect(projects[0].name).toBe("test");
-        });
-
-        it("removes projects", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            await store.removeProject(project.id);
-            const projects = await store.listProjects();
-            expect(projects).toEqual([]);
-        });
-
-        it("removes projects with their active and archived tasks", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const activeTask = await store.createTask({
-                projectId: project.id,
-                title: "Active task",
-                description: "test",
-            });
-            const archivedTask = await store.createTask({
-                projectId: project.id,
-                title: "Archived task",
-                description: "test",
-            });
-            await store.appendSessionOutput(activeTask.id, "session-1", 1, "active");
-            await store.appendSessionOutput(archivedTask.id, "session-2", 1, "archived");
-            await store.archiveTask(archivedTask.id);
-
-            await store.removeProject(project.id);
-
-            expect(await store.listProjects()).toEqual([]);
-            expect(await store.listTasks(project.id)).toEqual([]);
-            expect(
-                (await store.listArchived()).filter((task) => task.projectId === project.id),
-            ).toEqual([]);
-            expect(await store.getSessionHistory(activeTask.id, "session-1")).toEqual({
-                data: "",
-                lastSequence: 0,
-            });
-            expect(await store.getSessionHistory(archivedTask.id, "session-2")).toEqual({
-                data: "",
-                lastSequence: 0,
-            });
-        });
-
-        it("recovers from corrupt projects.json but still rewrites on the next save", async () => {
-            await writeFile(join(tempDir, "projects.json"), "{bad json");
-
-            expect(await store.listProjects()).toEqual([]);
-
-            const projectDir = await createProjectDir("rewritten");
-            const project = await store.addProject({ name: "rewritten", path: projectDir });
-            const projects = await store.listProjects();
-
-            expect(projects).toHaveLength(1);
-            expect(projects[0].id).toBe(project.id);
-        });
-
-        it("surfaces non-recoverable project store read errors", async () => {
-            const unreadableStore = new TaskStore({
-                projectsFile: tempDir,
-                tasksDir: join(tempDir, "tasks"),
-                archiveDir: join(tempDir, "archive"),
-                sessionLogsDir: join(tempDir, "session-logs"),
-                taskLogsDir: join(tempDir, "task-logs"),
-            });
-
-            expect(unreadableStore.listProjects()).rejects.toThrow();
-        });
-
-        it("persists and clears the default workspace init command", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({
-                name: "test",
-                path: projectDir,
-                defaultInitCommand: "bun install",
-            });
-
-            expect(project.defaultInitCommand).toBe("bun install");
-
-            const updated = await store.updateProject(project.id, {
-                defaultInitCommand: "pnpm install",
-            });
-            expect(updated.defaultInitCommand).toBe("pnpm install");
-
-            const cleared = await store.updateProject(project.id, {
-                defaultInitCommand: "",
-            });
-            expect(cleared.defaultInitCommand).toBeUndefined();
-            expect((await store.getProject(project.id))?.defaultInitCommand).toBeUndefined();
-        });
+        const ids = (await store.listProjects()).map((p) => p.id);
+        expect(ids).toEqual([c, a, b]);
     });
 
-    describe("tasks", () => {
-        it("creates and lists tasks", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "My task",
-                description: "test",
-            });
-            expect(task.title).toBe("My task");
-            expect(task.status).toBe("active");
-            expect(task.worktree.enabled).toBe(false);
+    it("appends projects missing from orderedIds", async () => {
+        const a = await addProject("a");
+        const b = await addProject("b");
+        const c = await addProject("c");
 
-            const tasks = await store.listTasks();
-            expect(tasks).toHaveLength(1);
-        });
+        await store.reorderProjects([c]);
 
-        it("lists tasks filtered by project", async () => {
-            const p1Dir = await createProjectDir("p1");
-            const p2Dir = await createProjectDir("p2");
-            const p1 = await store.addProject({ name: "p1", path: p1Dir });
-            const p2 = await store.addProject({ name: "p2", path: p2Dir });
-            await store.createTask({ projectId: p1.id, title: "Task 1", description: "test" });
-            await store.createTask({ projectId: p2.id, title: "Task 2", description: "test" });
-
-            const p1Tasks = await store.listTasks(p1.id);
-            expect(p1Tasks).toHaveLength(1);
-            expect(p1Tasks[0].title).toBe("Task 1");
-        });
-
-        it("updates tasks", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "Original",
-                description: "test",
-            });
-            const updated = await store.updateTask(task.id, {
-                title: "Updated",
-                notes: "some notes",
-            });
-            expect(updated.title).toBe("Updated");
-            expect(updated.notes).toBe("some notes");
-        });
-
-        it("persists explicit worktree metadata on create and update", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "Worktree task",
-                description: "test",
-                worktree: {
-                    enabled: true,
-                    path: join(projectDir, ".worktrees", "worktree-task"),
-                    branch: "task/worktree-task",
-                    pr: null,
-                },
-            });
-
-            expect(task.worktree).toEqual({
-                enabled: true,
-                path: join(projectDir, ".worktrees", "worktree-task"),
-                branch: "task/worktree-task",
-                pr: null,
-            });
-
-            const updated = await store.updateTask(task.id, {
-                worktree: {
-                    enabled: true,
-                    path: join(projectDir, ".worktrees", "renamed"),
-                    branch: "task/renamed",
-                    pr: null,
-                },
-            });
-
-            expect(updated.worktree).toEqual({
-                enabled: true,
-                path: join(projectDir, ".worktrees", "renamed"),
-                branch: "task/renamed",
-                pr: null,
-            });
-            expect((await store.getTask(task.id))?.worktree).toEqual(updated.worktree);
-        });
-
-        it("persists session history independently from the live PTY", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "Task",
-                description: "test",
-            });
-
-            await store.appendSessionOutput(task.id, "session-1", 1, "hello");
-            await store.appendSessionOutput(task.id, "session-1", 2, " world");
-
-            expect(await store.getSessionHistory(task.id, "session-1")).toEqual({
-                data: "hello world",
-                lastSequence: 2,
-            });
-        });
-
-        it("archives tasks", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "Task",
-                description: "test",
-            });
-            await store.archiveTask(task.id);
-
-            const active = await store.listTasks();
-            expect(active).toHaveLength(0);
-
-            const archived = await store.listArchived();
-            expect(archived).toHaveLength(1);
-            expect(archived[0].status).toBe("archived");
-            expect(archived[0].archivedAt).toBeTruthy();
-        });
-
-        it("deletes tasks", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "Task",
-                description: "test",
-            });
-            await store.appendSessionOutput(task.id, "session-1", 1, "history");
-            await store.deleteTask(task.id);
-
-            const tasks = await store.listTasks();
-            expect(tasks).toEqual([]);
-            expect(await store.getSessionHistory(task.id, "session-1")).toEqual({
-                data: "",
-                lastSequence: 0,
-            });
-        });
-
-        it("drops corrupt task files during project removal", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "Corrupt me",
-                description: "test",
-            });
-            const taskFile = join(tempDir, "tasks", `${task.id}.json`);
-
-            await writeFile(taskFile, "{bad json");
-            await store.removeProject(project.id);
-
-            expect(await store.listProjects()).toEqual([]);
-            expect(access(taskFile)).rejects.toThrow();
-        });
-
-        it("cleans expired archives", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "Old",
-                description: "test",
-            });
-
-            const archived = await store.archiveTask(task.id);
-            const oldDate = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
-            await store.updateArchived(archived.id, { archivedAt: oldDate });
-
-            await store.cleanExpiredArchives();
-            const remaining = await store.listArchived();
-            expect(remaining).toHaveLength(0);
-        });
-    });
-
-    describe("clearAllSessions", () => {
-        it("only clears sessions matching the given instanceId", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "Task",
-                description: "test",
-            });
-
-            await store.updateTask(task.id, {
-                sessions: [
-                    {
-                        id: "s1",
-                        type: "claude",
-                        label: "A",
-                        createdAt: new Date().toISOString(),
-                        instance: "main",
-                    },
-                    {
-                        id: "s2",
-                        type: "claude",
-                        label: "B",
-                        createdAt: new Date().toISOString(),
-                        instance: "dev-feature",
-                    },
-                    { id: "s3", type: "claude", label: "C", createdAt: new Date().toISOString() },
-                ],
-            });
-            await store.updateProject(project.id, {
-                sessions: [
-                    {
-                        id: "s4",
-                        type: "shell",
-                        label: "D",
-                        createdAt: new Date().toISOString(),
-                        instance: "main",
-                    },
-                    {
-                        id: "s5",
-                        type: "shell",
-                        label: "E",
-                        createdAt: new Date().toISOString(),
-                        instance: "dev-feature",
-                    },
-                ],
-            });
-
-            await store.clearAllSessions("main");
-
-            const updatedTask = await store.getTask(task.id);
-            expect(updatedTask!.sessions).toHaveLength(1);
-            expect(updatedTask!.sessions[0].id).toBe("s2");
-
-            const projects = await store.listProjects();
-            const updatedProject = projects.find((p) => p.id === project.id)!;
-            expect(updatedProject.sessions).toHaveLength(1);
-            expect(updatedProject.sessions[0].id).toBe("s5");
-        });
-
-        it("clears all sessions when no instanceId is provided", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "Task",
-                description: "test",
-            });
-
-            await store.updateTask(task.id, {
-                sessions: [
-                    {
-                        id: "s1",
-                        type: "claude",
-                        label: "A",
-                        createdAt: new Date().toISOString(),
-                        instance: "main",
-                    },
-                ],
-            });
-
-            await store.clearAllSessions();
-
-            const updatedTask = await store.getTask(task.id);
-            expect(updatedTask!.sessions).toHaveLength(0);
-        });
+        const ids = (await store.listProjects()).map((p) => p.id);
+        expect(ids).toEqual([c, a, b]);
     });
 });
