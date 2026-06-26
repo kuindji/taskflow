@@ -28,7 +28,9 @@ struct WorkspaceView: View {
     @ViewBuilder
     private func paneContent(for kind: PaneKind, taskId: String) -> some View {
         switch kind {
-        case .terminal: Text("Terminal pane — Task 7").frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .terminal:
+            TerminalPane(workingDirectory: FileManager.default.currentDirectoryPath)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .editor:   Text("Editor pane — Task 8").frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
