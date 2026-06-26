@@ -55,9 +55,12 @@ None of these blocked integration; all are documented rough edges of a pre-produ
 
 ## What this did NOT prove (honest scope limits)
 
+- **Panes are not task-scoped.** The Terminal pane uses a static CWD and the Editor pane a hardcoded file path — both are independent of the selected task (only the sidebar + info pane react to selection). The evidence proves the panes *render inside the workspace shell* (libghostty-in-SwiftUI, native editor, split/tabs/drag), **not** that pane content *reflects task selection*. Task-routing is deferred breadth, not a Phase 1 target — so GO must not be read as "task-scoped panes proven."
+- **Swift 6 strict concurrency was not build-enforced.** `Package.swift` is `swift-tools-version:5.9` with no v6 language mode / `StrictConcurrency` flag, so the toolchain checked in Swift 5 mode. The code is `@MainActor`-consistent by construction (and the final review confirmed the WSClient→TaskStore→SwiftUI chain is genuinely race-free), but strict mode was not the gate. Decide early in Phase 2 whether to enable v6 mode or accept the gap knowingly.
 - **Keystroke input / focus routing** between the libghostty Metal surface and SwiftUI was not verified end-to-end (screenshots can't show typing). Phase 0 proved input round-trips in a pure-AppKit host; re-confirming it under SwiftUI focus management is an early Phase 3/4 item.
 - **Drag-reorder** correctness is by code review + logic analysis, not runtime (static screenshots can't show a drag).
 - **`.inMemory` watched-session path** was not re-exercised here (Phase 0 proved it); the slice used `.exec` only.
+- **Terminal session persistence across tab switches** is not handled — switching tabs tears down and re-spawns the `.exec` process. A production workspace must keep panes alive behind the tab strip (Phase 4 item).
 - Breadth (the ~12 feature areas) is untouched by design — that is the known long pole, not a de-risking target.
 
 ## Decision: **GO** (recommended)
