@@ -12,6 +12,7 @@ describe("project handlers", () => {
     let router: Router;
     let store: TaskStore;
     let tempDir: string;
+    let broadcasts: Array<{ type: string; payload: unknown }>;
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-test-"));
@@ -25,7 +26,10 @@ describe("project handlers", () => {
         });
         await store.init();
         router = new Router();
-        registerProjectHandlers(router, store, new GitService());
+        broadcasts = [];
+        registerProjectHandlers(router, store, new GitService(), undefined, undefined, (event) =>
+            broadcasts.push(event),
+        );
     });
 
     afterEach(async () => {
@@ -77,5 +81,26 @@ describe("project handlers", () => {
             projects: unknown[];
         };
         expect(result.projects).toHaveLength(0);
+    });
+
+    it("reorders projects and broadcasts the new order", async () => {
+        const dirA = await createProjectDir("a");
+        const dirB = await createProjectDir("b");
+        const a = (await router.handle(MSG.PROJECT_ADD, { name: "a", path: dirA })) as {
+            id: string;
+        };
+        const b = (await router.handle(MSG.PROJECT_ADD, { name: "b", path: dirB })) as {
+            id: string;
+        };
+
+        const result = (await router.handle(MSG.PROJECT_REORDER, {
+            orderedIds: [b.id, a.id],
+        })) as { projects: Array<{ id: string }> };
+
+        expect(result.projects.map((p) => p.id)).toEqual([b.id, a.id]);
+        expect(broadcasts).toContainEqual({
+            type: MSG.PROJECT_REORDERED,
+            payload: { orderedIds: [b.id, a.id] },
+        });
     });
 });
