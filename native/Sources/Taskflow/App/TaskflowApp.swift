@@ -28,9 +28,15 @@ struct RootView: View {
     private var statusBar: some View {
         HStack {
             switch env.status {
-            case .connecting: Text("Connecting to backend…")
-            case let .connected(port): Text("Backend connected (port \(port))")
-            case let .failed(msg): Text("Backend failed: \(msg)").foregroundStyle(.red)
+            case .connecting:
+                Text("Connecting to backend…")
+            case let .connected(port):
+                // Phase 3 smoke: show real port + live VM counts to verify composition.
+                let taskCount    = env.tasks?.tasks.count ?? 0
+                let projectCount = env.projects?.projects.count ?? 0
+                Text("Backend connected (port \(port)) · tasks: \(taskCount) · projects: \(projectCount)")
+            case let .failed(msg):
+                Text("Backend failed: \(msg)").foregroundStyle(.red)
             }
             Spacer()
         }

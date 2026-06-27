@@ -56,7 +56,11 @@ final class SettingsViewModel {
         do {
             let fetched: AppSettings = try await client.request(.settingsGet, payload: [:])
             applyFetchedSettings(fetched)
-        } catch {}
+        } catch {
+            // Non-fatal: a missing/malformed field (e.g. non-optional PanelSettings key absent
+            // from older persisted JSON) must not abort boot. Log and continue.
+            NSLog("[SettingsViewModel] load failed (non-fatal): \(error)")
+        }
     }
 
     // MARK: - Actions

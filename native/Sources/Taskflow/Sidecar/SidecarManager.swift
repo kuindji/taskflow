@@ -9,6 +9,10 @@ final class SidecarManager {
     private var process: Process?
     private var portFile: URL?
     private(set) var isRunning = false
+    /// The resolved port number — set after the port-file handshake succeeds.
+    /// `nil` until the sidecar is running. Used by `AppEnvironment.boot()` to build
+    /// `Status.connected(port:)` with the real value (retire the Phase-2 `port: 0` placeholder).
+    private(set) var port: Int?
 
     init(resourcesURL: URL?, devRepoRoot: URL?) {
         self.resourcesURL = resourcesURL
@@ -47,6 +51,7 @@ final class SidecarManager {
         process = proc
         do {
             let port = try await waitForPort(pf, deadlineSeconds: 10)
+            self.port = port
             print("[SidecarManager] sidecar port \(port)")
             let client = WSClient(url: SidecarSupport.wsURL(port: port))
             client.connect()
@@ -70,6 +75,7 @@ final class SidecarManager {
         process?.terminate()
         process = nil
         isRunning = false
+        port = nil
         if let pf = portFile { try? FileManager.default.removeItem(at: pf) }
         portFile = nil
     }
