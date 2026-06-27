@@ -5,7 +5,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # native/
 cd "$HERE"
 
 # Codegen + theme bake are wired here in Tasks 3-6:
-#   bun scripts/codegen/generate.ts
+( cd "$HERE/.." && bun native/scripts/codegen/generate.ts )
 #   bun scripts/codegen/bake-themes.ts
 # Backend staging is wired here in Task 8:
 #   scripts/build-backend-sidecar.sh
