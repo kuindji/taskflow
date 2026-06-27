@@ -21,8 +21,8 @@ struct PendingMove: Codable, Sendable, Equatable {
 ///   in `expandDir`. Both are synchronous in Swift (set update is immediate); the fetch is
 ///   a `Task { }` side-effect.
 /// - **`watchPath`** registers the `file:changed` WS handler lazily (on first call), matching
-///   the TS `fileChangeSubscriptionReady` guard. The debounced refresh body is a **Phase-4 seam**
-///   — see the `// Phase 4:` comment in `watchPath`.
+///   the TS `fileChangeSubscriptionReady` guard. On each event, collects the parent dir into
+///   `pendingChangedPaths`, debounces 150ms, then refetches each loaded dir + git status.
 /// - **`bind()`** is intentionally empty — the only subscription (`file:changed`) is
 ///   registered lazily inside `watchPath` to match the TS lazy-guard pattern.
 /// - **`onOpenFile`** is an injected closure for opening a file in the editor; wired Phase 4.
@@ -55,6 +55,10 @@ final class FileViewModel {
     @ObservationIgnored private var gitStatusRequestId: Int = 0
     /// Guards the lazy one-time registration of the `file:changed` WS handler.
     @ObservationIgnored private var fileChangeSubscriptionReady: Bool = false
+    /// Accumulates changed paths between debounce ticks. Mirrors `pendingChangedDirs` in file-store.ts.
+    @ObservationIgnored private var pendingChangedPaths: Set<String> = []
+    /// Running debounce task; cancelled and replaced on each new file-change event.
+    @ObservationIgnored private var changeDebounce: Task<Void, Never>?
 
     init(client: WSClient) {
         self.client = client
@@ -65,7 +69,7 @@ final class FileViewModel {
     /// Called once by `AppEnvironment.bind()`.
     /// The `file:changed` handler is registered lazily in `watchPath` (matching file-store.ts).
     func bind() {
-        // Phase 4: file:changed subscription is wired lazily in watchPath(); see that method.
+        // file:changed subscription is wired lazily in watchPath().
     }
 
     // MARK: - fetchTree
@@ -158,7 +162,6 @@ final class FileViewModel {
 
     /// Begins watching a path for file-system changes.
     /// Mirrors `watchPath(path)` in `file-store.ts:181-222`.
-    /// Phase-4 seam: the debounced `file:changed` handler body is not yet wired.
     /// Phase-5 seam: the diff-store subscription is not yet wired.
     func watchPath(path: String) async {
         let previousPath = watchedPath
@@ -166,18 +169,27 @@ final class FileViewModel {
 
         if !fileChangeSubscriptionReady {
             fileChangeSubscriptionReady = true
-            // Phase 4: register the debounced file:changed handler here.
-            // See file-store.ts:186-204 — on each event:
-            //   1. Check event.path.hasPrefix(watchedPath)
-            //   2. Add the parent dir to pendingChangedDirs
-            //   3. Debounce 150ms, then fetchDir for each loaded dir + fetchGitStatus(watchedPath)
-            // Example registration:
-            // client.on(.fileChanged) { [weak self] (event: FileChangeEvent) in
-            //     Task { @MainActor [weak self] in
-            //         guard let self else { return }
-            //         // ... debounce logic ...
-            //     }
-            // }
+            // Lazy one-time registration, matching the TS fileChangeSubscriptionReady guard.
+            // Mirrors file-store.ts:186-204: collect parent dir, debounce 150ms,
+            // refetch each loaded dir + git status.
+            client.on(.fileChanged) { [weak self] (event: FileChangeEvent) in
+                Task { @MainActor [weak self] in
+                    guard let self, let wp = watchedPath, event.path.hasPrefix(wp) else { return }
+                    pendingChangedPaths.insert(event.path)
+                    changeDebounce?.cancel()
+                    changeDebounce = Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .milliseconds(150))
+                        if Task.isCancelled { return }
+                        guard let self, let wp = watchedPath else { return }
+                        let loaded = Self.loadedDirSet(tree)
+                        let toRefresh = Self.changedDirsToRefresh(
+                            eventPaths: Array(pendingChangedPaths), watchedPath: wp, loadedDirs: loaded)
+                        pendingChangedPaths.removeAll()
+                        for dir in toRefresh { await fetchDir(dirPath: dir) }
+                        await fetchGitStatus(path: wp)
+                    }
+                }
+            }
         }
 
         if let prev = previousPath {
@@ -360,6 +372,36 @@ final class FileViewModel {
     }
 
     // MARK: - Static Pure Reducers
+
+    /// From a batch of changed file paths, returns the sorted, de-duplicated set of currently-
+    /// loaded directories that need to be refetched.
+    /// Mirrors file-store.ts: for each event path under `watchedPath`, derive the parent dir
+    /// and keep only dirs already present in `loadedDirs`.
+    static func changedDirsToRefresh(
+        eventPaths: [String], watchedPath: String, loadedDirs: Set<String>
+    ) -> [String] {
+        var dirs = Set<String>()
+        for p in eventPaths where p.hasPrefix(watchedPath) {
+            guard let slash = p.lastIndex(of: "/") else { continue }
+            let parent = String(p[..<slash])
+            if loadedDirs.contains(parent) { dirs.insert(parent) }
+        }
+        return dirs.sorted()
+    }
+
+    /// Recursively collects the path of every directory node that has been loaded.
+    /// Used by the `file:changed` debounce to know which dirs the tree currently holds.
+    private static func loadedDirSet(_ node: FileNode?) -> Set<String> {
+        guard let node else { return [] }
+        var result = Set<String>()
+        if node.type == "directory" && node.loaded == true {
+            result.insert(node.path)
+        }
+        for child in node.children ?? [] {
+            result.formUnion(loadedDirSet(child))
+        }
+        return result
+    }
 
     /// Recursively replaces a directory node's children at `dirPath` with `children` in an
     /// immutable `FileNode` tree, marking the target node `loaded: true`.
