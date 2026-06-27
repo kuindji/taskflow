@@ -35,6 +35,7 @@ const ctx: EmitCtx = {
     enumNames: new Set(),
     knownTypes: new Set(),
     typeParams: new Set(),
+    interfaceDecls: new Map(),
 };
 
 // Helper: try to extract a string literal value from a type node.
@@ -76,6 +77,7 @@ for (const file of typeFiles) {
             }
         } else if (ts.isInterfaceDeclaration(node)) {
             ctx.knownTypes.add(node.name.text);
+            ctx.interfaceDecls.set(node.name.text, node);
         }
     });
 }

@@ -42,10 +42,14 @@ struct FlowActionEntryBase: Codable, Sendable, Equatable {
 }
 
 struct FlowActionReferenceEntry: Codable, Sendable, Equatable {
+    let id: String
+    let label: String?
     let actionId: String
 }
 
 struct FlowActionInlineEntry: Codable, Sendable, Equatable {
+    let id: String
+    let label: String?
     let inline: ActionInline
 }
 

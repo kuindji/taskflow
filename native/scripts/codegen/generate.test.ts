@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { extractMessageCases } from "./lib/messages";
 import { swiftEnum, pascalCase, camelCase } from "./lib/swift";
 import { mapPrimitive } from "./lib/types";
+import { classifyUnion } from "./lib/unions";
+import ts from "typescript";
 
 const SAMPLE = `
 export const MSG = {
@@ -39,9 +41,6 @@ test("mapPrimitive maps TS scalars and containers to Swift", () => {
     expect(mapPrimitive("boolean")).toBe("Bool");
 });
 
-import { classifyUnion } from "./lib/unions";
-import ts from "typescript";
-
 function alias(src: string): ts.TypeAliasDeclaration {
     const sf = ts.createSourceFile("t.ts", src, ts.ScriptTarget.Latest, true);
     let found: ts.TypeAliasDeclaration | undefined;
@@ -65,4 +64,10 @@ test("classifyUnion detects a key-presence XOR union", () => {
     );
     const k = classifyUnion(decl, { enumNames: new Set() });
     expect(k.kind).toBe("xor");
+});
+
+test("classifyUnion returns none for a mixed named-ref + string-literal union", () => {
+    const decl = alias(`type T = AgentType | "shell";`);
+    const k = classifyUnion(decl, { enumNames: new Set() });
+    expect(k.kind).toBe("none");
 });

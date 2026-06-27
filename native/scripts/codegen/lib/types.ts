@@ -5,6 +5,7 @@ export interface EmitCtx {
     enumNames: Set<string>; // names known to be string-union enums
     knownTypes: Set<string>; // all emittable type names (interfaces + string-union enums)
     typeParams: Set<string>; // current interface's type parameters (reset per renderInterface call)
+    interfaceDecls: Map<string, ts.InterfaceDeclaration>; // all interface declarations, for extends resolution
 }
 
 export function mapPrimitive(name: string): string | null {
@@ -111,9 +112,66 @@ export function renderStringUnionAlias(decl: ts.TypeAliasDeclaration): string | 
     return [`enum ${name}: String, Codable, Sendable {`, ...cases, "}", ""].join("\n");
 }
 
+// Render a single PropertySignature to a Swift field line, or null if it should be skipped.
+function renderMember(member: ts.PropertySignature, ctx: EmitCtx): string | null {
+    if (!member.type || !member.name) return null;
+
+    // Skip `never` discriminant markers (e.g. `inline?: never` in XOR union patterns)
+    if (member.type.kind === ts.SyntaxKind.NeverKeyword) return null;
+
+    const propName = ts.isIdentifier(member.name)
+        ? member.name.text
+        : ts.isStringLiteral(member.name)
+          ? member.name.text
+          : null;
+    if (propName === null) return null;
+
+    // Skip fields with non-identifier names (e.g. CSS variables like "--background")
+    if (!isValidSwiftIdentifier(propName)) return null;
+
+    let type = swiftType(member.type, ctx);
+    const nullableUnion =
+        ts.isUnionTypeNode(member.type) &&
+        member.type.types.some(isNullOrUndefined);
+    const optional = member.questionToken !== undefined || nullableUnion;
+    if (optional) type += "?";
+    return `    let ${swiftEscapeKeyword(propName)}: ${type}`;
+}
+
+// Recursively collect PropertySignature members inherited from base interfaces via `extends`.
+// Only handles plain `extends NamedInterface` (not generics or utility types).
+// `visited` prevents infinite loops in pathological cases.
+function collectInheritedMembers(
+    decl: ts.InterfaceDeclaration,
+    ctx: EmitCtx,
+    visited: Set<string>,
+): ts.PropertySignature[] {
+    if (!decl.heritageClauses) return [];
+    const result: ts.PropertySignature[] = [];
+    for (const clause of decl.heritageClauses) {
+        if (clause.token !== ts.SyntaxKind.ExtendsKeyword) continue;
+        for (const baseType of clause.types) {
+            const baseExpr = baseType.expression;
+            if (!ts.isIdentifier(baseExpr)) continue; // skip generic or qualified bases
+            const baseName = baseExpr.text;
+            if (visited.has(baseName)) continue;
+            visited.add(baseName);
+            const baseDecl = ctx.interfaceDecls.get(baseName);
+            if (!baseDecl) continue;
+            // Depth-first: base's inherited members come before base's own members
+            result.push(...collectInheritedMembers(baseDecl, ctx, visited));
+            for (const member of baseDecl.members) {
+                if (ts.isPropertySignature(member)) result.push(member);
+            }
+        }
+    }
+    return result;
+}
+
 // `export interface Foo { a: string; b?: number; c: Bar[] }` → a Swift Codable struct.
 // Skips: `never`-typed fields, non-identifier property names (e.g. CSS vars like "--bg").
 // Generic type parameters in the interface are substituted with AnyCodable.
+// Fields inherited via `extends` are prepended; own fields override inherited ones of the same name.
 export function renderInterface(decl: ts.InterfaceDeclaration, ctx: EmitCtx): string {
     const name = decl.name.text;
 
@@ -126,30 +184,44 @@ export function renderInterface(decl: ts.InterfaceDeclaration, ctx: EmitCtx): st
         }
     }
 
-    const fields: string[] = [];
+    // Collect own field names so inherited fields with the same name can be skipped
+    // (subtype definition wins over base definition).
+    const ownNames = new Set<string>();
     for (const member of decl.members) {
-        if (!ts.isPropertySignature(member) || !member.type || !member.name) continue;
-
-        // Skip `never` discriminant markers (e.g. `inline?: never` in XOR union patterns)
-        if (member.type.kind === ts.SyntaxKind.NeverKeyword) continue;
-
-        const propName = ts.isIdentifier(member.name)
+        if (!ts.isPropertySignature(member) || !member.name) continue;
+        const n = ts.isIdentifier(member.name)
             ? member.name.text
             : ts.isStringLiteral(member.name)
               ? member.name.text
               : null;
-        if (propName === null) continue;
+        if (n !== null) ownNames.add(n);
+    }
 
-        // Skip fields with non-identifier names (e.g. CSS variables like "--background")
-        if (!isValidSwiftIdentifier(propName)) continue;
+    const fields: string[] = [];
 
-        let type = swiftType(member.type, ctx);
-        const nullableUnion =
-            ts.isUnionTypeNode(member.type) &&
-            member.type.types.some(isNullOrUndefined);
-        const optional = member.questionToken !== undefined || nullableUnion;
-        if (optional) type += "?";
-        fields.push(`    let ${swiftEscapeKeyword(propName)}: ${type}`);
+    // Inherited members first (depth-first base order), deduplicated by field name.
+    const inherited = collectInheritedMembers(decl, ctx, new Set([name]));
+    const renderedInheritedNames = new Set<string>();
+    for (const member of inherited) {
+        if (!member.name) continue;
+        const n = ts.isIdentifier(member.name)
+            ? member.name.text
+            : ts.isStringLiteral(member.name)
+              ? member.name.text
+              : null;
+        if (n === null) continue;
+        if (ownNames.has(n)) continue; // own field wins
+        if (renderedInheritedNames.has(n)) continue; // already emitted from an earlier base
+        renderedInheritedNames.add(n);
+        const line = renderMember(member, ctx);
+        if (line !== null) fields.push(line);
+    }
+
+    // Own members
+    for (const member of decl.members) {
+        if (!ts.isPropertySignature(member)) continue;
+        const line = renderMember(member, ctx);
+        if (line !== null) fields.push(line);
     }
 
     // Clean up type params added for this interface
