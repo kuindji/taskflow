@@ -65,13 +65,14 @@ final class SettingsViewModel {
 
     // MARK: - Actions
 
-    /// Applies `partial` settings patch and updates the stored `AppSettings`.
-    /// Patch format mirrors `SettingsUpdatePayload` field names but uses `[String: Any]`
-    /// because callers typically supply a single-key dict (e.g. `["general": [...]]`),
-    /// matching the WSClient's wire-payload type.
-    func updateSettings(_ patch: [String: Any]) async {
+    /// Applies a typed `Encodable` settings patch and updates the stored `AppSettings`.
+    /// The patch is encoded to JSON once at the transport boundary (inside this method)
+    /// so all callers remain fully typed; no `[String: Any]` escapes into feature code.
+    func updateSettings<T: Encodable>(_ patch: T) async {
         do {
-            let updated: AppSettings = try await client.request(.settingsUpdate, payload: patch)
+            let data = try JSONEncoder().encode(patch)
+            guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            let updated: AppSettings = try await client.request(.settingsUpdate, payload: dict)
             settings = updated
         } catch {}
     }

@@ -97,17 +97,36 @@ struct AppShell: View {
     /// the @MainActor-isolated SettingsViewModel.
     private func persistLayout() {
         let ui = env.ui
-        let patch: [String: Any] = [
-            "layout": [
-                "panels": [
-                    "sidebarWidth":      ui.sidebarWidth,
-                    "fileExplorerWidth": ui.fileExplorerWidth,
-                    "taskInfoWidth":     ui.taskInfoWidth,
-                    "flowPanelWidth":    ui.flowPanelWidth
-                ] as [String: Any]
-            ] as [String: Any]
-        ]
+        let patch = LayoutWidthPatch(
+            layout: .init(panels: .init(
+                sidebarWidth:      ui.sidebarWidth,
+                fileExplorerWidth: ui.fileExplorerWidth,
+                taskInfoWidth:     ui.taskInfoWidth,
+                flowPanelWidth:    ui.flowPanelWidth
+            ))
+        )
         guard let settings = env.settings else { return }
         Task { await settings.updateSettings(patch) }
     }
+}
+
+// MARK: - Typed patch structs for layout persistence
+
+/// Mirrors the `{ layout: { panels: { sidebarWidth, fileExplorerWidth, taskInfoWidth, flowPanelWidth } } }`
+/// shape that `AppShell.tsx`'s `handleResizeEnd` sends to `updateSettings`.
+/// A partial-panel struct is used (not `PanelSettings`) because the server accepts a subset
+/// of panel fields; `PanelSettings` includes fields like `compactSidebar` we don't touch here.
+private struct PanelWidthPatch: Encodable {
+    let sidebarWidth: Double
+    let fileExplorerWidth: Double
+    let taskInfoWidth: Double
+    let flowPanelWidth: Double
+}
+
+private struct LayoutPanelsPatch: Encodable {
+    let panels: PanelWidthPatch
+}
+
+private struct LayoutWidthPatch: Encodable {
+    let layout: LayoutPanelsPatch
 }
