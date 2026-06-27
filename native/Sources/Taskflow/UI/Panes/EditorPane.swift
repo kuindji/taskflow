@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import CodeEditSourceEditor
 import CodeEditLanguages
@@ -107,6 +108,35 @@ struct EditorPane: View {
             .keyboardShortcut("s", modifiers: .command)
             .hidden()
         )
+        // MARK: Cmd+click import navigation (Task 6)
+        //
+        // Phase 4 mechanism: CodeEditSourceEditor moves `cursors` on every click
+        // (including ⌘+click). We sample NSEvent.modifierFlags at the moment the
+        // cursor binding updates; if the command key is held, we attempt to resolve
+        // the import specifier under the new cursor position.
+        //
+        // Known limitation: also fires on ⌘+Arrow keyboard navigation — acceptable
+        // in Phase 4 because import lines are rarely the cursor destination for
+        // keyboard commands and the resolve call silently no-ops when the cursor
+        // isn't inside a quoted specifier.
+        .onChange(of: cursors) { _, newCursors in
+            guard NSEvent.modifierFlags.contains(.command),
+                  let client = env.client,
+                  let cursor = newCursors.first,
+                  loaded else { return }
+            let lines = text.components(separatedBy: "\n")
+            let lineIndex = cursor.line - 1   // cursor.line is 1-based
+            guard lineIndex >= 0, lineIndex < lines.count else { return }
+            let spec = ImportNavigation.specifier(inLine: lines[lineIndex], column: cursor.column)
+            guard let spec else { return }
+            let fp = filePath
+            Task { @MainActor in
+                guard let resolved = await ImportNavigation.resolve(
+                    specifier: spec, fromFile: fp, client: client
+                ) else { return }
+                env.files?.onOpenFile?(resolved)
+            }
+        }
         // Replace (not update) the editor when the file path changes so each file
         // gets a fresh editor instance with its own undo stack and cursor state.
         .id(filePath)
