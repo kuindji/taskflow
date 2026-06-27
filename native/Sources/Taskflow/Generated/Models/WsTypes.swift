@@ -63,7 +63,7 @@ struct TaskListPayload: Codable, Sendable, Equatable {
 }
 
 struct TaskListResponse: Codable, Sendable, Equatable {
-    let tasks: [Task]
+    let tasks: [TaskItem]
 }
 
 struct TaskCreatePayload: Codable, Sendable, Equatable {

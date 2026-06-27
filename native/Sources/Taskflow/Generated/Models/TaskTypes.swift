@@ -28,7 +28,7 @@ struct TaskWorktree: Codable, Sendable, Equatable {
     let pr: TaskWorktreePr?
 }
 
-struct Task: Codable, Sendable, Equatable {
+struct TaskItem: Codable, Sendable, Equatable {
     let id: String
     let projectId: String
     let parentId: String?

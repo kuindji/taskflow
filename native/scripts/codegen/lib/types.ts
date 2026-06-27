@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { camelCase, swiftEscapeKeyword } from "./swift";
+import { camelCase, swiftEscapeKeyword, remapTypeName } from "./swift";
 
 export interface EmitCtx {
     enumNames: Set<string>; // names known to be string-union enums
@@ -56,7 +56,7 @@ export function swiftType(node: ts.TypeNode, ctx: EmitCtx): string {
         if (node.typeArguments && node.typeArguments.length > 0) return "AnyCodable";
 
         // Named ref: only emit the name if we know it will be in the output module
-        if (ctx.knownTypes.has(ref)) return ref;
+        if (ctx.knownTypes.has(ref)) return remapTypeName(ref);
 
         // Unknown ref (discriminated union alias, imported type not emitted, etc.) → AnyCodable
         return "AnyCodable";
@@ -104,7 +104,7 @@ export function renderStringUnionAlias(decl: ts.TypeAliasDeclaration): string | 
             ts.isLiteralTypeNode(x) && ts.isStringLiteral(x.literal),
     );
     if (literals.length !== t.types.length || literals.length === 0) return null;
-    const name = decl.name.text;
+    const name = remapTypeName(decl.name.text);
     const cases = literals.map((x) => {
         const raw = (x.literal as ts.StringLiteral).text;
         return `    case ${swiftEscapeKeyword(camelCase(raw))} = "${raw}"`;
@@ -229,5 +229,5 @@ export function renderInterface(decl: ts.InterfaceDeclaration, ctx: EmitCtx): st
         ctx.typeParams.delete(tp);
     }
 
-    return [`struct ${name}: Codable, Sendable, Equatable {`, ...fields, "}", ""].join("\n");
+    return [`struct ${remapTypeName(name)}: Codable, Sendable, Equatable {`, ...fields, "}", ""].join("\n");
 }

@@ -1,6 +1,6 @@
 import ts from "typescript";
 import type { EmitCtx } from "./types";
-import { camelCase } from "./swift";
+import { camelCase, remapTypeName } from "./swift";
 
 export type UnionKind =
     | { kind: "tagged"; members: string[] } // member type-reference names, each has a `type` discriminant
@@ -46,11 +46,11 @@ export function renderTaggedUnion(
     name: string,
     members: { interfaceName: string; tag: string }[],
 ): string {
-    const cases = members.map((m) => `    case ${camelCase(m.tag)}(${m.interfaceName})`);
+    const cases = members.map((m) => `    case ${camelCase(m.tag)}(${remapTypeName(m.interfaceName)})`);
     const decodeCases = members
         .map(
             (m) =>
-                `        case "${m.tag}": self = .${camelCase(m.tag)}(try ${m.interfaceName}(from: decoder))`,
+                `        case "${m.tag}": self = .${camelCase(m.tag)}(try ${remapTypeName(m.interfaceName)}(from: decoder))`,
         )
         .join("\n");
     const encodeCases = members

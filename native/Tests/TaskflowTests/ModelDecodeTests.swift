@@ -10,7 +10,7 @@ final class ModelDecodeTests: XCTestCase {
         "createdAt":"2026-06-27T00:00:00.000Z","status":"active",
         "archivedAt":null,"pinned":false}]}
         """.data(using: .utf8)!
-        struct Resp: Codable { let tasks: [Taskflow.Task] }
+        struct Resp: Codable { let tasks: [TaskItem] }
         let resp = try JSONDecoder().decode(Resp.self, from: json)
         XCTAssertEqual(resp.tasks.count, 1)
         XCTAssertEqual(resp.tasks[0].id, "t1")
