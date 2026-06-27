@@ -121,7 +121,7 @@ struct SessionCreatePayload: Codable, Sendable, Equatable {
     let cwd: String?
     let cols: Double?
     let rows: Double?
-    let agentOptions: AnyCodable?
+    let agentOptions: AgentLaunchOptions?
     let editorId: String?
     let filePath: String?
     let line: Double?

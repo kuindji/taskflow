@@ -106,6 +106,40 @@ struct PiModelInfo: Codable, Sendable, Equatable {
     let supportsImages: Bool
 }
 
+enum AgentLaunchOptions: Codable, Sendable, Equatable {
+    case claude(ClaudeLaunchOptions)
+    case codex(CodexLaunchOptions)
+    case opencode(OpenCodeLaunchOptions)
+    case gemini(GeminiLaunchOptions)
+    case cursor(CursorLaunchOptions)
+    case pi(PiLaunchOptions)
+
+    private enum DiscriminantKeys: String, CodingKey { case type }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: DiscriminantKeys.self)
+        let tag = try c.decode(String.self, forKey: .type)
+        switch tag {
+        case "claude": self = .claude(try ClaudeLaunchOptions(from: decoder))
+        case "codex": self = .codex(try CodexLaunchOptions(from: decoder))
+        case "opencode": self = .opencode(try OpenCodeLaunchOptions(from: decoder))
+        case "gemini": self = .gemini(try GeminiLaunchOptions(from: decoder))
+        case "cursor": self = .cursor(try CursorLaunchOptions(from: decoder))
+        case "pi": self = .pi(try PiLaunchOptions(from: decoder))
+        default: throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "unknown AgentLaunchOptions tag \(tag)"))
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case let .claude(v): try v.encode(to: encoder)
+        case let .codex(v): try v.encode(to: encoder)
+        case let .opencode(v): try v.encode(to: encoder)
+        case let .gemini(v): try v.encode(to: encoder)
+        case let .cursor(v): try v.encode(to: encoder)
+        case let .pi(v): try v.encode(to: encoder)
+        }
+    }
+}
+
 struct AgentAvailability: Codable, Sendable, Equatable {
     let type: AgentType
     let available: Bool

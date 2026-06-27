@@ -38,3 +38,31 @@ test("mapPrimitive maps TS scalars and containers to Swift", () => {
     expect(mapPrimitive("number")).toBe("Double");
     expect(mapPrimitive("boolean")).toBe("Bool");
 });
+
+import { classifyUnion } from "./lib/unions";
+import ts from "typescript";
+
+function alias(src: string): ts.TypeAliasDeclaration {
+    const sf = ts.createSourceFile("t.ts", src, ts.ScriptTarget.Latest, true);
+    let found: ts.TypeAliasDeclaration | undefined;
+    sf.forEachChild((n) => { if (ts.isTypeAliasDeclaration(n)) found = n; });
+    if (!found) throw new Error("no alias");
+    return found;
+}
+
+test("classifyUnion detects a type-tagged union", () => {
+    const decl = alias(`type AgentLaunchOptions = ClaudeLaunchOptions | PiLaunchOptions;`);
+    const k = classifyUnion(decl, { enumNames: new Set() });
+    expect(k.kind).toBe("tagged");
+});
+
+test("classifyUnion detects a key-presence XOR union", () => {
+    const decl = alias(
+        `type FlowOwner =
+            | { taskId: string; projectId?: never; master?: never }
+            | { projectId: string; taskId?: never; master?: never }
+            | { master: true; taskId?: never; projectId?: never };`,
+    );
+    const k = classifyUnion(decl, { enumNames: new Set() });
+    expect(k.kind).toBe("xor");
+});

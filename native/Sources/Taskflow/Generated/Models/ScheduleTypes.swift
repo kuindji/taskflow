@@ -8,7 +8,7 @@ struct Schedule: Codable, Sendable, Equatable {
     let prompt: String
     let actionId: String?
     let agentType: AnyCodable?
-    let agentOptions: AnyCodable?
+    let agentOptions: AgentLaunchOptions?
     let expression: String
     let expressionType: String
     let timeout: Double
@@ -27,7 +27,7 @@ struct ScheduleCreatePayload: Codable, Sendable, Equatable {
     let prompt: String?
     let actionId: String?
     let agentType: AnyCodable?
-    let agentOptions: AnyCodable?
+    let agentOptions: AgentLaunchOptions?
     let expression: String
     let expressionType: String
     let timeout: Double?
@@ -40,7 +40,7 @@ struct ScheduleUpdatePayload: Codable, Sendable, Equatable {
     let prompt: String?
     let actionId: String?
     let agentType: AnyCodable?
-    let agentOptions: AnyCodable?
+    let agentOptions: AgentLaunchOptions?
     let expression: String?
     let expressionType: String?
     let timeout: Double?

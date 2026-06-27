@@ -17,7 +17,7 @@ struct ActionDefinition: Codable, Sendable, Equatable {
     let name: String
     let prompt: String
     let sessionType: SessionType
-    let agentOptions: AnyCodable?
+    let agentOptions: AgentLaunchOptions?
     let standalone: Bool?
     let createdAt: String
     let updatedAt: String
@@ -27,7 +27,7 @@ struct ActionInline: Codable, Sendable, Equatable {
     let name: String
     let prompt: String
     let sessionType: SessionType
-    let agentOptions: AnyCodable?
+    let agentOptions: AgentLaunchOptions?
 }
 
 struct FlowInputDefinition: Codable, Sendable, Equatable {
@@ -89,6 +89,33 @@ struct FlowArtifact: Codable, Sendable, Equatable {
     let text: String?
     let actionEntryId: String
     let createdAt: String
+}
+
+enum FlowOwner: Codable, Sendable, Equatable {
+    case taskId(String)
+    case projectId(String)
+    case master(Bool)
+
+    private enum CodingKeys: String, CodingKey {
+        case taskId
+        case projectId
+        case master
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let v = try c.decodeIfPresent(String.self, forKey: .taskId) { self = .taskId(v); return }
+        if let v = try c.decodeIfPresent(String.self, forKey: .projectId) { self = .projectId(v); return }
+        if let v = try c.decodeIfPresent(Bool.self, forKey: .master) { self = .master(v); return }
+        throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "no known FlowOwner key present"))
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .taskId(v): try c.encode(v, forKey: .taskId)
+        case let .projectId(v): try c.encode(v, forKey: .projectId)
+        case let .master(v): try c.encode(v, forKey: .master)
+        }
+    }
 }
 
 struct FlowDefinitionDeletePayload: Codable, Sendable, Equatable {
