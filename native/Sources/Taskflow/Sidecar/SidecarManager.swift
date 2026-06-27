@@ -21,8 +21,15 @@ final class SidecarManager {
         portFile = pf
 
         let proc = Process()
+        let base = ProcessInfo.processInfo.environment
+        let sandboxHome = SidecarSupport.resolveSandboxHome(base: base)
+        if let sandboxHome {
+            print("[SidecarManager] sandboxed data dir: \(sandboxHome)/.config/taskflow")
+        } else {
+            print("[SidecarManager] WARNING: using production data dir (TASKFLOW_NATIVE_PROD_DATA=1)")
+        }
         let env = SidecarSupport.childEnvironment(
-            base: ProcessInfo.processInfo.environment, portFile: pf.path, rgPath: resolveRipgrep())
+            base: base, portFile: pf.path, rgPath: resolveRipgrep(), sandboxHome: sandboxHome)
 
         if let bin = packagedBinary() {
             proc.executableURL = bin
@@ -38,22 +45,25 @@ final class SidecarManager {
         proc.standardError = FileHandle.nullDevice
         try proc.run()
         process = proc
-
-        let port = try await waitForPort(pf, deadlineSeconds: 10)
-        print("[SidecarManager] sidecar port \(port)")
-        let client = WSClient(url: SidecarSupport.wsURL(port: port))
-        client.connect()
-        // Health check: system:info must round-trip.
         do {
+            let port = try await waitForPort(pf, deadlineSeconds: 10)
+            print("[SidecarManager] sidecar port \(port)")
+            let client = WSClient(url: SidecarSupport.wsURL(port: port))
+            client.connect()
+            // Health check: system:info must round-trip.
             let data = try await client.requestRaw(.systemInfo, payload: [:])
             if let str = String(data: data, encoding: .utf8) {
                 print("[SidecarManager] system:info response: \(str)")
             }
+            isRunning = true
+            return client
+        } catch let e as SidecarError {
+            stop()
+            throw e
         } catch {
+            stop()
             throw SidecarError.healthCheckFailed
         }
-        isRunning = true
-        return client
     }
 
     func stop() {
@@ -81,11 +91,9 @@ final class SidecarManager {
     private func waitForPort(_ file: URL, deadlineSeconds: Double) async throws -> Int {
         let deadline = Date().addingTimeInterval(deadlineSeconds)
         while Date() < deadline {
-            if process?.isRunning == false { throw SidecarError.portTimeout }
             if let contents = try? String(contentsOf: file, encoding: .utf8),
-               let port = SidecarSupport.parsePort(contents) {
-                return port
-            }
+               let port = SidecarSupport.parsePort(contents) { return port }
+            if process?.isRunning == false { throw SidecarError.portTimeout }
             try? await Swift.Task.sleep(nanoseconds: 100_000_000) // 100ms
         }
         throw SidecarError.portTimeout
