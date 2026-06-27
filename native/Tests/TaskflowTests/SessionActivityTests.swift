@@ -23,4 +23,37 @@ final class SessionActivityTests: XCTestCase {
     func testAlreadyWorkingNoWrite() {
         XCTAssertNil(SessionActivity.nextStatus(current: .working, isInteracting: false, usesActivity: true))
     }
+
+    // MARK: - interaction suppression (500ms time window, ports session-activity.ts)
+
+    // within INTERACTION_SUPPRESSION_MS of the last interaction → still interacting
+    func testInteractingWithinWindow() {
+        let activity = SessionActivity()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        activity.markInteraction("s1", at: t0)
+        XCTAssertTrue(activity.isInteracting("s1", now: t0.addingTimeInterval(0.4)))
+    }
+
+    // once the window has elapsed → no longer interacting
+    func testNotInteractingAfterWindow() {
+        let activity = SessionActivity()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        activity.markInteraction("s1", at: t0)
+        XCTAssertFalse(activity.isInteracting("s1", now: t0.addingTimeInterval(0.5)))
+    }
+
+    // never marked → not interacting
+    func testNotInteractingWhenNeverMarked() {
+        let activity = SessionActivity()
+        XCTAssertFalse(activity.isInteracting("s1", now: Date()))
+    }
+
+    // cleared → not interacting even within the window
+    func testNotInteractingAfterClear() {
+        let activity = SessionActivity()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        activity.markInteraction("s1", at: t0)
+        activity.clearInteraction("s1")
+        XCTAssertFalse(activity.isInteracting("s1", now: t0.addingTimeInterval(0.1)))
+    }
 }

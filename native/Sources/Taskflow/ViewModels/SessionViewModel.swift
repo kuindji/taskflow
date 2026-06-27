@@ -77,6 +77,9 @@ final class SessionViewModel {
                 // schedule settle only when the session is (now) working
                 if sessionStatus[id] == .working {
                     activity.scheduleTimeout(id) { [weak self] in
+                        // Phase 5 seam: port `settleInactiveSession` (session-activity.ts) to
+                        // settle to nil when the session is focused, .attention otherwise.
+                        // No window/tab-focus tracking exists yet, so always settle to .attention.
                         self?.setSessionStatus(sessionId: id, status: .attention)
                     }
                 }
@@ -88,6 +91,8 @@ final class SessionViewModel {
                 setSessionStatus(sessionId: event.sessionId, status: event.status)
                 if event.status == .working {
                     activity.scheduleTimeout(event.sessionId) { [weak self] in
+                        // Phase 5 seam: focus-aware `settleInactiveSession` (session-activity.ts) —
+                        // settle to nil when focused, .attention otherwise. No focus tracking yet.
                         self?.setSessionStatus(sessionId: event.sessionId, status: .attention)
                     }
                 } else {
