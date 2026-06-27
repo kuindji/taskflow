@@ -5,6 +5,7 @@ struct PrimitivesGallery: View {
     @State private var toggleOn = true
     @State private var text = "edit me"
     @State private var tab = 0
+    @State private var galleryAgent: AgentType = .claude
 
     var body: some View {
         let theme = themeStore.current
@@ -30,6 +31,22 @@ struct PrimitivesGallery: View {
                     Button("Action One") {}
                     Button("Action Two") {}
                 }
+
+                // MARK: Phase 5A foundations
+                Text("Agent option fragments").font(.headline)
+                HStack(spacing: 8) {
+                    ForEach([AgentType.claude, .codex, .opencode, .gemini, .cursor, .pi], id: \.rawValue) { a in
+                        AgentIcon(a, size: 20)
+                    }
+                }
+                HStack(spacing: 12) {
+                    AppIcon("Plus"); AppIcon("Trash2"); AppIcon("GitBranch"); AppIcon("Bell"); AppIcon("Workflow")
+                }
+                AppSelect($galleryAgent, options: [
+                    (.claude, "Claude"), (.codex, "Codex"), (.opencode, "OpenCode"),
+                    (.gemini, "Gemini"), (.cursor, "Cursor"), (.pi, "Pi"),
+                ])
+                AgentOptionsView(agent: galleryAgent)
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
