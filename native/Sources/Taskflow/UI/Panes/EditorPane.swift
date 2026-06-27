@@ -9,7 +9,9 @@ import CodeEditLanguages
 /// binding at construction time. Saving is wired to ⌘S via a hidden background `Button`.
 ///
 /// **Key design choices:**
-/// - `.task(id: filePath)` reloads when the path changes and cancels the previous load task.
+/// - `.task(id: LoadKey(...))` reloads when the path changes OR when the WS file API becomes
+///   available (sidecar connect), and cancels the previous load task. Keying only on `filePath`
+///   would leave the editor permanently blank if it mounted before the sidecar connected.
 /// - `.id(filePath)` forces SwiftUI to replace the editor view (resetting all state) whenever
 ///   the file path changes — the in-place file-swap fix.
 /// - File access is WS-only; `FileManager` / `String(contentsOfFile:)` are never called here.
@@ -27,6 +29,15 @@ struct EditorPane: View {
     @State private var loaded = false
     @State private var saveError: String?
 
+    /// Re-keys the load `.task` on both the file path AND whether the WS file API is
+    /// available, so the editor loads the moment the sidecar connects — not only on a
+    /// path change. Without the `connected` component a pane mounted pre-connect would
+    /// stay blank for the whole session.
+    private struct LoadKey: Equatable {
+        let path: String
+        let connected: Bool
+    }
+
     var body: some View {
         Group {
             if loaded {
@@ -41,27 +52,56 @@ struct EditorPane: View {
                     cursorPositions: $cursors,
                     showMinimap: false
                 )
+            } else if env.files == nil {
+                // Sidecar not connected yet — the load .task re-fires once `files` arrives.
+                placeholder("Waiting for connection…")
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: filePath) {
+        .task(id: LoadKey(path: filePath, connected: env.files != nil)) {
             // Reset before each load so a stale file is never shown during the fetch.
             loaded = false
+            // No WS file API yet: stay in the "waiting" state. This .task re-fires when
+            // `connected` flips true, at which point the real load runs.
+            guard let files = env.files else { return }
             do {
-                text = try await env.files?.readFile(path: filePath) ?? ""
+                text = try await files.readFile(path: filePath)
                 loaded = true
             } catch {
                 text = "// could not read \(filePath)"
                 loaded = true
             }
         }
+        .overlay(alignment: .bottom) {
+            if let saveError {
+                Text("Save failed: \(saveError)")
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(theme.color(.destructive))
+                    .foregroundStyle(theme.color(.destructiveForeground))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .padding(8)
+            }
+        }
         .background(
             // ⌘S save — hidden button captures the keyboard shortcut without appearing in the UI.
             Button("") {
                 Task {
-                    try? await env.files?.writeFile(path: filePath, content: text)
+                    guard let files = env.files else {
+                        saveError = "Not connected"
+                        return
+                    }
+                    do {
+                        try await files.writeFile(path: filePath, content: text)
+                        saveError = nil
+                    } catch {
+                        // Surface save failures instead of silently swallowing them.
+                        saveError = error.localizedDescription
+                        NSLog("[EditorPane] save failed for \(filePath): \(error)")
+                    }
                 }
             }
             .keyboardShortcut("s", modifiers: .command)
@@ -70,6 +110,16 @@ struct EditorPane: View {
         // Replace (not update) the editor when the file path changes so each file
         // gets a fresh editor instance with its own undo stack and cursor state.
         .id(filePath)
+    }
+
+    private func placeholder(_ message: String) -> some View {
+        VStack(spacing: 8) {
+            ProgressView()
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(theme.color(.mutedForeground))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Navigation

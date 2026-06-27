@@ -23,6 +23,10 @@ let package = Package(
             dependencies: [
                 .product(name: "GhosttyTerminal", package: "libghostty-spm"),
                 .product(name: "CodeEditSourceEditor", package: "CodeEditSourceEditor"),
+                // Explicit: EditorPane/LanguageDetection import CodeEditLanguages directly rather
+                // than relying on transitive reachability through CodeEditSourceEditor. The product
+                // is vended by the CodeEditLanguages package (not CodeEditSourceEditor).
+                .product(name: "CodeEditLanguages", package: "CodeEditLanguages"),
             ],
             path: "Sources/Taskflow",
             resources: [.copy("Resources/themes"), .copy("Resources/backend")],
