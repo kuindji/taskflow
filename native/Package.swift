@@ -13,6 +13,9 @@ let package = Package(
         .package(url: "https://github.com/CodeEditApp/CodeEditSourceEditor.git", exact: "0.12.0"),
         // Force the exact CodeEditTextView 0.12.0 was built against (0.11.0+ changed an API).
         .package(url: "https://github.com/CodeEditApp/CodeEditTextView.git", exact: "0.10.1"),
+        // Tree-sitter language definitions — pinned to the version CodeEditSourceEditor 0.12.0
+        // was built against; also listed here so LanguageDetectionTests can import CodeEditLanguages.
+        .package(url: "https://github.com/CodeEditApp/CodeEditLanguages.git", exact: "0.1.20"),
     ],
     targets: [
         .executableTarget(
@@ -27,7 +30,10 @@ let package = Package(
         ),
         .testTarget(
             name: "TaskflowTests",
-            dependencies: ["Taskflow"],
+            dependencies: [
+                "Taskflow",
+                .product(name: "CodeEditLanguages", package: "CodeEditLanguages"),
+            ],
             path: "Tests/TaskflowTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
