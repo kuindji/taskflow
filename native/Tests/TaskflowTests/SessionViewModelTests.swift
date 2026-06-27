@@ -114,4 +114,20 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(vm.activeTabByWorkspace[key], "demo-claude-1",
                        "active tab unchanged after reorder")
     }
+
+    // addTab id-dedup: reopening the same file's editor tab (sessionId == nil) must focus the
+    // existing tab, not append a duplicate. Without id-dedup, N opens → N identical tabs.
+    func testAddTabIdDedupForEditorTabs() {
+        let client = WSClient(url: URL(string: "ws://127.0.0.1:1")!)
+        let vm = SessionViewModel(client: client)
+        let key = WorkspaceKey.master
+
+        let tab = Tab(id: "editor:/x.swift", type: .editor, label: "x.swift", filePath: "/x.swift")
+        vm.addTab(key, tab)
+        vm.addTab(key, tab) // reopen same path → must focus, not duplicate
+
+        XCTAssertEqual(vm.tabs(key).count, 1, "same-id editor tab must not duplicate")
+        XCTAssertEqual(vm.activeTabByWorkspace[key], "editor:/x.swift",
+                       "reopened editor tab must be active")
+    }
 }

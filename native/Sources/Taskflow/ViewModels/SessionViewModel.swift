@@ -221,6 +221,14 @@ final class SessionViewModel {
             return
         }
 
+        // Same-id tab already present (e.g. reopening the same file's editor tab, which has
+        // no sessionId): focus it, don't duplicate. Session tabs have id == sessionId, so this
+        // guard is consistent with — and never conflicts with — the sessionId dedup above.
+        if let existingTab = existing.first(where: { $0.id == tab.id }) {
+            if activate { activeTabByWorkspace[key] = existingTab.id }
+            return
+        }
+
         tabsByWorkspace[key] = existing + [tab]
 
         // Remove duplicate from sibling pane
