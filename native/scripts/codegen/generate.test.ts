@@ -22,6 +22,8 @@ test("extractMessageCases reads MSG string-literal values", () => {
 test("camelCase maps a colon/snake wire type to a Swift case name", () => {
     expect(camelCase("task:list")).toBe("taskList");
     expect(pascalCase("flow-run-updated")).toBe("FlowRunUpdated");
+    expect(camelCase("flow:run-updated")).toBe("flowRunUpdated");
+    expect(camelCase("remote-agent:status-changed")).toBe("remoteAgentStatusChanged");
 });
 
 test("swiftEnum renders a String-backed enum", () => {

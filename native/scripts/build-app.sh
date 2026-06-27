@@ -6,7 +6,7 @@ cd "$HERE"
 
 # Codegen + theme bake are wired here in Tasks 3-6:
 ( cd "$HERE/.." && bun native/scripts/codegen/generate.ts )
-#   bun scripts/codegen/bake-themes.ts
+#   bun native/scripts/codegen/bake-themes.ts
 # Backend staging is wired here in Task 8:
 #   scripts/build-backend-sidecar.sh
 
