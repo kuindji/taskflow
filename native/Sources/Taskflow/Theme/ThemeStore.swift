@@ -1,9 +1,11 @@
 import SwiftUI
+import Observation
 
 @MainActor
-final class ThemeStore: ObservableObject {
-    @Published private(set) var current: AppTheme
-    let all: [AppTheme]
+@Observable
+final class ThemeStore {
+    private(set) var current: AppTheme
+    @ObservationIgnored let all: [AppTheme]
 
     init(defaultId: String = "catppuccin-mocha") {
         let files = ThemeStore.loadAllFiles()

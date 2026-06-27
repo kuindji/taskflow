@@ -21,6 +21,6 @@ struct AppMenu<Content: View>: View {
                         .stroke(theme.border, lineWidth: 1)
                 )
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.automatic)
     }
 }

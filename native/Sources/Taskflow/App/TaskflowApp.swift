@@ -2,13 +2,13 @@ import SwiftUI
 
 @main
 struct TaskflowApp: App {
-    @StateObject private var env = AppEnvironment()
+    @State private var env = AppEnvironment()
 
     var body: some Scene {
         WindowGroup("Taskflow") {
             RootView()
-                .environmentObject(env)
-                .environment(\.appTheme, env.themeStore.current)
+                .environment(env)
+                .environment(\.appTheme, env.themeStore.current) // fresh: re-reads tracked `current`
                 .frame(minWidth: 900, minHeight: 600)
                 .task { await env.boot() }
                 .onDisappear { env.shutdown() }
@@ -18,7 +18,7 @@ struct TaskflowApp: App {
 }
 
 struct RootView: View {
-    @EnvironmentObject var env: AppEnvironment
+    @Environment(AppEnvironment.self) private var env
     var body: some View {
         VStack(spacing: 0) {
             statusBar

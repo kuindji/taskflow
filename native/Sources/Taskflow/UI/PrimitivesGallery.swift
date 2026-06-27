@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PrimitivesGallery: View {
-    @ObservedObject var themeStore: ThemeStore
+    var themeStore: ThemeStore
     @State private var toggleOn = true
     @State private var text = "edit me"
     @State private var tab = 0
@@ -11,7 +11,7 @@ struct PrimitivesGallery: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Picker("Theme", selection: Binding(
-                    get: { theme.id },
+                    get: { themeStore.current.id },
                     set: { themeStore.select(id: $0) })) {
                     ForEach(themeStore.all) { t in Text(t.name).tag(t.id) }
                 }
@@ -35,6 +35,5 @@ struct PrimitivesGallery: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(theme.background)
-        .environment(\.appTheme, theme)
     }
 }

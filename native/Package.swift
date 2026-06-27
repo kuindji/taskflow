@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Taskflow",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     dependencies: [
         // Terminal (Phase 4). Community fork shipping prebuilt GhosttyKit.xcframework +
         // the HOST_MANAGED .inMemory backend patch. Pinned EXACT — this version is load-bearing.

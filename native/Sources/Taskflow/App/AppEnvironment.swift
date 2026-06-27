@@ -1,12 +1,14 @@
 import SwiftUI
+import Observation
 
 @MainActor
-final class AppEnvironment: ObservableObject {
+@Observable
+final class AppEnvironment {
     enum Status: Equatable { case connecting, connected(port: Int), failed(String) }
-    @Published private(set) var status: Status = .connecting
-    let themeStore = ThemeStore()
-    private let sidecar: SidecarManager
-    private(set) var client: WSClient?
+    private(set) var status: Status = .connecting
+    @ObservationIgnored let themeStore = ThemeStore()
+    @ObservationIgnored private let sidecar: SidecarManager
+    @ObservationIgnored private(set) var client: WSClient?
 
     init() {
         let repoRoot = ProcessInfo.processInfo.environment["TASKFLOW_REPO_ROOT"].map(URL.init(fileURLWithPath:))
