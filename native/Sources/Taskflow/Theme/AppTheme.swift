@@ -59,6 +59,16 @@ struct AppTheme: Equatable, Sendable, Identifiable {
         css = file.css
     }
 
+    private init(id: String, name: String, css: [String: String]) {
+        self.id = id
+        self.name = name
+        self.css = css
+    }
+
+    // Used when no theme files could be loaded (e.g. bundle misconfiguration).
+    // hex() falls back to "#000000" for missing keys so colours degrade gracefully.
+    static let fallback = AppTheme(id: "fallback", name: "Fallback", css: [:])
+
     func hex(_ token: ThemeToken) -> String { css[token.rawValue] ?? "#000000" }
     func color(_ token: ThemeToken) -> Color { Color(hex: hex(token)) }
 
@@ -74,8 +84,8 @@ struct AppTheme: Equatable, Sendable, Identifiable {
 }
 
 extension Color {
-    // Parses hex (#RGB, #RRGGBB, #RRGGBBAA) and rgba(r, g, b, a) values.
-    // Unrecognised formats fall back to opaque black rather than crashing.
+    // Parses hex (#RRGGBB, #RRGGBBAA) and rgba(r, g, b, a) values.
+    // Unrecognised formats (including 3-char #RGB) fall back to opaque black rather than crashing.
     init(hex: String) {
         // rgba(r, g, b, a) — e.g. produced by --island-base in derived themes
         if hex.hasPrefix("rgba(") || hex.hasPrefix("RGBA(") {
@@ -106,7 +116,7 @@ extension Color {
             self.init(.sRGB, red: 0, green: 0, blue: 0, opacity: 1)
             return
         }
-        // Hex: #RGB, #RRGGBB, #RRGGBBAA
+        // Hex: #RRGGBB, #RRGGBBAA (3-char #RGB is not supported)
         let h = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
         var v: UInt64 = 0
         Scanner(string: h).scanHexInt64(&v)

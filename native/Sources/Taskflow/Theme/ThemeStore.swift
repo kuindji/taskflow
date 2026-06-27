@@ -9,7 +9,7 @@ final class ThemeStore: ObservableObject {
         let files = ThemeStore.loadAllFiles()
         let themes = files.map(AppTheme.init).sorted { $0.id < $1.id }
         all = themes
-        current = themes.first { $0.id == defaultId } ?? themes[0]
+        current = themes.first { $0.id == defaultId } ?? themes.first ?? .fallback
     }
 
     func select(id: String) {

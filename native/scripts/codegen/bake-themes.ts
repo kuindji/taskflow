@@ -1,7 +1,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bundledThemes, deriveTheme } from "@taskflow/shared";
+import { bundledThemes, deriveTheme } from "../../../packages/shared/src/index.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const OUT = join(REPO_ROOT, "native", "Sources", "Taskflow", "Resources", "themes");
