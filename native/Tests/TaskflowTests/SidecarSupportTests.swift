@@ -24,6 +24,27 @@ final class SidecarSupportTests: XCTestCase {
         XCTAssertEqual(env["PATH"], "/usr/bin")
     }
 
+    func testChildEnvironmentStripsProductionIdentityVars() {
+        // The host Taskflow session's identity must not reach the sidecar or its
+        // descendants — otherwise a native test run can address the live instance
+        // (e.g. taskflow-cli → TASKFLOW_API_URL) and wipe its sessions.
+        let base = [
+            "TASKFLOW_API_URL": "http://localhost:51086",
+            "TASKFLOW_SESSION_ID": "prod-session",
+            "TASKFLOW_TASK_ID": "prod-task",
+            "TASKFLOW_PROJECT_ID": "prod-project",
+            "PATH": "/usr/bin",
+        ]
+        let env = SidecarSupport.childEnvironment(
+            base: base, portFile: "/tmp/pf", rgPath: nil, sandboxHome: "/Users/real/.taskflow-native-dev")
+        XCTAssertNil(env["TASKFLOW_API_URL"])
+        XCTAssertNil(env["TASKFLOW_SESSION_ID"])
+        XCTAssertNil(env["TASKFLOW_TASK_ID"])
+        XCTAssertNil(env["TASKFLOW_PROJECT_ID"])
+        XCTAssertEqual(env["PATH"], "/usr/bin")  // unrelated vars preserved
+        XCTAssertEqual(env["TASKFLOW_PORT_FILE"], "/tmp/pf")  // sandbox port file still set
+    }
+
     func testChildEnvironmentWithoutSandboxLeavesHomeAndDevUntouched() {
         let base = ["HOME": "/Users/real"]
         let env = SidecarSupport.childEnvironment(

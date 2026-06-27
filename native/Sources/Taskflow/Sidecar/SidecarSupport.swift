@@ -1,6 +1,13 @@
 import Foundation
 
 enum SidecarSupport {
+    /// Host-session identity env vars that must never leak into the sidecar or its
+    /// descendants. TASKFLOW_PORT_FILE is intentionally excluded — it is overridden
+    /// to the sandbox port file in `childEnvironment`, not stripped.
+    static let productionIdentityVars = [
+        "TASKFLOW_API_URL", "TASKFLOW_SESSION_ID", "TASKFLOW_TASK_ID", "TASKFLOW_PROJECT_ID",
+    ]
+
     static func parsePort(_ contents: String) -> Int? {
         let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let port = Int(trimmed), port >= 1024, port <= 65535 else { return nil }
@@ -16,6 +23,13 @@ enum SidecarSupport {
         var env = base
         env.removeValue(forKey: "CLAUDECODE")
         env.removeValue(forKey: "CLAUDE_CODE_ENTRYPOINT")
+        // Strip the host Taskflow session's identity so neither the sidecar nor
+        // anything it later spawns (agent shells, embedded terminals running
+        // `taskflow-cli`) can address or impersonate the user's PRODUCTION
+        // instance. `taskflow-cli` targets a backend purely via TASKFLOW_API_URL,
+        // and the backend tags/clears sessions by the *_ID identity — leaking
+        // these is how a native test run reaches the live app.
+        for key in productionIdentityVars { env.removeValue(forKey: key) }
         env["TASKFLOW_PORT_FILE"] = portFile
         if let rgPath { env["TASKFLOW_RG_PATH"] = rgPath }
         if let sandboxHome {
