@@ -36,7 +36,8 @@ struct ClaudeOptionsView: View {
                 ])
             }
             SettingRow(label: "Skip Permissions",
-                       hint: "Bypass all permission checks (--dangerously-skip-permissions)") {
+                       hint: mode == .defaults ? "Bypass all permission checks by default (--dangerously-skip-permissions)"
+                                               : "Bypass all permission checks (--dangerously-skip-permissions)") {
                 AppToggle(title: skipPermissions ? "Enabled" : "Disabled", isOn: $skipPermissions)
             }
             SettingRow(label: "Permission Mode",
