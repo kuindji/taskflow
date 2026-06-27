@@ -28,16 +28,31 @@ final class WSClientTests: XCTestCase {
                                        payload: Data())) // must not crash
     }
 
-    // Production fix 1: a resolved request cancels its timeout (no late spurious failure).
+    // Production fix 1: a resolved request cancels its timeout task so it doesn't linger.
+    // This test FAILS if handleInbound's timeouts.removeValue(forKey:)?.cancel() is removed
+    // because activeTimeoutCount would remain 1 after resolution.
     func testResolvedRequestDoesNotTimeOut() async throws {
         let client = WSClient(url: URL(string: "ws://localhost:1")!)
-        let data = try await client.awaitNextCorrelation { id in
-            client.handleInbound(.response(correlationId: id, type: "x",
-                                           payload: #"{"ok":true}"#.data(using: .utf8)!))
+        let knownId = "test-correlation-\(UUID().uuidString)"
+        let responsePayload = #"{"ok":true}"#.data(using: .utf8)!
+
+        // Launch requestRaw on a child task. socketTask is nil so send is a no-op,
+        // but pending + timeout ARE installed synchronously inside the continuation body.
+        let child = Swift.Task {
+            try await client.requestRaw(.taskList, payload: [:], correlationId: knownId,
+                                        timeoutNanoseconds: 30_000_000_000)
         }
-        // If the timeout weren't cancelled, a second resume would crash the continuation.
-        try await SleepHelper.millis(50)
-        XCTAssertFalse(data.isEmpty)
+        // Yield so requestRaw runs and installs its pending/timeout entries.
+        await Swift.Task.yield()
+        XCTAssertEqual(client.activeTimeoutCount, 1, "timeout task must be registered before response")
+
+        // Resolve the request; handleInbound must cancel+remove the timeout.
+        client.handleInbound(.response(correlationId: knownId, type: "task:list",
+                                       payload: responsePayload))
+
+        let result = try await child.value
+        XCTAssertEqual(result, responsePayload)
+        XCTAssertEqual(client.activeTimeoutCount, 0, "timeout task must be cancelled and removed after response")
     }
 
     // Production fix 2: pending requests fail fast when the socket drops.
