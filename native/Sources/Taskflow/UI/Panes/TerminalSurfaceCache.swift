@@ -74,6 +74,12 @@ final class TerminalSurfaceCache {
 /// `TerminalSessionBridge`. @unchecked Sendable is safe here: the box is written exactly
 /// once on @MainActor (immediately after bridge creation), and every read occurs inside a
 /// `Task { @MainActor in … }` — no concurrent access is possible.
+///
+/// `bridge` is `weak` to break the retain cycle: Entry.bridge → bridge → session →
+/// write/resize closures → BridgeBox → bridge. The dictionary's `Entry.bridge` is the only
+/// strong owner, so the bridge (and its session + libghostty surface) deallocates the
+/// instant `entries.removeValue` runs in `evict()`. Reads use optional-chaining
+/// (`box.bridge?.…`), so a nil after eviction is already handled.
 private final class BridgeBox: @unchecked Sendable {
-    var bridge: TerminalSessionBridge?
+    weak var bridge: TerminalSessionBridge?
 }

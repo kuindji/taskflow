@@ -14,6 +14,8 @@ struct TerminalPane: NSViewRepresentable {
         // placed in the view hierarchy after env.status == .connected, so the
         // guard-else branch is a resilience fallback, not a normal code path.
         guard let client = env.client else {
+            // updateNSView is a no-op, so this stub never recovers — flag the misuse in DEBUG.
+            assertionFailure("TerminalPane placed before client connected — check call site guard")
             return AppTerminalView(frame: .zero)
         }
         return env.terminalSurfaces.surface(

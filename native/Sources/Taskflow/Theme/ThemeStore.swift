@@ -34,10 +34,11 @@ final class ThemeStore {
     }
 
     /// Returns the `ResolvedThemeFile` backing the currently active theme.
-    /// Falls back to the first available file, then to hardcoded Catppuccin Mocha
-    /// defaults when the bundle contains no theme files.
+    /// Falls back to the lowest-id theme (`all` is sorted by id in init — deterministic,
+    /// unlike Dictionary order), then to hardcoded Catppuccin Mocha defaults when the
+    /// bundle contains no theme files.
     var currentFile: ResolvedThemeFile {
-        fileMap[current.id] ?? fileMap.values.first ?? Self.hardcodedFallback
+        fileMap[current.id] ?? all.first.flatMap { fileMap[$0.id] } ?? Self.hardcodedFallback
     }
 
     func select(id: String) {
