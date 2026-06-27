@@ -31,4 +31,23 @@ final class UIViewModelTests: XCTestCase {
         vm.fileExplorerOpen = true; vm.openSearchPanel()
         XCTAssertTrue(vm.searchPanelOpen); XCTAssertFalse(vm.fileExplorerOpen)
     }
+
+    func testToggleSplitReopenPreservesRatio() {
+        let vm = UIViewModel()
+        vm.toggleSplit("task:a")
+        vm.setSplitRatio("task:a", 0.7)
+        vm.toggleSplit("task:a")   // close
+        vm.toggleSplit("task:a")   // reopen
+        XCTAssertEqual(vm.getSplit("task:a")?.ratio, 0.7)
+    }
+
+    func testWidthSettersClamp() {
+        let vm = UIViewModel()
+        vm.setFileExplorerWidth(10);   XCTAssertEqual(vm.fileExplorerWidth, 150)
+        vm.setFileExplorerWidth(9999); XCTAssertEqual(vm.fileExplorerWidth, 500)
+        vm.setTaskInfoWidth(10);       XCTAssertEqual(vm.taskInfoWidth, 150)
+        vm.setTaskInfoWidth(9999);     XCTAssertEqual(vm.taskInfoWidth, 500)
+        vm.setFlowPanelWidth(10);      XCTAssertEqual(vm.flowPanelWidth, 150)
+        vm.setFlowPanelWidth(9999);    XCTAssertEqual(vm.flowPanelWidth, 400)
+    }
 }

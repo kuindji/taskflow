@@ -164,6 +164,8 @@ final class UIViewModel {
     }
 
     func unregisterPanel(_ id: PanelId) {
+        // Guard mirrors ui-store.ts: bail out before touching focus if not registered.
+        guard registeredPanels.contains(id) else { return }
         registeredPanels.remove(id)
         if focusedPanel == id { focusedPanel = .workspace }
     }
@@ -231,9 +233,15 @@ final class UIViewModel {
     /// - If no entry exists: creates `{open: true, ratio: 0.5, activePane: .left}`.
     /// - If an entry exists: toggles `open` in place (ratio/activePane are preserved).
     ///
-    /// Note: Swift port retains the entry when closing (sets `open = false`) rather than
-    /// removing the key as the TS store does, so that `getSplit` always returns the same
-    /// optional-Bool that the tests assert.
+    /// CONTRACT (consumed by Task 11's SplitContainer):
+    /// This Swift port retains the entry when closing (sets `open = false`) instead of
+    /// deleting the key as the TS store does. Callers MUST honor these consequences:
+    /// - `getSplit(key) != nil` is **NOT** an open-check — a closed split still returns a
+    ///   non-nil entry. Use `getSplit(key)?.open == true` to test openness.
+    /// - Closing preserves `ratio` and `activePane`; reopening restores those exact values
+    ///   (it does not reset to the 0.5 / `.left` defaults).
+    /// This intentionally differs from `ui-store.ts` (which deletes the key on close); the
+    /// retain-on-close behavior is the agreed contract and must not be changed.
     func toggleSplit(_ key: String) {
         if var existing = splitByWorkspace[key] {
             existing.open.toggle()
