@@ -63,7 +63,12 @@ None of these blocked integration; all are documented rough edges of a pre-produ
 - **Terminal session persistence across tab switches** is not handled — switching tabs tears down and re-spawns the `.exec` process. A production workspace must keep panes alive behind the tab strip (Phase 4 item).
 - Breadth (the ~12 feature areas) is untouched by design — that is the known long pole, not a de-risking target.
 
-## Decision: **GO** (recommended)
+## Decision: **GO** — confirmed by product owner (2026-06-27)
+
+> The product owner reviewed this record and **confirmed GO on 2026-06-27**. Master-plan Phases 2–6 are
+> now greenlit. The branch `task/build-native-app-experiment` is kept as-is (no merge/PR) — it remains the
+> home of the planning specs + the `native-slice/` evidence.
+
 
 Every hard Phase 1 seam held up together in one running native window driven by the real backend: the structural spine (split/tabs/drag), the Swift store→view-model + WS transport, the libghostty↔SwiftUI two-render-worlds boundary, and a native editor — with no blocker. The bugs found were ordinary and fixed in the review loop; the one architectural gotcha (lifecycle/autoresizing) is now understood and documented. The editor dependency is rough but integrates, and the fallbacks remain. This is the true commit-or-not signal the master plan asked for, and it points to **GO**.
 
