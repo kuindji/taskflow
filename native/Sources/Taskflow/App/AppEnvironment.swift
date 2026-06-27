@@ -7,6 +7,7 @@ final class AppEnvironment {
     enum Status: Equatable { case connecting, connected(port: Int), failed(String) }
     private(set) var status: Status = .connecting
     @ObservationIgnored let themeStore = ThemeStore()
+    @ObservationIgnored let terminalSurfaces = TerminalSurfaceCache()
     @ObservationIgnored private let sidecar: SidecarManager
     @ObservationIgnored private(set) var client: WSClient?
 
