@@ -16,6 +16,11 @@ final class WSClient: NSObject, URLSessionWebSocketDelegate {
     init(url: URL) { self.url = url; super.init() }
 
     func connect() {
+        // Re-entrancy guard: never replace a live socket (a manual connect racing a
+        // scheduled reconnect would leak the old task + spawn a second receiveLoop).
+        // The receive-failure path nils socketTask before scheduling a reconnect, so
+        // reconnection still proceeds past this guard.
+        guard socketTask == nil else { return }
         isDisconnecting = false
         socketSession = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         let t = socketSession.webSocketTask(with: url)
@@ -99,6 +104,7 @@ final class WSClient: NSObject, URLSessionWebSocketDelegate {
             switch result {
             case .failure:
                 Swift.Task { @MainActor in
+                    self.socketTask = nil  // clear the dead task so connect()'s guard lets reconnect through
                     self.failAllPending(.notConnected)
                     if !self.isDisconnecting { self.scheduleReconnect() }
                 }

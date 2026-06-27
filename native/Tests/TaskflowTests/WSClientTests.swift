@@ -66,5 +66,3 @@ final class WSClientTests: XCTestCase {
         }
     }
 }
-
-enum SleepHelper { static func millis(_ ms: UInt64) async throws { try await Swift.Task.sleep(nanoseconds: ms * 1_000_000) } }

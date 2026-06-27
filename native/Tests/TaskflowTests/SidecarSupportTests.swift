@@ -33,14 +33,15 @@ final class SidecarSupportTests: XCTestCase {
             "TASKFLOW_SESSION_ID": "prod-session",
             "TASKFLOW_TASK_ID": "prod-task",
             "TASKFLOW_PROJECT_ID": "prod-project",
+            "TASKFLOW_FLOW_ID": "prod-flow",
+            "TASKFLOW_ACTION_ENTRY_ID": "prod-action",
             "PATH": "/usr/bin",
         ]
         let env = SidecarSupport.childEnvironment(
             base: base, portFile: "/tmp/pf", rgPath: nil, sandboxHome: "/Users/real/.taskflow-native-dev")
-        XCTAssertNil(env["TASKFLOW_API_URL"])
-        XCTAssertNil(env["TASKFLOW_SESSION_ID"])
-        XCTAssertNil(env["TASKFLOW_TASK_ID"])
-        XCTAssertNil(env["TASKFLOW_PROJECT_ID"])
+        for stripped in SidecarSupport.productionIdentityVars {
+            XCTAssertNil(env[stripped], "\(stripped) must be stripped")
+        }
         XCTAssertEqual(env["PATH"], "/usr/bin")  // unrelated vars preserved
         XCTAssertEqual(env["TASKFLOW_PORT_FILE"], "/tmp/pf")  // sandbox port file still set
     }

@@ -6,6 +6,7 @@ enum SidecarSupport {
     /// to the sandbox port file in `childEnvironment`, not stripped.
     static let productionIdentityVars = [
         "TASKFLOW_API_URL", "TASKFLOW_SESSION_ID", "TASKFLOW_TASK_ID", "TASKFLOW_PROJECT_ID",
+        "TASKFLOW_FLOW_ID", "TASKFLOW_ACTION_ENTRY_ID",
     ]
 
     static func parsePort(_ contents: String) -> Int? {
