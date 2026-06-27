@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { extractMessageCases } from "./lib/messages";
 import { swiftEnum, pascalCase, camelCase } from "./lib/swift";
+import { mapPrimitive } from "./lib/types";
 
 const SAMPLE = `
 export const MSG = {
@@ -30,4 +31,10 @@ test("swiftEnum renders a String-backed enum", () => {
     const out = swiftEnum("MessageType", [{ name: "taskList", raw: "task:list" }]);
     expect(out).toContain("enum MessageType: String, Codable, Sendable, CaseIterable {");
     expect(out).toContain(`case taskList = "task:list"`);
+});
+
+test("mapPrimitive maps TS scalars and containers to Swift", () => {
+    expect(mapPrimitive("string")).toBe("String");
+    expect(mapPrimitive("number")).toBe("Double");
+    expect(mapPrimitive("boolean")).toBe("Bool");
 });
