@@ -80,4 +80,38 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(r?.sourceActive, "a")
         XCTAssertEqual(r?.targetActive, "b")
     }
+
+    // MARK: - Demo-tab reorder (state-path proof for p3-10-reorder-after evidence)
+    //
+    // Reproduces the exact demo state seeded by WorkspaceView in DEBUG builds:
+    //   [Claude, Shell, Editor]
+    // Simulates dragging the Claude tab chip over the Shell chip (same pane):
+    //   TabItem.dropDestination fires with dropped.tabId="demo-claude-1", tab.id="demo-shell-1"
+    //   → session.reorderTabs(key, activeId: "demo-claude-1", overId: "demo-shell-1")
+    // Expected result: [Shell, Claude, Editor]
+    func testDemoTabReorderViaInstanceMethod() {
+        let client = WSClient(url: URL(string: "ws://127.0.0.1:1")!)
+        let vm = SessionViewModel(client: client)
+        let key = WorkspaceKey.master
+
+        vm.addTab(key, Tab(id: "demo-claude-1", type: .claude, label: "Claude"))
+        vm.addTab(key, Tab(id: "demo-shell-1",  type: .shell,  label: "Shell"),  activate: false)
+        vm.addTab(key, Tab(id: "demo-editor-1", type: .editor, label: "Editor"), activate: false)
+
+        // Before drag: Claude | Shell | Editor
+        XCTAssertEqual(vm.tabs(key).map(\.id),
+                       ["demo-claude-1", "demo-shell-1", "demo-editor-1"],
+                       "initial order")
+        XCTAssertEqual(vm.activeTabByWorkspace[key], "demo-claude-1", "Claude active before drag")
+
+        // Simulate: drag Claude chip → drop on Shell chip (same pane)
+        vm.reorderTabs(key, activeId: "demo-claude-1", overId: "demo-shell-1")
+
+        // After drag: Shell | Claude | Editor  (Claude still active; only order changed)
+        XCTAssertEqual(vm.tabs(key).map(\.id),
+                       ["demo-shell-1", "demo-claude-1", "demo-editor-1"],
+                       "order after drag-reorder")
+        XCTAssertEqual(vm.activeTabByWorkspace[key], "demo-claude-1",
+                       "active tab unchanged after reorder")
+    }
 }
