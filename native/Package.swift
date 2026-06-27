@@ -22,7 +22,7 @@ let package = Package(
                 .product(name: "CodeEditSourceEditor", package: "CodeEditSourceEditor"),
             ],
             path: "Sources/Taskflow",
-            resources: [.copy("Resources/themes")],
+            resources: [.copy("Resources/themes"), .copy("Resources/backend")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

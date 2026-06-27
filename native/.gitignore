@@ -1,5 +1,6 @@
 .build/
 *.xcodeproj
 DerivedData/
-Sources/Taskflow/Resources/backend/
+Sources/Taskflow/Resources/backend/*
+!Sources/Taskflow/Resources/backend/.gitkeep
 .DS_Store

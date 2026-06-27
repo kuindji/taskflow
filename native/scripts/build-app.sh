@@ -8,7 +8,7 @@ cd "$HERE"
 ( cd "$HERE/.." && bun native/scripts/codegen/generate.ts )
 ( cd "$HERE/.." && bun native/scripts/codegen/bake-themes.ts )
 # Backend staging is wired here in Task 8:
-#   scripts/build-backend-sidecar.sh
+scripts/build-backend-sidecar.sh
 
 swift build -c release
 EXECUTABLE="$HERE/.build/release/Taskflow"
