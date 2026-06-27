@@ -97,4 +97,34 @@ final class FlowViewModelTests: XCTestCase {
         XCTAssertEqual(vm.activeRuns.count, 1)
         XCTAssertEqual(vm.activeRuns["task1"]?.status, .running)
     }
+
+    // MARK: - Malformed (no-owner) runs — security: must not crash or mis-key
+
+    func testOwnerIdReturnsNilWhenNoOwnerSet() {
+        // taskId/projectId/master all unset → nil (not a trap, not "")
+        let run = makeRun(taskId: nil, projectId: nil, master: nil)
+        XCTAssertNil(run.ownerId())
+    }
+
+    func testApplyRunUpdateIgnoresRunWithNoOwner() {
+        // A malformed run decoded from WS input must be a no-op — returns runs unchanged,
+        // never bucketing it under a bogus "" key.
+        let existing = makeRun(taskId: "task1")
+        let start = ["task1": existing]
+        let malformed = makeRun(taskId: nil, projectId: nil, master: nil)
+        let out = FlowViewModel.applyRunUpdate(start, malformed)
+        XCTAssertEqual(out.count, 1)
+        XCTAssertEqual(out["task1"]?.flowId, "flow1")
+        XCTAssertNil(out[""])  // no bogus empty-string key
+    }
+
+    func testReceiveRunUpdateSkipsRunWithNoOwnerAndDoesNotFireFocus() {
+        let vm = FlowViewModel(client: makeClient())
+        var fired = false
+        vm.onRunFocus = { _ in fired = true }
+        let malformed = makeRun(taskId: nil, projectId: nil, master: nil)
+        vm.receiveRunUpdate(malformed)  // must not crash
+        XCTAssertTrue(vm.activeRuns.isEmpty)  // activeRuns unchanged
+        XCTAssertFalse(fired)                 // onRunFocus not fired
+    }
 }

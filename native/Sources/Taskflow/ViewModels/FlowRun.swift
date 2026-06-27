@@ -22,11 +22,17 @@ struct FlowRun: Codable, Sendable, Equatable {
 
     /// Mirrors `getFlowRunOwnerId` from `packages/shared/src/types/flow.ts`.
     /// Returns taskId if set, projectId if set, or `"__master__"` if master is true.
-    func ownerId() -> String {
+    ///
+    /// Returns `nil` for the impossible no-owner case rather than crashing. `FlowRun` is decoded
+    /// from untrusted WebSocket input (`flow:run-updated` events, `flow:runs-list` responses);
+    /// the TS `getFlowRunOwnerId` `throw` is catchable — an uncaught throw in a JS WS handler logs
+    /// and skips that one run without crashing the app. A trap (`preconditionFailure`/`fatalError`)
+    /// would turn malformed input into an unrecoverable app abort (DoS), so callers must instead
+    /// skip nil-owner runs.
+    func ownerId() -> String? {
         if let taskId { return taskId }
         if let projectId { return projectId }
         if master == true { return "__master__" }
-        // Mirrors TS `getFlowRunOwnerId` which throws here — exactly one owner must be set.
-        preconditionFailure("FlowRun must have taskId, projectId, or master")
+        return nil
     }
 }

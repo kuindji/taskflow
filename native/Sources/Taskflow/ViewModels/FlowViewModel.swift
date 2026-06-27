@@ -127,7 +127,11 @@ final class FlowViewModel {
               let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { throw WSClient.WSClientError.badResponse }
         let run: FlowRun = try await client.request(.flowStart, payload: payload)
-        activeRuns[run.ownerId()] = run
+        if let ownerId = run.ownerId() {
+            activeRuns[ownerId] = run
+        } else {
+            NSLog("FlowViewModel.startFlow: dropping run with no owner (flowId=\(run.flowId))")
+        }
         return run
     }
 
@@ -177,7 +181,15 @@ final class FlowViewModel {
 
     /// Applies a run update and fires `onRunFocus` if set.
     /// Called by `bind()`'s `flow:run-updated` handler; also callable directly in tests.
+    ///
+    /// A run decoded from WS input with no owner (taskId/projectId/master all unset) is skipped
+    /// entirely — neither `activeRuns` nor `onRunFocus` is touched — mirroring the TS behavior
+    /// where `getFlowRunOwnerId`'s throw leaves that run untracked while the app survives.
     func receiveRunUpdate(_ run: FlowRun) {
+        guard run.ownerId() != nil else {
+            NSLog("FlowViewModel.receiveRunUpdate: skipping run with no owner (flowId=\(run.flowId))")
+            return
+        }
         activeRuns = Self.applyRunUpdate(activeRuns, run)
         onRunFocus?(run)
     }
@@ -187,8 +199,11 @@ final class FlowViewModel {
     /// Mirrors `applyRunUpdate` in `flow-store.ts`:
     /// inserts or replaces a run keyed by `ownerId`, but only if the run is `running`/`paused`
     /// OR if we were already tracking the owner — completed/failed runs for new owners are ignored.
+    ///
+    /// A run with no owner (nil `ownerId()`) is a no-op: the input is returned unchanged so a
+    /// malformed run can never crash or mis-key state (avoids bucketing under a bogus `""` key).
     static func applyRunUpdate(_ runs: [String: FlowRun], _ run: FlowRun) -> [String: FlowRun] {
-        let ownerId = run.ownerId()
+        guard let ownerId = run.ownerId() else { return runs }
         if run.status == .running || run.status == .paused || runs[ownerId] != nil {
             var copy = runs
             copy[ownerId] = run
