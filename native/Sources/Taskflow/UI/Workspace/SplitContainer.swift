@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// **Layout:**
 /// - Split closed (`ui.getSplit(workspaceKey)?.open != true`): single pane
-///   (TabBar + PanePlaceholder for `workspaceKey`).
+///   (TabBar + PaneHost for `workspaceKey`).
 /// - Split open: `HStack(spacing: 0)` of:
 ///     left pane  (`workspaceKey`,                    `width = totalWidth × ratio`)
 ///     vertical `ResizeHandle`  → `ui.setSplitRatio`
@@ -15,7 +15,7 @@ import SwiftUI
 /// A closed split retains its dictionary entry with `open = false`.
 ///
 /// **Cross-pane drop routing:**
-/// Each pane (TabBar + PanePlaceholder body) is wrapped in a
+/// Each pane (TabBar + PaneHost body) is wrapped in a
 /// `.dropDestination(for: TabDragItem.self)`:
 /// - `dropped.sourceKey == paneKey` → return `false` (no-op; `TabItem` handles same-pane
 ///   reorder in Task 10 and returns `true` first, so this guard is an extra safety net).
@@ -71,14 +71,14 @@ struct SplitContainer: View {
 
     // MARK: - Pane view
 
-    /// Renders a single pane: `TabBar → Divider → PanePlaceholder`, wrapped in a cross-pane
+    /// Renders a single pane: `TabBar → Divider → PaneHost`, wrapped in a cross-pane
     /// drop target. Same-pane drops return `false` (handled by `TabItem`).
     private func paneView(for paneKey: String) -> some View {
         VStack(spacing: 0) {
             TabBar(workspaceKey: paneKey)
             Divider()
                 .background(theme.border)
-            PanePlaceholder(for: env.session?.activeTab(paneKey))
+            PaneHost(activeTab: env.session?.activeTab(paneKey), workspaceKey: paneKey)
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .dropDestination(for: TabDragItem.self) { items, _ in

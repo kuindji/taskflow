@@ -122,8 +122,21 @@ final class AppEnvironment {
             }
         }
 
-        // files.onOpenFile — Phase 4: no editor pane yet; left unset intentionally.
-        // Phase 4: wire `filesVM.onOpenFile = { path in /* open editor tab */ }`.
+        // files.onOpenFile — opens the file as an editor tab in the active workspace.
+        filesVM.onOpenFile = { [weak self] path in
+            guard let self else { return }
+            let activeKey: String
+            if let taskId = tasks?.activeTaskId {
+                activeKey = WorkspaceKey.task(taskId)
+            } else if let projectId = ui.activeProjectId {
+                activeKey = WorkspaceKey.project(projectId)
+            } else {
+                activeKey = WorkspaceKey.master
+            }
+            let label = URL(fileURLWithPath: path).lastPathComponent
+            let tab = Tab(id: "editor:\(path)", type: .editor, label: label, filePath: path)
+            session?.addTab(activeKey, tab)
+        }
 
         // session cross-deps (post create/close refreshes)
         sessionVM.onFetchTasks = { [weak self] in

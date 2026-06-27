@@ -80,15 +80,15 @@ final class AppEnvironmentTests: XCTestCase {
                         "session.onFetchProjects must be wired in compose()")
     }
 
-    // MARK: - files.onOpenFile is intentionally left unset (Phase 4)
+    // MARK: - files.onOpenFile wired in Phase 4
 
-    func testFilesOnOpenFileIsUnsetPhase4Seam() {
+    func testFilesOnOpenFileIsWiredPhase4() {
         let env = AppEnvironment()
         let client = WSClient(url: URL(string: "ws://localhost:1")!)
         env.compose(client: client)
-        // Phase 4: no editor pane yet. Confirm the seam is nil, not accidentally wired.
-        XCTAssertNil(env.files?.onOpenFile,
-                     "files.onOpenFile must remain nil until Phase 4 editor pane is built")
+        // Phase 4: editor pane built — confirm the closure is now wired.
+        XCTAssertNotNil(env.files?.onOpenFile,
+                        "files.onOpenFile must be wired in compose() after Phase 4")
     }
 
     // MARK: - Closure effect: onProjectShouldClearActive clears active project
