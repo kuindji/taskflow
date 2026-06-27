@@ -15,6 +15,20 @@ struct Tab: Identifiable, Equatable, Codable, Sendable {
     var url: String?
     var autoTitle: Bool?
     var trayExclude: Bool?
+
+    /// Convenience init with required fields only; optional fields default to nil.
+    init(id: String, type: TabType, label: String, sessionId: String? = nil,
+         filePath: String? = nil, url: String? = nil,
+         autoTitle: Bool? = nil, trayExclude: Bool? = nil) {
+        self.id = id
+        self.type = type
+        self.label = label
+        self.sessionId = sessionId
+        self.filePath = filePath
+        self.url = url
+        self.autoTitle = autoTitle
+        self.trayExclude = trayExclude
+    }
 }
 
 /// The active pane in a split workspace — mirrors `PaneId` in `ui-store.ts`.

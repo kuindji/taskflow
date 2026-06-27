@@ -1,0 +1,83 @@
+import XCTest
+@testable import Taskflow
+
+@MainActor
+final class SessionViewModelTests: XCTestCase {
+    private func tab(_ id: String) -> Tab { Tab(id: id, type: .shell, label: id) }
+
+    // MARK: - arrayMove
+
+    func testArrayMove() {
+        XCTAssertEqual(SessionViewModel.arrayMove(["a", "b", "c"], 0, 2), ["b", "c", "a"])
+        XCTAssertEqual(SessionViewModel.arrayMove(["a", "b", "c"], 2, 0), ["c", "a", "b"])
+    }
+
+    func testArrayMoveNoOp() {
+        XCTAssertEqual(SessionViewModel.arrayMove(["a", "b"], 1, 1), ["a", "b"])
+    }
+
+    // MARK: - reorder
+
+    func testReorderByIds() {
+        let out = SessionViewModel.reorder([tab("a"), tab("b"), tab("c")], activeId: "a", overId: "c")
+        XCTAssertEqual(out.map(\.id), ["b", "c", "a"])
+    }
+
+    func testReorderUnknownIdIsNoOp() {
+        let tabs = [tab("a"), tab("b")]
+        let out = SessionViewModel.reorder(tabs, activeId: "a", overId: "zzz")
+        XCTAssertEqual(out.map(\.id), ["a", "b"])
+    }
+
+    // MARK: - move (cross-pane)
+
+    func testMoveCrossPaneAppendsAndActivates() {
+        let r = SessionViewModel.move(
+            source: [tab("a"), tab("b")],
+            target: [tab("x")],
+            tabId: "a",
+            insertIndex: nil,
+            sourceActive: "a"
+        )
+        XCTAssertEqual(r?.source.map(\.id), ["b"])
+        XCTAssertEqual(r?.target.map(\.id), ["x", "a"])
+        XCTAssertEqual(r?.targetActive, "a")   // moved tab becomes active in target
+        XCTAssertEqual(r?.sourceActive, "b")   // source reselects last survivor
+    }
+
+    func testMoveCrossPaneAtIndex() {
+        let r = SessionViewModel.move(
+            source: [tab("a")],
+            target: [tab("x"), tab("y")],
+            tabId: "a",
+            insertIndex: 1,
+            sourceActive: "a"
+        )
+        XCTAssertEqual(r?.target.map(\.id), ["x", "a", "y"])
+        XCTAssertNil(r?.sourceActive)          // source now empty → nil
+    }
+
+    func testMoveUnknownTabIsNoOp() {
+        XCTAssertNil(SessionViewModel.move(
+            source: [tab("a")],
+            target: [],
+            tabId: "zzz",
+            insertIndex: nil,
+            sourceActive: "a"
+        ))
+    }
+
+    func testMoveNonActiveTabPreservesSourceActive() {
+        // Moving "b" while "a" is active — source active stays "a"
+        let r = SessionViewModel.move(
+            source: [tab("a"), tab("b")],
+            target: [tab("x")],
+            tabId: "b",
+            insertIndex: nil,
+            sourceActive: "a"
+        )
+        XCTAssertEqual(r?.source.map(\.id), ["a"])
+        XCTAssertEqual(r?.sourceActive, "a")
+        XCTAssertEqual(r?.targetActive, "b")
+    }
+}
