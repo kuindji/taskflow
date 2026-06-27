@@ -13,4 +13,4 @@ scripts/build-backend-sidecar.sh
 swift build -c release
 EXECUTABLE="$HERE/.build/release/Taskflow"
 scripts/make-app-bundle.sh "$EXECUTABLE" "$HERE/.build/app"
-echo "Done: $HERE/.build/app/Taskflow.app"
+echo "Done: $HERE/.build/app/TaskflowDev.app"

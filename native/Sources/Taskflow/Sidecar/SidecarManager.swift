@@ -82,7 +82,10 @@ final class SidecarManager {
 
     private func packagedBinary() -> URL? {
         guard let res = resourcesURL else { return nil }
-        let bin = res.appendingPathComponent("backend/taskflow-backend")
+        // Distinct from production's `taskflow-backend` so a name-based kill of the
+        // dev sidecar can never match the installed app's backend. Staged by
+        // build-backend-sidecar.sh.
+        let bin = res.appendingPathComponent("backend/taskflow-backend-dev")
         return FileManager.default.isExecutableFile(atPath: bin.path) ? bin : nil
     }
 

@@ -7,11 +7,14 @@ EXECUTABLE="${1:?path to built Taskflow executable required}"
 OUTDIR="${2:?output directory required}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # native/
 
-APP="$OUTDIR/Taskflow.app"
+# Dev process name is intentionally TaskflowDev (NOT Taskflow) so name-based
+# kills (`killall TaskflowDev`, `pkill -f TaskflowDev`) used to clean up a dev
+# run can never match the installed production app's `Taskflow` process.
+APP="$OUTDIR/TaskflowDev.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-cp "$EXECUTABLE" "$APP/Contents/MacOS/Taskflow"
+cp "$EXECUTABLE" "$APP/Contents/MacOS/TaskflowDev"
 cp "$HERE/Info.plist" "$APP/Contents/Info.plist"
 
 # Copy SwiftPM resource bundles (themes, etc.) next to the executable.
