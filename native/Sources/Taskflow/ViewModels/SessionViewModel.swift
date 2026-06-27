@@ -10,8 +10,9 @@ import Observation
 ///   mirror the Zustand store state exactly.
 /// - `createSession` / `closeSession` cross-deps (post-create fetchTasks/fetchProjects)
 ///   are injected closures (`onFetchTasks` / `onFetchProjects`), not direct store refs.
-/// - `bind()` registers tab lifecycle events: `session:exited` tracks exited sessions.
-///   Terminal-output activity (`session:status`, `terminal:output`) is deferred to Phase 4.
+/// - `bind()` registers three WS event handlers: `session:exited` tracks exited sessions;
+///   `terminal:output` and `session:status` drive the working/attention status machine
+///   via `SessionActivity` (port of `session-activity.ts`).
 /// - `syncWithTasks` / `syncWithProjects` port `syncOwnerTabs` with Equatable guard:
 ///   dictionaries are only reassigned when the content actually changed, avoiding
 ///   needless view invalidation (the `@Observable` equivalent of TS reference preservation).
@@ -35,6 +36,7 @@ final class SessionViewModel {
 
     @ObservationIgnored private let client: WSClient
     @ObservationIgnored private var exitedSessionIds = Set<String>()
+    @ObservationIgnored private let activity = SessionActivity()
     /// Owner IDs with an in-flight createSession call targeting a non-default workspace key.
     /// While pending, syncWithTasks/syncWithProjects must not auto-place sessions for that owner.
     @ObservationIgnored private var pendingSessionCreates = Set<String>()
@@ -53,15 +55,61 @@ final class SessionViewModel {
     // MARK: - Bind
 
     func bind() {
-        // session:exited → track for isSessionExited() callers
         client.on(.sessionExited) { [weak self] (event: SessionExitedEvent) in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 exitedSessionIds.insert(event.sessionId)
+                activity.clearTimer(event.sessionId)
+                activity.clearInteraction(event.sessionId)
+                sessionStatus.removeValue(forKey: event.sessionId)
             }
         }
-        // Phase 4: session:status → setSessionStatus (terminal activity tracking)
-        // Phase 4: terminal:output → activity detection + auto-title updates
+        client.on(.terminalOutput) { [weak self] (event: TerminalOutputEvent) in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let id = event.sessionId
+                let next = SessionActivity.nextStatus(
+                    current: sessionStatus[id],
+                    isInteracting: activity.isInteracting(id),
+                    usesActivity: usesActivityStatus(id)
+                )
+                if let next { setSessionStatus(sessionId: id, status: next) }
+                // schedule settle only when the session is (now) working
+                if sessionStatus[id] == .working {
+                    activity.scheduleTimeout(id) { [weak self] in
+                        self?.setSessionStatus(sessionId: id, status: .attention)
+                    }
+                }
+            }
+        }
+        client.on(.sessionStatus) { [weak self] (event: SessionStatusEvent) in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                setSessionStatus(sessionId: event.sessionId, status: event.status)
+                if event.status == .working {
+                    activity.scheduleTimeout(event.sessionId) { [weak self] in
+                        self?.setSessionStatus(sessionId: event.sessionId, status: .attention)
+                    }
+                } else {
+                    activity.clearTimer(event.sessionId)
+                }
+            }
+        }
+    }
+
+    /// Port of `usesTerminalActivityStatus` from `session-helpers.ts` (lines 119–132).
+    /// Returns true for AI agent tab types that drive working/attention status via terminal output.
+    private func usesActivityStatus(_ sessionId: String) -> Bool {
+        let type = tabsByWorkspace.values.lazy
+            .flatMap { $0 }
+            .first { $0.sessionId == sessionId }?
+            .type
+        switch type {
+        case .claude, .codex, .opencode, .gemini, .cursor, .pi:
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - isSessionExited
@@ -145,10 +193,12 @@ final class SessionViewModel {
     }
 
     func sendInput(sessionId: String, data: String) {
+        activity.markInteraction(sessionId)
         client.send(.sessionInput, payload: ["sessionId": sessionId, "data": data])
     }
 
     func resizeTerminal(sessionId: String, cols: Int, rows: Int) {
+        activity.markInteraction(sessionId)
         lastTerminalSize = TerminalSize(cols: cols, rows: rows)
         client.send(.terminalResize, payload: ["sessionId": sessionId, "cols": cols, "rows": rows])
     }
