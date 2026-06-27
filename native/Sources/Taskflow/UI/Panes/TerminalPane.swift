@@ -21,7 +21,8 @@ struct TerminalPane: NSViewRepresentable {
         return env.terminalSurfaces.surface(
             for: sessionId,
             client: client,
-            theme: env.themeStore.currentFile
+            theme: env.themeStore.currentFile,
+            session: env.session
         )
     }
 

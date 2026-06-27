@@ -76,14 +76,5 @@ final class TerminalSessionBridge {
         historyLoaded = true
     }
 
-    func sendInput(_ data: Data) {
-        guard let text = String(data: data, encoding: .utf8) else { return }
-        client.send(.sessionInput, payload: ["sessionId": sessionId, "data": text])
-    }
-
-    func resize(cols: Int, rows: Int) {
-        client.send(.terminalResize, payload: ["sessionId": sessionId, "cols": cols, "rows": rows])
-    }
-
     func stop() { unsubscribe?(); unsubscribe = nil }
 }

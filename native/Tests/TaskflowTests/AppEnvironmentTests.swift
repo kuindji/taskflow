@@ -78,6 +78,10 @@ final class AppEnvironmentTests: XCTestCase {
                         "session.onFetchTasks must be wired in compose()")
         XCTAssertNotNil(env.session?.onFetchProjects,
                         "session.onFetchProjects must be wired in compose()")
+
+        // session → surface cache eviction (FIX 2)
+        XCTAssertNotNil(env.session?.onTerminalEvict,
+                        "session.onTerminalEvict must be wired in compose() so closed/exited terminals evict their cache entry")
     }
 
     // MARK: - files.onOpenFile wired in Phase 4

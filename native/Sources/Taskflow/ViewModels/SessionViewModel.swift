@@ -47,6 +47,11 @@ final class SessionViewModel {
     var onFetchTasks: (() async -> Void)?
     /// Called (fire-and-forget) after createSession/closeSession to refresh the project list.
     var onFetchProjects: (() async -> Void)?
+    /// Called when a terminal session ends (either via session:exited or closeSession) so the
+    /// surface cache can release the libghostty surface and bridge.  Mirrors the
+    /// onFetchTasks/onFetchProjects injection pattern — SessionViewModel must NOT reference
+    /// TerminalSurfaceCache directly.
+    var onTerminalEvict: ((String) -> Void)?
 
     init(client: WSClient) {
         self.client = client
@@ -62,6 +67,7 @@ final class SessionViewModel {
                 activity.clearTimer(event.sessionId)
                 activity.clearInteraction(event.sessionId)
                 sessionStatus.removeValue(forKey: event.sessionId)
+                onTerminalEvict?(event.sessionId)
             }
         }
         client.on(.terminalOutput) { [weak self] (event: TerminalOutputEvent) in
@@ -192,6 +198,9 @@ final class SessionViewModel {
     }
 
     func closeSession(sessionId: String) async throws {
+        // Evict the surface cache entry BEFORE the async RPC so the surface is always
+        // released — even when requestRaw throws (e.g. session already gone server-side).
+        onTerminalEvict?(sessionId)
         _ = try await client.requestRaw(.sessionClose, payload: ["sessionId": sessionId])
         if let fetch = onFetchTasks { Task { await fetch() } }
         if let fetch = onFetchProjects { Task { await fetch() } }
@@ -200,6 +209,12 @@ final class SessionViewModel {
     func sendInput(sessionId: String, data: String) {
         activity.markInteraction(sessionId)
         client.send(.sessionInput, payload: ["sessionId": sessionId, "data": data])
+    }
+
+    /// Test seam: exposes SessionActivity.isInteracting without making `activity` internal-visible.
+    /// For use in SessionViewModelTests only — not part of the production API.
+    func isInteractingTestSeam(_ sessionId: String) -> Bool {
+        activity.isInteracting(sessionId)
     }
 
     func resizeTerminal(sessionId: String, cols: Int, rows: Int) {

@@ -115,6 +115,41 @@ final class SessionViewModelTests: XCTestCase {
                        "active tab unchanged after reorder")
     }
 
+    // MARK: - FIX 1: sendInput routes through VM (marks interaction)
+
+    /// Verifies that `sendInput` calls `markInteraction` on the activity tracker so the
+    /// 500ms suppression window engages.  Uses the internal `isInteractingTestSeam` — a
+    /// thin delegating method that avoids making `activity` visible outside the type.
+    func testSendInputMarksInteraction() {
+        let client = WSClient(url: URL(string: "ws://127.0.0.1:1")!)
+        let vm = SessionViewModel(client: client)
+
+        XCTAssertFalse(vm.isInteractingTestSeam("s1"), "no interaction recorded yet")
+        vm.sendInput(sessionId: "s1", data: "hello")
+        XCTAssertTrue(vm.isInteractingTestSeam("s1"),
+                      "sendInput must mark interaction so the suppression window engages")
+    }
+
+    // MARK: - FIX 2: onTerminalEvict fires even when closeSession RPC throws
+
+    /// Verifies that `onTerminalEvict` is called BEFORE the async RPC so the surface cache
+    /// is always released — even when the server-side close throws (dead socket here).
+    ///
+    /// Choice rationale: testing `closeSession` directly (rather than the `session:exited`
+    /// WS event) is fully deterministic — no live socket needed.  A dead `WSClient` causes
+    /// `requestRaw` to throw immediately, which is exactly the failure mode we need to cover.
+    func testCloseSessionCallsOnTerminalEvictEvenOnThrow() async {
+        let client = WSClient(url: URL(string: "ws://127.0.0.1:1")!)
+        let vm = SessionViewModel(client: client)
+        var evicted: [String] = []
+        vm.onTerminalEvict = { evicted.append($0) }
+
+        try? await vm.closeSession(sessionId: "session-abc")
+
+        XCTAssertEqual(evicted, ["session-abc"],
+                       "onTerminalEvict must fire before requestRaw so eviction is not skipped on throw")
+    }
+
     // addTab id-dedup: reopening the same file's editor tab (sessionId == nil) must focus the
     // existing tab, not append a duplicate. Without id-dedup, N opens → N identical tabs.
     func testAddTabIdDedupForEditorTabs() {

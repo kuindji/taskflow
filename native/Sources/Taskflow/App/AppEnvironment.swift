@@ -145,6 +145,12 @@ final class AppEnvironment {
         sessionVM.onFetchProjects = { [weak self] in
             await self?.projects?.load()
         }
+        // session.onTerminalEvict — evict the libghostty surface when a session ends.
+        // SessionViewModel must NOT reference TerminalSurfaceCache directly; this closure
+        // is the bridge (mirrors onFetchTasks/onFetchProjects injection pattern).
+        sessionVM.onTerminalEvict = { [weak self] sid in
+            self?.terminalSurfaces.evict(sid)
+        }
 
         // ── Bind WS event subscriptions — called exactly once per VM ───────────────────────
         tasksVM.bind()

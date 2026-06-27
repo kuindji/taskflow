@@ -13,23 +13,47 @@ final class TerminalSurfaceCache {
 
     private var entries: [String: Entry] = [:]
 
-    func surface(for sessionId: String, client: WSClient, theme: ResolvedThemeFile) -> AppTerminalView {
+    /// Returns (or creates) the cached `AppTerminalView` for `sessionId`.
+    ///
+    /// The `session` parameter is a weak handle to the `SessionViewModel`; the
+    /// `InMemoryTerminalSession` write/resize closures route all terminal input
+    /// through it so that `markInteraction` and `lastTerminalSize` are always
+    /// updated.  Passing `nil` (e.g. in a test stub) silently drops input — the
+    /// output stream and history load still work normally via the bridge.
+    func surface(
+        for sessionId: String,
+        client: WSClient,
+        theme: ResolvedThemeFile,
+        session: SessionViewModel?
+    ) -> AppTerminalView {
         if let e = entries[sessionId] { return e.view }
 
-        // BridgeBox breaks the circular init dependency (session needs bridge callbacks,
-        // bridge needs the session). Written once on @MainActor before start(); read only
-        // inside @MainActor Tasks — no actual data race.
-        let box = BridgeBox()
-        let session = InMemoryTerminalSession(
-            write: { data in Task { @MainActor in box.bridge?.sendInput(data) } },
-            resize: { viewport in
+        // Input routing: write/resize closures call into SessionViewModel so that
+        // markInteraction() and lastTerminalSize are updated on every keystroke/resize.
+        // session is captured weakly to avoid a retain cycle:
+        //   Entry.bridge → bridge → inMemSession → closures → session (weak) → VM owned by AppEnvironment.
+        let inMemSession = InMemoryTerminalSession(
+            write: { [weak session] data in
                 Task { @MainActor in
-                    box.bridge?.resize(cols: Int(viewport.columns), rows: Int(viewport.rows))
+                    guard let text = String(data: data, encoding: .utf8) else { return }
+                    session?.sendInput(sessionId: sessionId, data: text)
+                }
+            },
+            resize: { [weak session] viewport in
+                Task { @MainActor in
+                    session?.resizeTerminal(
+                        sessionId: sessionId,
+                        cols: Int(viewport.columns),
+                        rows: Int(viewport.rows)
+                    )
                 }
             }
         )
-        let bridge = TerminalSessionBridge(sessionId: sessionId, client: client, session: session)
-        box.bridge = bridge
+
+        // Bridge is OUTPUT-ONLY after this change: it subscribes to terminal:output and
+        // feeds inMemSession.receive(_:), and loads the initial snapshot.  It no longer
+        // owns sendInput/resize — those now live in SessionViewModel.
+        let bridge = TerminalSessionBridge(sessionId: sessionId, client: client, session: inMemSession)
 
         // Apply theme as generated config alongside the .inMemory backend.
         // Caveat 1 (palette de-dup): withCustom appends to a [TerminalConfigCommand] array;
@@ -55,7 +79,7 @@ final class TerminalSurfaceCache {
         let view = AppTerminalView(frame: .zero)
         view.delegate = state
         view.controller = state.controller
-        view.configuration = TerminalSurfaceOptions(backend: .inMemory(session))
+        view.configuration = TerminalSurfaceOptions(backend: .inMemory(inMemSession))
 
         bridge.start()
         entries[sessionId] = Entry(view: view, state: state, bridge: bridge)
@@ -66,20 +90,4 @@ final class TerminalSurfaceCache {
         entries[sessionId]?.bridge.stop()
         entries.removeValue(forKey: sessionId)
     }
-}
-
-// MARK: - BridgeBox
-
-/// Breaks the circular init dependency between `InMemoryTerminalSession` callbacks and
-/// `TerminalSessionBridge`. @unchecked Sendable is safe here: the box is written exactly
-/// once on @MainActor (immediately after bridge creation), and every read occurs inside a
-/// `Task { @MainActor in … }` — no concurrent access is possible.
-///
-/// `bridge` is `weak` to break the retain cycle: Entry.bridge → bridge → session →
-/// write/resize closures → BridgeBox → bridge. The dictionary's `Entry.bridge` is the only
-/// strong owner, so the bridge (and its session + libghostty surface) deallocates the
-/// instant `entries.removeValue` runs in `evict()`. Reads use optional-chaining
-/// (`box.bridge?.…`), so a nil after eviction is already handled.
-private final class BridgeBox: @unchecked Sendable {
-    weak var bridge: TerminalSessionBridge?
 }
