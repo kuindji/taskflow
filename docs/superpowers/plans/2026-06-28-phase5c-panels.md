@@ -448,7 +448,7 @@ The panels need a "working directory". Ports the working-dir derivation in `useA
 **Interfaces:**
 - Consumes: generated `TaskItem` (`.worktree.enabled: Bool`, `.worktree.path: String?`, `.projectId`), `Project` (`.path: String`), `SystemInfo { homedir: String }`, `MessageType.systemInfo`.
 - Produces:
-  - `enum ActiveWorkspace` with `nonisolated static func workingDir(task: TaskItem?, project: Project?, masterActive: Bool, homedir: String?) -> String?`
+  - `enum ActiveWorkspace` with `nonisolated static func workingDir(task: TaskItem?, project: Project?, masterActive: Bool, homedir: String?) -> String?` and a `@MainActor static func workingDir(in env: AppEnvironment) -> String?` convenience overload (shared by `FileExplorerPane` + `SearchPane`)
   - `AppEnvironment.homedir: String?`
 
 - [ ] **Step 1: Write the failing test**
@@ -521,6 +521,7 @@ import Foundation
 /// `useActiveWorkspace.ts`: master → homedir; task → worktree path (if enabled & present)
 /// else project path; project → project path; otherwise nil.
 enum ActiveWorkspace {
+    /// Pure resolver (TDD'd). All inputs explicit so it is testable off the main actor.
     nonisolated static func workingDir(
         task: TaskItem?, project: Project?, masterActive: Bool, homedir: String?
     ) -> String? {
@@ -532,10 +533,25 @@ enum ActiveWorkspace {
         if let project { return project.path }
         return nil
     }
+
+    /// Convenience overload that resolves the active task/project from the environment and
+    /// calls the pure resolver. Single source of truth for both `FileExplorerPane` and
+    /// `SearchPane` (avoids duplicating the env-lookup logic).
+    @MainActor static func workingDir(in env: AppEnvironment) -> String? {
+        let activeTaskId = env.tasks?.activeTaskId
+        let task = activeTaskId.flatMap { id in env.tasks?.tasks.first { $0.id == id } }
+        let project: Project? = {
+            if let task { return env.projects?.projects.first { $0.id == task.projectId } }
+            if let pid = env.ui.activeProjectId { return env.projects?.projects.first { $0.id == pid } }
+            return nil
+        }()
+        return workingDir(task: task, project: project,
+                          masterActive: env.ui.masterWorkspaceActive, homedir: env.homedir)
+    }
 }
 ```
 
-> Verify `task.worktree.path` is `String?` and `project.path` is `String` against the generated models; adjust the `!wt.isEmpty` guard if `path` is non-optional.
+> Verify `task.worktree.path` is `String?` and `project.path` is `String` against the generated models; adjust the `!wt.isEmpty` guard if `path` is non-optional. Verify `env.tasks?.tasks` / `env.projects?.projects` field names and `TaskItem.id`/`.projectId`, `Project.id` against the real view models.
 
 - [ ] **Step 4: Run the test — expect PASS**
 
@@ -670,18 +686,7 @@ struct FileExplorerPane: View {
 
     private var files: FileViewModel? { env.files }
 
-    private var workingDir: String? {
-        let activeTaskId = env.tasks?.activeTaskId
-        let task = activeTaskId.flatMap { id in env.tasks?.tasks.first { $0.id == id } }
-        let project: Project? = {
-            if let task { return env.projects?.projects.first { $0.id == task.projectId } }
-            if let pid = env.ui.activeProjectId { return env.projects?.projects.first { $0.id == pid } }
-            return nil
-        }()
-        return ActiveWorkspace.workingDir(
-            task: task, project: project,
-            masterActive: env.ui.masterWorkspaceActive, homedir: env.homedir)
-    }
+    private var workingDir: String? { ActiveWorkspace.workingDir(in: env) }
 
     /// Mirrors the FileExplorer.tsx `gitFiles` memo (only valid when gitStatusPath == workingDir).
     private var gitFiles: [String: String] {
@@ -1381,19 +1386,8 @@ struct SearchPane: View {
 
     private var search: SearchViewModel? { env.search }
 
-    // Same working-dir derivation as FileExplorerPane.
-    private var workingDir: String? {
-        let activeTaskId = env.tasks?.activeTaskId
-        let task = activeTaskId.flatMap { id in env.tasks?.tasks.first { $0.id == id } }
-        let project: Project? = {
-            if let task { return env.projects?.projects.first { $0.id == task.projectId } }
-            if let pid = env.ui.activeProjectId { return env.projects?.projects.first { $0.id == pid } }
-            return nil
-        }()
-        return ActiveWorkspace.workingDir(
-            task: task, project: project,
-            masterActive: env.ui.masterWorkspaceActive, homedir: env.homedir)
-    }
+    // Same working-dir derivation as FileExplorerPane (shared helper).
+    private var workingDir: String? { ActiveWorkspace.workingDir(in: env) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1574,7 +1568,7 @@ git commit -m "feat(native): worktree diff/behind badges + project branch label 
 
 **2. Placeholder scan:** No `TBD`/`add validation`/"similar to Task N" — every step has concrete code or a concrete command. Verification reminders ("confirm X against the generated model") are deliberate drift-guards per the 5B lesson, not placeholders.
 
-**3. Type consistency:** `DiffViewModel.apply` / `DiffState` / `DiffStats` consistent across Tasks 1 & 9. `ActiveWorkspace.workingDir` signature identical in Tasks 3, 4, 8. `FileTreeRow.canMove` / `FilePathDragItem` / `FileRowAction` consistent across Tasks 5–6. `SearchResultsView.splitLine` consistent across Task 7. Working-dir derivation duplicated verbatim in `FileExplorerPane` and `SearchPane` (acceptable: 6 lines, no shared-state coupling; could be hoisted to `ActiveWorkspace` later — noted, not required).
+**3. Type consistency:** `DiffViewModel.apply` / `DiffState` / `DiffStats` consistent across Tasks 1 & 9. `ActiveWorkspace.workingDir` (pure + `in env:` overload) consistent in Tasks 3, 4, 8 — both panes call the single `ActiveWorkspace.workingDir(in: env)` helper (no duplicated logic). `FileTreeRow.canMove` / `FilePathDragItem` / `FileRowAction` consistent across Tasks 5–6. `SearchResultsView.splitLine` consistent across Task 7.
 
 ## Scope decisions (explicit)
 
