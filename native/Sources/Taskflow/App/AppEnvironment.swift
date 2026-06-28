@@ -13,6 +13,9 @@ final class AppEnvironment {
 
     // UIViewModel needs no client — constructed eagerly so views can bind before boot completes.
     private(set) var ui: UIViewModel = UIViewModel()
+    // TaskCreationViewModel needs no client — constructed eagerly as a request seam for toolbar/
+    // context-menu actions; the 5F dialog host observes requests and clears them.
+    private(set) var taskCreation = TaskCreationViewModel()
 
     // Client-dependent VMs — nil until compose(client:) is called from boot().
     private(set) var tasks: TaskViewModel?
