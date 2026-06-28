@@ -57,7 +57,13 @@ struct FileExplorerPane: View {
     /// Mirrors FileExplorer.tsx's effect: on workingDir change, clear + fetch tree + git + watch.
     private func loadWorkingDir() async {
         guard let files else { return }
-        guard let wd = workingDir else { files.clearExplorerState(); return }
+        guard let wd = workingDir else {
+            if let watched = files.watchedPath {
+                await files.unwatchPath(path: watched)
+            }
+            files.clearExplorerState()
+            return
+        }
         files.clearExplorerState()
         await files.fetchTree(path: wd)
         await files.fetchGitStatus(path: wd)

@@ -62,7 +62,7 @@ struct SearchResultsView: View {
             Text("\(Int(match.line))").font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(theme.color(.mutedForeground)).frame(width: 32, alignment: .trailing)
             (Text(parts.before)
-                + Text(parts.match).foregroundColor(theme.color(.accentForeground))
+                + Text(parts.match).foregroundStyle(theme.color(.accentForeground))
                     .bold()
                 + Text(parts.after))
                 .font(.system(size: 11, design: .monospaced))

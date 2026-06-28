@@ -110,6 +110,14 @@ struct ProjectGroup: View {
                     .foregroundStyle(theme.color(.mutedForeground))
                     .lineLimit(1)
             }
+            let behind = env.diff?.state.behindByProject[project.id] ?? 0
+            if behind > 0 {
+                Text("↓\(behind)").font(.system(size: 10)).foregroundStyle(theme.color(.info))
+            }
+            if let stats = env.diff?.state.statsByProject[project.id] {
+                Text("+\(stats.additions)").font(.system(size: 10)).foregroundStyle(theme.color(.success))
+                Text("-\(stats.deletions)").font(.system(size: 10)).foregroundStyle(theme.color(.destructive))
+            }
 
             Spacer(minLength: 4)
         }

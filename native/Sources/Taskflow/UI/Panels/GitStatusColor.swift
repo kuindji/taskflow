@@ -17,7 +17,7 @@ enum GitStatusColor {
             case "modified":         return .warning
             case "deleted":          return .destructive
             case "renamed":          return .accent
-            default:                 return .secondaryForeground
+            default:                 return .secondaryForeground // unreachable: valid.contains(...) gates entry
             }
         }
         if isIgnored { return .mutedForeground }

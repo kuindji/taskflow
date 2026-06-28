@@ -1,5 +1,17 @@
 import SwiftUI
 
+// MARK: - FileNameValidation
+
+/// Pure validation helper for user-supplied file/folder names.
+/// Mirrors the `validate(name.trim())` guard in CreateFileDialog.tsx / RenameFileDialog.tsx:
+/// rejects empty, names containing `/`, and names containing a null character `\0`.
+enum FileNameValidation {
+    nonisolated static func isValidFileName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && !trimmed.contains("/") && !trimmed.contains("\0")
+    }
+}
+
 // MARK: - MoveFileDialog
 
 /// Confirms a pending drag-move and performs it via `renameFile`. Port of MoveFileDialog.tsx.
@@ -55,7 +67,8 @@ struct CreateFileDialog: View {
                 Spacer()
                 Button("Cancel", action: onClose)
                 Button("Create") {
-                    let path = "\(parentDir)/\(name)"
+                    let trimmed = name.trimmingCharacters(in: .whitespaces)
+                    let path = "\(parentDir)/\(trimmed)"
                     let folder = isFolder
                     Task {
                         if folder { try? await files?.createDirectory(path: path) }
@@ -64,7 +77,7 @@ struct CreateFileDialog: View {
                     onClose()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(name.isEmpty)
+                .disabled(!FileNameValidation.isValidFileName(name))
             }
         }.padding(16).frame(width: 360)
     }
@@ -91,6 +104,9 @@ struct RenameFileDialog: View {
     private var parent: String {
         path.contains("/") ? String(path[..<path.lastIndex(of: "/")!]) : ""
     }
+    private var currentBasename: String {
+        path.contains("/") ? String(path[path.index(after: path.lastIndex(of: "/")!)...]) : path
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -100,13 +116,17 @@ struct RenameFileDialog: View {
                 Spacer()
                 Button("Cancel", action: onClose)
                 Button("Rename") {
+                    let trimmed = newName.trimmingCharacters(in: .whitespaces)
                     let old = path
-                    let new = parent.isEmpty ? newName : "\(parent)/\(newName)"
+                    let new = parent.isEmpty ? trimmed : "\(parent)/\(trimmed)"
                     Task { try? await files?.renameFile(oldPath: old, newPath: new) }
                     onClose()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(newName.isEmpty)
+                .disabled(
+                    !FileNameValidation.isValidFileName(newName)
+                    || newName.trimmingCharacters(in: .whitespaces) == currentBasename
+                )
             }
         }.padding(16).frame(width: 360)
     }
