@@ -1,6 +1,23 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Row action enum
+
+enum FileRowAction: Identifiable {
+    case createFile(parentDir: String)
+    case createFolder(parentDir: String)
+    case rename(path: String)
+    case delete(path: String, isDir: Bool)
+    var id: String {
+        switch self {
+        case .createFile(let p): return "cf:\(p)"
+        case .createFolder(let p): return "cd:\(p)"
+        case .rename(let p): return "rn:\(p)"
+        case .delete(let p, _): return "del:\(p)"
+        }
+    }
+}
+
 // MARK: - Drag payload
 
 extension UTType {
@@ -29,6 +46,8 @@ struct FileTreeRow: View {
     let depth: Int
     let gitFiles: [String: String]
     let rootPath: String
+
+    @State private var action: FileRowAction?
 
     private var files: FileViewModel? { env.files }
     private var isDir: Bool { node.type == "directory" }
@@ -101,6 +120,15 @@ struct FileTreeRow: View {
             return true
         } isTargeted: { hovering in
             files?.setDragOverPath(hovering && isDir ? node.path : nil)
+        }
+        .contextMenu { FileContextMenu(node: node, rootPath: rootPath, action: $action) }
+        .sheet(item: $action) { act in
+            switch act {
+            case .createFile(let p):    CreateFileDialog(parentDir: p, isFolder: false) { action = nil }
+            case .createFolder(let p):  CreateFileDialog(parentDir: p, isFolder: true)  { action = nil }
+            case .rename(let p):        RenameFileDialog(path: p) { action = nil }
+            case .delete(let p, let d): DeleteFileDialog(path: p, isDir: d) { action = nil }
+            }
         }
     }
 }

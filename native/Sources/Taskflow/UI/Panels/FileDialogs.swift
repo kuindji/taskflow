@@ -1,5 +1,7 @@
 import SwiftUI
 
+// MARK: - MoveFileDialog
+
 /// Confirms a pending drag-move and performs it via `renameFile`. Port of MoveFileDialog.tsx.
 /// Presented from `FileExplorerPane` bound to `FileViewModel.pendingMove`.
 struct MoveFileDialog: View {
@@ -30,5 +32,114 @@ struct MoveFileDialog: View {
             }
         }
         .padding(16).frame(width: 360)
+    }
+}
+
+// MARK: - CreateFileDialog
+
+/// Create a new file or folder under `parentDir`. Port of CreateFileDialog.tsx.
+struct CreateFileDialog: View {
+    @Environment(AppEnvironment.self) private var env
+    let parentDir: String
+    let isFolder: Bool
+    let onClose: () -> Void
+    @State private var name = ""
+
+    private var files: FileViewModel? { env.files }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(isFolder ? "New Folder" : "New File").font(.headline)
+            AppTextField(text: $name, placeholder: isFolder ? "folder name" : "file name")
+            HStack {
+                Spacer()
+                Button("Cancel", action: onClose)
+                Button("Create") {
+                    let path = "\(parentDir)/\(name)"
+                    let folder = isFolder
+                    Task {
+                        if folder { try? await files?.createDirectory(path: path) }
+                        else { try? await files?.createFile(path: path) }
+                    }
+                    onClose()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(name.isEmpty)
+            }
+        }.padding(16).frame(width: 360)
+    }
+}
+
+// MARK: - RenameFileDialog
+
+/// Rename a file/dir. Port of RenameFileDialog.tsx.
+struct RenameFileDialog: View {
+    @Environment(AppEnvironment.self) private var env
+    let path: String
+    let onClose: () -> Void
+    @State private var newName: String
+
+    init(path: String, onClose: @escaping () -> Void) {
+        self.path = path
+        self.onClose = onClose
+        let base = path.contains("/")
+            ? String(path[path.index(after: path.lastIndex(of: "/")!)...]) : path
+        _newName = State(initialValue: base)
+    }
+
+    private var files: FileViewModel? { env.files }
+    private var parent: String {
+        path.contains("/") ? String(path[..<path.lastIndex(of: "/")!]) : ""
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Rename").font(.headline)
+            AppTextField(text: $newName, placeholder: "new name")
+            HStack {
+                Spacer()
+                Button("Cancel", action: onClose)
+                Button("Rename") {
+                    let old = path
+                    let new = parent.isEmpty ? newName : "\(parent)/\(newName)"
+                    Task { try? await files?.renameFile(oldPath: old, newPath: new) }
+                    onClose()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(newName.isEmpty)
+            }
+        }.padding(16).frame(width: 360)
+    }
+}
+
+// MARK: - DeleteFileDialog
+
+/// Confirm + delete a file/dir. Port of DeleteFileDialog.tsx.
+struct DeleteFileDialog: View {
+    @Environment(AppEnvironment.self) private var env
+    let path: String
+    let isDir: Bool
+    let onClose: () -> Void
+
+    private var files: FileViewModel? { env.files }
+    private var name: String {
+        path.contains("/") ? String(path[path.index(after: path.lastIndex(of: "/")!)...]) : path
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Delete \(isDir ? "folder" : "file")").font(.headline)
+            Text("Delete \u{201C}\(name)\u{201D}? This cannot be undone.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel", action: onClose)
+                Button("Delete", role: .destructive) {
+                    let p = path
+                    Task { try? await files?.deleteFile(path: p) }
+                    onClose()
+                }.keyboardShortcut(.defaultAction)
+            }
+        }.padding(16).frame(width: 360)
     }
 }
