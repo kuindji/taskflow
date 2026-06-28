@@ -41,6 +41,12 @@ struct FileExplorerPane: View {
         .background(theme.color(.card))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .task(id: workingDir) { await loadWorkingDir() }
+        .sheet(isPresented: Binding(
+            get: { files?.pendingMove != nil },
+            set: { if !$0 { files?.clearPendingMove() } }
+        )) {
+            if let move = files?.pendingMove { MoveFileDialog(move: move) }
+        }
     }
 
     private func centered(_ text: String) -> some View {

@@ -1,4 +1,22 @@
 import SwiftUI
+import UniformTypeIdentifiers
+
+// MARK: - Drag payload
+
+extension UTType {
+    static let taskflowFilePath = UTType(exportedAs: "com.taskflow.filepath")
+}
+
+/// Drag payload for moving a file/dir within the explorer. Mirrors the TS custom MIME
+/// `application/x-taskflow-path` (FileTree.tsx).
+struct FilePathDragItem: Codable, Transferable, Sendable {
+    let path: String
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .taskflowFilePath)
+    }
+}
+
+// MARK: - FileTreeRow
 
 /// One file/dir row in the explorer tree. Recursive — renders its children when expanded.
 /// Port of `packages/ui/src/components/panels/FileTree.tsx` (view parts; context menu & drag
@@ -14,6 +32,19 @@ struct FileTreeRow: View {
 
     private var files: FileViewModel? { env.files }
     private var isDir: Bool { node.type == "directory" }
+
+    // MARK: - Move validation
+
+    /// Move is invalid if dest == source, dest is inside source's subtree, or dest is the
+    /// source's current parent directory. Mirrors the FileTree.tsx onDrop validation.
+    nonisolated static func canMove(source: String, dest: String) -> Bool {
+        if source == dest { return false }
+        if dest.hasPrefix(source + "/") { return false }   // descendant
+        let parent = source.contains("/") ? String(source[..<source.lastIndex(of: "/")!]) : ""
+        if dest == parent { return false }
+        return true
+    }
+
     private var isExpanded: Bool { files?.expandedDirs.contains(node.path) ?? false }
     private var isFocused: Bool { files?.focusedPath == node.path }
     private var statusToken: ThemeToken {
@@ -52,12 +83,24 @@ struct FileTreeRow: View {
         .padding(.leading, CGFloat(depth) * 12 + 6)
         .padding(.trailing, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isFocused ? theme.color(.accent).opacity(0.20) : Color.clear)
+        .background(
+            (files?.dragOverPath == node.path) ? theme.color(.accent).opacity(0.30)
+                : isFocused ? theme.color(.accent).opacity(0.20) : Color.clear
+        )
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .contentShape(Rectangle())
         .onTapGesture {
             files?.setFocusedPath(node.path)
             if isDir { files?.toggleDir(node.path) } else { files?.onOpenFile?(node.path) }
+        }
+        .draggable(FilePathDragItem(path: node.path))
+        .dropDestination(for: FilePathDragItem.self) { items, _ in
+            guard isDir, let dropped = items.first,
+                  Self.canMove(source: dropped.path, dest: node.path) else { return false }
+            files?.setPendingMove(PendingMove(sourcePath: dropped.path, destinationDir: node.path))
+            return true
+        } isTargeted: { hovering in
+            files?.setDragOverPath(hovering && isDir ? node.path : nil)
         }
     }
 }
