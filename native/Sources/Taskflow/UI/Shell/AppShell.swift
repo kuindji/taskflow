@@ -33,10 +33,14 @@ struct AppShell: View {
 
             // ── File explorer / search (mutually exclusive, conditional) ─
             if ui.fileExplorerOpen || ui.searchPanelOpen {
-                panelPlaceholder(
-                    ui.fileExplorerOpen ? "File Explorer" : "Search",
-                    width: ui.fileExplorerWidth
-                )
+                Group {
+                    if ui.fileExplorerOpen {
+                        FileExplorerPane()
+                    } else {
+                        panelPlaceholder("Search", width: ui.fileExplorerWidth)
+                    }
+                }
+                .frame(width: ui.fileExplorerWidth)
 
                 ResizeHandle(orientation: .vertical) { delta in
                     env.ui.setFileExplorerWidth(env.ui.fileExplorerWidth + delta)
