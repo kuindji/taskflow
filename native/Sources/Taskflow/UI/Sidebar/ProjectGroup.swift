@@ -132,7 +132,7 @@ struct ProjectGroup: View {
                 hasActiveFlowRun: false,
                 defaultRuntime: defaultRuntime,
                 online: online,
-                showAgentOptions: true
+                showAgentOptions: false
             )
             if RunMenuViewModel.hasRunMenuItems(d) {
                 Menu("Run") {

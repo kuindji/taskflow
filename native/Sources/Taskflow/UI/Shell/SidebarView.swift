@@ -147,9 +147,9 @@ struct SidebarView: View {
 
     // MARK: - Keyboard navigation (Cmd+arrows / Cmd+0)
 
-    /// Handle sidebar key events. Returns true if the event was consumed.
+    /// Handle sidebar key events.
+    /// Returns `.handled` when a state mutation occurred, `.ignored` otherwise.
     /// Called from `.onKeyPress` when `focusedPanel == .sidebar`.
-    @discardableResult
     private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
         guard env.ui.focusedPanel == .sidebar,
               press.modifiers.contains(.command) else { return .ignored }
@@ -178,11 +178,10 @@ struct SidebarView: View {
             if focused.type == .task {
                 // Move focus to the parent project
                 let parentId = env.tasks?.tasks.first(where: { $0.id == focused.id })?.projectId
-                if let parentId {
-                    env.ui.setSidebarFocusedItem(.init(type: .project, id: parentId))
-                    env.ui.setActiveProject(parentId)
-                    env.tasks?.setActiveTask(nil)
-                }
+                guard let parentId else { return .ignored }
+                env.ui.setSidebarFocusedItem(.init(type: .project, id: parentId))
+                env.ui.setActiveProject(parentId)
+                env.tasks?.setActiveTask(nil)
             } else {
                 // Collapse focused project
                 env.ui.setProjectCollapsed(focused.id, true)

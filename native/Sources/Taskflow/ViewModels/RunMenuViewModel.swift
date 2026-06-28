@@ -63,9 +63,9 @@ final class RunMenuViewModel {
     // MARK: - Agent constants
     // Ports ALL_AGENT_TYPES + AGENT_DISPLAY_NAMES from packages/shared/src/types/agent.ts.
 
-    static let allAgentTypes: [AgentType] = [.claude, .codex, .opencode, .gemini, .cursor, .pi]
+    nonisolated static let allAgentTypes: [AgentType] = [.claude, .codex, .opencode, .gemini, .cursor, .pi]
 
-    static func displayName(_ agent: AgentType) -> String {
+    nonisolated static func displayName(_ agent: AgentType) -> String {
         switch agent {
         case .claude:   return "Claude"
         case .codex:    return "Codex"

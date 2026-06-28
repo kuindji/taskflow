@@ -16,7 +16,7 @@ struct RunMenuItems: View {
         }
         if !data.agentCommands.isEmpty {
             Menu(".claude") {
-                ForEach(data.agentCommands, id: \.name) { cmd in
+                ForEach(Array(data.agentCommands.enumerated()), id: \.offset) { _, cmd in
                     Button("\(cmd.name) (\(cmd.source))") { callbacks.onRunAgentCommand(cmd) }
                         .disabled(!data.online)
                 }

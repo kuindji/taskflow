@@ -3,7 +3,6 @@ import Foundation
 /// Notifications list backing the sidebar popover. Port of stores/notification-store.ts.
 @MainActor @Observable final class NotificationViewModel {
     private(set) var notifications: [Notification] = []
-    var selectedNotificationId: String?
 
     @ObservationIgnored private let client: WSClient
     init(client: WSClient) { self.client = client }
