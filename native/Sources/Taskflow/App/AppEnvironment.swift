@@ -22,6 +22,7 @@ final class AppEnvironment {
     private(set) var search: SearchViewModel?
     private(set) var files: FileViewModel?
     private(set) var settings: SettingsViewModel?
+    private(set) var notifications: NotificationViewModel?
 
     init() {
         let repoRoot = ProcessInfo.processInfo.environment["TASKFLOW_REPO_ROOT"]
@@ -38,13 +39,14 @@ final class AppEnvironment {
     func compose(client: WSClient) {
         self.client = client
 
-        let tasksVM    = TaskViewModel(client: client)
-        let projectsVM = ProjectViewModel(client: client)
-        let sessionVM  = SessionViewModel(client: client)
-        let flowsVM    = FlowViewModel(client: client)
-        let searchVM   = SearchViewModel(client: client)
-        let filesVM    = FileViewModel(client: client)
-        let settingsVM = SettingsViewModel(client: client)
+        let tasksVM         = TaskViewModel(client: client)
+        let projectsVM      = ProjectViewModel(client: client)
+        let sessionVM       = SessionViewModel(client: client)
+        let flowsVM         = FlowViewModel(client: client)
+        let searchVM        = SearchViewModel(client: client)
+        let filesVM         = FileViewModel(client: client)
+        let settingsVM      = SettingsViewModel(client: client)
+        let notificationsVM = NotificationViewModel(client: client)
 
         // ── Cross-store closure wiring ──────────────────────────────────────────────────────
         //
@@ -158,17 +160,19 @@ final class AppEnvironment {
         sessionVM.bind()
         flowsVM.bind()
         filesVM.bind()
+        notificationsVM.bind()
         // SettingsViewModel: no WS subscriptions (no bind() method).
         // SearchViewModel:   no WS subscriptions (no bind() method).
 
         // ── Assign all VMs ────────────────────────────────────────────────────────────────
-        self.tasks    = tasksVM
-        self.projects = projectsVM
-        self.session  = sessionVM
-        self.flows    = flowsVM
-        self.search   = searchVM
-        self.files    = filesVM
-        self.settings = settingsVM
+        self.tasks         = tasksVM
+        self.projects      = projectsVM
+        self.session       = sessionVM
+        self.flows         = flowsVM
+        self.search        = searchVM
+        self.files         = filesVM
+        self.settings      = settingsVM
+        self.notifications = notificationsVM
     }
 
     // MARK: - Boot
@@ -184,12 +188,13 @@ final class AppEnvironment {
             // Parallel initial loads. All VMs are non-nil after compose().
             // Settings load is best-effort: SettingsViewModel.load() logs and swallows decode
             // errors so a malformed persisted JSON cannot abort boot.
-            if let t = tasks, let p = projects, let f = flows, let s = settings {
+            if let t = tasks, let p = projects, let f = flows, let s = settings, let n = notifications {
                 async let _t: Void = t.load()
                 async let _p: Void = p.load()
                 async let _f: Void = f.load()
                 async let _s: Void = s.load()
-                _ = await (_t, _p, _f, _s)
+                async let _n: Void = n.load()
+                _ = await (_t, _p, _f, _s, _n)
             }
 
             // After a successful start() the port is always set; the fallback is unreachable
