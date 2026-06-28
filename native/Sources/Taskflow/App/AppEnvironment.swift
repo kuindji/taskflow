@@ -6,6 +6,7 @@ import Observation
 final class AppEnvironment {
     enum Status: Equatable { case connecting, connected(port: Int), failed(String) }
     private(set) var status: Status = .connecting
+    private(set) var homedir: String?
     @ObservationIgnored let themeStore = ThemeStore()
     @ObservationIgnored let terminalSurfaces = TerminalSurfaceCache()
     @ObservationIgnored private let sidecar: SidecarManager
@@ -220,6 +221,9 @@ final class AppEnvironment {
                 return 0
             }()
             status = .connected(port: realPort)
+            if let info: SystemInfo = try? await client.request(.systemInfo, payload: [:]) {
+                homedir = info.homedir
+            }
         } catch {
             status = .failed("\(error)")
         }
