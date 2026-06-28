@@ -28,4 +28,12 @@ final class NotificationViewModelTests: XCTestCase {
         let out = NotificationViewModel.sorted([note("a", at: "1"), note("b", at: "3"), note("c", at: "2")])
         XCTAssertEqual(out.map(\.id), ["b", "c", "a"]) // createdAt desc
     }
+
+    func testRelativeTime() {
+        let now = ISO8601DateFormatter().date(from: "2026-06-28T12:00:00Z")!
+        XCTAssertEqual(NotificationPopover.relativeTime("2026-06-28T11:59:40Z", now: now), "just now")
+        XCTAssertEqual(NotificationPopover.relativeTime("2026-06-28T11:30:00Z", now: now), "30m ago")
+        XCTAssertEqual(NotificationPopover.relativeTime("2026-06-28T09:00:00Z", now: now), "3h ago")
+        XCTAssertEqual(NotificationPopover.relativeTime("2026-06-26T12:00:00Z", now: now), "2d ago")
+    }
 }
