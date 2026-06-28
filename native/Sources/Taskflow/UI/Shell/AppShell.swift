@@ -37,7 +37,7 @@ struct AppShell: View {
                     if ui.fileExplorerOpen {
                         FileExplorerPane()
                     } else {
-                        panelPlaceholder("Search", width: ui.fileExplorerWidth)
+                        SearchPane()
                     }
                 }
                 .frame(width: ui.fileExplorerWidth)
