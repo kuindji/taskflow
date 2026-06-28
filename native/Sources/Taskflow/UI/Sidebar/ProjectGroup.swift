@@ -104,6 +104,13 @@ struct ProjectGroup: View {
                 .foregroundStyle(theme.color(isActive ? .sidebarPrimary : .sidebarForeground))
                 .lineLimit(1)
 
+            if let branch = env.diff?.state.branchByProject[project.id] {
+                Text("(\(branch))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.color(.mutedForeground))
+                    .lineLimit(1)
+            }
+
             Spacer(minLength: 4)
         }
         .padding(.horizontal, 6)

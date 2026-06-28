@@ -109,14 +109,21 @@ struct TaskCard: View {
     }
 
     @ViewBuilder private func worktreeBadge(branch: String, pr: TaskWorktreePr?) -> some View {
+        let behind = env.diff?.state.behindByProject[task.id] ?? 0
+        let stats = env.diff?.state.statsByProject[task.id]
         HStack(spacing: 3) {
             AppIcon("GitBranch").font(.system(size: 9))
             Text(branch).font(.system(size: 10)).lineLimit(1)
             if let pr {
-                // TS renders `#{pr.number}` (accent-coloured); mirror that label.
                 Text("#\(Int(pr.number))").font(.system(size: 10))
             }
-            // Phase 5C/diff-store seam: live +adds/-dels and `behind` counts go here.
+            if behind > 0 {
+                Text("↓\(behind)").font(.system(size: 10)).foregroundStyle(theme.color(.info))
+            }
+            if let stats {
+                Text("+\(stats.additions)").font(.system(size: 10)).foregroundStyle(theme.color(.success))
+                Text("-\(stats.deletions)").font(.system(size: 10)).foregroundStyle(theme.color(.destructive))
+            }
         }
         .foregroundStyle(theme.color(.mutedForeground))
     }
