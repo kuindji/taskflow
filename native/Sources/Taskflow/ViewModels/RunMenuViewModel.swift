@@ -1,0 +1,334 @@
+import Foundation
+import Observation
+
+// MARK: - RunMenuData
+
+/// Data bag for the Run submenu.
+/// Ports `RunMenuData` from `packages/ui/src/lib/run-menu.ts`.
+///
+/// The `agents: AgentAvailability[]` field is intentionally omitted: 5B treats all agents as
+/// available (`// availability seam`). Real per-agent gating is deferred to a later phase.
+/// `hasActiveFlowRun: Bool` replaces the TS `activeFlowRun: FlowRun | null` — the predicate
+/// only needs the boolean, and `FlowRun` itself is not exposed here.
+struct RunMenuData {
+    var scripts: [String: String]
+    var defaultRuntime: String
+    var agentCommands: [AgentCommand]
+    var flows: [FlowDefinition]
+    var standaloneActions: [ActionDefinition]
+    var hasActiveFlowRun: Bool
+    var showAgentOptions: Bool
+    var online: Bool
+}
+
+// MARK: - RunMenuCallbacks
+
+/// Action closures for the Run submenu.
+/// Ports `RunMenuCallbacks` from `packages/ui/src/lib/run-menu.ts`.
+///
+/// All closures dispatch async work via `Task { @MainActor ... }` internally.
+/// 5B note: `onRunTab`/`onRunTabWithOptions` are present (non-optional, unlike the TS union
+/// type where they are absent when `showAgentOptions` is false) — the caller gates rendering
+/// on `RunMenuData.showAgentOptions`.
+struct RunMenuCallbacks {
+    var onRunScript: (String) -> Void
+    var onRunAgentCommand: (AgentCommand) -> Void
+    var onStartFlow: (String) -> Void
+    var onRunAction: (ActionDefinition) -> Void
+    var onRunTab: (AgentType) -> Void
+    var onRunTabWithOptions: (AgentType) -> Void
+}
+
+// MARK: - RunMenuViewModel
+
+/// Ports `hooks/useRunMenu.ts` + `lib/run-menu.ts`.
+///
+/// Responsibilities:
+/// - Lazily fetches `scripts:list` and `agent-commands:list` per project (mirrors the
+///   `useEffect` that fires when `enabled` becomes true in `useRunMenu.ts`).
+/// - Assembles `RunMenuData` from its own caches + `FlowViewModel` data passed in at call site.
+/// - Provides the `hasRunMenuItems` predicate (static, nonisolated, TDD'd).
+/// - Builds `RunMenuCallbacks` with launch actions closed over injected VMs.
+///
+/// **Availability seam:** 5B treats every agent as installed. The TS `useAgentAvailability`
+/// hook + `isAgentAvailable` gate are replaced with an always-true assumption, gated only on
+/// WS-connected (`online`) in the UI layer (not in `hasRunMenuItems`).
+///
+/// **No AppEnvironment back-reference:** VMs are injected at call site (Task 9) to avoid
+/// a reference cycle.
+@MainActor
+@Observable
+final class RunMenuViewModel {
+
+    // MARK: - Agent constants
+    // Ports ALL_AGENT_TYPES + AGENT_DISPLAY_NAMES from packages/shared/src/types/agent.ts.
+
+    static let allAgentTypes: [AgentType] = [.claude, .codex, .opencode, .gemini, .cursor, .pi]
+
+    static func displayName(_ agent: AgentType) -> String {
+        switch agent {
+        case .claude:   return "Claude"
+        case .codex:    return "Codex"
+        case .opencode: return "OpenCode"
+        case .gemini:   return "Gemini"
+        case .cursor:   return "Cursor"
+        case .pi:       return "Pi"
+        }
+    }
+
+    // MARK: - State
+
+    @ObservationIgnored private let client: WSClient
+    /// Fetched scripts keyed by projectId. Populated by `ensureLoaded`.
+    private var scriptsByProject: [String: [String: String]] = [:]
+    /// Fetched agent commands keyed by projectId. Populated by `ensureLoaded`.
+    private var agentCommandsByProject: [String: [AgentCommand]] = [:]
+
+    // MARK: - Init
+
+    init(client: WSClient) {
+        self.client = client
+    }
+
+    // MARK: - Lazy fetch
+
+    /// Fetches `scripts:list` and `agent-commands:list` for the given project, caching results.
+    ///
+    /// Mirrors the `useEffect` in `useRunMenu.ts` that fires when `enabled` (context-menu open)
+    /// becomes true. Results are cached per `projectId`; subsequent calls are no-ops.
+    /// Errors are swallowed silently (matching the TS `.catch(() => setScripts(emptyScripts))`
+    /// fallback — a missing `package.json` or no `.claude` dir is not an error for the UI).
+    func ensureLoaded(projectId: String, projectPath: String) async {
+        if scriptsByProject[projectId] == nil {
+            if let resp: ScriptsListResponse = try? await client.request(
+                .scriptsList, payload: ["path": projectPath]
+            ) {
+                scriptsByProject[projectId] = resp.scripts
+            } else {
+                scriptsByProject[projectId] = [:]
+            }
+        }
+        if agentCommandsByProject[projectId] == nil {
+            if let resp: AgentCommandsListResponse = try? await client.request(
+                .agentCommandsList, payload: ["path": projectPath]
+            ) {
+                agentCommandsByProject[projectId] = resp.commands
+            } else {
+                agentCommandsByProject[projectId] = []
+            }
+        }
+    }
+
+    // MARK: - Data assembly
+
+    /// Assembles the `RunMenuData` bag for the given context.
+    ///
+    /// `flows`, `standaloneActions`, `hasActiveFlowRun`, `defaultRuntime`, `online`, and
+    /// `showAgentOptions` are passed in from the call site (Task 9) — this VM does NOT hold
+    /// live references to `FlowViewModel` or `SettingsViewModel`.
+    func data(
+        projectId: String,
+        flows: [FlowDefinition],
+        standaloneActions: [ActionDefinition],
+        hasActiveFlowRun: Bool,
+        defaultRuntime: String,
+        online: Bool,
+        showAgentOptions: Bool
+    ) -> RunMenuData {
+        RunMenuData(
+            scripts: scriptsByProject[projectId] ?? [:],
+            defaultRuntime: defaultRuntime,
+            agentCommands: agentCommandsByProject[projectId] ?? [],
+            flows: flows,
+            standaloneActions: standaloneActions,
+            hasActiveFlowRun: hasActiveFlowRun,
+            showAgentOptions: showAgentOptions,
+            online: online
+        )
+    }
+
+    // MARK: - Predicate
+
+    /// Ports `hasRunMenuItems` from `packages/ui/src/lib/run-menu.ts`.
+    ///
+    /// 5B simplification: `agentCommands` is gated on non-empty only (all agents treated as
+    /// available). The TS gates on `hasClaudeAgent = isAgentAvailable(data.agents, "claude")`;
+    /// in 5B that always evaluates to `true` — the gate becomes `!d.agentCommands.isEmpty`.
+    ///
+    /// `online` is NOT checked in this predicate (mirrors TS — online governs item enablement,
+    /// not existence).
+    nonisolated static func hasRunMenuItems(_ d: RunMenuData) -> Bool {
+        !d.scripts.isEmpty
+            || !d.agentCommands.isEmpty                  // 5B: all-available; TS also checks hasClaudeAgent
+            || (!d.flows.isEmpty && !d.hasActiveFlowRun)
+            || !d.standaloneActions.isEmpty
+            || d.showAgentOptions
+    }
+
+    // MARK: - Callbacks factory
+
+    /// Builds `RunMenuCallbacks` for the given project/task context.
+    ///
+    /// **Signature note:** `defaultRuntime` is an explicit parameter because the TS reads it
+    /// from `useSettingsStore`. The call site (Task 9) supplies
+    /// `env.settings?.settings?.general.defaultRuntime ?? "bun"`.
+    ///
+    /// VMs (`session`, `flows`, `tasks`) are injected here (not captured from AppEnvironment)
+    /// so `RunMenuViewModel` carries no back-reference to the environment.
+    ///
+    /// **Navigation:** ports the `navigate(focusWorkspace:)` helper in `useRunMenu.ts`:
+    ///   `setActiveTask` → `setActiveProject` → `setFocusedPanel(.workspace)`.
+    ///   `setMasterWorkspaceActive(false)` is NOT called — the TS `navigate` does not call it.
+    ///
+    /// **Prompt delivery:** the TS `createSession` accepts a `prompt` parameter that the backend
+    /// delivers to the process stdin at startup. Swift's `SessionViewModel.createSession` does
+    /// not expose `prompt`; instead each callback sends `session.sendInput` after creation.
+    /// If `createSession` gains an `initialInput` param later, prefer it over `sendInput`.
+    func callbacks(
+        projectId: String,
+        taskId: String?,
+        session: SessionViewModel?,
+        flows: FlowViewModel?,
+        tasks: TaskViewModel?,
+        ui: UIViewModel,
+        defaultRuntime: String
+    ) -> RunMenuCallbacks {
+
+        // Workspace key used as `targetWorkspaceKey` so the new tab lands in the right pane.
+        let workspaceKey: String = taskId.map(WorkspaceKey.task) ?? WorkspaceKey.project(projectId)
+
+        // MARK: onRunScript
+        // TS: navigate(true) → runInShell({ command: `${defaultRuntime} run ${name}\r` })
+        let onRunScript: (String) -> Void = { name in
+            Task { @MainActor in
+                if let tid = taskId { tasks?.setActiveTask(tid) }
+                ui.setActiveProject(projectId)
+                ui.setFocusedPanel(.workspace)
+                do {
+                    guard let session else { return }
+                    let sid = try await session.createSession(
+                        taskId: taskId,
+                        projectId: taskId == nil ? projectId : nil,
+                        type: .shell,
+                        label: name,
+                        targetWorkspaceKey: workspaceKey
+                    )
+                    session.sendInput(sessionId: sid, data: "\(defaultRuntime) run \(name)\r")
+                } catch {}
+            }
+        }
+
+        // MARK: onRunAgentCommand
+        // TS: navigate(true) → createSession(owner, "claude", cmd.name, `/${cmd.name}`)
+        let onRunAgentCommand: (AgentCommand) -> Void = { cmd in
+            Task { @MainActor in
+                if let tid = taskId { tasks?.setActiveTask(tid) }
+                ui.setActiveProject(projectId)
+                ui.setFocusedPanel(.workspace)
+                do {
+                    guard let session else { return }
+                    let sid = try await session.createSession(
+                        taskId: taskId,
+                        projectId: taskId == nil ? projectId : nil,
+                        type: .claude,
+                        label: cmd.name,
+                        targetWorkspaceKey: workspaceKey
+                    )
+                    session.sendInput(sessionId: sid, data: "/\(cmd.name)\r")
+                } catch {}
+            }
+        }
+
+        // MARK: onStartFlow
+        // TS: if flow.inputs non-empty → setFlowInputState (dialog seam); else navigate + startFlow
+        let onStartFlow: (String) -> Void = { flowId in
+            Task { @MainActor in
+                let flow = flows?.flows.first { $0.id == flowId }
+                if let inputs = flow?.inputs, !inputs.isEmpty {
+                    // 5F: flow-input dialog seam — present input collection UI before starting
+                    return
+                }
+                if let tid = taskId { tasks?.setActiveTask(tid) }
+                ui.setActiveProject(projectId)
+                ui.setFocusedPanel(.workspace)
+                let params = FlowStartPayload(
+                    taskId: taskId,
+                    projectId: taskId == nil ? projectId : nil,
+                    master: nil,
+                    flowId: flowId,
+                    inputValues: nil
+                )
+                try? await flows?.startFlow(params)
+            }
+        }
+
+        // MARK: onRunAction
+        // TS: navigate(true) → if shell → runInShell(prompt); else createSession(sessionType, prompt)
+        // Swift: navigate → createSession → sendInput(prompt) if non-empty
+        let onRunAction: (ActionDefinition) -> Void = { action in
+            Task { @MainActor in
+                if let tid = taskId { tasks?.setActiveTask(tid) }
+                ui.setActiveProject(projectId)
+                ui.setFocusedPanel(.workspace)
+                do {
+                    guard let session else { return }
+                    // SessionType.shell → TabType.shell; other SessionTypes map 1:1 to TabType raw values.
+                    let tabType: TabType = action.sessionType == .shell
+                        ? .shell
+                        : TabType(rawValue: action.sessionType.rawValue) ?? .shell
+                    let sid = try await session.createSession(
+                        taskId: taskId,
+                        projectId: taskId == nil ? projectId : nil,
+                        type: tabType,
+                        label: action.name,
+                        targetWorkspaceKey: workspaceKey
+                    )
+                    if !action.prompt.isEmpty {
+                        session.sendInput(sessionId: sid, data: "\(action.prompt)\r")
+                    }
+                } catch {}
+            }
+        }
+
+        // MARK: onRunTab
+        // TS: if !taskId → return; navigate → createSession(type, prompt: task.description)
+        // Swift: guard taskId → navigate → createSession → sendInput(description) if non-empty
+        let onRunTab: (AgentType) -> Void = { agent in
+            guard let taskId else { return }
+            Task { @MainActor in
+                tasks?.setActiveTask(taskId)
+                ui.setActiveProject(projectId)
+                ui.setFocusedPanel(.workspace)
+                do {
+                    guard let session else { return }
+                    let tabType = TabType(rawValue: agent.rawValue) ?? .shell
+                    let description = tasks?.tasks.first { $0.id == taskId }?.description
+                    let sid = try await session.createSession(
+                        taskId: taskId,
+                        type: tabType,
+                        targetWorkspaceKey: WorkspaceKey.task(taskId)
+                    )
+                    if let desc = description, !desc.isEmpty {
+                        session.sendInput(sessionId: sid, data: "\(desc)\r")
+                    }
+                } catch {}
+            }
+        }
+
+        // MARK: onRunTabWithOptions
+        // 5F: AgentOptionsDialog seam — present agent options UI before launching.
+        // No-op in 5B; Phase 5F wires a dialog that collects AgentLaunchOptions, then calls onRunTab.
+        let onRunTabWithOptions: (AgentType) -> Void = { _ in
+            // 5F: AgentOptionsDialog seam
+        }
+
+        return RunMenuCallbacks(
+            onRunScript: onRunScript,
+            onRunAgentCommand: onRunAgentCommand,
+            onStartFlow: onStartFlow,
+            onRunAction: onRunAction,
+            onRunTab: onRunTab,
+            onRunTabWithOptions: onRunTabWithOptions
+        )
+    }
+}

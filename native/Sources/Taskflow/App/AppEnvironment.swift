@@ -26,6 +26,7 @@ final class AppEnvironment {
     private(set) var files: FileViewModel?
     private(set) var settings: SettingsViewModel?
     private(set) var notifications: NotificationViewModel?
+    private(set) var runMenu: RunMenuViewModel?
 
     init() {
         let repoRoot = ProcessInfo.processInfo.environment["TASKFLOW_REPO_ROOT"]
@@ -176,6 +177,8 @@ final class AppEnvironment {
         self.files         = filesVM
         self.settings      = settingsVM
         self.notifications = notificationsVM
+        // RunMenuViewModel: no WS events (no bind()), no boot load (fetch is lazy via ensureLoaded).
+        self.runMenu       = RunMenuViewModel(client: client)
     }
 
     // MARK: - Boot
