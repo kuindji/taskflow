@@ -4,12 +4,17 @@ import SwiftUI
 /// context menu added in Task 9). Worktree diff/behind counts deferred (5C diff-store seam).
 struct TaskCard: View {
     @Environment(\.appTheme) private var theme
+    @Environment(AppEnvironment.self) private var env
     let task: TaskItem
     let projectPath: String
     let isActive: Bool
     var isSubtask: Bool = false
     var keyBadgeNumber: Int? = nil
     let onClick: () -> Void
+
+    private var isArchived: Bool { task.archivedAt != nil }
+    private var online: Bool { if case .connected = env.status { return true } else { return false } }
+    private var defaultRuntime: String { env.settings?.settings?.general.defaultRuntime ?? "bun" }
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
@@ -51,6 +56,56 @@ struct TaskCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
         .onTapGesture(perform: onClick)
+        .contextMenu { taskMenu }
+    }
+
+    @ViewBuilder private var taskMenu: some View {
+        Button("Add subtask") {
+            env.taskCreation.requestNewSubtask(parentId: task.id, projectId: task.projectId)
+        }
+        Button(task.pinned ? "Unpin" : "Pin") {
+            Task { try? await env.tasks?.updateTask(
+                id: task.id, title: nil, description: nil,
+                notes: nil, worktree: nil, pinned: !task.pinned
+            ) }
+        }
+        if let run = env.runMenu {
+            let d = run.data(
+                projectId: task.projectId,
+                flows: env.flows?.flows ?? [],
+                standaloneActions: env.flows?.actions ?? [],
+                hasActiveFlowRun: false,
+                defaultRuntime: defaultRuntime,
+                online: online,
+                showAgentOptions: !isArchived
+            )
+            if RunMenuViewModel.hasRunMenuItems(d) {
+                Menu("Run") {
+                    RunMenuItems(
+                        data: d,
+                        callbacks: run.callbacks(
+                            projectId: task.projectId,
+                            taskId: task.id,
+                            session: env.session,
+                            flows: env.flows,
+                            tasks: env.tasks,
+                            ui: env.ui,
+                            defaultRuntime: defaultRuntime
+                        )
+                    )
+                }
+            }
+        }
+        Divider()
+        if isArchived {
+            Button("Unarchive") { Task { try? await env.tasks?.unarchiveTask(id: task.id) } }
+        } else {
+            Button("Archive") { Task { try? await env.tasks?.archiveTask(id: task.id) } }
+        }
+        // Delete-with-worktree confirmation dialog is 5F; 5B does a direct delete (no worktree removal).
+        Button("Delete", role: .destructive) {
+            Task { try? await env.tasks?.deleteTask(id: task.id, deleteWorktree: nil) }
+        }
     }
 
     @ViewBuilder private func worktreeBadge(branch: String, pr: TaskWorktreePr?) -> some View {

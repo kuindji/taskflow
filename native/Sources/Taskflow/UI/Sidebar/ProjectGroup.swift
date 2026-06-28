@@ -40,6 +40,8 @@ struct ProjectGroup: View {
 
     private var pinned: [TaskItem] { tasks.filter { $0.pinned } }
     private var unpinned: [TaskItem] { tasks.filter { !$0.pinned } }
+    private var online: Bool { if case .connected = env.status { return true } else { return false } }
+    private var defaultRuntime: String { env.settings?.settings?.general.defaultRuntime ?? "bun" }
 
     private var rolledUpStatus: SessionStatus? {
         let statusFn: (String) -> SessionStatus? = { [env] id in env.session?.sessionStatus[id] }
@@ -69,6 +71,7 @@ struct ProjectGroup: View {
                 ForEach(unpinned, id: \.id) { taskRow($0) }
             }
         }
+        .task { await env.runMenu?.ensureLoaded(projectId: project.id, projectPath: project.path) }
     }
 
     // MARK: - Sub-views
@@ -114,6 +117,44 @@ struct ProjectGroup: View {
             guard let dropped = items.first, dropped.projectId != project.id else { return false }
             reorder(movingId: dropped.projectId, overId: project.id)
             return true
+        }
+        .contextMenu { projectMenu }
+    }
+
+    @ViewBuilder private var projectMenu: some View {
+        Button("Create task") { env.taskCreation.requestNewTask(projectId: project.id) }
+        Button("Fork project") { /* 5F: fork dialog seam */ }
+        if let run = env.runMenu {
+            let d = run.data(
+                projectId: project.id,
+                flows: env.flows?.flows ?? [],
+                standaloneActions: env.flows?.actions ?? [],
+                hasActiveFlowRun: false,
+                defaultRuntime: defaultRuntime,
+                online: online,
+                showAgentOptions: true
+            )
+            if RunMenuViewModel.hasRunMenuItems(d) {
+                Menu("Run") {
+                    RunMenuItems(
+                        data: d,
+                        callbacks: run.callbacks(
+                            projectId: project.id,
+                            taskId: nil,
+                            session: env.session,
+                            flows: env.flows,
+                            tasks: env.tasks,
+                            ui: env.ui,
+                            defaultRuntime: defaultRuntime
+                        )
+                    )
+                }
+            }
+        }
+        Divider()
+        // Remove confirmation dialog is 5F; 5B calls hideProject (reversible) as the safe default.
+        Button("Delete project", role: .destructive) {
+            Task { try? await env.projects?.hideProject(id: project.id) }
         }
     }
 
