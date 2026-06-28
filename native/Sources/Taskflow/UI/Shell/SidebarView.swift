@@ -1,119 +1,120 @@
 import SwiftUI
 
-/// Sidebar — live list of projects with their nested tasks.
-/// Reads from `ProjectViewModel` and `TaskViewModel` via `AppEnvironment`; SwiftUI's Observation
-/// framework re-renders only when the read properties (`projects`, `tasks`, active IDs) change.
+/// Sidebar — full composition: header toolbar, scrollable project list (driven by collapse state
+/// + drag-reorder via `ProjectGroup`), footer. Port of the React `Sidebar` component.
 ///
 /// Selection:
-/// - Tapping a project sets `ui.activeProjectId` and clears `tasks.activeTaskId`.
-/// - Tapping a task sets both `tasks.activeTaskId` and `ui.activeProjectId` (its parent).
+/// - Tapping a project sets `ui.activeProjectId`, clears `tasks.activeTaskId`, focuses workspace.
+/// - Tapping a task sets both `tasks.activeTaskId` and `ui.activeProjectId` (its parent), focuses workspace.
 ///
-/// Drag-reorder of sidebar items is deferred to Phase 5 — the list is static order here.
+/// Archive mode: when `env.tasks?.showArchive == true` the list renders `archivedTasks` grouped
+/// by project with a "No archived tasks" empty state.
+///
+/// Subtask nesting (rendering `parentId != nil` children indented) — 5B follow-up seam.
 struct SidebarView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.appTheme) private var theme
 
+    // MARK: - Body
+
     var body: some View {
-        let projectList   = env.projects?.projects ?? []
-        let taskList      = env.tasks?.tasks ?? []
-        let activeProject = env.ui.activeProjectId
-        let activeTask    = env.tasks?.activeTaskId
-
-        ScrollView(.vertical, showsIndicators: true) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(projectList, id: \.id) { project in
-                    let isActiveProject = activeProject == project.id
-                    projectRow(project, isActive: isActiveProject)
-                        .onTapGesture {
-                            env.ui.setActiveProject(project.id)
-                            env.tasks?.setActiveTask(nil)
-                        }
-
-                    let projectTasks = taskList.filter { $0.projectId == project.id }
-                    if !projectTasks.isEmpty {
-                        ForEach(projectTasks, id: \.id) { task in
-                            let isActiveTask = activeTask == task.id
-                            taskRow(task, isActive: isActiveTask)
-                                .onTapGesture {
-                                    env.ui.setActiveProject(task.projectId)
-                                    env.tasks?.setActiveTask(task.id)
-                                }
-                        }
+        VStack(spacing: 0) {
+            SidebarHeaderToolbar()
+            Divider()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    if env.tasks?.showArchive == true {
+                        archiveList
+                    } else {
+                        projectList
                     }
                 }
-
-                if projectList.isEmpty {
-                    Text("No projects")
-                        .font(.caption)
-                        .foregroundStyle(theme.color(.sidebarForeground).opacity(0.4))
-                        .padding(.horizontal, 12)
-                        .padding(.top, 16)
-                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 8)
+            Divider()
+            SidebarFooter()
         }
         .background(theme.color(.sidebarBackground))
     }
 
-    // MARK: - Row views
+    // MARK: - List sections
 
-    private func projectRow(_ project: Project, isActive: Bool) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(
-                    isActive
-                        ? theme.color(.sidebarPrimary)
-                        : theme.color(.sidebarForeground).opacity(0.7)
+    @ViewBuilder private var projectList: some View {
+        if visibleProjects.isEmpty {
+            Text("No projects yet")
+                .font(.system(size: 12))
+                .foregroundStyle(theme.color(.mutedForeground))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+        } else {
+            ForEach(visibleProjects, id: \.id) { project in
+                ProjectGroup(
+                    project: project,
+                    tasks: tasks(for: project.id),
+                    isActive: env.ui.activeProjectId == project.id,
+                    activeTaskId: env.tasks?.activeTaskId,
+                    open: !(env.ui.collapsedProjectIds.contains(project.id)),
+                    onOpenChange: { env.ui.setProjectCollapsed(project.id, !$0) },
+                    onProjectClick: { selectProject(project.id) },
+                    onTaskClick: { selectTask($0, in: project.id) }
                 )
-            Text(project.name)
-                .font(.subheadline)
-                .fontWeight(isActive ? .semibold : .regular)
-                .foregroundStyle(
-                    isActive
-                        ? theme.color(.sidebarPrimary)
-                        : theme.color(.sidebarForeground)
-                )
-                .lineLimit(1)
-            Spacer()
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .background(
-            isActive
-                ? theme.color(.sidebarAccent).opacity(0.25)
-                : Color.clear
-        )
-        .contentShape(Rectangle())
     }
 
-    private func taskRow(_ task: TaskItem, isActive: Bool) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "circle.fill")
-                .font(.system(size: 5))
-                .foregroundStyle(
-                    isActive
-                        ? theme.color(.sidebarPrimary)
-                        : theme.color(.sidebarForeground).opacity(0.45)
-                )
-            Text(task.title.isEmpty ? task.description : task.title)
-                .font(.caption)
-                .foregroundStyle(
-                    isActive
-                        ? theme.color(.sidebarPrimary)
-                        : theme.color(.sidebarForeground).opacity(0.65)
-                )
-                .lineLimit(1)
-            Spacer()
+    @ViewBuilder private var archiveList: some View {
+        let archivedSource = env.tasks?.archivedTasks ?? []
+        if archivedSource.isEmpty {
+            Text("No archived tasks")
+                .font(.system(size: 12))
+                .foregroundStyle(theme.color(.mutedForeground))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+        } else {
+            ForEach(visibleProjects, id: \.id) { project in
+                let projectArchived = archivedSource.filter {
+                    $0.projectId == project.id && $0.parentId == nil
+                }
+                if !projectArchived.isEmpty {
+                    ProjectGroup(
+                        project: project,
+                        tasks: projectArchived,
+                        isActive: env.ui.activeProjectId == project.id,
+                        activeTaskId: env.tasks?.activeTaskId,
+                        open: !(env.ui.collapsedProjectIds.contains(project.id)),
+                        onOpenChange: { env.ui.setProjectCollapsed(project.id, !$0) },
+                        onProjectClick: { selectProject(project.id) },
+                        onTaskClick: { selectTask($0, in: project.id) }
+                    )
+                }
+            }
         }
-        .padding(.leading, 24)
-        .padding(.trailing, 8)
-        .padding(.vertical, 3)
-        .background(
-            isActive
-                ? theme.color(.sidebarAccent).opacity(0.15)
-                : Color.clear
-        )
-        .contentShape(Rectangle())
+    }
+
+    // MARK: - Computed helpers
+
+    private var allProjects: [Project] { env.projects?.projects ?? [] }
+    private var visibleProjects: [Project] { allProjects.filter { $0.hidden != true } }
+
+    private func tasks(for projectId: String) -> [TaskItem] {
+        let all = env.tasks?.tasks ?? []
+        return all.filter { $0.projectId == projectId && $0.parentId == nil }
+    }
+
+    // MARK: - Navigation actions
+
+    private func selectProject(_ id: String) {
+        env.ui.setFocusedPanel(.workspace)
+        env.ui.setMasterWorkspaceActive(false)
+        env.ui.setActiveProject(id)
+        env.tasks?.setActiveTask(nil)
+    }
+
+    private func selectTask(_ id: String, in projectId: String) {
+        env.ui.setFocusedPanel(.workspace)
+        env.ui.setMasterWorkspaceActive(false)
+        env.ui.setActiveProject(projectId)
+        env.tasks?.setActiveTask(id)
     }
 }
