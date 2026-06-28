@@ -27,6 +27,7 @@ final class AppEnvironment {
     private(set) var settings: SettingsViewModel?
     private(set) var notifications: NotificationViewModel?
     private(set) var runMenu: RunMenuViewModel?
+    private(set) var diff: DiffViewModel?
 
     init() {
         let repoRoot = ProcessInfo.processInfo.environment["TASKFLOW_REPO_ROOT"]
@@ -51,6 +52,7 @@ final class AppEnvironment {
         let filesVM         = FileViewModel(client: client)
         let settingsVM      = SettingsViewModel(client: client)
         let notificationsVM = NotificationViewModel(client: client)
+        let diffVM          = DiffViewModel(client: client)
 
         // ── Cross-store closure wiring ──────────────────────────────────────────────────────
         //
@@ -144,6 +146,12 @@ final class AppEnvironment {
             session?.addTab(activeKey, tab)
         }
 
+        // diff.onStatsByProjectChanged — refresh the file explorer's git status when diff
+        // stats change. Mirrors the useDiffStore.subscribe in file-store.ts:209-220.
+        diffVM.onStatsByProjectChanged = { [weak self] in
+            self?.files?.refreshGitStatusForWatchedPath()
+        }
+
         // session cross-deps (post create/close refreshes)
         sessionVM.onFetchTasks = { [weak self] in
             await self?.tasks?.load()
@@ -165,6 +173,7 @@ final class AppEnvironment {
         flowsVM.bind()
         filesVM.bind()
         notificationsVM.bind()
+        diffVM.bind()
         // SettingsViewModel: no WS subscriptions (no bind() method).
         // SearchViewModel:   no WS subscriptions (no bind() method).
 
@@ -179,6 +188,7 @@ final class AppEnvironment {
         self.notifications = notificationsVM
         // RunMenuViewModel: no WS events (no bind()), no boot load (fetch is lazy via ensureLoaded).
         self.runMenu       = RunMenuViewModel(client: client)
+        self.diff          = diffVM
     }
 
     // MARK: - Boot

@@ -197,9 +197,6 @@ final class FileViewModel {
             watchedPath = nil
         }
 
-        // Phase 5: subscribe to diff-store stat changes to trigger fetchGitStatus.
-        // See file-store.ts:209-220 (useDiffStore.subscribe).
-
         _ = try? await client.requestRaw(.fileWatch, payload: ["path": path])
         watchedPath = path
     }
@@ -208,9 +205,17 @@ final class FileViewModel {
     /// Mirrors `unwatchPath(path)` in `file-store.ts:224-232`.
     func unwatchPath(path: String) async {
         if watchedPath != path { return }
-        // Phase 5: diff-store unsubscribe.
+        // diff-store unsubscribe is handled centrally in AppEnvironment (single shared DiffViewModel).
         _ = try? await client.requestRaw(.fileUnwatch, payload: ["path": path])
         watchedPath = nil
+    }
+
+    /// Re-fetches git status for the currently-watched path. Wired in `AppEnvironment` to
+    /// `DiffViewModel.onStatsByProjectChanged`, mirroring the `useDiffStore.subscribe` in
+    /// `file-store.ts:209-220` that refreshes status when diff stats change.
+    func refreshGitStatusForWatchedPath() {
+        guard let wp = watchedPath else { return }
+        Task { [weak self] in await self?.fetchGitStatus(path: wp) }
     }
 
     // MARK: - clearExplorerState
