@@ -113,6 +113,30 @@ struct GlobalDialogHost: View {
                     showNewTask = true
                 }
             }
+            // ── Flow-input sheet ───────────────────────────────────────────────────────────
+            .sheet(isPresented: Binding(
+                get: { env.runMenu?.flowInputRequest != nil },
+                set: { if !$0 { env.runMenu?.flowInputRequest = nil } }
+            )) {
+                if let req = env.runMenu?.flowInputRequest {
+                    FlowInputDialog(
+                        isPresented: Binding(
+                            get: { env.runMenu?.flowInputRequest != nil },
+                            set: { if !$0 { env.runMenu?.flowInputRequest = nil } }
+                        ),
+                        request: req,
+                        onSubmit: { values in
+                            env.runMenu?.confirmFlowInput(
+                                values,
+                                flows: env.flows,
+                                tasks: env.tasks,
+                                ui: env.ui
+                            )
+                        },
+                        onCancel: { env.runMenu?.flowInputRequest = nil }
+                    )
+                }
+            }
             // ── Deferred-start watcher ─────────────────────────────────────────────────────
             // Ports the pendingSessionRef / useEffect (TaskCreationDialogHost.tsx, lines 53-84):
             // watches for the worktree path to become non-empty, then fires startNow and clears.
