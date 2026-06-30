@@ -92,6 +92,12 @@ struct AppShell: View {
         )) {
             ScheduleManagementDialog()
         }
+        .sheet(isPresented: Binding(
+            get: { ui.settingsOpen },
+            set: { if !$0 { env.ui.toggleSettings() } }
+        )) {
+            SettingsDialog()
+        }
     }
 
     // MARK: - Helpers
