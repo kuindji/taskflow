@@ -71,7 +71,9 @@ struct FlowManagementDialog: View {
 
     /// Maps each action ID to the flows that reference it (via `.reference` entries).
     /// Used to compute `deleteDisabled` / `deleteDisabledReason` for `ActionEditor`.
+    /// Only performs the (expensive) decode work when ActionEditor is actually shown.
     private var referencingFlowsByActionId: [String: [FlowDefinition]] {
+        guard tab == .actions && (creating || selectedAction != nil) else { return [:] }
         let allFlows   = env.flows?.flows ?? []
         let allActions = env.flows?.actions ?? []
         var map: [String: [FlowDefinition]] = [:]

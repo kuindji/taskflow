@@ -128,6 +128,13 @@ final class AgentOptionsFormModel {
     // MARK: - reset(to:)
 
     func reset(to settings: AppSettings?) {
+        resetToLiteralDefaults()
+        seedDefaults(from: settings)
+    }
+
+    // MARK: - Private
+
+    private func resetToLiteralDefaults() {
         claudeModel = nil
         claudeEffort = nil
         claudeSkipPermissions = false
@@ -147,10 +154,7 @@ final class AgentOptionsFormModel {
         piModel = ""
         piThinking = .off
         piTools = ""
-        seedDefaults(from: settings)
     }
-
-    // MARK: - Private
 
     private func seedDefaults(from settings: AppSettings?) {
         guard let s = settings else { return }
