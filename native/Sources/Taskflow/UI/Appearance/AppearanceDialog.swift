@@ -8,34 +8,58 @@ struct AppearanceDialog: View {
     @State private var section: AppearanceSection = .themes
 
     var body: some View {
-        HStack(spacing: 0) {
-            // sidebar
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(AppearanceSection.allCases, id: \.self) { s in
-                    Button { section = s } label: {
-                        Text(s.title)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(section == s ? theme.muted : .clear)
-                    }
-                    .buttonStyle(.plain)
-                }
-                Spacer()
-            }
-            .frame(width: 148)
-            .padding(8)
+        VStack(spacing: 0) {
+            header
+
             Divider()
-            // content
-            ScrollView {
-                content.padding(16)
+
+            HStack(spacing: 0) {
+                // sidebar
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(AppearanceSection.allCases, id: \.self) { s in
+                        Button { section = s } label: {
+                            Text(s.title)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                .background(section == s ? theme.muted : .clear)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
+                }
+                .frame(width: 148)
+                .padding(8)
+                Divider()
+                // content
+                ScrollView {
+                    content.padding(16)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(width: 720, height: 460)
         .background(theme.background)
         .task {
             await env.themeCatalog?.load()
         }
+    }
+
+    private var header: some View {
+        HStack {
+            Text("Appearance")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(theme.foreground)
+            Spacer()
+            Button {
+                env.ui.toggleAppearance()
+            } label: {
+                AppIcon("X").font(.system(size: 13))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.foreground.opacity(0.6))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     @ViewBuilder private var content: some View {
