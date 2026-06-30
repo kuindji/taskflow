@@ -1,5 +1,16 @@
 import SwiftUI
 
+private enum ModalKind { case palette }
+
+@MainActor
+private func anyModalOpen(except kind: ModalKind, env: AppEnvironment) -> Bool {
+    let ui = env.ui
+    return ui.settingsOpen || ui.appearanceOpen || ui.flowManagementOpen
+        || ui.scheduleManagementOpen || ui.shortcutsDialogOpen
+        || (env.taskCreation.newTaskRequest != nil) || env.taskCreation.newProjectRequested
+        || (env.runMenu?.flowInputRequest != nil) || (env.runMenu?.runOptionsRequest != nil)
+}
+
 @main
 struct TaskflowApp: App {
     @State private var env = AppEnvironment()
@@ -14,6 +25,36 @@ struct TaskflowApp: App {
                 .onDisappear { env.shutdown() }
         }
         .windowStyle(.titleBar)
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New Task") {
+                    env.taskCreation.requestNewTask(projectId: env.ui.activeProjectId)
+                }
+                .keyboardShortcut("n", modifiers: .command)
+            }
+            CommandMenu("View") {
+                Button("Command Palette") {
+                    if anyModalOpen(except: .palette, env: env) { return }
+                    env.ui.toggleCommandPalette()
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Button("Keyboard Shortcuts") {
+                    env.ui.toggleShortcutsDialog()
+                }
+                .keyboardShortcut("/", modifiers: .command)
+
+                Button("Appearance…") {
+                    env.ui.toggleAppearance()
+                }
+            }
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    env.ui.openSettings()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+        }
     }
 }
 
