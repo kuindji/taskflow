@@ -13,5 +13,9 @@ struct GlobalDialogHost: View {
                 get: { env.ui.commandPaletteOpen },
                 set: { if !$0 { env.ui.setCommandPaletteOpen(false) } }
             )) { CommandPaletteDialog() }
+            .sheet(isPresented: Binding(
+                get: { env.ui.shortcutsDialogOpen },
+                set: { if !$0 { env.ui.setShortcutsDialogOpen(false) } }
+            )) { KeyboardShortcutsDialog() }
     }
 }

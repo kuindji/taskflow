@@ -1,38 +1,49 @@
-## Task 8 Report: SearchPane + AppShell wiring
+# Task 8 Report: GeneralSection (Data Folder + Ask-before-exit)
 
-### Implemented
-- Created `native/Sources/Taskflow/UI/Panels/SearchPane.swift` — full search/replace panel with query + replace text fields, flag toggles (CaseSensitive/WholeWord/Regex), Filter toggle revealing include/exclude pattern fields, debounced auto-search (300ms, ≥3 chars), Replace All button, embedded `SearchResultsView`.
-- Modified `native/Sources/Taskflow/UI/Shell/AppShell.swift` — replaced `panelPlaceholder("Search", ...)` with `SearchPane()` in the mutually-exclusive file-explorer/search Group.
+## Build Result
 
-### Binding / primitive adaptations
+`swift build` completed clean (Build complete! 4.39s). Only pre-existing tree-sitter linker warnings; zero new warnings or errors from my changes.
 
-**AppTextField**: The brief used `AppTextField(placeholder: "Search", text: $s.query)` but the struct's memberwise init is `init(text: Binding<String>, placeholder: String)` — `text` is declared first. Corrected all call sites to `AppTextField(text: $s.query, placeholder: "Search")` etc.
+## Files Changed
 
-**AppButton**: The brief used `AppButton("Replace All", kind: .secondary)` (unlabeled first arg) but the struct declares `let title: String`, so the memberwise init requires the `title:` label. Corrected to `AppButton(title: "Replace All", kind: .secondary)`.
+1. **CREATED** `native/Sources/Taskflow/UI/Settings/GeneralSection.swift` — 167 lines
+2. **MODIFIED** `native/Sources/Taskflow/UI/Settings/SettingsDialog.swift` — removed GeneralSection stub (1 line)
 
-**AppIcon glyphs**: All four lucide names used resolve in `AppIcon.symbol(forLucide:)` — no substitutions needed:
-- `"CaseSensitive"` → `"textformat"`
-- `"WholeWord"` → `"textformat.abc"`
-- `"Regex"` → `"asterisk"`
-- `"Filter"` → `"line.3.horizontal.decrease.circle"`
+## Stub Removal Confirmation
 
-**@Bindable**: `SearchViewModel` is `@Observable @MainActor final class` with plain `var query`, `var replacement`, `var includePattern`, `var excludePattern`. `@Bindable var s = search` inside the `if let search` branch compiles cleanly and `$s.query` etc. produce valid bindings.
+Only the `GeneralSection` stub line was removed:
+```swift
+struct GeneralSection: View { var body: some View { EmptyView() } }         // STUB — replaced in Task 8
+```
+The three remaining stubs (DefaultsSection, AgentDefaultsSection, RemoteSection) are untouched.
 
-### Build + test results
-- `swift build`: clean (0 errors, pre-existing linker object-file warnings from tree-sitter deps only)
-- `swift test`: 202 tests, 0 failures
+## Implementation Notes
 
-### Files changed
-- Created: `native/Sources/Taskflow/UI/Panels/SearchPane.swift`
-- Modified: `native/Sources/Taskflow/UI/Shell/AppShell.swift`
+### Data Folder Section
+- Reads `env.settings?.dataDirInfo?.dataDir ?? "Loading..."` in monospaced font with `.truncationMode(.middle)`
+- **Change** button: calls `pickDirectory()` (synchronous `NSOpenPanel.runModal()` on main actor directly), then dispatches a `Task { await settings.updateDataDir(...) }` — correct separation of sync panel and async RPC
+- Conflict detection: `updateDataDir` does NOT throw on conflict — it returns `DataDirInfo` with `conflict == true`. The view checks `info.conflict == true` and sets `conflictPath` to trigger the `.alert`
+- **Alert** "Existing Data Found": Overwrite (`.destructive` role → `mode: .overwrite`), Use Existing (`mode: .adopt`), Cancel — all clear `conflictPath`
+- **Reset** button shown only when `dataDirInfo != nil && !isDefault` → calls `updateDataDir(path: info.baseDir)` (no mode)
+- `migrationError` shown in `theme.destructive` color, cleared after 5s via `Task.sleep(for: .seconds(5))`
+- `@State private var migrating` guards against double-taps during async move
 
-### Self-review findings
-- No `public` or superfluous `internal` modifiers added.
-- No `as any` casts.
-- No new types — reused existing `SearchViewModel`, `ActiveWorkspace`, `AppTextField`, `AppButton`, `AppIcon`, `SearchResultsView`.
-- `debounce` Task is cancelled before each reschedule and the `Task.isCancelled` guard prevents stale search triggers after cancellation.
-- `replaceAll` is wrapped in a `Task { await ... }` so the synchronous button action closure stays sync.
-- `workingDir` computed via `ActiveWorkspace.workingDir(in: env)` — same as `FileExplorerPane`, no inline re-derivation.
+### Ask-before-exit Section
+- `SettingRow(label: "Ask before exit", hint: "Show a confirmation prompt when quitting Taskflow.")` wrapping `AppToggle`
+- Toggle binding: `get` from `settings.settings.general.confirmBeforeExit`, `set` dispatches `Task { await settings.updateSettings(SettingsPatch(general: GeneralPatch(confirmBeforeExit: v))) }`
+- Guards `env.settings == nil` at top level (shows "Loading..."); `settings.settings == nil` guard around the toggle row
 
-### Concerns
-None. The brief's call-site syntax had two mismatches with actual primitive init signatures (parameter label order/presence); both corrected before writing.
+## Self-Review Findings
+
+- No `as any` or force casts used
+- No `public` exports — all declarations are `internal` (default) or `private`
+- No lint-rule disabling
+- `@MainActor` annotation on `pickDirectory()` is redundant since SwiftUI views are already on the main actor, but makes synchronous `runModal()` intent explicit; harmless
+- `resolveConflict(path:mode:settings:)` receives path by value so the Task closure is safe against the optional being cleared before the async call
+- `scheduleClearError` creates a fire-and-forget Task with `Task.sleep`; matches the brief spec and existing pattern in ScheduleForm.swift
+
+## Commit
+
+`065aabe` — `feat(native): 5E GeneralSection (data folder + ask-before-exit)`
+
+taskflow-cli log entries recorded for commit + both changed files.

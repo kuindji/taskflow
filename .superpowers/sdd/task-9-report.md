@@ -1,51 +1,44 @@
-# Task 9 Report: TaskCard diff badges + ProjectGroup branch label
+# Task 9 Report: DefaultsSection
 
-## Status
-DONE
+## Build Result
+`swift build` — Build complete! (4.42s), zero errors, zero new warnings from project code.
 
-## What was built
+## Files Changed
+- **Created**: `native/Sources/Taskflow/UI/Settings/DefaultsSection.swift` (217 lines)
+- **Modified**: `native/Sources/Taskflow/UI/Settings/SettingsDialog.swift` (removed only the DefaultsSection stub line)
 
-### Modified: `native/Sources/Taskflow/UI/Sidebar/TaskCard.swift`
-Replaced the `// Phase 5C/diff-store seam` comment in `worktreeBadge(branch:pr:)` with live diff data:
-- `let behind = env.diff?.state.behindByProject[task.id] ?? 0` — shows `↓<n>` in `.info` color when behind > 0
-- `let stats = env.diff?.state.statsByProject[task.id]` — shows `+<adds>` (`.success`) and `-<dels>` (`.destructive`) when stats non-nil
-- Removed the old stale comment from the `#pr.number` label (kept the render)
-- Ports `TaskCard.tsx:318-326`
+## Stub Removal Confirmation
+Removed exactly one line from SettingsDialog.swift:
+```swift
+struct DefaultsSection: View { var body: some View { EmptyView() } }        // STUB — replaced in Task 9
+```
+`AgentDefaultsSection` (Task 10) and `RemoteSection` (Task 11) stubs are intact.
 
-### Modified: `native/Sources/Taskflow/UI/Sidebar/ProjectGroup.swift`
-Added branch label in the header `HStack` after `Text(project.name)` and before `Spacer(minLength: 4)`:
-- `if let branch = env.diff?.state.branchByProject[project.id]` — renders `(<branch>)` in `.mutedForeground`, font size 10, lineLimit 1
-- `theme` already in scope (`@Environment(\.appTheme)` at line 27); `env` already in scope (`@Environment(AppEnvironment.self)` at line 28)
-- Ports `ProjectGroup.tsx:296-298`
+## Implementation Summary
+Port of `packages/ui/src/components/settings/sections/DefaultsSection.tsx`.
 
-## DiffViewModel field verification
+Six rows implemented:
+1. **Internal Editor** — `AppSelect<String>` over `[("monaco","Monaco")] + internal editors`, binds `settings.editor.internalEditor` via `EditorPatch(internalEditor:)`.
+2. **External Editor** — `AppSelect<String>` over `[("system","System Default")] + external editors`, binds `settings.editor.externalEditor` via `EditorPatch(externalEditor:)`.
+3. **Default Agent** — `AppSelect<AgentType>` over `RunMenuViewModel.allAgentTypes`, appends " (not installed)" when `!catalog.isAvailable(agent)`, binds `settings.general.defaultAgent` via `GeneralPatch(defaultAgent:)`.
+4. **Toolbar Agents** — Custom `VStack` (header label + hint text + `ForEach` of `AppToggle`s), one per available agent. Checks `settings.general.favoriteAgents.contains(agent)`. Toggle `set` adds/removes agent from array copy, persists via `GeneralPatch(favoriteAgents:)`.
+5. **Default Shell** — `AppSelect<String>` over `[("system","System Default (path)")] + shells`, binds `settings.terminal.defaultShell` via `TerminalPatch(defaultShell:)`.
+6. **Default Runtime** — `AppSelect<String>` over `runtimes.map { "\($0.name) (\($0.version))" }`, binds `settings.general.defaultRuntime` via `GeneralPatch(defaultRuntime:)`.
 
-Confirmed against `native/Sources/Taskflow/ViewModels/DiffViewModel.swift`:
-- `behindByProject: [String: Int]` ✓
-- `statsByProject: [String: DiffStats]` with `DiffStats.additions: Int`, `DiffStats.deletions: Int` ✓
-- `branchByProject: [String: String]` ✓
+Guard: `env.settings?.settings` — renders `Text("Loading…")` when nil. Also guards `env.settingsCatalog`.
 
-All field names/types matched the brief exactly; no adaptations needed.
-
-## Build result
-`swift build` — clean (Build complete, 0 errors, 0 new warnings from project code)
-
-## Test result
-`swift test` — Executed 202 tests, with 0 failures (0 unexpected) in 30.1 seconds
+Reused: `RunMenuViewModel.allAgentTypes` and `RunMenuViewModel.displayName(_:)` (both `nonisolated static`).
+Persist helpers: three private overloads `persist(editor:settingsVM:)`, `persist(general:settingsVM:)`, `persist(terminal:settingsVM:)`.
 
 ## Commit
-`71cf030` — feat(native): worktree diff/behind badges + project branch label (diff-store)
-(2 files changed, 16 insertions, 2 deletions)
+`72d0df2` — feat(native): 5E DefaultsSection (editors/agent/shell/runtime)
 
-## Self-review
-- No `as any` / force-unwraps introduced
-- `env.diff` is optional-chained throughout — safe if `DiffViewModel` not yet wired (gracefully shows nothing)
-- Behind badge only appears when `behind > 0` (no ghost `↓0`)
-- Stats only appear when non-nil (the reducer sets `nil` when both additions+deletions are zero, matching TS behaviour)
-- Branch label only appears when non-nil (no empty parens)
-- `foregroundStyle` on individual text nodes (`.info`/`.success`/`.destructive`) correctly overrides the outer `.mutedForeground` applied to the whole HStack
-- `lineLimit(1)` on branch label prevents overflow in narrow sidebar
-- Both views remain `internal` — no new exports
+## Self-Review Findings
+- **`favoriteAgents` nil handling**: `GeneralSettings.favoriteAgents` is non-optional in the Swift codegen (`[AgentType]`), so the TS `?? ALL_AGENT_TYPES` nil-coalescing isn't needed. The binding uses `.contains(agent)` directly.
+- **`__missing__`/`__none__` sentinels**: Skipped per the task note ("reproduce only if trivial; otherwise just render the value"). Shell/runtime selects render the stored value without a disabled sentinel when the configured value is absent from the catalog list.
+- **System shell label**: Shows `"System Default (/path/to/shell)"` when `catalog.systemShellPath` is non-nil, else `"System Default"`. Faithful to `getTerminalShellSummary`.
+- **Toolbar Agents layout**: Uses a `VStack` with inline label+hint (not `SettingRow`) to match the TS multi-toggle container layout rather than a single trailing-control row.
+- No `public`, no `as any`, no force casts, no disabled lint rules.
 
 ## Concerns
-None. The outer `.foregroundStyle(theme.color(.mutedForeground))` on the HStack sets the base color; individual badges use explicit `foregroundStyle` overrides, which in SwiftUI take precedence — consistent with how TS renders each badge with its own color class.
+None.
