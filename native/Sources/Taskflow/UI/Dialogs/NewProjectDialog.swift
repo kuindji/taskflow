@@ -30,7 +30,6 @@ struct NewProjectDialog: View {
                                 path = selectedURL.path
                             }
                         }
-                        .frame(maxWidth: .infinity, alignment: .trailing)
                     }
 
                     // Error message
@@ -40,8 +39,6 @@ struct NewProjectDialog: View {
                             .foregroundStyle(theme.destructive)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-
-                    Spacer()
                 }
                 .padding(16)
             }
@@ -55,6 +52,7 @@ struct NewProjectDialog: View {
                     kind: .primary,
                     action: submitForm
                 )
+                .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!canSubmit)
                 .opacity(canSubmit ? 1.0 : 0.5)
             }
@@ -62,7 +60,6 @@ struct NewProjectDialog: View {
         }
         .frame(width: 420)
         .background(theme.background)
-        .keyboardShortcut(.return, modifiers: .command)
     }
 
     // MARK: - Header
