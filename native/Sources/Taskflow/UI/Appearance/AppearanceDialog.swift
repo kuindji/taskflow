@@ -56,5 +56,3 @@ private enum AppearanceSection: String, CaseIterable {
     }
 }
 
-// STUB — replaced in Task 15
-struct FontsTab: View { var body: some View { EmptyView() } }
