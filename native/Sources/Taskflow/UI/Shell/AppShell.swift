@@ -98,6 +98,12 @@ struct AppShell: View {
         )) {
             SettingsDialog()
         }
+        .sheet(isPresented: Binding(
+            get: { ui.appearanceOpen },
+            set: { if !$0 { env.ui.toggleAppearance() } }
+        )) {
+            AppearanceDialog()
+        }
     }
 
     // MARK: - Helpers
