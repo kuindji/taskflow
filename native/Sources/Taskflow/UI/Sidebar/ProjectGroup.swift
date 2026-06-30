@@ -37,6 +37,7 @@ struct ProjectGroup: View {
     let onTaskClick: (String) -> Void
 
     @State private var missingDialogOpen = false
+    @State private var forkOpen = false
 
     // MARK: - Computed helpers
 
@@ -135,6 +136,9 @@ struct ProjectGroup: View {
         .sheet(isPresented: $missingDialogOpen) {
             MissingLocationDialog(isPresented: $missingDialogOpen, project: project)
         }
+        .sheet(isPresented: $forkOpen) {
+            ForkProjectDialog(isPresented: $forkOpen, project: project)
+        }
         .draggable(ProjectDragItem(projectId: project.id))
         .dropDestination(for: ProjectDragItem.self) { items, _ in
             guard let dropped = items.first, dropped.projectId != project.id else { return false }
@@ -146,7 +150,7 @@ struct ProjectGroup: View {
 
     @ViewBuilder private var projectMenu: some View {
         Button("Create task") { env.taskCreation.requestNewTask(projectId: project.id) }
-        Button("Fork project") { /* 5F: fork dialog seam */ }
+        Button("Fork project") { forkOpen = true }
         if let run = env.runMenu {
             let d = run.data(
                 projectId: project.id,
