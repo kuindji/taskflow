@@ -1,12 +1,15 @@
 import SwiftUI
 
-private enum ModalKind { case palette }
+private enum ModalKind { case palette, shortcuts, none }
 
 @MainActor
-private func anyModalOpen(except kind: ModalKind, env: AppEnvironment) -> Bool {
+private func anyModalOpen(except: ModalKind, env: AppEnvironment) -> Bool {
     let ui = env.ui
-    return ui.settingsOpen || ui.appearanceOpen || ui.flowManagementOpen
-        || ui.scheduleManagementOpen || ui.shortcutsDialogOpen
+    let palette   = (except == .palette)   ? false : ui.commandPaletteOpen
+    let shortcuts = (except == .shortcuts) ? false : ui.shortcutsDialogOpen
+    return palette || shortcuts
+        || ui.settingsOpen || ui.appearanceOpen
+        || ui.flowManagementOpen || ui.scheduleManagementOpen
         || (env.taskCreation.newTaskRequest != nil) || env.taskCreation.newProjectRequested
         || (env.runMenu?.flowInputRequest != nil) || (env.runMenu?.runOptionsRequest != nil)
 }
@@ -28,6 +31,7 @@ struct TaskflowApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Task") {
+                    if anyModalOpen(except: .none, env: env) { return }
                     env.taskCreation.requestNewTask(projectId: env.ui.activeProjectId)
                 }
                 .keyboardShortcut("n", modifiers: .command)
@@ -40,6 +44,7 @@ struct TaskflowApp: App {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
 
                 Button("Keyboard Shortcuts") {
+                    if anyModalOpen(except: .shortcuts, env: env) { return }
                     env.ui.toggleShortcutsDialog()
                 }
                 .keyboardShortcut("/", modifiers: .command)
