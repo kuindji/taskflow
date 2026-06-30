@@ -32,6 +32,8 @@ final class AppEnvironment {
     private(set) var schedules: ScheduleViewModel?
     private(set) var models: ModelListViewModel?
     private(set) var settingsCatalog: SettingsCatalogViewModel?
+    // ThemeCatalogViewModel: no boot load — lazy load() on Appearance dialog open.
+    private(set) var themeCatalog: ThemeCatalogViewModel?
 
     init() {
         let repoRoot = ProcessInfo.processInfo.environment["TASKFLOW_REPO_ROOT"]
@@ -204,6 +206,8 @@ final class AppEnvironment {
         let catalogVM = SettingsCatalogViewModel(client: client)
         catalogVM.bind()
         self.settingsCatalog = catalogVM
+        // ThemeCatalogViewModel: no WS subscriptions, no boot load — lazy load() on Appearance dialog open.
+        self.themeCatalog = ThemeCatalogViewModel(client: client)
     }
 
     // MARK: - Boot
@@ -226,6 +230,12 @@ final class AppEnvironment {
                 async let _s: Void = s.load()
                 async let _n: Void = n.load()
                 _ = await (_t, _p, _f, _s, _n)
+            }
+
+            // Boot-apply persisted theme: settings load has completed above, so
+            // settings?.settings is now populated (if the fetch succeeded).
+            if let t = settings?.settings?.appearance.theme {
+                themeStore.select(id: t)
             }
 
             // After a successful start() the port is always set; the fallback is unreachable
