@@ -21,8 +21,6 @@ struct ForkProjectDialog: View {
     @State private var customFolder: Bool = false
     @State private var loading: Bool = false
     @State private var error: String?
-    @State private var showSuccess: Bool = false
-    @State private var successMessage: String = ""
     @FocusState private var branchFocused: Bool
 
     // MARK: - Pure helpers (testable)
@@ -87,11 +85,6 @@ struct ForkProjectDialog: View {
         .background(theme.background)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .onAppear { branchFocused = true }
-        .alert("Fork complete", isPresented: $showSuccess) {
-            Button("OK") { showSuccess = false }
-        } message: {
-            Text(successMessage)
-        }
     }
 
     // MARK: - Header
@@ -130,10 +123,9 @@ struct ForkProjectDialog: View {
 
             fieldGroup(label: "Folder name (optional)") {
                 AppTextField(text: folderBinding, placeholder: Self.slugify("feature/my-branch"))
-                if !targetPath.isEmpty && !folder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !folder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(targetPath)
-                        .font(.system(.body, design: .monospaced))
-                        .font(.system(size: 11))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(theme.foreground.opacity(0.55))
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -190,17 +182,13 @@ struct ForkProjectDialog: View {
         error = nil
         Task { @MainActor in
             do {
-                let resp = try await env.projects?.forkProject(
+                _ = try await env.projects?.forkProject(
                     projectId: project.id,
                     branch: branch.trimmingCharacters(in: .whitespacesAndNewlines),
                     folderName: folder.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
                 loading = false
                 isPresented.wrappedValue = false
-                if let resp {
-                    successMessage = "Forked to \(resp.targetPath)"
-                    showSuccess = true
-                }
             } catch let err {
                 loading = false
                 error = err.localizedDescription
