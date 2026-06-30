@@ -101,7 +101,7 @@ struct FlowEditor: View {
         let allInputsValid = inputs.allSatisfy { input in
             !input.id.isEmpty &&
             input.id.range(of: idPattern, options: .regularExpression) != nil &&
-            !input.label.isEmpty
+            !input.label.trimmingCharacters(in: .whitespaces).isEmpty
         }
         guard allInputsValid else { return false }
 
@@ -291,7 +291,7 @@ struct FlowEditor: View {
 
     nonisolated static let inputTypeOptions: [(value: String, label: String)] = [
         (value: "text",     label: "Text"),
-        (value: "filepath", label: "File path"),
+        (value: "filepath", label: "File Path"),
     ]
 
     // MARK: - Save
