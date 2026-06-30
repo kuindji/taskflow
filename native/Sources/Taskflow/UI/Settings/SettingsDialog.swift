@@ -78,8 +78,4 @@ private enum SettingsSection: String, CaseIterable {
 
 // MARK: - Stubs (replaced by real implementations in later tasks)
 
-struct AgentDefaultsSection: View {                                          // STUB — replaced in Task 10
-    let agent: AgentType
-    var body: some View { EmptyView() }
-}
 struct RemoteSection: View { var body: some View { EmptyView() } }          // STUB — replaced in Task 11
