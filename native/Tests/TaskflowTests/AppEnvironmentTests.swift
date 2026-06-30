@@ -30,6 +30,7 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertNil(env.runMenu)
         XCTAssertNil(env.diff)
         XCTAssertNil(env.schedules)
+        XCTAssertNil(env.models)
     }
 
     // MARK: - compose(client:) sets all VMs
@@ -49,6 +50,7 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertNotNil(env.runMenu)
         XCTAssertNotNil(env.diff)
         XCTAssertNotNil(env.schedules)
+        XCTAssertNotNil(env.models)
     }
 
     func testUIRemainsNonNilAfterCompose() {

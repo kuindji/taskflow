@@ -30,6 +30,7 @@ final class AppEnvironment {
     private(set) var runMenu: RunMenuViewModel?
     private(set) var diff: DiffViewModel?
     private(set) var schedules: ScheduleViewModel?
+    private(set) var models: ModelListViewModel?
 
     init() {
         let repoRoot = ProcessInfo.processInfo.environment["TASKFLOW_REPO_ROOT"]
@@ -196,6 +197,8 @@ final class AppEnvironment {
         self.diff          = diffVM
         // ScheduleViewModel: project-scoped, lazy load(projectId:) — NOT in boot() parallel group.
         self.schedules     = schedulesVM
+        // ModelListViewModel: no WS subscriptions, no boot load — lazy fetch on dialog open.
+        self.models        = ModelListViewModel(client: client)
     }
 
     // MARK: - Boot
