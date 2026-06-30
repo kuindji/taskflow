@@ -39,6 +39,29 @@ struct RunMenuCallbacks {
     var onRunTabWithOptions: (AgentType) -> Void
 }
 
+// MARK: - Request types (5F)
+
+/// Pending request to show the flow-input collection dialog before starting a flow.
+/// Set by `RunMenuViewModel.callbacks(...)` when a flow has non-empty inputs;
+/// consumed and cleared by `RunMenuViewModel.confirmFlowInput(...)`.
+struct FlowInputRequest: Equatable {
+    let flowId: String
+    let flowName: String
+    let inputs: [FlowInputDefinition]
+    let taskId: String?
+    let projectId: String?
+}
+
+/// Pending request to show the agent-options dialog before launching a tab.
+/// Set by `RunMenuViewModel.callbacks(...)` `onRunTabWithOptions`;
+/// consumed and cleared by `RunMenuViewModel.confirmRunOptions(...)`.
+struct RunOptionsRequest: Equatable {
+    let agent: AgentType
+    let title: String
+    let taskId: String?
+    let projectId: String?
+}
+
 // MARK: - RunMenuViewModel
 
 /// Ports `hooks/useRunMenu.ts` + `lib/run-menu.ts`.
@@ -83,6 +106,14 @@ final class RunMenuViewModel {
     private var scriptsByProject: [String: [String: String]] = [:]
     /// Fetched agent commands keyed by projectId. Populated by `ensureLoaded`.
     private var agentCommandsByProject: [String: [AgentCommand]] = [:]
+
+    /// Non-nil when the flow-input dialog should be presented. Set by `onStartFlow` when
+    /// the selected flow has non-empty inputs; cleared by `confirmFlowInput`.
+    var flowInputRequest: FlowInputRequest?
+
+    /// Non-nil when the agent-options dialog should be presented. Set by `onRunTabWithOptions`;
+    /// cleared by `confirmRunOptions`.
+    var runOptionsRequest: RunOptionsRequest?
 
     // MARK: - Init
 
@@ -241,11 +272,19 @@ final class RunMenuViewModel {
 
         // MARK: onStartFlow
         // TS: if flow.inputs non-empty → setFlowInputState (dialog seam); else navigate + startFlow
-        let onStartFlow: (String) -> Void = { flowId in
-            Task { @MainActor in
+        let onStartFlow: (String) -> Void = { [weak self] flowId in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 let flow = flows?.flows.first { $0.id == flowId }
-                if let inputs = flow?.inputs, !inputs.isEmpty {
-                    // 5F: flow-input dialog seam — present input collection UI before starting
+                if let flow, let inputs = flow.inputs, !inputs.isEmpty {
+                    // 5F: flow-input dialog seam — collect inputs before starting
+                    self.flowInputRequest = FlowInputRequest(
+                        flowId: flowId,
+                        flowName: flow.name,
+                        inputs: inputs,
+                        taskId: taskId,
+                        projectId: taskId == nil ? projectId : nil
+                    )
                     return
                 }
                 if let tid = taskId { tasks?.setActiveTask(tid) }
@@ -317,9 +356,15 @@ final class RunMenuViewModel {
 
         // MARK: onRunTabWithOptions
         // 5F: AgentOptionsDialog seam — present agent options UI before launching.
-        // No-op in 5B; Phase 5F wires a dialog that collects AgentLaunchOptions, then calls onRunTab.
-        let onRunTabWithOptions: (AgentType) -> Void = { _ in
-            // 5F: AgentOptionsDialog seam
+        // Phase 5F wires a dialog that collects AgentLaunchOptions, then calls confirmRunOptions.
+        let onRunTabWithOptions: (AgentType) -> Void = { [weak self] agent in
+            guard let self else { return }
+            self.runOptionsRequest = RunOptionsRequest(
+                agent: agent,
+                title: "Run \(RunMenuViewModel.displayName(agent)) with options",
+                taskId: taskId,
+                projectId: taskId == nil ? projectId : nil
+            )
         }
 
         return RunMenuCallbacks(
@@ -330,5 +375,61 @@ final class RunMenuViewModel {
             onRunTab: onRunTab,
             onRunTabWithOptions: onRunTabWithOptions
         )
+    }
+
+    // MARK: - Confirm methods (5F)
+
+    /// Called by FlowInputDialog when the user confirms input values.
+    /// Navigates to the appropriate context and starts the flow with the collected values,
+    /// then clears `flowInputRequest`.
+    func confirmFlowInput(
+        _ values: [String: String],
+        flows: FlowViewModel?,
+        tasks: TaskViewModel?,
+        ui: UIViewModel
+    ) {
+        guard let req = flowInputRequest else { return }
+        if let tid = req.taskId { tasks?.setActiveTask(tid) }
+        if let pid = req.projectId { ui.setActiveProject(pid) }
+        ui.setFocusedPanel(.workspace)
+        let params = FlowStartPayload(
+            taskId: req.taskId,
+            projectId: req.projectId,
+            master: nil,
+            flowId: req.flowId,
+            inputValues: values
+        )
+        Task { @MainActor in try? await flows?.startFlow(params) }
+        flowInputRequest = nil
+    }
+
+    /// Called by AgentOptionsDialog when the user confirms launch options.
+    /// Navigates to the task context and creates an agent session,
+    /// then clears `runOptionsRequest`.
+    ///
+    /// `options` is reserved for Task 12 which adds `agentOptions:` to `createSession`.
+    func confirmRunOptions(
+        _ options: AgentLaunchOptions,
+        session: SessionViewModel?,
+        tasks: TaskViewModel?,
+        ui: UIViewModel
+    ) {
+        guard let req = runOptionsRequest else { return }
+        guard let taskId = req.taskId else { runOptionsRequest = nil; return }
+        tasks?.setActiveTask(taskId)
+        if let pid = req.projectId { ui.setActiveProject(pid) }
+        ui.setFocusedPanel(.workspace)
+        let tabType = TabType(rawValue: req.agent.rawValue) ?? .shell
+        Task { @MainActor in
+            do {
+                // Task 12: pass agentOptions: options  (createSession gains the param in Task 12)
+                let _ = try await session?.createSession(
+                    taskId: taskId,
+                    type: tabType,
+                    targetWorkspaceKey: WorkspaceKey.task(taskId)
+                )
+            } catch {}
+        }
+        runOptionsRequest = nil
     }
 }
