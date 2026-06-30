@@ -103,7 +103,7 @@ struct MissingLocationDialog: View {
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { @MainActor in
-            try? await env.projects?.updateProject(id: project.id, path: url.path)
+            _ = try? await env.projects?.updateProject(id: project.id, path: url.path)
             isPresented.wrappedValue = false
         }
     }

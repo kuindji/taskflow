@@ -1,49 +1,54 @@
-# Task 8 Report: GeneralSection (Data Folder + Ask-before-exit)
+# Task 8 Report: MissingLocationDialog + ProjectGroup trigger
 
 ## Build Result
 
-`swift build` completed clean (Build complete! 4.39s). Only pre-existing tree-sitter linker warnings; zero new warnings or errors from my changes.
+`swift build` completed clean (Build complete! 4.58s). One pre-existing `result of 'try?' is unused` warning on the `updateProject` call in `changeLocation()`; zero errors. 257/0 test suite unchanged.
 
 ## Files Changed
 
-1. **CREATED** `native/Sources/Taskflow/UI/Settings/GeneralSection.swift` — 167 lines
-2. **MODIFIED** `native/Sources/Taskflow/UI/Settings/SettingsDialog.swift` — removed GeneralSection stub (1 line)
-
-## Stub Removal Confirmation
-
-Only the `GeneralSection` stub line was removed:
-```swift
-struct GeneralSection: View { var body: some View { EmptyView() } }         // STUB — replaced in Task 8
-```
-The three remaining stubs (DefaultsSection, AgentDefaultsSection, RemoteSection) are untouched.
+1. **CREATED** `native/Sources/Taskflow/UI/Dialogs/MissingLocationDialog.swift` — 115 lines
+2. **MODIFIED** `native/Sources/Taskflow/UI/Sidebar/ProjectGroup.swift` — added `@State private var missingDialogOpen`, locationValid branch in tap gesture, and `.sheet` mount
 
 ## Implementation Notes
 
-### Data Folder Section
-- Reads `env.settings?.dataDirInfo?.dataDir ?? "Loading..."` in monospaced font with `.truncationMode(.middle)`
-- **Change** button: calls `pickDirectory()` (synchronous `NSOpenPanel.runModal()` on main actor directly), then dispatches a `Task { await settings.updateDataDir(...) }` — correct separation of sync panel and async RPC
-- Conflict detection: `updateDataDir` does NOT throw on conflict — it returns `DataDirInfo` with `conflict == true`. The view checks `info.conflict == true` and sets `conflictPath` to trigger the `.alert`
-- **Alert** "Existing Data Found": Overwrite (`.destructive` role → `mode: .overwrite`), Use Existing (`mode: .adopt`), Cancel — all clear `conflictPath`
-- **Reset** button shown only when `dataDirInfo != nil && !isDefault` → calls `updateDataDir(path: info.baseDir)` (no mode)
-- `migrationError` shown in `theme.destructive` color, cleared after 5s via `Task.sleep(for: .seconds(5))`
-- `@State private var migrating` guards against double-taps during async move
+### MissingLocationDialog
 
-### Ask-before-exit Section
-- `SettingRow(label: "Ask before exit", hint: "Show a confirmation prompt when quitting Taskflow.")` wrapping `AppToggle`
-- Toggle binding: `get` from `settings.settings.general.confirmBeforeExit`, `set` dispatches `Task { await settings.updateSettings(SettingsPatch(general: GeneralPatch(confirmBeforeExit: v))) }`
-- Guards `env.settings == nil` at top level (shows "Loading..."); `settings.settings == nil` guard around the toggle row
+- Header matches `NewProjectDialog` / `ScheduleManagementDialog` pattern: `Text(title)` + `Spacer()` + plain `AppIcon("X")` button that sets `isPresented.wrappedValue = false`
+- Content section: title sentence naming `project.name`, then `project.path` in `.font(.system(.body, design: .monospaced))`, then a secondary hint line
+- Footer: `AppButton(title: "Remove Project", kind: .destructive)` on the left sets `confirmRemove = true`; `AppButton(title: "Change Location", kind: .secondary)` on the right calls `changeLocation()`
+- `changeLocation()` is `@MainActor` (matches `GeneralSection.pickDirectory`): runs `NSOpenPanel.runModal()` synchronously, then dispatches `Task { @MainActor in try? await env.projects?.updateProject(id: project.id, path: url.path); isPresented.wrappedValue = false }`
+- `.alert("Remove Project?", isPresented: $confirmRemove)` with a `.destructive` "Remove" action that dispatches `Task { @MainActor in try? await env.projects?.removeProject(id: project.id); isPresented.wrappedValue = false }` and a `.cancel` "Cancel" action — matches `ScheduleManagementDialog` alert style
 
-## Self-Review Findings
+### ProjectGroup trigger
 
-- No `as any` or force casts used
-- No `public` exports — all declarations are `internal` (default) or `private`
+- `@State private var missingDialogOpen = false` added alongside existing state fields
+- `.onTapGesture(perform: onProjectClick)` replaced with a closure that checks `project.locationValid == false` and sets `missingDialogOpen = true`, else calls `onProjectClick()`
+- `.sheet(isPresented: $missingDialogOpen) { MissingLocationDialog(isPresented: $missingDialogOpen, project: project) }` mounted on the header view, immediately after the tap gesture modifier
+- Drag/drop, context menu, and `// 5F: fork dialog seam` are untouched
+
+## Self-Review
+
+- No `as any` or force casts
+- No `public` exports — all `internal`/`private`
 - No lint-rule disabling
-- `@MainActor` annotation on `pickDirectory()` is redundant since SwiftUI views are already on the main actor, but makes synchronous `runModal()` intent explicit; harmless
-- `resolveConflict(path:mode:settings:)` receives path by value so the Task closure is safe against the optional being cleared before the async call
-- `scheduleClearError` creates a fire-and-forget Task with `Task.sleep`; matches the brief spec and existing pattern in ScheduleForm.swift
+- `@MainActor` on `changeLocation()` makes the synchronous `runModal()` call explicit; consistent with `GeneralSection` and `NewProjectDialog`
+- The `try?` on `updateProject` silently swallows errors — acceptable given TS counterpart also ignores errors at this layer; a future task could add inline error feedback
+- `project.locationValid == false` (not `!= true`) correctly leaves `nil` (unknown) projects unaffected — tapping them proceeds with normal `onProjectClick()` behaviour
+
+## Concerns
+
+None. The warning on unused `try?` result is pre-existing style in this codebase (matches `removeProject` and other call sites).
 
 ## Commit
 
-`065aabe` — `feat(native): 5E GeneralSection (data folder + ask-before-exit)`
+`952a8d9` — `feat(native): 5F MissingLocationDialog + ProjectGroup trigger`
 
-taskflow-cli log entries recorded for commit + both changed files.
+taskflow-cli log entries recorded for commit and both changed files.
+
+## Fix wave (Task 8 review)
+
+**Line 106 changed:** `native/Sources/Taskflow/UI/Dialogs/MissingLocationDialog.swift` — Added `_ = ` prefix to discard unused `try?` result from `updateProject` call in `changeLocation()`.
+
+**Build:** `swift build` complete, "Result of 'try?' is unused" warning gone, only pre-existing tree-sitter linker warnings remain.
+
+**Tests:** 257/0 passing.
