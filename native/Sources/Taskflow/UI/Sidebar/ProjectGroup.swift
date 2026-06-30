@@ -36,6 +36,8 @@ struct ProjectGroup: View {
     let onProjectClick: () -> Void
     let onTaskClick: (String) -> Void
 
+    @State private var missingDialogOpen = false
+
     // MARK: - Computed helpers
 
     private var pinned: [TaskItem] { tasks.filter { $0.pinned } }
@@ -126,7 +128,13 @@ struct ProjectGroup: View {
         .background(isActive ? theme.color(.sidebarAccent).opacity(0.25) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
-        .onTapGesture(perform: onProjectClick)
+        .onTapGesture {
+            if project.locationValid == false { missingDialogOpen = true }
+            else { onProjectClick() }
+        }
+        .sheet(isPresented: $missingDialogOpen) {
+            MissingLocationDialog(isPresented: $missingDialogOpen, project: project)
+        }
         .draggable(ProjectDragItem(projectId: project.id))
         .dropDestination(for: ProjectDragItem.self) { items, _ in
             guard let dropped = items.first, dropped.projectId != project.id else { return false }
