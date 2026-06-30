@@ -139,7 +139,8 @@ final class SessionViewModel {
         type: TabType,
         label: String? = nil,
         cwd: String? = nil,
-        targetWorkspaceKey: String? = nil
+        targetWorkspaceKey: String? = nil,
+        agentOptions: AgentLaunchOptions? = nil
     ) async throws -> String {
         guard taskId != nil || projectId != nil || master else {
             throw NSError(
@@ -164,6 +165,11 @@ final class SessionViewModel {
         if let size = lastTerminalSize {
             payload["cols"] = size.cols
             payload["rows"] = size.rows
+        }
+        if let agentOptions,
+           let data = try? JSONEncoder().encode(agentOptions),
+           let obj = try? JSONSerialization.jsonObject(with: data) {
+            payload["agentOptions"] = obj
         }
 
         let resp: SessionCreateResponse = try await client.request(.sessionCreate, payload: payload)

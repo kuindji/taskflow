@@ -420,16 +420,21 @@ final class RunMenuViewModel {
         if let pid = req.projectId { ui.setActiveProject(pid) }
         ui.setFocusedPanel(.workspace)
         let tabType = TabType(rawValue: req.agent.rawValue) ?? .shell
+        runOptionsRequest = nil
+        guard let session else { return }
         Task { @MainActor in
             do {
-                // Task 12: pass agentOptions: options  (createSession gains the param in Task 12)
-                let _ = try await session?.createSession(
+                let sid = try await session.createSession(
                     taskId: taskId,
                     type: tabType,
-                    targetWorkspaceKey: WorkspaceKey.task(taskId)
+                    targetWorkspaceKey: WorkspaceKey.task(taskId),
+                    agentOptions: options
                 )
+                let description = tasks?.tasks.first { $0.id == taskId }?.description
+                if let desc = description, !desc.isEmpty {
+                    session.sendInput(sessionId: sid, data: "\(desc)\r")
+                }
             } catch {}
         }
-        runOptionsRequest = nil
     }
 }

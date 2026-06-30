@@ -137,6 +137,30 @@ struct GlobalDialogHost: View {
                     )
                 }
             }
+            // ── Agent-options sheet ────────────────────────────────────────────────────────
+            .sheet(isPresented: Binding(
+                get: { env.runMenu?.runOptionsRequest != nil },
+                set: { if !$0 { env.runMenu?.runOptionsRequest = nil } }
+            )) {
+                if let req = env.runMenu?.runOptionsRequest {
+                    AgentOptionsDialog(
+                        isPresented: Binding(
+                            get: { env.runMenu?.runOptionsRequest != nil },
+                            set: { if !$0 { env.runMenu?.runOptionsRequest = nil } }
+                        ),
+                        request: req,
+                        onRun: { opts in
+                            env.runMenu?.confirmRunOptions(
+                                opts,
+                                session: env.session,
+                                tasks: env.tasks,
+                                ui: env.ui
+                            )
+                        },
+                        onCancel: { env.runMenu?.runOptionsRequest = nil }
+                    )
+                }
+            }
             // ── Deferred-start watcher ─────────────────────────────────────────────────────
             // Ports the pendingSessionRef / useEffect (TaskCreationDialogHost.tsx, lines 53-84):
             // watches for the worktree path to become non-empty, then fires startNow and clears.
@@ -246,12 +270,12 @@ struct GlobalDialogHost: View {
             }
         } else if let agent = submit.startWith {
             Task { @MainActor in
-                // Task 12: pass agentOptions: submit.agentOptions
                 try? await env.session?.createSession(
                     taskId: taskId,
                     type: TabType(rawValue: agent.rawValue) ?? .shell,
                     label: nil,
-                    targetWorkspaceKey: WorkspaceKey.task(taskId)
+                    targetWorkspaceKey: WorkspaceKey.task(taskId),
+                    agentOptions: submit.agentOptions
                 )
             }
         }
