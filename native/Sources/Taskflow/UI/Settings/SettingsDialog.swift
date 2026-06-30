@@ -76,6 +76,3 @@ private enum SettingsSection: String, CaseIterable {
     }
 }
 
-// MARK: - Stubs (replaced by real implementations in later tasks)
-
-struct RemoteSection: View { var body: some View { EmptyView() } }          // STUB — replaced in Task 11
