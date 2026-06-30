@@ -104,6 +104,7 @@ struct AppShell: View {
         )) {
             AppearanceDialog()
         }
+        .background(GlobalDialogHost())
     }
 
     // MARK: - Helpers
