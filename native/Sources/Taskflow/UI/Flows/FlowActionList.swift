@@ -11,11 +11,9 @@ struct FlowActionList: View {
     @Binding var entries: [FlowActionEntryKind]
     let globalActions: [ActionDefinition]
     let libraryActions: [ActionDefinition]
-    var settings: AppSettings?
 
     // MARK: - Environment
 
-    @Environment(AppEnvironment.self) private var env
     @Environment(\.appTheme) private var theme
 
     // MARK: - Body
