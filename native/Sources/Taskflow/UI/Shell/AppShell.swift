@@ -80,6 +80,12 @@ struct AppShell: View {
         .padding(ui.panelGap)
         .background(theme.background)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: Binding(
+            get: { ui.flowManagementOpen },
+            set: { if !$0 { env.ui.toggleFlowManagement() } }
+        )) {
+            FlowManagementDialog()
+        }
     }
 
     // MARK: - Helpers
