@@ -14,6 +14,11 @@ final class ModelListViewModelTests: XCTestCase {
         ]))
         XCTAssertEqual(out.first.map { "\($0.provider)/\($0.id)" }, "anthropic/opus")
     }
+    func testApplyOpenCodeMapsModels() {
+        let out = ModelListViewModel.applyOpenCode(OpenCodeModelsResponse(models: [OpenCodeModelInfo(id: "anthropic/claude", provider: "anthropic")]))
+        XCTAssertEqual(out.first?.id, "anthropic/claude")
+        XCTAssertEqual(out.first?.provider, "anthropic")
+    }
     func testInitialStateNotLoaded() {
         let vm = ModelListViewModel(client: WSClient(url: URL(string: "ws://localhost:1")!))
         XCTAssertFalse(vm.cursorLoaded)

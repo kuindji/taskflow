@@ -5,12 +5,13 @@ struct ThemeGrid: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.appTheme) private var theme
 
-    private var activeId: String {
-        env.settings?.settings?.appearance.theme ?? env.themeStore.current.id
-    }
-
     var body: some View {
         if let catalog = env.themeCatalog {
+            let activeId = ThemeCatalogViewModel.resolveActiveId(
+                settingsTheme: env.settings?.settings?.appearance.theme,
+                available: catalog.themes,
+                fallback: env.themeStore.current.id
+            )
             if catalog.themes.isEmpty {
                 Text("No themes installed.").foregroundStyle(theme.muted)
             } else {

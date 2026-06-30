@@ -18,7 +18,7 @@ struct CursorModelSelect: View {
                 AppSelect(
                     Binding(
                         get: { value.isEmpty ? "default" : value },
-                        set: { value = ($0 == "default") ? "default" : $0 }
+                        set: { value = $0 }
                     ),
                     options: [(value: "default", label: "Default")]
                         + models.cursor.map { (value: $0.id, label: $0.label) }
