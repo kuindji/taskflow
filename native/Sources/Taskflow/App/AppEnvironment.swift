@@ -29,6 +29,7 @@ final class AppEnvironment {
     private(set) var notifications: NotificationViewModel?
     private(set) var runMenu: RunMenuViewModel?
     private(set) var diff: DiffViewModel?
+    private(set) var schedules: ScheduleViewModel?
 
     init() {
         let repoRoot = ProcessInfo.processInfo.environment["TASKFLOW_REPO_ROOT"]
@@ -167,6 +168,8 @@ final class AppEnvironment {
             self?.terminalSurfaces.evict(sid)
         }
 
+        let schedulesVM = ScheduleViewModel(client: client)
+
         // ── Bind WS event subscriptions — called exactly once per VM ───────────────────────
         tasksVM.bind()
         projectsVM.bind()
@@ -175,6 +178,7 @@ final class AppEnvironment {
         filesVM.bind()
         notificationsVM.bind()
         diffVM.bind()
+        schedulesVM.bind()
         // SettingsViewModel: no WS subscriptions (no bind() method).
         // SearchViewModel:   no WS subscriptions (no bind() method).
 
@@ -190,6 +194,8 @@ final class AppEnvironment {
         // RunMenuViewModel: no WS events (no bind()), no boot load (fetch is lazy via ensureLoaded).
         self.runMenu       = RunMenuViewModel(client: client)
         self.diff          = diffVM
+        // ScheduleViewModel: project-scoped, lazy load(projectId:) — NOT in boot() parallel group.
+        self.schedules     = schedulesVM
     }
 
     // MARK: - Boot
