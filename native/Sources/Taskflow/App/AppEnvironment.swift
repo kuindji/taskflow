@@ -31,6 +31,7 @@ final class AppEnvironment {
     private(set) var diff: DiffViewModel?
     private(set) var schedules: ScheduleViewModel?
     private(set) var models: ModelListViewModel?
+    private(set) var settingsCatalog: SettingsCatalogViewModel?
 
     init() {
         let repoRoot = ProcessInfo.processInfo.environment["TASKFLOW_REPO_ROOT"]
@@ -199,6 +200,10 @@ final class AppEnvironment {
         self.schedules     = schedulesVM
         // ModelListViewModel: no WS subscriptions, no boot load — lazy fetch on dialog open.
         self.models        = ModelListViewModel(client: client)
+        // SettingsCatalogViewModel: has WS subscription (bind()), lazy loadCatalog() on dialog open.
+        let catalogVM = SettingsCatalogViewModel(client: client)
+        catalogVM.bind()
+        self.settingsCatalog = catalogVM
     }
 
     // MARK: - Boot
