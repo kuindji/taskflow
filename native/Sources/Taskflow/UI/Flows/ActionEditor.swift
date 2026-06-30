@@ -69,13 +69,24 @@ struct ActionEditor: View {
             seed: action?.agentOptions,
             settings: nil
         ))
+        // For edit mode, round-trip the stored agentOptions through AgentOptionsFormModel
+        // (same path as currentKey) so default-filled fields (e.g. permissionMode, sandbox,
+        // approvalPolicy) don't produce a false dirty state on open.
+        let initialOptions: AgentLaunchOptions?
+        if action != nil, initialSessionType != .shell {
+            let tempModel = AgentOptionsFormModel(seed: action?.agentOptions, settings: nil)
+            let initialAgentType = AgentType(rawValue: initialSessionType.rawValue) ?? .claude
+            initialOptions = tempModel.options(for: initialAgentType)
+        } else {
+            initialOptions = nil
+        }
         initialKey = ActionEditor.snapshotKey(
             name: initialName,
             prompt: initialPrompt,
             projectId: initialProjectId,
             sessionType: initialSessionType,
             standalone: initialStandalone,
-            options: action?.agentOptions
+            options: initialOptions
         )
     }
 
@@ -136,7 +147,7 @@ struct ActionEditor: View {
                         }
 
                         fieldGroup(label: "Session Type") {
-                            AppSelect($sessionType, options: sessionTypeOptions)
+                            AppSelect($sessionType, options: Self.sessionTypeOptions)
                                 .onChange(of: sessionType) { _, _ in
                                     // Clear options on any type change (matches TS handleSessionTypeChange:
                                     // only keeps existing options if their type already matches new type,
@@ -178,7 +189,7 @@ struct ActionEditor: View {
 
             // Sticky footer
             HStack(spacing: 8) {
-                if action != nil, let onDelete {
+                if action != nil, onDelete != nil {
                     AppButton(title: "Delete Action", kind: .destructive) {
                         confirmDelete = true
                     }
@@ -190,8 +201,6 @@ struct ActionEditor: View {
                             .font(.system(size: 11))
                             .foregroundStyle(theme.foreground.opacity(0.5))
                     }
-
-                    let _ = onDelete  // silence unused-capture warning
                 }
 
                 Spacer()
@@ -281,7 +290,7 @@ struct ActionEditor: View {
         return opts
     }
 
-    private let sessionTypeOptions: [(value: SessionType, label: String)] = [
+    nonisolated static let sessionTypeOptions: [(value: SessionType, label: String)] = [
         (value: .claude,    label: "Claude"),
         (value: .codex,     label: "Codex"),
         (value: .opencode,  label: "OpenCode"),
