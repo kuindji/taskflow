@@ -86,6 +86,12 @@ struct AppShell: View {
         )) {
             FlowManagementDialog()
         }
+        .sheet(isPresented: Binding(
+            get: { ui.scheduleManagementOpen },
+            set: { if !$0 { env.ui.toggleScheduleManagement() } }
+        )) {
+            ScheduleManagementDialog()
+        }
     }
 
     // MARK: - Helpers
