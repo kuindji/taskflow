@@ -12,49 +12,6 @@ enum ScheduleSavePayload {
     case update(ScheduleUpdatePayload)
 }
 
-// MARK: - ScheduleUpdatePayload custom encoding
-//
-// BACKEND CLEAR-SEMANTICS (backend/src/handlers/schedule.ts):
-//   `if ("actionId" in payload) next.actionId = payload.actionId ?? undefined;`
-//   `if ("agentType" in payload) next.agentType = payload.agentType ?? undefined;`
-//   `if ("agentOptions" in payload) next.agentOptions = payload.agentOptions ?? undefined;`
-//
-// The backend uses *key-presence* (`"x" in payload`), not undefined-check, to decide
-// whether to clear a nullable field.  Absent key → leave existing value unchanged.
-// Key present with JSON null → clear the field.
-//
-// Swift's JSONEncoder omits nil-optional keys by default (absent, not null), so a user
-// editing a schedule and removing an action or switching to "Default" agent type would
-// NOT actually clear those fields at the backend — they would be silently left as-is.
-//
-// Fix: override `encode(to:)` so that `actionId`, `agentType`, and `agentOptions` are
-// ALWAYS emitted in the JSON (as explicit null when nil).  All other fields remain
-// `encodeIfPresent` (absent = leave unchanged), matching the TS PATCH semantics.
-extension ScheduleUpdatePayload {
-    private enum WireKey: String, CodingKey {
-        case id, name, prompt, actionId, agentType, agentOptions
-        case expression, expressionType, timeout, enabled
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: WireKey.self)
-        try c.encode(id, forKey: .id)
-        try c.encodeIfPresent(name, forKey: .name)
-        try c.encodeIfPresent(prompt, forKey: .prompt)
-        // Always emit — null clears; absent would silently leave existing value.
-        if let actionId { try c.encode(actionId, forKey: .actionId) }
-        else { try c.encodeNil(forKey: .actionId) }
-        if let agentType { try c.encode(agentType, forKey: .agentType) }
-        else { try c.encodeNil(forKey: .agentType) }
-        if let agentOptions { try c.encode(agentOptions, forKey: .agentOptions) }
-        else { try c.encodeNil(forKey: .agentOptions) }
-        try c.encodeIfPresent(expression, forKey: .expression)
-        try c.encodeIfPresent(expressionType, forKey: .expressionType)
-        try c.encodeIfPresent(timeout, forKey: .timeout)
-        try c.encodeIfPresent(enabled, forKey: .enabled)
-    }
-}
-
 // MARK: - ScheduleForm
 
 struct ScheduleForm: View {
@@ -137,7 +94,6 @@ struct ScheduleForm: View {
         _expression     = State(initialValue: initialExpression)
         _agentType      = State(initialValue: initialAgentTypeStr)
         _timeout        = State(initialValue: initialTimeout)
-        _confirmDelete  = State(initialValue: false)
         _optionsModel   = State(initialValue: AgentOptionsFormModel(seed: schedule?.agentOptions, settings: nil))
 
         // Build initial dirty key via the same AgentOptionsFormModel path used for currentKey.
@@ -172,12 +128,12 @@ struct ScheduleForm: View {
 
     // MARK: Derived
 
-    /// Actions visible for the current project: global (nil projectId) + same project, standalone only.
+    /// Actions visible for the current project: global (nil/empty projectId) + same project, standalone only.
     /// Mirrors TS `filterByProject(actions, projectId).filter(a => a.standalone)`.
     private var availableActions: [ActionDefinition] {
         let base: [ActionDefinition] = projectId.isEmpty
-            ? actions
-            : actions.filter { $0.projectId == nil || $0.projectId == projectId }
+            ? actions.filter { $0.projectId == nil || $0.projectId?.isEmpty == true }
+            : actions.filter { $0.projectId == nil || $0.projectId?.isEmpty == true || $0.projectId == projectId }
         return base.filter { $0.standalone == true }
     }
 
@@ -191,9 +147,9 @@ struct ScheduleForm: View {
         ScheduleHelpers.computeNextRunPreview(expression: expression, expressionType: expressionType, now: Date())
     }
 
-    /// String agentType → AgentType enum (empty / "shell" / "__default__" → nil).
+    /// String agentType → AgentType enum (empty / "shell" → nil; sentinel "__default__" never stored).
     private var agentTypeEnum: AgentType? {
-        guard !agentType.isEmpty && agentType != "shell" && agentType != "__default__" else { return nil }
+        guard !agentType.isEmpty && agentType != "shell" else { return nil }
         return AgentType(rawValue: agentType)
     }
 
@@ -511,8 +467,9 @@ struct ScheduleForm: View {
         let opts: AgentLaunchOptions? = useAction ? nil : agentTypeEnum.flatMap { optionsModel.options(for: $0) }
 
         if isEditing, let existing = schedule {
-            // TS sends actionId/agentType as `null` to CLEAR them; the custom encode(to:)
-            // above ensures nil Swift optionals reach the backend as JSON null (not absent).
+            // TS sends actionId/agentType as `null` to CLEAR them; the caller routes this
+            // payload through ScheduleViewModel.update(formPayload:) which forces those keys
+            // to explicit JSON null via NSNull() (not absent = leave unchanged).
             let payload = ScheduleUpdatePayload(
                 id: existing.id,
                 name: name.isEmpty ? nil : name,

@@ -63,6 +63,21 @@ final class ScheduleViewModel {
         return updated
     }
 
+    /// Form-driven update: forces `actionId`, `agentType`, and `agentOptions` to explicit JSON
+    /// `null` when nil, so the backend's key-presence semantics clear those fields rather than
+    /// leaving them unchanged.  Used by `ScheduleForm` (full-intent submit) only; partial updates
+    /// such as the enable/disable toggle use the plain `update(_:)` above.
+    @discardableResult
+    func update(formPayload payload: ScheduleUpdatePayload) async throws -> Schedule {
+        var dict = try Self.encodePayload(payload)
+        for key in ["actionId", "agentType", "agentOptions"] where dict[key] == nil {
+            dict[key] = NSNull()
+        }
+        let updated: Schedule = try await client.request(.scheduleUpdate, payload: dict)
+        schedules = Self.upsert(schedules, updated)
+        return updated
+    }
+
     func delete(id: String) async throws {
         _ = try await client.requestRaw(.scheduleDelete, payload: ["id": id])
         schedules = Self.remove(schedules, id: id)
@@ -93,9 +108,9 @@ final class ScheduleViewModel {
 
     /// Encodes a `Codable` payload struct to `[String: Any]` via `JSONEncoder` + `JSONSerialization`.
     /// Swift's `JSONEncoder` omits nil optionals by default, so optional fields are absent (not null)
-    /// in the resulting dictionary. If the backend requires explicit `null` for nullable-to-clear
-    /// semantics on `ScheduleUpdatePayload.actionId` / `agentType`, the form (Task 11) will need to
-    /// handle that field specially — see task-5-report.md for the flag.
+    /// in the resulting dictionary — correct for partial-update payloads (absent = leave unchanged).
+    /// Callers that need explicit `null` for clear semantics (e.g. `update(formPayload:)`) post-process
+    /// the dict themselves.
     nonisolated private static func encodePayload<T: Encodable>(_ payload: T) throws -> [String: Any] {
         let data = try JSONEncoder().encode(payload)
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
