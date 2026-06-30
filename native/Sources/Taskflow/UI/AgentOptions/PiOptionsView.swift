@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Port of components/shared/PiOptions.tsx (fetched PiModelSelect deferred to 5E;
-/// thinking is a typed AppSelect<PiThinkingLevel> over the six reasoning levels).
+/// Port of components/shared/PiOptions.tsx. Thinking is a typed AppSelect<PiThinkingLevel>
+/// over the six reasoning levels.
 struct PiOptionsView: View {
     @Binding var model: String
     @Binding var thinking: PiThinkingLevel
@@ -16,8 +16,7 @@ struct PiOptionsView: View {
                     ? "Pre-selected model when running Pi sessions"
                     : "Model for Pi session (--model)"
             ) {
-                AppTextField(text: $model, placeholder: "provider/model")
-                    .frame(width: 180)
+                PiModelSelect(value: $model)
             }
             SettingRow(
                 label: mode == .defaults ? "Default Thinking" : "Thinking",

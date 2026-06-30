@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Port of components/shared/OpenCodeOptions.tsx (fetched OpenCodeModelSelect deferred to 5E;
-/// variant is a string select matching TS options: none/"", high, max, minimal).
+/// Port of components/shared/OpenCodeOptions.tsx. Variant is a string select matching
+/// TS options: none/"", high, max, minimal.
 struct OpenCodeOptionsView: View {
     @Binding var model: String
     @Binding var variant: String
@@ -16,8 +16,7 @@ struct OpenCodeOptionsView: View {
                     ? "Pre-selected model when running OpenCode sessions"
                     : "Model for OpenCode session (--model)"
             ) {
-                AppTextField(text: $model, placeholder: "provider/model")
-                    .frame(width: 180)
+                OpenCodeModelSelect(value: $model)
             }
             SettingRow(
                 label: mode == .defaults ? "Default Variant" : "Variant",

@@ -2,8 +2,6 @@ import SwiftUI
 
 /// Port of components/shared/CursorOptions.tsx. Presentational: binds to typed values;
 /// the consumer (5D/5E) owns serialization to CursorLaunchOptions.
-/// Note: the React source uses a dynamic WS-backed CursorModelSelect; the native port
-/// uses AppTextField (equivalent to the component's text-input fallback).
 struct CursorOptionsView: View {
     @Binding var model: String
     @Binding var yolo: Bool
@@ -17,8 +15,7 @@ struct CursorOptionsView: View {
                     ? "Pre-selected model when running Cursor sessions"
                     : "Model for Cursor session"
             ) {
-                AppTextField(text: $model, placeholder: "default")
-                    .frame(width: 180)
+                CursorModelSelect(value: $model)
             }
             SettingRow(
                 label: "Yolo",
