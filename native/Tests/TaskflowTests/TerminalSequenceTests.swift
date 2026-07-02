@@ -19,4 +19,20 @@ final class TerminalSequenceTests: XCTestCase {
         XCTAssertTrue(r.apply.isEmpty)
         XCTAssertTrue(r.keep.isEmpty)
     }
+
+    func testHistoryPayloadIncludesTaskOwner() {
+        let payload = TerminalSessionBridge.historyPayload(sessionId: "s1", workspaceKey: "task:t1")
+        XCTAssertEqual(payload["sessionId"] as? String, "s1")
+        XCTAssertEqual(payload["taskId"] as? String, "t1")
+    }
+
+    func testHistoryPayloadIncludesProjectOwnerForRightPane() {
+        let payload = TerminalSessionBridge.historyPayload(sessionId: "s1", workspaceKey: "project:p1:right")
+        XCTAssertEqual(payload["projectId"] as? String, "p1")
+    }
+
+    func testHistoryPayloadIncludesMasterOwner() {
+        let payload = TerminalSessionBridge.historyPayload(sessionId: "s1", workspaceKey: "master")
+        XCTAssertEqual(payload["master"] as? Bool, true)
+    }
 }

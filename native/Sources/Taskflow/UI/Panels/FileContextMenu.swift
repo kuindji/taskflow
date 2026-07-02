@@ -11,6 +11,7 @@ struct FileContextMenu: View {
 
     private var files: FileViewModel? { env.files }
     private var isDir: Bool { node.type == "directory" }
+    private var configuredShell: String { env.settings?.settings?.terminal.defaultShell ?? "system" }
 
     var body: some View {
         Group {
@@ -54,9 +55,20 @@ struct FileContextMenu: View {
         let master = taskId == nil && projectId == nil && env.ui.masterWorkspaceActive
         guard taskId != nil || projectId != nil || master else { return }
         Task {
-            try? await env.session?.createSession(
+            guard let shell = await env.runMenu?.resolveTerminalShell(configuredShell: configuredShell) else {
+                return
+            }
+            _ = try? await env.session?.createSession(
                 taskId: taskId, projectId: projectId, master: master,
-                type: .shell, label: nil, cwd: targetDir, targetWorkspaceKey: nil)
+                type: .shell,
+                label: Self.shellSessionLabel(shell),
+                shell: shell,
+                cwd: targetDir,
+                targetWorkspaceKey: nil)
         }
+    }
+
+    nonisolated static func shellSessionLabel(_ path: String) -> String {
+        path.split(separator: "/").last.map(String.init) ?? "shell"
     }
 }

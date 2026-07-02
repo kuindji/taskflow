@@ -45,6 +45,7 @@ struct ProjectGroup: View {
     private var unpinned: [TaskItem] { tasks.filter { !$0.pinned } }
     private var online: Bool { if case .connected = env.status { return true } else { return false } }
     private var defaultRuntime: String { env.settings?.settings?.general.defaultRuntime ?? "bun" }
+    private var configuredShell: String { env.settings?.settings?.terminal.defaultShell ?? "system" }
 
     private var rolledUpStatus: SessionStatus? {
         let statusFn: (String) -> SessionStatus? = { [env] id in env.session?.sessionStatus[id] }
@@ -172,7 +173,8 @@ struct ProjectGroup: View {
                             flows: env.flows,
                             tasks: env.tasks,
                             ui: env.ui,
-                            defaultRuntime: defaultRuntime
+                            defaultRuntime: defaultRuntime,
+                            configuredShell: configuredShell
                         )
                     )
                 }

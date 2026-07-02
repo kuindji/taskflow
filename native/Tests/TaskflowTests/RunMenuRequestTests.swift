@@ -21,7 +21,8 @@ final class RunMenuRequestTests: XCTestCase {
             flows: flows,
             tasks: nil,
             ui: ui,
-            defaultRuntime: "bun"
+            defaultRuntime: "bun",
+            configuredShell: "system"
         )
         cb.onStartFlow("flow-with-inputs")
         // FlowViewModel.flows is empty (no WS seeding) → flow lookup misses → no request set.
@@ -41,7 +42,8 @@ final class RunMenuRequestTests: XCTestCase {
             flows: nil,
             tasks: nil,
             ui: ui,
-            defaultRuntime: "bun"
+            defaultRuntime: "bun",
+            configuredShell: "system"
         )
         cb.onRunTabWithOptions(.claude)
         XCTAssertEqual(vm.runOptionsRequest?.agent, .claude)
@@ -58,7 +60,8 @@ final class RunMenuRequestTests: XCTestCase {
             flows: nil,
             tasks: nil,
             ui: ui,
-            defaultRuntime: "bun"
+            defaultRuntime: "bun",
+            configuredShell: "system"
         )
         cb.onRunTabWithOptions(.gemini)
         XCTAssertEqual(vm.runOptionsRequest?.title, "Run Gemini with options")
@@ -74,7 +77,8 @@ final class RunMenuRequestTests: XCTestCase {
             flows: nil,
             tasks: nil,
             ui: ui,
-            defaultRuntime: "bun"
+            defaultRuntime: "bun",
+            configuredShell: "system"
         )
         cb.onRunTabWithOptions(.codex)
         XCTAssertNil(vm.runOptionsRequest?.projectId)
@@ -90,10 +94,38 @@ final class RunMenuRequestTests: XCTestCase {
             flows: nil,
             tasks: nil,
             ui: ui,
-            defaultRuntime: "bun"
+            defaultRuntime: "bun",
+            configuredShell: "system"
         )
         cb.onRunTabWithOptions(.claude)
         XCTAssertEqual(vm.runOptionsRequest?.projectId, "p1")
         XCTAssertNil(vm.runOptionsRequest?.taskId)
+    }
+
+    func testResolveTerminalShellPrefersConfiguredPath() {
+        let shells = [
+            ShellInfo(name: "zsh", path: "/bin/zsh"),
+            ShellInfo(name: "bash", path: "/bin/bash"),
+        ]
+        XCTAssertEqual(
+            RunMenuViewModel.resolveTerminalShellPath(
+                shells: shells,
+                systemShellPath: "/bin/zsh",
+                configuredShell: "/bin/bash"
+            ),
+            "/bin/bash"
+        )
+    }
+
+    func testResolveTerminalShellFallsBackToSystem() {
+        let shells = [ShellInfo(name: "zsh", path: "/bin/zsh")]
+        XCTAssertEqual(
+            RunMenuViewModel.resolveTerminalShellPath(
+                shells: shells,
+                systemShellPath: "/bin/zsh",
+                configuredShell: "system"
+            ),
+            "/bin/zsh"
+        )
     }
 }

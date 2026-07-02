@@ -138,6 +138,8 @@ final class SessionViewModel {
         master: Bool = false,
         type: TabType,
         label: String? = nil,
+        prompt: String? = nil,
+        shell: String? = nil,
         cwd: String? = nil,
         targetWorkspaceKey: String? = nil,
         agentOptions: AgentLaunchOptions? = nil
@@ -161,6 +163,8 @@ final class SessionViewModel {
         if let projectId { payload["projectId"] = projectId }
         if master { payload["master"] = true }
         if let label { payload["label"] = label }
+        if let prompt { payload["prompt"] = prompt }
+        if let shell { payload["shell"] = shell }
         if let cwd { payload["cwd"] = cwd }
         if let size = lastTerminalSize {
             payload["cols"] = size.cols

@@ -1,7 +1,7 @@
 import Foundation
 
 enum WSInbound: Equatable {
-    case response(correlationId: String, type: String, payload: Data)
+    case response(correlationId: String, type: String, payload: Data, error: String?)
     case event(type: String, payload: Data)
 }
 
@@ -17,9 +17,17 @@ enum WSCodec {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return nil }
         let payloadObj = obj["payload"] ?? [:]
-        let payload = (try? JSONSerialization.data(withJSONObject: payloadObj)) ?? Data("{}".utf8)
+        let payload = (try? JSONSerialization.data(
+            withJSONObject: payloadObj,
+            options: [.fragmentsAllowed]
+        )) ?? Data("{}".utf8)
         if let correlationId = obj["correlationId"] as? String {
-            return .response(correlationId: correlationId, type: type, payload: payload)
+            return .response(
+                correlationId: correlationId,
+                type: type,
+                payload: payload,
+                error: obj["error"] as? String
+            )
         }
         return .event(type: type, payload: payload)
     }

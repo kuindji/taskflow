@@ -7,9 +7,30 @@ final class WSClientTests: XCTestCase {
         let client = WSClient(url: URL(string: "ws://localhost:1")!)
         let payload = try await client.awaitNextCorrelation { id in
             client.handleInbound(.response(correlationId: id, type: "task:list",
-                                           payload: #"{"tasks":[]}"#.data(using: .utf8)!))
+                                           payload: #"{"tasks":[]}"#.data(using: .utf8)!,
+                                           error: nil))
         }
         XCTAssertEqual(String(data: payload, encoding: .utf8), #"{"tasks":[]}"#)
+    }
+
+    func testRequestThrowsOnServerErrorResponse() async {
+        let client = WSClient(url: URL(string: "ws://localhost:1")!)
+        do {
+            _ = try await client.awaitNextCorrelation { id in
+                client.handleInbound(.response(correlationId: id, type: "task:delete",
+                                               payload: Data("{}".utf8),
+                                               error: "Task not found"))
+            }
+            XCTFail("expected server error")
+        } catch let error as WSClient.WSClientError {
+            if case let .server(message) = error {
+                XCTAssertEqual(message, "Task not found")
+            } else {
+                XCTFail("expected server error, got \(error)")
+            }
+        } catch {
+            XCTFail("expected WSClientError, got \(error)")
+        }
     }
 
     func testEventFanOutAndUnsubscribe() {
@@ -25,7 +46,7 @@ final class WSClientTests: XCTestCase {
     func testUnmatchedResponseIsIgnored() {
         let client = WSClient(url: URL(string: "ws://localhost:1")!)
         client.handleInbound(.response(correlationId: "nope", type: "x",
-                                       payload: Data())) // must not crash
+                                       payload: Data(), error: nil)) // must not crash
     }
 
     // Production fix 1: a resolved request cancels its timeout task so it doesn't linger.
@@ -48,7 +69,7 @@ final class WSClientTests: XCTestCase {
 
         // Resolve the request; handleInbound must cancel+remove the timeout.
         client.handleInbound(.response(correlationId: knownId, type: "task:list",
-                                       payload: responsePayload))
+                                       payload: responsePayload, error: nil))
 
         let result = try await child.value
         XCTAssertEqual(result, responsePayload)

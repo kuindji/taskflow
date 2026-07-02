@@ -7,6 +7,7 @@ import GhosttyTerminal
 /// Consumed by `PaneHost` (Task 11).
 struct TerminalPane: NSViewRepresentable {
     let sessionId: String
+    let workspaceKey: String
     @Environment(AppEnvironment.self) private var env
 
     func makeNSView(context: Context) -> AppTerminalView {
@@ -21,6 +22,7 @@ struct TerminalPane: NSViewRepresentable {
         return env.terminalSurfaces.surface(
             for: sessionId,
             client: client,
+            workspaceKey: workspaceKey,
             theme: env.themeStore.currentFile,
             session: env.session
         )

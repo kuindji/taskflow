@@ -15,6 +15,7 @@ struct TaskCard: View {
     private var isArchived: Bool { task.archivedAt != nil }
     private var online: Bool { if case .connected = env.status { return true } else { return false } }
     private var defaultRuntime: String { env.settings?.settings?.general.defaultRuntime ?? "bun" }
+    private var configuredShell: String { env.settings?.settings?.terminal.defaultShell ?? "system" }
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
@@ -90,7 +91,8 @@ struct TaskCard: View {
                             flows: env.flows,
                             tasks: env.tasks,
                             ui: env.ui,
-                            defaultRuntime: defaultRuntime
+                            defaultRuntime: defaultRuntime,
+                            configuredShell: configuredShell
                         )
                     )
                 }

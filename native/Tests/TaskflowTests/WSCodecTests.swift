@@ -5,10 +5,18 @@ final class WSCodecTests: XCTestCase {
     func testDecodeResponseVsEvent() {
         let resp = WSCodec.decode(#"{"correlationId":"c1","type":"task:list","payload":{"tasks":[]}}"#)
         XCTAssertEqual(resp, .response(correlationId: "c1", type: "task:list",
-                                       payload: #"{"tasks":[]}"#.data(using: .utf8)!))
+                                       payload: #"{"tasks":[]}"#.data(using: .utf8)!,
+                                       error: nil))
         let ev = WSCodec.decode(#"{"type":"task:created","payload":{"task":{}}}"#)
         if case let .event(type, _) = ev { XCTAssertEqual(type, "task:created") }
         else { XCTFail("expected event") }
+    }
+
+    func testDecodeErrorResponse() {
+        let resp = WSCodec.decode(#"{"correlationId":"c1","type":"task:delete","payload":null,"error":"Task not found"}"#)
+        XCTAssertEqual(resp, .response(correlationId: "c1", type: "task:delete",
+                                       payload: Data("null".utf8),
+                                       error: "Task not found"))
     }
 
     func testEncodeRequestRoundTrips() {

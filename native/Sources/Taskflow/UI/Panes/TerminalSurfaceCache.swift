@@ -9,6 +9,7 @@ final class TerminalSurfaceCache {
         let view: AppTerminalView
         let state: TerminalViewState
         let bridge: TerminalSessionBridge
+        let themeId: String
     }
 
     private var entries: [String: Entry] = [:]
@@ -23,10 +24,14 @@ final class TerminalSurfaceCache {
     func surface(
         for sessionId: String,
         client: WSClient,
+        workspaceKey: String,
         theme: ResolvedThemeFile,
         session: SessionViewModel?
     ) -> AppTerminalView {
-        if let e = entries[sessionId] { return e.view }
+        if let e = entries[sessionId] {
+            if e.themeId == theme.id { return e.view }
+            evict(sessionId)
+        }
 
         // Input routing: write/resize closures call into SessionViewModel so that
         // markInteraction() and lastTerminalSize are updated on every keystroke/resize.
@@ -53,7 +58,12 @@ final class TerminalSurfaceCache {
         // Bridge is OUTPUT-ONLY after this change: it subscribes to terminal:output and
         // feeds inMemSession.receive(_:), and loads the initial snapshot.  It no longer
         // owns sendInput/resize — those now live in SessionViewModel.
-        let bridge = TerminalSessionBridge(sessionId: sessionId, client: client, session: inMemSession)
+        let bridge = TerminalSessionBridge(
+            sessionId: sessionId,
+            workspaceKey: workspaceKey,
+            client: client,
+            session: inMemSession
+        )
 
         // Apply theme as generated config alongside the .inMemory backend.
         // Caveat 1 (palette de-dup): withCustom appends to a [TerminalConfigCommand] array;
@@ -82,7 +92,7 @@ final class TerminalSurfaceCache {
         view.configuration = TerminalSurfaceOptions(backend: .inMemory(inMemSession))
 
         bridge.start()
-        entries[sessionId] = Entry(view: view, state: state, bridge: bridge)
+        entries[sessionId] = Entry(view: view, state: state, bridge: bridge, themeId: theme.id)
         return view
     }
 

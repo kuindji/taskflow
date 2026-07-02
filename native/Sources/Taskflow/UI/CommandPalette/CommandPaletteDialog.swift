@@ -226,6 +226,7 @@ struct CommandPaletteDialog: View {
     private func run(_ row: PaletteRow) {
         guard !row.disabled, let owner, let runMenu = env.runMenu else { return }
         let defaultRuntime = env.settings?.settings?.general.defaultRuntime ?? "bun"
+        let configuredShell = env.settings?.settings?.terminal.defaultShell ?? "system"
         let cb = runMenu.callbacks(
             projectId: owner.projectId,
             taskId: owner.taskId,
@@ -233,7 +234,8 @@ struct CommandPaletteDialog: View {
             flows: env.flows,
             tasks: env.tasks,
             ui: env.ui,
-            defaultRuntime: defaultRuntime)
+            defaultRuntime: defaultRuntime,
+            configuredShell: configuredShell)
         switch row.entry {
         case .action(let a): cb.onRunAction(a)
         case .script(let name): cb.onRunScript(name)

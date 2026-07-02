@@ -2,7 +2,18 @@ import Foundation
 
 @MainActor
 final class WSClient: NSObject, URLSessionWebSocketDelegate {
-    enum WSClientError: Error { case timeout, notConnected, badResponse }
+    enum WSClientError: Error, LocalizedError {
+        case timeout, notConnected, badResponse, server(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .timeout: return "Request timed out"
+            case .notConnected: return "WebSocket is not connected"
+            case .badResponse: return "Bad WebSocket response"
+            case let .server(message): return message
+            }
+        }
+    }
 
     private let url: URL
     private var socketSession: URLSession!
@@ -80,9 +91,15 @@ final class WSClient: NSObject, URLSessionWebSocketDelegate {
 
     func handleInbound(_ inbound: WSInbound) {
         switch inbound {
-        case let .response(correlationId, _, payload):
+        case let .response(correlationId, _, payload, error):
             timeouts.removeValue(forKey: correlationId)?.cancel()
-            if let cont = pending.removeValue(forKey: correlationId) { cont.resume(returning: payload) }
+            if let cont = pending.removeValue(forKey: correlationId) {
+                if let error {
+                    cont.resume(throwing: WSClientError.server(error))
+                } else {
+                    cont.resume(returning: payload)
+                }
+            }
         case let .event(type, payload):
             handlers[type]?.values.forEach { $0(payload) }
         }

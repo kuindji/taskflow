@@ -150,6 +150,31 @@ final class RunMenuViewModel {
         }
     }
 
+    func resolveTerminalShell(configuredShell: String) async -> String? {
+        guard let resp: ShellListResponse = try? await client.request(.shellsList, payload: [:]) else {
+            return nil
+        }
+        return Self.resolveTerminalShellPath(
+            shells: resp.shells,
+            systemShellPath: resp.systemShellPath,
+            configuredShell: configuredShell
+        )
+    }
+
+    nonisolated static func resolveTerminalShellPath(
+        shells: [ShellInfo],
+        systemShellPath: String?,
+        configuredShell: String
+    ) -> String? {
+        if configuredShell != "system", shells.contains(where: { $0.path == configuredShell }) {
+            return configuredShell
+        }
+        if let systemShellPath, shells.contains(where: { $0.path == systemShellPath }) {
+            return systemShellPath
+        }
+        return shells.first?.path ?? systemShellPath
+    }
+
     // MARK: - Data assembly
 
     /// Assembles the `RunMenuData` bag for the given context.
@@ -211,10 +236,9 @@ final class RunMenuViewModel {
     ///   `setActiveTask` → `setActiveProject` → `setFocusedPanel(.workspace)`.
     ///   `setMasterWorkspaceActive(false)` is NOT called — the TS `navigate` does not call it.
     ///
-    /// **Prompt delivery:** the TS `createSession` accepts a `prompt` parameter that the backend
-    /// delivers to the process stdin at startup. Swift's `SessionViewModel.createSession` does
-    /// not expose `prompt`; instead each callback sends `session.sendInput` after creation.
-    /// If `createSession` gains an `initialInput` param later, prefer it over `sendInput`.
+    /// **Prompt delivery:** agent sessions pass `prompt` to the backend so startup arguments/env
+    /// are assembled consistently with the web app. Shell sessions still send commands after
+    /// creation, matching `runInShell`.
     func callbacks(
         projectId: String,
         taskId: String?,
@@ -222,7 +246,8 @@ final class RunMenuViewModel {
         flows: FlowViewModel?,
         tasks: TaskViewModel?,
         ui: UIViewModel,
-        defaultRuntime: String
+        defaultRuntime: String,
+        configuredShell: String
     ) -> RunMenuCallbacks {
 
         // Workspace key used as `targetWorkspaceKey` so the new tab lands in the right pane.
@@ -237,11 +262,15 @@ final class RunMenuViewModel {
                 ui.setFocusedPanel(.workspace)
                 do {
                     guard let session else { return }
+                    guard let shell = await self.resolveTerminalShell(configuredShell: configuredShell) else {
+                        return
+                    }
                     let sid = try await session.createSession(
                         taskId: taskId,
                         projectId: taskId == nil ? projectId : nil,
                         type: .shell,
                         label: name,
+                        shell: shell,
                         targetWorkspaceKey: workspaceKey
                     )
                     session.sendInput(sessionId: sid, data: "\(defaultRuntime) run \(name)\r")
@@ -258,14 +287,14 @@ final class RunMenuViewModel {
                 ui.setFocusedPanel(.workspace)
                 do {
                     guard let session else { return }
-                    let sid = try await session.createSession(
+                    _ = try await session.createSession(
                         taskId: taskId,
                         projectId: taskId == nil ? projectId : nil,
                         type: .claude,
                         label: cmd.name,
+                        prompt: "/\(cmd.name)",
                         targetWorkspaceKey: workspaceKey
                     )
-                    session.sendInput(sessionId: sid, data: "/\(cmd.name)\r")
                 } catch {}
             }
         }
@@ -297,13 +326,13 @@ final class RunMenuViewModel {
                     flowId: flowId,
                     inputValues: nil
                 )
-                try? await flows?.startFlow(params)
+                _ = try? await flows?.startFlow(params)
             }
         }
 
         // MARK: onRunAction
         // TS: navigate(true) → if shell → runInShell(prompt); else createSession(sessionType, prompt)
-        // Swift: navigate → createSession → sendInput(prompt) if non-empty
+        // Swift: agents pass prompt into createSession; shell actions send command after creation.
         let onRunAction: (ActionDefinition) -> Void = { action in
             Task { @MainActor in
                 if let tid = taskId { tasks?.setActiveTask(tid) }
@@ -315,14 +344,20 @@ final class RunMenuViewModel {
                     let tabType: TabType = action.sessionType == .shell
                         ? .shell
                         : TabType(rawValue: action.sessionType.rawValue) ?? .shell
+                    let shell = tabType == .shell
+                        ? await self.resolveTerminalShell(configuredShell: configuredShell)
+                        : nil
+                    if tabType == .shell && shell == nil { return }
                     let sid = try await session.createSession(
                         taskId: taskId,
                         projectId: taskId == nil ? projectId : nil,
                         type: tabType,
                         label: action.name,
+                        prompt: tabType == .shell ? nil : (action.prompt.isEmpty ? nil : action.prompt),
+                        shell: shell,
                         targetWorkspaceKey: workspaceKey
                     )
-                    if !action.prompt.isEmpty {
+                    if tabType == .shell && !action.prompt.isEmpty {
                         session.sendInput(sessionId: sid, data: "\(action.prompt)\r")
                     }
                 } catch {}
@@ -331,7 +366,7 @@ final class RunMenuViewModel {
 
         // MARK: onRunTab
         // TS: if !taskId → return; navigate → createSession(type, prompt: task.description)
-        // Swift: guard taskId → navigate → createSession → sendInput(description) if non-empty
+        // Swift: guard taskId → navigate → createSession(prompt: task.description)
         let onRunTab: (AgentType) -> Void = { agent in
             guard let taskId else { return }
             Task { @MainActor in
@@ -342,14 +377,12 @@ final class RunMenuViewModel {
                     guard let session else { return }
                     let tabType = TabType(rawValue: agent.rawValue) ?? .shell
                     let description = tasks?.tasks.first { $0.id == taskId }?.description
-                    let sid = try await session.createSession(
+                    _ = try await session.createSession(
                         taskId: taskId,
                         type: tabType,
+                        prompt: (description?.isEmpty == false) ? description : nil,
                         targetWorkspaceKey: WorkspaceKey.task(taskId)
                     )
-                    if let desc = description, !desc.isEmpty {
-                        session.sendInput(sessionId: sid, data: "\(desc)\r")
-                    }
                 } catch {}
             }
         }
@@ -407,7 +440,6 @@ final class RunMenuViewModel {
     /// Navigates to the task context and creates an agent session,
     /// then clears `runOptionsRequest`.
     ///
-    /// `options` is reserved for Task 12 which adds `agentOptions:` to `createSession`.
     func confirmRunOptions(
         _ options: AgentLaunchOptions,
         session: SessionViewModel?,
@@ -420,20 +452,18 @@ final class RunMenuViewModel {
         if let pid = req.projectId { ui.setActiveProject(pid) }
         ui.setFocusedPanel(.workspace)
         let tabType = TabType(rawValue: req.agent.rawValue) ?? .shell
+        let description = tasks?.tasks.first { $0.id == taskId }?.description
         runOptionsRequest = nil
         guard let session else { return }
         Task { @MainActor in
             do {
-                let sid = try await session.createSession(
+                _ = try await session.createSession(
                     taskId: taskId,
                     type: tabType,
+                    prompt: (description?.isEmpty == false) ? description : nil,
                     targetWorkspaceKey: WorkspaceKey.task(taskId),
                     agentOptions: options
                 )
-                let description = tasks?.tasks.first { $0.id == taskId }?.description
-                if let desc = description, !desc.isEmpty {
-                    session.sendInput(sessionId: sid, data: "\(desc)\r")
-                }
             } catch {}
         }
     }

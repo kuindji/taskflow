@@ -274,6 +274,7 @@ struct GlobalDialogHost: View {
                     taskId: taskId,
                     type: TabType(rawValue: agent.rawValue) ?? .shell,
                     label: nil,
+                    prompt: submit.description.isEmpty ? nil : submit.description,
                     targetWorkspaceKey: WorkspaceKey.task(taskId),
                     agentOptions: submit.agentOptions
                 )

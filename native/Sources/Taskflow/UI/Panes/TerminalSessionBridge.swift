@@ -6,6 +6,7 @@ import GhosttyTerminal
 @MainActor
 final class TerminalSessionBridge {
     private let sessionId: String
+    private let workspaceKey: String
     private let client: WSClient
     private let session: InMemoryTerminalSession
 
@@ -14,8 +15,9 @@ final class TerminalSessionBridge {
     private var pending: [(seq: Int, data: String)] = []
     private var unsubscribe: (() -> Void)?
 
-    init(sessionId: String, client: WSClient, session: InMemoryTerminalSession) {
+    init(sessionId: String, workspaceKey: String, client: WSClient, session: InMemoryTerminalSession) {
         self.sessionId = sessionId
+        self.workspaceKey = workspaceKey
         self.client = client
         self.session = session
     }
@@ -26,6 +28,19 @@ final class TerminalSessionBridge {
         -> (apply: [String], keep: [(seq: Int, data: String)]) {
         let fresh = pending.filter { $0.seq > lastSequence }.sorted { $0.seq < $1.seq }
         return (fresh.map { $0.data }, [])
+    }
+
+    nonisolated static func historyPayload(sessionId: String, workspaceKey: String) -> [String: Any] {
+        var payload: [String: Any] = ["sessionId": sessionId]
+        let base = WorkspaceKey.base(workspaceKey)
+        if base.hasPrefix("task:") {
+            payload["taskId"] = String(base.dropFirst("task:".count))
+        } else if base.hasPrefix("project:") {
+            payload["projectId"] = String(base.dropFirst("project:".count))
+        } else {
+            payload["master"] = true
+        }
+        return payload
     }
 
     func start() {
@@ -57,14 +72,16 @@ final class TerminalSessionBridge {
                 lastSequence = Int(snap.lastSequence)
             } else {
                 let hist: SessionHistoryResponse = try await client.request(
-                    .sessionHistory, payload: ["sessionId": sessionId])
+                    .sessionHistory,
+                    payload: Self.historyPayload(sessionId: sessionId, workspaceKey: workspaceKey))
                 session.receive(hist.data)
                 lastSequence = Int(hist.lastSequence)
             }
         } catch {
             // snapshot failed → fall back to history; if that fails, start empty (live stream continues)
             if let hist: SessionHistoryResponse = try? await client.request(
-                .sessionHistory, payload: ["sessionId": sessionId]) {
+                .sessionHistory,
+                payload: Self.historyPayload(sessionId: sessionId, workspaceKey: workspaceKey)) {
                 session.receive(hist.data)
                 lastSequence = Int(hist.lastSequence)
             }

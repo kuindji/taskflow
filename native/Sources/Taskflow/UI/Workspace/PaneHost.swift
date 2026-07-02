@@ -16,7 +16,10 @@ struct PaneHost: View {
         Group {
             switch activeTab?.type {
             case .claude, .codex, .opencode, .gemini, .cursor, .pi, .shell:
-                if let sid = activeTab?.sessionId { TerminalPane(sessionId: sid) } else { empty }
+                if let sid = activeTab?.sessionId {
+                    TerminalPane(sessionId: sid, workspaceKey: workspaceKey)
+                        .id("\(sid):\(env.themeStore.current.id)")
+                } else { empty }
             case .editor:
                 if let p = activeTab?.filePath { EditorPane(filePath: p) } else { empty }
             case .markdown:
