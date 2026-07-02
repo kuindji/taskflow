@@ -57,9 +57,10 @@ final class WSClient: NSObject, URLSessionWebSocketDelegate {
     ) async throws -> Data {
         guard let text = WSCodec.encodeRequest(type: type.rawValue, correlationId: correlationId, payload: payload)
         else { throw WSClientError.badResponse }
+        guard let socketTask else { throw WSClientError.notConnected }
         return try await withCheckedThrowingContinuation { cont in
             pending[correlationId] = cont
-            socketTask?.send(.string(text)) { [weak self] error in
+            socketTask.send(.string(text)) { [weak self] error in
                 if let error { Swift.Task { @MainActor in self?.fail(correlationId, error) } }
             }
             timeouts[correlationId] = Swift.Task { @MainActor [weak self] in
@@ -155,10 +156,19 @@ final class WSClient: NSObject, URLSessionWebSocketDelegate {
         Swift.Task { @MainActor in self.reconnectAttempt = 0 }
     }
 
-    func awaitNextCorrelation(_ trigger: @escaping @MainActor (String) -> Void) async throws -> Data {
+    func awaitNextCorrelation(
+        timeoutNanoseconds: UInt64? = nil,
+        _ trigger: @escaping @MainActor (String) -> Void
+    ) async throws -> Data {
         let correlationId = UUID().uuidString
         return try await withCheckedThrowingContinuation { cont in
             pending[correlationId] = cont
+            if let timeoutNanoseconds {
+                timeouts[correlationId] = Swift.Task { @MainActor [weak self] in
+                    try? await Swift.Task.sleep(nanoseconds: timeoutNanoseconds)
+                    if !Swift.Task.isCancelled { self?.fail(correlationId, WSClientError.timeout) }
+                }
+            }
             trigger(correlationId)
         }
     }

@@ -54,29 +54,45 @@ final class WSClientTests: XCTestCase {
     // because activeTimeoutCount would remain 1 after resolution.
     func testResolvedRequestDoesNotTimeOut() async throws {
         let client = WSClient(url: URL(string: "ws://localhost:1")!)
-        let knownId = "test-correlation-\(UUID().uuidString)"
         let responsePayload = #"{"ok":true}"#.data(using: .utf8)!
 
-        // Launch requestRaw on a child task. socketTask is nil so send is a no-op,
-        // but pending + timeout ARE installed synchronously inside the continuation body.
         let child = Swift.Task {
-            try await client.requestRaw(.taskList, payload: [:], correlationId: knownId,
-                                        timeoutNanoseconds: 30_000_000_000)
+            try await client.awaitNextCorrelation(timeoutNanoseconds: 30_000_000_000) { id in
+                client.handleInbound(.response(correlationId: id, type: "task:list",
+                                               payload: responsePayload, error: nil))
+            }
         }
-        // Yield so requestRaw runs and installs its pending/timeout entries.
-        await Swift.Task.yield()
-        XCTAssertEqual(client.activeTimeoutCount, 1, "timeout task must be registered before response")
 
-        // Resolve the request; handleInbound must cancel+remove the timeout.
-        client.handleInbound(.response(correlationId: knownId, type: "task:list",
-                                       payload: responsePayload, error: nil))
+        await Swift.Task.yield()
 
         let result = try await child.value
         XCTAssertEqual(result, responsePayload)
         XCTAssertEqual(client.activeTimeoutCount, 0, "timeout task must be cancelled and removed after response")
     }
 
-    // Production fix 2: pending requests fail fast when the socket drops.
+    // Production fix 2: a request made while disconnected fails immediately instead of waiting
+    // for the normal request timeout.
+    func testRequestRawFailsFastWhenNotConnected() async {
+        let client = WSClient(url: URL(string: "ws://localhost:1")!)
+        do {
+            _ = try await client.requestRaw(
+                .taskList,
+                payload: [:],
+                timeoutNanoseconds: 30_000_000_000
+            )
+            XCTFail("expected notConnected")
+        } catch let error as WSClient.WSClientError {
+            if case .notConnected = error {
+                XCTAssertEqual(client.activeTimeoutCount, 0)
+            } else {
+                XCTFail("expected notConnected, got \(error)")
+            }
+        } catch {
+            XCTFail("expected WSClientError, got \(error)")
+        }
+    }
+
+    // Production fix 3: pending requests fail fast when the socket drops.
     func testSocketDropFailsPending() async {
         let client = WSClient(url: URL(string: "ws://localhost:1")!)
         do {
