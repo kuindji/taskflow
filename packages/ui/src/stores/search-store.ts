@@ -41,6 +41,10 @@ interface SearchStore {
     clear(): void;
 }
 
+// Monotonic token identifying the latest search; bumped by search(), cancel(), and
+// clear() so a slow response from a superseded request can never overwrite newer state.
+let searchGeneration = 0;
+
 export const useSearchStore = create<SearchStore>((set, get) => ({
     query: "",
     replacement: "",
@@ -81,13 +85,21 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     async search(rootPath) {
         const state = get();
         if (!state.query) {
-            set({ results: [], totalMatches: 0, searchId: null, error: null });
+            searchGeneration += 1;
+            // searching: false — an invalidated in-flight response can no longer clear the spinner
+            set({ results: [], totalMatches: 0, searchId: null, searching: false, error: null });
             return;
         }
 
         if (state.searchId) {
             await get().cancel();
         }
+
+        // searchId is only assigned once a response arrives, so the cancel() guard above
+        // cannot stop a request that is still in flight. The generation token makes any
+        // superseded response a no-op instead of letting it clobber newer results.
+        searchGeneration += 1;
+        const generation = searchGeneration;
 
         set({ searching: true, error: null });
 
@@ -102,6 +114,8 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
                 excludePattern: state.excludePattern,
             });
 
+            if (generation !== searchGeneration) return; // superseded by a newer search/cancel/clear
+
             const expanded = new Set<string>();
             for (const file of response.result.files) {
                 expanded.add(file.path);
@@ -115,6 +129,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
                 expandedFiles: expanded,
             });
         } catch (err) {
+            if (generation !== searchGeneration) return; // superseded by a newer search/cancel/clear
             set({
                 searching: false,
                 error: err instanceof Error ? err.message : "Search failed",
@@ -123,15 +138,20 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     },
 
     async cancel() {
+        searchGeneration += 1; // drop any in-flight response, even before it has a searchId
         const { searchId } = get();
-        if (searchId) {
-            try {
-                await sendRequest(MSG.SEARCH_CANCEL, { searchId });
-            } catch {
-                // Ignore cancel errors
-            }
-            set({ searchId: null, searching: false });
+        if (!searchId) {
+            // A pre-searchId in-flight search was just invalidated above — its response
+            // can no longer clear the spinner, so clear it here.
+            set({ searching: false });
+            return;
         }
+        try {
+            await sendRequest(MSG.SEARCH_CANCEL, { searchId });
+        } catch {
+            // Ignore cancel errors
+        }
+        set({ searchId: null, searching: false });
     },
 
     async replaceMatch(rootPath, filePath, match) {
@@ -239,6 +259,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     },
 
     clear() {
+        searchGeneration += 1; // drop any in-flight response
         set({
             query: "",
             replacement: "",
