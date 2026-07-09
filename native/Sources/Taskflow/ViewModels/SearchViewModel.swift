@@ -36,6 +36,12 @@ final class SearchViewModel {
     private(set) var error: String? = nil
 
     @ObservationIgnored private let client: WSClient
+    /// Monotonic token identifying the latest search. A response/failure is only applied
+    /// when its generation is still current, so a slow response from a superseded search
+    /// can never overwrite newer results. Bumped by search(), cancel(), and clear().
+    /// (Deviation from the TS store, which has this race — searchId is only assigned
+    /// once a response arrives, so its `if (searchId) cancel()` guard misses in-flight requests.)
+    @ObservationIgnored private var searchGeneration = 0
 
     init(client: WSClient) {
         self.client = client
@@ -57,17 +63,18 @@ final class SearchViewModel {
     /// Searches with the current query. Mirrors `search` in `search-store.ts`.
     func search(rootPath: String) async {
         if query.isEmpty {
+            searchGeneration += 1
             results = []
             totalMatches = 0
             searchId = nil
+            searching = false  // an invalidated in-flight response can no longer clear the spinner
             error = nil
             return
         }
         if searchId != nil {
             await cancel()
         }
-        searching = true
-        error = nil
+        let generation = beginSearch()
         do {
             let resp: SearchQueryResponse = try await client.request(.searchQuery, payload: [
                 "path": rootPath,
@@ -78,20 +85,48 @@ final class SearchViewModel {
                 "includePattern": includePattern,
                 "excludePattern": excludePattern
             ])
-            results = resp.result.files
-            totalMatches = Int(resp.result.totalMatches)
-            searchId = resp.result.searchId
-            searching = false
-            expandedFiles = Set(resp.result.files.map(\.path))
+            applySearchResponse(resp, generation: generation)
         } catch {
-            searching = false
-            self.error = error.localizedDescription
+            applySearchFailure(error, generation: generation)
         }
+    }
+
+    /// Marks a new search as in flight and returns its generation token.
+    /// Internal (not private) so tests can put the model into the in-flight state.
+    func beginSearch() -> Int {
+        searchGeneration += 1
+        searching = true
+        error = nil
+        return searchGeneration
+    }
+
+    /// Applies a search response unless a newer search/cancel/clear superseded it.
+    /// Internal (not private) so tests can exercise the stale-generation guard directly.
+    func applySearchResponse(_ resp: SearchQueryResponse, generation: Int) {
+        guard generation == searchGeneration else { return }
+        results = resp.result.files
+        totalMatches = Int(resp.result.totalMatches)
+        searchId = resp.result.searchId
+        searching = false
+        expandedFiles = Set(resp.result.files.map(\.path))
+    }
+
+    /// Failure counterpart of `applySearchResponse`, with the same stale-generation guard.
+    func applySearchFailure(_ error: Error, generation: Int) {
+        guard generation == searchGeneration else { return }
+        searching = false
+        self.error = error.localizedDescription
     }
 
     /// Cancels the current search. Mirrors `cancel` in `search-store.ts`.
     func cancel() async {
-        guard let id = searchId else { return }
+        searchGeneration += 1  // drop any in-flight response, even before it has a searchId
+        guard let id = searchId else {
+            // A pre-searchId in-flight search was just invalidated above — its response
+            // can no longer clear the spinner, so clear it here.
+            searching = false
+            return
+        }
         // Ignore cancel errors (matches TS `catch { // Ignore cancel errors }`)
         try? await client.requestRaw(.searchCancel, payload: ["searchId": id])
         searchId = nil
@@ -193,6 +228,7 @@ final class SearchViewModel {
     /// Resets query/replacement/results/searchId/searching/expandedFiles/error to initial values.
     /// Flags (`caseSensitive`, `wholeWord`, `useRegex`) and patterns are NOT cleared — matches TS.
     func clear() {
+        searchGeneration += 1  // drop any in-flight response
         query = ""
         replacement = ""
         results = []

@@ -26,7 +26,14 @@ import Observation
 @MainActor
 @Observable
 final class ProjectViewModel {
-    private(set) var projects: [Project] = []
+    private(set) var projects: [Project] = [] {
+        didSet { onProjectsChanged?(projects) }
+    }
+
+    /// Fired on every mutation of `projects` — the native analogue of the web app's
+    /// `useEffect(() => syncWithProjects(projects), [projects])` (useSidebarData.ts).
+    /// Wired in `AppEnvironment.compose()` to `SessionViewModel.syncWithProjects`.
+    var onProjectsChanged: (([Project]) -> Void)?
     private(set) var loading: Bool = false
 
     /// Injected: invoked with the AFFECTED project id wherever the TS store guards

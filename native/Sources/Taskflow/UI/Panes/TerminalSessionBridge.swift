@@ -1,6 +1,14 @@
 import Foundation
 import GhosttyTerminal
 
+/// The only libghostty API the bridge feeds. Seam so tests can observe delivered
+/// bytes — a real `InMemoryTerminalSession` has no readable state without a surface.
+protocol TerminalByteSink: AnyObject {
+    func receive(_ string: String)
+}
+
+extension InMemoryTerminalSession: TerminalByteSink {}
+
 /// Owns one backend session's byte stream and feeds a libghostty .inMemory surface.
 /// Port of terminal-lifecycle.ts: snapshot-first load, sequence-gated live stream.
 @MainActor
@@ -8,14 +16,14 @@ final class TerminalSessionBridge {
     private let sessionId: String
     private let workspaceKey: String
     private let client: WSClient
-    private let session: InMemoryTerminalSession
+    private let session: any TerminalByteSink
 
-    private var historyLoaded = false
+    private(set) var historyLoaded = false
     private var lastSequence = 0
     private var pending: [(seq: Int, data: String)] = []
     private var unsubscribe: (() -> Void)?
 
-    init(sessionId: String, workspaceKey: String, client: WSClient, session: InMemoryTerminalSession) {
+    init(sessionId: String, workspaceKey: String, client: WSClient, session: any TerminalByteSink) {
         self.sessionId = sessionId
         self.workspaceKey = workspaceKey
         self.client = client
@@ -45,18 +53,19 @@ final class TerminalSessionBridge {
 
     func start() {
         // Subscribe BEFORE requesting the snapshot so no live chunk is lost in the gap.
+        // The handler runs on the main actor and must apply the chunk SYNCHRONOUSLY:
+        // an async hop here could deliver chunks out of order, and the sequence gate
+        // below silently drops the late chunk instead of reordering it.
         unsubscribe = client.on(.terminalOutput) { [weak self] (event: TerminalOutputEvent) in
-            Task { @MainActor [weak self] in
-                guard let self, event.sessionId == self.sessionId else { return }
-                if self.historyLoaded {
-                    let seq = Int(event.sequence)
-                    if seq > self.lastSequence {
-                        self.session.receive(event.data)
-                        self.lastSequence = seq
-                    }
-                } else {
-                    self.pending.append((Int(event.sequence), event.data))
+            guard let self, event.sessionId == self.sessionId else { return }
+            if self.historyLoaded {
+                let seq = Int(event.sequence)
+                if seq > self.lastSequence {
+                    self.session.receive(event.data)
+                    self.lastSequence = seq
                 }
+            } else {
+                self.pending.append((Int(event.sequence), event.data))
             }
         }
         Task { @MainActor in await loadHistory() }

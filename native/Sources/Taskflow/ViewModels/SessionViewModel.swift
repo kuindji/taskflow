@@ -91,6 +91,12 @@ final class SessionViewModel {
                 }
             }
         }
+        // master:sessions-list broadcast → resync master workspace tabs. Port of the
+        // MSG.MASTER_SESSIONS_LIST subscription in session-subscriptions.ts:177-181.
+        // Applied synchronously (no Task hop) — the handler already runs on the main actor.
+        client.on(.masterSessionsList) { [weak self] (resp: MasterSessionsListResponse) in
+            self?.syncWithMasterSessions(resp.sessions)
+        }
         client.on(.sessionStatus) { [weak self] (event: SessionStatusEvent) in
             Task { @MainActor [weak self] in
                 guard let self else { return }

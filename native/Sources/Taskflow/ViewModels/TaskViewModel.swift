@@ -14,7 +14,9 @@ import Observation
 @MainActor
 @Observable
 final class TaskViewModel {
-    private(set) var tasks: [TaskItem] = []
+    private(set) var tasks: [TaskItem] = [] {
+        didSet { onTasksChanged?(tasks) }
+    }
     private(set) var archivedTasks: [TaskItem] = []
     var showArchive: Bool = false
     private(set) var activeTaskId: String? = nil
@@ -22,6 +24,12 @@ final class TaskViewModel {
     private(set) var taskLogs: [String: [TaskLogEntry]] = [:]
 
     @ObservationIgnored private let client: WSClient
+
+    /// Fired on every mutation of `tasks` — the native analogue of the web app's
+    /// `useEffect(() => syncWithTasks(tasks), [tasks])` (useSidebarData.ts). Wired in
+    /// `AppEnvironment.compose()` to `SessionViewModel.syncWithTasks` so backend
+    /// sessions materialize as workspace tabs.
+    var onTasksChanged: (([TaskItem]) -> Void)?
 
     init(client: WSClient) {
         self.client = client

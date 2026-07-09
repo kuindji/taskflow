@@ -12,6 +12,23 @@ final class ProjectViewModelTests: XCTestCase {
         )
     }
 
+    // Review fix: SessionViewModel sync is driven by this hook; every mutation of `projects`
+    // must fire it (the native analogue of the web app's useEffect on [projects]).
+    func testProjectsMutationFiresOnProjectsChanged() async {
+        let client = WSClient(url: URL(string: "ws://localhost:1")!)
+        let vm = ProjectViewModel(client: client)
+        vm.bind()
+        var received: [Project]?
+        vm.onProjectsChanged = { received = $0 }
+        let payload = Data(#"{"id":"p1","name":"n","path":"/p1","sessions":[],"createdAt":"0"}"#.utf8)
+        client.handleInbound(.event(type: "project:created", payload: payload))
+        for _ in 0..<100 {  // the bind() handler hops through a Task; yield until it lands
+            if received != nil { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(received?.map(\.id), ["p1"], "mutating projects must notify onProjectsChanged")
+    }
+
     // applyReorder: listed ids come first in given order; remaining keep original order at end
     func testApplyReorderMovesListedIdsToFront() {
         let ps = [project("a"), project("b"), project("c")]

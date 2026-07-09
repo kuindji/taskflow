@@ -26,6 +26,16 @@ final class TaskViewModelTests: XCTestCase {
         )
     }
 
+    // Review fix: SessionViewModel sync is driven by this hook; every mutation of `tasks`
+    // must fire it (the native analogue of the web app's useEffect on [tasks]).
+    func testTasksMutationFiresOnTasksChanged() {
+        let vm = TaskViewModel(client: WSClient(url: URL(string: "ws://localhost:1")!))
+        var notified = 0
+        vm.onTasksChanged = { _ in notified += 1 }
+        vm.applyTaskUpdate(task("a"))
+        XCTAssertEqual(notified, 1, "mutating tasks must notify onTasksChanged")
+    }
+
     func testUpsertUpdatedReplacesInPlace() {
         let start = [task("a", "old"), task("b")]
         let out = TaskViewModel.upsertUpdated(start, task("a", "new"))

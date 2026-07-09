@@ -102,4 +102,28 @@ final class WSClientTests: XCTestCase {
             // expected
         }
     }
+
+    // Review fix: URLSession retains its delegate until invalidated, so disconnect must
+    // invalidate and release the session or every reconnect cycle leaks a URLSession
+    // (and the WSClient itself can never deallocate).
+    func testDisconnectReleasesSession() {
+        let client = WSClient(url: URL(string: "ws://localhost:1")!)
+        client.connect()
+        XCTAssertTrue(client.hasLiveSession)
+        client.disconnect()
+        XCTAssertFalse(client.hasLiveSession)
+    }
+
+    // Review fix: an undecodable event must be reported, not silently dropped —
+    // protocol drift would otherwise make a feature stop updating with no trace.
+    func testEventDecodeFailureIsReported() {
+        let client = WSClient(url: URL(string: "ws://localhost:1")!)
+        var reported: String?
+        client.onEventDecodeError = { type, _ in reported = type }
+        var handlerCalled = false
+        client.on(MessageType.terminalOutput) { (_: TerminalOutputEvent) in handlerCalled = true }
+        client.handleInbound(.event(type: "terminal:output", payload: Data("{}".utf8)))
+        XCTAssertEqual(reported, "terminal:output")
+        XCTAssertFalse(handlerCalled)
+    }
 }

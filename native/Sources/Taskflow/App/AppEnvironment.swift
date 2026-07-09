@@ -158,6 +158,17 @@ final class AppEnvironment {
             self?.files?.refreshGitStatusForWatchedPath()
         }
 
+        // tasks/projects → session tab sync
+        //   TS: useSidebarData.ts effects `syncWithTasks(tasks)` / `syncWithProjects(projects)`.
+        //   Every task/project list mutation re-syncs owner workspace tabs so backend
+        //   sessions materialize as terminal tabs (and tabs of removed sessions drop).
+        tasksVM.onTasksChanged = { [weak self] tasks in
+            self?.session?.syncWithTasks(tasks)
+        }
+        projectsVM.onProjectsChanged = { [weak self] projects in
+            self?.session?.syncWithProjects(projects)
+        }
+
         // session cross-deps (post create/close refreshes)
         sessionVM.onFetchTasks = { [weak self] in
             await self?.tasks?.load()
@@ -232,6 +243,14 @@ final class AppEnvironment {
                 _ = await (_t, _p, _f, _s, _n)
             }
 
+            // Master sessions have no owning task/project, so no VM load carries them:
+            // fetch and sync explicitly. TS: useSidebarData.ts master-sessions effect
+            // (`sendRequest(MSG.MASTER_SESSIONS_LIST).then(syncWithMasterSessions).catch(() => {})`).
+            if let s = session,
+               let resp: MasterSessionsListResponse = try? await client.request(.masterSessionsList, payload: [:]) {
+                s.syncWithMasterSessions(resp.sessions)
+            }
+
             // Boot-apply persisted theme: settings load has completed above, so
             // settings?.settings is now populated (if the fetch succeeded).
             if let t = settings?.settings?.appearance.theme {
@@ -253,5 +272,15 @@ final class AppEnvironment {
         }
     }
 
-    func shutdown() { sidecar.stop() }
+    /// Tears down the sidecar AND resets connection state. Called from the window's
+    /// `.onDisappear`; without the reset, a window reopened while the app keeps running
+    /// would fail `boot()`'s `.connecting` guard and the UI would claim a live backend
+    /// over a dead socket. VMs stay assigned (views may hold them); the next `boot()`
+    /// re-composes them against the fresh client.
+    func shutdown() {
+        client?.disconnect()
+        client = nil
+        sidecar.stop()
+        status = .connecting
+    }
 }

@@ -14,6 +14,78 @@ final class SearchViewModelTests: XCTestCase {
         SearchFileResult(path: path, matches: matches)
     }
 
+    private func makeVM() -> SearchViewModel {
+        SearchViewModel(client: WSClient(url: URL(string: "ws://localhost:1")!))
+    }
+
+    private func makeResponse(path: String, searchId: String = "sid") -> SearchQueryResponse {
+        SearchQueryResponse(result: SearchResult(
+            files: [makeFileResult(path: path, matches: [makeMatch(line: 1)])],
+            totalMatches: 1, searchId: searchId))
+    }
+
+    // MARK: - Stale-response guard (review fix: slow response must not clobber a newer search)
+
+    func testStaleSearchResponseIsIgnored() async {
+        let vm = makeVM()
+        vm.setQuery("foo")
+        await vm.search(rootPath: "/r")   // generation 1 (fails fast: client not connected)
+        await vm.search(rootPath: "/r")   // generation 2
+        vm.applySearchResponse(makeResponse(path: "stale.ts"), generation: 1)
+        XCTAssertTrue(vm.results.isEmpty, "a response from a superseded search must be dropped")
+        vm.applySearchResponse(makeResponse(path: "fresh.ts"), generation: 2)
+        XCTAssertEqual(vm.results.map(\.path), ["fresh.ts"], "the current generation must still apply")
+    }
+
+    func testStaleSearchFailureIsIgnored() async {
+        let vm = makeVM()
+        vm.setQuery("foo")
+        await vm.search(rootPath: "/r")   // generation 1: fails, sets error
+        let currentError = vm.error
+        XCTAssertNotNil(currentError)
+        vm.applySearchFailure(WSClient.WSClientError.timeout, generation: 0)
+        XCTAssertEqual(vm.error, currentError, "a stale failure must not overwrite newer state")
+    }
+
+    func testClearInvalidatesInFlightSearch() async {
+        let vm = makeVM()
+        vm.setQuery("foo")
+        await vm.search(rootPath: "/r")   // generation 1
+        vm.clear()                        // must invalidate the in-flight generation
+        vm.applySearchResponse(makeResponse(path: "late.ts"), generation: 1)
+        XCTAssertTrue(vm.results.isEmpty, "a response arriving after clear() must be dropped")
+        XCTAssertNil(vm.searchId)
+    }
+
+    func testEmptyQuerySearchClearsSearchingAndInvalidates() async {
+        let vm = makeVM()
+        let generation = vm.beginSearch()   // in-flight request, spinner on
+        vm.setQuery("")
+        await vm.search(rootPath: "/r")     // empty-query branch invalidates the in-flight search
+        XCTAssertFalse(vm.searching,
+                       "the empty-query reset must clear the spinner — the invalidated response can no longer do it")
+        vm.applySearchResponse(makeResponse(path: "late.ts"), generation: generation)
+        XCTAssertTrue(vm.results.isEmpty, "the invalidated response must stay a no-op")
+    }
+
+    func testCancelBeforeResponseClearsSearching() async {
+        let vm = makeVM()
+        _ = vm.beginSearch()          // in-flight request, no searchId assigned yet
+        XCTAssertTrue(vm.searching)
+        await vm.cancel()
+        XCTAssertFalse(vm.searching,
+                       "cancel during the pre-searchId window must clear the spinner — the invalidated response can no longer do it")
+    }
+
+    func testCancelInvalidatesInFlightSearch() async {
+        let vm = makeVM()
+        vm.setQuery("foo")
+        await vm.search(rootPath: "/r")   // generation 1
+        await vm.cancel()                 // must invalidate the in-flight generation
+        vm.applySearchResponse(makeResponse(path: "late.ts"), generation: 1)
+        XCTAssertTrue(vm.results.isEmpty, "a response arriving after cancel() must be dropped")
+    }
+
     // MARK: - toggleExpanded (static pure reducer)
 
     func testToggleExpandedAddsPath() {

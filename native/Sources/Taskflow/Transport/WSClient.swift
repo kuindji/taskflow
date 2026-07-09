@@ -16,13 +16,18 @@ final class WSClient: NSObject, URLSessionWebSocketDelegate {
     }
 
     private let url: URL
-    private var socketSession: URLSession!
+    private var socketSession: URLSession?
     private var socketTask: URLSessionWebSocketTask?
     private var pending: [String: CheckedContinuation<Data, Error>] = [:]
     private var timeouts: [String: Swift.Task<Void, Never>] = [:]
-    private var handlers: [String: [UUID: (Data) -> Void]] = [:]
+    private var handlers: [String: [UUID: @MainActor (Data) -> Void]] = [:]
     private var reconnectAttempt = 0
     private var isDisconnecting = false
+
+    /// Called when an inbound event payload fails to decode as the type a handler
+    /// expects — the primary symptom of TS↔Swift protocol drift. Decode failures are
+    /// always NSLog'd; this hook exists so tests (and later UI diagnostics) can observe them.
+    var onEventDecodeError: ((String, Error) -> Void)?
 
     init(url: URL) { self.url = url; super.init() }
 
@@ -33,8 +38,12 @@ final class WSClient: NSObject, URLSessionWebSocketDelegate {
         // reconnection still proceeds past this guard.
         guard socketTask == nil else { return }
         isDisconnecting = false
-        socketSession = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
-        let t = socketSession.webSocketTask(with: url)
+        // URLSession retains its delegate until invalidated — release any leftover
+        // session before creating a new one, or each reconnect leaks a session.
+        socketSession?.invalidateAndCancel()
+        let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        socketSession = session
+        let t = session.webSocketTask(with: url)
         socketTask = t
         t.resume()
         receiveLoop()
@@ -44,10 +53,13 @@ final class WSClient: NSObject, URLSessionWebSocketDelegate {
         isDisconnecting = true
         socketTask?.cancel(with: .goingAway, reason: nil)
         socketTask = nil
+        socketSession?.invalidateAndCancel()
+        socketSession = nil
         failAllPending(.notConnected)
     }
 
     var activeTimeoutCount: Int { timeouts.count }
+    var hasLiveSession: Bool { socketSession != nil }
 
     func requestRaw(
         _ type: MessageType,
@@ -82,10 +94,16 @@ final class WSClient: NSObject, URLSessionWebSocketDelegate {
     }
 
     @discardableResult
-    func on<E: Decodable>(_ type: MessageType, _ handler: @escaping (E) -> Void) -> () -> Void {
+    func on<E: Decodable>(_ type: MessageType, _ handler: @escaping @MainActor (E) -> Void) -> () -> Void {
         let id = UUID()
-        handlers[type.rawValue, default: [:]][id] = { data in
-            if let decoded = try? JSONDecoder().decode(E.self, from: data) { handler(decoded) }
+        handlers[type.rawValue, default: [:]][id] = { [weak self] data in
+            do {
+                handler(try JSONDecoder().decode(E.self, from: data))
+            } catch {
+                NSLog("[WSClient] failed to decode %@ event as %@: %@",
+                      type.rawValue, String(describing: E.self), String(describing: error))
+                self?.onEventDecodeError?(type.rawValue, error)
+            }
         }
         return { [weak self] in self?.handlers[type.rawValue]?.removeValue(forKey: id) }
     }
@@ -123,6 +141,8 @@ final class WSClient: NSObject, URLSessionWebSocketDelegate {
             case .failure:
                 Swift.Task { @MainActor in
                     self.socketTask = nil  // clear the dead task so connect()'s guard lets reconnect through
+                    self.socketSession?.invalidateAndCancel()  // release the dead session (it retains self as delegate)
+                    self.socketSession = nil
                     self.failAllPending(.notConnected)
                     if !self.isDisconnecting { self.scheduleReconnect() }
                 }
