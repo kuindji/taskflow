@@ -7,6 +7,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { usePanelActivation } from "@/hooks/usePanelActivation";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
@@ -298,12 +299,13 @@ function TaskInfoPanel() {
                                 className="text-muted-foreground text-xs font-medium">
                                 Default Workspace Init Command
                             </label>
-                            <Input
+                            <Textarea
                                 id="project-info-default-init-command"
                                 value={projectInitCommandDraft}
                                 onChange={(e) => setProjectInitCommandDraft(e.target.value)}
                                 placeholder="bun install"
-                                className="mt-1 text-sm"
+                                rows={3}
+                                className="mt-1 min-h-20 resize-y text-sm"
                             />
                             <p className="text-muted-foreground mt-1 text-xs">
                                 Used as the default init command when creating worktree tasks.
