@@ -35,9 +35,10 @@ const DEFAULT_CLAUDE = {
 };
 const DEFAULT_CODEX = {
     defaultModel: "",
+    defaultReasoningEffort: "default" as const,
     sandbox: "workspace-write" as const,
     approvalPolicy: "on-request" as const,
-    fullAuto: false,
+    dangerouslyBypassApprovalsAndSandbox: false,
 };
 const DEFAULT_OPENCODE = {
     defaultModel: "",
@@ -378,5 +379,42 @@ describe("SettingsStore", () => {
         expect(result.general.defaultRuntime).toBe("node");
         expect((await store.get()).general.defaultAgent).toBe("codex");
         expect((await store.get()).general.defaultRuntime).toBe("node");
+    });
+
+    it("migrates legacy Codex fullAuto and approval settings safely", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({
+                codex: {
+                    defaultModel: "legacy-model",
+                    sandbox: "read-only",
+                    approvalPolicy: "always",
+                    fullAuto: true,
+                },
+            }),
+        );
+
+        const settings = await store.get();
+        expect(settings.codex).toEqual({
+            defaultModel: "legacy-model",
+            defaultReasoningEffort: "default",
+            sandbox: "workspace-write",
+            approvalPolicy: "on-request",
+            dangerouslyBypassApprovalsAndSandbox: false,
+        });
+
+        const persisted = JSON.parse(await readFile(settingsFile, "utf-8")) as {
+            codex: Record<string, unknown>;
+        };
+        expect(persisted.codex.fullAuto).toBeUndefined();
+    });
+
+    it("maps the legacy allow-list approval policy to untrusted", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({ codex: { approvalPolicy: "unless-allow-listed" } }),
+        );
+
+        expect((await store.get()).codex.approvalPolicy).toBe("untrusted");
     });
 });

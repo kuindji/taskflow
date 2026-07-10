@@ -4,6 +4,7 @@ import type {
     ClaudeEffortLevel,
     CodexSandboxMode,
     CodexApprovalPolicy,
+    CodexReasoningEffort,
     PiThinkingLevel,
 } from "./agent";
 
@@ -25,9 +26,10 @@ export interface ClaudeSettings {
 
 export interface CodexSettings {
     defaultModel: string;
+    defaultReasoningEffort: CodexReasoningEffort | "default";
     sandbox: CodexSandboxMode;
     approvalPolicy: CodexApprovalPolicy;
-    fullAuto: boolean;
+    dangerouslyBypassApprovalsAndSandbox: boolean;
 }
 
 export interface OpenCodeSettings {

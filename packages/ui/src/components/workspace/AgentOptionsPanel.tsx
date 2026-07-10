@@ -6,6 +6,7 @@ import type {
     ClaudeEffortLevel,
     CodexSandboxMode,
     CodexApprovalPolicy,
+    CodexReasoningEffort,
     GeminiLaunchOptions,
     PiThinkingLevel,
 } from "@taskflow/shared";
@@ -70,10 +71,16 @@ function AgentOptionsPanel({
               : "default";
 
     // --- Codex-specific defaults ---
-    const defaultFullAuto =
+    const defaultDangerouslyBypassApprovalsAndSandbox =
         matchingValue?.type === "codex"
-            ? (matchingValue.fullAuto ?? codexSettings?.fullAuto ?? false)
-            : (codexSettings?.fullAuto ?? false);
+            ? (matchingValue.dangerouslyBypassApprovalsAndSandbox ??
+              codexSettings?.dangerouslyBypassApprovalsAndSandbox ??
+              false)
+            : (codexSettings?.dangerouslyBypassApprovalsAndSandbox ?? false);
+    const defaultCodexReasoningEffort: CodexReasoningEffort | "default" =
+        matchingValue?.type === "codex"
+            ? (matchingValue.reasoningEffort ?? codexSettings?.defaultReasoningEffort ?? "default")
+            : (codexSettings?.defaultReasoningEffort ?? "default");
     const defaultCodexSandbox: CodexSandboxMode =
         matchingValue?.type === "codex"
             ? (matchingValue.sandbox ?? codexSettings?.sandbox ?? "workspace-write")
@@ -157,7 +164,11 @@ function AgentOptionsPanel({
     );
     const [permissionMode, setPermissionMode] = useState<string>(defaultPermissionMode);
     const [effort, setEffort] = useState<string>(defaultEffort);
-    const [fullAuto, setFullAuto] = useState(defaultFullAuto);
+    const [dangerouslyBypassApprovalsAndSandbox, setDangerouslyBypassApprovalsAndSandbox] =
+        useState(defaultDangerouslyBypassApprovalsAndSandbox);
+    const [codexReasoningEffort, setCodexReasoningEffort] = useState<
+        CodexReasoningEffort | "default"
+    >(defaultCodexReasoningEffort);
     const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(defaultCodexSandbox);
     const [approvalPolicy, setApprovalPolicy] =
         useState<CodexApprovalPolicy>(defaultApprovalPolicy);
@@ -184,7 +195,8 @@ function AgentOptionsPanel({
             setEffort(defaultEffort);
             setModel(defaultModel);
         } else if (agentType === "codex") {
-            setFullAuto(defaultFullAuto);
+            setDangerouslyBypassApprovalsAndSandbox(defaultDangerouslyBypassApprovalsAndSandbox);
+            setCodexReasoningEffort(defaultCodexReasoningEffort);
             setCodexSandbox(defaultCodexSandbox);
             setApprovalPolicy(defaultApprovalPolicy);
             setModel(defaultModel);
@@ -209,7 +221,8 @@ function AgentOptionsPanel({
         defaultDangerouslySkipPermissions,
         defaultPermissionMode,
         defaultEffort,
-        defaultFullAuto,
+        defaultDangerouslyBypassApprovalsAndSandbox,
+        defaultCodexReasoningEffort,
         defaultCodexSandbox,
         defaultApprovalPolicy,
         defaultOcVariant,
@@ -238,11 +251,18 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "codex",
             model: model || undefined,
+            reasoningEffort: codexReasoningEffort === "default" ? undefined : codexReasoningEffort,
             sandbox: codexSandbox || undefined,
             approvalPolicy: approvalPolicy || undefined,
-            fullAuto: fullAuto || undefined,
+            dangerouslyBypassApprovalsAndSandbox: dangerouslyBypassApprovalsAndSandbox || undefined,
         }),
-        [model, codexSandbox, approvalPolicy, fullAuto],
+        [
+            model,
+            codexReasoningEffort,
+            codexSandbox,
+            approvalPolicy,
+            dangerouslyBypassApprovalsAndSandbox,
+        ],
     );
 
     const buildOpenCodeOptions = useCallback(
@@ -337,13 +357,17 @@ function AgentOptionsPanel({
             ) : agentType === "codex" ? (
                 <CodexOptions
                     modelValue={model}
+                    reasoningEffort={codexReasoningEffort}
                     sandbox={codexSandbox}
                     approvalPolicy={approvalPolicy}
-                    fullAuto={fullAuto}
+                    dangerouslyBypassApprovalsAndSandbox={dangerouslyBypassApprovalsAndSandbox}
                     onModelChange={setModel}
-                    onSandboxChange={(v) => setCodexSandbox(v as CodexSandboxMode)}
-                    onApprovalPolicyChange={(v) => setApprovalPolicy(v as CodexApprovalPolicy)}
-                    onFullAutoChange={setFullAuto}
+                    onReasoningEffortChange={setCodexReasoningEffort}
+                    onSandboxChange={setCodexSandbox}
+                    onApprovalPolicyChange={setApprovalPolicy}
+                    onDangerouslyBypassApprovalsAndSandboxChange={
+                        setDangerouslyBypassApprovalsAndSandbox
+                    }
                 />
             ) : agentType === "opencode" ? (
                 <OpenCodeOptions

@@ -15,6 +15,11 @@ import sessionCommandsMd from "./taskflow-cli-session-commands.md" with { type: 
 import browserCommandsMd from "./taskflow-cli-browser-commands.md" with { type: "text" };
 import otherCommandsMd from "./taskflow-cli-other-commands.md" with { type: "text" };
 import type { AgentLaunchOptions, LinkedProject } from "@taskflow/shared";
+import {
+    CODEX_APPROVAL_POLICIES,
+    CODEX_REASONING_EFFORTS,
+    CODEX_SANDBOX_MODES,
+} from "@taskflow/shared";
 
 const COMMAND_FILES: Record<string, string> = {
     "taskflow-cli-task-commands.md": taskCommandsMd,
@@ -289,15 +294,30 @@ export function buildAgentLaunchSpec(
 
     const optionArgs: string[] = [];
     if (agentOptions?.type === "codex") {
-        if (agentOptions.fullAuto) {
-            optionArgs.push("--full-auto");
+        if (agentOptions.dangerouslyBypassApprovalsAndSandbox) {
+            optionArgs.push("--dangerously-bypass-approvals-and-sandbox");
         } else {
-            if (agentOptions.sandbox) optionArgs.push("--sandbox", agentOptions.sandbox);
-            if (agentOptions.approvalPolicy)
+            if (
+                agentOptions.sandbox &&
+                (CODEX_SANDBOX_MODES as readonly string[]).includes(agentOptions.sandbox)
+            )
+                optionArgs.push("--sandbox", agentOptions.sandbox);
+            if (
+                agentOptions.approvalPolicy &&
+                (CODEX_APPROVAL_POLICIES as readonly string[]).includes(agentOptions.approvalPolicy)
+            )
                 optionArgs.push("--ask-for-approval", agentOptions.approvalPolicy);
         }
         if (agentOptions.model && agentOptions.model !== "default")
             optionArgs.push("--model", agentOptions.model);
+        if (
+            agentOptions.reasoningEffort &&
+            (CODEX_REASONING_EFFORTS as readonly string[]).includes(agentOptions.reasoningEffort)
+        )
+            optionArgs.push(
+                "-c",
+                `model_reasoning_effort="${escapeTomlBasicString(agentOptions.reasoningEffort)}"`,
+            );
     }
     return {
         command: "codex",

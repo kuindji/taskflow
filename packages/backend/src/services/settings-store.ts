@@ -1,6 +1,9 @@
 import { readFile, writeFile } from "fs/promises";
 import {
     ALL_AGENT_TYPES,
+    CODEX_APPROVAL_POLICIES,
+    CODEX_REASONING_EFFORTS,
+    CODEX_SANDBOX_MODES,
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
     DEFAULT_EDITOR_WORD_WRAP,
@@ -14,6 +17,7 @@ import {
 import type {
     AgentType,
     AppSettings,
+    CodexSettings,
     EditorSettings,
     GeneralSettings,
     SettingsUpdatePayload,
@@ -63,9 +67,10 @@ const DEFAULTS: AppSettings = {
     },
     codex: {
         defaultModel: "",
+        defaultReasoningEffort: "default",
         sandbox: "workspace-write",
         approvalPolicy: "on-request",
-        fullAuto: false,
+        dangerouslyBypassApprovalsAndSandbox: false,
     },
     opencode: {
         defaultModel: "",
@@ -127,6 +132,50 @@ function applyNullable<T extends object>(target: T, patch: { [K in keyof T]?: T[
     }
 }
 
+function normalizeCodexSettings(settings: CodexSettings, defaults: CodexSettings): boolean {
+    const legacy = settings as CodexSettings & { fullAuto?: unknown };
+    let changed = false;
+
+    if (typeof settings.defaultModel !== "string") {
+        settings.defaultModel = defaults.defaultModel;
+        changed = true;
+    }
+    if (
+        settings.defaultReasoningEffort !== "default" &&
+        !(CODEX_REASONING_EFFORTS as readonly unknown[]).includes(settings.defaultReasoningEffort)
+    ) {
+        settings.defaultReasoningEffort = defaults.defaultReasoningEffort;
+        changed = true;
+    }
+    if (!(CODEX_SANDBOX_MODES as readonly unknown[]).includes(settings.sandbox)) {
+        settings.sandbox = defaults.sandbox;
+        changed = true;
+    }
+    if (!(CODEX_APPROVAL_POLICIES as readonly unknown[]).includes(settings.approvalPolicy)) {
+        const legacyPolicy: unknown = settings.approvalPolicy;
+        settings.approvalPolicy =
+            legacyPolicy === "always" || legacyPolicy === "unless-allow-listed"
+                ? "untrusted"
+                : defaults.approvalPolicy;
+        changed = true;
+    }
+    if (typeof settings.dangerouslyBypassApprovalsAndSandbox !== "boolean") {
+        settings.dangerouslyBypassApprovalsAndSandbox =
+            defaults.dangerouslyBypassApprovalsAndSandbox;
+        changed = true;
+    }
+    if (legacy.fullAuto !== undefined) {
+        if (legacy.fullAuto === true) {
+            settings.sandbox = "workspace-write";
+            settings.approvalPolicy = "on-request";
+        }
+        delete legacy.fullAuto;
+        changed = true;
+    }
+
+    return changed;
+}
+
 export class SettingsStore {
     constructor(private filePath: string) {}
 
@@ -178,6 +227,7 @@ export class SettingsStore {
             if (Array.isArray(result.general.favoriteAgents)) {
                 result.general.favoriteAgents = result.general.favoriteAgents.filter(isAgentType);
             }
+            needsMigration = normalizeCodexSettings(result.codex, defaults.codex) || needsMigration;
 
             // Persist migration so it only runs once
             if (needsMigration) {
@@ -212,6 +262,7 @@ export class SettingsStore {
         }
         if (partial.codex) {
             applyNullable(current.codex, partial.codex);
+            normalizeCodexSettings(current.codex, DEFAULTS.codex);
         }
         if (partial.opencode) {
             applyNullable(current.opencode, partial.opencode);

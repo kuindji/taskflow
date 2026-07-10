@@ -338,12 +338,12 @@ printf '{}'
         expect(spec.args).toContain("max");
     });
 
-    it("fullAuto passes --full-auto for Codex", () => {
+    it("passes the explicit dangerous bypass flag for Codex", () => {
         const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
             type: "codex",
-            fullAuto: true,
+            dangerouslyBypassApprovalsAndSandbox: true,
         });
-        expect(spec.args).toContain("--full-auto");
+        expect(spec.args).toContain("--dangerously-bypass-approvals-and-sandbox");
     });
 
     it("passes Codex sandbox and approvalPolicy flags", () => {
@@ -356,17 +356,17 @@ printf '{}'
         expect(spec.args).toContain("danger-full-access");
         expect(spec.args).toContain("--ask-for-approval");
         expect(spec.args).toContain("never");
-        expect(spec.args).not.toContain("--full-auto");
+        expect(spec.args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
     });
 
-    it("fullAuto skips individual sandbox/approvalPolicy for Codex", () => {
+    it("dangerous bypass skips individual sandbox and approval policy for Codex", () => {
         const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
             type: "codex",
-            fullAuto: true,
+            dangerouslyBypassApprovalsAndSandbox: true,
             sandbox: "read-only",
-            approvalPolicy: "always",
+            approvalPolicy: "untrusted",
         });
-        expect(spec.args).toContain("--full-auto");
+        expect(spec.args).toContain("--dangerously-bypass-approvals-and-sandbox");
         expect(spec.args).not.toContain("--sandbox");
         expect(spec.args).not.toContain("--ask-for-approval");
     });
@@ -378,6 +378,15 @@ printf '{}'
         });
         expect(spec.args).toContain("--model");
         expect(spec.args).toContain("o4-mini");
+    });
+
+    it("passes Codex reasoning effort as a config override", () => {
+        const spec = buildAgentLaunchSpec("codex", "Do it", "/tmp/ignored/SKILL.md", {
+            type: "codex",
+            reasoningEffort: "xhigh",
+        });
+        expect(spec.args).toContain("-c");
+        expect(spec.args).toContain('model_reasoning_effort="xhigh"');
     });
 
     it("passes --approval-mode auto_edit for Gemini", () => {

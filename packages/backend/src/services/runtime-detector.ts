@@ -2,10 +2,13 @@ import type {
     RuntimeInfo,
     AgentAvailability,
     AgentType,
+    CodexModelInfo,
+    CodexReasoningEffort,
     CursorModel,
     OpenCodeModelInfo,
     PiModelInfo,
 } from "@taskflow/shared";
+import { CODEX_REASONING_EFFORTS } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 
 const KNOWN_RUNTIMES = ["bun", "node"] as const;
@@ -110,6 +113,158 @@ export async function fetchCursorModels(): Promise<CursorModel[]> {
             }
         }
         return models;
+    } catch {
+        return [];
+    }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+}
+
+function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
+    return (
+        typeof value === "string" && (CODEX_REASONING_EFFORTS as readonly string[]).includes(value)
+    );
+}
+
+export function parseCodexAppServerOutput(output: string): CodexModelInfo[] {
+    for (const line of output.split("\n")) {
+        if (!line.trim()) continue;
+
+        let message: unknown;
+        try {
+            message = JSON.parse(line);
+        } catch {
+            continue;
+        }
+        if (!isRecord(message) || message.id !== 2 || !isRecord(message.result)) continue;
+
+        const data = message.result.data;
+        if (!Array.isArray(data)) return [];
+
+        return data.flatMap((entry): CodexModelInfo[] => {
+            if (!isRecord(entry)) return [];
+            const id = typeof entry.id === "string" ? entry.id : "";
+            if (!id) return [];
+
+            const supportedReasoningEfforts = Array.isArray(entry.supportedReasoningEfforts)
+                ? entry.supportedReasoningEfforts.flatMap((effort) => {
+                      if (!isRecord(effort) || !isCodexReasoningEffort(effort.reasoningEffort)) {
+                          return [];
+                      }
+                      return [
+                          {
+                              reasoningEffort: effort.reasoningEffort,
+                              description:
+                                  typeof effort.description === "string" ? effort.description : "",
+                          },
+                      ];
+                  })
+                : [];
+            const defaultReasoningEffort = isCodexReasoningEffort(entry.defaultReasoningEffort)
+                ? entry.defaultReasoningEffort
+                : (supportedReasoningEfforts[0]?.reasoningEffort ?? "medium");
+
+            return [
+                {
+                    id,
+                    model: typeof entry.model === "string" ? entry.model : id,
+                    displayName: typeof entry.displayName === "string" ? entry.displayName : id,
+                    description: typeof entry.description === "string" ? entry.description : "",
+                    hidden: entry.hidden === true,
+                    supportedReasoningEfforts,
+                    defaultReasoningEffort,
+                    inputModalities: Array.isArray(entry.inputModalities)
+                        ? entry.inputModalities.filter(
+                              (modality): modality is string => typeof modality === "string",
+                          )
+                        : [],
+                    isDefault: entry.isDefault === true,
+                },
+            ];
+        });
+    }
+    return [];
+}
+
+export async function fetchCodexModels(): Promise<CodexModelInfo[]> {
+    const PATH = buildShellPath();
+    const codexPath = Bun.which("codex", { PATH });
+    if (!codexPath) return [];
+
+    try {
+        const proc = Bun.spawn([codexPath, "app-server", "--listen", "stdio://"], {
+            stdin: "pipe",
+            stdout: "pipe",
+            stderr: "pipe",
+            env: { ...process.env, PATH },
+        });
+        const reader = proc.stdout.getReader();
+        const decoder = new TextDecoder();
+        let buffered = "";
+        const readResponseLine = async (id: number): Promise<string | null> => {
+            while (true) {
+                const newlineIndex = buffered.indexOf("\n");
+                if (newlineIndex >= 0) {
+                    const line = buffered.slice(0, newlineIndex);
+                    buffered = buffered.slice(newlineIndex + 1);
+                    try {
+                        const message: unknown = JSON.parse(line);
+                        if (isRecord(message) && message.id === id) return line;
+                    } catch {
+                        // Ignore non-protocol output and keep reading.
+                    }
+                    continue;
+                }
+
+                const chunk = await reader.read();
+                if (chunk.done) return null;
+                buffered += decoder.decode(chunk.value, { stream: true });
+            }
+        };
+        const exchange = async (): Promise<string> => {
+            await proc.stdin.write(
+                `${JSON.stringify({
+                    method: "initialize",
+                    id: 1,
+                    params: {
+                        clientInfo: {
+                            name: "taskflow",
+                            title: "Taskflow",
+                            version: "1",
+                        },
+                    },
+                })}\n`,
+            );
+            if (!(await readResponseLine(1))) return "";
+
+            await proc.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
+            await proc.stdin.write(
+                `${JSON.stringify({ method: "model/list", id: 2, params: {} })}\n`,
+            );
+            return (await readResponseLine(2)) ?? "";
+        };
+        const stderrRead = new Response(proc.stderr).text();
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<null>((resolve) => {
+            timeoutId = setTimeout(resolve, MODEL_LIST_TIMEOUT_MS, null);
+        });
+        let output: string | null;
+        try {
+            output = await Promise.race([exchange(), timeout]);
+        } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+        }
+        if (output === null) {
+            proc.kill();
+            return [];
+        }
+        await proc.stdin.end();
+        proc.kill();
+        await proc.exited;
+        await stderrRead;
+        return parseCodexAppServerOutput(output).filter((model) => !model.hidden);
     } catch {
         return [];
     }

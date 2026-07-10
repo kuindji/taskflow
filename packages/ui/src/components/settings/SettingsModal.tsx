@@ -323,27 +323,30 @@ function SettingsModal() {
         [updateSettings],
     );
 
-    const handleCodexFullAuto = useCallback(
-        (fullAuto: boolean) => {
-            void updateSettings({ codex: { fullAuto } });
+    const handleCodexDangerouslyBypass = useCallback(
+        (dangerouslyBypassApprovalsAndSandbox: boolean) => {
+            void updateSettings({ codex: { dangerouslyBypassApprovalsAndSandbox } });
+        },
+        [updateSettings],
+    );
+
+    const handleCodexReasoningEffort = useCallback(
+        (defaultReasoningEffort: CodexSettings["defaultReasoningEffort"]) => {
+            void updateSettings({ codex: { defaultReasoningEffort } });
         },
         [updateSettings],
     );
 
     const handleCodexSandbox = useCallback(
-        (sandbox: string) => {
-            void updateSettings({
-                codex: { sandbox: sandbox as CodexSettings["sandbox"] },
-            });
+        (sandbox: CodexSettings["sandbox"]) => {
+            void updateSettings({ codex: { sandbox } });
         },
         [updateSettings],
     );
 
     const handleCodexApprovalPolicy = useCallback(
-        (approvalPolicy: string) => {
-            void updateSettings({
-                codex: { approvalPolicy: approvalPolicy as CodexSettings["approvalPolicy"] },
-            });
+        (approvalPolicy: CodexSettings["approvalPolicy"]) => {
+            void updateSettings({ codex: { approvalPolicy } });
         },
         [updateSettings],
     );
@@ -538,13 +541,19 @@ function SettingsModal() {
                             <div className="flex flex-col gap-3 p-3">
                                 <CodexSection
                                     defaultModel={settings.codex.defaultModel}
+                                    defaultReasoningEffort={settings.codex.defaultReasoningEffort}
                                     sandbox={settings.codex.sandbox}
                                     approvalPolicy={settings.codex.approvalPolicy}
-                                    fullAuto={settings.codex.fullAuto}
+                                    dangerouslyBypassApprovalsAndSandbox={
+                                        settings.codex.dangerouslyBypassApprovalsAndSandbox
+                                    }
                                     onModelChange={handleCodexModel}
+                                    onReasoningEffortChange={handleCodexReasoningEffort}
                                     onSandboxChange={handleCodexSandbox}
                                     onApprovalPolicyChange={handleCodexApprovalPolicy}
-                                    onFullAutoChange={handleCodexFullAuto}
+                                    onDangerouslyBypassApprovalsAndSandboxChange={
+                                        handleCodexDangerouslyBypass
+                                    }
                                 />
                             </div>
                         )}

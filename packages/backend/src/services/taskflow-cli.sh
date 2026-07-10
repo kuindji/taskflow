@@ -1063,6 +1063,7 @@ case "$cmd" in
         # Codex-specific
         agent_sandbox=""
         agent_approval_policy=""
+        agent_reasoning_effort=""
         agent_full_auto=""
         # OpenCode-specific
         agent_variant=""
@@ -1085,6 +1086,8 @@ case "$cmd" in
             # Codex
             --sandbox) agent_sandbox="${2:-}"; shift 2 ;;
             --approval-policy) agent_approval_policy="${2:-}"; shift 2 ;;
+            --reasoning-effort) agent_reasoning_effort="${2:-}"; shift 2 ;;
+            --dangerously-bypass-approvals-and-sandbox) agent_yolo="true"; shift ;;
             --full-auto) agent_full_auto="true"; shift ;;
             # OpenCode
             --variant) agent_variant="${2:-}"; shift 2 ;;
@@ -1136,13 +1139,20 @@ case "$cmd" in
           fi
         elif [ "$agent_type" = "codex" ]; then
           if [ -n "$agent_full_auto" ]; then
-            _append_opt '"fullAuto":true'
+            _append_opt '"sandbox":"workspace-write"'
+            _append_opt '"approvalPolicy":"on-request"'
+          fi
+          if [ -n "$agent_yolo" ]; then
+            _append_opt '"dangerouslyBypassApprovalsAndSandbox":true'
           fi
           if [ -n "$agent_sandbox" ]; then
             _append_opt "$(printf '"sandbox":%s' "$(json_string "$agent_sandbox")")"
           fi
           if [ -n "$agent_approval_policy" ]; then
             _append_opt "$(printf '"approvalPolicy":%s' "$(json_string "$agent_approval_policy")")"
+          fi
+          if [ -n "$agent_reasoning_effort" ]; then
+            _append_opt "$(printf '"reasoningEffort":%s' "$(json_string "$agent_reasoning_effort")")"
           fi
         elif [ "$agent_type" = "opencode" ]; then
           if [ -n "$agent_variant" ]; then

@@ -52,9 +52,11 @@ function normalizeAgentOptions(
             return {
                 type: "codex",
                 model: opts?.model,
+                reasoningEffort: opts?.reasoningEffort,
                 sandbox: opts?.sandbox,
                 approvalPolicy: opts?.approvalPolicy,
-                fullAuto: opts?.fullAuto || undefined,
+                dangerouslyBypassApprovalsAndSandbox:
+                    opts?.dangerouslyBypassApprovalsAndSandbox || undefined,
             };
         }
         case "opencode": {

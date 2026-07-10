@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
     detectRuntimes,
     detectAgents,
+    parseCodexAppServerOutput,
     parsePiModelsOutput,
 } from "../../src/services/runtime-detector";
 
@@ -99,5 +100,80 @@ describe("parsePiModelsOutput", () => {
         expect(parsePiModelsOutput("provider  model  context  max-out  thinking  images")).toEqual(
             [],
         );
+    });
+});
+
+describe("parseCodexAppServerOutput", () => {
+    const FIXTURE = [
+        JSON.stringify({ id: 1, result: { userAgent: "taskflow/0.1" } }),
+        JSON.stringify({ method: "account/updated", params: {} }),
+        JSON.stringify({
+            id: 2,
+            result: {
+                data: [
+                    {
+                        id: "gpt-5.6-sol",
+                        model: "gpt-5.6-sol",
+                        displayName: "GPT-5.6-Sol",
+                        description: "Latest frontier agentic coding model.",
+                        hidden: false,
+                        supportedReasoningEfforts: [
+                            { reasoningEffort: "low", description: "Fast" },
+                            { reasoningEffort: "high", description: "Deep" },
+                        ],
+                        defaultReasoningEffort: "low",
+                        inputModalities: ["text", "image"],
+                        isDefault: true,
+                    },
+                ],
+                nextCursor: null,
+            },
+        }),
+    ].join("\n");
+
+    it("extracts normalized models from the model/list response", () => {
+        expect(parseCodexAppServerOutput(FIXTURE)).toEqual([
+            {
+                id: "gpt-5.6-sol",
+                model: "gpt-5.6-sol",
+                displayName: "GPT-5.6-Sol",
+                description: "Latest frontier agentic coding model.",
+                hidden: false,
+                supportedReasoningEfforts: [
+                    { reasoningEffort: "low", description: "Fast" },
+                    { reasoningEffort: "high", description: "Deep" },
+                ],
+                defaultReasoningEffort: "low",
+                inputModalities: ["text", "image"],
+                isDefault: true,
+            },
+        ]);
+    });
+
+    it("ignores malformed lines and unknown reasoning efforts", () => {
+        const output = [
+            "not json",
+            JSON.stringify({
+                id: 2,
+                result: {
+                    data: [
+                        {
+                            id: "future-model",
+                            supportedReasoningEfforts: [
+                                { reasoningEffort: "future", description: "Unknown" },
+                                { reasoningEffort: "medium", description: "Supported" },
+                            ],
+                            defaultReasoningEffort: "future",
+                        },
+                    ],
+                },
+            }),
+        ].join("\n");
+
+        const models = parseCodexAppServerOutput(output);
+        expect(models[0]?.supportedReasoningEfforts).toEqual([
+            { reasoningEffort: "medium", description: "Supported" },
+        ]);
+        expect(models[0]?.defaultReasoningEffort).toBe("medium");
     });
 });

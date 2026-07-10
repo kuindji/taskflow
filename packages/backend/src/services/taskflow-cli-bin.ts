@@ -825,13 +825,13 @@ async function handleProject(args: string[]): Promise<void> {
                 process.stderr.write(`${err instanceof Error ? err.message : "Error"}\n`);
                 process.exit(1);
             }
-            process.stdout.write(
-                await api("PATCH", "/api/projects/reorder", { orderedIds: next }),
-            );
+            process.stdout.write(await api("PATCH", "/api/projects/reorder", { orderedIds: next }));
             break;
         }
         default:
-            process.stderr.write("Usage: taskflow-cli project <list|add|remove|update|fork|move>\n");
+            process.stderr.write(
+                "Usage: taskflow-cli project <list|add|remove|update|fork|move>\n",
+            );
             process.exit(1);
     }
 }
@@ -984,6 +984,8 @@ async function handleAgent(args: string[]): Promise<void> {
                 // Codex
                 sandbox: "string",
                 "approval-policy": "string",
+                "reasoning-effort": "string",
+                "dangerously-bypass-approvals-and-sandbox": "boolean",
                 "full-auto": "boolean",
                 // OpenCode
                 variant: "string",
@@ -1014,10 +1016,17 @@ async function handleAgent(args: string[]): Promise<void> {
                     agentOptions.permissionMode = flags["permission-mode"];
                 if (flags.effort) agentOptions.effort = flags.effort;
             } else if (agentType === "codex") {
-                if (flags["full-auto"]) agentOptions.fullAuto = true;
+                if (flags["full-auto"]) {
+                    agentOptions.sandbox = "workspace-write";
+                    agentOptions.approvalPolicy = "on-request";
+                }
+                if (flags.yolo || flags["dangerously-bypass-approvals-and-sandbox"])
+                    agentOptions.dangerouslyBypassApprovalsAndSandbox = true;
                 if (flags.sandbox) agentOptions.sandbox = flags.sandbox;
                 if (flags["approval-policy"])
                     agentOptions.approvalPolicy = flags["approval-policy"];
+                if (flags["reasoning-effort"])
+                    agentOptions.reasoningEffort = flags["reasoning-effort"];
             } else if (agentType === "opencode") {
                 if (flags.variant) agentOptions.variant = flags.variant;
                 if (flags["auto-approve"]) agentOptions.autoApprove = true;

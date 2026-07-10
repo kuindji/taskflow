@@ -29,9 +29,11 @@ function normalizeAgentOptions(
             return {
                 type: "codex",
                 model: agentOptions.model,
+                reasoningEffort: agentOptions.reasoningEffort,
                 sandbox: agentOptions.sandbox,
                 approvalPolicy: agentOptions.approvalPolicy,
-                fullAuto: agentOptions.fullAuto || undefined,
+                dangerouslyBypassApprovalsAndSandbox:
+                    agentOptions.dangerouslyBypassApprovalsAndSandbox || undefined,
             };
         case "opencode":
             if (agentOptions.type !== "opencode") return undefined;

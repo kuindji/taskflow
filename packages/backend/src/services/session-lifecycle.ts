@@ -67,7 +67,8 @@ function isAutonomousAgent(
 ): boolean {
     if (!opts || type === "claude") return false;
     if (opts.type === "gemini") return opts.approvalMode === "yolo";
-    if (opts.type === "codex") return opts.approvalPolicy === "never";
+    if (opts.type === "codex")
+        return !!opts.dangerouslyBypassApprovalsAndSandbox || opts.approvalPolicy === "never";
     if (opts.type === "cursor") return !!opts.yolo;
     return "dontAskQuestions" in opts && !!opts.dontAskQuestions;
 }
@@ -99,9 +100,12 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
             return {
                 type: "codex",
                 model: s.defaultModel === "default" ? undefined : s.defaultModel || undefined,
+                reasoningEffort:
+                    s.defaultReasoningEffort === "default" ? undefined : s.defaultReasoningEffort,
                 sandbox: s.sandbox,
                 approvalPolicy: s.approvalPolicy,
-                fullAuto: s.fullAuto || undefined,
+                dangerouslyBypassApprovalsAndSandbox:
+                    s.dangerouslyBypassApprovalsAndSandbox || undefined,
             };
         }
         case "opencode": {
@@ -139,6 +143,26 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
                 tools: s.tools || undefined,
             };
         }
+    }
+}
+
+function mergeAgentOptions(
+    defaults: AgentLaunchOptions,
+    explicit: AgentLaunchOptions | undefined,
+): AgentLaunchOptions {
+    switch (defaults.type) {
+        case "claude":
+            return explicit?.type === "claude" ? { ...defaults, ...explicit } : defaults;
+        case "codex":
+            return explicit?.type === "codex" ? { ...defaults, ...explicit } : defaults;
+        case "opencode":
+            return explicit?.type === "opencode" ? { ...defaults, ...explicit } : defaults;
+        case "gemini":
+            return explicit?.type === "gemini" ? { ...defaults, ...explicit } : defaults;
+        case "cursor":
+            return explicit?.type === "cursor" ? { ...defaults, ...explicit } : defaults;
+        case "pi":
+            return explicit?.type === "pi" ? { ...defaults, ...explicit } : defaults;
     }
 }
 
@@ -333,11 +357,13 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             let effectiveSystemPrompt = systemPrompt;
             let resolvedAgentOptions = agentOptions;
             if (type !== "shell") {
-                // Merge user-configured defaults under any explicit options
-                if (!resolvedAgentOptions) {
-                    const settings = await settingsStore.get();
-                    resolvedAgentOptions = settingsToAgentOptions(type, settings);
-                }
+                // Merge user-configured defaults under any explicit per-run options.
+                const settings = await settingsStore.get();
+                const defaultAgentOptions = settingsToAgentOptions(type, settings);
+                resolvedAgentOptions = mergeAgentOptions(
+                    defaultAgentOptions,
+                    resolvedAgentOptions?.type === type ? resolvedAgentOptions : undefined,
+                );
                 if (isAutonomousAgent(resolvedAgentOptions, type)) {
                     effectiveSystemPrompt = effectiveSystemPrompt
                         ? `${effectiveSystemPrompt}\n\n${PROMPT_AUTONOMOUS}`

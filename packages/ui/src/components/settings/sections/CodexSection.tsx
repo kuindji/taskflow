@@ -1,37 +1,46 @@
 import { CodexOptions } from "@/components/shared/CodexOptions";
+import type { CodexApprovalPolicy, CodexReasoningEffort, CodexSandboxMode } from "@taskflow/shared";
 
 interface CodexSectionProps {
     defaultModel: string;
-    sandbox: string;
-    approvalPolicy: string;
-    fullAuto: boolean;
+    defaultReasoningEffort: CodexReasoningEffort | "default";
+    sandbox: CodexSandboxMode;
+    approvalPolicy: CodexApprovalPolicy;
+    dangerouslyBypassApprovalsAndSandbox: boolean;
     onModelChange: (value: string) => void;
-    onSandboxChange: (value: string) => void;
-    onApprovalPolicyChange: (value: string) => void;
-    onFullAutoChange: (value: boolean) => void;
+    onReasoningEffortChange: (value: CodexReasoningEffort | "default") => void;
+    onSandboxChange: (value: CodexSandboxMode) => void;
+    onApprovalPolicyChange: (value: CodexApprovalPolicy) => void;
+    onDangerouslyBypassApprovalsAndSandboxChange: (value: boolean) => void;
 }
 
 function CodexSection({
     defaultModel,
+    defaultReasoningEffort,
     sandbox,
     approvalPolicy,
-    fullAuto,
+    dangerouslyBypassApprovalsAndSandbox,
     onModelChange,
+    onReasoningEffortChange,
     onSandboxChange,
     onApprovalPolicyChange,
-    onFullAutoChange,
+    onDangerouslyBypassApprovalsAndSandboxChange,
 }: CodexSectionProps) {
     return (
         <CodexOptions
             mode="defaults"
             modelValue={defaultModel}
+            reasoningEffort={defaultReasoningEffort}
             sandbox={sandbox}
             approvalPolicy={approvalPolicy}
-            fullAuto={fullAuto}
+            dangerouslyBypassApprovalsAndSandbox={dangerouslyBypassApprovalsAndSandbox}
             onModelChange={onModelChange}
+            onReasoningEffortChange={onReasoningEffortChange}
             onSandboxChange={onSandboxChange}
             onApprovalPolicyChange={onApprovalPolicyChange}
-            onFullAutoChange={onFullAutoChange}
+            onDangerouslyBypassApprovalsAndSandboxChange={
+                onDangerouslyBypassApprovalsAndSandboxChange
+            }
         />
     );
 }
