@@ -6,6 +6,7 @@ import { sendRequest } from "@/hooks/useWebSocket";
 import {
     MSG,
     ALL_AGENT_TYPES,
+    isVersionAtLeast,
     type AgentType,
     type ShellInfo,
     type ShellListResponse,
@@ -66,6 +67,8 @@ function SettingsModal() {
     const [section, setSection] = useState<SectionKey>("general");
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
+    const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
+    const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
     const remoteAgent = useRemoteAgentStatus();
     const [migrating, setMigrating] = useState(false);
     const [migrationError, setMigrationError] = useState<string | null>(null);
@@ -307,13 +310,6 @@ function SettingsModal() {
         [updateSettings],
     );
 
-    const handleClaudeSkipPermissions = useCallback(
-        (dangerouslySkipPermissions: boolean) => {
-            void updateSettings({ claude: { dangerouslySkipPermissions } });
-        },
-        [updateSettings],
-    );
-
     const handleClaudePermissionMode = useCallback(
         (permissionMode: string) => {
             void updateSettings({
@@ -323,27 +319,30 @@ function SettingsModal() {
         [updateSettings],
     );
 
-    const handleCodexFullAuto = useCallback(
-        (fullAuto: boolean) => {
-            void updateSettings({ codex: { fullAuto } });
+    const handleCodexDangerouslyBypass = useCallback(
+        (dangerouslyBypassApprovalsAndSandbox: boolean) => {
+            void updateSettings({ codex: { dangerouslyBypassApprovalsAndSandbox } });
+        },
+        [updateSettings],
+    );
+
+    const handleCodexReasoningEffort = useCallback(
+        (defaultReasoningEffort: CodexSettings["defaultReasoningEffort"]) => {
+            void updateSettings({ codex: { defaultReasoningEffort } });
         },
         [updateSettings],
     );
 
     const handleCodexSandbox = useCallback(
-        (sandbox: string) => {
-            void updateSettings({
-                codex: { sandbox: sandbox as CodexSettings["sandbox"] },
-            });
+        (sandbox: CodexSettings["sandbox"]) => {
+            void updateSettings({ codex: { sandbox } });
         },
         [updateSettings],
     );
 
     const handleCodexApprovalPolicy = useCallback(
-        (approvalPolicy: string) => {
-            void updateSettings({
-                codex: { approvalPolicy: approvalPolicy as CodexSettings["approvalPolicy"] },
-            });
+        (approvalPolicy: CodexSettings["approvalPolicy"]) => {
+            void updateSettings({ codex: { approvalPolicy } });
         },
         [updateSettings],
     );
@@ -522,13 +521,10 @@ function SettingsModal() {
                                     mode="defaults"
                                     modelValue={settings.claude.defaultModel}
                                     effortValue={settings.claude.defaultEffort}
-                                    dangerouslySkipPermissions={
-                                        settings.claude.dangerouslySkipPermissions
-                                    }
                                     permissionMode={settings.claude.permissionMode}
+                                    supportsUltracode={supportsClaudeUltracode}
                                     onModelChange={handleClaudeModel}
                                     onEffortChange={handleClaudeEffort}
-                                    onSkipPermissions={handleClaudeSkipPermissions}
                                     onPermissionModeChange={handleClaudePermissionMode}
                                 />
                             </div>
@@ -538,13 +534,19 @@ function SettingsModal() {
                             <div className="flex flex-col gap-3 p-3">
                                 <CodexSection
                                     defaultModel={settings.codex.defaultModel}
+                                    defaultReasoningEffort={settings.codex.defaultReasoningEffort}
                                     sandbox={settings.codex.sandbox}
                                     approvalPolicy={settings.codex.approvalPolicy}
-                                    fullAuto={settings.codex.fullAuto}
+                                    dangerouslyBypassApprovalsAndSandbox={
+                                        settings.codex.dangerouslyBypassApprovalsAndSandbox
+                                    }
                                     onModelChange={handleCodexModel}
+                                    onReasoningEffortChange={handleCodexReasoningEffort}
                                     onSandboxChange={handleCodexSandbox}
                                     onApprovalPolicyChange={handleCodexApprovalPolicy}
-                                    onFullAutoChange={handleCodexFullAuto}
+                                    onDangerouslyBypassApprovalsAndSandboxChange={
+                                        handleCodexDangerouslyBypass
+                                    }
                                 />
                             </div>
                         )}

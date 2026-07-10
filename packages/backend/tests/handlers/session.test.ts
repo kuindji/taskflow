@@ -78,6 +78,8 @@ describe("session handlers", () => {
     let projectId: string;
     let ptyManager: FakePtyManager;
     let events: { type: string; payload: unknown }[];
+    let settingsStore: SettingsStore;
+    let sessionLifecycle: ReturnType<typeof createSessionLifecycle>;
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-session-test-"));
@@ -103,10 +105,11 @@ describe("session handlers", () => {
                 ptyManager.close(sessionId);
             },
         });
-        const sessionLifecycle = createSessionLifecycle({
+        settingsStore = new SettingsStore(join(tempDir, "settings.json"));
+        sessionLifecycle = createSessionLifecycle({
             ptyManager: ptyManager as never,
             taskStore: store,
-            settingsStore: new SettingsStore(join(tempDir, "settings.json")),
+            settingsStore,
             broadcast: (event) => {
                 events.push(event);
             },
@@ -216,6 +219,54 @@ describe("session handlers", () => {
 
         const project = await store.getProject(projectId);
         expect(project?.sessions.map((session) => session.label)).toEqual(["Codex", "Claude"]);
+    });
+
+    it("lets an explicit Claude manual mode override a bypass default", async () => {
+        await settingsStore.update({ claude: { permissionMode: "bypassPermissions" } });
+
+        await router.handle(MSG.SESSION_CREATE, {
+            projectId,
+            type: "claude",
+            agentOptions: { type: "claude", permissionMode: "manual" },
+        });
+
+        const args = ptyManager.spawns.at(-1)?.args ?? [];
+        expect(args).toContain("--permission-mode");
+        expect(args).toContain("default");
+        expect(args).not.toContain("bypassPermissions");
+        expect(args).not.toContain("--dangerously-skip-permissions");
+    });
+
+    it("passes Claude's native Remote Control launch flag", async () => {
+        await sessionLifecycle.createSession({
+            owner: { master: true },
+            type: "claude",
+            cwd: tempDir,
+            remoteControl: true,
+            sessionName: "Taskflow Test",
+            internal: true,
+        });
+
+        const args = ptyManager.spawns.at(-1)?.args ?? [];
+        expect(args).toContain("--remote-control");
+        expect(args).toContain("--name");
+        expect(args).toContain("Taskflow Test");
+    });
+
+    it("rejects invalid Claude launch options before spawning a session", async () => {
+        let error: unknown;
+        try {
+            await router.handle(MSG.SESSION_CREATE, {
+                projectId,
+                type: "claude",
+                agentOptions: { type: "claude", permissionMode: "reckless" },
+            });
+        } catch (caught) {
+            error = caught;
+        }
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain("permissionMode");
+        expect(ptyManager.spawns).toHaveLength(0);
     });
 
     it("closes live sessions and clears archived session refs before archiving", async () => {

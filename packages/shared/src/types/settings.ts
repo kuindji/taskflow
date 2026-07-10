@@ -4,6 +4,7 @@ import type {
     ClaudeEffortLevel,
     CodexSandboxMode,
     CodexApprovalPolicy,
+    CodexReasoningEffort,
     PiThinkingLevel,
 } from "./agent";
 
@@ -19,15 +20,15 @@ export interface GeneralSettings {
 export interface ClaudeSettings {
     defaultModel: string;
     defaultEffort: ClaudeEffortLevel | "default";
-    dangerouslySkipPermissions: boolean;
     permissionMode: ClaudePermissionMode | "default";
 }
 
 export interface CodexSettings {
     defaultModel: string;
+    defaultReasoningEffort: CodexReasoningEffort | "default";
     sandbox: CodexSandboxMode;
     approvalPolicy: CodexApprovalPolicy;
-    fullAuto: boolean;
+    dangerouslyBypassApprovalsAndSandbox: boolean;
 }
 
 export interface OpenCodeSettings {
@@ -95,6 +96,7 @@ export interface RemoteAgentSettings {
     autoStart: boolean;
     appName: string;
     headless: boolean;
+    permissionMode: ClaudePermissionMode | "default";
 }
 
 export interface AppearanceSettings {

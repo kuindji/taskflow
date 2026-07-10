@@ -25,6 +25,7 @@ import { join } from "path";
 import { mkdirSync } from "fs";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
+import { normalizeClaudeLaunchOptions } from "./claude-options";
 
 interface SessionOwner {
     taskId?: string;
@@ -57,6 +58,8 @@ interface CreateSessionOpts {
     internal?: boolean;
     /** Display name passed to the agent CLI (e.g. Claude's --name flag). */
     sessionName?: string;
+    /** Start an interactive Claude session with native Remote Control enabled. */
+    remoteControl?: boolean;
     /** When true, the session does not contribute to the system tray status dot. */
     trayExclude?: boolean;
 }
@@ -67,7 +70,8 @@ function isAutonomousAgent(
 ): boolean {
     if (!opts || type === "claude") return false;
     if (opts.type === "gemini") return opts.approvalMode === "yolo";
-    if (opts.type === "codex") return opts.approvalPolicy === "never";
+    if (opts.type === "codex")
+        return !!opts.dangerouslyBypassApprovalsAndSandbox || opts.approvalPolicy === "never";
     if (opts.type === "cursor") return !!opts.yolo;
     return "dontAskQuestions" in opts && !!opts.dontAskQuestions;
 }
@@ -88,7 +92,6 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
             const s = settings.claude;
             return {
                 type: "claude",
-                dangerouslySkipPermissions: s.dangerouslySkipPermissions || undefined,
                 permissionMode: s.permissionMode === "default" ? undefined : s.permissionMode,
                 model: s.defaultModel === "default" ? undefined : s.defaultModel || undefined,
                 effort: s.defaultEffort === "default" ? undefined : s.defaultEffort,
@@ -99,9 +102,12 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
             return {
                 type: "codex",
                 model: s.defaultModel === "default" ? undefined : s.defaultModel || undefined,
+                reasoningEffort:
+                    s.defaultReasoningEffort === "default" ? undefined : s.defaultReasoningEffort,
                 sandbox: s.sandbox,
                 approvalPolicy: s.approvalPolicy,
-                fullAuto: s.fullAuto || undefined,
+                dangerouslyBypassApprovalsAndSandbox:
+                    s.dangerouslyBypassApprovalsAndSandbox || undefined,
             };
         }
         case "opencode": {
@@ -139,6 +145,26 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
                 tools: s.tools || undefined,
             };
         }
+    }
+}
+
+function mergeAgentOptions(
+    defaults: AgentLaunchOptions,
+    explicit: AgentLaunchOptions | undefined,
+): AgentLaunchOptions {
+    switch (defaults.type) {
+        case "claude":
+            return explicit?.type === "claude" ? { ...defaults, ...explicit } : defaults;
+        case "codex":
+            return explicit?.type === "codex" ? { ...defaults, ...explicit } : defaults;
+        case "opencode":
+            return explicit?.type === "opencode" ? { ...defaults, ...explicit } : defaults;
+        case "gemini":
+            return explicit?.type === "gemini" ? { ...defaults, ...explicit } : defaults;
+        case "cursor":
+            return explicit?.type === "cursor" ? { ...defaults, ...explicit } : defaults;
+        case "pi":
+            return explicit?.type === "pi" ? { ...defaults, ...explicit } : defaults;
     }
 }
 
@@ -331,13 +357,16 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         } else {
             // Build effective system prompt for both shell and agent sessions
             let effectiveSystemPrompt = systemPrompt;
-            let resolvedAgentOptions = agentOptions;
+            let resolvedAgentOptions =
+                type === "claude" ? normalizeClaudeLaunchOptions(agentOptions) : agentOptions;
             if (type !== "shell") {
-                // Merge user-configured defaults under any explicit options
-                if (!resolvedAgentOptions) {
-                    const settings = await settingsStore.get();
-                    resolvedAgentOptions = settingsToAgentOptions(type, settings);
-                }
+                // Merge user-configured defaults under any explicit per-run options.
+                const settings = await settingsStore.get();
+                const defaultAgentOptions = settingsToAgentOptions(type, settings);
+                resolvedAgentOptions = mergeAgentOptions(
+                    defaultAgentOptions,
+                    resolvedAgentOptions?.type === type ? resolvedAgentOptions : undefined,
+                );
                 if (isAutonomousAgent(resolvedAgentOptions, type)) {
                     effectiveSystemPrompt = effectiveSystemPrompt
                         ? `${effectiveSystemPrompt}\n\n${PROMPT_AUTONOMOUS}`
@@ -399,6 +428,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 command = spec.command;
                 if (opts.sessionName && type === "claude") {
                     args.push("--name", opts.sessionName);
+                }
+                if (opts.remoteControl && type === "claude") {
+                    args.push("--remote-control");
                 }
                 args.push(...spec.args);
                 specEnv = spec.env;

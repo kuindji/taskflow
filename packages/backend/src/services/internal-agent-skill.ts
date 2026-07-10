@@ -15,6 +15,13 @@ import sessionCommandsMd from "./taskflow-cli-session-commands.md" with { type: 
 import browserCommandsMd from "./taskflow-cli-browser-commands.md" with { type: "text" };
 import otherCommandsMd from "./taskflow-cli-other-commands.md" with { type: "text" };
 import type { AgentLaunchOptions, LinkedProject } from "@taskflow/shared";
+import {
+    CLAUDE_EFFORT_LEVELS,
+    CLAUDE_PERMISSION_MODES,
+    CODEX_APPROVAL_POLICIES,
+    CODEX_REASONING_EFFORTS,
+    CODEX_SANDBOX_MODES,
+} from "@taskflow/shared";
 
 const COMMAND_FILES: Record<string, string> = {
     "taskflow-cli-task-commands.md": taskCommandsMd,
@@ -196,12 +203,22 @@ export function buildAgentLaunchSpec(
     if (type === "claude") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "claude") {
-            if (agentOptions.dangerouslySkipPermissions)
-                optionArgs.push("--dangerously-skip-permissions");
-            if (agentOptions.permissionMode && agentOptions.permissionMode !== "default")
-                optionArgs.push("--permission-mode", agentOptions.permissionMode);
+            if (
+                agentOptions.permissionMode &&
+                (CLAUDE_PERMISSION_MODES as readonly string[]).includes(agentOptions.permissionMode)
+            )
+                optionArgs.push(
+                    "--permission-mode",
+                    agentOptions.permissionMode === "manual"
+                        ? "default"
+                        : agentOptions.permissionMode,
+                );
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
-            if (agentOptions.effort) optionArgs.push("--effort", agentOptions.effort);
+            if (
+                agentOptions.effort &&
+                (CLAUDE_EFFORT_LEVELS as readonly string[]).includes(agentOptions.effort)
+            )
+                optionArgs.push("--effort", agentOptions.effort);
         }
         return {
             command: "claude",
@@ -289,15 +306,30 @@ export function buildAgentLaunchSpec(
 
     const optionArgs: string[] = [];
     if (agentOptions?.type === "codex") {
-        if (agentOptions.fullAuto) {
-            optionArgs.push("--full-auto");
+        if (agentOptions.dangerouslyBypassApprovalsAndSandbox) {
+            optionArgs.push("--dangerously-bypass-approvals-and-sandbox");
         } else {
-            if (agentOptions.sandbox) optionArgs.push("--sandbox", agentOptions.sandbox);
-            if (agentOptions.approvalPolicy)
+            if (
+                agentOptions.sandbox &&
+                (CODEX_SANDBOX_MODES as readonly string[]).includes(agentOptions.sandbox)
+            )
+                optionArgs.push("--sandbox", agentOptions.sandbox);
+            if (
+                agentOptions.approvalPolicy &&
+                (CODEX_APPROVAL_POLICIES as readonly string[]).includes(agentOptions.approvalPolicy)
+            )
                 optionArgs.push("--ask-for-approval", agentOptions.approvalPolicy);
         }
         if (agentOptions.model && agentOptions.model !== "default")
             optionArgs.push("--model", agentOptions.model);
+        if (
+            agentOptions.reasoningEffort &&
+            (CODEX_REASONING_EFFORTS as readonly string[]).includes(agentOptions.reasoningEffort)
+        )
+            optionArgs.push(
+                "-c",
+                `model_reasoning_effort="${escapeTomlBasicString(agentOptions.reasoningEffort)}"`,
+            );
     }
     return {
         command: "codex",

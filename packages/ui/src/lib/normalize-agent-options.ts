@@ -15,23 +15,32 @@ function normalizeAgentOptions(
     if (!agentOptions || agentOptions.type !== agentType) return undefined;
 
     switch (agentType) {
-        case "claude":
+        case "claude": {
             if (agentOptions.type !== "claude") return undefined;
+            const legacyClaudeOptions = agentOptions as typeof agentOptions & {
+                dangerouslySkipPermissions?: unknown;
+            };
             return {
                 type: "claude",
-                dangerouslySkipPermissions: agentOptions.dangerouslySkipPermissions || undefined,
-                permissionMode: agentOptions.permissionMode,
+                permissionMode:
+                    agentOptions.permissionMode ??
+                    (legacyClaudeOptions.dangerouslySkipPermissions === true
+                        ? "bypassPermissions"
+                        : undefined),
                 model: agentOptions.model,
                 effort: agentOptions.effort,
             };
+        }
         case "codex":
             if (agentOptions.type !== "codex") return undefined;
             return {
                 type: "codex",
                 model: agentOptions.model,
+                reasoningEffort: agentOptions.reasoningEffort,
                 sandbox: agentOptions.sandbox,
                 approvalPolicy: agentOptions.approvalPolicy,
-                fullAuto: agentOptions.fullAuto || undefined,
+                dangerouslyBypassApprovalsAndSandbox:
+                    agentOptions.dangerouslyBypassApprovalsAndSandbox || undefined,
             };
         case "opencode":
             if (agentOptions.type !== "opencode") return undefined;

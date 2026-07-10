@@ -4,6 +4,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import type { RemoteAgentSettings } from "@taskflow/shared";
 import { SettingRow } from "./SettingRow";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 interface RemoteAgentStatus {
     running: boolean;
@@ -59,6 +66,30 @@ function RemoteSection({ settings, remoteAgent, onUpdate }: RemoteSectionProps) 
                         {settings.headless ? "Enabled" : "Disabled"}
                     </Label>
                 </div>
+            </SettingRow>
+            <SettingRow
+                label="Permission Mode"
+                hint="Permission mode for the remotely controlled Claude session">
+                <Select
+                    value={settings.permissionMode}
+                    onValueChange={(permissionMode) =>
+                        onUpdate({
+                            permissionMode: permissionMode as RemoteAgentSettings["permissionMode"],
+                        })
+                    }>
+                    <SelectTrigger size="sm" className="text-[13px]">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="default">Inherit Claude Default</SelectItem>
+                        <SelectItem value="manual">Manual</SelectItem>
+                        <SelectItem value="acceptEdits">Accept Edits</SelectItem>
+                        <SelectItem value="auto">Auto</SelectItem>
+                        <SelectItem value="dontAsk">Don&apos;t Ask</SelectItem>
+                        <SelectItem value="plan">Plan</SelectItem>
+                        <SelectItem value="bypassPermissions">Bypass Permissions</SelectItem>
+                    </SelectContent>
+                </Select>
             </SettingRow>
             <SettingRow
                 label="Status"

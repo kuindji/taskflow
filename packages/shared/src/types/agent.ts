@@ -11,33 +11,66 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     pi: "Pi",
 };
 
-type ClaudePermissionMode =
-    | "default"
-    | "acceptEdits"
-    | "bypassPermissions"
-    | "dontAsk"
-    | "plan"
-    | "auto";
+const CLAUDE_PERMISSION_MODES = [
+    "manual",
+    "acceptEdits",
+    "bypassPermissions",
+    "dontAsk",
+    "plan",
+    "auto",
+] as const;
+const CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max", "ultracode"] as const;
 
-type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
+type ClaudeEffortLevel = (typeof CLAUDE_EFFORT_LEVELS)[number];
 
 interface ClaudeLaunchOptions {
     type: Extract<AgentType, "claude">;
-    dangerouslySkipPermissions?: boolean;
     permissionMode?: ClaudePermissionMode;
     model?: string;
     effort?: ClaudeEffortLevel;
 }
 
-type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
-type CodexApprovalPolicy = "always" | "unless-allow-listed" | "on-request" | "never";
+const CODEX_SANDBOX_MODES = ["read-only", "workspace-write", "danger-full-access"] as const;
+const CODEX_APPROVAL_POLICIES = ["untrusted", "on-request", "never"] as const;
+const CODEX_REASONING_EFFORTS = [
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+] as const;
+
+type CodexSandboxMode = (typeof CODEX_SANDBOX_MODES)[number];
+type CodexApprovalPolicy = (typeof CODEX_APPROVAL_POLICIES)[number];
+type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
 
 interface CodexLaunchOptions {
     type: Extract<AgentType, "codex">;
     model?: string;
+    reasoningEffort?: CodexReasoningEffort;
     sandbox?: CodexSandboxMode;
     approvalPolicy?: CodexApprovalPolicy;
-    fullAuto?: boolean;
+    dangerouslyBypassApprovalsAndSandbox?: boolean;
+}
+
+interface CodexReasoningEffortInfo {
+    reasoningEffort: CodexReasoningEffort;
+    description: string;
+}
+
+interface CodexModelInfo {
+    id: string;
+    model: string;
+    displayName: string;
+    description: string;
+    hidden: boolean;
+    supportedReasoningEfforts: CodexReasoningEffortInfo[];
+    defaultReasoningEffort: CodexReasoningEffort;
+    inputModalities: string[];
+    isDefault: boolean;
 }
 
 interface OpenCodeLaunchOptions {
@@ -102,7 +135,15 @@ interface AgentAvailability {
     version: string;
 }
 
-export { ALL_AGENT_TYPES, AGENT_DISPLAY_NAMES };
+export {
+    ALL_AGENT_TYPES,
+    AGENT_DISPLAY_NAMES,
+    CLAUDE_PERMISSION_MODES,
+    CLAUDE_EFFORT_LEVELS,
+    CODEX_SANDBOX_MODES,
+    CODEX_APPROVAL_POLICIES,
+    CODEX_REASONING_EFFORTS,
+};
 
 export type {
     AgentType,
@@ -112,6 +153,9 @@ export type {
     CodexLaunchOptions,
     CodexSandboxMode,
     CodexApprovalPolicy,
+    CodexReasoningEffort,
+    CodexReasoningEffortInfo,
+    CodexModelInfo,
     OpenCodeLaunchOptions,
     GeminiLaunchOptions,
     CursorLaunchOptions,

@@ -39,10 +39,16 @@ function normalizeAgentOptions(
     switch (sessionType) {
         case "claude": {
             const opts = matchingOptions?.type === "claude" ? matchingOptions : undefined;
+            const legacyOpts = opts as
+                | (NonNullable<typeof opts> & { dangerouslySkipPermissions?: unknown })
+                | undefined;
             return {
                 type: "claude",
-                dangerouslySkipPermissions: opts?.dangerouslySkipPermissions || undefined,
-                permissionMode: opts?.permissionMode,
+                permissionMode:
+                    opts?.permissionMode ??
+                    (legacyOpts?.dangerouslySkipPermissions === true
+                        ? "bypassPermissions"
+                        : undefined),
                 model: opts?.model,
                 effort: opts?.effort,
             };
@@ -52,9 +58,11 @@ function normalizeAgentOptions(
             return {
                 type: "codex",
                 model: opts?.model,
+                reasoningEffort: opts?.reasoningEffort,
                 sandbox: opts?.sandbox,
                 approvalPolicy: opts?.approvalPolicy,
-                fullAuto: opts?.fullAuto || undefined,
+                dangerouslyBypassApprovalsAndSandbox:
+                    opts?.dangerouslyBypassApprovalsAndSandbox || undefined,
             };
         }
         case "opencode": {

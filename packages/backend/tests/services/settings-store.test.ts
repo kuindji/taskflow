@@ -30,14 +30,14 @@ const DEFAULT_LAYOUT = {
 const DEFAULT_CLAUDE = {
     defaultModel: "default" as const,
     defaultEffort: "default" as const,
-    dangerouslySkipPermissions: false,
     permissionMode: "default" as const,
 };
 const DEFAULT_CODEX = {
     defaultModel: "",
+    defaultReasoningEffort: "default" as const,
     sandbox: "workspace-write" as const,
     approvalPolicy: "on-request" as const,
-    fullAuto: false,
+    dangerouslyBypassApprovalsAndSandbox: false,
 };
 const DEFAULT_OPENCODE = {
     defaultModel: "",
@@ -56,7 +56,12 @@ const DEFAULT_PI = {
     tools: "read,bash,edit,write,grep,find,ls",
 };
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
-const DEFAULT_REMOTE_AGENT = { autoStart: false, appName: "", headless: false };
+const DEFAULT_REMOTE_AGENT = {
+    autoStart: false,
+    appName: "",
+    headless: false,
+    permissionMode: "default" as const,
+};
 
 describe("SettingsStore", () => {
     let tempDir: string;
@@ -378,5 +383,84 @@ describe("SettingsStore", () => {
         expect(result.general.defaultRuntime).toBe("node");
         expect((await store.get()).general.defaultAgent).toBe("codex");
         expect((await store.get()).general.defaultRuntime).toBe("node");
+    });
+
+    it("migrates legacy Codex fullAuto and approval settings safely", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({
+                codex: {
+                    defaultModel: "legacy-model",
+                    sandbox: "read-only",
+                    approvalPolicy: "always",
+                    fullAuto: true,
+                },
+            }),
+        );
+
+        const settings = await store.get();
+        expect(settings.codex).toEqual({
+            defaultModel: "legacy-model",
+            defaultReasoningEffort: "default",
+            sandbox: "workspace-write",
+            approvalPolicy: "on-request",
+            dangerouslyBypassApprovalsAndSandbox: false,
+        });
+
+        const persisted = JSON.parse(await readFile(settingsFile, "utf-8")) as {
+            codex: Record<string, unknown>;
+        };
+        expect(persisted.codex.fullAuto).toBeUndefined();
+    });
+
+    it("maps the legacy allow-list approval policy to untrusted", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({ codex: { approvalPolicy: "unless-allow-listed" } }),
+        );
+
+        expect((await store.get()).codex.approvalPolicy).toBe("untrusted");
+    });
+
+    it("migrates the legacy Claude skip-permissions toggle to bypassPermissions", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({ claude: { dangerouslySkipPermissions: true } }),
+        );
+
+        expect((await store.get()).claude.permissionMode).toBe("bypassPermissions");
+        const persisted = JSON.parse(await readFile(settingsFile, "utf-8")) as {
+            claude: Record<string, unknown>;
+        };
+        expect(persisted.claude.dangerouslySkipPermissions).toBeUndefined();
+    });
+
+    it("normalizes invalid Claude and Remote Agent settings", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({
+                claude: {
+                    defaultModel: 42,
+                    defaultEffort: "turbo",
+                    permissionMode: "reckless",
+                },
+                remoteAgent: { permissionMode: "reckless" },
+            }),
+        );
+
+        const settings = await store.get();
+        expect(settings.claude).toEqual(DEFAULT_CLAUDE);
+        expect(settings.remoteAgent).toEqual(DEFAULT_REMOTE_AGENT);
+    });
+
+    it("accepts current Claude manual and ultracode settings", async () => {
+        const settings = await store.update({
+            claude: { permissionMode: "manual", defaultEffort: "ultracode" },
+            remoteAgent: { permissionMode: "manual" },
+        });
+
+        expect(settings.claude.permissionMode).toBe("manual");
+        expect(settings.claude.defaultEffort).toBe("ultracode");
+        expect(settings.remoteAgent.permissionMode).toBe("manual");
     });
 });

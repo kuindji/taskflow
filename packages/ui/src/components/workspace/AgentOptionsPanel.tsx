@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type {
-    AgentLaunchOptions,
-    AgentType,
-    ClaudePermissionMode,
-    ClaudeEffortLevel,
-    CodexSandboxMode,
-    CodexApprovalPolicy,
-    GeminiLaunchOptions,
-    PiThinkingLevel,
+import {
+    isVersionAtLeast,
+    type AgentLaunchOptions,
+    type AgentType,
+    type ClaudePermissionMode,
+    type ClaudeEffortLevel,
+    type CodexSandboxMode,
+    type CodexApprovalPolicy,
+    type CodexReasoningEffort,
+    type GeminiLaunchOptions,
+    type PiThinkingLevel,
 } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Play, RotateCcw } from "lucide-react";
@@ -18,6 +20,7 @@ import { GeminiOptions } from "@/components/shared/GeminiOptions";
 import { CursorOptions } from "@/components/shared/CursorOptions";
 import { OpenCodeOptions } from "@/components/shared/OpenCodeOptions";
 import { PiOptions } from "@/components/shared/PiOptions";
+import { useAgentAvailability } from "@/hooks/useAgentAvailability";
 
 interface AgentOptionsPanelProps {
     agentType: AgentType;
@@ -42,19 +45,13 @@ function AgentOptionsPanel({
     const geminiSettings = useSettingsStore((s) => s.settings?.gemini);
     const cursorSettings = useSettingsStore((s) => s.settings?.cursor);
     const piSettings = useSettingsStore((s) => s.settings?.pi);
+    const agents = useAgentAvailability();
+    const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
+    const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
 
     const matchingValue = value?.type === agentType ? value : undefined;
 
     // --- Claude-specific defaults ---
-    const defaultDangerouslySkipPermissions =
-        agentType === "claude" && matchingValue?.type === "claude"
-            ? (matchingValue.dangerouslySkipPermissions ??
-              claudeSettings?.dangerouslySkipPermissions ??
-              false)
-            : agentType === "claude"
-              ? (claudeSettings?.dangerouslySkipPermissions ?? false)
-              : false;
-
     const defaultPermissionMode =
         agentType === "claude" && matchingValue?.type === "claude"
             ? (matchingValue.permissionMode ?? claudeSettings?.permissionMode ?? "default")
@@ -70,10 +67,16 @@ function AgentOptionsPanel({
               : "default";
 
     // --- Codex-specific defaults ---
-    const defaultFullAuto =
+    const defaultDangerouslyBypassApprovalsAndSandbox =
         matchingValue?.type === "codex"
-            ? (matchingValue.fullAuto ?? codexSettings?.fullAuto ?? false)
-            : (codexSettings?.fullAuto ?? false);
+            ? (matchingValue.dangerouslyBypassApprovalsAndSandbox ??
+              codexSettings?.dangerouslyBypassApprovalsAndSandbox ??
+              false)
+            : (codexSettings?.dangerouslyBypassApprovalsAndSandbox ?? false);
+    const defaultCodexReasoningEffort: CodexReasoningEffort | "default" =
+        matchingValue?.type === "codex"
+            ? (matchingValue.reasoningEffort ?? codexSettings?.defaultReasoningEffort ?? "default")
+            : (codexSettings?.defaultReasoningEffort ?? "default");
     const defaultCodexSandbox: CodexSandboxMode =
         matchingValue?.type === "codex"
             ? (matchingValue.sandbox ?? codexSettings?.sandbox ?? "workspace-write")
@@ -152,12 +155,13 @@ function AgentOptionsPanel({
                                   : "default";
 
     // --- State ---
-    const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(
-        defaultDangerouslySkipPermissions,
-    );
     const [permissionMode, setPermissionMode] = useState<string>(defaultPermissionMode);
     const [effort, setEffort] = useState<string>(defaultEffort);
-    const [fullAuto, setFullAuto] = useState(defaultFullAuto);
+    const [dangerouslyBypassApprovalsAndSandbox, setDangerouslyBypassApprovalsAndSandbox] =
+        useState(defaultDangerouslyBypassApprovalsAndSandbox);
+    const [codexReasoningEffort, setCodexReasoningEffort] = useState<
+        CodexReasoningEffort | "default"
+    >(defaultCodexReasoningEffort);
     const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(defaultCodexSandbox);
     const [approvalPolicy, setApprovalPolicy] =
         useState<CodexApprovalPolicy>(defaultApprovalPolicy);
@@ -179,12 +183,12 @@ function AgentOptionsPanel({
 
     useEffect(() => {
         if (agentType === "claude") {
-            setDangerouslySkipPermissions(defaultDangerouslySkipPermissions);
             setPermissionMode(defaultPermissionMode);
             setEffort(defaultEffort);
             setModel(defaultModel);
         } else if (agentType === "codex") {
-            setFullAuto(defaultFullAuto);
+            setDangerouslyBypassApprovalsAndSandbox(defaultDangerouslyBypassApprovalsAndSandbox);
+            setCodexReasoningEffort(defaultCodexReasoningEffort);
             setCodexSandbox(defaultCodexSandbox);
             setApprovalPolicy(defaultApprovalPolicy);
             setModel(defaultModel);
@@ -206,10 +210,10 @@ function AgentOptionsPanel({
         }
     }, [
         agentType,
-        defaultDangerouslySkipPermissions,
         defaultPermissionMode,
         defaultEffort,
-        defaultFullAuto,
+        defaultDangerouslyBypassApprovalsAndSandbox,
+        defaultCodexReasoningEffort,
         defaultCodexSandbox,
         defaultApprovalPolicy,
         defaultOcVariant,
@@ -225,24 +229,30 @@ function AgentOptionsPanel({
     const buildClaudeOptions = useCallback(
         (): AgentLaunchOptions => ({
             type: "claude",
-            dangerouslySkipPermissions: dangerouslySkipPermissions || undefined,
             permissionMode:
                 permissionMode === "default" ? undefined : (permissionMode as ClaudePermissionMode),
             model: model === "default" ? undefined : model || undefined,
             effort: effort === "default" ? undefined : (effort as ClaudeEffortLevel),
         }),
-        [dangerouslySkipPermissions, permissionMode, model, effort],
+        [permissionMode, model, effort],
     );
 
     const buildCodexOptions = useCallback(
         (): AgentLaunchOptions => ({
             type: "codex",
             model: model || undefined,
+            reasoningEffort: codexReasoningEffort === "default" ? undefined : codexReasoningEffort,
             sandbox: codexSandbox || undefined,
             approvalPolicy: approvalPolicy || undefined,
-            fullAuto: fullAuto || undefined,
+            dangerouslyBypassApprovalsAndSandbox: dangerouslyBypassApprovalsAndSandbox || undefined,
         }),
-        [model, codexSandbox, approvalPolicy, fullAuto],
+        [
+            model,
+            codexReasoningEffort,
+            codexSandbox,
+            approvalPolicy,
+            dangerouslyBypassApprovalsAndSandbox,
+        ],
     );
 
     const buildOpenCodeOptions = useCallback(
@@ -327,23 +337,26 @@ function AgentOptionsPanel({
                 <ClaudeOptions
                     modelValue={model}
                     effortValue={effort}
-                    dangerouslySkipPermissions={dangerouslySkipPermissions}
                     permissionMode={permissionMode}
+                    supportsUltracode={supportsClaudeUltracode}
                     onModelChange={setModel}
                     onEffortChange={setEffort}
-                    onSkipPermissions={setDangerouslySkipPermissions}
                     onPermissionModeChange={setPermissionMode}
                 />
             ) : agentType === "codex" ? (
                 <CodexOptions
                     modelValue={model}
+                    reasoningEffort={codexReasoningEffort}
                     sandbox={codexSandbox}
                     approvalPolicy={approvalPolicy}
-                    fullAuto={fullAuto}
+                    dangerouslyBypassApprovalsAndSandbox={dangerouslyBypassApprovalsAndSandbox}
                     onModelChange={setModel}
-                    onSandboxChange={(v) => setCodexSandbox(v as CodexSandboxMode)}
-                    onApprovalPolicyChange={(v) => setApprovalPolicy(v as CodexApprovalPolicy)}
-                    onFullAutoChange={setFullAuto}
+                    onReasoningEffortChange={setCodexReasoningEffort}
+                    onSandboxChange={setCodexSandbox}
+                    onApprovalPolicyChange={setApprovalPolicy}
+                    onDangerouslyBypassApprovalsAndSandboxChange={
+                        setDangerouslyBypassApprovalsAndSandbox
+                    }
                 />
             ) : agentType === "opencode" ? (
                 <OpenCodeOptions

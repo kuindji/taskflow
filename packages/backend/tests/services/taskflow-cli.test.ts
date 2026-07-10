@@ -232,6 +232,50 @@ describe("taskflow-cli", () => {
         });
     });
 
+    it("maps Claude's legacy dangerous flag to the canonical bypass permission mode", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            ["agent", "run", "claude", "--dangerously-skip-permissions", "--effort", "ultracode"],
+            { ...env, TASKFLOW_PROJECT_ID: "project-1" },
+        );
+
+        expect(result.status).toBe(0);
+        const request = await readCapturedRequest(captureFile);
+        expect(JSON.parse(request.data)).toMatchObject({
+            projectId: "project-1",
+            type: "claude",
+            agentOptions: {
+                type: "claude",
+                permissionMode: "bypassPermissions",
+                effort: "ultracode",
+            },
+        });
+    });
+
+    it("lets an explicit Claude permission mode override the legacy dangerous alias", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            [
+                "agent",
+                "run",
+                "claude",
+                "--dangerously-skip-permissions",
+                "--permission-mode",
+                "manual",
+            ],
+            { ...env, TASKFLOW_PROJECT_ID: "project-1" },
+        );
+
+        expect(result.status).toBe(0);
+        const request = await readCapturedRequest(captureFile);
+        const body = JSON.parse(request.data) as {
+            agentOptions: { permissionMode?: unknown };
+        };
+        expect(body.agentOptions.permissionMode).toBe("manual");
+    });
+
     it("fails before issuing requests when task scope is missing", async () => {
         const { cliPath, captureFile, env } = await setupCliHarness();
         const result = runCli(cliPath, ["task"], env);

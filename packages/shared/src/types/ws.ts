@@ -7,6 +7,7 @@ import type { SystemInfo } from "./system";
 import type {
     AgentLaunchOptions,
     AgentAvailability,
+    CodexModelInfo,
     OpenCodeModelInfo,
     PiModelInfo,
 } from "./agent";
@@ -242,6 +243,10 @@ export interface CursorModel {
 
 export interface CursorModelsResponse {
     models: CursorModel[];
+}
+
+export interface CodexModelsResponse {
+    models: CodexModelInfo[];
 }
 
 export interface OpenCodeModelsResponse {

@@ -9,12 +9,13 @@ All run commands also accept --label "<label>" and --model "<model>" arguments.
 Without --task agent will be started on project level. Within task context by default pass --task.
 Claude-specific flags: --dangerously-skip-permissions, --permission-mode "<mode>", --effort "<level>".
 --dangerously-skip-permissions bypasses all permission checks for Claude.
---permission-mode sets permission mode (acceptEdits, bypassPermissions, default, dontAsk, plan, auto).
---effort sets the effort level for Claude sessions (low, medium, high, max).
-Codex-specific flags: --sandbox "<mode>", --approval-policy "<policy>", --full-auto.
+--permission-mode sets permission mode (manual, acceptEdits, bypassPermissions, dontAsk, plan, auto). The legacy default value inherits Claude's configured mode.
+--effort sets the effort level for Claude sessions (low, medium, high, xhigh, max, ultracode; model and version dependent).
+Codex-specific flags: --sandbox "<mode>", --approval-policy "<policy>", --reasoning-effort "<level>", --yolo.
 --sandbox sets sandbox mode (read-only, workspace-write, danger-full-access).
---approval-policy sets approval policy (always, unless-allow-listed, on-request, never).
---full-auto enables fully autonomous mode for Codex.
+--approval-policy sets approval policy (untrusted, on-request, never).
+--reasoning-effort sets model reasoning effort (minimal, low, medium, high, xhigh, max, ultra; model-dependent).
+--yolo bypasses Codex approvals and sandboxing. --dangerously-bypass-approvals-and-sandbox is the explicit alias.
 OpenCode-specific flags: --variant "<variant>", --auto-approve.
 --variant sets the agent variant.
 --auto-approve enables auto-approval of all actions.
