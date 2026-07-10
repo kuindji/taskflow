@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type {
-    AgentLaunchOptions,
-    AgentType,
-    ClaudePermissionMode,
-    ClaudeEffortLevel,
-    CodexSandboxMode,
-    CodexApprovalPolicy,
-    CodexReasoningEffort,
-    GeminiLaunchOptions,
-    PiThinkingLevel,
+import {
+    isVersionAtLeast,
+    type AgentLaunchOptions,
+    type AgentType,
+    type ClaudePermissionMode,
+    type ClaudeEffortLevel,
+    type CodexSandboxMode,
+    type CodexApprovalPolicy,
+    type CodexReasoningEffort,
+    type GeminiLaunchOptions,
+    type PiThinkingLevel,
 } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Play, RotateCcw } from "lucide-react";
@@ -19,6 +20,7 @@ import { GeminiOptions } from "@/components/shared/GeminiOptions";
 import { CursorOptions } from "@/components/shared/CursorOptions";
 import { OpenCodeOptions } from "@/components/shared/OpenCodeOptions";
 import { PiOptions } from "@/components/shared/PiOptions";
+import { useAgentAvailability } from "@/hooks/useAgentAvailability";
 
 interface AgentOptionsPanelProps {
     agentType: AgentType;
@@ -43,19 +45,13 @@ function AgentOptionsPanel({
     const geminiSettings = useSettingsStore((s) => s.settings?.gemini);
     const cursorSettings = useSettingsStore((s) => s.settings?.cursor);
     const piSettings = useSettingsStore((s) => s.settings?.pi);
+    const agents = useAgentAvailability();
+    const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
+    const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
 
     const matchingValue = value?.type === agentType ? value : undefined;
 
     // --- Claude-specific defaults ---
-    const defaultDangerouslySkipPermissions =
-        agentType === "claude" && matchingValue?.type === "claude"
-            ? (matchingValue.dangerouslySkipPermissions ??
-              claudeSettings?.dangerouslySkipPermissions ??
-              false)
-            : agentType === "claude"
-              ? (claudeSettings?.dangerouslySkipPermissions ?? false)
-              : false;
-
     const defaultPermissionMode =
         agentType === "claude" && matchingValue?.type === "claude"
             ? (matchingValue.permissionMode ?? claudeSettings?.permissionMode ?? "default")
@@ -159,9 +155,6 @@ function AgentOptionsPanel({
                                   : "default";
 
     // --- State ---
-    const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(
-        defaultDangerouslySkipPermissions,
-    );
     const [permissionMode, setPermissionMode] = useState<string>(defaultPermissionMode);
     const [effort, setEffort] = useState<string>(defaultEffort);
     const [dangerouslyBypassApprovalsAndSandbox, setDangerouslyBypassApprovalsAndSandbox] =
@@ -190,7 +183,6 @@ function AgentOptionsPanel({
 
     useEffect(() => {
         if (agentType === "claude") {
-            setDangerouslySkipPermissions(defaultDangerouslySkipPermissions);
             setPermissionMode(defaultPermissionMode);
             setEffort(defaultEffort);
             setModel(defaultModel);
@@ -218,7 +210,6 @@ function AgentOptionsPanel({
         }
     }, [
         agentType,
-        defaultDangerouslySkipPermissions,
         defaultPermissionMode,
         defaultEffort,
         defaultDangerouslyBypassApprovalsAndSandbox,
@@ -238,13 +229,12 @@ function AgentOptionsPanel({
     const buildClaudeOptions = useCallback(
         (): AgentLaunchOptions => ({
             type: "claude",
-            dangerouslySkipPermissions: dangerouslySkipPermissions || undefined,
             permissionMode:
                 permissionMode === "default" ? undefined : (permissionMode as ClaudePermissionMode),
             model: model === "default" ? undefined : model || undefined,
             effort: effort === "default" ? undefined : (effort as ClaudeEffortLevel),
         }),
-        [dangerouslySkipPermissions, permissionMode, model, effort],
+        [permissionMode, model, effort],
     );
 
     const buildCodexOptions = useCallback(
@@ -347,11 +337,10 @@ function AgentOptionsPanel({
                 <ClaudeOptions
                     modelValue={model}
                     effortValue={effort}
-                    dangerouslySkipPermissions={dangerouslySkipPermissions}
                     permissionMode={permissionMode}
+                    supportsUltracode={supportsClaudeUltracode}
                     onModelChange={setModel}
                     onEffortChange={setEffort}
-                    onSkipPermissions={setDangerouslySkipPermissions}
                     onPermissionModeChange={setPermissionMode}
                 />
             ) : agentType === "codex" ? (

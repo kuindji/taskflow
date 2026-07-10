@@ -16,3 +16,4 @@ export * from "./themes/derive";
 export { bundledThemes } from "./themes/index";
 export * from "./types/search";
 export * from "./utils/project-order";
+export * from "./utils/version";

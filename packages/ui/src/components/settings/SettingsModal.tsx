@@ -6,6 +6,7 @@ import { sendRequest } from "@/hooks/useWebSocket";
 import {
     MSG,
     ALL_AGENT_TYPES,
+    isVersionAtLeast,
     type AgentType,
     type ShellInfo,
     type ShellListResponse,
@@ -66,6 +67,8 @@ function SettingsModal() {
     const [section, setSection] = useState<SectionKey>("general");
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
+    const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
+    const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
     const remoteAgent = useRemoteAgentStatus();
     const [migrating, setMigrating] = useState(false);
     const [migrationError, setMigrationError] = useState<string | null>(null);
@@ -307,13 +310,6 @@ function SettingsModal() {
         [updateSettings],
     );
 
-    const handleClaudeSkipPermissions = useCallback(
-        (dangerouslySkipPermissions: boolean) => {
-            void updateSettings({ claude: { dangerouslySkipPermissions } });
-        },
-        [updateSettings],
-    );
-
     const handleClaudePermissionMode = useCallback(
         (permissionMode: string) => {
             void updateSettings({
@@ -525,13 +521,10 @@ function SettingsModal() {
                                     mode="defaults"
                                     modelValue={settings.claude.defaultModel}
                                     effortValue={settings.claude.defaultEffort}
-                                    dangerouslySkipPermissions={
-                                        settings.claude.dangerouslySkipPermissions
-                                    }
                                     permissionMode={settings.claude.permissionMode}
+                                    supportsUltracode={supportsClaudeUltracode}
                                     onModelChange={handleClaudeModel}
                                     onEffortChange={handleClaudeEffort}
-                                    onSkipPermissions={handleClaudeSkipPermissions}
                                     onPermissionModeChange={handleClaudePermissionMode}
                                 />
                             </div>

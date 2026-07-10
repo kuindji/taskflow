@@ -1011,7 +1011,7 @@ async function handleAgent(args: string[]): Promise<void> {
 
             if (agentType === "claude") {
                 if (flags["dangerously-skip-permissions"])
-                    agentOptions.dangerouslySkipPermissions = true;
+                    agentOptions.permissionMode = "bypassPermissions";
                 if (flags["permission-mode"])
                     agentOptions.permissionMode = flags["permission-mode"];
                 if (flags.effort) agentOptions.effort = flags.effort;

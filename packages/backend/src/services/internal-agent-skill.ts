@@ -16,6 +16,8 @@ import browserCommandsMd from "./taskflow-cli-browser-commands.md" with { type: 
 import otherCommandsMd from "./taskflow-cli-other-commands.md" with { type: "text" };
 import type { AgentLaunchOptions, LinkedProject } from "@taskflow/shared";
 import {
+    CLAUDE_EFFORT_LEVELS,
+    CLAUDE_PERMISSION_MODES,
     CODEX_APPROVAL_POLICIES,
     CODEX_REASONING_EFFORTS,
     CODEX_SANDBOX_MODES,
@@ -201,12 +203,22 @@ export function buildAgentLaunchSpec(
     if (type === "claude") {
         const optionArgs: string[] = [];
         if (agentOptions?.type === "claude") {
-            if (agentOptions.dangerouslySkipPermissions)
-                optionArgs.push("--dangerously-skip-permissions");
-            if (agentOptions.permissionMode && agentOptions.permissionMode !== "default")
-                optionArgs.push("--permission-mode", agentOptions.permissionMode);
+            if (
+                agentOptions.permissionMode &&
+                (CLAUDE_PERMISSION_MODES as readonly string[]).includes(agentOptions.permissionMode)
+            )
+                optionArgs.push(
+                    "--permission-mode",
+                    agentOptions.permissionMode === "manual"
+                        ? "default"
+                        : agentOptions.permissionMode,
+                );
             if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
-            if (agentOptions.effort) optionArgs.push("--effort", agentOptions.effort);
+            if (
+                agentOptions.effort &&
+                (CLAUDE_EFFORT_LEVELS as readonly string[]).includes(agentOptions.effort)
+            )
+                optionArgs.push("--effort", agentOptions.effort);
         }
         return {
             command: "claude",

@@ -1128,8 +1128,8 @@ case "$cmd" in
           fi
         }
         if [ "$agent_type" = "claude" ]; then
-          if [ -n "$agent_skip_permissions" ]; then
-            _append_opt '"dangerouslySkipPermissions":true'
+          if [ -n "$agent_skip_permissions" ] && [ -z "$agent_permission_mode" ]; then
+            agent_permission_mode="bypassPermissions"
           fi
           if [ -n "$agent_permission_mode" ]; then
             _append_opt "$(printf '"permissionMode":%s' "$(json_string "$agent_permission_mode")")"

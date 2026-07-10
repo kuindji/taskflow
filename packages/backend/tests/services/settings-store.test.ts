@@ -30,7 +30,6 @@ const DEFAULT_LAYOUT = {
 const DEFAULT_CLAUDE = {
     defaultModel: "default" as const,
     defaultEffort: "default" as const,
-    dangerouslySkipPermissions: false,
     permissionMode: "default" as const,
 };
 const DEFAULT_CODEX = {
@@ -57,7 +56,12 @@ const DEFAULT_PI = {
     tools: "read,bash,edit,write,grep,find,ls",
 };
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
-const DEFAULT_REMOTE_AGENT = { autoStart: false, appName: "", headless: false };
+const DEFAULT_REMOTE_AGENT = {
+    autoStart: false,
+    appName: "",
+    headless: false,
+    permissionMode: "default" as const,
+};
 
 describe("SettingsStore", () => {
     let tempDir: string;
@@ -416,5 +420,47 @@ describe("SettingsStore", () => {
         );
 
         expect((await store.get()).codex.approvalPolicy).toBe("untrusted");
+    });
+
+    it("migrates the legacy Claude skip-permissions toggle to bypassPermissions", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({ claude: { dangerouslySkipPermissions: true } }),
+        );
+
+        expect((await store.get()).claude.permissionMode).toBe("bypassPermissions");
+        const persisted = JSON.parse(await readFile(settingsFile, "utf-8")) as {
+            claude: Record<string, unknown>;
+        };
+        expect(persisted.claude.dangerouslySkipPermissions).toBeUndefined();
+    });
+
+    it("normalizes invalid Claude and Remote Agent settings", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({
+                claude: {
+                    defaultModel: 42,
+                    defaultEffort: "turbo",
+                    permissionMode: "reckless",
+                },
+                remoteAgent: { permissionMode: "reckless" },
+            }),
+        );
+
+        const settings = await store.get();
+        expect(settings.claude).toEqual(DEFAULT_CLAUDE);
+        expect(settings.remoteAgent).toEqual(DEFAULT_REMOTE_AGENT);
+    });
+
+    it("accepts current Claude manual and ultracode settings", async () => {
+        const settings = await store.update({
+            claude: { permissionMode: "manual", defaultEffort: "ultracode" },
+            remoteAgent: { permissionMode: "manual" },
+        });
+
+        expect(settings.claude.permissionMode).toBe("manual");
+        expect(settings.claude.defaultEffort).toBe("ultracode");
+        expect(settings.remoteAgent.permissionMode).toBe("manual");
     });
 });

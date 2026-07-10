@@ -20,7 +20,6 @@ export interface GeneralSettings {
 export interface ClaudeSettings {
     defaultModel: string;
     defaultEffort: ClaudeEffortLevel | "default";
-    dangerouslySkipPermissions: boolean;
     permissionMode: ClaudePermissionMode | "default";
 }
 
@@ -97,6 +96,7 @@ export interface RemoteAgentSettings {
     autoStart: boolean;
     appName: string;
     headless: boolean;
+    permissionMode: ClaudePermissionMode | "default";
 }
 
 export interface AppearanceSettings {

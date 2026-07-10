@@ -11,19 +11,21 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     pi: "Pi",
 };
 
-type ClaudePermissionMode =
-    | "default"
-    | "acceptEdits"
-    | "bypassPermissions"
-    | "dontAsk"
-    | "plan"
-    | "auto";
+const CLAUDE_PERMISSION_MODES = [
+    "manual",
+    "acceptEdits",
+    "bypassPermissions",
+    "dontAsk",
+    "plan",
+    "auto",
+] as const;
+const CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max", "ultracode"] as const;
 
-type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
+type ClaudeEffortLevel = (typeof CLAUDE_EFFORT_LEVELS)[number];
 
 interface ClaudeLaunchOptions {
     type: Extract<AgentType, "claude">;
-    dangerouslySkipPermissions?: boolean;
     permissionMode?: ClaudePermissionMode;
     model?: string;
     effort?: ClaudeEffortLevel;
@@ -136,6 +138,8 @@ interface AgentAvailability {
 export {
     ALL_AGENT_TYPES,
     AGENT_DISPLAY_NAMES,
+    CLAUDE_PERMISSION_MODES,
+    CLAUDE_EFFORT_LEVELS,
     CODEX_SANDBOX_MODES,
     CODEX_APPROVAL_POLICIES,
     CODEX_REASONING_EFFORTS,

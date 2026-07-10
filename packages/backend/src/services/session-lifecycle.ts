@@ -25,6 +25,7 @@ import { join } from "path";
 import { mkdirSync } from "fs";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
+import { normalizeClaudeLaunchOptions } from "./claude-options";
 
 interface SessionOwner {
     taskId?: string;
@@ -57,6 +58,8 @@ interface CreateSessionOpts {
     internal?: boolean;
     /** Display name passed to the agent CLI (e.g. Claude's --name flag). */
     sessionName?: string;
+    /** Start an interactive Claude session with native Remote Control enabled. */
+    remoteControl?: boolean;
     /** When true, the session does not contribute to the system tray status dot. */
     trayExclude?: boolean;
 }
@@ -89,7 +92,6 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
             const s = settings.claude;
             return {
                 type: "claude",
-                dangerouslySkipPermissions: s.dangerouslySkipPermissions || undefined,
                 permissionMode: s.permissionMode === "default" ? undefined : s.permissionMode,
                 model: s.defaultModel === "default" ? undefined : s.defaultModel || undefined,
                 effort: s.defaultEffort === "default" ? undefined : s.defaultEffort,
@@ -355,7 +357,8 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         } else {
             // Build effective system prompt for both shell and agent sessions
             let effectiveSystemPrompt = systemPrompt;
-            let resolvedAgentOptions = agentOptions;
+            let resolvedAgentOptions =
+                type === "claude" ? normalizeClaudeLaunchOptions(agentOptions) : agentOptions;
             if (type !== "shell") {
                 // Merge user-configured defaults under any explicit per-run options.
                 const settings = await settingsStore.get();
@@ -425,6 +428,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 command = spec.command;
                 if (opts.sessionName && type === "claude") {
                     args.push("--name", opts.sessionName);
+                }
+                if (opts.remoteControl && type === "claude") {
+                    args.push("--remote-control");
                 }
                 args.push(...spec.args);
                 specEnv = spec.env;

@@ -1,5 +1,3 @@
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
     Select,
     SelectContent,
@@ -12,11 +10,10 @@ import { SettingRow } from "@/components/settings/sections/SettingRow";
 interface ClaudeOptionsProps {
     modelValue: string;
     effortValue: string;
-    dangerouslySkipPermissions: boolean;
     permissionMode: string;
+    supportsUltracode?: boolean;
     onModelChange: (value: string) => void;
     onEffortChange: (value: string) => void;
-    onSkipPermissions: (value: boolean) => void;
     onPermissionModeChange: (value: string) => void;
     /** "defaults" shows "Default Model" etc. "session" shows "Model" etc. */
     mode?: "defaults" | "session";
@@ -28,9 +25,6 @@ const LABELS = {
         modelHint: "Pre-selected model when running Claude sessions",
         effort: "Default Effort",
         effortHint: "Pre-selected effort level when running Claude sessions",
-        skipPermissions: "Skip Permissions",
-        skipPermissionsHint:
-            "Bypass all permission checks by default (--dangerously-skip-permissions)",
         permissionMode: "Permission Mode",
         permissionModeHint: "Default permission mode for Claude sessions",
     },
@@ -39,8 +33,6 @@ const LABELS = {
         modelHint: "Model for Claude session",
         effort: "Effort",
         effortHint: "Effort level for Claude session",
-        skipPermissions: "Skip Permissions",
-        skipPermissionsHint: "Bypass all permission checks (--dangerously-skip-permissions)",
         permissionMode: "Permission Mode",
         permissionModeHint: "Permission mode for this session",
     },
@@ -49,11 +41,10 @@ const LABELS = {
 function ClaudeOptions({
     modelValue,
     effortValue,
-    dangerouslySkipPermissions,
     permissionMode,
+    supportsUltracode = true,
     onModelChange,
     onEffortChange,
-    onSkipPermissions,
     onPermissionModeChange,
     mode = "session",
 }: ClaudeOptionsProps) {
@@ -87,22 +78,11 @@ function ClaudeOptions({
                         <SelectItem value="high">High</SelectItem>
                         <SelectItem value="xhigh">Extra High</SelectItem>
                         <SelectItem value="max">Max</SelectItem>
+                        <SelectItem value="ultracode" disabled={!supportsUltracode}>
+                            Ultracode{supportsUltracode ? "" : " (requires Claude 2.1.203+)"}
+                        </SelectItem>
                     </SelectContent>
                 </Select>
-            </SettingRow>
-            <SettingRow label={l.skipPermissions} hint={l.skipPermissionsHint} className="h-8">
-                <div className="flex items-center gap-2.5">
-                    <Switch
-                        id="claude-skip-permissions"
-                        checked={dangerouslySkipPermissions}
-                        onCheckedChange={onSkipPermissions}
-                    />
-                    <Label
-                        htmlFor="claude-skip-permissions"
-                        className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
-                        {dangerouslySkipPermissions ? "Enabled" : "Disabled"}
-                    </Label>
-                </div>
             </SettingRow>
             <SettingRow label={l.permissionMode} hint={l.permissionModeHint}>
                 <Select value={permissionMode} onValueChange={onPermissionModeChange}>
@@ -110,7 +90,8 @@ function ClaudeOptions({
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="default">Default</SelectItem>
+                        <SelectItem value="default">Inherit Claude Default</SelectItem>
+                        <SelectItem value="manual">Manual</SelectItem>
                         <SelectItem value="auto">Auto</SelectItem>
                         <SelectItem value="acceptEdits">Accept Edits</SelectItem>
                         <SelectItem value="bypassPermissions">Bypass Permissions</SelectItem>

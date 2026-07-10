@@ -1,6 +1,8 @@
 import { readFile, writeFile } from "fs/promises";
 import {
     ALL_AGENT_TYPES,
+    CLAUDE_EFFORT_LEVELS,
+    CLAUDE_PERMISSION_MODES,
     CODEX_APPROVAL_POLICIES,
     CODEX_REASONING_EFFORTS,
     CODEX_SANDBOX_MODES,
@@ -17,9 +19,11 @@ import {
 import type {
     AgentType,
     AppSettings,
+    ClaudeSettings,
     CodexSettings,
     EditorSettings,
     GeneralSettings,
+    RemoteAgentSettings,
     SettingsUpdatePayload,
 } from "@taskflow/shared";
 
@@ -62,7 +66,6 @@ const DEFAULTS: AppSettings = {
     claude: {
         defaultModel: "default",
         defaultEffort: "default",
-        dangerouslySkipPermissions: false,
         permissionMode: "default",
     },
     codex: {
@@ -98,6 +101,7 @@ const DEFAULTS: AppSettings = {
         autoStart: false,
         appName: "",
         headless: false,
+        permissionMode: "default",
     },
 };
 
@@ -176,6 +180,70 @@ function normalizeCodexSettings(settings: CodexSettings, defaults: CodexSettings
     return changed;
 }
 
+function normalizeClaudeSettings(settings: ClaudeSettings, defaults: ClaudeSettings): boolean {
+    const legacy = settings as ClaudeSettings & { dangerouslySkipPermissions?: unknown };
+    let changed = false;
+
+    if (typeof settings.defaultModel !== "string") {
+        settings.defaultModel = defaults.defaultModel;
+        changed = true;
+    }
+    if (
+        settings.defaultEffort !== "default" &&
+        !(CLAUDE_EFFORT_LEVELS as readonly unknown[]).includes(settings.defaultEffort)
+    ) {
+        settings.defaultEffort = defaults.defaultEffort;
+        changed = true;
+    }
+
+    const permissionModeIsValid =
+        settings.permissionMode === "default" ||
+        (CLAUDE_PERMISSION_MODES as readonly unknown[]).includes(settings.permissionMode);
+    if (
+        legacy.dangerouslySkipPermissions === true &&
+        (settings.permissionMode === "default" || !permissionModeIsValid)
+    ) {
+        settings.permissionMode = "bypassPermissions";
+        changed = true;
+    } else if (!permissionModeIsValid) {
+        settings.permissionMode = defaults.permissionMode;
+        changed = true;
+    }
+    if (legacy.dangerouslySkipPermissions !== undefined) {
+        delete legacy.dangerouslySkipPermissions;
+        changed = true;
+    }
+
+    return changed;
+}
+
+function normalizeRemoteAgentSettings(
+    settings: RemoteAgentSettings,
+    defaults: RemoteAgentSettings,
+): boolean {
+    let changed = false;
+    if (typeof settings.autoStart !== "boolean") {
+        settings.autoStart = defaults.autoStart;
+        changed = true;
+    }
+    if (typeof settings.appName !== "string") {
+        settings.appName = defaults.appName;
+        changed = true;
+    }
+    if (typeof settings.headless !== "boolean") {
+        settings.headless = defaults.headless;
+        changed = true;
+    }
+    if (
+        settings.permissionMode !== "default" &&
+        !(CLAUDE_PERMISSION_MODES as readonly unknown[]).includes(settings.permissionMode)
+    ) {
+        settings.permissionMode = defaults.permissionMode;
+        changed = true;
+    }
+    return changed;
+}
+
 export class SettingsStore {
     constructor(private filePath: string) {}
 
@@ -227,7 +295,12 @@ export class SettingsStore {
             if (Array.isArray(result.general.favoriteAgents)) {
                 result.general.favoriteAgents = result.general.favoriteAgents.filter(isAgentType);
             }
+            needsMigration =
+                normalizeClaudeSettings(result.claude, defaults.claude) || needsMigration;
             needsMigration = normalizeCodexSettings(result.codex, defaults.codex) || needsMigration;
+            needsMigration =
+                normalizeRemoteAgentSettings(result.remoteAgent, defaults.remoteAgent) ||
+                needsMigration;
 
             // Persist migration so it only runs once
             if (needsMigration) {
@@ -259,6 +332,7 @@ export class SettingsStore {
         }
         if (partial.claude) {
             applyNullable(current.claude, partial.claude);
+            normalizeClaudeSettings(current.claude, DEFAULTS.claude);
         }
         if (partial.codex) {
             applyNullable(current.codex, partial.codex);
@@ -281,6 +355,7 @@ export class SettingsStore {
         }
         if (partial.remoteAgent) {
             applyNullable(current.remoteAgent, partial.remoteAgent);
+            normalizeRemoteAgentSettings(current.remoteAgent, DEFAULTS.remoteAgent);
         }
         // Persist without null keys so defaults fill in on next get()
         await writeFile(this.filePath, JSON.stringify(current, null, 2));
