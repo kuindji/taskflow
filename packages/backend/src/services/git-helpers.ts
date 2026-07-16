@@ -1,8 +1,12 @@
-async function git(
+interface GitRunOptions {
+    allowExitCodes?: number[];
+}
+
+async function gitCapture(
     args: string[],
     cwd: string,
-    options: { allowExitCodes?: number[] } = {},
-): Promise<string> {
+    options: GitRunOptions = {},
+): Promise<{ stdout: string; stderr: string }> {
     const proc = Bun.spawn(["git", "--no-optional-locks", ...args], {
         cwd,
         stdout: "pipe",
@@ -20,6 +24,11 @@ async function git(
                 `git ${args.join(" ")} failed with exit code ${exitCode}`,
         );
     }
+    return { stdout, stderr };
+}
+
+async function git(args: string[], cwd: string, options: GitRunOptions = {}): Promise<string> {
+    const { stdout } = await gitCapture(args, cwd, options);
     return stdout;
 }
 
@@ -29,4 +38,4 @@ interface NumstatEntry {
     deletions: number;
 }
 
-export { git, NumstatEntry };
+export { git, gitCapture, NumstatEntry };

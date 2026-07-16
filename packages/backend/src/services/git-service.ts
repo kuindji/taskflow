@@ -9,7 +9,7 @@ import type {
 import { readFile } from "fs/promises";
 import { rm } from "fs/promises";
 import { dirname, join } from "path";
-import { git } from "./git-helpers";
+import { git, gitCapture } from "./git-helpers";
 import { getNullDevice } from "./platform";
 import type { NumstatEntry } from "./git-helpers";
 import {
@@ -55,24 +55,68 @@ export class GitService {
     }
 
     async status(repoPath: string): Promise<GitStatusResult> {
-        const branchOutput = await git(["branch", "--show-current"], repoPath);
-        // Use the NUL-delimited porcelain format so paths are machine-safe even when
-        // rename targets contain spaces or other escaped characters.
-        const statusOutput = await git(["status", "--porcelain=v1", "-z", "-uall"], repoPath);
+        // Porcelain v2 with --branch returns branch name, ahead/behind counts, and file
+        // statuses in a single git invocation. NUL delimiters keep paths machine-safe
+        // even when rename targets contain spaces or other escaped characters.
+        const output = await git(
+            ["status", "--porcelain=v2", "--branch", "-z", "-uall"],
+            repoPath,
+        );
 
         const stagedFiles: GitFileStatus[] = [];
         const unstagedFiles: GitFileStatus[] = [];
-        const entries = statusOutput.split("\0").filter((entry) => entry.length > 0);
+        let branch: string | null = null;
+        let ahead = 0;
+        let behind = 0;
 
-        for (let index = 0; index < entries.length; index += 1) {
-            const entry = entries[index];
-            const x = entry[0]; // index status
-            const y = entry[1]; // worktree status
-            const path = entry.substring(3);
+        const records = output.split("\0").filter((record) => record.length > 0);
+
+        for (let index = 0; index < records.length; index += 1) {
+            const record = records[index];
+            const type = record[0];
+
+            if (type === "#") {
+                if (record.startsWith("# branch.head ")) {
+                    const head = record.substring("# branch.head ".length);
+                    branch = head === "(detached)" ? null : head;
+                } else if (record.startsWith("# branch.ab ")) {
+                    const match = /^# branch\.ab \+(\d+) -(\d+)$/.exec(record);
+                    if (match) {
+                        ahead = parseInt(match[1], 10) || 0;
+                        behind = parseInt(match[2], 10) || 0;
+                    }
+                }
+                continue;
+            }
+
+            if (type === "?") {
+                const path = record.substring(2);
+                unstagedFiles.push({
+                    path,
+                    absolutePath: join(repoPath, path),
+                    status: "untracked",
+                    staged: false,
+                });
+                continue;
+            }
+
+            if (type !== "1" && type !== "2" && type !== "u") continue;
+
+            // Changed entries: "1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>",
+            // renamed/copied add "<Xscore>" before the path, unmerged entries have
+            // three stage modes/hashes instead of two.
+            const fieldCount = type === "1" ? 8 : type === "2" ? 9 : 10;
+            const fields = this.splitStatusRecord(record, fieldCount);
+            if (!fields) continue;
+            const xy = fields[1];
+            const x = xy[0]; // index status
+            const y = xy[1]; // worktree status
+            const path = fields[fieldCount];
             let previousPath: string | undefined;
 
-            if (x === "R" || y === "R") {
-                previousPath = entries[index + 1];
+            if (type === "2") {
+                // With -z the original path follows as its own NUL-terminated record
+                previousPath = records[index + 1];
                 if (!previousPath) {
                     throw new Error(
                         "Malformed git status output: rename entry missing previous path",
@@ -83,45 +127,32 @@ export class GitService {
 
             const base = { path, absolutePath: join(repoPath, path), previousPath };
 
-            // Untracked files go to unstaged only
-            if (x === "?" && y === "?") {
-                unstagedFiles.push({ ...base, status: "untracked", staged: false });
-                continue;
-            }
-
-            // Staged changes (index column)
-            if (x !== " " && x !== "?") {
-                stagedFiles.push({
-                    ...base,
-                    status: this.parseStatusChar(x),
-                    staged: true,
-                });
+            // Staged changes (index column); "." means unchanged in porcelain v2
+            if (x !== ".") {
+                stagedFiles.push({ ...base, status: this.parseStatusChar(x), staged: true });
             }
 
             // Unstaged changes (worktree column)
-            if (y !== " " && y !== "?") {
-                unstagedFiles.push({
-                    ...base,
-                    status: this.parseStatusChar(y),
-                    staged: false,
-                });
+            if (y !== ".") {
+                unstagedFiles.push({ ...base, status: this.parseStatusChar(y), staged: false });
             }
         }
 
-        let ahead = 0;
-        let behind = 0;
-        try {
-            const [aheadOut, behindOut] = await Promise.all([
-                git(["rev-list", "--count", "@{u}..HEAD"], repoPath),
-                git(["rev-list", "--count", "HEAD..@{u}"], repoPath),
-            ]);
-            ahead = parseInt(aheadOut.trim(), 10) || 0;
-            behind = parseInt(behindOut.trim(), 10) || 0;
-        } catch {
-            // No upstream configured — treat as 0
-        }
+        return { branch, stagedFiles, unstagedFiles, ahead, behind };
+    }
 
-        return { branch: branchOutput.trim() || null, stagedFiles, unstagedFiles, ahead, behind };
+    /** Split a porcelain v2 record into `count` space-separated fields plus the trailing path */
+    private splitStatusRecord(record: string, count: number): string[] | null {
+        const fields: string[] = [];
+        let rest = record;
+        for (let i = 0; i < count; i += 1) {
+            const separator = rest.indexOf(" ");
+            if (separator === -1) return null;
+            fields.push(rest.substring(0, separator));
+            rest = rest.substring(separator + 1);
+        }
+        fields.push(rest);
+        return fields;
     }
 
     private parseStatusChar(char: string): GitFileStatus["status"] {
@@ -393,11 +424,16 @@ export class GitService {
         return deleteBranchImpl(repoPath, branch);
     }
 
-    async fetch(repoPath: string): Promise<void> {
+    /** Fetch from the default remote. Returns true when any refs were updated. */
+    async fetch(repoPath: string): Promise<boolean> {
         try {
-            await git(["fetch"], repoPath);
+            // git fetch reports ref updates on stderr and prints nothing when
+            // everything is up to date, so non-empty stderr means refs changed
+            const { stderr } = await gitCapture(["fetch"], repoPath);
+            return stderr.trim().length > 0;
         } catch {
             // Network failure or no remote — silently skip
+            return false;
         }
     }
 

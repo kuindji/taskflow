@@ -4,12 +4,15 @@ import type { GitService } from "./git-service";
 import { stat, readFile } from "fs/promises";
 import { join } from "path";
 
-const POLL_INTERVAL_NORMAL = 3_000;
+const POLL_TICK = 3_000;
 const POLL_INTERVAL_LARGE = 10_000;
-const FETCH_INTERVAL = 60_000;
+const FETCH_INTERVAL = 600_000;
 const LARGE_CHANGESET_THRESHOLD = 200;
 const MAX_UNTRACKED_FILE_SIZE = 1_048_576; // 1MB
 const FILE_CHANGE_DEBOUNCE = 300;
+// Targets whose stats keep coming back unchanged are polled less and less often;
+// any file change, git action, or fetched ref update snaps them back to the front
+const BACKOFF_INTERVALS = [3_000, 10_000, 30_000, 60_000];
 
 interface TrackedTarget {
     id: string;
@@ -17,6 +20,8 @@ interface TrackedTarget {
     stats: ChangeStats | null;
     invalidated: boolean;
     polling: boolean;
+    backoffIndex: number;
+    nextPollDue: number;
 }
 
 function statsEqual(a: ChangeStats | null, b: ChangeStats | null): boolean {
@@ -50,7 +55,15 @@ export class ChangeTracker {
 
     track(id: string, path: string): void {
         if (this.targets.has(id)) return;
-        this.targets.set(id, { id, path, stats: null, invalidated: true, polling: false });
+        this.targets.set(id, {
+            id,
+            path,
+            stats: null,
+            invalidated: true,
+            polling: false,
+            backoffIndex: 0,
+            nextPollDue: 0,
+        });
         if (!this.pollTimer) this.startPolling();
     }
 
@@ -137,29 +150,26 @@ export class ChangeTracker {
     }
 
     private schedulePoll(): void {
-        const interval = this.getCurrentInterval();
         this.pollTimer = setTimeout(() => {
             this.pollTimer = null;
-            void this.pollAll().finally(() => {
+            void this.pollDue().finally(() => {
                 if (this.targets.size > 0) this.schedulePoll();
             });
-        }, interval);
+        }, POLL_TICK);
     }
 
-    private getCurrentInterval(): number {
-        let totalFiles = 0;
-        for (const target of this.targets.values()) {
-            if (target.stats) totalFiles += target.stats.fileCount;
-        }
-        return totalFiles >= LARGE_CHANGESET_THRESHOLD ? POLL_INTERVAL_LARGE : POLL_INTERVAL_NORMAL;
-    }
-
-    private async pollAll(): Promise<void> {
+    /** Poll invalidated targets and those whose backoff interval has elapsed */
+    private async pollDue(): Promise<void> {
         if (this.polling) return;
         this.polling = true;
         try {
+            const now = Date.now();
             for (const target of this.targets.values()) {
-                await this.pollTarget(target);
+                // Invalidated targets are polled regardless of backoff — this catches
+                // invalidations that arrived while a poll on the target was in flight
+                const invalidated = target.invalidated;
+                if (!invalidated && now < target.nextPollDue) continue;
+                await this.pollTarget(target, !invalidated);
             }
         } finally {
             this.polling = false;
@@ -180,32 +190,64 @@ export class ChangeTracker {
         if (this.fetching) return;
         this.fetching = true;
         try {
+            let anyChanged = false;
             for (const target of this.targets.values()) {
-                await this.git.fetch(target.path);
-                target.invalidated = true;
+                if (await this.git.fetch(target.path)) anyChanged = true;
             }
-            // Re-poll all targets after fetch to pick up behind count changes
-            await this.pollAll();
+            // Linked worktrees share remote-tracking refs with their parent repo, so a
+            // fetch in one target can move another target's behind count while that
+            // target's own fetch reports nothing new. When any fetch updated refs,
+            // re-poll everything — at most one extra pass per FETCH_INTERVAL.
+            if (anyChanged) {
+                for (const target of this.targets.values()) {
+                    await this.pollTarget(target);
+                }
+            }
         } finally {
             this.fetching = false;
         }
     }
 
-    private async pollTarget(target: TrackedTarget): Promise<void> {
-        if (target.polling) return; // prevent concurrent polls on same target
+    private async pollTarget(target: TrackedTarget, fromScheduler = false): Promise<void> {
+        if (target.polling) {
+            // A poll is already in flight and may have read pre-change state; flag the
+            // target so the next scheduler tick re-polls it instead of waiting out the
+            // backoff window
+            target.invalidated = true;
+            return;
+        }
         target.polling = true;
         try {
-            const stats = await this.computeStats(target.path);
+            // Clear the flag before reading state so an invalidation arriving while
+            // computeStats runs stays set and forces a prompt re-poll
             target.invalidated = false;
-            if (!statsEqual(target.stats, stats)) {
+            const stats = await this.computeStats(target.path);
+            const changed = !statsEqual(target.stats, stats);
+            if (changed) {
                 target.stats = stats;
                 this.broadcast({
                     type: MSG.GIT_CHANGE_STATS,
                     payload: { targetId: target.id, stats },
                 });
             }
+            // Back off only on scheduled polls that found nothing new; event-driven
+            // polls (file change, git action, fetch) signal activity, so stay fast
+            target.backoffIndex =
+                changed || !fromScheduler
+                    ? 0
+                    : Math.min(target.backoffIndex + 1, BACKOFF_INTERVALS.length - 1);
+            const largeChangeset = stats.fileCount >= LARGE_CHANGESET_THRESHOLD;
+            target.nextPollDue =
+                Date.now() +
+                Math.max(
+                    BACKOFF_INTERVALS[target.backoffIndex],
+                    largeChangeset ? POLL_INTERVAL_LARGE : 0,
+                );
         } catch {
-            // Git command failed (repo not ready, etc.) — skip this cycle
+            // Git command failed (repo not ready, not a repo, etc.) — back off so a
+            // permanently failing target doesn't spawn failing git processes every tick
+            target.backoffIndex = Math.min(target.backoffIndex + 1, BACKOFF_INTERVALS.length - 1);
+            target.nextPollDue = Date.now() + BACKOFF_INTERVALS[target.backoffIndex];
         } finally {
             target.polling = false;
         }

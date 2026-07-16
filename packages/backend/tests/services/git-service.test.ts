@@ -296,6 +296,58 @@ describe("GitService", () => {
         expect(status.unstagedFiles).toHaveLength(2);
     });
 
+    it("reports ahead and behind counts relative to upstream", async () => {
+        const remoteDir = await mkdtemp(join(tmpdir(), "taskflow-git-remote-"));
+        await run(["git", "init", "--bare", "--initial-branch=main"], remoteDir);
+        await run(["git", "remote", "add", "origin", remoteDir], repoDir);
+        await run(["git", "push", "-u", "origin", "HEAD"], repoDir);
+
+        let status = await git.status(repoDir);
+        expect(status.ahead).toBe(0);
+        expect(status.behind).toBe(0);
+
+        await writeFile(join(repoDir, "initial.txt"), "ahead change");
+        await run(["git", "commit", "-am", "ahead"], repoDir);
+
+        status = await git.status(repoDir);
+        expect(status.ahead).toBe(1);
+        expect(status.behind).toBe(0);
+
+        await rm(remoteDir, { recursive: true, force: true });
+    });
+
+    it("returns null branch for detached HEAD", async () => {
+        await run(["git", "checkout", "--detach"], repoDir);
+        const status = await git.status(repoDir);
+        expect(status.branch).toBeNull();
+    });
+
+    it("fetch reports whether refs were updated", async () => {
+        const remoteDir = await mkdtemp(join(tmpdir(), "taskflow-git-remote-"));
+        const cloneDir = await mkdtemp(join(tmpdir(), "taskflow-git-clone-"));
+        await run(["git", "init", "--bare", "--initial-branch=main"], remoteDir);
+        await run(["git", "remote", "add", "origin", remoteDir], repoDir);
+        await run(["git", "push", "-u", "origin", "HEAD:main"], repoDir);
+        await run(["git", "clone", remoteDir, join(cloneDir, "repo")], cloneDir);
+        const clonePath = join(cloneDir, "repo");
+
+        // Nothing new on the remote — no ref updates
+        expect(await git.fetch(clonePath)).toBe(false);
+
+        // Push a new commit from the original repo, then fetch from the clone
+        await writeFile(join(repoDir, "initial.txt"), "remote change");
+        await run(["git", "commit", "-am", "remote change"], repoDir);
+        await run(["git", "push", "origin", "HEAD:main"], repoDir);
+        expect(await git.fetch(clonePath)).toBe(true);
+
+        // The fetched ref moves the behind count without a pull
+        const status = await git.status(clonePath);
+        expect(status.behind).toBe(1);
+
+        await rm(remoteDir, { recursive: true, force: true });
+        await rm(cloneDir, { recursive: true, force: true });
+    });
+
     it("creates a worktree", async () => {
         const wtPath = join(repoDir, ".worktrees", "test-branch");
         await git.createWorktree(repoDir, "test-branch", wtPath);
