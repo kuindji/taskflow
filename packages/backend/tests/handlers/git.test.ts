@@ -11,6 +11,14 @@ import type { GitService } from "../../src/services/git-service";
 class FakeGitService {
     statusCalls: string[] = [];
     createdWorktrees: Array<{ repoPath: string; branch: string; worktreePath: string }> = [];
+    logCalls: Array<{ repoPath: string; limit: number; skip: number }> = [];
+    commitFilesCalls: Array<{ repoPath: string; hash: string }> = [];
+    commitDiffFileCalls: Array<{
+        repoPath: string;
+        hash: string;
+        path: string;
+        previousPath?: string;
+    }> = [];
 
     async status(repoPath: string) {
         this.statusCalls.push(repoPath);
@@ -19,6 +27,21 @@ class FakeGitService {
 
     async createWorktree(repoPath: string, branch: string, worktreePath: string): Promise<void> {
         this.createdWorktrees.push({ repoPath, branch, worktreePath });
+    }
+
+    async log(repoPath: string, limit: number, skip: number) {
+        this.logCalls.push({ repoPath, limit, skip });
+        return { entries: [], hasMore: false };
+    }
+
+    async commitFiles(repoPath: string, hash: string) {
+        this.commitFilesCalls.push({ repoPath, hash });
+        return { files: [] };
+    }
+
+    async commitDiffFile(repoPath: string, hash: string, path: string, previousPath?: string) {
+        this.commitDiffFileCalls.push({ repoPath, hash, path, previousPath });
+        return { original: "", modified: "" };
     }
 }
 
@@ -120,5 +143,84 @@ describe("git handlers", () => {
                 }),
             "Worktree path must be inside",
         );
+    });
+
+    const validHash = "a".repeat(40);
+
+    it("serves git log for a workspace repo with clamped paging", async () => {
+        const result = await router.handle(MSG.GIT_LOG, {
+            repoPath: projectPath,
+            limit: 9999,
+            skip: -5,
+        });
+
+        expect(result).toEqual({ entries: [], hasMore: false });
+        expect(git.logCalls).toEqual([{ repoPath: projectPath, limit: 500, skip: 0 }]);
+    });
+
+    it("applies default log paging when omitted", async () => {
+        await router.handle(MSG.GIT_LOG, { repoPath: projectPath });
+        expect(git.logCalls).toEqual([{ repoPath: projectPath, limit: 100, skip: 0 }]);
+    });
+
+    it("rejects git log outside workspace repos", async () => {
+        await expectRejects(
+            () => router.handle(MSG.GIT_LOG, { repoPath: join(tempDir, "elsewhere") }),
+            "outside known workspaces",
+        );
+    });
+
+    it("serves commit files for a valid hash", async () => {
+        const result = await router.handle(MSG.GIT_COMMIT_FILES, {
+            repoPath: projectPath,
+            hash: validHash,
+        });
+
+        expect(result).toEqual({ files: [] });
+        expect(git.commitFilesCalls).toEqual([{ repoPath: projectPath, hash: validHash }]);
+    });
+
+    it("rejects malformed commit hashes", async () => {
+        await expectRejects(
+            () =>
+                router.handle(MSG.GIT_COMMIT_FILES, {
+                    repoPath: projectPath,
+                    hash: "HEAD^{/pwn}",
+                }),
+            "Invalid commit hash",
+        );
+        expect(git.commitFilesCalls).toEqual([]);
+    });
+
+    it("serves commit file diff content and validates paths", async () => {
+        const result = await router.handle(MSG.GIT_COMMIT_DIFF_FILE, {
+            repoPath: projectPath,
+            hash: validHash,
+            path: "src/file.ts",
+            previousPath: "src/old.ts",
+        });
+
+        expect(result).toEqual({ original: "", modified: "" });
+        expect(git.commitDiffFileCalls).toEqual([
+            {
+                repoPath: projectPath,
+                hash: validHash,
+                path: "src/file.ts",
+                previousPath: "src/old.ts",
+            },
+        ]);
+    });
+
+    it("rejects commit diff paths escaping the repo", async () => {
+        await expectRejects(
+            () =>
+                router.handle(MSG.GIT_COMMIT_DIFF_FILE, {
+                    repoPath: projectPath,
+                    hash: validHash,
+                    path: "../../etc/passwd",
+                }),
+            "outside repository",
+        );
+        expect(git.commitDiffFileCalls).toEqual([]);
     });
 });

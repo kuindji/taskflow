@@ -4,6 +4,9 @@ import type {
     GitDiffPayload,
     GitDiffFilePayload,
     GitDiffFileContentPayload,
+    GitLogPayload,
+    GitCommitFilesPayload,
+    GitCommitDiffFilePayload,
     GitRevertFilePayload,
     GitWorktreeCreatePayload,
     GitCommitPayload,
@@ -36,6 +39,15 @@ interface GitHandlerDeps {
     changeTracker?: ChangeTracker;
 }
 
+const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,64}$/i;
+
+function assertCommitHash(hash: string): string {
+    if (!COMMIT_HASH_PATTERN.test(hash)) {
+        throw new Error("Invalid commit hash");
+    }
+    return hash;
+}
+
 export function registerGitHandlers(deps: GitHandlerDeps): void {
     const { router, git, taskStore, broadcast, changeTracker } = deps;
 
@@ -63,6 +75,35 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
         const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
         assertRepoFilePath(repoPath, filePath);
         return await git.getFileContentsForDiff(repoPath, filePath);
+    });
+
+    router.register(MSG.GIT_LOG, async (payload) => {
+        const { repoPath: rawRepoPath, limit, skip } = payload as GitLogPayload;
+        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const safeLimit = Math.min(Math.max(limit ?? 100, 1), 500);
+        const safeSkip = Math.max(skip ?? 0, 0);
+        return await git.log(repoPath, safeLimit, safeSkip);
+    });
+
+    router.register(MSG.GIT_COMMIT_FILES, async (payload) => {
+        const { repoPath: rawRepoPath, hash } = payload as GitCommitFilesPayload;
+        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        return await git.commitFiles(repoPath, assertCommitHash(hash));
+    });
+
+    router.register(MSG.GIT_COMMIT_DIFF_FILE, async (payload) => {
+        const {
+            repoPath: rawRepoPath,
+            hash,
+            path,
+            previousPath,
+        } = payload as GitCommitDiffFilePayload;
+        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        assertRepoFilePath(repoPath, path);
+        if (previousPath) {
+            assertRepoFilePath(repoPath, previousPath);
+        }
+        return await git.commitDiffFile(repoPath, assertCommitHash(hash), path, previousPath);
     });
 
     router.register(MSG.GIT_REVERT_FILE, async (payload) => {
