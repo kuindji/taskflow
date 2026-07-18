@@ -285,12 +285,22 @@ async function log(repoPath: string, limit: number, skip: number): Promise<GitLo
             repoPath,
         );
     } catch (error) {
-        // An unborn HEAD (repo with no commits yet) is normal empty history.
-        // Anything else — not a git repo, corrupt object store — must surface.
+        // An unborn HEAD (repo with no commits yet) is normal empty history:
+        // the path is a git repo but HEAD doesn't resolve. Anything else —
+        // not a git repo, corrupt object store — must surface.
         try {
             await git(["rev-parse", "--git-dir"], repoPath);
         } catch {
-            throw error;
+            throw error; // not a git repository
+        }
+        let headResolves = true;
+        try {
+            await git(["rev-parse", "--verify", "HEAD"], repoPath);
+        } catch {
+            headResolves = false;
+        }
+        if (headResolves) {
+            throw error; // repo with a valid HEAD — the log failure is real
         }
         return { entries: [], hasMore: false };
     }
@@ -911,6 +921,7 @@ git commit -m "feat(backend): git history websocket handlers"
 
 **Files:**
 - Modify: `packages/ui/src/stores/session-helpers.ts` (Tab union, ~line 8)
+- Modify: `packages/ui/src/components/workspace/tab-constants.ts` (`tabVariants` type variants)
 - Modify: `packages/ui/src/components/workspace/Workspace.tsx` (next to `handleDiffTab`, ~line 350, and the `TaskHeader` render, ~line 434)
 - Modify: `packages/ui/src/components/workspace/TaskHeader.tsx` (props ~line 55, gating ~line 160, buttons ~line 395)
 - Modify: `packages/ui/src/components/workspace/TabContent.tsx` (switch, after the `"changes"` case ~line 110)
@@ -922,6 +933,14 @@ git commit -m "feat(backend): git history websocket handlers"
 - [ ] **Step 1: Add the tab type**
 
 In `packages/ui/src/stores/session-helpers.ts`, add `| "history"` to the `Tab["type"]` union after `| "changes"`.
+
+In `packages/ui/src/components/workspace/tab-constants.ts`, the `tabVariants` cva `type` variant map covers every `Tab["type"]` — add after the `changes` entry:
+
+```ts
+                history: "text-muted-foreground",
+```
+
+(Without this, `tabVariants({ type: tab.type })` in `TabItem.tsx` fails typecheck.)
 
 - [ ] **Step 2: Create a stub `HistoryPane`**
 
@@ -1048,7 +1067,7 @@ Expected: both exit 0.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/ui/src/stores/session-helpers.ts packages/ui/src/components/workspace/Workspace.tsx packages/ui/src/components/workspace/TaskHeader.tsx packages/ui/src/components/workspace/TabContent.tsx packages/ui/src/components/panes/HistoryPane.tsx
+git add packages/ui/src/stores/session-helpers.ts packages/ui/src/components/workspace/tab-constants.ts packages/ui/src/components/workspace/Workspace.tsx packages/ui/src/components/workspace/TaskHeader.tsx packages/ui/src/components/workspace/TabContent.tsx packages/ui/src/components/panes/HistoryPane.tsx
 git commit -m "feat(ui): history tab type and header entry point"
 ```
 
@@ -1265,6 +1284,9 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
         setSelectedFile(file);
         setDiffPair(null);
         setDiffError(false);
+        // Clear any in-flight text diff's spinner: its request-id guard means
+        // it can no longer clear diffLoading itself
+        setDiffLoading(false);
         if (isBinary(file)) return;
         setDiffLoading(true);
         try {
