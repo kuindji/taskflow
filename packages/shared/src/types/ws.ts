@@ -388,6 +388,24 @@ export interface GitDiffFileContentPayload {
     filePath: string;
 }
 
+export interface GitLogPayload {
+    repoPath: string;
+    limit?: number;
+    skip?: number;
+}
+
+export interface GitCommitFilesPayload {
+    repoPath: string;
+    hash: string;
+}
+
+export interface GitCommitDiffFilePayload {
+    repoPath: string;
+    hash: string;
+    path: string;
+    previousPath?: string;
+}
+
 export interface GitRevertFilePayload {
     repoPath: string;
     filePath: string;
