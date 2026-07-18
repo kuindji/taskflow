@@ -11,6 +11,7 @@ import { sendRequest } from "@/hooks/useWebSocket";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { cn } from "@/lib/utils";
 import { getLanguage } from "@/lib/editor-language";
 import { MonacoDiffViewer } from "./MonacoDiffViewer";
@@ -328,9 +329,11 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
                                             )}>
                                             {statusPrefix(file.status)}
                                         </Badge>
-                                        <span className="text-secondary-foreground truncate">
+                                        <TruncatedText
+                                            tooltip
+                                            className="text-secondary-foreground">
                                             {displayPath(file)}
-                                        </span>
+                                        </TruncatedText>
                                     </span>
                                     <span className="flex shrink-0 gap-0.5 text-xs">
                                         {isBinary(file) ? (
