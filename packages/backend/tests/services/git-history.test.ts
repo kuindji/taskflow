@@ -87,7 +87,13 @@ describe("git history", () => {
         it("rejects when the path is not a git repository", async () => {
             const plainDir = await mkdtemp(join(tmpdir(), "taskflow-not-a-repo-"));
             try {
-                await expect(git.log(plainDir, 100, 0)).rejects.toThrow();
+                let rejected = false;
+                try {
+                    await git.log(plainDir, 100, 0);
+                } catch {
+                    rejected = true;
+                }
+                expect(rejected).toBe(true);
             } finally {
                 await rm(plainDir, { recursive: true, force: true });
             }
@@ -231,9 +237,13 @@ describe("git history", () => {
 
         it("rejects when the commit does not exist", async () => {
             await commitFile(repoDir, "f.txt", "x\n", "base");
-            await expect(
-                git.commitDiffFile(repoDir, "0".repeat(40), "f.txt"),
-            ).rejects.toThrow();
+            let rejected = false;
+            try {
+                await git.commitDiffFile(repoDir, "0".repeat(40), "f.txt");
+            } catch {
+                rejected = true;
+            }
+            expect(rejected).toBe(true);
         });
     });
 });
