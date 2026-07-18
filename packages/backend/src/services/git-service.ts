@@ -5,6 +5,7 @@ import type {
     GitDiffFile,
     GitFileContentPair,
     GitDiffFileContentResult,
+    GitLogResult,
 } from "@taskflow/shared";
 import { readFile } from "fs/promises";
 import { rm } from "fs/promises";
@@ -24,6 +25,7 @@ import {
     checkBranchPr as checkBranchPrImpl,
     generateCommitMessage as generateCommitMessageImpl,
 } from "./git-pr";
+import { log as logImpl } from "./git-history";
 
 export class GitService {
     async getBranch(repoPath: string): Promise<string | null> {
@@ -369,6 +371,10 @@ export class GitService {
         }
 
         return { staged, unstaged };
+    }
+
+    async log(repoPath: string, limit: number, skip: number): Promise<GitLogResult> {
+        return logImpl(repoPath, limit, skip);
     }
 
     async revertFile(
