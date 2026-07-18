@@ -224,6 +224,15 @@ describe("git history", () => {
             expect(result).toEqual({ entries: [], hasMore: false });
         });
 
+        it("rejects when the path is not a git repository", async () => {
+            const plainDir = await mkdtemp(join(tmpdir(), "taskflow-not-a-repo-"));
+            try {
+                await expect(git.log(plainDir, 100, 0)).rejects.toThrow();
+            } finally {
+                await rm(plainDir, { recursive: true, force: true });
+            }
+        });
+
         it("handles subjects containing tabs and quotes", async () => {
             await commitFile(repoDir, "a.txt", "x", 'weird\tsubject "quoted" %H');
 
@@ -275,8 +284,14 @@ async function log(repoPath: string, limit: number, skip: number): Promise<GitLo
             ],
             repoPath,
         );
-    } catch {
-        // No commits yet (unborn HEAD) or not a repo with a HEAD — empty history
+    } catch (error) {
+        // An unborn HEAD (repo with no commits yet) is normal empty history.
+        // Anything else — not a git repo, corrupt object store — must surface.
+        try {
+            await git(["rev-parse", "--git-dir"], repoPath);
+        } catch {
+            throw error;
+        }
         return { entries: [], hasMore: false };
     }
 
@@ -492,7 +507,14 @@ async function commitFiles(repoPath: string, hash: string): Promise<GitCommitFil
     const numstatRecords = numstatOut.split("\0").filter((r) => r.length > 0);
     for (let i = 0; i < numstatRecords.length; i += 1) {
         const record = numstatRecords[i];
-        const [add, del, inlinePath] = record.split("\t");
+        // Split on the first two tabs only — with -z the path is unquoted and
+        // may itself contain tabs
+        const tab1 = record.indexOf("\t");
+        const tab2 = record.indexOf("\t", tab1 + 1);
+        if (tab1 === -1 || tab2 === -1) continue;
+        const add = record.slice(0, tab1);
+        const del = record.slice(tab1 + 1, tab2);
+        const inlinePath = record.slice(tab2 + 1);
         const stats = {
             additions: add === "-" ? -1 : parseInt(add, 10) || 0,
             deletions: del === "-" ? -1 : parseInt(del, 10) || 0,
@@ -608,6 +630,13 @@ Append inside the top-level `describe("git history", ...)` block of the test fil
 
             expect(pair).toEqual({ original: "same\n", modified: "same\n" });
         });
+
+        it("rejects when the commit does not exist", async () => {
+            await commitFile(repoDir, "f.txt", "x\n", "base");
+            await expect(
+                git.commitDiffFile(repoDir, "0".repeat(40), "f.txt"),
+            ).rejects.toThrow();
+        });
     });
 ```
 
@@ -636,6 +665,10 @@ async function commitDiffFile(
     path: string,
     previousPath?: string,
 ): Promise<GitFileContentPair> {
+    // A blob missing at a ref is expected (added/deleted file, root commit
+    // parent) and maps to an empty side — but a missing COMMIT (history
+    // rewritten) must surface as an error, so verify the commit first.
+    await git(["rev-parse", "--verify", `${hash}^{commit}`], repoPath);
     const [original, modified] = await Promise.all([
         showBlob(repoPath, `${hash}^:${previousPath ?? path}`),
         showBlob(repoPath, `${hash}:${path}`),
@@ -1119,7 +1152,11 @@ function CommitRow({ entry, isSelected, onSelect }: CommitRowProps) {
                 <span className="text-secondary-foreground min-w-0 flex-1 truncate">
                     {entry.subject}
                 </span>
-                <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100">
+                <span
+                    className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100"
+                    onClick={(e) => e.stopPropagation()}>
+                    {/* CopyButton doesn't stop propagation itself; without this
+                        the copy click would also select the commit row */}
                     <CopyButton value={entry.hash} tooltip="Copy hash" />
                 </span>
             </div>
@@ -1153,6 +1190,7 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
     const [selectedFile, setSelectedFile] = useState<GitCommitFile | null>(null);
     const [diffPair, setDiffPair] = useState<GitFileContentPair | null>(null);
     const [diffLoading, setDiffLoading] = useState(false);
+    const [diffError, setDiffError] = useState(false);
     const repoVersionRef = useRef(0);
     const requestIdRef = useRef(0);
 
@@ -1203,6 +1241,7 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
         setSelectedFile(null);
         setDiffPair(null);
         setDiffLoading(false);
+        setDiffError(false);
         try {
             const result = await sendRequest<GitCommitFilesResult>(MSG.GIT_COMMIT_FILES, {
                 repoPath,
@@ -1225,6 +1264,7 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
         const requestId = ++requestIdRef.current;
         setSelectedFile(file);
         setDiffPair(null);
+        setDiffError(false);
         if (isBinary(file)) return;
         setDiffLoading(true);
         try {
@@ -1238,7 +1278,10 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
             if (requestId !== requestIdRef.current) return;
             setDiffPair(result);
         } catch (err: unknown) {
+            if (repoVersion !== repoVersionRef.current) return;
+            if (requestId !== requestIdRef.current) return;
             console.error("Failed to fetch commit diff:", err);
+            setDiffError(true);
         } finally {
             if (repoVersion === repoVersionRef.current && requestId === requestIdRef.current) {
                 setDiffLoading(false);
@@ -1367,6 +1410,17 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 {diffLoading ? (
                     <div className="text-muted-foreground p-3 text-sm">Loading diff...</div>
+                ) : diffError ? (
+                    <div className="text-muted-foreground p-3 text-sm">
+                        Failed to load diff{" "}
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 px-1.5 text-xs"
+                            onClick={() => selectedFile && void selectFile(selectedFile)}>
+                            Retry
+                        </Button>
+                    </div>
                 ) : selectedFile && isBinary(selectedFile) ? (
                     <div className="text-muted-foreground p-3 text-sm">Binary file</div>
                 ) : diffPair ? (
@@ -1399,7 +1453,7 @@ Expected: both exit 0.
 
 - [ ] **Step 3: Verify in the running app**
 
-Use the `verify` skill / dev sandbox conventions (see memory: `TASKFLOW_DEV` sandbox notes) to exercise the flow: open a project workspace → click History → commit list appears → select a commit → files appear → select a file → Monaco diff renders. Also confirm: the History tab and Changes tab coexist, and re-clicking History focuses the existing tab instead of opening a duplicate.
+Runtime verification is performed by the ORCHESTRATING session after this task completes, not by the task subagent (the subagent only needs Steps 1, 2, and 4). Orchestrator checklist: launch the dev sandbox (fake `HOME` + `TASKFLOW_DEV_PORT` per the project's dev-backend sandbox convention; never the real data dir), open a project workspace → click History → commit list appears → select a commit → files appear → select a file → Monaco diff renders. Also confirm the History tab and Changes tab coexist, and re-clicking History focuses the existing tab instead of opening a duplicate.
 
 - [ ] **Step 4: Commit**
 
@@ -1411,6 +1465,8 @@ git commit -m "feat(ui): git history pane with commit list and diffs"
 ---
 
 ### Task 8: Final verification and release
+
+> This release step (version bump + push) is NOT part of the feature spec — it was explicitly requested by the user for this delivery ("bump minor version, commit and push"). Execute it only as the final task, after every other task is complete and reviewed.
 
 **Files:**
 - Modify: `electron/package.json` (version field only)
