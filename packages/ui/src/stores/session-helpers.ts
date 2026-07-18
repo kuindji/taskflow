@@ -15,6 +15,7 @@ interface Tab {
         | "shell"
         | "editor"
         | "changes"
+        | "history"
         | "browser"
         | "markdown";
     label: string;

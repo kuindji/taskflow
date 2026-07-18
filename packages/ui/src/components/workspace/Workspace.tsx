@@ -347,7 +347,7 @@ export function Workspace() {
         );
     }
 
-    const handleDiffTab = () => {
+    const openSingletonTab = (type: "changes" | "history", label: string) => {
         if (!workspace.workspaceKey) return;
         const store = useSessionStore.getState();
         const rightKey = `${workspace.workspaceKey}:right`;
@@ -355,25 +355,24 @@ export function Workspace() {
             ...(store.tabsByWorkspace[workspace.workspaceKey] ?? []),
             ...(store.tabsByWorkspace[rightKey] ?? []),
         ];
-        const existingChangesTab = allTabs.find((tab) => tab.type === "changes");
-        if (existingChangesTab) {
+        const existingTab = allTabs.find((tab) => tab.type === type);
+        if (existingTab) {
             const rightTabs = store.tabsByWorkspace[rightKey] ?? [];
-            if (rightTabs.some((t) => t.id === existingChangesTab.id)) {
-                store.setActiveTab(rightKey, existingChangesTab.id);
+            if (rightTabs.some((t) => t.id === existingTab.id)) {
+                store.setActiveTab(rightKey, existingTab.id);
             } else {
-                store.setActiveTab(workspace.workspaceKey, existingChangesTab.id);
+                store.setActiveTab(workspace.workspaceKey, existingTab.id);
             }
             return;
         }
         const split = useUIStore.getState().splitByWorkspace[workspace.workspaceKey];
         const targetKey =
             split?.open && split.activePane === "right" ? rightKey : workspace.workspaceKey;
-        store.addTab(targetKey, {
-            id: crypto.randomUUID(),
-            type: "changes",
-            label: "Changes",
-        });
+        store.addTab(targetKey, { id: crypto.randomUUID(), type, label });
     };
+
+    const handleDiffTab = () => openSingletonTab("changes", "Changes");
+    const handleHistoryTab = () => openSingletonTab("history", "History");
 
     const handleRunTab = async (
         type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi",
@@ -435,6 +434,7 @@ export function Workspace() {
                 task={workspace.task ?? undefined}
                 project={workspace.project}
                 onDiff={canShowGitControls ? handleDiffTab : undefined}
+                onHistory={canShowGitControls ? handleHistoryTab : undefined}
             />
             {worktreePending ? (
                 <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-sm">

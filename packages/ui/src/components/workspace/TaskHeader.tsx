@@ -43,6 +43,7 @@ import {
     GitCommitHorizontal,
     GitFork,
     GitPullRequestCreateArrow,
+    History,
     NotebookText,
     Pin,
     Plus,
@@ -56,6 +57,7 @@ interface TaskHeaderProps {
     task?: Task;
     project?: Project;
     onDiff?: () => void;
+    onHistory?: () => void;
 }
 
 function openUrl(url: string) {
@@ -81,7 +83,7 @@ function PrLink({ pr }: { pr: TaskWorktreePr }) {
     );
 }
 
-export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
+export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps) {
     const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
     const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
@@ -159,6 +161,7 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
 
     const showGitButtons = !!project && (!task || isWorktreeTask);
     const showDiffButton = !!onDiff && showGitButtons;
+    const showHistoryButton = !!onHistory && showGitButtons;
     const showCommitButton = showGitButtons;
 
     const handleArchive = useCallback(() => {
@@ -420,6 +423,17 @@ export function TaskHeader({ task, project, onDiff }: TaskHeaderProps) {
                                         )}
                                 </span>
                             )}
+                        </Button>
+                    )}
+                    {showHistoryButton && (
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={onHistory}
+                            aria-label="Show history"
+                            className="[-webkit-app-region:no-drag]">
+                            <History className="h-3 w-3" />
+                            <span className="text-xs">History</span>
                         </Button>
                     )}
                     {task ? (

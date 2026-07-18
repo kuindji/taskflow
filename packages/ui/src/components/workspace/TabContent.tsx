@@ -4,6 +4,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { TerminalPane } from "@/components/panes/TerminalPane";
 import { EditorPane } from "@/components/panes/EditorPane";
 import { ChangesPane } from "@/components/panes/ChangesPane";
+import { HistoryPane } from "@/components/panes/HistoryPane";
 import { BrowserPane } from "@/components/panes/BrowserPane";
 import { MarkdownPane } from "@/components/panes/MarkdownPane";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
@@ -112,6 +113,18 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
                         if (!isActive) return null;
                         pane = workspace.workingDir ? (
                             <ChangesPane repoPath={workspace.workingDir} />
+                        ) : (
+                            <div className="text-muted-foreground p-3">
+                                Repository not available
+                            </div>
+                        );
+                        break;
+
+                    case "history":
+                        label = "History";
+                        if (!isActive) return null;
+                        pane = workspace.workingDir ? (
+                            <HistoryPane repoPath={workspace.workingDir} />
                         ) : (
                             <div className="text-muted-foreground p-3">
                                 Repository not available

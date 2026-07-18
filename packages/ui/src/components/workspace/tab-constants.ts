@@ -36,6 +36,7 @@ const tabVariants = cva(
                 shell: "text-info",
                 editor: "text-muted-foreground",
                 changes: "text-muted-foreground",
+                history: "text-muted-foreground",
                 browser: "text-muted-foreground",
                 markdown: "text-muted-foreground",
             },
