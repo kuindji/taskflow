@@ -230,7 +230,7 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
             {/* Left column: commits on top, selected commit's files beneath */}
             <div className="border-border flex w-80 shrink-0 flex-col border-r">
                 <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                    {logError ? (
+                    {logError && entries.length === 0 ? (
                         <div className="text-muted-foreground p-1 text-sm">
                             Failed to load history{" "}
                             <Button
@@ -253,7 +253,18 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
                                     onSelect={(hash) => void selectCommit(hash)}
                                 />
                             ))}
-                            {hasMore && (
+                            {logError ? (
+                                <div className="text-muted-foreground p-1 text-sm">
+                                    Failed to load more{" "}
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-5 px-1.5 text-xs"
+                                        onClick={() => void fetchLog(entries.length)}>
+                                        Retry
+                                    </Button>
+                                </div>
+                            ) : hasMore ? (
                                 <Button
                                     variant="ghost"
                                     size="sm"
@@ -262,7 +273,7 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
                                     onClick={() => void fetchLog(entries.length)}>
                                     Load more
                                 </Button>
-                            )}
+                            ) : null}
                         </>
                     )}
                     {logLoading && entries.length === 0 && (
