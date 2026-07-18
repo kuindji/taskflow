@@ -101,4 +101,84 @@ describe("git history", () => {
             expect(result.entries[0].subject).toBe('weird\tsubject "quoted" %H');
         });
     });
+
+    describe("commitFiles", () => {
+        it("lists added, modified, and deleted files with stats", async () => {
+            await commitFile(repoDir, "keep.txt", "line1\n", "base");
+            await writeFile(join(repoDir, "keep.txt"), "line1\nline2\n");
+            await writeFile(join(repoDir, "added.txt"), "new\n");
+            await run(["git", "add", "."], repoDir);
+            await run(["git", "commit", "-m", "changes"], repoDir);
+
+            const { entries } = await git.log(repoDir, 1, 0);
+            const { files } = await git.commitFiles(repoDir, entries[0].hash);
+
+            expect(files).toHaveLength(2);
+            const added = files.find((f) => f.path === "added.txt");
+            const modified = files.find((f) => f.path === "keep.txt");
+            expect(added).toMatchObject({ status: "new", additions: 1, deletions: 0 });
+            expect(modified).toMatchObject({ status: "modified", additions: 1, deletions: 0 });
+        });
+
+        it("detects deletions", async () => {
+            await commitFile(repoDir, "gone.txt", "a\nb\n", "base");
+            await run(["git", "rm", "gone.txt"], repoDir);
+            await run(["git", "commit", "-m", "remove"], repoDir);
+
+            const { entries } = await git.log(repoDir, 1, 0);
+            const { files } = await git.commitFiles(repoDir, entries[0].hash);
+
+            expect(files).toHaveLength(1);
+            expect(files[0]).toMatchObject({
+                path: "gone.txt",
+                status: "deleted",
+                additions: 0,
+                deletions: 2,
+            });
+        });
+
+        it("detects renames with previousPath", async () => {
+            await commitFile(repoDir, "old name.txt", "same content\n", "base");
+            await run(["git", "mv", "old name.txt", "new name.txt"], repoDir);
+            await run(["git", "commit", "-m", "rename"], repoDir);
+
+            const { entries } = await git.log(repoDir, 1, 0);
+            const { files } = await git.commitFiles(repoDir, entries[0].hash);
+
+            expect(files).toHaveLength(1);
+            expect(files[0]).toMatchObject({
+                path: "new name.txt",
+                previousPath: "old name.txt",
+                status: "renamed",
+            });
+        });
+
+        it("marks binary files with -1 stats", async () => {
+            await commitFile(repoDir, "a.txt", "text", "base");
+            await writeFile(join(repoDir, "bin.dat"), Buffer.from([0, 1, 2, 255, 0, 7]));
+            await run(["git", "add", "."], repoDir);
+            await run(["git", "commit", "-m", "binary"], repoDir);
+
+            const { entries } = await git.log(repoDir, 1, 0);
+            const { files } = await git.commitFiles(repoDir, entries[0].hash);
+
+            expect(files).toHaveLength(1);
+            expect(files[0]).toMatchObject({
+                path: "bin.dat",
+                status: "new",
+                additions: -1,
+                deletions: -1,
+            });
+        });
+
+        it("lists files of the root commit", async () => {
+            await commitFile(repoDir, "first.txt", "hello\n", "root");
+
+            const { entries } = await git.log(repoDir, 1, 0);
+            const { files } = await git.commitFiles(repoDir, entries[0].hash);
+
+            expect(files).toHaveLength(1);
+            expect(files[0]).toMatchObject({ path: "first.txt", status: "new", additions: 1 });
+        });
+    });
 });

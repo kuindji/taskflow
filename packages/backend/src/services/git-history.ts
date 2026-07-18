@@ -1,4 +1,9 @@
-import type { GitLogEntry, GitLogResult } from "@taskflow/shared";
+import type {
+    GitCommitFile,
+    GitCommitFilesResult,
+    GitLogEntry,
+    GitLogResult,
+} from "@taskflow/shared";
 import { git } from "./git-helpers";
 
 // %H hash, %h short hash, %an author, %aI ISO date, %D decorations, %s subject.
@@ -66,4 +71,86 @@ async function log(repoPath: string, limit: number, skip: number): Promise<GitLo
     return { entries: hasMore ? entries.slice(0, limit) : entries, hasMore };
 }
 
-export { log };
+const COMMIT_DIFF_ARGS = ["--format=", "--diff-merges=first-parent", "-z"];
+
+function parseCommitStatus(char: string): GitCommitFile["status"] {
+    switch (char) {
+        case "A":
+            return "new";
+        case "D":
+            return "deleted";
+        case "R":
+            return "renamed";
+        default:
+            return "modified";
+    }
+}
+
+async function commitFiles(repoPath: string, hash: string): Promise<GitCommitFilesResult> {
+    // Two invocations: --name-status for status letters + rename pairs,
+    // --numstat for per-file line counts. Both NUL-delimited, merged by path.
+    const [nameStatusOut, numstatOut] = await Promise.all([
+        git(["show", ...COMMIT_DIFF_ARGS, "--name-status", hash], repoPath),
+        git(["show", ...COMMIT_DIFF_ARGS, "--numstat", hash], repoPath),
+    ]);
+
+    const files: GitCommitFile[] = [];
+    const nameStatusRecords = nameStatusOut.split("\0").filter((r) => r.length > 0);
+    for (let i = 0; i < nameStatusRecords.length; i += 1) {
+        // Record: "A" | "M" | "D" | "R100" ... followed by path record(s)
+        const statusChar = nameStatusRecords[i].trim()[0];
+        const status = parseCommitStatus(statusChar);
+        if (status === "renamed") {
+            const previousPath = nameStatusRecords[i + 1];
+            const path = nameStatusRecords[i + 2];
+            i += 2;
+            if (path === undefined) break;
+            files.push({ path, previousPath, status, additions: 0, deletions: 0 });
+        } else {
+            const path = nameStatusRecords[i + 1];
+            i += 1;
+            if (path === undefined) break;
+            files.push({ path, status, additions: 0, deletions: 0 });
+        }
+    }
+
+    // With -z, numstat renames are "add\tdel\t" then NUL, old path, NUL, new path
+    const statsByPath = new Map<string, { additions: number; deletions: number }>();
+    const numstatRecords = numstatOut.split("\0").filter((r) => r.length > 0);
+    for (let i = 0; i < numstatRecords.length; i += 1) {
+        const record = numstatRecords[i];
+        // Split on the first two tabs only — with -z the path is unquoted and
+        // may itself contain tabs
+        const tab1 = record.indexOf("\t");
+        const tab2 = record.indexOf("\t", tab1 + 1);
+        if (tab1 === -1 || tab2 === -1) continue;
+        const add = record.slice(0, tab1);
+        const del = record.slice(tab1 + 1, tab2);
+        const inlinePath = record.slice(tab2 + 1);
+        const stats = {
+            additions: add === "-" ? -1 : parseInt(add, 10) || 0,
+            deletions: del === "-" ? -1 : parseInt(del, 10) || 0,
+        };
+        if (inlinePath) {
+            statsByPath.set(inlinePath, stats);
+        } else {
+            // Rename: skip old path record, stats belong to the new path
+            const path = numstatRecords[i + 2];
+            i += 2;
+            if (path === undefined) break;
+            statsByPath.set(path, stats);
+        }
+    }
+
+    for (const file of files) {
+        const stats = statsByPath.get(file.path);
+        if (stats) {
+            file.additions = stats.additions;
+            file.deletions = stats.deletions;
+        }
+    }
+
+    return { files };
+}
+
+export { log, commitFiles };
