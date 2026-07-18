@@ -181,4 +181,59 @@ describe("git history", () => {
             expect(files[0]).toMatchObject({ path: "first.txt", status: "new", additions: 1 });
         });
     });
+
+    describe("commitDiffFile", () => {
+        it("returns original and modified content for a modified file", async () => {
+            await commitFile(repoDir, "f.txt", "before\n", "base");
+            await commitFile(repoDir, "f.txt", "after\n", "change");
+
+            const { entries } = await git.log(repoDir, 1, 0);
+            const pair = await git.commitDiffFile(repoDir, entries[0].hash, "f.txt");
+
+            expect(pair).toEqual({ original: "before\n", modified: "after\n" });
+        });
+
+        it("returns empty original for a file added in the root commit", async () => {
+            await commitFile(repoDir, "f.txt", "hello\n", "root");
+
+            const { entries } = await git.log(repoDir, 1, 0);
+            const pair = await git.commitDiffFile(repoDir, entries[0].hash, "f.txt");
+
+            expect(pair).toEqual({ original: "", modified: "hello\n" });
+        });
+
+        it("returns empty modified for a deleted file", async () => {
+            await commitFile(repoDir, "f.txt", "content\n", "base");
+            await run(["git", "rm", "f.txt"], repoDir);
+            await run(["git", "commit", "-m", "remove"], repoDir);
+
+            const { entries } = await git.log(repoDir, 1, 0);
+            const pair = await git.commitDiffFile(repoDir, entries[0].hash, "f.txt");
+
+            expect(pair).toEqual({ original: "content\n", modified: "" });
+        });
+
+        it("uses previousPath for the original side of a rename", async () => {
+            await commitFile(repoDir, "old.txt", "same\n", "base");
+            await run(["git", "mv", "old.txt", "new.txt"], repoDir);
+            await run(["git", "commit", "-m", "rename"], repoDir);
+
+            const { entries } = await git.log(repoDir, 1, 0);
+            const pair = await git.commitDiffFile(
+                repoDir,
+                entries[0].hash,
+                "new.txt",
+                "old.txt",
+            );
+
+            expect(pair).toEqual({ original: "same\n", modified: "same\n" });
+        });
+
+        it("rejects when the commit does not exist", async () => {
+            await commitFile(repoDir, "f.txt", "x\n", "base");
+            await expect(
+                git.commitDiffFile(repoDir, "0".repeat(40), "f.txt"),
+            ).rejects.toThrow();
+        });
+    });
 });

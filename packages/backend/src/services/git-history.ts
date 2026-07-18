@@ -1,6 +1,7 @@
 import type {
     GitCommitFile,
     GitCommitFilesResult,
+    GitFileContentPair,
     GitLogEntry,
     GitLogResult,
 } from "@taskflow/shared";
@@ -153,4 +154,30 @@ async function commitFiles(repoPath: string, hash: string): Promise<GitCommitFil
     return { files };
 }
 
-export { log, commitFiles };
+async function showBlob(repoPath: string, refSpec: string): Promise<string> {
+    try {
+        return await git(["show", refSpec], repoPath);
+    } catch {
+        // Path absent at that ref (added/deleted file, or root commit parent)
+        return "";
+    }
+}
+
+async function commitDiffFile(
+    repoPath: string,
+    hash: string,
+    path: string,
+    previousPath?: string,
+): Promise<GitFileContentPair> {
+    // A blob missing at a ref is expected (added/deleted file, root commit
+    // parent) and maps to an empty side — but a missing COMMIT (history
+    // rewritten) must surface as an error, so verify the commit first.
+    await git(["rev-parse", "--verify", `${hash}^{commit}`], repoPath);
+    const [original, modified] = await Promise.all([
+        showBlob(repoPath, `${hash}^:${previousPath ?? path}`),
+        showBlob(repoPath, `${hash}:${path}`),
+    ]);
+    return { original, modified };
+}
+
+export { log, commitFiles, commitDiffFile };

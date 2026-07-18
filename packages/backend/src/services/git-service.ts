@@ -26,7 +26,11 @@ import {
     checkBranchPr as checkBranchPrImpl,
     generateCommitMessage as generateCommitMessageImpl,
 } from "./git-pr";
-import { log as logImpl, commitFiles as commitFilesImpl } from "./git-history";
+import {
+    log as logImpl,
+    commitFiles as commitFilesImpl,
+    commitDiffFile as commitDiffFileImpl,
+} from "./git-history";
 
 export class GitService {
     async getBranch(repoPath: string): Promise<string | null> {
@@ -380,6 +384,15 @@ export class GitService {
 
     async commitFiles(repoPath: string, hash: string): Promise<GitCommitFilesResult> {
         return commitFilesImpl(repoPath, hash);
+    }
+
+    async commitDiffFile(
+        repoPath: string,
+        hash: string,
+        path: string,
+        previousPath?: string,
+    ): Promise<GitFileContentPair> {
+        return commitDiffFileImpl(repoPath, hash, path, previousPath);
     }
 
     async revertFile(
