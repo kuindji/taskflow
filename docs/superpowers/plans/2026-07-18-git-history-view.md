@@ -1173,9 +1173,10 @@ function CommitRow({ entry, isSelected, onSelect }: CommitRowProps) {
                 </span>
                 <span
                     className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100"
-                    onClick={(e) => e.stopPropagation()}>
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}>
                     {/* CopyButton doesn't stop propagation itself; without this
-                        the copy click would also select the commit row */}
+                        a copy click or keypress would also select the commit row */}
                     <CopyButton value={entry.hash} tooltip="Copy hash" />
                 </span>
             </div>
@@ -1245,9 +1246,11 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
         setLogError(false);
         setSelectedHash(null);
         setFiles(null);
+        setFilesError(false);
         setSelectedFile(null);
         setDiffPair(null);
         setDiffLoading(false);
+        setDiffError(false);
         void fetchLog(0, repoVersion);
     }, [repoPath, fetchLog]);
 
