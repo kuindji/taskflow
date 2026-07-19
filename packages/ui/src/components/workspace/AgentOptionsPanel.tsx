@@ -10,6 +10,7 @@ import {
     type CodexReasoningEffort,
     type GeminiLaunchOptions,
     type PiThinkingLevel,
+    type KimiPermissionMode,
 } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Play, RotateCcw } from "lucide-react";
@@ -20,6 +21,7 @@ import { GeminiOptions } from "@/components/shared/GeminiOptions";
 import { CursorOptions } from "@/components/shared/CursorOptions";
 import { OpenCodeOptions } from "@/components/shared/OpenCodeOptions";
 import { PiOptions } from "@/components/shared/PiOptions";
+import { KimiOptions } from "@/components/shared/KimiOptions";
 import { useAgentAvailability } from "@/hooks/useAgentAvailability";
 
 interface AgentOptionsPanelProps {
@@ -45,6 +47,7 @@ function AgentOptionsPanel({
     const geminiSettings = useSettingsStore((s) => s.settings?.gemini);
     const cursorSettings = useSettingsStore((s) => s.settings?.cursor);
     const piSettings = useSettingsStore((s) => s.settings?.pi);
+    const kimiSettings = useSettingsStore((s) => s.settings?.kimi);
     const agents = useAgentAvailability();
     const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
     const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
@@ -126,6 +129,12 @@ function AgentOptionsPanel({
             ? (matchingValue.tools ?? piSettings?.tools ?? "")
             : (piSettings?.tools ?? "");
 
+    // --- Kimi-specific defaults ---
+    const defaultKimiPermissionMode: KimiPermissionMode =
+        matchingValue?.type === "kimi"
+            ? (matchingValue.permissionMode ?? kimiSettings?.permissionMode ?? "manual")
+            : (kimiSettings?.permissionMode ?? "manual");
+
     // --- Model defaults (shared across agents) ---
     const defaultModel =
         agentType === "codex" && matchingValue?.type === "codex"
@@ -140,19 +149,23 @@ function AgentOptionsPanel({
                     ? (matchingValue.model ?? cursorSettings?.defaultModel ?? "default")
                     : agentType === "pi" && matchingValue?.type === "pi"
                       ? (matchingValue.model ?? piSettings?.defaultModel ?? "")
-                      : agentType === "codex"
-                        ? (codexSettings?.defaultModel ?? "")
-                        : agentType === "claude"
-                          ? (claudeSettings?.defaultModel ?? "default")
-                          : agentType === "opencode"
-                            ? (opencodeSettings?.defaultModel ?? "")
-                            : agentType === "gemini"
-                              ? (geminiSettings?.defaultModel ?? "")
-                              : agentType === "cursor"
-                                ? (cursorSettings?.defaultModel ?? "default")
-                                : agentType === "pi"
-                                  ? (piSettings?.defaultModel ?? "")
-                                  : "default";
+                      : agentType === "kimi" && matchingValue?.type === "kimi"
+                        ? (matchingValue.model ?? kimiSettings?.defaultModel ?? "")
+                        : agentType === "codex"
+                          ? (codexSettings?.defaultModel ?? "")
+                          : agentType === "claude"
+                            ? (claudeSettings?.defaultModel ?? "default")
+                            : agentType === "opencode"
+                              ? (opencodeSettings?.defaultModel ?? "")
+                              : agentType === "gemini"
+                                ? (geminiSettings?.defaultModel ?? "")
+                                : agentType === "cursor"
+                                  ? (cursorSettings?.defaultModel ?? "default")
+                                  : agentType === "pi"
+                                    ? (piSettings?.defaultModel ?? "")
+                                    : agentType === "kimi"
+                                      ? (kimiSettings?.defaultModel ?? "")
+                                      : "default";
 
     // --- State ---
     const [permissionMode, setPermissionMode] = useState<string>(defaultPermissionMode);
@@ -173,6 +186,8 @@ function AgentOptionsPanel({
     const [model, setModel] = useState<string>(defaultModel);
     const [piThinking, setPiThinking] = useState<PiThinkingLevel>(defaultPiThinking);
     const [piTools, setPiTools] = useState<string>(defaultPiTools);
+    const [kimiPermissionMode, setKimiPermissionMode] =
+        useState<KimiPermissionMode>(defaultKimiPermissionMode);
 
     const isFirstRender = useRef(true);
     const onChangeRef = useRef(onChange);
@@ -207,6 +222,9 @@ function AgentOptionsPanel({
             setPiThinking(defaultPiThinking);
             setPiTools(defaultPiTools);
             setModel(defaultModel);
+        } else if (agentType === "kimi") {
+            setKimiPermissionMode(defaultKimiPermissionMode);
+            setModel(defaultModel);
         }
     }, [
         agentType,
@@ -223,6 +241,7 @@ function AgentOptionsPanel({
         defaultYolo,
         defaultPiThinking,
         defaultPiTools,
+        defaultKimiPermissionMode,
         defaultModel,
     ]);
 
@@ -294,6 +313,15 @@ function AgentOptionsPanel({
         [model, piThinking, piTools],
     );
 
+    const buildKimiOptions = useCallback(
+        (): AgentLaunchOptions => ({
+            type: "kimi",
+            model: model || undefined,
+            permissionMode: kimiPermissionMode === "manual" ? undefined : kimiPermissionMode,
+        }),
+        [model, kimiPermissionMode],
+    );
+
     const buildOptions = useCallback((): AgentLaunchOptions => {
         if (agentType === "claude") return buildClaudeOptions();
         if (agentType === "codex") return buildCodexOptions();
@@ -301,6 +329,7 @@ function AgentOptionsPanel({
         if (agentType === "gemini") return buildGeminiOptions();
         if (agentType === "cursor") return buildCursorOptions();
         if (agentType === "pi") return buildPiOptions();
+        if (agentType === "kimi") return buildKimiOptions();
         return { type: "codex" };
     }, [
         agentType,
@@ -310,6 +339,7 @@ function AgentOptionsPanel({
         buildGeminiOptions,
         buildCursorOptions,
         buildPiOptions,
+        buildKimiOptions,
     ]);
 
     const emitChange = useCallback(() => {
@@ -393,6 +423,13 @@ function AgentOptionsPanel({
                     onModelChange={setModel}
                     onThinkingChange={setPiThinking}
                     onToolsChange={setPiTools}
+                />
+            ) : agentType === "kimi" ? (
+                <KimiOptions
+                    modelValue={model}
+                    permissionMode={kimiPermissionMode}
+                    onModelChange={setModel}
+                    onPermissionModeChange={setKimiPermissionMode}
                 />
             ) : null}
 
