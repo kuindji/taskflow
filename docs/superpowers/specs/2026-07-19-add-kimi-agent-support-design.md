@@ -148,5 +148,5 @@ Precedent: `worktree-setup.ts` already writes commands into session PTYs via `pt
 
 - `parseKimiModelsOutput` unit tests: real captured JSON, empty object, malformed JSON, missing `displayName`/`maxContextSize`.
 - `buildAgentLaunchSpec` kimi cases: flag mapping (manual/auto/yolo, model), `initialInput` composition with/without prompt, `KIMI_CODE_NO_AUTO_UPDATE` env.
-- PTY injection: unit-test the readiness/quiet-window logic with a fake PTY handle; manual end-to-end check against the real kimi TUI (multiline paste, submit, `--auto` mode).
+- PTY injection: test the readiness/quiet-window logic with real short-lived PTY processes in the existing `pty-manager` test suite (inject-after-quiet, no-injection-without-input, cancel-on-close); manual end-to-end check against the real kimi TUI (multiline paste, submit, `--auto` mode).
 - Update any exhaustive-switch/type assertions that the union extension breaks.

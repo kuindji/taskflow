@@ -55,7 +55,9 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
 After the Pi block (after `PiModelInfo`, ~line 121), add:
 
 ```ts
-type KimiPermissionMode = "manual" | "auto" | "yolo";
+const KIMI_PERMISSION_MODES = ["manual", "auto", "yolo"] as const;
+
+type KimiPermissionMode = (typeof KIMI_PERMISSION_MODES)[number];
 
 interface KimiLaunchOptions {
     type: Extract<AgentType, "kimi">;
@@ -75,7 +77,7 @@ interface KimiModelInfo {
 }
 ```
 
-Add `| KimiLaunchOptions` to the `AgentLaunchOptions` union, and add `KimiPermissionMode`, `KimiLaunchOptions`, `KimiModelInfo` to the `export type {}` block.
+Add `| KimiLaunchOptions` to the `AgentLaunchOptions` union, add `KIMI_PERMISSION_MODES` to the value `export {}` block (next to `CLAUDE_PERMISSION_MODES`), and add `KimiPermissionMode`, `KimiLaunchOptions`, `KimiModelInfo` to the `export type {}` block.
 
 - [ ] **Step 2: Extend `packages/shared/src/types/settings.ts`**
 
@@ -181,11 +183,15 @@ describe("parseKimiModelsOutput", () => {
         expect(models[1]).toEqual({ id: "kimi-code/k3", displayName: "K3", contextWindow: "256K" });
     });
 
-    it("falls back to the alias id when displayName is missing", () => {
-        const models = parseKimiModelsOutput(
-            JSON.stringify({ models: { "kimi-code/x": { maxContextSize: 131072 } } }),
+    it("falls back to the model field, then the alias id, when displayName is missing", () => {
+        const withModel = parseKimiModelsOutput(
+            JSON.stringify({ models: { "kimi-code/x": { model: "x", maxContextSize: 131072 } } }),
         );
-        expect(models).toEqual([{ id: "kimi-code/x", displayName: "kimi-code/x", contextWindow: "128K" }]);
+        expect(withModel).toEqual([{ id: "kimi-code/x", displayName: "x", contextWindow: "128K" }]);
+        const bare = parseKimiModelsOutput(
+            JSON.stringify({ models: { "kimi-code/y": { maxContextSize: 131072 } } }),
+        );
+        expect(bare).toEqual([{ id: "kimi-code/y", displayName: "kimi-code/y", contextWindow: "128K" }]);
     });
 
     it("returns empty for malformed JSON, non-object, and missing models", () => {
@@ -233,10 +239,14 @@ export function parseKimiModelsOutput(output: string): KimiModelInfo[] {
     return Object.entries(models as Record<string, unknown>).map(([id, value]) => {
         const entry =
             typeof value === "object" && value !== null
-                ? (value as { displayName?: unknown; maxContextSize?: unknown })
+                ? (value as { displayName?: unknown; model?: unknown; maxContextSize?: unknown })
                 : {};
         const displayName =
-            typeof entry.displayName === "string" && entry.displayName ? entry.displayName : id;
+            typeof entry.displayName === "string" && entry.displayName
+                ? entry.displayName
+                : typeof entry.model === "string" && entry.model
+                  ? entry.model
+                  : id;
         const contextWindow =
             typeof entry.maxContextSize === "number" && entry.maxContextSize > 0
                 ? `${Math.round(entry.maxContextSize / 1024)}K`
@@ -405,64 +415,84 @@ git commit -m "feat(backend): kimi launch spec with PTY-delivered initial input"
 ### Task 4: PTY initial-input injection
 
 **Files:**
-- Modify: `packages/backend/src/services/pty-manager.ts` (`SpawnOptions` ~line 10, `spawn()` ~line 108)
-- Test: `packages/backend/tests/services/pty-manager.test.ts` (create)
+- Modify: `packages/backend/src/services/pty-manager.ts` (`SpawnOptions` ~line 10, `Session` interface ~line 92, `spawn()` ~line 108, `close()` ~line 236)
+- Test: `packages/backend/tests/services/pty-manager.test.ts` (append — the file EXISTS; follow its conventions: `it` from `bun:test`, `isWindows`/`testCwd` consts, `it.skipIf(isWindows)` for POSIX-only cases, `manager.closeAll()` in `afterEach`)
 
 **Interfaces:**
 - Consumes: nothing new.
-- Produces: `SpawnOptions.initialInput?: string` — after spawn, once output has been quiet for 500 ms (or 10 s max), the PTY receives `\x1b[200~<initialInput>\x1b[201~` followed 50 ms later by `\r`. Task 5 passes `spec.initialInput` through.
+- Produces: `SpawnOptions.initialInput?: string` — after spawn, once the process has produced output AND then been quiet for 500 ms (or 10 s after spawn regardless, covering processes that never print), the PTY receives `\x1b[200~<initialInput>\x1b[201~` followed 50 ms later by `\r`. Task 5 passes `spec.initialInput` through.
 
-- [ ] **Step 1: Write failing test**
+- [ ] **Step 1: Write failing tests**
 
-Create `packages/backend/tests/services/pty-manager.test.ts`:
+Append a new `describe` block to the EXISTING `packages/backend/tests/services/pty-manager.test.ts`, reusing the file's top-level `isWindows` and `testCwd` constants:
 
 ```ts
-import { describe, expect, it } from "bun:test";
-import { PtyManager } from "../../src/services/pty-manager";
-
-function collectOutput(): { onData: (d: string, s: number) => void; get: () => string } {
-    let out = "";
-    return {
-        onData: (d) => {
-            out += d;
-        },
-        get: () => out,
-    };
-}
-
 describe("PtyManager initialInput", () => {
-    it("injects initial input after the quiet window and submits it", async () => {
-        const manager = new PtyManager();
-        const collector = collectOutput();
-        const id = manager.spawn({
-            command: "cat",
-            args: [],
-            cwd: process.cwd(),
-            onData: collector.onData,
-            onExit: () => {},
-            initialInput: "hello injected world",
-        });
-        // quiet window (500ms) + submit delay (50ms) + slack
-        await new Promise((r) => setTimeout(r, 1500));
-        // `cat` in a PTY echoes typed input back
-        expect(collector.get()).toContain("hello injected world");
-        manager.close(id);
+    const manager = new PtyManager();
+
+    afterEach(() => {
+        manager.closeAll();
     });
 
-    it("does not write when no initialInput is given", async () => {
-        const manager = new PtyManager();
-        const collector = collectOutput();
-        const id = manager.spawn({
-            command: "cat",
+    it.skipIf(isWindows)(
+        "injects initial input once startup output goes quiet, then submits it",
+        async () => {
+            let output = "";
+            manager.spawn({
+                // prints startup output like a TUI, then echoes stdin like one
+                command: "/bin/sh",
+                args: ["-c", "echo booting; exec cat"],
+                cwd: testCwd,
+                onData: (data) => {
+                    output += data;
+                },
+                onExit: () => {},
+                initialInput: "hello injected world",
+            });
+            // startup output + quiet window (500ms) + submit delay (50ms) + slack
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            // `cat` in a PTY echoes the pasted input back
+            expect(output).toContain("booting");
+            expect(output).toContain("hello injected world");
+        },
+    );
+
+    it.skipIf(isWindows)("does not write when no initialInput is given", async () => {
+        let output = "";
+        manager.spawn({
+            command: "/bin/cat",
             args: [],
-            cwd: process.cwd(),
-            onData: collector.onData,
+            cwd: testCwd,
+            onData: (data) => {
+                output += data;
+            },
             onExit: () => {},
         });
-        await new Promise((r) => setTimeout(r, 800));
-        expect(collector.get()).toBe("");
-        manager.close(id);
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        expect(output).toBe("");
     });
+
+    it.skipIf(isWindows)(
+        "close() before the quiet window elapses cancels the pending injection",
+        async () => {
+            let output = "";
+            const id = manager.spawn({
+                command: "/bin/sh",
+                args: ["-c", "echo booting; exec cat"],
+                cwd: testCwd,
+                onData: (data) => {
+                    output += data;
+                },
+                onExit: () => {},
+                initialInput: "should never appear",
+            });
+            // close while the quiet window is still pending
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            manager.close(id);
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            expect(output).not.toContain("should never appear");
+        },
+    );
 });
 ```
 
@@ -537,15 +567,61 @@ Inside `spawn()`, before the `DataBatcher` is created (the batcher callback refe
         };
 ```
 
-Then:
+Then wire it up:
 
-1. In the `DataBatcher` callback (the function passed to `new DataBatcher(...)`), add `scheduleQuietInject();` as the first line — every output batch postpones injection until the TUI settles.
-2. In `cleanup()` add `injected = true; cancelInjection();` before the existing body, so an early exit cancels pending timers (the submit timer's `this.sessions.get(id)?` guard covers the already-closed case, but timers must not leak).
-3. At the end of `spawn()` (after `this.sessions.set(id, sessionEntry)`), start the clocks:
+1. In the `DataBatcher` callback (the function passed to `new DataBatcher(...)`), add `scheduleQuietInject();` as the first line. This is the ONLY place quiet scheduling starts, so injection never happens before the process has produced output; every subsequent batch postpones it until the TUI settles.
+2. In `cleanup()` add `injected = true; cancelInjection();` before the existing body, so a process exit cancels pending timers.
+3. Make cancellation reachable from `close()` (which kills sessions directly WITHOUT running `cleanup`): add an optional member to the `Session` interface (~line 92):
+
+```ts
+interface Session {
+    pty: PtyHandle;
+    scrollback: string[];
+    lastSequence: number;
+    headless: HeadlessTerminal;
+    serializer: SerializeAddon;
+    /** Cancels a pending initial-input injection; set only when spawned with initialInput. */
+    cancelInitialInput?: () => void;
+}
+```
+
+Populate it when building `sessionEntry`:
+
+```ts
+        sessionEntry = {
+            pty,
+            scrollback,
+            lastSequence,
+            headless,
+            serializer,
+            ...(initialInput !== undefined && {
+                cancelInitialInput: () => {
+                    injected = true;
+                    cancelInjection();
+                },
+            }),
+        };
+```
+
+And in `close()` (~line 236), call it before killing:
+
+```ts
+    close(id: string): void {
+        const session = this.sessions.get(id);
+        if (session) {
+            session.cancelInitialInput?.();
+            session.serializer.dispose();
+            session.headless.dispose();
+            session.pty.kill();
+            this.sessions.delete(id);
+        }
+    }
+```
+
+4. At the end of `spawn()` (after `this.sessions.set(id, sessionEntry)`), start only the hard-cap clock — the quiet window arms itself from the first output batch:
 
 ```ts
         if (!injected) {
-            scheduleQuietInject();
             maxWaitTimer = setTimeout(inject, INITIAL_INPUT_MAX_WAIT_MS);
         }
         return id;
@@ -554,7 +630,7 @@ Then:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/backend && bun test tests/services/pty-manager.test.ts`
-Expected: PASS (both tests).
+Expected: PASS (all pre-existing tests plus the three new ones).
 
 - [ ] **Step 5: Run the full backend suite**
 
@@ -706,7 +782,7 @@ In `isAlwaysMounted` add `tab.type === "kimi" ||` after the pi line. In the rend
 
 - [ ] **Step 6: Extend `normalize-agent-options.ts`**
 
-After `case "pi"`:
+Add `KIMI_PERMISSION_MODES` to the file's `@taskflow/shared` imports (value import, next to the existing type imports), then after `case "pi"`:
 
 ```ts
         case "kimi":
@@ -714,7 +790,11 @@ After `case "pi"`:
             return {
                 type: "kimi",
                 model: agentOptions.model,
-                permissionMode: agentOptions.permissionMode,
+                permissionMode:
+                    agentOptions.permissionMode &&
+                    (KIMI_PERMISSION_MODES as readonly string[]).includes(agentOptions.permissionMode)
+                        ? agentOptions.permissionMode
+                        : undefined,
             };
 ```
 
@@ -1024,10 +1104,10 @@ git commit -m "feat(ui): kimi session options in AgentOptionsPanel"
 
 - [ ] **Step 1: Tray tracker — failing test first**
 
-Append to `packages/backend/src/services/__tests__/tray-state-tracker.test.ts` (match the file's existing test style):
+Append to `packages/backend/src/services/__tests__/tray-state-tracker.test.ts` — note the file imports `test` (not `it`) from `bun:test`:
 
 ```ts
-    it("tracks activity for pi and kimi sessions", () => {
+    test("tracks activity for pi and kimi sessions", () => {
         const tracker = new TrayStateTracker();
         tracker.registerSession("pi-1", "pi");
         tracker.registerSession("kimi-1", "kimi");
@@ -1100,10 +1180,16 @@ Run the test again. Expected: PASS.
             return {
                 type: "kimi",
                 model: opts?.model,
-                permissionMode: opts?.permissionMode,
+                permissionMode:
+                    opts?.permissionMode &&
+                    (KIMI_PERMISSION_MODES as readonly string[]).includes(opts.permissionMode)
+                        ? opts.permissionMode
+                        : undefined,
             };
         }
 ```
+
+(add `KIMI_PERMISSION_MODES` to this file's `@taskflow/shared` value imports)
 
 2. Session Type `SelectContent` (~line 235): after the Cursor item, before Shell:
 
