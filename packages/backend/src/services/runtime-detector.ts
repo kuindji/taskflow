@@ -5,6 +5,7 @@ import type {
     CodexModelInfo,
     CodexReasoningEffort,
     CursorModel,
+    KimiModelInfo,
     OpenCodeModelInfo,
     PiModelInfo,
 } from "@taskflow/shared";
@@ -84,7 +85,7 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
     return runtimes;
 }
 
-const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor", "pi"];
+const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor", "pi", "kimi"];
 
 // Strip ANSI escape codes from terminal output
 function stripAnsi(str: string): string {
@@ -349,4 +350,39 @@ export function parsePiModelsOutput(output: string): PiModelInfo[] {
 export async function fetchPiModels(): Promise<PiModelInfo[]> {
     const output = await runCliCommand("pi", ["--list-models"]);
     return parsePiModelsOutput(output);
+}
+
+export function parseKimiModelsOutput(output: string): KimiModelInfo[] {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(output);
+    } catch {
+        return [];
+    }
+    if (typeof parsed !== "object" || parsed === null) return [];
+    const models = (parsed as { models?: unknown }).models;
+    if (typeof models !== "object" || models === null) return [];
+    return Object.entries(models as Record<string, unknown>).map(([id, value]) => {
+        const entry =
+            typeof value === "object" && value !== null
+                ? (value as { displayName?: unknown; model?: unknown; maxContextSize?: unknown })
+                : {};
+        const displayName =
+            typeof entry.displayName === "string" && entry.displayName
+                ? entry.displayName
+                : typeof entry.model === "string" && entry.model
+                  ? entry.model
+                  : id;
+        const contextWindow =
+            typeof entry.maxContextSize === "number" && entry.maxContextSize > 0
+                ? `${Math.round(entry.maxContextSize / 1024)}K`
+                : "";
+        return { id, displayName, contextWindow };
+    });
+}
+
+export async function fetchKimiModels(): Promise<KimiModelInfo[]> {
+    const output = await runCliCommand("kimi", ["provider", "list", "--json"]);
+    if (!output) return [];
+    return parseKimiModelsOutput(output);
 }

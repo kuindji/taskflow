@@ -16,6 +16,7 @@ import {
     fetchCursorModels,
     fetchOpenCodeModels,
     fetchPiModels,
+    fetchKimiModels,
 } from "./services/runtime-detector";
 import { registerProjectHandlers } from "./handlers/project";
 import { registerTaskHandlers } from "./handlers/task";
@@ -135,6 +136,7 @@ async function main() {
                         | "gemini"
                         | "cursor"
                         | "pi"
+                        | "kimi"
                         | "shell",
                     label: `[Scheduled] ${schedule.name}`,
                     prompt,
@@ -404,6 +406,9 @@ async function main() {
         }));
         router.register(MSG.PI_MODELS, async () => ({
             models: await fetchPiModels(),
+        }));
+        router.register(MSG.KIMI_MODELS, async () => ({
+            models: await fetchKimiModels(),
         }));
         router.register(MSG.CONNECTIVITY_STATUS, async () => ({
             online: connectivityService.isOnline,

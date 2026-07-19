@@ -4,6 +4,7 @@ import {
     detectAgents,
     parseCodexAppServerOutput,
     parsePiModelsOutput,
+    parseKimiModelsOutput,
 } from "../../src/services/runtime-detector";
 
 describe("detectRuntimes", () => {
@@ -175,5 +176,62 @@ describe("parseCodexAppServerOutput", () => {
             { reasoningEffort: "medium", description: "Supported" },
         ]);
         expect(models[0]?.defaultReasoningEffort).toBe("medium");
+    });
+});
+
+describe("parseKimiModelsOutput", () => {
+    const FIXTURE = JSON.stringify({
+        providers: { "managed:kimi-code": { type: "kimi" } },
+        models: {
+            "kimi-code/kimi-for-coding": {
+                provider: "managed:kimi-code",
+                model: "kimi-for-coding",
+                maxContextSize: 262144,
+                capabilities: ["thinking", "tool_use"],
+                displayName: "K2.7 Coding",
+            },
+            "kimi-code/k3": {
+                provider: "managed:kimi-code",
+                model: "k3",
+                maxContextSize: 262144,
+                displayName: "K3",
+            },
+        },
+    });
+
+    it("parses the models map into KimiModelInfo entries", () => {
+        const models = parseKimiModelsOutput(FIXTURE);
+        expect(models).toHaveLength(2);
+        expect(models[0]).toEqual({
+            id: "kimi-code/kimi-for-coding",
+            displayName: "K2.7 Coding",
+            contextWindow: "256K",
+        });
+        expect(models[1]).toEqual({ id: "kimi-code/k3", displayName: "K3", contextWindow: "256K" });
+    });
+
+    it("falls back to the model field, then the alias id, when displayName is missing", () => {
+        const withModel = parseKimiModelsOutput(
+            JSON.stringify({ models: { "kimi-code/x": { model: "x", maxContextSize: 131072 } } }),
+        );
+        expect(withModel).toEqual([{ id: "kimi-code/x", displayName: "x", contextWindow: "128K" }]);
+        const bare = parseKimiModelsOutput(
+            JSON.stringify({ models: { "kimi-code/y": { maxContextSize: 131072 } } }),
+        );
+        expect(bare).toEqual([{ id: "kimi-code/y", displayName: "kimi-code/y", contextWindow: "128K" }]);
+    });
+
+    it("returns empty for malformed JSON, non-object, and missing models", () => {
+        expect(parseKimiModelsOutput("not json")).toEqual([]);
+        expect(parseKimiModelsOutput('"str"')).toEqual([]);
+        expect(parseKimiModelsOutput("{}")).toEqual([]);
+        expect(parseKimiModelsOutput("")).toEqual([]);
+    });
+
+    it("omits contextWindow when maxContextSize is absent or invalid", () => {
+        const models = parseKimiModelsOutput(
+            JSON.stringify({ models: { "kimi-code/y": { displayName: "Y", maxContextSize: "big" } } }),
+        );
+        expect(models).toEqual([{ id: "kimi-code/y", displayName: "Y", contextWindow: "" }]);
     });
 });
