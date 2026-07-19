@@ -6,6 +6,7 @@ import { OpenCodeIcon } from "@/components/icons/OpenCodeIcon";
 import { GeminiIcon } from "@/components/icons/GeminiIcon";
 import { CursorIcon } from "@/components/icons/CursorIcon";
 import { PiIcon } from "@/components/icons/PiIcon";
+import { KimiIcon } from "@/components/icons/KimiIcon";
 
 const AGENT_META: Record<
     AgentType,
@@ -20,6 +21,7 @@ const AGENT_META: Record<
     gemini: { icon: GeminiIcon, colorClass: "text-primary" },
     cursor: { icon: CursorIcon, colorClass: "text-cursor-agent" },
     pi: { icon: PiIcon, colorClass: "text-primary" },
+    kimi: { icon: KimiIcon, colorClass: "text-primary" },
 };
 
 const tabVariants = cva(
@@ -33,6 +35,7 @@ const tabVariants = cva(
                 gemini: "text-primary",
                 cursor: "text-cursor-agent",
                 pi: "text-primary",
+                kimi: "text-primary",
                 shell: "text-info",
                 editor: "text-muted-foreground",
                 changes: "text-muted-foreground",

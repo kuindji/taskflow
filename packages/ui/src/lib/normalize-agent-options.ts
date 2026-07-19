@@ -1,5 +1,6 @@
 import type { AgentLaunchOptions, AgentType } from "@taskflow/shared";
 import type { SessionType } from "@taskflow/shared";
+import { KIMI_PERMISSION_MODES } from "@taskflow/shared";
 
 /**
  * Normalize agent options for a given agent/session type.
@@ -72,6 +73,19 @@ function normalizeAgentOptions(
                 model: agentOptions.model,
                 thinking: agentOptions.thinking,
                 tools: agentOptions.tools,
+            };
+        case "kimi":
+            if (agentOptions.type !== "kimi") return undefined;
+            return {
+                type: "kimi",
+                model: agentOptions.model,
+                permissionMode:
+                    agentOptions.permissionMode &&
+                    (KIMI_PERMISSION_MODES as readonly string[]).includes(
+                        agentOptions.permissionMode,
+                    )
+                        ? agentOptions.permissionMode
+                        : undefined,
             };
         default:
             return undefined;

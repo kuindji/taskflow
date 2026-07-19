@@ -172,7 +172,16 @@ export function Workspace() {
     }
 
     const handleNewTab = async (
-        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "browser" | "shell",
+        type:
+            | "claude"
+            | "codex"
+            | "opencode"
+            | "gemini"
+            | "cursor"
+            | "pi"
+            | "kimi"
+            | "browser"
+            | "shell",
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
         skipCursorRulesCheck?: boolean,
@@ -375,7 +384,7 @@ export function Workspace() {
     const handleHistoryTab = () => openSingletonTab("history", "History");
 
     const handleRunTab = async (
-        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi",
+        type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi",
         agentOptions?: AgentLaunchOptions,
         skipCursorRulesCheck?: boolean,
     ) => {

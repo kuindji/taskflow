@@ -27,6 +27,7 @@ function isAlwaysMounted(tab: Tab): boolean {
         tab.type === "gemini" ||
         tab.type === "cursor" ||
         tab.type === "pi" ||
+        tab.type === "kimi" ||
         tab.type === "shell" ||
         tab.type === "browser"
     );
@@ -67,6 +68,7 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
                     case "gemini":
                     case "cursor":
                     case "pi":
+                    case "kimi":
                     case "shell":
                         label = `${tab.type} terminal`;
                         pane = tab.sessionId ? (
