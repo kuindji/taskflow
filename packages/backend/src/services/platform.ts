@@ -43,6 +43,7 @@ export function getEnsurePaths(): string[] {
             join(home, ".local", "bin"),
             join(home, ".bun", "bin"),
             join(home, ".cargo", "bin"),
+            join(home, ".kimi-code", "bin"),
             join(home, "AppData", "Roaming", "npm"),
             "C:\\Program Files\\nodejs",
         ];
@@ -51,6 +52,7 @@ export function getEnsurePaths(): string[] {
         join(home, ".local", "bin"),
         join(home, ".bun", "bin"),
         join(home, ".cargo", "bin"),
+        join(home, ".kimi-code", "bin"),
         "/usr/local/bin",
         "/opt/homebrew/bin",
         "/opt/homebrew/sbin",
