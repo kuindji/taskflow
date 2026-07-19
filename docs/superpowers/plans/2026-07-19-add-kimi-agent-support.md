@@ -15,7 +15,7 @@
 - Work directly on `main` (no worktree/branch).
 - Kimi CLI facts (v0.27.0, verified): flags `--model <alias>`, `--auto`, `--yolo` (`--auto` and `--yolo` are mutually exclusive); models listed by `kimi provider list --json` (clean JSON on stdout); version via `kimi --version` (stdout, e.g. `0.27.0`). No `--plan` exposure (out of scope per spec). Binary lives in `~/.kimi-code/bin` (on PATH via `.zshrc`; `buildShellPath()` picks it up).
 - New permission-mode value set everywhere: `"manual" | "auto" | "yolo"`. `manual` = no flag.
-- Every task ends with `bun run typecheck` passing. Commit after each task, message style `feat(scope): ...` / `test(scope): ...`, **no Co-Authored-By lines**.
+- Every task ends with `bun run typecheck` passing — with one documented exception: Task 1 introduces union members ahead of their consumers, so after Task 1 only `packages/shared` must typecheck (its final step lists the acceptable downstream exhaustiveness errors, which Tasks 3–8 burn down; the repo is fully green again from Task 8 on). Commit after each task, message style `feat(scope): ...` / `test(scope): ...`, **no Co-Authored-By lines**.
 
 ---
 
@@ -439,9 +439,11 @@ describe("PtyManager initialInput", () => {
         async () => {
             let output = "";
             manager.spawn({
-                // prints startup output like a TUI, then echoes stdin like one
+                // prints startup output like a TUI, then waits for a submitted line;
+                // `stty -echo` + `read` proves the trailing Enter actually arrived —
+                // PTY echo alone would show the paste without the submit.
                 command: "/bin/sh",
-                args: ["-c", "echo booting; exec cat"],
+                args: ["-c", 'stty -echo; echo booting; IFS= read -r line; printf \'got:%s\\n\' "$line"'],
                 cwd: testCwd,
                 onData: (data) => {
                     output += data;
@@ -451,9 +453,10 @@ describe("PtyManager initialInput", () => {
             });
             // startup output + quiet window (500ms) + submit delay (50ms) + slack
             await new Promise((resolve) => setTimeout(resolve, 2000));
-            // `cat` in a PTY echoes the pasted input back
             expect(output).toContain("booting");
-            expect(output).toContain("hello injected world");
+            // the payload only appears after "got:" once read receives the newline
+            // (the bracketed-paste escape bytes may surround it inside the line)
+            expect(output).toMatch(/got:.*hello injected world/);
         },
     );
 

@@ -39,7 +39,7 @@ Both are solved with **PTY input injection** (see Architecture).
 
 ## User-facing changes
 
-1. Kimi appears everywhere agents are offered — run menus, agent dropdown, settings favorites, New Task dialog, flow action editors — with a "K" glyph icon and the label "Kimi". Only visible when `kimi` is detected on `PATH`.
+1. Kimi appears everywhere agents are offered — run menus, agent dropdown, settings favorites, New Task dialog, flow action editors — with a "K" glyph icon and the label "Kimi". Availability follows each surface's existing behavior: availability-gated menus omit undetected agents, while the New Task dialog and Defaults section show them disabled with a "(not installed)" note.
 2. Session options panel for Kimi exposes two controls:
    - **Model** — dropdown populated asynchronously from `kimi provider list --json`. Rows show the model `displayName` (e.g. "K3") with the alias id (`kimi-code/k3`) and context size (e.g. "256K") as muted secondary text. Stores the alias into `KimiLaunchOptions.model` → passed as `--model`.
    - **Permission mode** — select with `manual` (default; no flag, approve in TUI), `auto` (`--auto`), `yolo` (`--yolo`). The CLI rejects `--auto` + `--yolo` together; a single select makes that unrepresentable.
