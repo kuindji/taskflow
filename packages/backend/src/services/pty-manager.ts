@@ -16,11 +16,20 @@ interface SpawnOptions {
     cols?: number;
     rows?: number;
     env?: Record<string, string>;
+    /**
+     * Text to type into the PTY once startup output goes quiet — for agents
+     * with no CLI flag for an initial prompt (kimi). Sent as a bracketed
+     * paste followed by Enter.
+     */
+    initialInput?: string;
 }
 
 const MAX_SCROLLBACK = 50_000;
 const BATCH_MAX_SIZE = 128 * 1024; // 128KB — smaller batches are easier for the frontend to time-budget
 const BATCH_CEILING_MS = 50; // Force-flush safety ceiling during sustained bursts
+const INITIAL_INPUT_QUIET_MS = 500; // inject after this much output silence
+const INITIAL_INPUT_MAX_WAIT_MS = 10_000; // inject regardless after this long
+const INITIAL_INPUT_SUBMIT_DELAY_MS = 50; // gap between paste and Enter
 
 /**
  * Batches PTY output chunks to reduce WebSocket message frequency.
@@ -95,6 +104,8 @@ interface Session {
     lastSequence: number;
     headless: HeadlessTerminal;
     serializer: SerializeAddon;
+    /** Cancels a pending initial-input injection; set only when spawned with initialInput. */
+    cancelInitialInput?: () => void;
 }
 
 interface ScrollbackSnapshot {
@@ -125,7 +136,39 @@ export class PtyManager {
         const serializer = new SerializeAddon();
         headless.loadAddon(serializer);
 
+        const initialInput = options.initialInput;
+        let injected = initialInput === undefined;
+        let quietTimer: ReturnType<typeof setTimeout> | null = null;
+        let maxWaitTimer: ReturnType<typeof setTimeout> | null = null;
+        let submitTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const cancelInjection = () => {
+            if (quietTimer) clearTimeout(quietTimer);
+            if (maxWaitTimer) clearTimeout(maxWaitTimer);
+            if (submitTimer) clearTimeout(submitTimer);
+            quietTimer = maxWaitTimer = submitTimer = null;
+        };
+
+        const inject = () => {
+            if (injected) return;
+            injected = true;
+            cancelInjection();
+            const session = this.sessions.get(id);
+            if (!session || initialInput === undefined) return;
+            session.pty.write(`\x1b[200~${initialInput}\x1b[201~`);
+            submitTimer = setTimeout(() => {
+                this.sessions.get(id)?.pty.write("\r");
+            }, INITIAL_INPUT_SUBMIT_DELAY_MS);
+        };
+
+        const scheduleQuietInject = () => {
+            if (injected) return;
+            if (quietTimer) clearTimeout(quietTimer);
+            quietTimer = setTimeout(inject, INITIAL_INPUT_QUIET_MS);
+        };
+
         const batcher = new DataBatcher((batchedData) => {
+            scheduleQuietInject();
             lastSequence += 1;
             if (sessionEntry) sessionEntry.lastSequence = lastSequence;
             scrollback.push(batchedData);
@@ -154,6 +197,8 @@ export class PtyManager {
         };
 
         const cleanup = (exitCode: number) => {
+            injected = true;
+            cancelInjection();
             batcher.flush();
             batcher.dispose();
             const session = this.sessions.get(id);
@@ -214,9 +259,19 @@ export class PtyManager {
             lastSequence,
             headless,
             serializer,
+            ...(initialInput !== undefined && {
+                cancelInitialInput: () => {
+                    injected = true;
+                    cancelInjection();
+                },
+            }),
         };
 
         this.sessions.set(id, sessionEntry);
+
+        if (!injected) {
+            maxWaitTimer = setTimeout(inject, INITIAL_INPUT_MAX_WAIT_MS);
+        }
         return id;
     }
 
@@ -236,6 +291,7 @@ export class PtyManager {
     close(id: string): void {
         const session = this.sessions.get(id);
         if (session) {
+            session.cancelInitialInput?.();
             session.serializer.dispose();
             session.headless.dispose();
             session.pty.kill();

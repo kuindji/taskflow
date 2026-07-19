@@ -132,3 +132,74 @@ describe("PtyManager", () => {
         expect(manager.list()).not.toContain(sessionId);
     });
 });
+
+describe("PtyManager initialInput", () => {
+    const manager = new PtyManager();
+
+    afterEach(() => {
+        manager.closeAll();
+    });
+
+    it.skipIf(isWindows)(
+        "injects initial input once startup output goes quiet, then submits it",
+        async () => {
+            let output = "";
+            manager.spawn({
+                // prints startup output like a TUI, then waits for a submitted line;
+                // `stty -echo` + `read` proves the trailing Enter actually arrived —
+                // PTY echo alone would show the paste without the submit.
+                command: "/bin/sh",
+                args: ["-c", 'stty -echo; echo booting; IFS= read -r line; printf \'got:%s\\n\' "$line"'],
+                cwd: testCwd,
+                onData: (data) => {
+                    output += data;
+                },
+                onExit: () => {},
+                initialInput: "hello injected world",
+            });
+            // startup output + quiet window (500ms) + submit delay (50ms) + slack
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            expect(output).toContain("booting");
+            // the payload only appears after "got:" once read receives the newline
+            // (the bracketed-paste escape bytes may surround it inside the line)
+            expect(output).toMatch(/got:.*hello injected world/);
+        },
+    );
+
+    it.skipIf(isWindows)("does not write when no initialInput is given", async () => {
+        let output = "";
+        manager.spawn({
+            command: "/bin/cat",
+            args: [],
+            cwd: testCwd,
+            onData: (data) => {
+                output += data;
+            },
+            onExit: () => {},
+        });
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        expect(output).toBe("");
+    });
+
+    it.skipIf(isWindows)(
+        "close() before the quiet window elapses cancels the pending injection",
+        async () => {
+            let output = "";
+            const id = manager.spawn({
+                command: "/bin/sh",
+                args: ["-c", "echo booting; exec cat"],
+                cwd: testCwd,
+                onData: (data) => {
+                    output += data;
+                },
+                onExit: () => {},
+                initialInput: "should never appear",
+            });
+            // close while the quiet window is still pending
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            manager.close(id);
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            expect(output).not.toContain("should never appear");
+        },
+    );
+});
