@@ -35,7 +35,7 @@ interface SessionOwner {
 
 interface CreateSessionOpts {
     owner: SessionOwner;
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "shell" | "editor";
+    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi" | "shell" | "editor";
     label?: string;
     prompt?: string;
     systemPrompt?: string;
@@ -73,6 +73,8 @@ function isAutonomousAgent(
     if (opts.type === "codex")
         return !!opts.dangerouslyBypassApprovalsAndSandbox || opts.approvalPolicy === "never";
     if (opts.type === "cursor") return !!opts.yolo;
+    if (opts.type === "kimi")
+        return opts.permissionMode === "auto" || opts.permissionMode === "yolo";
     return "dontAskQuestions" in opts && !!opts.dontAskQuestions;
 }
 
@@ -145,6 +147,14 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
                 tools: s.tools || undefined,
             };
         }
+        case "kimi": {
+            const s = settings.kimi;
+            return {
+                type: "kimi",
+                model: s.defaultModel || undefined,
+                permissionMode: s.permissionMode === "manual" ? undefined : s.permissionMode,
+            };
+        }
     }
 }
 
@@ -165,6 +175,8 @@ function mergeAgentOptions(
             return explicit?.type === "cursor" ? { ...defaults, ...explicit } : defaults;
         case "pi":
             return explicit?.type === "pi" ? { ...defaults, ...explicit } : defaults;
+        case "kimi":
+            return explicit?.type === "kimi" ? { ...defaults, ...explicit } : defaults;
     }
 }
 
@@ -175,6 +187,7 @@ function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
     if (type === "gemini") return "Gemini";
     if (type === "cursor") return "Cursor";
     if (type === "pi") return "Pi";
+    if (type === "kimi") return "Kimi";
     if (type === "editor") return "Editor";
     return `${type} session`;
 }
@@ -329,6 +342,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         let command: string;
         const args: string[] = [];
         let specEnv: Record<string, string> | undefined;
+        let specInitialInput: string | undefined;
         let geminiSystemPath: string | undefined;
         let shellSystemPrompt: string | undefined;
         if (type === "editor") {
@@ -434,6 +448,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 }
                 args.push(...spec.args);
                 specEnv = spec.env;
+                specInitialInput = spec.initialInput;
             }
         }
 
@@ -469,6 +484,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             args,
             cwd,
             env: specEnv ? { ...taskflowEnv, ...specEnv } : taskflowEnv,
+            initialInput: specInitialInput,
             cols,
             rows,
             onData: (data, sequence) => {

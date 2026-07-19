@@ -55,6 +55,10 @@ const DEFAULT_PI = {
     thinking: "off" as const,
     tools: "read,bash,edit,write,grep,find,ls",
 };
+const DEFAULT_KIMI = {
+    defaultModel: "",
+    permissionMode: "manual" as const,
+};
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
 const DEFAULT_REMOTE_AGENT = {
     autoStart: false,
@@ -108,6 +112,7 @@ describe("SettingsStore", () => {
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
             pi: DEFAULT_PI,
+            kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
         });
@@ -142,6 +147,7 @@ describe("SettingsStore", () => {
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
             pi: DEFAULT_PI,
+            kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
         });
@@ -184,6 +190,7 @@ describe("SettingsStore", () => {
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
             pi: DEFAULT_PI,
+            kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
         });
@@ -216,6 +223,7 @@ describe("SettingsStore", () => {
             gemini: DEFAULT_GEMINI,
             cursor: DEFAULT_CURSOR,
             pi: DEFAULT_PI,
+            kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
         });

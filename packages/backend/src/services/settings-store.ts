@@ -94,6 +94,10 @@ const DEFAULTS: AppSettings = {
         thinking: "off",
         tools: "read,bash,edit,write,grep,find,ls",
     },
+    kimi: {
+        defaultModel: "",
+        permissionMode: "manual",
+    },
     appearance: {
         theme: DEFAULT_THEME_ID,
     },
@@ -120,6 +124,7 @@ function createDefaultSettings(): AppSettings {
         gemini: { ...DEFAULTS.gemini },
         cursor: { ...DEFAULTS.cursor },
         pi: { ...DEFAULTS.pi },
+        kimi: { ...DEFAULTS.kimi },
         appearance: { ...DEFAULTS.appearance },
         remoteAgent: { ...DEFAULTS.remoteAgent },
     };
@@ -281,6 +286,7 @@ export class SettingsStore {
                 gemini: { ...defaults.gemini, ...parsed.gemini },
                 cursor: { ...defaults.cursor, ...parsed.cursor },
                 pi: { ...defaults.pi, ...parsed.pi },
+                kimi: { ...defaults.kimi, ...parsed.kimi },
                 appearance: { ...defaults.appearance, ...parsed.appearance },
                 remoteAgent: { ...defaults.remoteAgent, ...parsed.remoteAgent },
             };
@@ -349,6 +355,9 @@ export class SettingsStore {
         }
         if (partial.pi) {
             applyNullable(current.pi, partial.pi);
+        }
+        if (partial.kimi) {
+            applyNullable(current.kimi, partial.kimi);
         }
         if (partial.appearance) {
             applyNullable(current.appearance, partial.appearance);
