@@ -41,15 +41,8 @@ const DEFAULT_CODEX = {
 };
 const DEFAULT_OPENCODE = {
     defaultModel: "",
-    defaultVariant: "",
     autoApprove: false,
 };
-const DEFAULT_GEMINI = {
-    defaultModel: "",
-    approvalMode: "default" as const,
-    sandbox: false,
-};
-const DEFAULT_CURSOR = { defaultModel: "default", yolo: false };
 const DEFAULT_PI = {
     defaultModel: "",
     thinking: "off" as const,
@@ -109,8 +102,6 @@ describe("SettingsStore", () => {
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
             opencode: DEFAULT_OPENCODE,
-            gemini: DEFAULT_GEMINI,
-            cursor: DEFAULT_CURSOR,
             pi: DEFAULT_PI,
             kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
@@ -144,8 +135,6 @@ describe("SettingsStore", () => {
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
             opencode: DEFAULT_OPENCODE,
-            gemini: DEFAULT_GEMINI,
-            cursor: DEFAULT_CURSOR,
             pi: DEFAULT_PI,
             kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
@@ -187,8 +176,6 @@ describe("SettingsStore", () => {
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
             opencode: DEFAULT_OPENCODE,
-            gemini: DEFAULT_GEMINI,
-            cursor: DEFAULT_CURSOR,
             pi: DEFAULT_PI,
             kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
@@ -220,13 +207,37 @@ describe("SettingsStore", () => {
             claude: DEFAULT_CLAUDE,
             codex: DEFAULT_CODEX,
             opencode: DEFAULT_OPENCODE,
-            gemini: DEFAULT_GEMINI,
-            cursor: DEFAULT_CURSOR,
             pi: DEFAULT_PI,
             kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
         });
+    });
+
+    it("drops legacy gemini/cursor blocks and the retired opencode variant", async () => {
+        await writeFile(
+            settingsFile,
+            JSON.stringify({
+                general: { defaultAgent: "gemini", favoriteAgents: ["claude", "cursor", "pi"] },
+                opencode: { defaultModel: "opencode/big-pickle", defaultVariant: "high" },
+                gemini: { defaultModel: "pro", approvalMode: "yolo", sandbox: true },
+                cursor: { defaultModel: "sonnet-4", yolo: true },
+            }),
+        );
+
+        const settings = await store.get();
+        expect(settings.general.defaultAgent).toBe("claude");
+        expect(settings.general.favoriteAgents).toEqual(["claude", "pi"]);
+        expect(settings.opencode).toEqual({
+            defaultModel: "opencode/big-pickle",
+            autoApprove: false,
+        });
+        expect("gemini" in settings).toBe(false);
+        expect("cursor" in settings).toBe(false);
+
+        // The cleanup migration persists: the rewritten file has no legacy keys.
+        const raw = JSON.parse(await readFile(settingsFile, "utf8")) as Record<string, unknown>;
+        expect("defaultVariant" in (raw.opencode as Record<string, unknown>)).toBe(false);
     });
 
     it("returns layout defaults when no file exists", async () => {

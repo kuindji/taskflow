@@ -7,7 +7,7 @@ import type {
     FlowArtifact,
     SessionType,
 } from "@taskflow/shared";
-import { MASTER_OWNER_ID, MSG } from "@taskflow/shared";
+import { MASTER_OWNER_ID, MSG, isAgentType } from "@taskflow/shared";
 import type { FlowStore } from "./flow-store";
 
 interface SpawnSessionOpts {
@@ -407,6 +407,13 @@ class FlowRunner {
         if (!actionEntry) return;
 
         const resolved = await this.resolveAction(actionEntry);
+        // Persisted flows may reference removed agent types; fail the action
+        // with a clear message instead of letting the spawn path throw later.
+        if (resolved.sessionType !== "shell" && !isAgentType(resolved.sessionType)) {
+            throw new Error(
+                `Action "${resolved.name}" uses unsupported agent type: ${String(resolved.sessionType)}`,
+            );
+        }
         const ownerDescription = await this.deps.getOwnerDescription(owner);
         const { prompt, systemPrompt } = this.buildActionPrompt(
             resolved.prompt,

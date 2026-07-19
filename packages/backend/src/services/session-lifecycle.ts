@@ -1,4 +1,4 @@
-import { MSG } from "@taskflow/shared";
+import { MSG, isAgentType } from "@taskflow/shared";
 import type {
     AgentLaunchOptions,
     AgentType,
@@ -16,8 +16,6 @@ import {
     ensureInternalAgentSkillFile,
     PROMPT_AUTONOMOUS,
 } from "./internal-agent-skill";
-import { ensureCursorRulesFile } from "./cursor-rules";
-import { ensureGeminiSystemFile } from "./gemini-system";
 import { getEditorById } from "./editor-detector";
 import type { TrayStateTracker } from "./tray-state-tracker";
 import { homedir } from "os";
@@ -35,7 +33,7 @@ interface SessionOwner {
 
 interface CreateSessionOpts {
     owner: SessionOwner;
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi" | "shell" | "editor";
+    type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "shell" | "editor";
     label?: string;
     prompt?: string;
     systemPrompt?: string;
@@ -69,10 +67,8 @@ function isAutonomousAgent(
     type: string,
 ): boolean {
     if (!opts || type === "claude") return false;
-    if (opts.type === "gemini") return opts.approvalMode === "yolo";
     if (opts.type === "codex")
         return !!opts.dangerouslyBypassApprovalsAndSandbox || opts.approvalPolicy === "never";
-    if (opts.type === "cursor") return !!opts.yolo;
     if (opts.type === "kimi")
         return opts.permissionMode === "auto" || opts.permissionMode === "yolo";
     return "dontAskQuestions" in opts && !!opts.dontAskQuestions;
@@ -117,25 +113,7 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
             return {
                 type: "opencode",
                 model: s.defaultModel || undefined,
-                variant: s.defaultVariant || undefined,
                 autoApprove: s.autoApprove || undefined,
-            };
-        }
-        case "gemini": {
-            const s = settings.gemini;
-            return {
-                type: "gemini",
-                model: s.defaultModel === "default" ? undefined : s.defaultModel || undefined,
-                approvalMode: s.approvalMode === "default" ? undefined : s.approvalMode,
-                sandbox: s.sandbox || undefined,
-            };
-        }
-        case "cursor": {
-            const s = settings.cursor;
-            return {
-                type: "cursor",
-                model: s.defaultModel === "default" ? undefined : s.defaultModel || undefined,
-                yolo: s.yolo || undefined,
             };
         }
         case "pi": {
@@ -169,10 +147,6 @@ function mergeAgentOptions(
             return explicit?.type === "codex" ? { ...defaults, ...explicit } : defaults;
         case "opencode":
             return explicit?.type === "opencode" ? { ...defaults, ...explicit } : defaults;
-        case "gemini":
-            return explicit?.type === "gemini" ? { ...defaults, ...explicit } : defaults;
-        case "cursor":
-            return explicit?.type === "cursor" ? { ...defaults, ...explicit } : defaults;
         case "pi":
             return explicit?.type === "pi" ? { ...defaults, ...explicit } : defaults;
         case "kimi":
@@ -184,8 +158,6 @@ function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
     if (type === "opencode") return "OpenCode";
-    if (type === "gemini") return "Gemini";
-    if (type === "cursor") return "Cursor";
     if (type === "pi") return "Pi";
     if (type === "kimi") return "Kimi";
     if (type === "editor") return "Editor";
@@ -343,7 +315,6 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         const args: string[] = [];
         let specEnv: Record<string, string> | undefined;
         let specInitialInput: string | undefined;
-        let geminiSystemPath: string | undefined;
         let shellSystemPrompt: string | undefined;
         if (type === "editor") {
             if (!editorId || !filePath) {
@@ -374,6 +345,11 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             let resolvedAgentOptions =
                 type === "claude" ? normalizeClaudeLaunchOptions(agentOptions) : agentOptions;
             if (type !== "shell") {
+                // Persisted stores may still reference removed agent types; the
+                // compile-time union cannot protect against casts from JSON.
+                if (!isAgentType(type)) {
+                    throw new Error(`Unsupported agent type: ${String(type)}`);
+                }
                 // Merge user-configured defaults under any explicit per-run options.
                 const settings = await settingsStore.get();
                 const defaultAgentOptions = settingsToAgentOptions(type, settings);
@@ -420,16 +396,6 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     : basePrompt;
             } else {
                 const skillPath = await ensureInternalAgentSkillFile(config.agentSkillsDir);
-                if (type === "cursor" && !master) {
-                    await ensureCursorRulesFile(cwd, effectiveSystemPrompt);
-                }
-                if (type === "gemini") {
-                    geminiSystemPath = await ensureGeminiSystemFile(
-                        config.agentSkillsDir,
-                        !task,
-                        effectiveSystemPrompt,
-                    );
-                }
                 const spec = buildAgentLaunchSpec(
                     type,
                     prompt,
@@ -462,9 +428,6 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         if (flow) {
             taskflowEnv.TASKFLOW_FLOW_ID = flow.flowId;
             taskflowEnv.TASKFLOW_ACTION_ENTRY_ID = flow.actionEntryId;
-        }
-        if (geminiSystemPath) {
-            taskflowEnv.GEMINI_SYSTEM_MD = geminiSystemPath;
         }
         if (shellSystemPrompt) {
             taskflowEnv.TASKFLOW_SYSTEM_PROMPT = shellSystemPrompt;

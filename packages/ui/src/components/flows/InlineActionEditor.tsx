@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { isAgentType } from "@taskflow/shared";
 import type { ActionInline, SessionType, AgentLaunchOptions } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
@@ -57,8 +58,6 @@ function InlineActionEditor({
                     <SelectItem value="claude">Claude</SelectItem>
                     <SelectItem value="codex">Codex</SelectItem>
                     <SelectItem value="opencode">OpenCode</SelectItem>
-                    <SelectItem value="gemini">Gemini</SelectItem>
-                    <SelectItem value="cursor">Cursor</SelectItem>
                     <SelectItem value="pi">Pi</SelectItem>
                     <SelectItem value="kimi">Kimi</SelectItem>
                     <SelectItem value="shell">Shell</SelectItem>
@@ -75,18 +74,24 @@ function InlineActionEditor({
                 className="min-h-[120px] text-sm"
                 dialogTitle="Inline Action Prompt"
             />
-            {inline.sessionType !== "shell" && (
-                <div className="border-border rounded-md border p-1">
-                    <AgentOptionsPanel
-                        key={`${entryId}-${inline.sessionType}-${resetCounter}`}
-                        agentType={inline.sessionType}
-                        value={inline.agentOptions}
-                        emitOnMount
-                        onChange={(options) => onUpdate(entryId, { agentOptions: options })}
-                        onReset={handleResetAgentOptions}
-                    />
-                </div>
-            )}
+            {inline.sessionType !== "shell" &&
+                (isAgentType(inline.sessionType) ? (
+                    <div className="border-border rounded-md border p-1">
+                        <AgentOptionsPanel
+                            key={`${entryId}-${inline.sessionType}-${resetCounter}`}
+                            agentType={inline.sessionType}
+                            value={inline.agentOptions}
+                            emitOnMount
+                            onChange={(options) => onUpdate(entryId, { agentOptions: options })}
+                            onReset={handleResetAgentOptions}
+                        />
+                    </div>
+                ) : (
+                    <div className="border-border text-muted-foreground rounded-md border p-2 text-sm">
+                        This action uses an agent that is no longer supported (
+                        {inline.sessionType}). Select a different session type.
+                    </div>
+                ))}
         </div>
     );
 }

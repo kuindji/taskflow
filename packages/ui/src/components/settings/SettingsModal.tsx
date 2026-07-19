@@ -6,6 +6,7 @@ import { sendRequest } from "@/hooks/useWebSocket";
 import {
     MSG,
     ALL_AGENT_TYPES,
+    isAgentType,
     isVersionAtLeast,
     type AgentType,
     type ShellInfo,
@@ -14,7 +15,6 @@ import {
     type RuntimeListResponse,
     type ClaudeSettings,
     type CodexSettings,
-    type GeminiSettings,
     type PiThinkingLevel,
     type KimiPermissionMode,
     type EditorInfo,
@@ -35,12 +35,10 @@ import { useRemoteAgentStatus } from "@/hooks/useRemoteAgentStatus";
 import { GeneralSection } from "./sections/GeneralSection";
 import { DefaultsSection } from "./sections/DefaultsSection";
 import { CodexSection } from "./sections/CodexSection";
-import { GeminiSection } from "./sections/GeminiSection";
 import { OpenCodeSection } from "./sections/OpenCodeSection";
 import { PiSection } from "./sections/PiSection";
 import { KimiSection } from "./sections/KimiSection";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
-import { CursorOptions } from "@/components/shared/CursorOptions";
 import { RemoteSection } from "./sections/RemoteSection";
 
 type SectionKey =
@@ -49,8 +47,6 @@ type SectionKey =
     | "claude"
     | "codex"
     | "opencode"
-    | "gemini"
-    | "cursor"
     | "pi"
     | "kimi"
     | "remote-agent";
@@ -254,15 +250,7 @@ function SettingsModal() {
 
     const handleDefaultAgent = useCallback(
         (value: string) => {
-            if (
-                value === "claude" ||
-                value === "codex" ||
-                value === "opencode" ||
-                value === "gemini" ||
-                value === "cursor" ||
-                value === "pi" ||
-                value === "kimi"
-            ) {
+            if (isAgentType(value)) {
                 void updateSettings({ general: { defaultAgent: value } });
             }
         },
@@ -365,53 +353,9 @@ function SettingsModal() {
         [updateSettings],
     );
 
-    const handleOpencodeVariant = useCallback(
-        (defaultVariant: string) => {
-            void updateSettings({ opencode: { defaultVariant } });
-        },
-        [updateSettings],
-    );
-
     const handleOpencodeAutoApprove = useCallback(
         (autoApprove: boolean) => {
             void updateSettings({ opencode: { autoApprove } });
-        },
-        [updateSettings],
-    );
-
-    const handleGeminiModel = useCallback(
-        (defaultModel: string) => {
-            void updateSettings({ gemini: { defaultModel } });
-        },
-        [updateSettings],
-    );
-
-    const handleGeminiApprovalMode = useCallback(
-        (approvalMode: string) => {
-            void updateSettings({
-                gemini: { approvalMode: approvalMode as GeminiSettings["approvalMode"] },
-            });
-        },
-        [updateSettings],
-    );
-
-    const handleGeminiSandbox = useCallback(
-        (sandbox: boolean) => {
-            void updateSettings({ gemini: { sandbox } });
-        },
-        [updateSettings],
-    );
-
-    const handleCursorModel = useCallback(
-        (defaultModel: string) => {
-            void updateSettings({ cursor: { defaultModel: defaultModel || "default" } });
-        },
-        [updateSettings],
-    );
-
-    const handleCursorYolo = useCallback(
-        (yolo: boolean) => {
-            void updateSettings({ cursor: { yolo } });
         },
         [updateSettings],
     );
@@ -468,8 +412,6 @@ function SettingsModal() {
         { key: "claude", label: "Claude" },
         { key: "codex", label: "Codex" },
         { key: "opencode", label: "OpenCode" },
-        { key: "gemini", label: "Gemini" },
-        { key: "cursor", label: "Cursor" },
         { key: "pi", label: "Pi" },
         { key: "kimi", label: "Kimi" },
         ...(claudeAvailable ? [{ key: "remote-agent" as const, label: "Remote Agent" }] : []),
@@ -574,36 +516,9 @@ function SettingsModal() {
                             <div className="flex flex-col gap-3 p-3">
                                 <OpenCodeSection
                                     defaultModel={settings.opencode.defaultModel}
-                                    defaultVariant={settings.opencode.defaultVariant}
                                     autoApprove={settings.opencode.autoApprove}
                                     onModelChange={handleOpencodeModel}
-                                    onVariantChange={handleOpencodeVariant}
                                     onAutoApproveChange={handleOpencodeAutoApprove}
-                                />
-                            </div>
-                        )}
-
-                        {section === "gemini" && (
-                            <div className="flex flex-col gap-3 p-3">
-                                <GeminiSection
-                                    defaultModel={settings.gemini.defaultModel}
-                                    approvalMode={settings.gemini.approvalMode}
-                                    sandbox={settings.gemini.sandbox}
-                                    onModelChange={handleGeminiModel}
-                                    onApprovalModeChange={handleGeminiApprovalMode}
-                                    onSandboxChange={handleGeminiSandbox}
-                                />
-                            </div>
-                        )}
-
-                        {section === "cursor" && (
-                            <div className="flex flex-col gap-3 p-3">
-                                <CursorOptions
-                                    mode="defaults"
-                                    modelValue={settings.cursor.defaultModel}
-                                    yolo={settings.cursor.yolo}
-                                    onModelChange={handleCursorModel}
-                                    onYoloChange={handleCursorYolo}
                                 />
                             </div>
                         )}

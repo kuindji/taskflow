@@ -15,6 +15,7 @@ import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWo
 import {
     normalizeSessionLabel,
     createSessionTab,
+    isKnownSessionType,
     exitedSessions,
     isSessionExited,
 } from "./session-helpers";
@@ -456,6 +457,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
             if (!pendingSessionCreates.has("master")) {
                 for (const session of sessions) {
+                    if (!isKnownSessionType(session)) continue;
                     const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
                     const alreadyInRight = rightTabs.some((tab) => tab.sessionId === session.id);
                     if (!alreadyInBase && !alreadyInRight) {

@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
-import { KIMI_PERMISSION_MODES } from "@taskflow/shared";
+import { KIMI_PERMISSION_MODES, isAgentType } from "@taskflow/shared";
 import { Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
@@ -71,25 +71,7 @@ function normalizeAgentOptions(
             return {
                 type: "opencode",
                 model: opts?.model,
-                variant: opts?.variant,
                 autoApprove: opts?.autoApprove || undefined,
-            };
-        }
-        case "gemini": {
-            const opts = matchingOptions?.type === "gemini" ? matchingOptions : undefined;
-            return {
-                type: "gemini",
-                approvalMode: opts?.approvalMode,
-                sandbox: opts?.sandbox,
-                model: opts?.model,
-            };
-        }
-        case "cursor": {
-            const opts = matchingOptions?.type === "cursor" ? matchingOptions : undefined;
-            return {
-                type: "cursor",
-                yolo: opts?.yolo || undefined,
-                model: opts?.model,
             };
         }
         case "pi": {
@@ -257,8 +239,6 @@ function ActionEditor({
                                 <SelectItem value="claude">Claude</SelectItem>
                                 <SelectItem value="codex">Codex</SelectItem>
                                 <SelectItem value="opencode">OpenCode</SelectItem>
-                                <SelectItem value="gemini">Gemini</SelectItem>
-                                <SelectItem value="cursor">Cursor</SelectItem>
                                 <SelectItem value="pi">Pi</SelectItem>
                                 <SelectItem value="kimi">Kimi</SelectItem>
                                 <SelectItem value="shell">Shell</SelectItem>
@@ -300,18 +280,24 @@ function ActionEditor({
                             dialogTitle="Action Prompt"
                         />
                     </div>
-                    {sessionType !== "shell" && (
-                        <div className="border-border rounded-md border p-3">
-                            <AgentOptionsPanel
-                                key={`${action?.id ?? "new-action"}-${sessionType}-${resetCounter}`}
-                                agentType={sessionType}
-                                value={agentOptions}
-                                emitOnMount
-                                onChange={handleAgentOptionsChange}
-                                onReset={handleResetAgentOptions}
-                            />
-                        </div>
-                    )}
+                    {sessionType !== "shell" &&
+                        (isAgentType(sessionType) ? (
+                            <div className="border-border rounded-md border p-3">
+                                <AgentOptionsPanel
+                                    key={`${action?.id ?? "new-action"}-${sessionType}-${resetCounter}`}
+                                    agentType={sessionType}
+                                    value={agentOptions}
+                                    emitOnMount
+                                    onChange={handleAgentOptionsChange}
+                                    onReset={handleResetAgentOptions}
+                                />
+                            </div>
+                        ) : (
+                            <div className="border-border text-muted-foreground rounded-md border p-3 text-sm">
+                                This action uses an agent that is no longer supported (
+                                {sessionType}). Select a different session type.
+                            </div>
+                        ))}
                 </div>
             </div>
 

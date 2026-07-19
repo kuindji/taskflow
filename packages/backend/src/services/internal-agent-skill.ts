@@ -14,7 +14,7 @@ import scheduleCommandsMd from "./taskflow-cli-schedule-commands.md" with { type
 import sessionCommandsMd from "./taskflow-cli-session-commands.md" with { type: "text" };
 import browserCommandsMd from "./taskflow-cli-browser-commands.md" with { type: "text" };
 import otherCommandsMd from "./taskflow-cli-other-commands.md" with { type: "text" };
-import type { AgentLaunchOptions, LinkedProject } from "@taskflow/shared";
+import type { AgentLaunchOptions, AgentType, LinkedProject } from "@taskflow/shared";
 import {
     CLAUDE_EFFORT_LEVELS,
     CLAUDE_PERMISSION_MODES,
@@ -185,7 +185,7 @@ export function buildProjectContextBlock(context: ProjectContext): string | unde
 }
 
 export function buildAgentLaunchSpec(
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi",
+    type: AgentType,
     prompt: string | undefined,
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
@@ -246,7 +246,6 @@ export function buildAgentLaunchSpec(
         const args: string[] = [];
         if (agentOptions?.type === "opencode") {
             if (agentOptions.model) args.push("--model", agentOptions.model);
-            if (agentOptions.variant) args.push("--variant", agentOptions.variant);
         }
         if (prompt) args.push("--prompt", prompt);
 
@@ -254,34 +253,6 @@ export function buildAgentLaunchSpec(
             command: "opencode",
             args,
             env: { OPENCODE_CONFIG_CONTENT: JSON.stringify(config) },
-        };
-    }
-
-    if (type === "gemini") {
-        const optionArgs: string[] = [];
-        if (agentOptions?.type === "gemini") {
-            if (agentOptions.approvalMode && agentOptions.approvalMode !== "default")
-                optionArgs.push("--approval-mode", agentOptions.approvalMode);
-            if (agentOptions.sandbox) optionArgs.push("--sandbox");
-            if (agentOptions.model && agentOptions.model !== "default")
-                optionArgs.push("--model", agentOptions.model);
-        }
-        return {
-            command: "gemini",
-            args: [...optionArgs, ...(prompt ? ["--prompt-interactive", prompt] : [])],
-        };
-    }
-
-    if (type === "cursor") {
-        const optionArgs: string[] = [];
-        if (agentOptions?.type === "cursor") {
-            if (agentOptions.yolo) optionArgs.push("--yolo");
-            if (agentOptions.model && agentOptions.model !== "default")
-                optionArgs.push("--model", agentOptions.model);
-        }
-        return {
-            command: "cursor",
-            args: ["agent", ...optionArgs, ...(prompt ? ["--", prompt] : [])],
         };
     }
 
@@ -319,6 +290,12 @@ export function buildAgentLaunchSpec(
             env: { KIMI_CODE_NO_AUTO_UPDATE: "1" },
             initialInput: prompt ? `${systemPrompt}\n\n---\n\n${prompt}` : undefined,
         };
+    }
+
+    if (type !== "codex") {
+        // Compile-time unreachable, but persisted data can smuggle removed
+        // agent types (e.g. "gemini", "cursor") through casts.
+        throw new Error(`Unsupported agent type: ${String(type)}`);
     }
 
     const optionArgs: string[] = [];

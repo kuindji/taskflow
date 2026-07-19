@@ -1066,12 +1066,7 @@ case "$cmd" in
         agent_reasoning_effort=""
         agent_full_auto=""
         # OpenCode-specific
-        agent_variant=""
         agent_auto_approve=""
-        # Gemini-specific
-        agent_approval_mode=""
-        agent_gemini_sandbox=""
-        # Cursor-specific
         agent_yolo=""
         while [ $# -gt 0 ]; do
           case "$1" in
@@ -1089,14 +1084,9 @@ case "$cmd" in
             --reasoning-effort) agent_reasoning_effort="${2:-}"; shift 2 ;;
             --dangerously-bypass-approvals-and-sandbox) agent_yolo="true"; shift ;;
             --full-auto) agent_full_auto="true"; shift ;;
-            # OpenCode
-            --variant) agent_variant="${2:-}"; shift 2 ;;
-            --auto-approve) agent_auto_approve="true"; shift ;;
-            # Gemini
-            --approval-mode) agent_approval_mode="${2:-}"; shift 2 ;;
-            --gemini-sandbox) agent_gemini_sandbox="true"; shift ;;
-            # Cursor
             --yolo) agent_yolo="true"; shift ;;
+            # OpenCode
+            --auto-approve) agent_auto_approve="true"; shift ;;
             *) shift ;;
           esac
         done
@@ -1155,22 +1145,8 @@ case "$cmd" in
             _append_opt "$(printf '"reasoningEffort":%s' "$(json_string "$agent_reasoning_effort")")"
           fi
         elif [ "$agent_type" = "opencode" ]; then
-          if [ -n "$agent_variant" ]; then
-            _append_opt "$(printf '"variant":%s' "$(json_string "$agent_variant")")"
-          fi
           if [ -n "$agent_auto_approve" ]; then
             _append_opt '"autoApprove":true'
-          fi
-        elif [ "$agent_type" = "gemini" ]; then
-          if [ -n "$agent_approval_mode" ]; then
-            _append_opt "$(printf '"approvalMode":%s' "$(json_string "$agent_approval_mode")")"
-          fi
-          if [ -n "$agent_gemini_sandbox" ]; then
-            _append_opt '"sandbox":true'
-          fi
-        elif [ "$agent_type" = "cursor" ]; then
-          if [ -n "$agent_yolo" ]; then
-            _append_opt '"yolo":true'
           fi
         fi
         if [ -n "$agent_model" ]; then

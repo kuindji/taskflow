@@ -4,7 +4,6 @@ import type {
     AgentType,
     CodexModelInfo,
     CodexReasoningEffort,
-    CursorModel,
     KimiModelInfo,
     OpenCodeModelInfo,
     PiModelInfo,
@@ -15,8 +14,8 @@ import { buildShellPath } from "./shell-path";
 const KNOWN_RUNTIMES = ["bun", "node"] as const;
 
 // `--version` probes run during startup and must stay fast: a hanging agent
-// shim (e.g. a `cursor` CLI with no IDE installed) never closes its output
-// streams and would otherwise block backend startup indefinitely.
+// shim (e.g. a launcher whose backing app is not installed) never closes its
+// output streams and would otherwise block backend startup indefinitely.
 const VERSION_TIMEOUT_MS = 5_000;
 // Model-list queries are user-triggered and may hit the network, so they get a
 // far more generous cap that still guards against an indefinite hang.
@@ -85,39 +84,7 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
     return runtimes;
 }
 
-const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor", "pi", "kimi"];
-
-// Strip ANSI escape codes from terminal output
-function stripAnsi(str: string): string {
-    const ESC = String.fromCharCode(0x1b);
-    return str.replace(new RegExp(ESC + "\\[[0-?]*[ -/]*[@-~]", "g"), "");
-}
-
-export async function fetchCursorModels(): Promise<CursorModel[]> {
-    const PATH = buildShellPath();
-    const cursorPath = Bun.which("cursor", { PATH });
-    if (!cursorPath) return [];
-
-    try {
-        const result = await captureCliOutput([cursorPath, "agent", "--list-models"], {
-            env: { ...process.env, PATH },
-            timeoutMs: MODEL_LIST_TIMEOUT_MS,
-        });
-        if (!result) return [];
-
-        const models: CursorModel[] = [];
-        for (const raw of stripAnsi(result.stdout).split("\n")) {
-            const line = raw.trim();
-            const match = line.match(/^(\S+)\s+-\s+(.+)$/);
-            if (match) {
-                models.push({ id: match[1], label: match[2].trim() });
-            }
-        }
-        return models;
-    } catch {
-        return [];
-    }
-}
+const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "pi", "kimi"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;

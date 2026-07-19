@@ -24,8 +24,6 @@ function isAlwaysMounted(tab: Tab): boolean {
         tab.type === "claude" ||
         tab.type === "codex" ||
         tab.type === "opencode" ||
-        tab.type === "gemini" ||
-        tab.type === "cursor" ||
         tab.type === "pi" ||
         tab.type === "kimi" ||
         tab.type === "shell" ||
@@ -65,8 +63,6 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
                     case "claude":
                     case "codex":
                     case "opencode":
-                    case "gemini":
-                    case "cursor":
                     case "pi":
                     case "kimi":
                     case "shell":

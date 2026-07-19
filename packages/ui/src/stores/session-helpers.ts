@@ -9,8 +9,6 @@ interface Tab {
         | "claude"
         | "codex"
         | "opencode"
-        | "gemini"
-        | "cursor"
         | "pi"
         | "kimi"
         | "shell"
@@ -31,8 +29,6 @@ function getDefaultSessionLabel(type: Tab["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
     if (type === "opencode") return "OpenCode";
-    if (type === "gemini") return "Gemini";
-    if (type === "cursor") return "Cursor";
     if (type === "pi") return "Pi";
     if (type === "kimi") return "Kimi";
     if (type === "editor") return "Editor";
@@ -44,6 +40,21 @@ function normalizeSessionLabel(type: Tab["type"], label?: string): string {
         return getDefaultSessionLabel(type);
     }
     return label;
+}
+
+const KNOWN_TAB_SESSION_TYPES: ReadonlySet<string> = new Set([
+    "claude",
+    "codex",
+    "opencode",
+    "pi",
+    "kimi",
+    "shell",
+    "editor",
+]);
+
+/** Persisted stores may contain sessions of removed agent types (e.g. "gemini"); skip those. */
+function isKnownSessionType(session: SessionRef): boolean {
+    return KNOWN_TAB_SESSION_TYPES.has(session.type);
 }
 
 function createSessionTab(session: SessionRef): Tab {
@@ -128,8 +139,6 @@ function usesTerminalActivityStatus(
         type === "claude" ||
         type === "codex" ||
         type === "opencode" ||
-        type === "gemini" ||
-        type === "cursor" ||
         type === "pi" ||
         type === "kimi"
     );
@@ -140,6 +149,7 @@ export {
     getDefaultSessionLabel,
     normalizeSessionLabel,
     createSessionTab,
+    isKnownSessionType,
     exitedSessions,
     isSessionExited,
     isSessionFocused,

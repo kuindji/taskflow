@@ -34,19 +34,7 @@ export interface CodexSettings {
 
 export interface OpenCodeSettings {
     defaultModel: string;
-    defaultVariant: string;
     autoApprove: boolean;
-}
-
-export interface GeminiSettings {
-    defaultModel: string;
-    approvalMode: "default" | "auto_edit" | "yolo" | "plan";
-    sandbox: boolean;
-}
-
-export interface CursorSettings {
-    defaultModel: string;
-    yolo: boolean;
 }
 
 export interface PiSettings {
@@ -117,8 +105,6 @@ export interface AppSettings {
     claude: ClaudeSettings;
     codex: CodexSettings;
     opencode: OpenCodeSettings;
-    gemini: GeminiSettings;
-    cursor: CursorSettings;
     pi: PiSettings;
     kimi: KimiSettings;
     appearance: AppearanceSettings;
@@ -138,8 +124,6 @@ export interface SettingsUpdatePayload {
     claude?: NullablePartial<ClaudeSettings>;
     codex?: NullablePartial<CodexSettings>;
     opencode?: NullablePartial<OpenCodeSettings>;
-    gemini?: NullablePartial<GeminiSettings>;
-    cursor?: NullablePartial<CursorSettings>;
     pi?: NullablePartial<PiSettings>;
     kimi?: NullablePartial<KimiSettings>;
     appearance?: NullablePartial<AppearanceSettings>;

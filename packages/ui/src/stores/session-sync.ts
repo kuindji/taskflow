@@ -1,6 +1,6 @@
 import type { SessionRef } from "@taskflow/shared";
 import type { Tab } from "./session-helpers";
-import { createSessionTab, normalizeSessionLabel } from "./session-helpers";
+import { createSessionTab, isKnownSessionType, normalizeSessionLabel } from "./session-helpers";
 
 interface SyncOwner {
     id: string;
@@ -101,6 +101,7 @@ function syncOwnerTabs(args: SyncOwnerTabsArgs): WorkspaceTabState {
         if (!pendingSessionCreates.has(owner.id)) {
             let additions: Tab[] | null = null;
             for (const session of owner.sessions) {
+                if (!isKnownSessionType(session)) continue;
                 const alreadyInBase = tabs.some((tab) => tab.sessionId === session.id);
                 const alreadyInRight = rightTabs.some((tab) => tab.sessionId === session.id);
                 const alreadyAdded =

@@ -48,23 +48,7 @@ function normalizeAgentOptions(
             return {
                 type: "opencode",
                 model: agentOptions.model,
-                variant: agentOptions.variant,
                 autoApprove: agentOptions.autoApprove || undefined,
-            };
-        case "gemini":
-            if (agentOptions.type !== "gemini") return undefined;
-            return {
-                type: "gemini",
-                approvalMode: agentOptions.approvalMode,
-                sandbox: agentOptions.sandbox,
-                model: agentOptions.model,
-            };
-        case "cursor":
-            if (agentOptions.type !== "cursor") return undefined;
-            return {
-                type: "cursor",
-                yolo: agentOptions.yolo || undefined,
-                model: agentOptions.model,
             };
         case "pi":
             if (agentOptions.type !== "pi") return undefined;

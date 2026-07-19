@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { isAgentType } from "@taskflow/shared";
 import type { AgentLaunchOptions, FlowDefinition } from "@taskflow/shared";
 import type { Project } from "@taskflow/shared";
 import {
@@ -39,7 +40,7 @@ interface NewTaskDialogProps {
         description: string;
         worktree: boolean;
         parentId?: string;
-        startWith?: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi";
+        startWith?: "claude" | "codex" | "opencode" | "pi" | "kimi";
         agentOptions?: AgentLaunchOptions;
         startWithFlowId?: string;
         initCommand?: string;
@@ -77,8 +78,6 @@ export function NewTaskDialog({
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
     const opencodeAvailable = isAgentAvailable(agents, "opencode");
-    const geminiAvailable = isAgentAvailable(agents, "gemini");
-    const cursorAvailable = isAgentAvailable(agents, "cursor");
     const piAvailable = isAgentAvailable(agents, "pi");
     const kimiAvailable = isAgentAvailable(agents, "kimi");
 
@@ -109,32 +108,13 @@ export function NewTaskDialog({
             if (value === "claude" && !claudeAvailable) return;
             if (value === "codex" && !codexAvailable) return;
             if (value === "opencode" && !opencodeAvailable) return;
-            if (value === "gemini" && !geminiAvailable) return;
-            if (value === "cursor" && !cursorAvailable) return;
             if (value === "pi" && !piAvailable) return;
             if (value === "kimi" && !kimiAvailable) return;
             setStartWith(value);
-            if (
-                value !== "claude" &&
-                value !== "codex" &&
-                value !== "opencode" &&
-                value !== "gemini" &&
-                value !== "cursor" &&
-                value !== "pi" &&
-                value !== "kimi"
-            )
-                setAgentOptions(undefined);
+            if (!isAgentType(value)) setAgentOptions(undefined);
             if (value !== "flow") setStartWithFlowId("");
         },
-        [
-            claudeAvailable,
-            codexAvailable,
-            opencodeAvailable,
-            geminiAvailable,
-            cursorAvailable,
-            piAvailable,
-            kimiAvailable,
-        ],
+        [claudeAvailable, codexAvailable, opencodeAvailable, piAvailable, kimiAvailable],
     );
 
     const handleOpenChange = useCallback(
@@ -163,16 +143,7 @@ export function NewTaskDialog({
             description: description.trim(),
             worktree: isSubtask ? false : worktree,
             parentId: parentId ?? undefined,
-            startWith:
-                startWith === "claude" ||
-                startWith === "codex" ||
-                startWith === "opencode" ||
-                startWith === "gemini" ||
-                startWith === "cursor" ||
-                startWith === "pi" ||
-                startWith === "kimi"
-                    ? startWith
-                    : undefined,
+            startWith: isAgentType(startWith) ? startWith : undefined,
             agentOptions,
             startWithFlowId: startWith === "flow" && startWithFlowId ? startWithFlowId : undefined,
             initCommand: worktree ? initCommand.trim() : undefined,
@@ -329,12 +300,6 @@ export function NewTaskDialog({
                                 <SelectItem value="opencode" disabled={!opencodeAvailable}>
                                     OpenCode{!opencodeAvailable ? " (not installed)" : ""}
                                 </SelectItem>
-                                <SelectItem value="gemini" disabled={!geminiAvailable}>
-                                    Gemini{!geminiAvailable ? " (not installed)" : ""}
-                                </SelectItem>
-                                <SelectItem value="cursor" disabled={!cursorAvailable}>
-                                    Cursor{!cursorAvailable ? " (not installed)" : ""}
-                                </SelectItem>
                                 <SelectItem value="pi" disabled={!piAvailable}>
                                     Pi{!piAvailable ? " (not installed)" : ""}
                                 </SelectItem>
@@ -374,13 +339,7 @@ export function NewTaskDialog({
                         </div>
                     )}
 
-                    {(startWith === "claude" ||
-                        startWith === "codex" ||
-                        startWith === "opencode" ||
-                        startWith === "gemini" ||
-                        startWith === "cursor" ||
-                        startWith === "pi" ||
-                        startWith === "kimi") && (
+                    {isAgentType(startWith) && (
                         <Collapsible open={agentOptionsOpen} onOpenChange={setAgentOptionsOpen}>
                             <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1 text-sm transition-colors">
                                 <ChevronRight

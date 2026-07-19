@@ -135,7 +135,7 @@ export interface SessionCreatePayload {
     taskId?: string;
     projectId?: string;
     master?: boolean;
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi" | "shell" | "editor";
+    type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "shell" | "editor";
     label?: string;
     prompt?: string;
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
@@ -235,15 +235,6 @@ export interface RuntimeListResponse {
 
 export interface AgentListResponse {
     agents: AgentAvailability[];
-}
-
-export interface CursorModel {
-    id: string;
-    label: string;
-}
-
-export interface CursorModelsResponse {
-    models: CursorModel[];
 }
 
 export interface CodexModelsResponse {
@@ -548,19 +539,6 @@ export interface ThemeImportScanResponse {
 
 export interface ThemeDeletePayload {
     id: string;
-}
-
-// Cursor rules messages
-export interface CursorRulesCheckPayload {
-    cwd: string;
-}
-
-export interface CursorRulesCheckResponse {
-    status: "missing" | "present";
-}
-
-export interface CursorRulesEnsurePayload {
-    cwd: string;
 }
 
 // System messages

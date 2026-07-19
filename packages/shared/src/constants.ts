@@ -38,7 +38,6 @@ export const MSG = {
     AGENTS_LIST: "agents:list",
     AGENT_COMMANDS_LIST: "agent-commands:list",
     CODEX_MODELS: "codex:models",
-    CURSOR_MODELS: "cursor:models",
     OPENCODE_MODELS: "opencode:models",
     PI_MODELS: "pi:models",
     KIMI_MODELS: "kimi:models",
@@ -122,9 +121,6 @@ export const MSG = {
     SCHEDULE_TRIGGER: "schedule:trigger",
     SCHEDULE_UPDATED: "schedule:updated",
 
-    // Cursor
-    CURSOR_RULES_CHECK: "cursor:rules-check",
-    CURSOR_RULES_ENSURE: "cursor:rules-ensure",
 
     // Browser
     BROWSER_OPEN: "browser:open",

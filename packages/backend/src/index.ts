@@ -1,4 +1,4 @@
-import { MSG } from "@taskflow/shared";
+import { MSG, isAgentType } from "@taskflow/shared";
 import type { BrowserOpenPayload } from "@taskflow/shared";
 import { ensureDirectories, config } from "./config";
 import { Router } from "./ws/router";
@@ -13,7 +13,6 @@ import {
     detectRuntimes,
     detectAgents,
     fetchCodexModels,
-    fetchCursorModels,
     fetchOpenCodeModels,
     fetchPiModels,
     fetchKimiModels,
@@ -125,19 +124,21 @@ async function main() {
                     }
                 }
 
-                const isShell = agentType === "shell";
+                let sessionType: "shell" | import("@taskflow/shared").AgentType;
+                if (agentType === "shell") {
+                    sessionType = "shell";
+                } else if (isAgentType(agentType)) {
+                    sessionType = agentType;
+                } else {
+                    // Persisted schedules may reference removed agent types;
+                    // the scheduler records this as the run's lastError.
+                    throw new Error(`Unsupported agent type: ${agentType}`);
+                }
+                const isShell = sessionType === "shell";
 
                 const sessionId = await sessionLifecycle.createSession({
                     owner: { projectId: schedule.projectId },
-                    type: agentType as
-                        | "claude"
-                        | "codex"
-                        | "opencode"
-                        | "gemini"
-                        | "cursor"
-                        | "pi"
-                        | "kimi"
-                        | "shell",
+                    type: sessionType,
                     label: `[Scheduled] ${schedule.name}`,
                     prompt,
                     systemPrompt: isShell ? undefined : SYSTEM_PROMPT_ADDON,
@@ -400,7 +401,6 @@ async function main() {
         router.register(MSG.RUNTIMES_LIST, async () => ({ runtimes }));
         router.register(MSG.AGENTS_LIST, async () => ({ agents }));
         router.register(MSG.CODEX_MODELS, async () => ({ models: await fetchCodexModels() }));
-        router.register(MSG.CURSOR_MODELS, async () => ({ models: await fetchCursorModels() }));
         router.register(MSG.OPENCODE_MODELS, async () => ({
             models: await fetchOpenCodeModels(),
         }));

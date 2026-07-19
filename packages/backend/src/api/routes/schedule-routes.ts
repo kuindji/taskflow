@@ -3,7 +3,8 @@ import type { FlowStore } from "../../services/flow-store";
 import type { ScheduleStore } from "../../services/schedule-store";
 import type { SchedulerService } from "../../services/scheduler-service";
 import { validateExpression } from "../../services/scheduler-service";
-import type { AgentType, Schedule } from "@taskflow/shared";
+import { isAgentType } from "@taskflow/shared";
+import type { Schedule } from "@taskflow/shared";
 import { jsonResponse, errorResponse } from "./response-helpers";
 
 interface ScheduleRouteDeps {
@@ -72,7 +73,9 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
             prompt: typeof body.prompt === "string" ? body.prompt : "",
             actionId: typeof body.actionId === "string" ? body.actionId : undefined,
             agentType:
-                typeof body.agentType === "string" ? (body.agentType as AgentType) : undefined,
+                body.agentType === "shell" || isAgentType(body.agentType)
+                    ? body.agentType
+                    : undefined,
             agentOptions: body.agentOptions as Schedule["agentOptions"],
             expression,
             expressionType,
@@ -128,8 +131,8 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
                 if (typeof body.enabled === "boolean") next.enabled = body.enabled;
                 if ("agentType" in body)
                     next.agentType =
-                        typeof body.agentType === "string"
-                            ? (body.agentType as AgentType)
+                        body.agentType === "shell" || isAgentType(body.agentType)
+                            ? body.agentType
                             : undefined;
                 if ("agentOptions" in body)
                     next.agentOptions = body.agentOptions as Schedule["agentOptions"];

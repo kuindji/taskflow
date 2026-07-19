@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { getLanguage } from "@/lib/editor-language";
 import { MonacoDiffViewer } from "./MonacoDiffViewer";
 
-type BadgeColorScheme = "claude" | "codex" | "gemini" | "active" | "archived";
+type BadgeColorScheme = "claude" | "codex" | "active" | "archived";
 
 function gitStatusToColorScheme(status: GitFileStatus["status"]): BadgeColorScheme | undefined {
     if (status === "new" || status === "untracked") return "claude";

@@ -30,3 +30,28 @@ describe("normalizeAgentOptions Claude migrations", () => {
         expect(normalized.permissionMode).toBe("manual");
     });
 });
+
+describe("normalizeAgentOptions legacy data tolerance", () => {
+    it("drops options for removed agent types", () => {
+        const legacy = {
+            type: "gemini",
+            approvalMode: "yolo",
+        } as unknown as AgentLaunchOptions;
+
+        expect(normalizeAgentOptions("gemini" as never, legacy)).toBeUndefined();
+    });
+
+    it("drops the retired opencode variant field from persisted options", () => {
+        const legacy = {
+            type: "opencode",
+            model: "opencode/big-pickle",
+            variant: "high",
+        } as unknown as AgentLaunchOptions;
+
+        expect(normalizeAgentOptions("opencode", legacy)).toEqual({
+            type: "opencode",
+            model: "opencode/big-pickle",
+            autoApprove: undefined,
+        });
+    });
+});

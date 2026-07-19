@@ -8,7 +8,6 @@ import {
     type CodexSandboxMode,
     type CodexApprovalPolicy,
     type CodexReasoningEffort,
-    type GeminiLaunchOptions,
     type PiThinkingLevel,
     type KimiPermissionMode,
 } from "@taskflow/shared";
@@ -17,8 +16,6 @@ import { Play, RotateCcw } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { CodexOptions } from "@/components/shared/CodexOptions";
-import { GeminiOptions } from "@/components/shared/GeminiOptions";
-import { CursorOptions } from "@/components/shared/CursorOptions";
 import { OpenCodeOptions } from "@/components/shared/OpenCodeOptions";
 import { PiOptions } from "@/components/shared/PiOptions";
 import { KimiOptions } from "@/components/shared/KimiOptions";
@@ -44,8 +41,6 @@ function AgentOptionsPanel({
     const claudeSettings = useSettingsStore((s) => s.settings?.claude);
     const codexSettings = useSettingsStore((s) => s.settings?.codex);
     const opencodeSettings = useSettingsStore((s) => s.settings?.opencode);
-    const geminiSettings = useSettingsStore((s) => s.settings?.gemini);
-    const cursorSettings = useSettingsStore((s) => s.settings?.cursor);
     const piSettings = useSettingsStore((s) => s.settings?.pi);
     const kimiSettings = useSettingsStore((s) => s.settings?.kimi);
     const agents = useAgentAvailability();
@@ -90,34 +85,10 @@ function AgentOptionsPanel({
             : (codexSettings?.approvalPolicy ?? "on-request");
 
     // --- OpenCode-specific defaults ---
-    const defaultOcVariant =
-        matchingValue?.type === "opencode"
-            ? (matchingValue.variant ?? opencodeSettings?.defaultVariant ?? "")
-            : (opencodeSettings?.defaultVariant ?? "");
     const defaultOcAutoApprove =
         matchingValue?.type === "opencode"
             ? (matchingValue.autoApprove ?? opencodeSettings?.autoApprove ?? false)
             : (opencodeSettings?.autoApprove ?? false);
-
-    // --- Gemini-specific defaults ---
-    const defaultApprovalMode: NonNullable<GeminiLaunchOptions["approvalMode"]> =
-        matchingValue?.type === "gemini"
-            ? (matchingValue.approvalMode ?? geminiSettings?.approvalMode ?? "default")
-            : agentType === "gemini"
-              ? (geminiSettings?.approvalMode ?? "default")
-              : "default";
-    const defaultGeminiSandbox =
-        matchingValue?.type === "gemini"
-            ? (matchingValue.sandbox ?? geminiSettings?.sandbox ?? false)
-            : agentType === "gemini"
-              ? (geminiSettings?.sandbox ?? false)
-              : false;
-
-    // --- Cursor-specific defaults ---
-    const defaultYolo =
-        matchingValue?.type === "cursor"
-            ? (matchingValue.yolo ?? cursorSettings?.yolo ?? false)
-            : (cursorSettings?.yolo ?? false);
 
     // --- Pi-specific defaults ---
     const defaultPiThinking: PiThinkingLevel =
@@ -143,29 +114,21 @@ function AgentOptionsPanel({
               ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
               : agentType === "opencode" && matchingValue?.type === "opencode"
                 ? (matchingValue.model ?? opencodeSettings?.defaultModel ?? "")
-                : agentType === "gemini" && matchingValue?.type === "gemini"
-                  ? (matchingValue.model ?? geminiSettings?.defaultModel ?? "")
-                  : agentType === "cursor" && matchingValue?.type === "cursor"
-                    ? (matchingValue.model ?? cursorSettings?.defaultModel ?? "default")
-                    : agentType === "pi" && matchingValue?.type === "pi"
-                      ? (matchingValue.model ?? piSettings?.defaultModel ?? "")
-                      : agentType === "kimi" && matchingValue?.type === "kimi"
-                        ? (matchingValue.model ?? kimiSettings?.defaultModel ?? "")
-                        : agentType === "codex"
-                          ? (codexSettings?.defaultModel ?? "")
-                          : agentType === "claude"
-                            ? (claudeSettings?.defaultModel ?? "default")
-                            : agentType === "opencode"
-                              ? (opencodeSettings?.defaultModel ?? "")
-                              : agentType === "gemini"
-                                ? (geminiSettings?.defaultModel ?? "")
-                                : agentType === "cursor"
-                                  ? (cursorSettings?.defaultModel ?? "default")
-                                  : agentType === "pi"
-                                    ? (piSettings?.defaultModel ?? "")
-                                    : agentType === "kimi"
-                                      ? (kimiSettings?.defaultModel ?? "")
-                                      : "default";
+                : agentType === "pi" && matchingValue?.type === "pi"
+                  ? (matchingValue.model ?? piSettings?.defaultModel ?? "")
+                  : agentType === "kimi" && matchingValue?.type === "kimi"
+                    ? (matchingValue.model ?? kimiSettings?.defaultModel ?? "")
+                    : agentType === "codex"
+                      ? (codexSettings?.defaultModel ?? "")
+                      : agentType === "claude"
+                        ? (claudeSettings?.defaultModel ?? "default")
+                        : agentType === "opencode"
+                          ? (opencodeSettings?.defaultModel ?? "")
+                          : agentType === "pi"
+                            ? (piSettings?.defaultModel ?? "")
+                            : agentType === "kimi"
+                              ? (kimiSettings?.defaultModel ?? "")
+                              : "default";
 
     // --- State ---
     const [permissionMode, setPermissionMode] = useState<string>(defaultPermissionMode);
@@ -178,11 +141,7 @@ function AgentOptionsPanel({
     const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(defaultCodexSandbox);
     const [approvalPolicy, setApprovalPolicy] =
         useState<CodexApprovalPolicy>(defaultApprovalPolicy);
-    const [ocVariant, setOcVariant] = useState(defaultOcVariant);
     const [ocAutoApprove, setOcAutoApprove] = useState(defaultOcAutoApprove);
-    const [approvalMode, setApprovalMode] = useState(defaultApprovalMode);
-    const [geminiSandbox, setGeminiSandbox] = useState(defaultGeminiSandbox);
-    const [yolo, setYolo] = useState(defaultYolo);
     const [model, setModel] = useState<string>(defaultModel);
     const [piThinking, setPiThinking] = useState<PiThinkingLevel>(defaultPiThinking);
     const [piTools, setPiTools] = useState<string>(defaultPiTools);
@@ -208,15 +167,7 @@ function AgentOptionsPanel({
             setApprovalPolicy(defaultApprovalPolicy);
             setModel(defaultModel);
         } else if (agentType === "opencode") {
-            setOcVariant(defaultOcVariant);
             setOcAutoApprove(defaultOcAutoApprove);
-            setModel(defaultModel);
-        } else if (agentType === "gemini") {
-            setApprovalMode(defaultApprovalMode);
-            setGeminiSandbox(defaultGeminiSandbox);
-            setModel(defaultModel);
-        } else if (agentType === "cursor") {
-            setYolo(defaultYolo);
             setModel(defaultModel);
         } else if (agentType === "pi") {
             setPiThinking(defaultPiThinking);
@@ -234,11 +185,7 @@ function AgentOptionsPanel({
         defaultCodexReasoningEffort,
         defaultCodexSandbox,
         defaultApprovalPolicy,
-        defaultOcVariant,
         defaultOcAutoApprove,
-        defaultApprovalMode,
-        defaultGeminiSandbox,
-        defaultYolo,
         defaultPiThinking,
         defaultPiTools,
         defaultKimiPermissionMode,
@@ -278,29 +225,9 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "opencode",
             model: model || undefined,
-            variant: ocVariant || undefined,
             autoApprove: ocAutoApprove || undefined,
         }),
-        [model, ocVariant, ocAutoApprove],
-    );
-
-    const buildGeminiOptions = useCallback(
-        (): AgentLaunchOptions => ({
-            type: "gemini",
-            approvalMode: approvalMode === "default" ? undefined : approvalMode,
-            sandbox: geminiSandbox || undefined,
-            model: model || undefined,
-        }),
-        [approvalMode, geminiSandbox, model],
-    );
-
-    const buildCursorOptions = useCallback(
-        (): AgentLaunchOptions => ({
-            type: "cursor",
-            yolo: yolo || undefined,
-            model: model === "default" ? undefined : model,
-        }),
-        [yolo, model],
+        [model, ocAutoApprove],
     );
 
     const buildPiOptions = useCallback(
@@ -326,8 +253,6 @@ function AgentOptionsPanel({
         if (agentType === "claude") return buildClaudeOptions();
         if (agentType === "codex") return buildCodexOptions();
         if (agentType === "opencode") return buildOpenCodeOptions();
-        if (agentType === "gemini") return buildGeminiOptions();
-        if (agentType === "cursor") return buildCursorOptions();
         if (agentType === "pi") return buildPiOptions();
         if (agentType === "kimi") return buildKimiOptions();
         return { type: "codex" };
@@ -336,8 +261,6 @@ function AgentOptionsPanel({
         buildClaudeOptions,
         buildCodexOptions,
         buildOpenCodeOptions,
-        buildGeminiOptions,
-        buildCursorOptions,
         buildPiOptions,
         buildKimiOptions,
     ]);
@@ -391,29 +314,9 @@ function AgentOptionsPanel({
             ) : agentType === "opencode" ? (
                 <OpenCodeOptions
                     modelValue={model}
-                    variantValue={ocVariant}
                     autoApprove={ocAutoApprove}
                     onModelChange={setModel}
-                    onVariantChange={setOcVariant}
                     onAutoApproveChange={setOcAutoApprove}
-                />
-            ) : agentType === "gemini" ? (
-                <GeminiOptions
-                    modelValue={model}
-                    approvalMode={approvalMode ?? "default"}
-                    sandbox={geminiSandbox}
-                    onModelChange={setModel}
-                    onApprovalModeChange={(v) =>
-                        setApprovalMode(v as NonNullable<GeminiLaunchOptions["approvalMode"]>)
-                    }
-                    onSandboxChange={setGeminiSandbox}
-                />
-            ) : agentType === "cursor" ? (
-                <CursorOptions
-                    modelValue={model}
-                    yolo={yolo}
-                    onModelChange={setModel}
-                    onYoloChange={setYolo}
                 />
             ) : agentType === "pi" ? (
                 <PiOptions

@@ -1,13 +1,17 @@
-type AgentType = "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi";
+type AgentType = "claude" | "codex" | "opencode" | "pi" | "kimi";
 
-const ALL_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor", "pi", "kimi"];
+const ALL_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode", "pi", "kimi"];
+
+// Persisted stores may still contain removed agent types (e.g. "gemini", "cursor");
+// use this guard at load/render/spawn boundaries instead of casting.
+function isAgentType(value: unknown): value is AgentType {
+    return typeof value === "string" && (ALL_AGENT_TYPES as readonly string[]).includes(value);
+}
 
 const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     claude: "Claude",
     codex: "Codex",
     opencode: "OpenCode",
-    gemini: "Gemini",
-    cursor: "Cursor",
     pi: "Pi",
     kimi: "Kimi",
 };
@@ -77,26 +81,12 @@ interface CodexModelInfo {
 interface OpenCodeLaunchOptions {
     type: Extract<AgentType, "opencode">;
     model?: string;
-    variant?: string;
     autoApprove?: boolean;
 }
 
 interface OpenCodeModelInfo {
     id: string;
     provider: string;
-}
-
-interface GeminiLaunchOptions {
-    type: Extract<AgentType, "gemini">;
-    approvalMode?: "default" | "auto_edit" | "yolo" | "plan";
-    sandbox?: boolean;
-    model?: string;
-}
-
-interface CursorLaunchOptions {
-    type: Extract<AgentType, "cursor">;
-    yolo?: boolean;
-    model?: string;
 }
 
 type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -146,8 +136,6 @@ type AgentLaunchOptions =
     | ClaudeLaunchOptions
     | CodexLaunchOptions
     | OpenCodeLaunchOptions
-    | GeminiLaunchOptions
-    | CursorLaunchOptions
     | PiLaunchOptions
     | KimiLaunchOptions;
 
@@ -161,6 +149,7 @@ interface AgentAvailability {
 export {
     ALL_AGENT_TYPES,
     AGENT_DISPLAY_NAMES,
+    isAgentType,
     CLAUDE_PERMISSION_MODES,
     CLAUDE_EFFORT_LEVELS,
     CODEX_SANDBOX_MODES,
@@ -181,8 +170,6 @@ export type {
     CodexReasoningEffortInfo,
     CodexModelInfo,
     OpenCodeLaunchOptions,
-    GeminiLaunchOptions,
-    CursorLaunchOptions,
     PiThinkingLevel,
     PiLaunchOptions,
     PiModelInfo,

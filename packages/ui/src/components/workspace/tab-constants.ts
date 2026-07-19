@@ -3,8 +3,6 @@ import type { AgentType } from "@taskflow/shared";
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
 import { CodexIcon } from "@/components/icons/CodexIcon";
 import { OpenCodeIcon } from "@/components/icons/OpenCodeIcon";
-import { GeminiIcon } from "@/components/icons/GeminiIcon";
-import { CursorIcon } from "@/components/icons/CursorIcon";
 import { PiIcon } from "@/components/icons/PiIcon";
 import { KimiIcon } from "@/components/icons/KimiIcon";
 
@@ -18,8 +16,6 @@ const AGENT_META: Record<
     claude: { icon: ClaudeIcon, colorClass: "text-warning" },
     codex: { icon: CodexIcon, colorClass: "text-success" },
     opencode: { icon: OpenCodeIcon, colorClass: "text-opencode" },
-    gemini: { icon: GeminiIcon, colorClass: "text-primary" },
-    cursor: { icon: CursorIcon, colorClass: "text-cursor-agent" },
     pi: { icon: PiIcon, colorClass: "text-primary" },
     kimi: { icon: KimiIcon, colorClass: "text-primary" },
 };
@@ -32,8 +28,6 @@ const tabVariants = cva(
                 claude: "text-warning",
                 codex: "text-success",
                 opencode: "text-opencode",
-                gemini: "text-primary",
-                cursor: "text-cursor-agent",
                 pi: "text-primary",
                 kimi: "text-primary",
                 shell: "text-info",

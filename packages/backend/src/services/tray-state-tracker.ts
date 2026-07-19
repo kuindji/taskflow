@@ -29,8 +29,6 @@ export class TrayStateTracker {
                 type === "claude" ||
                 type === "codex" ||
                 type === "opencode" ||
-                type === "gemini" ||
-                type === "cursor" ||
                 type === "pi" ||
                 type === "kimi",
             status: null,

@@ -15,21 +15,18 @@ import {
     DEFAULT_TERMINAL_FONT_SIZE,
     DEFAULT_TERMINAL_SHELL,
     DEFAULT_THEME_ID,
+    isAgentType,
 } from "@taskflow/shared";
 import type {
-    AgentType,
     AppSettings,
     ClaudeSettings,
     CodexSettings,
     EditorSettings,
     GeneralSettings,
+    OpenCodeSettings,
     RemoteAgentSettings,
     SettingsUpdatePayload,
 } from "@taskflow/shared";
-
-function isAgentType(value: unknown): value is AgentType {
-    return typeof value === "string" && (ALL_AGENT_TYPES as readonly string[]).includes(value);
-}
 
 const DEFAULTS: AppSettings = {
     general: {
@@ -77,17 +74,7 @@ const DEFAULTS: AppSettings = {
     },
     opencode: {
         defaultModel: "",
-        defaultVariant: "",
         autoApprove: false,
-    },
-    gemini: {
-        defaultModel: "",
-        approvalMode: "default",
-        sandbox: false,
-    },
-    cursor: {
-        defaultModel: "default",
-        yolo: false,
     },
     pi: {
         defaultModel: "",
@@ -121,8 +108,6 @@ function createDefaultSettings(): AppSettings {
         claude: { ...DEFAULTS.claude },
         codex: { ...DEFAULTS.codex },
         opencode: { ...DEFAULTS.opencode },
-        gemini: { ...DEFAULTS.gemini },
-        cursor: { ...DEFAULTS.cursor },
         pi: { ...DEFAULTS.pi },
         kimi: { ...DEFAULTS.kimi },
         appearance: { ...DEFAULTS.appearance },
@@ -283,8 +268,6 @@ export class SettingsStore {
                 claude: { ...defaults.claude, ...parsed.claude },
                 codex: { ...defaults.codex, ...parsed.codex },
                 opencode: { ...defaults.opencode, ...parsed.opencode },
-                gemini: { ...defaults.gemini, ...parsed.gemini },
-                cursor: { ...defaults.cursor, ...parsed.cursor },
                 pi: { ...defaults.pi, ...parsed.pi },
                 kimi: { ...defaults.kimi, ...parsed.kimi },
                 appearance: { ...defaults.appearance, ...parsed.appearance },
@@ -300,6 +283,13 @@ export class SettingsStore {
             }
             if (Array.isArray(result.general.favoriteAgents)) {
                 result.general.favoriteAgents = result.general.favoriteAgents.filter(isAgentType);
+            }
+            // Drop the retired OpenCode variant setting carried in from older files.
+            const opencodeSettings: OpenCodeSettings & { defaultVariant?: string } =
+                result.opencode;
+            if (opencodeSettings.defaultVariant !== undefined) {
+                delete opencodeSettings.defaultVariant;
+                needsMigration = true;
             }
             needsMigration =
                 normalizeClaudeSettings(result.claude, defaults.claude) || needsMigration;
@@ -346,12 +336,6 @@ export class SettingsStore {
         }
         if (partial.opencode) {
             applyNullable(current.opencode, partial.opencode);
-        }
-        if (partial.gemini) {
-            applyNullable(current.gemini, partial.gemini);
-        }
-        if (partial.cursor) {
-            applyNullable(current.cursor, partial.cursor);
         }
         if (partial.pi) {
             applyNullable(current.pi, partial.pi);

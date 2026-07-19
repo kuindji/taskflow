@@ -987,14 +987,9 @@ async function handleAgent(args: string[]): Promise<void> {
                 "reasoning-effort": "string",
                 "dangerously-bypass-approvals-and-sandbox": "boolean",
                 "full-auto": "boolean",
-                // OpenCode
-                variant: "string",
-                "auto-approve": "boolean",
-                // Gemini
-                "approval-mode": "string",
-                "gemini-sandbox": "boolean",
-                // Cursor
                 yolo: "boolean",
+                // OpenCode
+                "auto-approve": "boolean",
             });
 
             const body: Record<string, unknown> = { projectId };
@@ -1028,13 +1023,7 @@ async function handleAgent(args: string[]): Promise<void> {
                 if (flags["reasoning-effort"])
                     agentOptions.reasoningEffort = flags["reasoning-effort"];
             } else if (agentType === "opencode") {
-                if (flags.variant) agentOptions.variant = flags.variant;
                 if (flags["auto-approve"]) agentOptions.autoApprove = true;
-            } else if (agentType === "gemini") {
-                if (flags["approval-mode"]) agentOptions.approvalMode = flags["approval-mode"];
-                if (flags["gemini-sandbox"]) agentOptions.sandbox = true;
-            } else if (agentType === "cursor") {
-                if (flags.yolo) agentOptions.yolo = true;
             }
 
             if (flags.model) agentOptions.model = flags.model;

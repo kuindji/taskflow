@@ -114,18 +114,6 @@ describe("internal agent skill", () => {
         expect(spec.args).not.toContain("default");
     });
 
-    it("Gemini does not forward --model when set to the 'default' sentinel", () => {
-        const spec = buildAgentLaunchSpec("gemini", "Do it", "/tmp/ignored/SKILL.md", {
-            type: "gemini",
-            model: "default",
-        });
-        const modelIdx = spec.args.indexOf("--model");
-        if (modelIdx >= 0) {
-            expect(spec.args[modelIdx + 1]).not.toBe("default");
-        }
-        expect(spec.args).not.toContain("default");
-    });
-
     it("buildSystemPrompt omits the skill body when includeSkill is false", () => {
         const withSkill = buildSystemPrompt(false);
         const withoutSkill = buildSystemPrompt(false, undefined, false);
@@ -151,46 +139,13 @@ describe("internal agent skill", () => {
         ]);
     });
 
-    it("passes only user prompt to Gemini via --prompt-interactive", () => {
-        const spec = buildAgentLaunchSpec("gemini", "Fix the bug", "/tmp/ignored/SKILL.md");
-        expect(spec.command).toBe("gemini");
-        expect(spec.args).toContain("--prompt-interactive");
-        expect(spec.args).toContain("Fix the bug");
-        expect(spec.args.join(" ")).not.toContain("taskflow-cli");
-    });
-
-    it("omits --prompt-interactive for Gemini when no user prompt given", () => {
-        const spec = buildAgentLaunchSpec("gemini", undefined, "/tmp/ignored/SKILL.md");
-        expect(spec.command).toBe("gemini");
-        expect(spec.args).not.toContain("--prompt-interactive");
-    });
-
-    it("passes Gemini agent options through", () => {
-        const spec = buildAgentLaunchSpec("gemini", "Do stuff", "/tmp/ignored/SKILL.md", {
-            type: "gemini",
-            approvalMode: "yolo",
-            model: "gemini-2.5-pro",
-        });
-        expect(spec.args).toContain("--approval-mode");
-        expect(spec.args).toContain("yolo");
-        expect(spec.args).toContain("--model");
-        expect(spec.args).toContain("gemini-2.5-pro");
-    });
-
-    it("omits --approval-mode for Gemini when set to default", () => {
-        const spec = buildAgentLaunchSpec("gemini", "Do stuff", "/tmp/ignored/SKILL.md", {
-            type: "gemini",
-            approvalMode: "default",
-        });
-        expect(spec.args).not.toContain("--approval-mode");
-    });
-
-    it("passes --sandbox for Gemini when sandbox is true", () => {
-        const spec = buildAgentLaunchSpec("gemini", "Do stuff", "/tmp/ignored/SKILL.md", {
-            type: "gemini",
-            sandbox: true,
-        });
-        expect(spec.args).toContain("--sandbox");
+    it("throws on removed agent types smuggled through casts", () => {
+        expect(() =>
+            buildAgentLaunchSpec("gemini" as never, "Do it", "/tmp/ignored/SKILL.md"),
+        ).toThrow("Unsupported agent type: gemini");
+        expect(() =>
+            buildAgentLaunchSpec("cursor" as never, "Do it", "/tmp/ignored/SKILL.md"),
+        ).toThrow("Unsupported agent type: cursor");
     });
 
     it("passes project scope through to the system prompt", () => {
@@ -406,23 +361,6 @@ printf '{}'
         expect(spec.args).toContain('model_reasoning_effort="xhigh"');
     });
 
-    it("passes --approval-mode auto_edit for Gemini", () => {
-        const spec = buildAgentLaunchSpec("gemini", "Do it", "/tmp/ignored/SKILL.md", {
-            type: "gemini",
-            approvalMode: "auto_edit",
-        });
-        expect(spec.args).toContain("--approval-mode");
-        expect(spec.args).toContain("auto_edit");
-    });
-
-    it("yolo flag passes --yolo for Cursor", () => {
-        const spec = buildAgentLaunchSpec("cursor", "Do it", "/tmp/ignored/SKILL.md", {
-            type: "cursor",
-            yolo: true,
-        });
-        expect(spec.args).toContain("--yolo");
-    });
-
     it("autoApprove forces permission allow for OpenCode", () => {
         const spec = buildAgentLaunchSpec("opencode", "Do it", "/tmp/ignored/SKILL.md", {
             type: "opencode",
@@ -442,16 +380,14 @@ printf '{}'
         expect(config.permission).toBeUndefined();
     });
 
-    it("passes --variant for OpenCode", () => {
+    it("passes --model for OpenCode and never emits --variant", () => {
         const spec = buildAgentLaunchSpec("opencode", "Do it", "/tmp/ignored/SKILL.md", {
             type: "opencode",
             model: "openrouter/anthropic/claude-sonnet-4.6",
-            variant: "high",
         });
         expect(spec.args).toContain("--model");
         expect(spec.args).toContain("openrouter/anthropic/claude-sonnet-4.6");
-        expect(spec.args).toContain("--variant");
-        expect(spec.args).toContain("high");
+        expect(spec.args).not.toContain("--variant");
     });
 
     it("PROMPT_AUTONOMOUS is exported and contains expected content", () => {
