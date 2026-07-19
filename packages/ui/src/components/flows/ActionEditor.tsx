@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
+import { KIMI_PERMISSION_MODES } from "@taskflow/shared";
 import { Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
@@ -89,6 +90,27 @@ function normalizeAgentOptions(
                 type: "cursor",
                 yolo: opts?.yolo || undefined,
                 model: opts?.model,
+            };
+        }
+        case "pi": {
+            const opts = matchingOptions?.type === "pi" ? matchingOptions : undefined;
+            return {
+                type: "pi",
+                model: opts?.model,
+                thinking: opts?.thinking,
+                tools: opts?.tools,
+            };
+        }
+        case "kimi": {
+            const opts = matchingOptions?.type === "kimi" ? matchingOptions : undefined;
+            return {
+                type: "kimi",
+                model: opts?.model,
+                permissionMode:
+                    opts?.permissionMode &&
+                    (KIMI_PERMISSION_MODES as readonly string[]).includes(opts.permissionMode)
+                        ? opts.permissionMode
+                        : undefined,
             };
         }
         default:
@@ -237,6 +259,8 @@ function ActionEditor({
                                 <SelectItem value="opencode">OpenCode</SelectItem>
                                 <SelectItem value="gemini">Gemini</SelectItem>
                                 <SelectItem value="cursor">Cursor</SelectItem>
+                                <SelectItem value="pi">Pi</SelectItem>
+                                <SelectItem value="kimi">Kimi</SelectItem>
                                 <SelectItem value="shell">Shell</SelectItem>
                             </SelectContent>
                         </Select>

@@ -32,4 +32,14 @@ describe("TrayStateTracker", () => {
 
         expect(tracker.getAggregateState()).toBeNull();
     });
+
+    test("tracks activity for pi and kimi sessions", () => {
+        const tracker = new TrayStateTracker();
+        tracker.registerSession("pi-1", "pi");
+        tracker.registerSession("kimi-1", "kimi");
+        tracker.markSessionActivity("pi-1");
+        tracker.markSessionActivity("kimi-1");
+        expect(tracker.getSessionStatus("pi-1")).toBe("working");
+        expect(tracker.getSessionStatus("kimi-1")).toBe("working");
+    });
 });

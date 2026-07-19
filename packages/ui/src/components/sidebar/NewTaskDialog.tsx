@@ -39,7 +39,7 @@ interface NewTaskDialogProps {
         description: string;
         worktree: boolean;
         parentId?: string;
-        startWith?: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi";
+        startWith?: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi";
         agentOptions?: AgentLaunchOptions;
         startWithFlowId?: string;
         initCommand?: string;
@@ -79,6 +79,8 @@ export function NewTaskDialog({
     const opencodeAvailable = isAgentAvailable(agents, "opencode");
     const geminiAvailable = isAgentAvailable(agents, "gemini");
     const cursorAvailable = isAgentAvailable(agents, "cursor");
+    const piAvailable = isAgentAvailable(agents, "pi");
+    const kimiAvailable = isAgentAvailable(agents, "kimi");
 
     const getProjectDefaultInitCommand = useCallback(
         (targetProjectId: string) =>
@@ -109,18 +111,30 @@ export function NewTaskDialog({
             if (value === "opencode" && !opencodeAvailable) return;
             if (value === "gemini" && !geminiAvailable) return;
             if (value === "cursor" && !cursorAvailable) return;
+            if (value === "pi" && !piAvailable) return;
+            if (value === "kimi" && !kimiAvailable) return;
             setStartWith(value);
             if (
                 value !== "claude" &&
                 value !== "codex" &&
                 value !== "opencode" &&
                 value !== "gemini" &&
-                value !== "cursor"
+                value !== "cursor" &&
+                value !== "pi" &&
+                value !== "kimi"
             )
                 setAgentOptions(undefined);
             if (value !== "flow") setStartWithFlowId("");
         },
-        [claudeAvailable, codexAvailable, opencodeAvailable, geminiAvailable, cursorAvailable],
+        [
+            claudeAvailable,
+            codexAvailable,
+            opencodeAvailable,
+            geminiAvailable,
+            cursorAvailable,
+            piAvailable,
+            kimiAvailable,
+        ],
     );
 
     const handleOpenChange = useCallback(
@@ -154,7 +168,9 @@ export function NewTaskDialog({
                 startWith === "codex" ||
                 startWith === "opencode" ||
                 startWith === "gemini" ||
-                startWith === "cursor"
+                startWith === "cursor" ||
+                startWith === "pi" ||
+                startWith === "kimi"
                     ? startWith
                     : undefined,
             agentOptions,
@@ -319,6 +335,12 @@ export function NewTaskDialog({
                                 <SelectItem value="cursor" disabled={!cursorAvailable}>
                                     Cursor{!cursorAvailable ? " (not installed)" : ""}
                                 </SelectItem>
+                                <SelectItem value="pi" disabled={!piAvailable}>
+                                    Pi{!piAvailable ? " (not installed)" : ""}
+                                </SelectItem>
+                                <SelectItem value="kimi" disabled={!kimiAvailable}>
+                                    Kimi{!kimiAvailable ? " (not installed)" : ""}
+                                </SelectItem>
                                 {flows.length > 0 && <SelectItem value="flow">Flow</SelectItem>}
                             </SelectContent>
                         </Select>
@@ -356,7 +378,9 @@ export function NewTaskDialog({
                         startWith === "codex" ||
                         startWith === "opencode" ||
                         startWith === "gemini" ||
-                        startWith === "cursor") && (
+                        startWith === "cursor" ||
+                        startWith === "pi" ||
+                        startWith === "kimi") && (
                         <Collapsible open={agentOptionsOpen} onOpenChange={setAgentOptionsOpen}>
                             <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1 text-sm transition-colors">
                                 <ChevronRight

@@ -59,6 +59,8 @@ function InlineActionEditor({
                     <SelectItem value="opencode">OpenCode</SelectItem>
                     <SelectItem value="gemini">Gemini</SelectItem>
                     <SelectItem value="cursor">Cursor</SelectItem>
+                    <SelectItem value="pi">Pi</SelectItem>
+                    <SelectItem value="kimi">Kimi</SelectItem>
                     <SelectItem value="shell">Shell</SelectItem>
                 </SelectContent>
             </Select>

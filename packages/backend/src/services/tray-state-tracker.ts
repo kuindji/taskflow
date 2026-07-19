@@ -30,7 +30,9 @@ export class TrayStateTracker {
                 type === "codex" ||
                 type === "opencode" ||
                 type === "gemini" ||
-                type === "cursor",
+                type === "cursor" ||
+                type === "pi" ||
+                type === "kimi",
             status: null,
         });
     }
