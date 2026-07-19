@@ -16,6 +16,7 @@ import {
     type CodexSettings,
     type GeminiSettings,
     type PiThinkingLevel,
+    type KimiPermissionMode,
     type EditorInfo,
     type SystemInfoResponse,
 } from "@taskflow/shared";
@@ -37,6 +38,7 @@ import { CodexSection } from "./sections/CodexSection";
 import { GeminiSection } from "./sections/GeminiSection";
 import { OpenCodeSection } from "./sections/OpenCodeSection";
 import { PiSection } from "./sections/PiSection";
+import { KimiSection } from "./sections/KimiSection";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { CursorOptions } from "@/components/shared/CursorOptions";
 import { RemoteSection } from "./sections/RemoteSection";
@@ -50,6 +52,7 @@ type SectionKey =
     | "gemini"
     | "cursor"
     | "pi"
+    | "kimi"
     | "remote-agent";
 
 function SettingsModal() {
@@ -257,7 +260,8 @@ function SettingsModal() {
                 value === "opencode" ||
                 value === "gemini" ||
                 value === "cursor" ||
-                value === "pi"
+                value === "pi" ||
+                value === "kimi"
             ) {
                 void updateSettings({ general: { defaultAgent: value } });
             }
@@ -433,6 +437,20 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleKimiModel = useCallback(
+        (defaultModel: string) => {
+            void updateSettings({ kimi: { defaultModel } });
+        },
+        [updateSettings],
+    );
+
+    const handleKimiPermissionMode = useCallback(
+        (permissionMode: KimiPermissionMode) => {
+            void updateSettings({ kimi: { permissionMode } });
+        },
+        [updateSettings],
+    );
+
     // --- Remote section handler ---
 
     const handleRemoteUpdate = useCallback(
@@ -453,6 +471,7 @@ function SettingsModal() {
         { key: "gemini", label: "Gemini" },
         { key: "cursor", label: "Cursor" },
         { key: "pi", label: "Pi" },
+        { key: "kimi", label: "Kimi" },
         ...(claudeAvailable ? [{ key: "remote-agent" as const, label: "Remote Agent" }] : []),
     ];
 
@@ -598,6 +617,17 @@ function SettingsModal() {
                                     onModelChange={handlePiModel}
                                     onThinkingChange={handlePiThinking}
                                     onToolsChange={handlePiTools}
+                                />
+                            </div>
+                        )}
+
+                        {section === "kimi" && (
+                            <div className="flex flex-col gap-3 p-3">
+                                <KimiSection
+                                    defaultModel={settings.kimi.defaultModel}
+                                    permissionMode={settings.kimi.permissionMode}
+                                    onModelChange={handleKimiModel}
+                                    onPermissionModeChange={handleKimiPermissionMode}
                                 />
                             </div>
                         )}
