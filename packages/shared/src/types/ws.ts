@@ -10,6 +10,7 @@ import type {
     CodexModelInfo,
     OpenCodeModelInfo,
     PiModelInfo,
+    KimiModelInfo,
 } from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
 import type { SearchMatch, SearchResult } from "./search";
@@ -134,7 +135,7 @@ export interface SessionCreatePayload {
     taskId?: string;
     projectId?: string;
     master?: boolean;
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "shell" | "editor";
+    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi" | "shell" | "editor";
     label?: string;
     prompt?: string;
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
@@ -255,6 +256,10 @@ export interface OpenCodeModelsResponse {
 
 export interface PiModelsResponse {
     models: PiModelInfo[];
+}
+
+export interface KimiModelsResponse {
+    models: KimiModelInfo[];
 }
 
 // File messages

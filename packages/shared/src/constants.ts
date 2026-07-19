@@ -41,6 +41,7 @@ export const MSG = {
     CURSOR_MODELS: "cursor:models",
     OPENCODE_MODELS: "opencode:models",
     PI_MODELS: "pi:models",
+    KIMI_MODELS: "kimi:models",
 
     // Terminal
     TERMINAL_OUTPUT: "terminal:output",

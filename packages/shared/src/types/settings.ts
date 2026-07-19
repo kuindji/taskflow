@@ -6,6 +6,7 @@ import type {
     CodexApprovalPolicy,
     CodexReasoningEffort,
     PiThinkingLevel,
+    KimiPermissionMode,
 } from "./agent";
 
 export interface GeneralSettings {
@@ -52,6 +53,11 @@ export interface PiSettings {
     defaultModel: string;
     thinking: PiThinkingLevel;
     tools: string;
+}
+
+export interface KimiSettings {
+    defaultModel: string;
+    permissionMode: KimiPermissionMode;
 }
 
 export interface TerminalSettings {
@@ -114,6 +120,7 @@ export interface AppSettings {
     gemini: GeminiSettings;
     cursor: CursorSettings;
     pi: PiSettings;
+    kimi: KimiSettings;
     appearance: AppearanceSettings;
     remoteAgent: RemoteAgentSettings;
 }
@@ -134,6 +141,7 @@ export interface SettingsUpdatePayload {
     gemini?: NullablePartial<GeminiSettings>;
     cursor?: NullablePartial<CursorSettings>;
     pi?: NullablePartial<PiSettings>;
+    kimi?: NullablePartial<KimiSettings>;
     appearance?: NullablePartial<AppearanceSettings>;
     remoteAgent?: NullablePartial<RemoteAgentSettings>;
 }

@@ -1,6 +1,6 @@
-type AgentType = "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi";
+type AgentType = "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi";
 
-const ALL_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor", "pi"];
+const ALL_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode", "gemini", "cursor", "pi", "kimi"];
 
 const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     claude: "Claude",
@@ -9,6 +9,7 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     gemini: "Gemini",
     cursor: "Cursor",
     pi: "Pi",
+    kimi: "Kimi",
 };
 
 const CLAUDE_PERMISSION_MODES = [
@@ -120,13 +121,35 @@ interface PiModelInfo {
     supportsImages: boolean;
 }
 
+const KIMI_PERMISSION_MODES = ["manual", "auto", "yolo"] as const;
+
+type KimiPermissionMode = (typeof KIMI_PERMISSION_MODES)[number];
+
+interface KimiLaunchOptions {
+    type: Extract<AgentType, "kimi">;
+    /** Model alias key from `kimi provider list --json`, e.g. "kimi-code/k3" — passed to `--model`. */
+    model?: string;
+    /** "manual" omits flags; "auto" → `--auto`; "yolo" → `--yolo` (CLI rejects both together). */
+    permissionMode?: KimiPermissionMode;
+}
+
+interface KimiModelInfo {
+    /** Alias key, e.g. "kimi-code/k3". */
+    id: string;
+    /** e.g. "K3". */
+    displayName: string;
+    /** Display-only string derived from maxContextSize, e.g. "256K". */
+    contextWindow: string;
+}
+
 type AgentLaunchOptions =
     | ClaudeLaunchOptions
     | CodexLaunchOptions
     | OpenCodeLaunchOptions
     | GeminiLaunchOptions
     | CursorLaunchOptions
-    | PiLaunchOptions;
+    | PiLaunchOptions
+    | KimiLaunchOptions;
 
 interface AgentAvailability {
     type: AgentType;
@@ -143,6 +166,7 @@ export {
     CODEX_SANDBOX_MODES,
     CODEX_APPROVAL_POLICIES,
     CODEX_REASONING_EFFORTS,
+    KIMI_PERMISSION_MODES,
 };
 
 export type {
@@ -162,6 +186,9 @@ export type {
     PiThinkingLevel,
     PiLaunchOptions,
     PiModelInfo,
+    KimiPermissionMode,
+    KimiLaunchOptions,
+    KimiModelInfo,
     AgentLaunchOptions,
     AgentAvailability,
     OpenCodeModelInfo,
