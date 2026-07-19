@@ -459,3 +459,55 @@ printf '{}'
         expect(PROMPT_AUTONOMOUS).toContain("proceed autonomously");
     });
 });
+
+describe("buildAgentLaunchSpec kimi", () => {
+    const SKILL = "/tmp/taskflow-internal-api/SKILL.md";
+
+    it("launches kimi with model and --auto, no prompt args", () => {
+        const spec = buildAgentLaunchSpec("kimi", undefined, SKILL, {
+            type: "kimi",
+            model: "kimi-code/k3",
+            permissionMode: "auto",
+        });
+        expect(spec.command).toBe("kimi");
+        expect(spec.args).toEqual(["--model", "kimi-code/k3", "--auto"]);
+        expect(spec.env).toEqual({ KIMI_CODE_NO_AUTO_UPDATE: "1" });
+        expect(spec.initialInput).toBeUndefined();
+    });
+
+    it("maps yolo permission mode and omits flags for manual", () => {
+        const yolo = buildAgentLaunchSpec("kimi", undefined, SKILL, {
+            type: "kimi",
+            permissionMode: "yolo",
+        });
+        expect(yolo.args).toEqual(["--yolo"]);
+        const manual = buildAgentLaunchSpec("kimi", undefined, SKILL, {
+            type: "kimi",
+            permissionMode: "manual",
+        });
+        expect(manual.args).toEqual([]);
+    });
+
+    it("composes initialInput from system prompt and prompt", () => {
+        const spec = buildAgentLaunchSpec("kimi", "do the thing", SKILL, { type: "kimi" });
+        expect(spec.args).toEqual([]);
+        expect(spec.initialInput).toBeDefined();
+        expect(spec.initialInput).toContain("do the thing");
+        expect(spec.initialInput).toContain("taskflow-cli");
+        // system context precedes the user prompt
+        expect(spec.initialInput!.indexOf("taskflow-cli")).toBeLessThan(
+            spec.initialInput!.indexOf("do the thing"),
+        );
+    });
+
+    it("appends additionalSystemPrompt into initialInput", () => {
+        const spec = buildAgentLaunchSpec(
+            "kimi",
+            "prompt",
+            SKILL,
+            { type: "kimi" },
+            "EXTRA CONTEXT",
+        );
+        expect(spec.initialInput).toContain("EXTRA CONTEXT");
+    });
+});

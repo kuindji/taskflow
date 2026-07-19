@@ -185,14 +185,14 @@ export function buildProjectContextBlock(context: ProjectContext): string | unde
 }
 
 export function buildAgentLaunchSpec(
-    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi",
+    type: "claude" | "codex" | "opencode" | "gemini" | "cursor" | "pi" | "kimi",
     prompt: string | undefined,
     skillPath: string,
     agentOptions?: AgentLaunchOptions,
     additionalSystemPrompt?: string,
     isProjectScope?: boolean,
     isFlowScope?: boolean,
-): { command: string; args: string[]; env?: Record<string, string> } {
+): { command: string; args: string[]; env?: Record<string, string>; initialInput?: string } {
     // Codex registers the taskflow skill separately via `skills.config`, so exclude
     // it from the embedded prompt to avoid duplicating the skill content.
     const basePrompt = buildSystemPrompt(isProjectScope ?? false, isFlowScope, type !== "codex");
@@ -301,6 +301,23 @@ export function buildAgentLaunchSpec(
                 systemPrompt,
                 ...(prompt ? [prompt] : []),
             ],
+        };
+    }
+
+    if (type === "kimi") {
+        const optionArgs: string[] = [];
+        if (agentOptions?.type === "kimi") {
+            if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
+            if (agentOptions.permissionMode === "auto") optionArgs.push("--auto");
+            else if (agentOptions.permissionMode === "yolo") optionArgs.push("--yolo");
+        }
+        // Kimi has no system-prompt or interactive-prompt CLI channel; the composite
+        // prompt is typed into the TUI by the PTY layer via initialInput.
+        return {
+            command: "kimi",
+            args: optionArgs,
+            env: { KIMI_CODE_NO_AUTO_UPDATE: "1" },
+            initialInput: prompt ? `${systemPrompt}\n\n---\n\n${prompt}` : undefined,
         };
     }
 
