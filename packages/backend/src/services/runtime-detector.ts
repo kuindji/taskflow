@@ -361,7 +361,7 @@ export function parseKimiModelsOutput(output: string): KimiModelInfo[] {
     }
     if (typeof parsed !== "object" || parsed === null) return [];
     const models = (parsed as { models?: unknown }).models;
-    if (typeof models !== "object" || models === null) return [];
+    if (typeof models !== "object" || models === null || Array.isArray(models)) return [];
     return Object.entries(models as Record<string, unknown>).map(([id, value]) => {
         const entry =
             typeof value === "object" && value !== null

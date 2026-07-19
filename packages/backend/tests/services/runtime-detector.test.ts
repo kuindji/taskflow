@@ -221,11 +221,13 @@ describe("parseKimiModelsOutput", () => {
         expect(bare).toEqual([{ id: "kimi-code/y", displayName: "kimi-code/y", contextWindow: "128K" }]);
     });
 
-    it("returns empty for malformed JSON, non-object, and missing models", () => {
+    it("returns empty for malformed JSON, non-object, missing models, and array models", () => {
         expect(parseKimiModelsOutput("not json")).toEqual([]);
         expect(parseKimiModelsOutput('"str"')).toEqual([]);
         expect(parseKimiModelsOutput("{}")).toEqual([]);
         expect(parseKimiModelsOutput("")).toEqual([]);
+        // an array `models` must not be indexed by numeric keys ("0", "1", ...)
+        expect(parseKimiModelsOutput(JSON.stringify({ models: [{ model: "x" }] }))).toEqual([]);
     });
 
     it("omits contextWindow when maxContextSize is absent or invalid", () => {
