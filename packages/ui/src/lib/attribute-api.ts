@@ -1,9 +1,10 @@
-import type { AttributeOwner } from "@taskflow/shared";
+import type { AttrCreatePayload, AttrDeletePayload, AttrUpdatePayload, AttributeOwner } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 
 async function createAttribute(owner: AttributeOwner, name: string, value: string): Promise<void> {
-    await sendRequest(MSG.ATTR_CREATE, { ...owner, name, value });
+    const payload: AttrCreatePayload = { ...owner, name, value };
+    await sendRequest(MSG.ATTR_CREATE, payload);
 }
 
 async function updateAttribute(
@@ -11,11 +12,13 @@ async function updateAttribute(
     attrId: string,
     updates: { name?: string; value?: string },
 ): Promise<void> {
-    await sendRequest(MSG.ATTR_UPDATE, { ...owner, attrId, ...updates });
+    const payload: AttrUpdatePayload = { ...owner, attrId, ...updates };
+    await sendRequest(MSG.ATTR_UPDATE, payload);
 }
 
 async function deleteAttribute(owner: AttributeOwner, attrId: string): Promise<void> {
-    await sendRequest(MSG.ATTR_DELETE, { ...owner, attrId });
+    const payload: AttrDeletePayload = { ...owner, attrId };
+    await sendRequest(MSG.ATTR_DELETE, payload);
 }
 
 export { createAttribute, deleteAttribute, updateAttribute };

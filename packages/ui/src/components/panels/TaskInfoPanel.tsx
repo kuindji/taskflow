@@ -26,6 +26,11 @@ const logTypeStyles: Record<TaskLogEntryType, string> = {
     file: "bg-muted/20 text-muted-foreground border-muted/30",
 };
 
+// Stable reference for the project panel's inheritedLayers prop: an inline
+// `[]` literal is a fresh array every render, which defeats the `inherited`
+// useMemo inside AttributesSection (it never sees an unchanged dep).
+const NO_LAYERS: AttributeLayer[] = [];
+
 function formatLogTime(timestamp: string): string {
     const date = new Date(timestamp);
     return date.toLocaleString(undefined, {
@@ -354,7 +359,7 @@ function TaskInfoPanel() {
                         <AttributesSection
                             owner={{ projectId: project.id }}
                             attributes={project.attributes}
-                            inheritedLayers={[]}
+                            inheritedLayers={NO_LAYERS}
                             idPrefix="project-info"
                         />
 

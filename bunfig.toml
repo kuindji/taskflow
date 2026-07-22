@@ -5,4 +5,4 @@ peer = false
 packages = ["packages/*", "electron"]
 
 [test]
-preload = ["./packages/backend/tests/preload.ts"]
+preload = ["./packages/backend/tests/preload.ts", "./packages/ui/tests/preload.ts"]

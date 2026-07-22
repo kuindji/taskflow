@@ -47,15 +47,21 @@ function AttributesSection({
     // unmount — with the exact owner and text captured when it was scheduled.
     const pending = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>());
 
+    // The component's own layer is always shadowed out of `inherited` below
+    // (it's filtered by id), so this scope label never actually renders — but
+    // keep it honest for the owner kind rather than hardcoding "task", since
+    // this same component renders a project's own attributes too.
+    const ownScope = owner.taskId ? "task" : "project";
+
     // Inherited rows shadowed by an own attribute must not be shown, so resolve
     // the full stack and keep only the entries the own list did not shadow.
     const inherited = useMemo(() => {
         const resolved = resolveAttributes([
             ...inheritedLayers,
-            { scope: "task", attributes },
+            { scope: ownScope, attributes },
         ]);
         return resolved.filter((a) => !attributes.some((own) => own.id === a.id));
-    }, [attributes, inheritedLayers]);
+    }, [attributes, inheritedLayers, ownScope]);
 
     const setDraft = useCallback((attrId: string, field: DraftField, text: string) => {
         setDrafts((current) => ({
@@ -108,6 +114,14 @@ function AttributesSection({
     // Flush rather than drop on owner switch and unmount: a debounced edit the
     // user made just before closing the panel must still reach the server, and
     // it must reach the owner it was typed against.
+    //
+    // Keyed on a stable primitive (not `owner` itself): callers commonly pass
+    // an inline object literal, which is a fresh reference on every render, so
+    // depending on `owner` would flush on any unrelated parent re-render and
+    // wipe whatever the user is mid-typing. The cleanup only ever reads the
+    // `pending` ref, never `owner`, so it stays correct even though `owner`
+    // isn't in the deps.
+    const ownerKey = owner.taskId ?? owner.projectId;
     useEffect(() => {
         const inFlight = pending.current;
         return () => {
@@ -117,7 +131,7 @@ function AttributesSection({
             }
             inFlight.clear();
         };
-    }, [owner]);
+    }, [ownerKey]);
 
     /**
      * Builds the save for one edit, capturing the owner and sibling list from
@@ -153,14 +167,17 @@ function AttributesSection({
                     settle();
                     return;
                 }
+                // These two are local, synchronous rejections, not a server
+                // round-trip: nothing else can resolve them, so `settle()` here
+                // would always match against the very text that just failed
+                // and wipe it out from under the user's cursor. Leave the
+                // draft alone so they can keep editing.
                 if (!name) {
                     setError("Attribute name cannot be empty");
-                    settle();
                     return;
                 }
                 if (hasNameConflict(siblings, name, attribute.id)) {
                     setError(`"${name}" already exists here`);
-                    settle();
                     return;
                 }
                 setError(null);
