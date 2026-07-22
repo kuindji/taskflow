@@ -1,6 +1,7 @@
 // Taskflow CLI — cross-platform TypeScript reimplementation of taskflow-cli.sh
 // Compiled via `bun build --compile` to create a standalone binary.
 
+import { decideAttrScope, type AttrScope } from "./attr-scope";
 import { consumeFlags } from "./cli-flags";
 import { computeMovedOrder } from "./project-move";
 
@@ -258,38 +259,52 @@ async function handleTask(args: string[]): Promise<void> {
     }
 }
 
-interface AttrScope {
-    collection: "tasks" | "projects";
-    ownerId: string;
-}
-
 function resolveAttrScope(flags: Record<string, string | boolean>): AttrScope {
     const taskFlag = typeof flags["task-id"] === "string" ? flags["task-id"] : "";
     const projectFlag = typeof flags["project-id"] === "string" ? flags["project-id"] : "";
 
-    if (taskFlag && projectFlag) {
-        process.stderr.write("Error: pass either --task-id or --project-id, not both\n");
+    const result = decideAttrScope(taskFlag, projectFlag, taskId, projectId);
+    if (!result.ok) {
+        if (result.error === "both-flags") {
+            process.stderr.write("Error: pass either --task-id or --project-id, not both\n");
+        } else {
+            process.stderr.write(
+                "Error: no attribute scope — set TASKFLOW_TASK_ID or TASKFLOW_PROJECT_ID, or pass --task-id / --project-id\n",
+            );
+        }
         process.exit(1);
     }
-    if (taskFlag) return { collection: "tasks", ownerId: taskFlag };
-    if (projectFlag) return { collection: "projects", ownerId: projectFlag };
-    if (taskId) return { collection: "tasks", ownerId: taskId };
-    if (projectId) return { collection: "projects", ownerId: projectId };
-
-    process.stderr.write(
-        "Error: no attribute scope — set TASKFLOW_TASK_ID or TASKFLOW_PROJECT_ID, or pass --task-id / --project-id\n",
-    );
-    process.exit(1);
+    return result.scope;
 }
 
 const ATTR_SCOPE_FLAGS = { "task-id": "string", "project-id": "string" } as const;
+
+// Attr subcommands mix positional args (name/value/id) with flags, and either one may
+// legitimately start with "--" (e.g. an attribute value of "--weird"). To avoid a positional
+// being misread as a flag (and vice versa), split off up to `maxPositional` leading args as
+// positionals first, stopping early at a *known* attr flag name — the rest goes to parseFlags.
+const ATTR_FLAG_NAMES = new Set(["--task-id", "--project-id", "--own"]);
+
+function splitAttrArgs(
+    args: string[],
+    maxPositional: number,
+): { positional: string[]; flagArgs: string[] } {
+    const positional: string[] = [];
+    let i = 0;
+    while (i < args.length && positional.length < maxPositional && !ATTR_FLAG_NAMES.has(args[i])) {
+        positional.push(args[i]);
+        i += 1;
+    }
+    return { positional, flagArgs: args.slice(i) };
+}
 
 async function handleAttr(args: string[]): Promise<void> {
     const subcmd = args[0] ?? "";
     const rest = args.slice(1);
 
     if (subcmd === "list") {
-        const { flags } = parseFlags(rest, { ...ATTR_SCOPE_FLAGS, own: "boolean" });
+        const { flagArgs } = splitAttrArgs(rest, 0);
+        const { flags } = parseFlags(flagArgs, { ...ATTR_SCOPE_FLAGS, own: "boolean" });
         const scope = resolveAttrScope(flags);
         const query = flags.own ? "?own=1" : "";
         process.stdout.write(
@@ -299,9 +314,10 @@ async function handleAttr(args: string[]): Promise<void> {
     }
 
     if (subcmd === "get") {
-        const { flags, positional } = parseFlags(rest, ATTR_SCOPE_FLAGS);
+        const { positional, flagArgs } = splitAttrArgs(rest, 1);
+        const { flags, positional: leftover } = parseFlags(flagArgs, ATTR_SCOPE_FLAGS);
         const attrId = positional[0] ?? "";
-        if (!attrId) {
+        if (!attrId || leftover.length > 0) {
             process.stderr.write("Usage: taskflow-cli attr get <id>\n");
             process.exit(1);
         }
@@ -313,9 +329,10 @@ async function handleAttr(args: string[]): Promise<void> {
     }
 
     if (subcmd === "create") {
-        const { flags, positional } = parseFlags(rest, ATTR_SCOPE_FLAGS);
+        const { positional, flagArgs } = splitAttrArgs(rest, 2);
+        const { flags, positional: leftover } = parseFlags(flagArgs, ATTR_SCOPE_FLAGS);
         const name = positional[0] ?? "";
-        if (!name) {
+        if (!name || leftover.length > 0) {
             process.stderr.write('Usage: taskflow-cli attr create "<name>" ["<value>"]\n');
             process.exit(1);
         }
@@ -330,10 +347,11 @@ async function handleAttr(args: string[]): Promise<void> {
     }
 
     if (subcmd === "set" || subcmd === "rename") {
-        const { flags, positional } = parseFlags(rest, ATTR_SCOPE_FLAGS);
+        const { positional, flagArgs } = splitAttrArgs(rest, 2);
+        const { flags, positional: leftover } = parseFlags(flagArgs, ATTR_SCOPE_FLAGS);
         const attrId = positional[0] ?? "";
         const nextValue = positional[1];
-        if (!attrId || nextValue === undefined) {
+        if (!attrId || nextValue === undefined || leftover.length > 0) {
             process.stderr.write(
                 subcmd === "set"
                     ? 'Usage: taskflow-cli attr set <id> "<value>"\n'
@@ -354,9 +372,10 @@ async function handleAttr(args: string[]): Promise<void> {
     }
 
     if (subcmd === "delete") {
-        const { flags, positional } = parseFlags(rest, ATTR_SCOPE_FLAGS);
+        const { positional, flagArgs } = splitAttrArgs(rest, 1);
+        const { flags, positional: leftover } = parseFlags(flagArgs, ATTR_SCOPE_FLAGS);
         const attrId = positional[0] ?? "";
-        if (!attrId) {
+        if (!attrId || leftover.length > 0) {
             process.stderr.write("Usage: taskflow-cli attr delete <id>\n");
             process.exit(1);
         }
