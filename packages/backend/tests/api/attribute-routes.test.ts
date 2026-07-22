@@ -6,16 +6,9 @@ import type { Attribute, Project, ResolvedAttribute, Task, WsEvent } from "@task
 import { ApiRouter } from "../../src/api/router";
 import { TaskStore } from "../../src/services/task-store";
 import { registerAttributeRoutes } from "../../src/api/routes/attribute-routes";
+import { matchesAttribute } from "./attribute-matchers";
 
 const BASE = "http://localhost";
-
-// bun:test types `expect.objectContaining` as `AsymmetricMatcher = any`, which
-// would otherwise leak an `any` into the `toEqual` argument arrays below and
-// trip `@typescript-eslint/no-unsafe-argument`. Assert the intended shape once
-// here instead of at every call site.
-function matchesAttribute(match: Partial<ResolvedAttribute>): ResolvedAttribute {
-    return expect.objectContaining(match) as ResolvedAttribute;
-}
 
 describe("attribute routes", () => {
     let tempDir: string;

@@ -6,7 +6,7 @@ import type { ChangeTracker } from "../../services/change-tracker";
 import type { FlowStore } from "../../services/flow-store";
 import type { FlowRunner } from "../../services/flow-runner";
 import type { Task, TaskLogEntryType, WsEvent } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import { MSG, resolveAttributes } from "@taskflow/shared";
 import { filterTaskSessions } from "../../services/instance-filter";
 import { config } from "../../config";
 import { jsonResponse, errorResponse } from "./response-helpers";
@@ -212,7 +212,16 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
                 return errorResponse(`Task not found: ${params.taskId}`, 404);
             }
             const log = await taskStore.getTaskLog(params.taskId);
-            return jsonResponse({ task: filterTaskSessions(task, config.instanceId), log });
+            // `task.attributes` is this record's own list — the only one the
+            // task-scoped write commands can touch. Agents also need the
+            // effective set, so surface the project -> parent -> task merge
+            // alongside it rather than conflating the two.
+            const layers = await taskStore.resolveTaskAttributeLayers(params.taskId);
+            return jsonResponse({
+                task: filterTaskSessions(task, config.instanceId),
+                resolvedAttributes: resolveAttributes(layers),
+                log,
+            });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             console.error("[api] GET /api/tasks/:taskId failed:", err);

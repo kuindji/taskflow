@@ -8,7 +8,7 @@
 
 When running in task context, the following commands work as is. When not running in task context (TASKFLOW_TASK_ID env variable is not available), the following commands require `--task <id>` before any command: `taskflow-cli --task <id> command`. This applies to agent and session commands as well.
 
-`taskflow-cli task` Get task info
+`taskflow-cli task` Get task info. `task.attributes` is the task's own attributes; `resolvedAttributes` is the effective set after inheriting from the project and the parent task (see the attribute commands doc).
 `taskflow-cli task update --title "New title"` Update task title
 `taskflow-cli task update --description "New desc"` Update task description
 `taskflow-cli task update --notes "Some notes"` Replace task notes
