@@ -114,8 +114,7 @@ describe("TaskStore attributes", () => {
         const task = await store.createTask({ projectId, title: "T", description: "" });
         await store.createTaskAttribute(task.id, "env", "dev");
 
-        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
-        await expect(store.createTaskAttribute(task.id, "env", "prod")).rejects.toThrow(
+        expect(store.createTaskAttribute(task.id, "env", "prod")).rejects.toThrow(
             'Attribute name already exists: "env"',
         );
     });
@@ -129,15 +128,13 @@ describe("TaskStore attributes", () => {
     });
 
     it("rejects an unknown task", async () => {
-        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
-        await expect(store.createTaskAttribute("missing", "env", "dev")).rejects.toThrow(
+        expect(store.createTaskAttribute("missing", "env", "dev")).rejects.toThrow(
             "Task not found: missing",
         );
     });
 
     it("rejects an unknown project", async () => {
-        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
-        await expect(store.createProjectAttribute("missing", "env", "dev")).rejects.toThrow(
+        expect(store.createProjectAttribute("missing", "env", "dev")).rejects.toThrow(
             "Project not found: missing",
         );
     });
