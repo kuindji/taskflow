@@ -33,8 +33,22 @@ const NATIVE = [
     "Headers",
     "URL",
     "AbortController",
+    "AbortSignal",
     "WebSocket",
+    "Blob",
+    "File",
+    "FormData",
+    "DOMException",
+    "TransformStream",
+    "WritableStream",
 ] as const;
+
+// Deliberately NOT restored, because the component tests need happy-dom's
+// versions to match the nodes happy-dom creates: `Event`, `EventTarget`,
+// `CustomEvent`, `MessageEvent`, `CloseEvent`, `ErrorEvent`, `MessagePort`,
+// `navigator`, `addEventListener`, `removeEventListener`, `dispatchEvent`,
+// `postMessage`, `PerformanceObserverEntryList`. Restoring Bun's natives for
+// those would break React's event handling against happy-dom DOM nodes.
 
 const saved = new Map<string, PropertyDescriptor>();
 for (const key of NATIVE) {
