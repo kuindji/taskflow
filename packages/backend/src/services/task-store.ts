@@ -1,4 +1,6 @@
 import type {
+    Attribute,
+    AttributeLayer,
     Project,
     SessionRef,
     Task,
@@ -25,6 +27,7 @@ import {
     isJsonParseError,
     compareTasksByCreatedAtDesc,
 } from "./task-store-helpers";
+import { addAttribute, editAttribute, removeAttribute } from "./attribute-mutations";
 
 interface TaskStoreConfig {
     projectsFile: string;
@@ -39,6 +42,7 @@ export class TaskStore {
     private taskMutations = new Map<string, Promise<void>>();
     private sessionLogMutations = new Map<string, Promise<void>>();
     private masterSessions: SessionRef[] = [];
+    private projectsMutation: Promise<unknown> = Promise.resolve();
 
     constructor(config: TaskStoreConfig) {
         this.config = config;
@@ -128,6 +132,7 @@ export class TaskStore {
             projects = parsed.map((project) => ({
                 ...project,
                 sessions: project.sessions ?? [],
+                attributes: project.attributes ?? [],
             }));
         } catch (error) {
             if (isJsonParseError(error)) {
@@ -176,6 +181,7 @@ export class TaskStore {
             return {
                 ...task,
                 pinned: task.pinned ?? false,
+                attributes: task.attributes ?? [],
                 worktree: { ...task.worktree, pr: task.worktree.pr ?? null },
             };
         } catch (error) {
@@ -238,6 +244,7 @@ export class TaskStore {
             name: input.name?.trim() || basename(resolvedPath),
             path: resolvedPath,
             sessions: [],
+            attributes: [],
             createdAt: new Date().toISOString(),
             ...(input.defaultInitCommand?.trim()
                 ? { defaultInitCommand: input.defaultInitCommand.trim() }
@@ -269,6 +276,7 @@ export class TaskStore {
                       | "defaultInitCommand"
                       | "prompt"
                       | "linkedProjects"
+                      | "attributes"
                   >
               >
             | ((
@@ -283,63 +291,67 @@ export class TaskStore {
                       | "defaultInitCommand"
                       | "prompt"
                       | "linkedProjects"
+                      | "attributes"
                   >
               >),
     ): Promise<Project> {
-        const projects = await this.listProjects();
-        const index = projects.findIndex((p) => p.id === id);
-        if (index === -1) {
-            throw new Error(`Project not found: ${id}`);
-        }
-        const resolvedUpdates = typeof updates === "function" ? updates(projects[index]) : updates;
-
-        let resolvedPath = projects[index].path;
-        if (resolvedUpdates.path) {
-            const rawPath = resolvedUpdates.path;
-            resolvedPath = await realpath(rawPath).catch(() => rawPath);
-            const info = await stat(resolvedPath);
-            if (!info.isDirectory()) {
-                throw new Error(`Project path is not a directory: ${resolvedPath}`);
+        return this.withProjectsMutation(async () => {
+            const projects = await this.listProjects();
+            const index = projects.findIndex((p) => p.id === id);
+            if (index === -1) {
+                throw new Error(`Project not found: ${id}`);
             }
-            const duplicate = projects.find((p) => p.id !== id && p.path === resolvedPath);
-            if (duplicate) {
-                throw new Error(`A project already exists at this path: ${duplicate.name}`);
+            const resolvedUpdates =
+                typeof updates === "function" ? updates(projects[index]) : updates;
+
+            let resolvedPath = projects[index].path;
+            if (resolvedUpdates.path) {
+                const rawPath = resolvedUpdates.path;
+                resolvedPath = await realpath(rawPath).catch(() => rawPath);
+                const info = await stat(resolvedPath);
+                if (!info.isDirectory()) {
+                    throw new Error(`Project path is not a directory: ${resolvedPath}`);
+                }
+                const duplicate = projects.find((p) => p.id !== id && p.path === resolvedPath);
+                if (duplicate) {
+                    throw new Error(`A project already exists at this path: ${duplicate.name}`);
+                }
             }
-        }
 
-        projects[index] = {
-            ...projects[index],
-            ...resolvedUpdates,
-            name: resolvedUpdates.name ? resolvedUpdates.name.trim() : projects[index].name,
-            path: resolvedPath,
-            sessions: resolvedUpdates.sessions ?? projects[index].sessions,
-            defaultInitCommand:
-                "defaultInitCommand" in resolvedUpdates
-                    ? resolvedUpdates.defaultInitCommand?.trim() || undefined
-                    : projects[index].defaultInitCommand,
-            prompt:
-                "prompt" in resolvedUpdates
-                    ? resolvedUpdates.prompt?.trim() || undefined
-                    : projects[index].prompt,
-            linkedProjects:
-                "linkedProjects" in resolvedUpdates
-                    ? resolvedUpdates.linkedProjects
-                    : projects[index].linkedProjects,
-        };
-        await writeFile(
-            this.config.projectsFile,
-            JSON.stringify(this.stripEphemeralFields(projects), null, 2),
-        );
+            projects[index] = {
+                ...projects[index],
+                ...resolvedUpdates,
+                name: resolvedUpdates.name ? resolvedUpdates.name.trim() : projects[index].name,
+                path: resolvedPath,
+                sessions: resolvedUpdates.sessions ?? projects[index].sessions,
+                defaultInitCommand:
+                    "defaultInitCommand" in resolvedUpdates
+                        ? resolvedUpdates.defaultInitCommand?.trim() || undefined
+                        : projects[index].defaultInitCommand,
+                prompt:
+                    "prompt" in resolvedUpdates
+                        ? resolvedUpdates.prompt?.trim() || undefined
+                        : projects[index].prompt,
+                linkedProjects:
+                    "linkedProjects" in resolvedUpdates
+                        ? resolvedUpdates.linkedProjects
+                        : projects[index].linkedProjects,
+            };
+            await writeFile(
+                this.config.projectsFile,
+                JSON.stringify(this.stripEphemeralFields(projects), null, 2),
+            );
 
-        // Re-validate location after path change
-        try {
-            const info = await stat(projects[index].path);
-            projects[index].locationValid = info.isDirectory();
-        } catch {
-            projects[index].locationValid = false;
-        }
+            // Re-validate location after path change
+            try {
+                const info = await stat(projects[index].path);
+                projects[index].locationValid = info.isDirectory();
+            } catch {
+                projects[index].locationValid = false;
+            }
 
-        return projects[index];
+            return projects[index];
+        });
     }
 
     async removeProject(id: string): Promise<void> {
@@ -364,22 +376,26 @@ export class TaskStore {
             }),
         );
 
-        const projects = await this.listProjects();
-        const filtered = projects.filter((p) => p.id !== id);
-        await writeFile(
-            this.config.projectsFile,
-            JSON.stringify(this.stripEphemeralFields(filtered), null, 2),
-        );
+        await this.withProjectsMutation(async () => {
+            const projects = await this.listProjects();
+            const filtered = projects.filter((p) => p.id !== id);
+            await writeFile(
+                this.config.projectsFile,
+                JSON.stringify(this.stripEphemeralFields(filtered), null, 2),
+            );
+        });
     }
 
     async reorderProjects(orderedIds: string[]): Promise<Project[]> {
-        const projects = await this.listProjects();
-        const reordered = orderProjectsByIds(projects, orderedIds);
-        await writeFile(
-            this.config.projectsFile,
-            JSON.stringify(this.stripEphemeralFields(reordered), null, 2),
-        );
-        return reordered;
+        return this.withProjectsMutation(async () => {
+            const projects = await this.listProjects();
+            const reordered = orderProjectsByIds(projects, orderedIds);
+            await writeFile(
+                this.config.projectsFile,
+                JSON.stringify(this.stripEphemeralFields(reordered), null, 2),
+            );
+            return reordered;
+        });
     }
 
     // --- Tasks ---
@@ -599,6 +615,7 @@ export class TaskStore {
             notes: "",
             worktree: input.worktree ?? { enabled: false, path: null, branch: null, pr: null },
             sessions: [],
+            attributes: [],
             createdAt: new Date().toISOString(),
             status: "active",
             archivedAt: null,
@@ -619,6 +636,16 @@ export class TaskStore {
 
     async getArchived(id: string): Promise<Task | null> {
         return this.readTask(this.archivePath(id));
+    }
+
+    /**
+     * Serializes read-modify-write cycles over the single projects file. Not
+     * reentrant — never call a locked method from inside another one.
+     */
+    private withProjectsMutation<T>(mutation: () => Promise<T>): Promise<T> {
+        const run = this.projectsMutation.then(mutation, mutation);
+        this.projectsMutation = run.catch(() => undefined);
+        return run;
     }
 
     private async withTaskMutation<T>(id: string, mutation: () => Promise<T>): Promise<T> {
@@ -662,6 +689,90 @@ export class TaskStore {
             await this.writeTask(this.taskPath(id), updated);
             return updated;
         });
+    }
+
+    private async mutateTaskAttributes(
+        taskId: string,
+        mutate: (list: Attribute[]) => Attribute[],
+    ): Promise<Task> {
+        return this.withTaskMutation(taskId, async () => {
+            const task = await this.readTask(this.taskPath(taskId));
+            if (!task) throw new Error(`Task not found: ${taskId}`);
+            const updated: Task = { ...task, attributes: mutate(task.attributes) };
+            await this.writeTask(this.taskPath(taskId), updated);
+            return updated;
+        });
+    }
+
+    async createTaskAttribute(taskId: string, name: string, value: string): Promise<Task> {
+        const id = randomUUID();
+        return this.mutateTaskAttributes(taskId, (list) => addAttribute(list, id, name, value));
+    }
+
+    async updateTaskAttribute(
+        taskId: string,
+        attrId: string,
+        updates: { name?: string; value?: string },
+    ): Promise<Task> {
+        return this.mutateTaskAttributes(taskId, (list) => editAttribute(list, attrId, updates));
+    }
+
+    async deleteTaskAttribute(taskId: string, attrId: string): Promise<Task> {
+        return this.mutateTaskAttributes(taskId, (list) => removeAttribute(list, attrId));
+    }
+
+    private async mutateProjectAttributes(
+        projectId: string,
+        mutate: (list: Attribute[]) => Attribute[],
+    ): Promise<Project> {
+        // The function form reads inside updateProject's own read-modify-write,
+        // which Step 9a makes atomic. Reading separately here would reintroduce
+        // the lost-update race.
+        return this.updateProject(projectId, (project) => ({
+            attributes: mutate(project.attributes),
+        }));
+    }
+
+    async createProjectAttribute(projectId: string, name: string, value: string): Promise<Project> {
+        const id = randomUUID();
+        return this.mutateProjectAttributes(projectId, (list) =>
+            addAttribute(list, id, name, value),
+        );
+    }
+
+    async updateProjectAttribute(
+        projectId: string,
+        attrId: string,
+        updates: { name?: string; value?: string },
+    ): Promise<Project> {
+        return this.mutateProjectAttributes(projectId, (list) =>
+            editAttribute(list, attrId, updates),
+        );
+    }
+
+    async deleteProjectAttribute(projectId: string, attrId: string): Promise<Project> {
+        return this.mutateProjectAttributes(projectId, (list) => removeAttribute(list, attrId));
+    }
+
+    async resolveTaskAttributeLayers(taskId: string): Promise<AttributeLayer[]> {
+        const task = await this.getTask(taskId);
+        if (!task) throw new Error(`Task not found: ${taskId}`);
+        const project = await this.getProject(task.projectId);
+        const layers: AttributeLayer[] = [
+            { scope: "project", attributes: project?.attributes ?? [] },
+        ];
+        if (task.parentId) {
+            const parent = await this.getTask(task.parentId);
+            layers.push({ scope: "parent", attributes: parent?.attributes ?? [] });
+        }
+        layers.push({ scope: "task", attributes: task.attributes });
+        return layers;
+    }
+
+    async resolveProjectAttributeLayers(projectId: string): Promise<AttributeLayer[]> {
+        const project = await this.getProject(projectId);
+        if (!project) throw new Error(`Project not found: ${projectId}`);
+        return [{ scope: "project", attributes: project.attributes }];
     }
 
     async archiveTask(id: string): Promise<Task> {

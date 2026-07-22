@@ -22,6 +22,7 @@ describe("filterTaskSessions", () => {
         notes: "",
         worktree: { enabled: false, path: null, branch: null, pr: null },
         sessions: [],
+        attributes: [],
         createdAt: new Date().toISOString(),
         status: "active",
         archivedAt: null,
@@ -78,6 +79,7 @@ describe("filterProjectSessions", () => {
         name: "Test",
         path: "/tmp/test",
         sessions: [],
+        attributes: [],
         createdAt: new Date().toISOString(),
     };
 
