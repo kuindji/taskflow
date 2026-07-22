@@ -914,7 +914,38 @@ Then wrap the **entire existing body** of `updateProject` in it. The method curr
 
 Indent the existing body one level and leave every statement in it alone, including the trailing `locationValid` re-validation and the `return`.
 
-Do **not** wrap `addProject`. The lock is not reentrant and `addProject` calls `this.updateProject(duplicate.id, { hidden: false })` on the duplicate-path branch, which would deadlock. `addProject` racing `updateProject` remains possible; that is a pre-existing hazard this feature does not introduce and does not widen.
+Two other methods rewrite the whole projects file and must join the same lock, or a concurrent reorder or removal will read before an attribute write and clobber it on write-back. Neither calls a locked method, so neither can deadlock.
+
+`removeProject` (`task-store.ts:367`) — wrap only its trailing projects-file section, leaving the task cleanup above it outside the lock:
+
+```ts
+        await this.withProjectsMutation(async () => {
+            const projects = await this.listProjects();
+            const filtered = projects.filter((p) => p.id !== id);
+            await writeFile(
+                this.config.projectsFile,
+                JSON.stringify(this.stripEphemeralFields(filtered), null, 2),
+            );
+        });
+```
+
+`reorderProjects` (`task-store.ts:375`) — wrap the whole body:
+
+```ts
+    async reorderProjects(orderedIds: string[]): Promise<Project[]> {
+        return this.withProjectsMutation(async () => {
+            const projects = await this.listProjects();
+            const reordered = orderProjectsByIds(projects, orderedIds);
+            await writeFile(
+                this.config.projectsFile,
+                JSON.stringify(this.stripEphemeralFields(reordered), null, 2),
+            );
+            return reordered;
+        });
+    }
+```
+
+Do **not** wrap `addProject`. The lock is not reentrant and `addProject` calls `this.updateProject(duplicate.id, { hidden: false })` on the duplicate-path branch, which would deadlock. `addProject` racing the locked methods remains possible; that is a pre-existing hazard this feature does not introduce and does not widen.
 
 - [ ] **Step 10: Allow `attributes` through `updateProject`**
 
@@ -1135,6 +1166,12 @@ describe("attribute handlers", () => {
         );
     });
 
+    it("rejects a payload naming both owners", async () => {
+        await expect(
+            router.handle(MSG.ATTR_CREATE, { taskId, projectId, name: "env" }),
+        ).rejects.toThrow("Attribute owner must be taskId or projectId, not both");
+    });
+
     it("propagates a duplicate-name error", async () => {
         await router.handle(MSG.ATTR_CREATE, { taskId, name: "env" });
         await expect(router.handle(MSG.ATTR_CREATE, { taskId, name: "env" })).rejects.toThrow(
@@ -1212,6 +1249,11 @@ interface OwnerRef {
 }
 
 function resolveOwner(payload: OwnerRef): { taskId: string } | { projectId: string } {
+    // The payload type is exclusive, but a WS payload arrives as `unknown` — a
+    // both-owner message must be rejected, not silently resolved to one side.
+    if (payload.taskId && payload.projectId) {
+        throw new Error("Attribute owner must be taskId or projectId, not both");
+    }
     if (payload.taskId) return { taskId: payload.taskId };
     if (payload.projectId) return { projectId: payload.projectId };
     throw new Error("Attribute owner requires taskId or projectId");
@@ -1269,7 +1311,7 @@ export function registerAttributeHandlers(deps: AttributeHandlerDeps): void {
 - [ ] **Step 6: Run the test to verify it passes**
 
 Run: `bun test packages/backend/tests/handlers/attribute.test.ts`
-Expected: PASS — 7 tests.
+Expected: PASS — 8 tests.
 
 - [ ] **Step 7: Wire the handlers into the server**
 
@@ -2158,29 +2200,13 @@ function AttributesSection({
 }: AttributesSectionProps) {
     const [error, setError] = useState<string | null>(null);
     // A field with a draft is being edited; without one it renders the store
-    // value. Clearing a draft is how a save (or a rejection) hands control back
-    // to the store.
+    // value. Clearing a draft is how a settled save hands control back to the
+    // store.
     const [drafts, setDrafts] = useState<Drafts>({});
-    const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-
-    // Debounced saves fire outside render, so they read the latest props here
-    // rather than closing over a stale render's values.
-    const attributesRef = useRef(attributes);
-    const ownerRef = useRef(owner);
-    useEffect(() => {
-        attributesRef.current = attributes;
-        ownerRef.current = owner;
-    });
-
-    useEffect(() => {
-        const pending = timers.current;
-        return () => {
-            for (const timer of pending.values()) {
-                clearTimeout(timer);
-            }
-            pending.clear();
-        };
-    }, []);
+    // Pending debounced saves, keyed `${attrId}:${field}`. Each entry keeps its
+    // own `run` so it can be flushed early — on blur, on owner switch, or on
+    // unmount — with the exact owner and text captured when it was scheduled.
+    const pending = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>());
 
     // Inherited rows shadowed by an own attribute must not be shown, so resolve
     // the full stack and keep only the entries the own list did not shadow.
@@ -2199,104 +2225,128 @@ function AttributesSection({
         }));
     }, []);
 
-    const clearDraft = useCallback((attrId: string, field: DraftField) => {
-        setDrafts((current) => {
-            const entry = current[attrId];
-            if (!entry || entry[field] === undefined) return current;
-            const { [field]: _dropped, ...remaining } = entry;
-            const next = { ...current };
-            if (Object.keys(remaining).length === 0) {
-                delete next[attrId];
-            } else {
-                next[attrId] = remaining;
-            }
-            return next;
+    /**
+     * Hand the field back to the store, but only if the user has not typed past
+     * what this save carried. Clearing unconditionally would revert a newer
+     * draft to the older value an in-flight request is about to confirm.
+     */
+    const clearDraftIfUnchanged = useCallback(
+        (attrId: string, field: DraftField, text: string) => {
+            setDrafts((current) => {
+                const entry = current[attrId];
+                if (!entry || entry[field] !== text) return current;
+                const remaining = { ...entry };
+                delete remaining[field];
+                const next = { ...current };
+                if (Object.keys(remaining).length === 0) {
+                    delete next[attrId];
+                } else {
+                    next[attrId] = remaining;
+                }
+                return next;
+            });
+        },
+        [],
+    );
+
+    const flush = useCallback((key: string) => {
+        const entry = pending.current.get(key);
+        if (!entry) return;
+        clearTimeout(entry.timer);
+        pending.current.delete(key);
+        entry.run();
+    }, []);
+
+    const schedule = useCallback((key: string, run: () => void) => {
+        const existing = pending.current.get(key);
+        if (existing) clearTimeout(existing.timer);
+        pending.current.set(key, {
+            timer: setTimeout(() => {
+                pending.current.delete(key);
+                run();
+            }, SAVE_DEBOUNCE_MS),
+            run,
         });
     }, []);
 
-    const commitText = useCallback(
-        (attrId: string, field: DraftField, text: string) => {
-            const attribute = attributesRef.current.find((a) => a.id === attrId);
-            if (!attribute) return;
+    // Flush rather than drop on owner switch and unmount: a debounced edit the
+    // user made just before closing the panel must still reach the server, and
+    // it must reach the owner it was typed against.
+    useEffect(() => {
+        const inFlight = pending.current;
+        return () => {
+            for (const entry of [...inFlight.values()]) {
+                clearTimeout(entry.timer);
+                entry.run();
+            }
+            inFlight.clear();
+        };
+    }, [owner]);
 
-            if (field === "value") {
-                if (text === attribute.value) {
-                    clearDraft(attrId, "value");
+    /**
+     * Builds the save for one edit, capturing the owner and sibling list from
+     * the render that produced the keystroke. A flush that fires after the
+     * panel switched tasks therefore still writes to the right owner.
+     */
+    const makeCommit = useCallback(
+        (attribute: Attribute, field: DraftField, text: string): (() => void) => {
+            const targetOwner = owner;
+            const siblings = attributes;
+            const settle = () => clearDraftIfUnchanged(attribute.id, field, text);
+
+            return () => {
+                if (field === "value") {
+                    if (text === attribute.value) {
+                        settle();
+                        return;
+                    }
+                    setError(null);
+                    void updateAttribute(targetOwner, attribute.id, { value: text })
+                        .then(settle)
+                        .catch((err: unknown) => {
+                            setError(
+                                err instanceof Error ? err.message : "Failed to update attribute",
+                            );
+                            settle();
+                        });
+                    return;
+                }
+
+                const name = normalizeAttributeName(text);
+                if (name === attribute.name) {
+                    settle();
+                    return;
+                }
+                if (!name) {
+                    setError("Attribute name cannot be empty");
+                    settle();
+                    return;
+                }
+                if (hasNameConflict(siblings, name, attribute.id)) {
+                    setError(`"${name}" already exists here`);
+                    settle();
                     return;
                 }
                 setError(null);
-                void updateAttribute(ownerRef.current, attrId, { value: text })
-                    .then(() => clearDraft(attrId, "value"))
+                void updateAttribute(targetOwner, attribute.id, { name })
+                    .then(settle)
                     .catch((err: unknown) => {
                         setError(
-                            err instanceof Error ? err.message : "Failed to update attribute",
+                            err instanceof Error ? err.message : "Failed to rename attribute",
                         );
-                        clearDraft(attrId, "value");
+                        settle();
                     });
-                return;
-            }
-
-            const name = normalizeAttributeName(text);
-            if (name === attribute.name) {
-                clearDraft(attrId, "name");
-                return;
-            }
-            if (!name) {
-                setError("Attribute name cannot be empty");
-                clearDraft(attrId, "name");
-                return;
-            }
-            if (hasNameConflict(attributesRef.current, name, attrId)) {
-                setError(`"${name}" already exists here`);
-                clearDraft(attrId, "name");
-                return;
-            }
-            setError(null);
-            void updateAttribute(ownerRef.current, attrId, { name })
-                .then(() => clearDraft(attrId, "name"))
-                .catch((err: unknown) => {
-                    setError(err instanceof Error ? err.message : "Failed to rename attribute");
-                    clearDraft(attrId, "name");
-                });
+            };
         },
-        [clearDraft],
-    );
-
-    const scheduleCommit = useCallback(
-        (attrId: string, field: DraftField, text: string) => {
-            const key = `${attrId}:${field}`;
-            const existing = timers.current.get(key);
-            if (existing) clearTimeout(existing);
-            timers.current.set(
-                key,
-                setTimeout(() => {
-                    timers.current.delete(key);
-                    commitText(attrId, field, text);
-                }, SAVE_DEBOUNCE_MS),
-            );
-        },
-        [commitText],
-    );
-
-    const commitNow = useCallback(
-        (attrId: string, field: DraftField, text: string) => {
-            const key = `${attrId}:${field}`;
-            const existing = timers.current.get(key);
-            if (existing) {
-                clearTimeout(existing);
-                timers.current.delete(key);
-            }
-            commitText(attrId, field, text);
-        },
-        [commitText],
+        [attributes, clearDraftIfUnchanged, owner],
     );
 
     const handleChange = useCallback(
-        (attrId: string, field: DraftField, text: string) => {
-            setDraft(attrId, field, text);
-            scheduleCommit(attrId, field, text);
+        (attribute: Attribute, field: DraftField, text: string) => {
+            setDraft(attribute.id, field, text);
+            schedule(`${attribute.id}:${field}`, makeCommit(attribute, field, text));
         },
-        [scheduleCommit, setDraft],
+        [makeCommit, schedule, setDraft],
     );
 
     const addAttribute = useCallback(() => {
@@ -2364,8 +2414,8 @@ function AttributesSection({
                             id={`${idPrefix}-attr-name-${attribute.id}`}
                             aria-label="Attribute name"
                             value={drafts[attribute.id]?.name ?? attribute.name}
-                            onChange={(e) => handleChange(attribute.id, "name", e.target.value)}
-                            onBlur={(e) => commitNow(attribute.id, "name", e.target.value)}
+                            onChange={(e) => handleChange(attribute, "name", e.target.value)}
+                            onBlur={() => flush(`${attribute.id}:name`)}
                             placeholder="name"
                             className="h-7 flex-1 text-xs"
                         />
@@ -2373,8 +2423,8 @@ function AttributesSection({
                             id={`${idPrefix}-attr-value-${attribute.id}`}
                             aria-label="Attribute value"
                             value={drafts[attribute.id]?.value ?? attribute.value}
-                            onChange={(e) => handleChange(attribute.id, "value", e.target.value)}
-                            onBlur={(e) => commitNow(attribute.id, "value", e.target.value)}
+                            onChange={(e) => handleChange(attribute, "value", e.target.value)}
+                            onBlur={() => flush(`${attribute.id}:value`)}
                             placeholder="value"
                             className="h-7 flex-1 text-xs"
                         />
@@ -2405,7 +2455,12 @@ export { AttributesSection };
 
 The inputs are controlled against a draft map rather than uncontrolled with `defaultValue`. `defaultValue` would be a bug here: React ignores changes to it after mount, so a value written by an agent — or a name the server normalized — would never appear in a field the user had already touched. With drafts, a field shows the store value until the user types, and returns to the store value the moment a save resolves or fails. A rejected rename therefore reverts visibly, which is the behaviour Step 6 checks.
 
-Saves are debounced by `SAVE_DEBOUNCE_MS` and flushed on blur, matching how the existing title/notes/prompt fields in this panel behave.
+Saves are debounced by `SAVE_DEBOUNCE_MS` and flushed on blur, on owner switch, and on unmount — the same three flush points the existing title/notes/prompt fields in this panel use (`TaskInfoPanel.tsx:228` and `:241`). Dropping pending timers instead would silently lose an edit made just before the user clicks away.
+
+Two subtleties the implementation depends on, both worth preserving if this code is refactored:
+
+- Each pending save captures its `owner` and sibling list at schedule time, not at fire time. A flush triggered by switching tasks must write to the task the text was typed against, not the one now on screen.
+- A settled save clears the draft only if the draft still holds the text that save carried. Clearing unconditionally would snap the field back to an older value whenever the user kept typing during a round trip.
 
 - [ ] **Step 3: Render the section in the project view**
 
