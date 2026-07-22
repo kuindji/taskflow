@@ -1,3 +1,5 @@
+import type { Attribute } from "./attribute";
+
 export type SessionStatus = "working" | "attention" | "initializing";
 
 export interface SessionRef {
@@ -30,6 +32,7 @@ export interface Task {
     notes: string;
     worktree: TaskWorktree;
     sessions: SessionRef[];
+    attributes: Attribute[];
     createdAt: string;
     status: "active" | "archived";
     archivedAt: string | null;

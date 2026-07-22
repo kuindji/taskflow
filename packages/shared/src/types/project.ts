@@ -1,3 +1,4 @@
+import type { Attribute } from "./attribute";
 import type { SessionRef } from "./task";
 
 export interface LinkedProject {
@@ -10,6 +11,7 @@ export interface Project {
     name: string;
     path: string;
     sessions: SessionRef[];
+    attributes: Attribute[];
     createdAt: string;
     defaultInitCommand?: string;
     prompt?: string;

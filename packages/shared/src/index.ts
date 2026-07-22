@@ -17,3 +17,5 @@ export { bundledThemes } from "./themes/index";
 export * from "./types/search";
 export * from "./utils/project-order";
 export * from "./utils/version";
+export * from "./types/attribute";
+export * from "./utils/attributes";
