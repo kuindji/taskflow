@@ -26,6 +26,7 @@ import { registerFlowRoutes } from "./routes/flow-routes";
 import { registerScheduleRoutes } from "./routes/schedule-routes";
 import { registerSettingsRoutes } from "./routes/settings-routes";
 import { registerNotificationRoutes } from "./routes/notification-routes";
+import { registerAttributeRoutes } from "./routes/attribute-routes";
 
 interface ApiRouteDeps {
     apiRouter: ApiRouter;
@@ -61,6 +62,7 @@ interface ApiRouteDeps {
 
 function registerApiRoutes(deps: ApiRouteDeps): void {
     registerTaskRoutes(deps);
+    registerAttributeRoutes(deps);
     registerSessionRoutes(deps);
     registerProjectRoutes(deps);
     registerFlowRoutes(deps);
