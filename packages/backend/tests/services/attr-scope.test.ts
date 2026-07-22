@@ -27,6 +27,11 @@ describe("decideAttrScope", () => {
         expect(result).toEqual({ ok: true, scope: { collection: "tasks", ownerId: "T-env" } });
     });
 
+    test("project-only fallback resolves to project scope", () => {
+        const result = decideAttrScope("", "", "", "P-env");
+        expect(result).toEqual({ ok: true, scope: { collection: "projects", ownerId: "P-env" } });
+    });
+
     test("both explicit flags is an error", () => {
         const result = decideAttrScope("T1", "P1", "", "");
         expect(result).toEqual({ ok: false, error: "both-flags" });

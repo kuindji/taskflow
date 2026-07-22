@@ -304,7 +304,16 @@ async function handleAttr(args: string[]): Promise<void> {
 
     if (subcmd === "list") {
         const { flagArgs } = splitAttrArgs(rest, 0);
-        const { flags } = parseFlags(flagArgs, { ...ATTR_SCOPE_FLAGS, own: "boolean" });
+        const { flags, positional: leftover } = parseFlags(flagArgs, {
+            ...ATTR_SCOPE_FLAGS,
+            own: "boolean",
+        });
+        if (leftover.length > 0) {
+            process.stderr.write(
+                "Usage: taskflow-cli attr list [--own] [--task-id <id>] [--project-id <id>]\n",
+            );
+            process.exit(1);
+        }
         const scope = resolveAttrScope(flags);
         const query = flags.own ? "?own=1" : "";
         process.stdout.write(

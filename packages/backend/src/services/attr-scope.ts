@@ -30,4 +30,4 @@ function decideAttrScope(
 }
 
 export { decideAttrScope };
-export type { AttrScope, AttrScopeErrorKind, AttrScopeResult };
+export type { AttrScope };
