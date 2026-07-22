@@ -3,6 +3,7 @@ import type { TaskStore } from "../../services/task-store";
 import type { AttributeLayer, Project, Task, WsEvent } from "@taskflow/shared";
 import { MSG, resolveAttributes } from "@taskflow/shared";
 import { filterProjectSessions, filterTaskSessions } from "../../services/instance-filter";
+import { foreignAttributeError } from "../../services/attribute-guards";
 import { config } from "../../config";
 import { jsonResponse, errorResponse } from "./response-helpers";
 import { NotFoundError } from "../../services/errors";
@@ -45,38 +46,6 @@ function registerAttributeRoutes(deps: AttributeRouteDeps): void {
         return kind === "task"
             ? taskStore.resolveTaskAttributeLayers(ownerId)
             : taskStore.resolveProjectAttributeLayers(ownerId);
-    }
-
-    /**
-     * Writes are own-list only. When the id belongs to an inherited layer, say so
-     * and name the flag that reaches it, instead of the store's generic
-     * "Attribute not found".
-     */
-    async function foreignAttributeError(
-        kind: OwnerKind,
-        ownerId: string,
-        attrId: string,
-    ): Promise<string | null> {
-        if (kind === "project") return null;
-
-        const task = await taskStore.getTask(ownerId);
-        // A missing task is reported by the mutation itself, as a 404.
-        if (!task) return null;
-        if (task.attributes.some((a) => a.id === attrId)) return null;
-
-        const project = await taskStore.getProject(task.projectId);
-        if (project?.attributes.some((a) => a.id === attrId)) {
-            return `attribute ${attrId} belongs to project "${project.name}"; use --project-id ${project.id} to edit it`;
-        }
-
-        if (task.parentId) {
-            const parent = await taskStore.getTask(task.parentId);
-            if (parent?.attributes.some((a) => a.id === attrId)) {
-                return `attribute ${attrId} belongs to parent task "${parent.title}"; use --task-id ${parent.id} to edit it`;
-            }
-        }
-
-        return null;
     }
 
     function register(kind: OwnerKind): void {
@@ -166,7 +135,12 @@ function registerAttributeRoutes(deps: AttributeRouteDeps): void {
 
             const ownerId = params[idParam];
             try {
-                const foreign = await foreignAttributeError(kind, ownerId, params.attrId);
+                const foreign = await foreignAttributeError(
+                    taskStore,
+                    kind,
+                    ownerId,
+                    params.attrId,
+                );
                 if (foreign) return errorResponse(foreign, 400);
 
                 const updated =
@@ -183,7 +157,12 @@ function registerAttributeRoutes(deps: AttributeRouteDeps): void {
         apiRouter.register("DELETE", `${basePath}/:attrId`, async (_req, params) => {
             const ownerId = params[idParam];
             try {
-                const foreign = await foreignAttributeError(kind, ownerId, params.attrId);
+                const foreign = await foreignAttributeError(
+                    taskStore,
+                    kind,
+                    ownerId,
+                    params.attrId,
+                );
                 if (foreign) return errorResponse(foreign, 400);
 
                 const updated =

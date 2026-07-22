@@ -212,6 +212,23 @@ function AttributesSection({
 
     const removeAttribute = useCallback(
         (attrId: string) => {
+            // Cancel (do not flush) both pending saves for this attribute: a
+            // debounced edit that fires after the delete goes out would target
+            // an attribute that no longer exists and surface a spurious
+            // "Attribute not found" error.
+            for (const field of ["name", "value"] as const) {
+                const key = `${attrId}:${field}`;
+                const entry = pending.current.get(key);
+                if (entry) {
+                    clearTimeout(entry.timer);
+                    pending.current.delete(key);
+                }
+            }
+            setDrafts((current) => {
+                if (!(attrId in current)) return current;
+                const { [attrId]: _dropped, ...rest } = current;
+                return rest;
+            });
             setError(null);
             void deleteAttribute(owner, attrId).catch((err: unknown) => {
                 setError(err instanceof Error ? err.message : "Failed to delete attribute");

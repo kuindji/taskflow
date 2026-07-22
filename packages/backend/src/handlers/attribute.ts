@@ -3,28 +3,13 @@ import type { Project, Task, WsEvent } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
 import { filterProjectSessions, filterTaskSessions } from "../services/instance-filter";
+import { foreignAttributeError } from "../services/attribute-guards";
 import { config } from "../config";
 
 interface AttributeHandlerDeps {
     router: Router;
     store: TaskStore;
     broadcast: (event: WsEvent) => void;
-}
-
-interface OwnerRef {
-    taskId?: string;
-    projectId?: string;
-}
-
-function resolveOwner(payload: OwnerRef): { taskId: string } | { projectId: string } {
-    // The payload type is exclusive, but a WS payload arrives as `unknown` — a
-    // both-owner message must be rejected, not silently resolved to one side.
-    if (payload.taskId && payload.projectId) {
-        throw new Error("Attribute owner must be taskId or projectId, not both");
-    }
-    if (payload.taskId) return { taskId: payload.taskId };
-    if (payload.projectId) return { projectId: payload.projectId };
-    throw new Error("Attribute owner requires taskId or projectId");
 }
 
 /** Narrow a WS payload (`unknown`) to a plain object so its fields can be validated. */
@@ -50,6 +35,23 @@ function optionalString(value: unknown, field: string): string | undefined {
     return value;
 }
 
+/**
+ * Resolve the attribute owner from a validated record. A present owner field
+ * must be a string (a bare truthiness check would let e.g. `taskId: 0` slip
+ * past as "absent" and silently resolve to the other owner), and exactly one
+ * of the two must be present.
+ */
+function resolveOwner(record: Record<string, unknown>): { taskId: string } | { projectId: string } {
+    const taskId = optionalString(record.taskId, "taskId");
+    const projectId = optionalString(record.projectId, "projectId");
+    if (taskId !== undefined && projectId !== undefined) {
+        throw new Error("Attribute owner must be taskId or projectId, not both");
+    }
+    if (taskId !== undefined) return { taskId };
+    if (projectId !== undefined) return { projectId };
+    throw new Error("Attribute owner requires taskId or projectId");
+}
+
 export function registerAttributeHandlers(deps: AttributeHandlerDeps): void {
     const { router, store, broadcast } = deps;
 
@@ -69,7 +71,7 @@ export function registerAttributeHandlers(deps: AttributeHandlerDeps): void {
         const record = toRecord(payload);
         const name = requireString(record.name, "name");
         const value = optionalString(record.value, "value");
-        const owner = resolveOwner(payload as OwnerRef);
+        const owner = resolveOwner(record);
         if ("taskId" in owner) {
             return publishTask(await store.createTaskAttribute(owner.taskId, name, value ?? ""));
         }
@@ -83,21 +85,32 @@ export function registerAttributeHandlers(deps: AttributeHandlerDeps): void {
         const attrId = requireString(record.attrId, "attrId");
         const name = optionalString(record.name, "name");
         const value = optionalString(record.value, "value");
-        const owner = resolveOwner(payload as OwnerRef);
+        if (name === undefined && value === undefined) {
+            throw new Error("No valid fields to update");
+        }
+        const owner = resolveOwner(record);
         const updates = { name, value };
         if ("taskId" in owner) {
+            const foreign = await foreignAttributeError(store, "task", owner.taskId, attrId);
+            if (foreign) throw new Error(foreign);
             return publishTask(await store.updateTaskAttribute(owner.taskId, attrId, updates));
         }
+        const foreign = await foreignAttributeError(store, "project", owner.projectId, attrId);
+        if (foreign) throw new Error(foreign);
         return publishProject(await store.updateProjectAttribute(owner.projectId, attrId, updates));
     });
 
     router.register(MSG.ATTR_DELETE, async (payload) => {
         const record = toRecord(payload);
         const attrId = requireString(record.attrId, "attrId");
-        const owner = resolveOwner(payload as OwnerRef);
+        const owner = resolveOwner(record);
         if ("taskId" in owner) {
+            const foreign = await foreignAttributeError(store, "task", owner.taskId, attrId);
+            if (foreign) throw new Error(foreign);
             return publishTask(await store.deleteTaskAttribute(owner.taskId, attrId));
         }
+        const foreign = await foreignAttributeError(store, "project", owner.projectId, attrId);
+        if (foreign) throw new Error(foreign);
         return publishProject(await store.deleteProjectAttribute(owner.projectId, attrId));
     });
 }

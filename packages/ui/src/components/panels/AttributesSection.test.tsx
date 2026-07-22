@@ -467,6 +467,29 @@ test("REGRESSION (Finding 1): an unrelated parent re-render does not flush a pen
     expect(calls).toHaveLength(0);
 });
 
+test("REGRESSION (Finding 5): deleting an attribute cancels its pending debounced edit instead of letting it fire after the delete", async () => {
+    mount([{ id: "a1", name: "env", value: "prod" }]);
+    typeInto("task-info-attr-value-a1", "staging");
+    expect(calls).toHaveLength(0); // debounce (500ms) has not elapsed
+
+    const deleteButton = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Delete attribute env"]',
+    );
+    if (!deleteButton) throw new Error("no delete button");
+    act(() => {
+        deleteButton.click();
+    });
+    // Drain the delete call's microtask.
+    await act(async () => {});
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ kind: "delete", attrId: "a1" });
+
+    // The stale debounced value-update must never fire.
+    await waitDebounce();
+    expect(calls).toHaveLength(1);
+});
+
 test("REGRESSION (Finding 1): mid-typing text survives an unrelated parent re-render", () => {
     mountWithInlineOwner([
         { id: "a1", name: "region", value: "" },

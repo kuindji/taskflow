@@ -22,3 +22,5 @@ Scope is inferred from the session: inside a task it is the task, inside a proje
 Names are trimmed and must be unique within one owner's own list. A task may reuse a project attribute's name — that is how you override it.
 
 `get` finds an attribute in any layer, so an inherited or shadowed attribute is still readable by id. `set`, `rename` and `delete` only work on the current scope's own attributes; pass `--project-id` or `--task-id` to edit another owner's.
+
+Names and values are plain strings — even ones that look like a flag (e.g. `--own`) work as a required positional. The one exception: `attr create "<name>" "<value>"` cannot accept a flag-looking string as the *value*, since that slot is optional and ambiguous with a following flag (`attr create "name" "--project-id"` is read as `--project-id` with no value, not as a value). Workaround: create the attribute first, then set its value — `attr set` has two required positionals, so it has no such ambiguity: `attr set <id> "--project-id"`.
