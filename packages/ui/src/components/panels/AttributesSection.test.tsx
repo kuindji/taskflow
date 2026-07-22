@@ -1,4 +1,4 @@
-import { expect, test, beforeEach, mock } from "bun:test";
+import { expect, test, beforeEach, afterAll, mock } from "bun:test";
 import { act, useEffect, useMemo, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { Attribute, AttributeLayer, AttributeOwner } from "@taskflow/shared";
@@ -47,6 +47,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let container: HTMLDivElement;
 let root: Root;
 let prevRoot: Root | null = null;
+let prevContainer: HTMLDivElement | null = null;
 let setStoreAttributes: (a: Attribute[]) => void;
 let setOwnerId: (id: string) => void;
 let setMounted: (m: boolean) => void;
@@ -55,8 +56,18 @@ let bumpParent: () => void;
 /**
  * Mounts with `owner` recomputed via useMemo on `ownerId`, mirroring a
  * well-behaved caller (owner only changes reference on a real switch).
+ *
+ * `ownerKind` selects which shape of `AttributeOwner` is produced from the
+ * same `ownerId` state (`{ taskId }` vs `{ projectId }`), so the same harness
+ * covers both the task and the project owner shape -- including the
+ * `ownScope === "project"` branch and the `ownerKey` fallback to
+ * `owner.projectId`.
  */
-function mount(initial: Attribute[], inheritedLayers: AttributeLayer[] = []) {
+function mount(
+    initial: Attribute[],
+    inheritedLayers: AttributeLayer[] = [],
+    ownerKind: "task" | "project" = "task",
+) {
     function Parent() {
         const [attributes, setAttributes] = useState(initial);
         const [ownerId, setOid] = useState("t1");
@@ -69,7 +80,10 @@ function mount(initial: Attribute[], inheritedLayers: AttributeLayer[] = []) {
             setOwnerId = setOid;
             setMounted = setM;
         }, [setAttributes, setOid, setM]);
-        const owner = useMemo<AttributeOwner>(() => ({ taskId: ownerId }), [ownerId]);
+        const owner = useMemo<AttributeOwner>(
+            () => (ownerKind === "task" ? { taskId: ownerId } : { projectId: ownerId }),
+            [ownerId],
+        );
         if (!mounted) return null;
         return (
             <AttributesSection
@@ -87,6 +101,7 @@ function mount(initial: Attribute[], inheritedLayers: AttributeLayer[] = []) {
         root.render(<Parent />);
     });
     prevRoot = root;
+    prevContainer = container;
 }
 
 /**
@@ -119,6 +134,7 @@ function mountWithInlineOwner(attributes: Attribute[]) {
         root.render(<Parent />);
     });
     prevRoot = root;
+    prevContainer = container;
 }
 
 function typeInto(id: string, text: string) {
@@ -144,13 +160,16 @@ const valueOf = (id: string) => container.querySelector<HTMLInputElement>(`#${id
 const text = () => container.textContent ?? "";
 const inheritedRows = () => [...container.querySelectorAll("div.opacity-70")].map((d) => d.textContent);
 
+// SAVE_DEBOUNCE_MS is 500; sleep well past it so the debounce firing isn't a
+// coin flip under load -- a thin margin here is the only thing separating a
+// couple of repro tests from a false green.
 async function waitDebounce() {
     await act(async () => {
-        await new Promise((r) => setTimeout(r, 700));
+        await new Promise((r) => setTimeout(r, 1000));
     });
 }
 
-beforeEach(() => {
+function unmountPrevious() {
     if (prevRoot) {
         const r = prevRoot;
         act(() => {
@@ -158,9 +177,24 @@ beforeEach(() => {
         });
         prevRoot = null;
     }
+    if (prevContainer) {
+        prevContainer.remove();
+        prevContainer = null;
+    }
+}
+
+beforeEach(() => {
+    unmountPrevious();
     calls.length = 0;
     gate = null;
     gateNext = false;
+});
+
+// `beforeEach` only unmounts the *previous* test's root, so the final test's
+// root (and its live timers) would otherwise stay mounted, and its container
+// would stay attached to `document.body`, after the whole file finishes.
+afterAll(() => {
+    unmountPrevious();
 });
 
 test("a store update with no local draft is reflected in the field (controlled, not uncontrolled)", () => {
@@ -173,13 +207,17 @@ test("a store update with no local draft is reflected in the field (controlled, 
     expect(valueOf("task-info-attr-value-a1")).toBe("agent-wrote-this");
 });
 
-test("owner captured at schedule time: switching task inside the debounce window still writes to the old owner", () => {
+test("owner captured at schedule time: switching task inside the debounce window still writes to the old owner", async () => {
     mount([{ id: "a1", name: "env", value: "prod" }]);
     typeInto("task-info-attr-value-a1", "staging");
 
     act(() => {
         setOwnerId("t2");
     });
+    // Drain the `.then(settle)` microtask the flush schedules -- the mocked
+    // API call resolves immediately, and that resolution happens after the
+    // synchronous `act()` above returns.
+    await act(async () => {});
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.owner).toEqual({ taskId: "t1" });
@@ -193,12 +231,39 @@ test("sibling list for duplicate-name validation is also captured at schedule ti
     ]);
     // "env" collides with the sibling that exists RIGHT NOW.
     typeInto("task-info-attr-name-a1", "env");
-    // Owner switches; the pending save flushes against the captured siblings.
+    // Owner switches; the pending save flushes against the captured siblings,
+    // finds the conflict, and skips the write. That conflict belongs to the
+    // owner being left, though, so it must not linger as an error banner
+    // under the newly-rendered owner -- see the Finding C test below.
     act(() => {
         setOwnerId("t2");
     });
     expect(calls).toHaveLength(0); // conflict caught locally, no write
+    expect(text()).not.toContain('"env" already exists here');
+});
+
+test("REGRESSION (Finding C): the error banner and drafts do not survive an owner switch", async () => {
+    mount([
+        { id: "a1", name: "region", value: "" },
+        { id: "a2", name: "env", value: "" },
+    ]);
+    // Trigger a synchronous, local duplicate-name error while still on
+    // owner t1 -- flushed on blur, so the error is set (and the draft left
+    // in place, since a local rejection is not settled) before any switch.
+    typeInto("task-info-attr-name-a1", "env");
+    blur("task-info-attr-name-a1");
     expect(text()).toContain('"env" already exists here');
+    expect(valueOf("task-info-attr-name-a1")).toBe("env");
+
+    act(() => {
+        setOwnerId("t2");
+    });
+    await act(async () => {});
+
+    // The new owner's section must not show the old owner's stale error or
+    // draft for an attribute it does not have a conflict on.
+    expect(text()).not.toContain('"env" already exists here');
+    expect(valueOf("task-info-attr-name-a1")).toBe("region");
 });
 
 test("stale-clear guard: a reply for an earlier value must not revert a field showing newer text", async () => {
@@ -235,21 +300,25 @@ test("a rejected rename (server round-trip) reverts the field to the store value
     expect(text()).toContain("name already taken");
 });
 
-test("pending save is flushed on blur", () => {
+test("pending save is flushed on blur", async () => {
     mount([{ id: "a1", name: "env", value: "prod" }]);
     typeInto("task-info-attr-value-a1", "staging");
     expect(calls).toHaveLength(0);
     blur("task-info-attr-value-a1");
+    // Drain the `.then(settle)` microtask the flush schedules.
+    await act(async () => {});
     expect(calls).toHaveLength(1);
 });
 
-test("pending save is flushed on a real owner switch", () => {
+test("pending save is flushed on a real owner switch", async () => {
     mount([{ id: "a1", name: "env", value: "prod" }]);
     typeInto("task-info-attr-value-a1", "staging");
     expect(calls).toHaveLength(0);
     act(() => {
         setOwnerId("t2");
     });
+    // Drain the `.then(settle)` microtask the flush schedules.
+    await act(async () => {});
     expect(calls).toHaveLength(1);
     expect(calls[0]?.owner).toEqual({ taskId: "t1" });
 });
@@ -307,9 +376,51 @@ test("inherited list: task case, shadowed rows hidden, precedence respected", ()
 });
 
 test("inherited list: project case (empty inheritedLayers) yields nothing", () => {
-    mount([{ id: "p1", name: "env", value: "prod" }], []);
+    mount([{ id: "p1", name: "env", value: "prod" }], [], "project");
     expect(inheritedRows()).toHaveLength(0);
     expect(valueOf("task-info-attr-value-p1")).toBe("prod");
+});
+
+test("inherited list: project owner, shadowed rows hidden, precedence respected", () => {
+    // Mirrors the task-case test above, but with a project owner, so the
+    // `ownScope === "project"` branch (and its own layer feeding into
+    // `resolveAttributes`) actually gets exercised rather than only the task
+    // one.
+    mount(
+        [{ id: "p-env", name: "env", value: "dev" }],
+        [
+            {
+                scope: "parent",
+                attributes: [
+                    { id: "par-env", name: "env", value: "prod" },
+                    { id: "par-region", name: "region", value: "us" },
+                ],
+            },
+        ],
+        "project",
+    );
+    const rows = inheritedRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain("region");
+    expect(rows[0]).toContain("us");
+    expect(text()).not.toContain("prod"); // inherited env shadowed by own env
+    expect(valueOf("task-info-attr-value-p-env")).toBe("dev");
+});
+
+test("pending save is flushed on a real owner switch (project owner)", async () => {
+    // Covers the `ownerKey` fallback to `owner.projectId` -- the flush effect
+    // depends on `owner.taskId ?? owner.projectId`, and every other flush
+    // test in this file only ever mounts a task owner.
+    mount([{ id: "p1", name: "env", value: "prod" }], [], "project");
+    typeInto("task-info-attr-value-p1", "staging");
+    expect(calls).toHaveLength(0);
+    act(() => {
+        setOwnerId("proj-2");
+    });
+    // Drain the `.then(settle)` microtask the flush schedules.
+    await act(async () => {});
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.owner).toEqual({ projectId: "t1" });
 });
 
 test("a transient local name conflict does not wipe in-progress text after the debounce alone", async () => {

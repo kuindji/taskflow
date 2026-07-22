@@ -130,6 +130,11 @@ function AttributesSection({
                 entry.run();
             }
             inFlight.clear();
+            // An owner switch (or unmount) must not let this owner's error
+            // banner or in-progress drafts bleed into the next one -- flush
+            // first, above, so pending work is not lost, then reset.
+            setError(null);
+            setDrafts({});
         };
     }, [ownerKey]);
 
