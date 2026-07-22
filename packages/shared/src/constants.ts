@@ -126,7 +126,6 @@ export const MSG = {
     SCHEDULE_TRIGGER: "schedule:trigger",
     SCHEDULE_UPDATED: "schedule:updated",
 
-
     // Browser
     BROWSER_OPEN: "browser:open",
 

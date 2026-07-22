@@ -195,9 +195,7 @@ describe("attribute routes", () => {
 
         const listRes = await call("GET", `/api/projects/${projectId}/attributes`);
         const { attributes } = (await listRes.json()) as { attributes: ResolvedAttribute[] };
-        expect(attributes).toEqual([
-            matchesAttribute({ name: "team", scope: "project" }),
-        ]);
+        expect(attributes).toEqual([matchesAttribute({ name: "team", scope: "project" })]);
     });
 
     it("refuses to edit a project attribute from task context", async () => {

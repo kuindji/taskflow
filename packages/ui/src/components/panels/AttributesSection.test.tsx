@@ -34,9 +34,13 @@ function apiCall(c: Call): Promise<void> {
 await mock.module("@/lib/attribute-api", () => ({
     createAttribute: (owner: AttributeOwner, name: string, value: string) =>
         apiCall({ kind: "create", owner, updates: { name, value } }),
-    updateAttribute: (owner: AttributeOwner, attrId: string, updates: { name?: string; value?: string }) =>
-        apiCall({ kind: "update", owner, attrId, updates }),
-    deleteAttribute: (owner: AttributeOwner, attrId: string) => apiCall({ kind: "delete", owner, attrId }),
+    updateAttribute: (
+        owner: AttributeOwner,
+        attrId: string,
+        updates: { name?: string; value?: string },
+    ) => apiCall({ kind: "update", owner, attrId, updates }),
+    deleteAttribute: (owner: AttributeOwner, attrId: string) =>
+        apiCall({ kind: "delete", owner, attrId }),
 }));
 
 const { AttributesSection } = await import("./AttributesSection");
@@ -156,9 +160,11 @@ function blur(id: string) {
     });
 }
 
-const valueOf = (id: string) => container.querySelector<HTMLInputElement>(`#${id}`)?.value ?? "<missing>";
+const valueOf = (id: string) =>
+    container.querySelector<HTMLInputElement>(`#${id}`)?.value ?? "<missing>";
 const text = () => container.textContent ?? "";
-const inheritedRows = () => [...container.querySelectorAll("div.opacity-70")].map((d) => d.textContent);
+const inheritedRows = () =>
+    [...container.querySelectorAll("div.opacity-70")].map((d) => d.textContent);
 
 // SAVE_DEBOUNCE_MS is 500; sleep well past it so the debounce firing isn't a
 // coin flip under load -- a thin margin here is the only thing separating a

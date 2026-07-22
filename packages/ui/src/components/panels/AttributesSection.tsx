@@ -4,11 +4,7 @@ import type { Attribute, AttributeLayer, AttributeOwner } from "@taskflow/shared
 import { hasNameConflict, normalizeAttributeName, resolveAttributes } from "@taskflow/shared";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-    createAttribute,
-    deleteAttribute,
-    updateAttribute,
-} from "@/lib/attribute-api";
+import { createAttribute, deleteAttribute, updateAttribute } from "@/lib/attribute-api";
 
 const SAVE_DEBOUNCE_MS = 500;
 
@@ -45,7 +41,9 @@ function AttributesSection({
     // Pending debounced saves, keyed `${attrId}:${field}`. Each entry keeps its
     // own `run` so it can be flushed early — on blur, on owner switch, or on
     // unmount — with the exact owner and text captured when it was scheduled.
-    const pending = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>());
+    const pending = useRef(
+        new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>(),
+    );
 
     // The component's own layer is always shadowed out of `inherited` below
     // (it's filtered by id), so this scope label never actually renders — but
@@ -56,10 +54,7 @@ function AttributesSection({
     // Inherited rows shadowed by an own attribute must not be shown, so resolve
     // the full stack and keep only the entries the own list did not shadow.
     const inherited = useMemo(() => {
-        const resolved = resolveAttributes([
-            ...inheritedLayers,
-            { scope: ownScope, attributes },
-        ]);
+        const resolved = resolveAttributes([...inheritedLayers, { scope: ownScope, attributes }]);
         return resolved.filter((a) => !attributes.some((own) => own.id === a.id));
     }, [attributes, inheritedLayers, ownScope]);
 
@@ -75,21 +70,18 @@ function AttributesSection({
      * what this save carried. Clearing unconditionally would revert a newer
      * draft to the older value an in-flight request is about to confirm.
      */
-    const clearDraftIfUnchanged = useCallback(
-        (attrId: string, field: DraftField, text: string) => {
-            setDrafts((current) => {
-                const entry = current[attrId];
-                if (!entry || entry[field] !== text) return current;
-                const { [field]: _cleared, ...remaining } = entry;
-                if (Object.keys(remaining).length === 0) {
-                    const { [attrId]: _removed, ...next } = current;
-                    return next;
-                }
-                return { ...current, [attrId]: remaining };
-            });
-        },
-        [],
-    );
+    const clearDraftIfUnchanged = useCallback((attrId: string, field: DraftField, text: string) => {
+        setDrafts((current) => {
+            const entry = current[attrId];
+            if (!entry || entry[field] !== text) return current;
+            const { [field]: _cleared, ...remaining } = entry;
+            if (Object.keys(remaining).length === 0) {
+                const { [attrId]: _removed, ...next } = current;
+                return next;
+            }
+            return { ...current, [attrId]: remaining };
+        });
+    }, []);
 
     const flush = useCallback((key: string) => {
         const entry = pending.current.get(key);
@@ -189,9 +181,7 @@ function AttributesSection({
                 void updateAttribute(targetOwner, attribute.id, { name })
                     .then(settle)
                     .catch((err: unknown) => {
-                        setError(
-                            err instanceof Error ? err.message : "Failed to rename attribute",
-                        );
+                        setError(err instanceof Error ? err.message : "Failed to rename attribute");
                         settle();
                     });
             };

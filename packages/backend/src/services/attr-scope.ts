@@ -22,7 +22,8 @@ function decideAttrScope(
     }
     if (taskFlag) return { ok: true, scope: { collection: "tasks", ownerId: taskFlag } };
     if (projectFlag) return { ok: true, scope: { collection: "projects", ownerId: projectFlag } };
-    if (fallbackTaskId) return { ok: true, scope: { collection: "tasks", ownerId: fallbackTaskId } };
+    if (fallbackTaskId)
+        return { ok: true, scope: { collection: "tasks", ownerId: fallbackTaskId } };
     if (fallbackProjectId) {
         return { ok: true, scope: { collection: "projects", ownerId: fallbackProjectId } };
     }

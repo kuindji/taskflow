@@ -66,7 +66,10 @@ describe("resolveAttributes", () => {
 
     it("resolves three layers with the highest winning", () => {
         const resolved = resolveAttributes([
-            { scope: "project", attributes: [attr("p1", "env", "prod"), attr("p2", "team", "core")] },
+            {
+                scope: "project",
+                attributes: [attr("p1", "env", "prod"), attr("p2", "team", "core")],
+            },
             { scope: "parent", attributes: [attr("n1", "env", "staging")] },
             { scope: "task", attributes: [attr("t1", "env", "dev")] },
         ]);

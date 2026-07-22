@@ -103,9 +103,9 @@ describe("attribute handlers", () => {
     });
 
     it("rejects a payload naming both owners", async () => {
-        expect(
-            router.handle(MSG.ATTR_CREATE, { taskId, projectId, name: "env" }),
-        ).rejects.toThrow("Attribute owner must be taskId or projectId, not both");
+        expect(router.handle(MSG.ATTR_CREATE, { taskId, projectId, name: "env" })).rejects.toThrow(
+            "Attribute owner must be taskId or projectId, not both",
+        );
     });
 
     it("propagates a duplicate-name error", async () => {
@@ -116,9 +116,9 @@ describe("attribute handlers", () => {
     });
 
     it("rejects a non-string value on create", async () => {
-        expect(
-            router.handle(MSG.ATTR_CREATE, { taskId, name: "env", value: 999 }),
-        ).rejects.toThrow('Field "value" must be a string');
+        expect(router.handle(MSG.ATTR_CREATE, { taskId, name: "env", value: 999 })).rejects.toThrow(
+            'Field "value" must be a string',
+        );
     });
 
     it("rejects a missing name on create", async () => {

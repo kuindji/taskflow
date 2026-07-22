@@ -88,9 +88,7 @@ export function registerAttributeHandlers(deps: AttributeHandlerDeps): void {
         if ("taskId" in owner) {
             return publishTask(await store.updateTaskAttribute(owner.taskId, attrId, updates));
         }
-        return publishProject(
-            await store.updateProjectAttribute(owner.projectId, attrId, updates),
-        );
+        return publishProject(await store.updateProjectAttribute(owner.projectId, attrId, updates));
     });
 
     router.register(MSG.ATTR_DELETE, async (payload) => {
