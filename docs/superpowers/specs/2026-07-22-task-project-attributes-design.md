@@ -103,7 +103,11 @@ updateProjectAttribute(projectId, attrId, { name?, value? }): Promise<Project>
 deleteProjectAttribute(projectId, attrId): Promise<Project>
 ```
 
-Each is a read-modify-write. Task mutations run inside the existing `withTaskMutation` lock, keyed by task id. Project mutations reuse the existing `updateProject` read-write path, which serializes no differently than today's project edits do.
+Each is a read-modify-write. Task mutations run inside the existing `withTaskMutation` lock, keyed by task id.
+
+Project mutations go through `updateProject`, which today is an *unlocked* read-modify-write over the whole projects file — two concurrent attribute creates would both read the same list and the second write would silently drop the first. This work therefore adds a projects-file mutation lock and wraps `updateProject`'s body in it, and uses `updateProject`'s function form so the read happens inside that lock. The fix benefits every project update, not only attributes.
+
+`addProject` is deliberately left unlocked: the lock is not reentrant and `addProject` calls `updateProject` on its duplicate-path branch. `addProject` racing `updateProject` remains possible, as it is today.
 
 Each returns the whole updated `Task` or `Project`, which handlers broadcast as the existing `TASK_UPDATED` / `PROJECT_UPDATED` events. No new event types are needed, and every store in the UI refreshes through the path it already uses.
 

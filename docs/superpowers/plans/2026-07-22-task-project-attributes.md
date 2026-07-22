@@ -274,7 +274,7 @@ export { hasNameConflict, normalizeAttributeName, resolveAttributes };
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `bun test packages/shared/tests/attributes.test.ts`
-Expected: PASS — 12 tests.
+Expected: PASS — 13 tests.
 
 - [ ] **Step 6: Add `attributes` to `Task` and `Project`**
 
@@ -530,7 +530,7 @@ export { addAttribute, editAttribute, removeAttribute };
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bun test packages/backend/tests/services/attribute-mutations.test.ts`
-Expected: PASS — 13 tests.
+Expected: PASS — 12 tests.
 
 - [ ] **Step 5: Write the failing test for the store methods**
 
@@ -678,6 +678,27 @@ describe("TaskStore attributes", () => {
         );
     });
 
+    it("keeps both attributes when two project creates race", async () => {
+        await Promise.all([
+            store.createProjectAttribute(projectId, "env", "prod"),
+            store.createProjectAttribute(projectId, "team", "core"),
+        ]);
+
+        const project = await store.getProject(projectId);
+        expect(project?.attributes.map((a) => a.name).sort()).toEqual(["env", "team"]);
+    });
+
+    it("keeps both attributes when two task creates race", async () => {
+        const task = await store.createTask({ projectId, title: "T", description: "" });
+        await Promise.all([
+            store.createTaskAttribute(task.id, "env", "prod"),
+            store.createTaskAttribute(task.id, "team", "core"),
+        ]);
+
+        const reread = await store.getTask(task.id);
+        expect(reread?.attributes.map((a) => a.name).sort()).toEqual(["env", "team"]);
+    });
+
     it("resolves project and task layers for a top-level task", async () => {
         const task = await store.createTask({ projectId, title: "T", description: "" });
         await store.createProjectAttribute(projectId, "env", "prod");
@@ -805,9 +826,12 @@ Add these methods to the `TaskStore` class, after `updateTask`:
         projectId: string,
         mutate: (list: Attribute[]) => Attribute[],
     ): Promise<Project> {
-        const project = await this.getProject(projectId);
-        if (!project) throw new Error(`Project not found: ${projectId}`);
-        return this.updateProject(projectId, { attributes: mutate(project.attributes) });
+        // The function form reads inside updateProject's own read-modify-write,
+        // which Step 9a makes atomic. Reading separately here would reintroduce
+        // the lost-update race.
+        return this.updateProject(projectId, (project) => ({
+            attributes: mutate(project.attributes),
+        }));
     }
 
     async createProjectAttribute(projectId: string, name: string, value: string): Promise<Project> {
@@ -853,6 +877,45 @@ Add these methods to the `TaskStore` class, after `updateTask`:
     }
 ```
 
+- [ ] **Step 9a: Serialize `updateProject`'s read-modify-write**
+
+`updateProject` currently reads the whole projects file, mutates one entry, and writes it back with no lock (`packages/backend/src/services/task-store.ts:289`). Two concurrent attribute creates would both read the same `attributes` array and the second write would silently drop the first. Task mutations are already safe via `withTaskMutation`; projects need the equivalent.
+
+Add the lock field beside the existing mutation maps near the top of the class:
+
+```ts
+    private projectsMutation: Promise<unknown> = Promise.resolve();
+```
+
+Add the helper next to `withTaskMutation`:
+
+```ts
+    /**
+     * Serializes read-modify-write cycles over the single projects file. Not
+     * reentrant — never call a locked method from inside another one.
+     */
+    private withProjectsMutation<T>(mutation: () => Promise<T>): Promise<T> {
+        const run = this.projectsMutation.then(mutation, mutation);
+        this.projectsMutation = run.catch(() => undefined);
+        return run;
+    }
+```
+
+Then wrap the **entire existing body** of `updateProject` in it. The method currently opens with `const projects = await this.listProjects();`; change it to:
+
+```ts
+    ): Promise<Project> {
+        return this.withProjectsMutation(async () => {
+            const projects = await this.listProjects();
+            // ...the existing body, unchanged, indented one level...
+        });
+    }
+```
+
+Indent the existing body one level and leave every statement in it alone, including the trailing `locationValid` re-validation and the `return`.
+
+Do **not** wrap `addProject`. The lock is not reentrant and `addProject` calls `this.updateProject(duplicate.id, { hidden: false })` on the duplicate-path branch, which would deadlock. `addProject` racing `updateProject` remains possible; that is a pre-existing hazard this feature does not introduce and does not widen.
+
 - [ ] **Step 10: Allow `attributes` through `updateProject`**
 
 `updateProject`'s `updates` parameter is a `Partial<Pick<Project, ...>>` union with a function form. Add `"attributes"` to **both** `Pick` lists so `mutateProjectAttributes` typechecks:
@@ -895,17 +958,38 @@ Add these methods to the `TaskStore` class, after `updateTask`:
 - [ ] **Step 11: Run the tests to verify they pass**
 
 Run: `bun test packages/backend/tests/services/attribute-store.test.ts`
-Expected: PASS — 14 tests.
+Expected: PASS — 16 tests. The two race tests are the ones that fail if Step 9a's lock was skipped.
 
-Then run the whole suite, which will surface any other construction site that now needs `attributes`:
+- [ ] **Step 11a: Fix the typed test fixtures that now need `attributes`**
+
+`packages/backend/tsconfig.json` includes `tests`, so `Task` and `Project` object literals in test files must carry the new required field. `packages/backend/tests/services/instance-filter.test.ts` has two.
+
+In `baseTask` (around line 17), add the field after `sessions: []`:
+
+```ts
+        sessions: [],
+        attributes: [],
+```
+
+In `baseProject` (around line 76), add the same after `sessions: []`:
+
+```ts
+        sessions: [],
+        attributes: [],
+```
+
+Then find any others:
+
+Run: `bun run typecheck 2>&1 | grep -i "attributes"`
+Expected: no output once every literal is fixed. Add `attributes: []` at each site the command reports.
+
+- [ ] **Step 12: Full verification**
 
 Run: `bun test`
-Expected: PASS. If a test fixture constructs a `Task` or `Project` literal, add `attributes: []` to it.
-
-- [ ] **Step 12: Typecheck and lint**
+Expected: PASS.
 
 Run: `bun run typecheck`
-Expected: remaining errors only in `packages/ui` (fixed in Task 6) — the UI does not construct `Task` or `Project` literals, so in practice this should pass. Fix any backend error by adding `attributes: []` at the construction site.
+Expected: PASS for `packages/shared` and `packages/backend`. `packages/ui` is untouched so far and does not construct `Task` or `Project` literals; if it reports an error, note it and fix it in Task 6.
 
 Run: `bun run lint`
 Expected: PASS.
@@ -1968,8 +2052,13 @@ Confirm the doc is embedded and the dispatch is reachable:
 Run: `bun -e 'import { getResolvedCliHelp } from "./packages/backend/src/services/internal-agent-skill.ts"; const help = getResolvedCliHelp(); console.log(help.includes("attr create") ? "OK: attr docs embedded" : "MISSING");'`
 Expected: `OK: attr docs embedded`
 
-Run: `bun run packages/backend/src/services/taskflow-cli-bin.ts attr`
-Expected: exits non-zero, printing `Usage: taskflow-cli attr <list|get|create|set|rename|delete> ...` on stderr. (Reaching the usage line proves dispatch works without needing a running backend.)
+Run: `TASKFLOW_API_URL=http://127.0.0.1:9 bun run packages/backend/src/services/taskflow-cli-bin.ts attr`
+Expected: exits non-zero, printing `Usage: taskflow-cli attr <list|get|create|set|rename|delete> ...` on stderr. Reaching the usage line proves dispatch works without a running backend. `TASKFLOW_API_URL` must be set because the CLI exits at module load when it is missing (`taskflow-cli-bin.ts:7`); the URL is never dialled on this path.
+
+Also confirm scope inference fails loudly rather than silently defaulting:
+
+Run: `TASKFLOW_API_URL=http://127.0.0.1:9 bun run packages/backend/src/services/taskflow-cli-bin.ts attr list`
+Expected: exits non-zero with `Error: no attribute scope — set TASKFLOW_TASK_ID or TASKFLOW_PROJECT_ID, or pass --task-id / --project-id`.
 
 - [ ] **Step 7: Commit**
 
@@ -2028,7 +2117,7 @@ export { createAttribute, deleteAttribute, updateAttribute };
 Create `packages/ui/src/components/panels/AttributesSection.tsx`:
 
 ```tsx
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import type { Attribute, AttributeLayer, AttributeOwner } from "@taskflow/shared";
 import { hasNameConflict, normalizeAttributeName, resolveAttributes } from "@taskflow/shared";
@@ -2040,6 +2129,8 @@ import {
     updateAttribute,
 } from "@/lib/attribute-api";
 
+const SAVE_DEBOUNCE_MS = 500;
+
 interface AttributesSectionProps {
     owner: AttributeOwner;
     /** Own attributes, editable here. */
@@ -2049,6 +2140,9 @@ interface AttributesSectionProps {
     /** Prefix for input ids, so task and project panels don't collide. */
     idPrefix: string;
 }
+
+type DraftField = "name" | "value";
+type Drafts = Record<string, Partial<Record<DraftField, string>>>;
 
 const scopeLabels: Record<string, string> = {
     project: "project",
@@ -2063,6 +2157,30 @@ function AttributesSection({
     idPrefix,
 }: AttributesSectionProps) {
     const [error, setError] = useState<string | null>(null);
+    // A field with a draft is being edited; without one it renders the store
+    // value. Clearing a draft is how a save (or a rejection) hands control back
+    // to the store.
+    const [drafts, setDrafts] = useState<Drafts>({});
+    const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+    // Debounced saves fire outside render, so they read the latest props here
+    // rather than closing over a stale render's values.
+    const attributesRef = useRef(attributes);
+    const ownerRef = useRef(owner);
+    useEffect(() => {
+        attributesRef.current = attributes;
+        ownerRef.current = owner;
+    });
+
+    useEffect(() => {
+        const pending = timers.current;
+        return () => {
+            for (const timer of pending.values()) {
+                clearTimeout(timer);
+            }
+            pending.clear();
+        };
+    }, []);
 
     // Inherited rows shadowed by an own attribute must not be shown, so resolve
     // the full stack and keep only the entries the own list did not shadow.
@@ -2074,39 +2192,111 @@ function AttributesSection({
         return resolved.filter((a) => !attributes.some((own) => own.id === a.id));
     }, [attributes, inheritedLayers]);
 
-    const commitName = useCallback(
-        (attribute: Attribute, nextName: string) => {
-            const normalized = normalizeAttributeName(nextName);
-            if (normalized === attribute.name) return;
-            if (!normalized) {
-                setError("Attribute name cannot be empty");
+    const setDraft = useCallback((attrId: string, field: DraftField, text: string) => {
+        setDrafts((current) => ({
+            ...current,
+            [attrId]: { ...current[attrId], [field]: text },
+        }));
+    }, []);
+
+    const clearDraft = useCallback((attrId: string, field: DraftField) => {
+        setDrafts((current) => {
+            const entry = current[attrId];
+            if (!entry || entry[field] === undefined) return current;
+            const { [field]: _dropped, ...remaining } = entry;
+            const next = { ...current };
+            if (Object.keys(remaining).length === 0) {
+                delete next[attrId];
+            } else {
+                next[attrId] = remaining;
+            }
+            return next;
+        });
+    }, []);
+
+    const commitText = useCallback(
+        (attrId: string, field: DraftField, text: string) => {
+            const attribute = attributesRef.current.find((a) => a.id === attrId);
+            if (!attribute) return;
+
+            if (field === "value") {
+                if (text === attribute.value) {
+                    clearDraft(attrId, "value");
+                    return;
+                }
+                setError(null);
+                void updateAttribute(ownerRef.current, attrId, { value: text })
+                    .then(() => clearDraft(attrId, "value"))
+                    .catch((err: unknown) => {
+                        setError(
+                            err instanceof Error ? err.message : "Failed to update attribute",
+                        );
+                        clearDraft(attrId, "value");
+                    });
                 return;
             }
-            if (hasNameConflict(attributes, normalized, attribute.id)) {
-                setError(`"${normalized}" already exists here`);
+
+            const name = normalizeAttributeName(text);
+            if (name === attribute.name) {
+                clearDraft(attrId, "name");
+                return;
+            }
+            if (!name) {
+                setError("Attribute name cannot be empty");
+                clearDraft(attrId, "name");
+                return;
+            }
+            if (hasNameConflict(attributesRef.current, name, attrId)) {
+                setError(`"${name}" already exists here`);
+                clearDraft(attrId, "name");
                 return;
             }
             setError(null);
-            void updateAttribute(owner, attribute.id, { name: normalized }).catch(
-                (err: unknown) => {
+            void updateAttribute(ownerRef.current, attrId, { name })
+                .then(() => clearDraft(attrId, "name"))
+                .catch((err: unknown) => {
                     setError(err instanceof Error ? err.message : "Failed to rename attribute");
-                },
-            );
+                    clearDraft(attrId, "name");
+                });
         },
-        [attributes, owner],
+        [clearDraft],
     );
 
-    const commitValue = useCallback(
-        (attribute: Attribute, nextValue: string) => {
-            if (nextValue === attribute.value) return;
-            setError(null);
-            void updateAttribute(owner, attribute.id, { value: nextValue }).catch(
-                (err: unknown) => {
-                    setError(err instanceof Error ? err.message : "Failed to update attribute");
-                },
+    const scheduleCommit = useCallback(
+        (attrId: string, field: DraftField, text: string) => {
+            const key = `${attrId}:${field}`;
+            const existing = timers.current.get(key);
+            if (existing) clearTimeout(existing);
+            timers.current.set(
+                key,
+                setTimeout(() => {
+                    timers.current.delete(key);
+                    commitText(attrId, field, text);
+                }, SAVE_DEBOUNCE_MS),
             );
         },
-        [owner],
+        [commitText],
+    );
+
+    const commitNow = useCallback(
+        (attrId: string, field: DraftField, text: string) => {
+            const key = `${attrId}:${field}`;
+            const existing = timers.current.get(key);
+            if (existing) {
+                clearTimeout(existing);
+                timers.current.delete(key);
+            }
+            commitText(attrId, field, text);
+        },
+        [commitText],
+    );
+
+    const handleChange = useCallback(
+        (attrId: string, field: DraftField, text: string) => {
+            setDraft(attrId, field, text);
+            scheduleCommit(attrId, field, text);
+        },
+        [scheduleCommit, setDraft],
     );
 
     const addAttribute = useCallback(() => {
@@ -2173,16 +2363,18 @@ function AttributesSection({
                         <Input
                             id={`${idPrefix}-attr-name-${attribute.id}`}
                             aria-label="Attribute name"
-                            defaultValue={attribute.name}
-                            onBlur={(e) => commitName(attribute, e.target.value)}
+                            value={drafts[attribute.id]?.name ?? attribute.name}
+                            onChange={(e) => handleChange(attribute.id, "name", e.target.value)}
+                            onBlur={(e) => commitNow(attribute.id, "name", e.target.value)}
                             placeholder="name"
                             className="h-7 flex-1 text-xs"
                         />
                         <Input
                             id={`${idPrefix}-attr-value-${attribute.id}`}
                             aria-label="Attribute value"
-                            defaultValue={attribute.value}
-                            onBlur={(e) => commitValue(attribute, e.target.value)}
+                            value={drafts[attribute.id]?.value ?? attribute.value}
+                            onChange={(e) => handleChange(attribute.id, "value", e.target.value)}
+                            onBlur={(e) => commitNow(attribute.id, "value", e.target.value)}
                             placeholder="value"
                             className="h-7 flex-1 text-xs"
                         />
@@ -2211,7 +2403,9 @@ function AttributesSection({
 export { AttributesSection };
 ```
 
-The `Input`s are uncontrolled (`defaultValue` + `onBlur`) on purpose: a controlled value fighting a store update on every keystroke is the failure mode here. Because the key is the attribute id, a rename from another client remounts nothing and the field keeps the user's in-progress text until blur.
+The inputs are controlled against a draft map rather than uncontrolled with `defaultValue`. `defaultValue` would be a bug here: React ignores changes to it after mount, so a value written by an agent — or a name the server normalized — would never appear in a field the user had already touched. With drafts, a field shows the store value until the user types, and returns to the store value the moment a save resolves or fails. A rejected rename therefore reverts visibly, which is the behaviour Step 6 checks.
+
+Saves are debounced by `SAVE_DEBOUNCE_MS` and flushed on blur, matching how the existing title/notes/prompt fields in this panel behave.
 
 - [ ] **Step 3: Render the section in the project view**
 
@@ -2275,7 +2469,22 @@ Then in the task branch, insert between the "Notes" block and the "Edited Files"
                     />
 ```
 
-These selectors return a `find` result, which is a fresh reference only when the underlying array changes — but `find` on a new array identity returns the same object identity, so zustand's default equality holds. Do not destructure the store here; per the project's established pitfall, always select.
+These selectors return a `find` result. `find` returns the element's own identity, so zustand's default equality holds as long as that element object is unchanged — a re-render only happens when the parent task or project actually changes.
+
+That guarantee is undermined by an existing line in this component. `TaskInfoPanel.tsx:54` reads:
+
+```tsx
+    const { updateTask, fetchTaskLog } = useTaskStore();
+```
+
+Calling `useTaskStore()` with no selector subscribes the panel to every task-store change, so the new selectors buy nothing while it stands. Replace that line with two selectors:
+
+```tsx
+    const updateTask = useTaskStore((s) => s.updateTask);
+    const fetchTaskLog = useTaskStore((s) => s.fetchTaskLog);
+```
+
+Both are stable function references created once at store setup, so this is a safe, mechanical substitution. `updateProject` on the next line is already selected correctly and needs no change.
 
 - [ ] **Step 5: Verify**
 
