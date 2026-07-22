@@ -1286,6 +1286,162 @@ case "$cmd" in
     esac
     ;;
 
+  attr)
+    subcmd="${1:-}"
+    shift 2>/dev/null || true
+
+    attr_task_flag=""
+    attr_project_flag=""
+    attr_own=""
+    attr_pos1=""
+    attr_pos2=""
+    attr_pos_count=0
+    attr_leftover=""
+
+    # Split leading positionals from flags. A *required* positional slot is
+    # filled unconditionally, so a name or value that looks like a flag
+    # (e.g. "--own", "--task-id") is still accepted; once the optional slots
+    # begin, a known attr flag ends positional collection. Mirrors
+    # splitAttrArgs() in taskflow-cli-bin.ts.
+    attr_parse() {
+      attr_required="$1"
+      attr_max="$2"
+      shift 2
+      while [ $# -gt 0 ] && [ "$attr_pos_count" -lt "$attr_max" ]; do
+        if [ "$attr_pos_count" -ge "$attr_required" ]; then
+          case "$1" in
+            --task-id|--project-id|--own) break ;;
+          esac
+        fi
+        attr_pos_count=$((attr_pos_count + 1))
+        if [ "$attr_pos_count" -eq 1 ]; then
+          attr_pos1="$1"
+        else
+          attr_pos2="$1"
+        fi
+        shift
+      done
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --task-id) attr_task_flag="${2:-}"; shift 2 ;;
+          --project-id) attr_project_flag="${2:-}"; shift 2 ;;
+          --own) attr_own="1"; shift ;;
+          *) attr_leftover="1"; shift ;;
+        esac
+      done
+    }
+
+    # Explicit flag wins, then the ambient task, then the ambient project.
+    attr_resolve_scope() {
+      if [ -n "$attr_task_flag" ] && [ -n "$attr_project_flag" ]; then
+        echo "Error: pass either --task-id or --project-id, not both" >&2
+        exit 1
+      fi
+      if [ -n "$attr_task_flag" ]; then
+        attr_collection="tasks"; attr_owner="$attr_task_flag"
+      elif [ -n "$attr_project_flag" ]; then
+        attr_collection="projects"; attr_owner="$attr_project_flag"
+      elif [ -n "$TASKFLOW_TASK_ID" ]; then
+        attr_collection="tasks"; attr_owner="$TASKFLOW_TASK_ID"
+      elif [ -n "$TASKFLOW_PROJECT_ID" ]; then
+        attr_collection="projects"; attr_owner="$TASKFLOW_PROJECT_ID"
+      else
+        echo "Error: no attribute scope — set TASKFLOW_TASK_ID or TASKFLOW_PROJECT_ID, or pass --task-id / --project-id" >&2
+        exit 1
+      fi
+    }
+
+    # Unlike `curl -sf` used elsewhere in this script, this prints the API's
+    # error body. Attribute writes fail for actionable reasons (duplicate
+    # name, inherited attribute, empty name) and an agent needs to read them.
+    attr_request() {
+      attr_method="$1"
+      attr_url="$2"
+      attr_body="${3:-}"
+      if [ -n "$attr_body" ]; then
+        attr_out=$(curl -s -w '\n%{http_code}' -X "$attr_method" "$attr_url" \
+          -H "Content-Type: application/json" -d "$attr_body") \
+          || { echo "Error: unable to reach $TASKFLOW_API_URL" >&2; exit 1; }
+      else
+        attr_out=$(curl -s -w '\n%{http_code}' -X "$attr_method" "$attr_url") \
+          || { echo "Error: unable to reach $TASKFLOW_API_URL" >&2; exit 1; }
+      fi
+      attr_code=$(printf '%s' "$attr_out" | tail -n1)
+      printf '%s' "$attr_out" | sed '$d'
+      case "$attr_code" in
+        2*) ;;
+        *) echo "Error: $attr_method $attr_url returned $attr_code" >&2; exit 1 ;;
+      esac
+    }
+
+    case "$subcmd" in
+      list)
+        attr_parse 0 0 "$@"
+        if [ -n "$attr_leftover" ]; then
+          echo "Usage: taskflow-cli attr list [--own] [--task-id <id>] [--project-id <id>]" >&2
+          exit 1
+        fi
+        attr_resolve_scope
+        attr_query=""
+        if [ -n "$attr_own" ]; then
+          attr_query="?own=1"
+        fi
+        attr_request GET "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes$attr_query"
+        ;;
+      get)
+        attr_parse 1 1 "$@"
+        if [ "$attr_pos_count" -lt 1 ] || [ -z "$attr_pos1" ] || [ -n "$attr_leftover" ]; then
+          echo "Usage: taskflow-cli attr get <id>" >&2
+          exit 1
+        fi
+        attr_resolve_scope
+        attr_request GET "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes/$attr_pos1"
+        ;;
+      create)
+        attr_parse 1 2 "$@"
+        if [ "$attr_pos_count" -lt 1 ] || [ -z "$attr_pos1" ] || [ -n "$attr_leftover" ]; then
+          echo "Usage: taskflow-cli attr create \"<name>\" [\"<value>\"]" >&2
+          exit 1
+        fi
+        attr_resolve_scope
+        attr_payload=$(printf '{"name":%s,"value":%s}' \
+          "$(json_string "$attr_pos1")" "$(json_string "$attr_pos2")")
+        attr_request POST "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes" "$attr_payload"
+        ;;
+      set|rename)
+        attr_parse 2 2 "$@"
+        if [ "$attr_pos_count" -lt 2 ] || [ -z "$attr_pos1" ] || [ -n "$attr_leftover" ]; then
+          if [ "$subcmd" = "set" ]; then
+            echo "Usage: taskflow-cli attr set <id> \"<value>\"" >&2
+          else
+            echo "Usage: taskflow-cli attr rename <id> \"<name>\"" >&2
+          fi
+          exit 1
+        fi
+        attr_resolve_scope
+        if [ "$subcmd" = "set" ]; then
+          attr_payload=$(printf '{"value":%s}' "$(json_string "$attr_pos2")")
+        else
+          attr_payload=$(printf '{"name":%s}' "$(json_string "$attr_pos2")")
+        fi
+        attr_request PATCH "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes/$attr_pos1" "$attr_payload"
+        ;;
+      delete)
+        attr_parse 1 1 "$@"
+        if [ "$attr_pos_count" -lt 1 ] || [ -z "$attr_pos1" ] || [ -n "$attr_leftover" ]; then
+          echo "Usage: taskflow-cli attr delete <id>" >&2
+          exit 1
+        fi
+        attr_resolve_scope
+        attr_request DELETE "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes/$attr_pos1"
+        ;;
+      *)
+        echo "Usage: taskflow-cli attr <list|get|create|set|rename|delete> [--task-id <id>] [--project-id <id>]" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+
   app-name)
     curl -sf "$TASKFLOW_API_URL/api/app-name"
     ;;
