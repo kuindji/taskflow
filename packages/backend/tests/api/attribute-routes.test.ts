@@ -95,6 +95,14 @@ describe("attribute routes", () => {
         expect(res.status).toBe(404);
     });
 
+    it("returns 400, not 404, for a duplicate name that contains the substring 'not found'", async () => {
+        await call("POST", `/api/tasks/${taskId}/attributes`, { name: "release not found" });
+        const res = await call("POST", `/api/tasks/${taskId}/attributes`, {
+            name: "release not found",
+        });
+        expect(res.status).toBe(400);
+    });
+
     it("returns the resolved view with shadowed entries omitted", async () => {
         await store.createProjectAttribute(projectId, "env", "prod");
         await store.createProjectAttribute(projectId, "team", "core");

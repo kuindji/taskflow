@@ -1,5 +1,6 @@
 import type { Attribute } from "@taskflow/shared";
 import { hasNameConflict, normalizeAttributeName } from "@taskflow/shared";
+import { NotFoundError } from "./errors";
 
 function requireValidName(list: Attribute[], name: string, ignoreId?: string): string {
     const normalized = normalizeAttributeName(name);
@@ -24,7 +25,7 @@ function editAttribute(
 ): Attribute[] {
     const index = list.findIndex((a) => a.id === id);
     if (index === -1) {
-        throw new Error(`Attribute not found: ${id}`);
+        throw new NotFoundError(`Attribute not found: ${id}`);
     }
     const current = list[index];
     const name =
@@ -37,7 +38,7 @@ function editAttribute(
 
 function removeAttribute(list: Attribute[], id: string): Attribute[] {
     if (!list.some((a) => a.id === id)) {
-        throw new Error(`Attribute not found: ${id}`);
+        throw new NotFoundError(`Attribute not found: ${id}`);
     }
     return list.filter((a) => a.id !== id);
 }

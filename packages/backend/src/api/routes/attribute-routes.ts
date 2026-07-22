@@ -5,6 +5,7 @@ import { MSG, resolveAttributes } from "@taskflow/shared";
 import { filterProjectSessions, filterTaskSessions } from "../../services/instance-filter";
 import { config } from "../../config";
 import { jsonResponse, errorResponse } from "./response-helpers";
+import { NotFoundError } from "../../services/errors";
 
 interface AttributeRouteDeps {
     apiRouter: ApiRouter;
@@ -14,8 +15,8 @@ interface AttributeRouteDeps {
 
 type OwnerKind = "task" | "project";
 
-function statusForError(message: string): number {
-    return message.includes("not found") ? 404 : 400;
+function statusForError(err: unknown): number {
+    return err instanceof NotFoundError ? 404 : 400;
 }
 
 async function readJsonBody(req: Request): Promise<Record<string, unknown> | null> {
@@ -93,7 +94,7 @@ function registerAttributeRoutes(deps: AttributeRouteDeps): void {
                 return jsonResponse({ attributes: resolveAttributes(selected) });
             } catch (err) {
                 const message = err instanceof Error ? err.message : "Unknown error";
-                return errorResponse(message, statusForError(message));
+                return errorResponse(message, statusForError(err));
             }
         });
 
@@ -112,7 +113,7 @@ function registerAttributeRoutes(deps: AttributeRouteDeps): void {
                 return errorResponse(`Attribute not found: ${params.attrId}`, 404);
             } catch (err) {
                 const message = err instanceof Error ? err.message : "Unknown error";
-                return errorResponse(message, statusForError(message));
+                return errorResponse(message, statusForError(err));
             }
         });
 
@@ -138,7 +139,7 @@ function registerAttributeRoutes(deps: AttributeRouteDeps): void {
                 return publish(kind, updated);
             } catch (err) {
                 const message = err instanceof Error ? err.message : "Unknown error";
-                return errorResponse(message, statusForError(message));
+                return errorResponse(message, statusForError(err));
             }
         });
 
@@ -175,7 +176,7 @@ function registerAttributeRoutes(deps: AttributeRouteDeps): void {
                 return publish(kind, updated);
             } catch (err) {
                 const message = err instanceof Error ? err.message : "Unknown error";
-                return errorResponse(message, statusForError(message));
+                return errorResponse(message, statusForError(err));
             }
         });
 
@@ -192,7 +193,7 @@ function registerAttributeRoutes(deps: AttributeRouteDeps): void {
                 return publish(kind, updated);
             } catch (err) {
                 const message = err instanceof Error ? err.message : "Unknown error";
-                return errorResponse(message, statusForError(message));
+                return errorResponse(message, statusForError(err));
             }
         });
     }

@@ -28,6 +28,7 @@ import {
     compareTasksByCreatedAtDesc,
 } from "./task-store-helpers";
 import { addAttribute, editAttribute, removeAttribute } from "./attribute-mutations";
+import { NotFoundError } from "./errors";
 
 interface TaskStoreConfig {
     projectsFile: string;
@@ -299,7 +300,7 @@ export class TaskStore {
             const projects = await this.listProjects();
             const index = projects.findIndex((p) => p.id === id);
             if (index === -1) {
-                throw new Error(`Project not found: ${id}`);
+                throw new NotFoundError(`Project not found: ${id}`);
             }
             const resolvedUpdates =
                 typeof updates === "function" ? updates(projects[index]) : updates;
@@ -697,7 +698,7 @@ export class TaskStore {
     ): Promise<Task> {
         return this.withTaskMutation(taskId, async () => {
             const task = await this.readTask(this.taskPath(taskId));
-            if (!task) throw new Error(`Task not found: ${taskId}`);
+            if (!task) throw new NotFoundError(`Task not found: ${taskId}`);
             const updated: Task = { ...task, attributes: mutate(task.attributes) };
             await this.writeTask(this.taskPath(taskId), updated);
             return updated;
@@ -756,7 +757,7 @@ export class TaskStore {
 
     async resolveTaskAttributeLayers(taskId: string): Promise<AttributeLayer[]> {
         const task = await this.getTask(taskId);
-        if (!task) throw new Error(`Task not found: ${taskId}`);
+        if (!task) throw new NotFoundError(`Task not found: ${taskId}`);
         const project = await this.getProject(task.projectId);
         const layers: AttributeLayer[] = [
             { scope: "project", attributes: project?.attributes ?? [] },
@@ -771,7 +772,7 @@ export class TaskStore {
 
     async resolveProjectAttributeLayers(projectId: string): Promise<AttributeLayer[]> {
         const project = await this.getProject(projectId);
-        if (!project) throw new Error(`Project not found: ${projectId}`);
+        if (!project) throw new NotFoundError(`Project not found: ${projectId}`);
         return [{ scope: "project", attributes: project.attributes }];
     }
 
