@@ -6,6 +6,7 @@ import { isWindows } from "./platform";
 import skillMarkdown from "./taskflow-cli-skill.md" with { type: "text" };
 import taskCommandsMd from "./taskflow-cli-task-commands.md" with { type: "text" };
 import projectCommandsMd from "./taskflow-cli-project-commands.md" with { type: "text" };
+import attributeCommandsMd from "./taskflow-cli-attribute-commands.md" with { type: "text" };
 import flowCommandsMd from "./taskflow-cli-flow-commands.md" with { type: "text" };
 import actionCommandsMd from "./taskflow-cli-action-commands.md" with { type: "text" };
 import flowContextCommandsMd from "./taskflow-cli-flow-context-commands.md" with { type: "text" };
@@ -26,6 +27,7 @@ import {
 const COMMAND_FILES: Record<string, string> = {
     "taskflow-cli-task-commands.md": taskCommandsMd,
     "taskflow-cli-project-commands.md": projectCommandsMd,
+    "taskflow-cli-attribute-commands.md": attributeCommandsMd,
     "taskflow-cli-flow-commands.md": flowCommandsMd,
     "taskflow-cli-action-commands.md": actionCommandsMd,
     "taskflow-cli-flow-context-commands.md": flowContextCommandsMd,

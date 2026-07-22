@@ -16,6 +16,9 @@ Taskflow puts `taskflow-cli` on your PATH, pre-configured for this session.
 # All project commands
 @taskflow-cli-project-commands.md
 
+# All attribute commands
+@taskflow-cli-attribute-commands.md
+
 # All flow commands
 @taskflow-cli-flow-commands.md
 

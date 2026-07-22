@@ -258,6 +258,121 @@ async function handleTask(args: string[]): Promise<void> {
     }
 }
 
+interface AttrScope {
+    collection: "tasks" | "projects";
+    ownerId: string;
+}
+
+function resolveAttrScope(flags: Record<string, string | boolean>): AttrScope {
+    const taskFlag = typeof flags["task-id"] === "string" ? flags["task-id"] : "";
+    const projectFlag = typeof flags["project-id"] === "string" ? flags["project-id"] : "";
+
+    if (taskFlag && projectFlag) {
+        process.stderr.write("Error: pass either --task-id or --project-id, not both\n");
+        process.exit(1);
+    }
+    if (taskFlag) return { collection: "tasks", ownerId: taskFlag };
+    if (projectFlag) return { collection: "projects", ownerId: projectFlag };
+    if (taskId) return { collection: "tasks", ownerId: taskId };
+    if (projectId) return { collection: "projects", ownerId: projectId };
+
+    process.stderr.write(
+        "Error: no attribute scope — set TASKFLOW_TASK_ID or TASKFLOW_PROJECT_ID, or pass --task-id / --project-id\n",
+    );
+    process.exit(1);
+}
+
+const ATTR_SCOPE_FLAGS = { "task-id": "string", "project-id": "string" } as const;
+
+async function handleAttr(args: string[]): Promise<void> {
+    const subcmd = args[0] ?? "";
+    const rest = args.slice(1);
+
+    if (subcmd === "list") {
+        const { flags } = parseFlags(rest, { ...ATTR_SCOPE_FLAGS, own: "boolean" });
+        const scope = resolveAttrScope(flags);
+        const query = flags.own ? "?own=1" : "";
+        process.stdout.write(
+            await api("GET", `/api/${scope.collection}/${scope.ownerId}/attributes${query}`),
+        );
+        return;
+    }
+
+    if (subcmd === "get") {
+        const { flags, positional } = parseFlags(rest, ATTR_SCOPE_FLAGS);
+        const attrId = positional[0] ?? "";
+        if (!attrId) {
+            process.stderr.write("Usage: taskflow-cli attr get <id>\n");
+            process.exit(1);
+        }
+        const scope = resolveAttrScope(flags);
+        process.stdout.write(
+            await api("GET", `/api/${scope.collection}/${scope.ownerId}/attributes/${attrId}`),
+        );
+        return;
+    }
+
+    if (subcmd === "create") {
+        const { flags, positional } = parseFlags(rest, ATTR_SCOPE_FLAGS);
+        const name = positional[0] ?? "";
+        if (!name) {
+            process.stderr.write('Usage: taskflow-cli attr create "<name>" ["<value>"]\n');
+            process.exit(1);
+        }
+        const scope = resolveAttrScope(flags);
+        process.stdout.write(
+            await api("POST", `/api/${scope.collection}/${scope.ownerId}/attributes`, {
+                name,
+                value: positional[1] ?? "",
+            }),
+        );
+        return;
+    }
+
+    if (subcmd === "set" || subcmd === "rename") {
+        const { flags, positional } = parseFlags(rest, ATTR_SCOPE_FLAGS);
+        const attrId = positional[0] ?? "";
+        const nextValue = positional[1];
+        if (!attrId || nextValue === undefined) {
+            process.stderr.write(
+                subcmd === "set"
+                    ? 'Usage: taskflow-cli attr set <id> "<value>"\n'
+                    : 'Usage: taskflow-cli attr rename <id> "<name>"\n',
+            );
+            process.exit(1);
+        }
+        const scope = resolveAttrScope(flags);
+        const body = subcmd === "set" ? { value: nextValue } : { name: nextValue };
+        process.stdout.write(
+            await api(
+                "PATCH",
+                `/api/${scope.collection}/${scope.ownerId}/attributes/${attrId}`,
+                body,
+            ),
+        );
+        return;
+    }
+
+    if (subcmd === "delete") {
+        const { flags, positional } = parseFlags(rest, ATTR_SCOPE_FLAGS);
+        const attrId = positional[0] ?? "";
+        if (!attrId) {
+            process.stderr.write("Usage: taskflow-cli attr delete <id>\n");
+            process.exit(1);
+        }
+        const scope = resolveAttrScope(flags);
+        process.stdout.write(
+            await api("DELETE", `/api/${scope.collection}/${scope.ownerId}/attributes/${attrId}`),
+        );
+        return;
+    }
+
+    process.stderr.write(
+        "Usage: taskflow-cli attr <list|get|create|set|rename|delete> [--task-id <id>] [--project-id <id>]\n",
+    );
+    process.exit(1);
+}
+
 async function handleLog(args: string[]): Promise<void> {
     requireTaskId();
     const logType = args[0] ?? "";
@@ -1169,6 +1284,9 @@ async function main(): Promise<void> {
     switch (cmd) {
         case "task":
             await handleTask(rest);
+            break;
+        case "attr":
+            await handleAttr(rest);
             break;
         case "log":
             await handleLog(rest);
