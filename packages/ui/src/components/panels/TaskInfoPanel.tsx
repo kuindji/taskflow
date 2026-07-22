@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { TaskLogEntryType } from "@taskflow/shared";
+import type { AttributeLayer, TaskLogEntryType } from "@taskflow/shared";
 import { X } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Toolbar } from "@/components/ui/toolbar";
 import { TruncatedText } from "@/components/ui/truncated-text";
+import { AttributesSection } from "@/components/panels/AttributesSection";
 import { EditedFilesList } from "@/components/panels/EditedFilesList";
 import { LinkedProjectsSection } from "@/components/panels/LinkedProjectsSection";
 
@@ -51,10 +52,26 @@ function TaskInfoPanel() {
     const workspace = useActiveWorkspace();
     const task = workspace.task;
     const project = workspace.project;
-    const { updateTask, fetchTaskLog } = useTaskStore();
+    const updateTask = useTaskStore((s) => s.updateTask);
+    const fetchTaskLog = useTaskStore((s) => s.fetchTaskLog);
     const updateProject = useProjectStore((s) => s.updateProject);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const allLogs = useTaskStore((s) => (task ? s.taskLogs[task.id] : undefined));
+    const parentTask = useTaskStore((s) =>
+        task?.parentId ? s.tasks.find((t) => t.id === task.parentId) : undefined,
+    );
+    const taskProject = useProjectStore((s) =>
+        task ? s.projects.find((p) => p.id === task.projectId) : undefined,
+    );
+    const inheritedLayers = useMemo<AttributeLayer[]>(() => {
+        const layers: AttributeLayer[] = [
+            { scope: "project", attributes: taskProject?.attributes ?? [] },
+        ];
+        if (task?.parentId) {
+            layers.push({ scope: "parent", attributes: parentTask?.attributes ?? [] });
+        }
+        return layers;
+    }, [parentTask, task?.parentId, taskProject]);
     const editedFiles = useMemo(() => (allLogs ?? []).filter((e) => e.type === "file"), [allLogs]);
     const taskLogs = useMemo(() => {
         if (!allLogs) return undefined;
@@ -334,6 +351,15 @@ function TaskInfoPanel() {
 
                         <Separator className="my-4" />
 
+                        <AttributesSection
+                            owner={{ projectId: project.id }}
+                            attributes={project.attributes}
+                            inheritedLayers={[]}
+                            idPrefix="project-info"
+                        />
+
+                        <Separator className="my-4" />
+
                         <div>
                             <span className="text-muted-foreground text-xs font-medium">Path</span>
                             <div className="text-secondary-foreground mt-1 text-sm break-all">
@@ -492,6 +518,15 @@ function TaskInfoPanel() {
                             className="mt-1 text-sm"
                         />
                     </div>
+
+                    <Separator className="my-4" />
+
+                    <AttributesSection
+                        owner={{ taskId: task.id }}
+                        attributes={task.attributes}
+                        inheritedLayers={inheritedLayers}
+                        idPrefix="task-info"
+                    />
 
                     {/* Edited Files */}
                     {project && editedFiles.length > 0 && (
