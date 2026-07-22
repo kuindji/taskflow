@@ -25,6 +25,11 @@ export const MSG = {
     TASK_LOG_LIST: "task:log-list",
     TASK_LOG_ADDED: "task:log-added",
 
+    // Attributes
+    ATTR_CREATE: "attr:create",
+    ATTR_UPDATE: "attr:update",
+    ATTR_DELETE: "attr:delete",
+
     // Sessions
     SESSION_CREATE: "session:create",
     SESSION_CLOSE: "session:close",

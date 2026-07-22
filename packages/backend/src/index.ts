@@ -19,6 +19,7 @@ import {
 } from "./services/runtime-detector";
 import { registerProjectHandlers } from "./handlers/project";
 import { registerTaskHandlers } from "./handlers/task";
+import { registerAttributeHandlers } from "./handlers/attribute";
 import { registerSessionHandlers } from "./handlers/session";
 import { registerFileHandlers } from "./handlers/file";
 import { registerGitHandlers } from "./handlers/git";
@@ -275,6 +276,7 @@ async function main() {
             flowRunner,
             changeTracker,
         });
+        registerAttributeHandlers({ router, store, broadcast: server.broadcast });
         const agents = await detectAgents();
         registerSessionHandlers({
             router,

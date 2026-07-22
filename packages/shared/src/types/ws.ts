@@ -130,6 +130,21 @@ export interface TaskLogAddedEvent {
     entry: TaskLogEntry;
 }
 
+// Attribute messages
+export type AttributeOwner =
+    | { taskId: string; projectId?: never }
+    | { projectId: string; taskId?: never };
+
+export type AttrCreatePayload = AttributeOwner & { name: string; value?: string };
+
+export type AttrUpdatePayload = AttributeOwner & {
+    attrId: string;
+    name?: string;
+    value?: string;
+};
+
+export type AttrDeletePayload = AttributeOwner & { attrId: string };
+
 // Session messages
 export interface SessionCreatePayload {
     taskId?: string;
