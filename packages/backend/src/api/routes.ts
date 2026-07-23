@@ -27,6 +27,7 @@ import { registerScheduleRoutes } from "./routes/schedule-routes";
 import { registerSettingsRoutes } from "./routes/settings-routes";
 import { registerNotificationRoutes } from "./routes/notification-routes";
 import { registerAttributeRoutes } from "./routes/attribute-routes";
+import { registerFileRoutes } from "./routes/file-routes";
 
 interface ApiRouteDeps {
     apiRouter: ApiRouter;
@@ -69,6 +70,7 @@ function registerApiRoutes(deps: ApiRouteDeps): void {
     registerScheduleRoutes(deps);
     registerSettingsRoutes(deps);
     registerNotificationRoutes(deps);
+    registerFileRoutes(deps);
 }
 
 export { registerApiRoutes };

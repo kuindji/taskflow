@@ -29,6 +29,10 @@ function notifyStatus(): void {
     for (const listener of statusListeners) listener(status);
 }
 
+export function getBackendPort(): number | null {
+    return wsPort;
+}
+
 export function onStatusChange(handler: (status: ConnectionStatus) => void): () => void {
     statusListeners.add(handler);
     handler({ connected, reconnecting });

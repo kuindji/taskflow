@@ -16,6 +16,7 @@ import { FrontmatterHeader } from "@/components/panes/markdown/FrontmatterHeader
 import { CodeBlock } from "@/components/panes/markdown/CodeBlock";
 import { toggleTaskListItemAtLine } from "@/lib/markdown/task-list";
 import { rehypeTaskListLine } from "@/lib/markdown/rehype-task-list-line";
+import { rawFileUrl } from "@/lib/backend-url";
 import { openFileInApp } from "@/lib/open-file";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import {
@@ -246,39 +247,57 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         [content, filePath, loadContent, tabId, workspace, workspaceKey, writeFile],
     );
 
-    const components: Components = {
-        code({ className, children, ...rest }) {
-            const match = /language-(\w+)/.exec(className ?? "");
-            const codeString = Children.toArray(children)
-                .map((child) => {
-                    if (typeof child === "string" || typeof child === "number") {
-                        return String(child);
-                    }
+    // Closes over `filePath`, which changes in place when the tab navigates.
+    const components: Components = useMemo(
+        () => ({
+            code({ className, children, ...rest }) {
+                const match = /language-(\w+)/.exec(className ?? "");
+                const codeString = Children.toArray(children)
+                    .map((child) => {
+                        if (typeof child === "string" || typeof child === "number") {
+                            return String(child);
+                        }
 
-                    return "";
-                })
-                .join("")
-                .replace(/\n$/, "");
+                        return "";
+                    })
+                    .join("")
+                    .replace(/\n$/, "");
 
-            if (match) {
+                if (match) {
+                    return (
+                        <CodeBlock
+                            code={codeString}
+                            language={match[1]}
+                            fontSize={editorFontSize}
+                        />
+                    );
+                }
+
                 return (
-                    <CodeBlock code={codeString} language={match[1]} fontSize={editorFontSize} />
+                    <code className={className} {...rest}>
+                        {children}
+                    </code>
                 );
-            }
-
-            return (
-                <code className={className} {...rest}>
-                    {children}
-                </code>
-            );
-        },
-        input({ ...rest }) {
-            if (rest.type === "checkbox") {
-                return <input {...rest} disabled={false} readOnly />;
-            }
-            return <input {...rest} />;
-        },
-    };
+            },
+            input({ ...rest }) {
+                if (rest.type === "checkbox") {
+                    return <input {...rest} disabled={false} readOnly />;
+                }
+                return <input {...rest} />;
+            },
+            img({ src, alt, ...rest }) {
+                const source = typeof src === "string" ? src : "";
+                if (source === "" || /^(https?:|data:)/i.test(source)) {
+                    return <img src={source} alt={alt ?? ""} {...rest} />;
+                }
+                const absolute = joinRelative(dirnameOf(filePath), source);
+                const url = rawFileUrl(absolute);
+                if (url === null) return <img alt={alt ?? ""} {...rest} />;
+                return <img src={url} alt={alt ?? ""} {...rest} />;
+            },
+        }),
+        [editorFontSize, filePath],
+    );
 
     if (loading) {
         return (
