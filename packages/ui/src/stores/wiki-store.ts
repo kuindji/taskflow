@@ -34,7 +34,19 @@ export const useWikiStore = create<WikiStore>((set) => ({
     },
 }));
 
+/**
+ * A push names the root the *backend* indexed, which is `realpath(root)` — not
+ * necessarily the path the renderer asked about. Update every key whose cached
+ * index came from that same backend root, or a symlinked wiki would load once
+ * and then silently stop tracking the watcher.
+ */
 const _unsubWikiIndexChanged = onEvent(MSG.WIKI_INDEX_CHANGED, (payload) => {
     const data = payload as WikiIndexData;
-    useWikiStore.setState((s) => ({ indexByRoot: { ...s.indexByRoot, [data.root]: data } }));
+    useWikiStore.setState((s) => {
+        const next = { ...s.indexByRoot, [data.root]: data };
+        for (const [key, cached] of Object.entries(s.indexByRoot)) {
+            if (cached.root === data.root) next[key] = data;
+        }
+        return { indexByRoot: next };
+    });
 });

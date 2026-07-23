@@ -43,5 +43,28 @@ function parseWikiLinks(source: string): WikiLinkSpan[] {
     return out;
 }
 
+/**
+ * Files that stand in for their folder. `index` and `README` are both in use in
+ * the observed wikis, so `[[business]]` has to reach either.
+ */
+const WIKI_INDEX_NAMES = ["index", "README", "readme"];
+
+/**
+ * Resolve a raw link target to a page id, allowing `[[folder]]` to reach that
+ * folder's index page. Both the backend graph builder and the renderer's
+ * preview call this, so a link the graph counts as valid is the same link the
+ * preview renders as valid.
+ */
+function resolveWikiTarget(target: string, hasPage: (id: string) => boolean): string | null {
+    const normalized = target.replace(/^\.?\//, "").replace(/\/+$/, "");
+    if (normalized === "") return null;
+    if (hasPage(normalized)) return normalized;
+    for (const name of WIKI_INDEX_NAMES) {
+        const candidate = `${normalized}/${name}`;
+        if (hasPage(candidate)) return candidate;
+    }
+    return null;
+}
+
 export type { WikiLinkSpan };
-export { parseWikiLinks };
+export { parseWikiLinks, resolveWikiTarget };

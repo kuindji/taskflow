@@ -50,6 +50,8 @@ class WikiIndexService {
     private readonly debounceMs: number;
     private readonly roots = new Map<string, RootState>();
     private readonly building = new Map<string, Promise<WikiIndexData>>();
+    /** Set by `stopAll`. A build already in flight must not outlive shutdown. */
+    private stopped = false;
 
     constructor({ onChange, debounceMs = 150 }: WikiIndexServiceDeps) {
         this.onChange = onChange;
@@ -69,6 +71,7 @@ class WikiIndexService {
     }
 
     async stopAll(): Promise<void> {
+        this.stopped = true;
         const states = [...this.roots.values()];
         this.roots.clear();
         await Promise.all(
@@ -97,9 +100,17 @@ class WikiIndexService {
         }
 
         const data = buildWikiGraph(root, true, [...parsed.values()]);
+        // The scan is async, so shutdown can land in the middle of it. Answer
+        // the caller, but do not register a watcher nobody will ever close.
+        if (this.stopped) return data;
+
         const state: RootState = { data, parsed, watcher: null, timer: null, pending: new Set() };
         this.roots.set(root, state);
         state.watcher = await this.watch(root, state);
+        if (this.stopped) {
+            this.roots.delete(root);
+            await state.watcher.close();
+        }
         return data;
     }
 
@@ -122,7 +133,10 @@ class WikiIndexService {
 
     private async parseFile(root: string, filePath: string): Promise<ParsedWikiPage | null> {
         try {
-            const [source, stats] = await Promise.all([readFile(filePath, "utf-8"), stat(filePath)]);
+            const [source, stats] = await Promise.all([
+                readFile(filePath, "utf-8"),
+                stat(filePath),
+            ]);
             return parseWikiPage({
                 pageId: toPageId(root, filePath),
                 relativePath: normalizePath(relative(root, filePath)),
@@ -169,6 +183,7 @@ class WikiIndexService {
     }
 
     private async flush(root: string, state: RootState): Promise<void> {
+        if (this.stopped) return;
         const paths = [...state.pending];
         state.pending.clear();
 

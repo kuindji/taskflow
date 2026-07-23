@@ -29,6 +29,7 @@ import { toggleTaskListItemAtLine, relocateTaskLine } from "@/lib/markdown/task-
 import { rehypeTaskListLine } from "@/lib/markdown/rehype-task-list-line";
 import { remarkWikiLink } from "@/lib/markdown/remark-wiki-link";
 import { WikiRail } from "@/components/panes/markdown/WikiRail";
+import { resolveWikiPageHref } from "@/lib/wiki/page-path";
 import { persistWikiRail } from "@/components/panes/markdown/wiki-rail-settings";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
@@ -134,26 +135,27 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         if (wikiRoot) void fetchWikiIndex(wikiRoot);
     }, [fetchWikiIndex, wikiRoot]);
 
+    /** Page id → path relative to the wiki root, for every indexed page. */
+    const wikiPathById = useMemo(
+        () => new Map((wikiIndex?.pages ?? []).map((page) => [page.id, page.path])),
+        [wikiIndex],
+    );
+
     const remarkPlugins = useMemo<RemarkPlugins>(() => {
         const base = [remarkGfm, remarkFrontmatter, remarkMath];
         // Wiki-links are only meaningful with a root to resolve against.
         if (wikiRoot === null) return base;
-        const byId = new Map((wikiIndex?.pages ?? []).map((page) => [page.id, page]));
         return [
             ...base,
             [
                 remarkWikiLink,
                 {
-                    resolve: (target: string) => {
-                        const page = byId.get(target.replace(/^\.?\//, ""));
-                        return page
-                            ? { href: `${wikiRoot}/${page.path}`, exists: true }
-                            : { href: `${wikiRoot}/${target}.md`, exists: false };
-                    },
+                    resolve: (target: string) =>
+                        resolveWikiPageHref(wikiRoot, wikiPathById, target),
                 },
             ],
         ];
-    }, [wikiIndex, wikiRoot]);
+    }, [wikiPathById, wikiRoot]);
 
     const wikiRailOpen = useUIStore((s) => s.wikiRailOpen);
     const wikiRailWidth = useUIStore((s) => s.wikiRailWidth);
@@ -302,24 +304,30 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
     const handleOpenPage = useCallback(
         (targetId: string) => {
             if (wikiRoot === null) return;
-            const page = wikiIndex?.pages.find((entry) => entry.id === targetId);
-            const path = page ? `${wikiRoot}/${page.path}` : `${wikiRoot}/${targetId}.md`;
-            useSessionStore.getState().navigateTab(workspaceKey, tabId, path);
+            const { href } = resolveWikiPageHref(wikiRoot, wikiPathById, targetId);
+            useSessionStore.getState().navigateTab(workspaceKey, tabId, href);
         },
-        [tabId, wikiIndex, wikiRoot, workspaceKey],
+        [tabId, wikiPathById, wikiRoot, workspaceKey],
     );
 
     // Frontmatter targets are wiki-style page paths without an extension
-    // ("business/money"). Until a wiki root exists (Stage 2) they are resolved
-    // relative to the current file, which is correct for same-folder siblings
-    // and harmless otherwise — a missing file simply fails to open.
+    // ("business/money"), which are relative to the *wiki root*, not to the
+    // current file. Without a wiki root there is nothing to resolve against, so
+    // they fall back to being relative to the current file — correct for
+    // same-folder siblings and harmless otherwise, since a missing file simply
+    // fails to open.
     const handleFrontmatterNavigate = useCallback(
         (target: string) => {
-            const withExt = /\.mdx?$|\.markdown$/i.test(target) ? target : `${target}.md`;
-            const path = joinRelative(dirnameOf(filePath), withExt);
+            const path =
+                wikiRoot === null
+                    ? joinRelative(
+                          dirnameOf(filePath),
+                          /\.mdx?$|\.markdown$/i.test(target) ? target : `${target}.md`,
+                      )
+                    : resolveWikiPageHref(wikiRoot, wikiPathById, target).href;
             useSessionStore.getState().navigateTab(workspaceKey, tabId, path);
         },
-        [filePath, tabId, workspaceKey],
+        [filePath, tabId, wikiPathById, wikiRoot, workspaceKey],
     );
 
     /**

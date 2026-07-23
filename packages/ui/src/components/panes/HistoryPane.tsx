@@ -76,7 +76,7 @@ function CommitRow({ entry, isSelected, onSelect }: CommitRowProps) {
                 }
             }}
             className={cn(
-                "group cursor-pointer rounded-md px-1.5 py-1 text-sm transition-colors hover:bg-muted/60",
+                "group hover:bg-muted/60 cursor-pointer rounded-md px-1.5 py-1 text-sm transition-colors",
                 isSelected && "bg-muted",
             )}>
             <div className="flex items-center justify-between gap-1">
@@ -316,7 +316,7 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
                                         }
                                     }}
                                     className={cn(
-                                        "flex cursor-pointer items-center justify-between gap-1 rounded-md px-1 py-0.5 text-sm transition-colors hover:bg-muted/60",
+                                        "hover:bg-muted/60 flex cursor-pointer items-center justify-between gap-1 rounded-md px-1 py-0.5 text-sm transition-colors",
                                         selectedFile?.path === file.path && "bg-muted",
                                     )}>
                                     <span className="flex min-w-0 items-center gap-1.5">

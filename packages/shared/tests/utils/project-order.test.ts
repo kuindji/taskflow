@@ -37,10 +37,6 @@ describe("buildReorderedProjectIds", () => {
     });
 
     it("equals a plain reorder when all ids are visible", () => {
-        expect(buildReorderedProjectIds(["a", "b", "c"], ["c", "a", "b"])).toEqual([
-            "c",
-            "a",
-            "b",
-        ]);
+        expect(buildReorderedProjectIds(["a", "b", "c"], ["c", "a", "b"])).toEqual(["c", "a", "b"]);
     });
 });

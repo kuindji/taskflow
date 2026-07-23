@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GitStatusResult, GitFileStatus, GitDiffFileContentResult, GitStatusResponse } from "@taskflow/shared";
+import type {
+    GitStatusResult,
+    GitFileStatus,
+    GitDiffFileContentResult,
+    GitStatusResponse,
+} from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { confirm } from "@/stores/dialog-store";

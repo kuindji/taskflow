@@ -40,7 +40,9 @@ function remarkWikiLink({ resolve }: RemarkWikiLinkOptions) {
                 // `[[page#Exchange Rates]]` must land on the id rehype-slug
                 // emitted ("exchange-rates"), so slug the fragment here.
                 const url =
-                    span.hash === undefined ? href : `${href}#${new GithubSlugger().slug(span.hash)}`;
+                    span.hash === undefined
+                        ? href
+                        : `${href}#${new GithubSlugger().slug(span.hash)}`;
                 const link: Link = {
                     type: "link",
                     url,

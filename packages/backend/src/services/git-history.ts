@@ -17,7 +17,12 @@ const LOG_FIELD_COUNT = 6;
 function parseRefs(decorations: string): string[] {
     return decorations
         .split(", ")
-        .map((ref) => ref.replace(/^HEAD -> /, "").replace(/^tag: /, "").trim())
+        .map((ref) =>
+            ref
+                .replace(/^HEAD -> /, "")
+                .replace(/^tag: /, "")
+                .trim(),
+        )
         .filter((ref) => ref.length > 0 && ref !== "HEAD");
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseWikiLinks } from "./wiki-link";
+import { parseWikiLinks, resolveWikiTarget } from "./wiki-link";
 
 describe("parseWikiLinks", () => {
     it("finds a plain path link", () => {
@@ -46,5 +46,26 @@ describe("parseWikiLinks", () => {
         const source = "x [[a/b|c]] y";
         const [link] = parseWikiLinks(source);
         expect(source.slice(link.start, link.end)).toBe("[[a/b|c]]");
+    });
+});
+
+describe("resolveWikiTarget", () => {
+    const has = (ids: string[]) => (id: string) => ids.includes(id);
+
+    it("returns an exact page id", () => {
+        expect(resolveWikiTarget("business/money", has(["business/money"]))).toBe("business/money");
+    });
+
+    it("falls back to a folder's index page", () => {
+        expect(resolveWikiTarget("business", has(["business/index"]))).toBe("business/index");
+        expect(resolveWikiTarget("business", has(["business/README"]))).toBe("business/README");
+    });
+
+    it("ignores a leading ./ and a trailing slash", () => {
+        expect(resolveWikiTarget("./business/", has(["business/index"]))).toBe("business/index");
+    });
+
+    it("returns null when nothing matches", () => {
+        expect(resolveWikiTarget("nope", has(["business/money"]))).toBeNull();
     });
 });

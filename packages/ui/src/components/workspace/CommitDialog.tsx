@@ -169,10 +169,12 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                 commitMessage = result.message;
             }
 
-            const commitResult = await sendRequest<GitCommitResult>(
-                MSG.GIT_COMMIT,
-                { path: repoPath, message: commitMessage, push, includeUnstaged },
-            );
+            const commitResult = await sendRequest<GitCommitResult>(MSG.GIT_COMMIT, {
+                path: repoPath,
+                message: commitMessage,
+                push,
+                includeUnstaged,
+            });
 
             if (createPr) {
                 await sendRequest<GitCreatePrResult>(MSG.GIT_CREATE_PR, {

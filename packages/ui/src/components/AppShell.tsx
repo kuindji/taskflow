@@ -222,7 +222,11 @@ export function AppShell({
                         onPointerDown={handlePanelPointerDown}
                         onClick={() => handlePanelClick("fileexplorer")}
                         style={{ width: fileExplorerWidth }}>
-                        {fileExplorerOpen ? fileExplorer : searchPanelOpen ? searchPanel : wikiPanel}
+                        {fileExplorerOpen
+                            ? fileExplorer
+                            : searchPanelOpen
+                              ? searchPanel
+                              : wikiPanel}
                     </div>
                 )}
 

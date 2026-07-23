@@ -23,13 +23,15 @@ const LABELS = {
         model: "Default Model",
         modelHint: "Pre-selected model when running Kimi sessions",
         permission: "Default Permission Mode",
-        permissionHint: "Manual approves in the TUI; Auto (--auto) and Yolo (--yolo) skip approvals",
+        permissionHint:
+            "Manual approves in the TUI; Auto (--auto) and Yolo (--yolo) skip approvals",
     },
     session: {
         model: "Model",
         modelHint: "Model for Kimi session (--model)",
         permission: "Permission Mode",
-        permissionHint: "Manual approves in the TUI; Auto (--auto) and Yolo (--yolo) skip approvals",
+        permissionHint:
+            "Manual approves in the TUI; Auto (--auto) and Yolo (--yolo) skip approvals",
     },
 };
 

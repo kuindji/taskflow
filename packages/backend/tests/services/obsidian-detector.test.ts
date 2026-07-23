@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-    classifyPath,
-    matchVault,
-    parseVaultRegistry,
-} from "../../src/services/obsidian-detector";
+import { classifyPath, matchVault, parseVaultRegistry } from "../../src/services/obsidian-detector";
 
 describe("matchVault", () => {
     it("matches a path inside a registered vault", () => {

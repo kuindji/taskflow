@@ -81,13 +81,8 @@ export function TaskSidebar() {
 
     const reorderProjects = useProjectStore((s) => s.reorderProjects);
     const allProjects = useProjectStore((s) => s.projects);
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    );
-    const visibleProjectIds = useMemo(
-        () => visibleProjects.map((p) => p.id),
-        [visibleProjects],
-    );
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+    const visibleProjectIds = useMemo(() => visibleProjects.map((p) => p.id), [visibleProjects]);
 
     const handleProjectDragEnd = useCallback(
         (event: DragEndEvent) => {

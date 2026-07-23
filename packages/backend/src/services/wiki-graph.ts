@@ -1,18 +1,8 @@
 import type { WikiIndexData, WikiPage, WikiTreeNode, WikiUnresolvedLink } from "@taskflow/shared";
+import { resolveWikiTarget } from "@taskflow/shared";
 import type { ParsedWikiPage } from "./wiki-page";
 
 const INDEX_NAMES = ["index", "README", "readme"];
-
-/** Resolve a raw link target to a page id, allowing folder → folder index. */
-function resolveTarget(target: string, byId: Map<string, ParsedWikiPage>): string | null {
-    const normalized = target.replace(/^\.?\//, "").replace(/\/+$/, "");
-    if (byId.has(normalized)) return normalized;
-    for (const name of INDEX_NAMES) {
-        const candidate = `${normalized}/${name}`;
-        if (byId.has(candidate)) return candidate;
-    }
-    return null;
-}
 
 interface TreeBuilder {
     folders: Map<string, TreeBuilder>;
@@ -39,33 +29,47 @@ function findIndexPageId(pages: Array<{ name: string; id: string }>): string | u
 }
 
 /**
- * Order a folder's pages by the `children` list its index page declares, then
- * alphabetically — the declared hierarchy is authoritative where it exists.
- * `hoistedId`, when given, is the index page that has already become the folder
- * node itself and must not appear again as one of its own children.
+ * Default order for a folder's own pages: its index page first, then
+ * alphabetically. `hoistedId`, when given, is the index page that has already
+ * become the folder node itself and must not appear again as its own child.
  */
 function orderPages(
     pages: Array<{ name: string; id: string }>,
-    byId: Map<string, ParsedWikiPage>,
+    indexId: string | undefined,
     hoistedId: string | undefined,
 ): Array<{ name: string; id: string }> {
-    const indexId = hoistedId ?? findIndexPageId(pages);
-    const declared = indexId === undefined ? [] : (byId.get(indexId)?.children ?? []);
-    const rank = new Map<string, number>();
-    declared.forEach((id, i) => rank.set(id, i));
-
     return pages
         .filter((entry) => entry.id !== hoistedId)
         .sort((a, b) => {
             if (a.id === indexId) return -1;
             if (b.id === indexId) return 1;
-            const rankA = rank.get(a.id);
-            const rankB = rank.get(b.id);
-            if (rankA !== undefined && rankB !== undefined) return rankA - rankB;
-            if (rankA !== undefined) return -1;
-            if (rankB !== undefined) return 1;
             return a.name.localeCompare(b.name);
         });
+}
+
+/**
+ * Reorder the nodes an index page names in its `children` list into that order,
+ * leaving every other node exactly where the default order put it. Declared
+ * entries may name a subfolder's index page, so this governs folders as well as
+ * pages — which a sort within the folders-then-pages groups could not do.
+ */
+function applyDeclaredOrder(nodes: WikiTreeNode[], rank: Map<string, number>): WikiTreeNode[] {
+    if (rank.size === 0) return nodes;
+    const slots: number[] = [];
+    const declared: WikiTreeNode[] = [];
+    nodes.forEach((node, i) => {
+        if (node.id === undefined || !rank.has(node.id)) return;
+        slots.push(i);
+        declared.push(node);
+    });
+    if (declared.length < 2) return nodes;
+
+    declared.sort((a, b) => (rank.get(a.id ?? "") ?? 0) - (rank.get(b.id ?? "") ?? 0));
+    const out = [...nodes];
+    slots.forEach((slot, i) => {
+        out[slot] = declared[i];
+    });
+    return out;
 }
 
 /**
@@ -79,25 +83,29 @@ function toNodes(
     byId: Map<string, ParsedWikiPage>,
     hoistedId?: string,
 ): WikiTreeNode[] {
+    const indexId = hoistedId ?? findIndexPageId(builder.pages);
+    const declared = indexId === undefined ? [] : (byId.get(indexId)?.children ?? []);
+    const rank = new Map<string, number>(declared.map((id, i) => [id, i]));
+
     const folders: WikiTreeNode[] = [...builder.folders.entries()]
         .map(([name, child]) => {
-            const indexId = findIndexPageId(child.pages);
+            const childIndexId = findIndexPageId(child.pages);
             return {
                 name,
                 type: "folder" as const,
-                ...(indexId !== undefined && { id: indexId }),
-                children: toNodes(child, byId, indexId),
+                ...(childIndexId !== undefined && { id: childIndexId }),
+                children: toNodes(child, byId, childIndexId),
             };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
 
-    const pages: WikiTreeNode[] = orderPages(builder.pages, byId, hoistedId).map((entry) => ({
+    const pages: WikiTreeNode[] = orderPages(builder.pages, indexId, hoistedId).map((entry) => ({
         name: entry.name,
         type: "page" as const,
         id: entry.id,
     }));
 
-    return [...folders, ...pages];
+    return applyDeclaredOrder([...folders, ...pages], rank);
 }
 
 /**
@@ -116,8 +124,12 @@ function buildWikiGraph(
     const pages: WikiPage[] = parsed.map((page) => {
         const links: string[] = [];
         const brokenLinks: string[] = [];
+        // Two different raw targets can resolve to the same page ("business" and
+        // "business/index"), so dedupe after resolution — otherwise the source
+        // shows up twice in that page's backlinks.
+        const linked = new Set<string>();
         for (const target of page.rawLinks) {
-            const resolved = resolveTarget(target, byId);
+            const resolved = resolveWikiTarget(target, (id) => byId.has(id));
             if (resolved === null || resolved === page.id) {
                 if (resolved === null) {
                     brokenLinks.push(target);
@@ -125,6 +137,8 @@ function buildWikiGraph(
                 }
                 continue;
             }
+            if (linked.has(resolved)) continue;
+            linked.add(resolved);
             links.push(resolved);
             (backlinks[resolved] ??= []).push(page.id);
         }

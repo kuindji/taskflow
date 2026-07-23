@@ -149,7 +149,10 @@ describe("PtyManager initialInput", () => {
                 // `stty -echo` + `read` proves the trailing Enter actually arrived —
                 // PTY echo alone would show the paste without the submit.
                 command: "/bin/sh",
-                args: ["-c", 'stty -echo; echo booting; IFS= read -r line; printf \'got:%s\\n\' "$line"'],
+                args: [
+                    "-c",
+                    "stty -echo; echo booting; IFS= read -r line; printf 'got:%s\\n' \"$line\"",
+                ],
                 cwd: testCwd,
                 onData: (data) => {
                     output += data;

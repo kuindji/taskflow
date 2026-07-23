@@ -75,6 +75,18 @@ describe("parseWikiPage", () => {
         expect(parse(source).rawLinks).toEqual(["real"]);
     });
 
+    it("drops a relative link that climbs above the wiki root", () => {
+        // `page.md` at a/b linking three levels up lands outside the wiki, so it
+        // is not a page and must not become a graph edge to the root README.
+        expect(parse("# t\n\n[repo readme](../../../README.md)\n", "a/b/page").rawLinks).toEqual(
+            [],
+        );
+    });
+
+    it("keeps a relative link that climbs but stays inside the root", () => {
+        expect(parse("# t\n\n[up](../../README.md)\n", "a/b/page").rawLinks).toEqual(["README"]);
+    });
+
     it("keeps the id, path and mtime it was given", () => {
         const page = parse("# t\n");
         expect(page.id).toBe("business/money");

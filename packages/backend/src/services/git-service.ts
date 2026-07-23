@@ -65,10 +65,7 @@ export class GitService {
         // Porcelain v2 with --branch returns branch name, ahead/behind counts, and file
         // statuses in a single git invocation. NUL delimiters keep paths machine-safe
         // even when rename targets contain spaces or other escaped characters.
-        const output = await git(
-            ["status", "--porcelain=v2", "--branch", "-z", "-uall"],
-            repoPath,
-        );
+        const output = await git(["status", "--porcelain=v2", "--branch", "-z", "-uall"], repoPath);
 
         const stagedFiles: GitFileStatus[] = [];
         const unstagedFiles: GitFileStatus[] = [];

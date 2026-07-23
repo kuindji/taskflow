@@ -85,6 +85,15 @@ describe("WikiIndexService", () => {
         expect(data.unresolved).toEqual([{ from: "index", target: "business/money" }]);
     });
 
+    it("does not install a watcher when a build finishes after stopAll", async () => {
+        const pending = service.get(root);
+        await service.stopAll();
+        await pending;
+        await writeFile(join(root, "business", "money.md"), "---\ntitle: Renamed\n---\n\n# x\n");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(changes).toEqual([]);
+    });
+
     it("flags a missing root rather than throwing", async () => {
         const data = await service.get(join(root, "does-not-exist"));
         expect(data.rootExists).toBe(false);

@@ -451,12 +451,17 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             cols,
             rows,
             onData: (data, sequence) => {
-                void taskStore.appendSessionOutput(ownerId, sessionId, sequence, data).catch((err: unknown) => {
-                    if (!appendErrorLogged) {
-                        appendErrorLogged = true;
-                        console.error(`[session] Failed to persist output for session ${sessionId}:`, err);
-                    }
-                });
+                void taskStore
+                    .appendSessionOutput(ownerId, sessionId, sequence, data)
+                    .catch((err: unknown) => {
+                        if (!appendErrorLogged) {
+                            appendErrorLogged = true;
+                            console.error(
+                                `[session] Failed to persist output for session ${sessionId}:`,
+                                err,
+                            );
+                        }
+                    });
                 trayStateTracker.markSessionActivity(sessionId);
                 opts.onSessionData?.(sessionId);
                 broadcast(
@@ -483,7 +488,10 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                                   projectId: resolvedProjectId,
                               },
                     ).catch((err: unknown) => {
-                        console.error(`[session] Failed to remove session ${sessionId} from owner:`, err);
+                        console.error(
+                            `[session] Failed to remove session ${sessionId} from owner:`,
+                            err,
+                        );
                     });
                 }
                 onSessionExited?.(sessionId, exitCode);

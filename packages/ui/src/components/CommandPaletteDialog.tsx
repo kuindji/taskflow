@@ -9,9 +9,7 @@ import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useRunMenu } from "@/hooks/useRunMenu";
 import { useUIStore } from "@/stores/ui-store";
 
-type PaletteEntry =
-    | { kind: "action"; action: ActionDefinition }
-    | { kind: "script"; name: string };
+type PaletteEntry = { kind: "action"; action: ActionDefinition } | { kind: "script"; name: string };
 
 interface PaletteRow {
     entry: PaletteEntry;
@@ -221,12 +219,16 @@ function CommandPaletteDialog() {
                                             onClick={() => runRow(row)}
                                             className={cn(
                                                 "text-muted-foreground flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm",
-                                                index === activeIndex && "bg-accent text-accent-foreground",
+                                                index === activeIndex &&
+                                                    "bg-accent text-accent-foreground",
                                                 row.disabled && "cursor-default opacity-50",
                                             )}>
                                             <Icon className="h-4 w-4 shrink-0" />
                                             <span className="truncate">
-                                                <HighlightedLabel text={row.label} indices={row.indices} />
+                                                <HighlightedLabel
+                                                    text={row.label}
+                                                    indices={row.indices}
+                                                />
                                             </span>
                                             <span className="text-muted-foreground ml-auto shrink-0 text-xs">
                                                 {row.detail}

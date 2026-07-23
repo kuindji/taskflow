@@ -128,5 +128,4 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     router.register(MSG.MASTER_SESSIONS_LIST, async () => {
         return { sessions: taskStore.getMasterSessions() };
     });
-
 }

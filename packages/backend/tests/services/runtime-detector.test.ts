@@ -218,7 +218,9 @@ describe("parseKimiModelsOutput", () => {
         const bare = parseKimiModelsOutput(
             JSON.stringify({ models: { "kimi-code/y": { maxContextSize: 131072 } } }),
         );
-        expect(bare).toEqual([{ id: "kimi-code/y", displayName: "kimi-code/y", contextWindow: "128K" }]);
+        expect(bare).toEqual([
+            { id: "kimi-code/y", displayName: "kimi-code/y", contextWindow: "128K" },
+        ]);
     });
 
     it("returns empty for malformed JSON, non-object, missing models, and array models", () => {
@@ -232,7 +234,9 @@ describe("parseKimiModelsOutput", () => {
 
     it("omits contextWindow when maxContextSize is absent or invalid", () => {
         const models = parseKimiModelsOutput(
-            JSON.stringify({ models: { "kimi-code/y": { displayName: "Y", maxContextSize: "big" } } }),
+            JSON.stringify({
+                models: { "kimi-code/y": { displayName: "Y", maxContextSize: "big" } },
+            }),
         );
         expect(models).toEqual([{ id: "kimi-code/y", displayName: "Y", contextWindow: "" }]);
     });

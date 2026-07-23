@@ -39,6 +39,27 @@ describe("buildWikiGraph", () => {
         expect(graph.backlinks["a"]).toBeUndefined();
     });
 
+    it("lists a page once in a backlink list even when it links twice", () => {
+        // "business" and "business/index" are different raw targets that resolve
+        // to the same page; the backlink list must not repeat the source.
+        const graph = buildWikiGraph("/root", true, [
+            page("a", { rawLinks: ["business", "business/index"] }),
+            page("business/index"),
+        ]);
+        expect(graph.backlinks["business/index"]).toEqual(["a"]);
+        expect(graph.pages.find((p) => p.id === "a")?.links).toEqual(["business/index"]);
+    });
+
+    it("orders folders by the index page's declared children too", () => {
+        const graph = buildWikiGraph("/root", true, [
+            page("business/index", { children: ["business/zeta", "business/alpha/index"] }),
+            page("business/zeta"),
+            page("business/alpha/index"),
+        ]);
+        const folder = graph.tree.find((node) => node.name === "business");
+        expect(folder?.children?.map((node) => node.name)).toEqual(["zeta", "alpha"]);
+    });
+
     it("resolves a link that omits an index suffix to the folder index page", () => {
         const graph = buildWikiGraph("/root", true, [
             page("a", { rawLinks: ["business"] }),

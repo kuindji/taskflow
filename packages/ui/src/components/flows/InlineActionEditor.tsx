@@ -88,8 +88,8 @@ function InlineActionEditor({
                     </div>
                 ) : (
                     <div className="border-border text-muted-foreground rounded-md border p-2 text-sm">
-                        This action uses an agent that is no longer supported (
-                        {inline.sessionType}). Select a different session type.
+                        This action uses an agent that is no longer supported ({inline.sessionType}
+                        ). Select a different session type.
                     </div>
                 ))}
         </div>

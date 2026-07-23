@@ -183,8 +183,7 @@ describe("ChangeTracker", () => {
         stubStartPolling(tracker);
         tracker.track("a-id", "/repo-a");
         tracker.track("b-id", "/repo-b");
-        const fetchAll = () =>
-            (tracker as unknown as { fetchAll: () => Promise<void> }).fetchAll();
+        const fetchAll = () => (tracker as unknown as { fetchAll: () => Promise<void> }).fetchAll();
 
         // No refs moved anywhere — no polls at all
         await fetchAll();

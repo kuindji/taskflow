@@ -294,8 +294,8 @@ function ActionEditor({
                             </div>
                         ) : (
                             <div className="border-border text-muted-foreground rounded-md border p-3 text-sm">
-                                This action uses an agent that is no longer supported (
-                                {sessionType}). Select a different session type.
+                                This action uses an agent that is no longer supported ({sessionType}
+                                ). Select a different session type.
                             </div>
                         ))}
                 </div>

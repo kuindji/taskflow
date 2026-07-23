@@ -225,12 +225,7 @@ describe("git history", () => {
             await run(["git", "commit", "-m", "rename"], repoDir);
 
             const { entries } = await git.log(repoDir, 1, 0);
-            const pair = await git.commitDiffFile(
-                repoDir,
-                entries[0].hash,
-                "new.txt",
-                "old.txt",
-            );
+            const pair = await git.commitDiffFile(repoDir, entries[0].hash, "new.txt", "old.txt");
 
             expect(pair).toEqual({ original: "same\n", modified: "same\n" });
         });

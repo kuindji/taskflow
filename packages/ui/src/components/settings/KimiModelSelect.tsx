@@ -144,7 +144,9 @@ function KimiModelSelect({ value, onChange }: KimiModelSelectProps) {
                                     onClick={() => handleSelect(m.id)}>
                                     <span className="truncate">{m.displayName}</span>
                                     <span className="text-muted-foreground truncate text-[11px]">
-                                        {m.contextWindow ? `${m.id} · ${m.contextWindow} ctx` : m.id}
+                                        {m.contextWindow
+                                            ? `${m.id} · ${m.contextWindow} ctx`
+                                            : m.id}
                                     </span>
                                 </button>
                             ))
