@@ -15,7 +15,7 @@ import rehypeSlug from "rehype-slug";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import GithubSlugger from "github-slugger";
-import type { Components } from "react-markdown";
+import type { Components, Options } from "react-markdown";
 import { useFileStore } from "@/stores/file-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -26,6 +26,9 @@ import { CodeBlock } from "@/components/panes/markdown/CodeBlock";
 import { MermaidBlock } from "@/components/panes/markdown/MermaidBlock";
 import { toggleTaskListItemAtLine, relocateTaskLine } from "@/lib/markdown/task-list";
 import { rehypeTaskListLine } from "@/lib/markdown/rehype-task-list-line";
+import { remarkWikiLink } from "@/lib/markdown/remark-wiki-link";
+import { useWikiRoot } from "@/hooks/useWikiRoot";
+import { useWikiStore } from "@/stores/wiki-store";
 import { rawFileUrl } from "@/lib/backend-url";
 import { openFileInApp } from "@/lib/open-file";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
@@ -47,8 +50,9 @@ interface MarkdownPaneImplProps {
     workspaceKey: string;
 }
 
-const remarkPlugins = [remarkGfm, remarkFrontmatter, remarkMath];
 const rehypePlugins = [rehypeSlug, rehypeTaskListLine, rehypeKatex];
+
+type RemarkPlugins = NonNullable<Options["remarkPlugins"]>;
 
 /**
  * Pending "#heading" for a page about to be navigated to. Keyed per pane as
@@ -117,6 +121,35 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
     const markdownWidth = useSettingsStore(
         (s) => s.settings?.editor?.markdownWidth ?? DEFAULT_EDITOR_MARKDOWN_WIDTH,
     );
+    const wikiRoot = useWikiRoot();
+    const wikiIndex = useWikiStore((s) => (wikiRoot ? s.indexByRoot[wikiRoot] : undefined));
+    const fetchWikiIndex = useWikiStore((s) => s.fetchIndex);
+
+    useEffect(() => {
+        if (wikiRoot) void fetchWikiIndex(wikiRoot);
+    }, [fetchWikiIndex, wikiRoot]);
+
+    const remarkPlugins = useMemo<RemarkPlugins>(() => {
+        const base = [remarkGfm, remarkFrontmatter, remarkMath];
+        // Wiki-links are only meaningful with a root to resolve against.
+        if (wikiRoot === null) return base;
+        const byId = new Map((wikiIndex?.pages ?? []).map((page) => [page.id, page]));
+        return [
+            ...base,
+            [
+                remarkWikiLink,
+                {
+                    resolve: (target: string) => {
+                        const page = byId.get(target.replace(/^\.?\//, ""));
+                        return page
+                            ? { href: `${wikiRoot}/${page.path}`, exists: true }
+                            : { href: `${wikiRoot}/${target}.md`, exists: false };
+                    },
+                },
+            ],
+        ];
+    }, [wikiIndex, wikiRoot]);
+
     const loadIdRef = useRef(0);
     // The path this pane is actually showing. A queued checkbox write closes
     // over the path it was clicked in, which the tab may have navigated away

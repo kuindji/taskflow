@@ -336,3 +336,8 @@ body {
     caret-color: transparent !important;
     opacity: 0 !important;
 }
+
+.markdown-preview a.wiki-link-broken {
+    color: var(--destructive);
+    text-decoration: underline dotted;
+}
