@@ -14,7 +14,7 @@ import { useDroppable } from "@dnd-kit/core";
 interface TabContentProps {
     tabs: Tab[];
     activeTabId: string;
-    workspaceKey?: string;
+    workspaceKey: string;
 }
 
 /** Tab types that stay mounted when inactive (never display:none) */
@@ -34,7 +34,7 @@ function isAlwaysMounted(tab: Tab): boolean {
 function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
     const workspace = useActiveWorkspace();
     const { setNodeRef: setDropRef } = useDroppable({
-        id: workspaceKey ? `pane-drop:${workspaceKey}` : "pane-drop",
+        id: `pane-drop:${workspaceKey}`,
     });
 
     if (tabs.length === 0) {
@@ -134,7 +134,12 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
                         label = tab.filePath?.split("/").pop() ?? "Preview";
                         if (!isActive) return null;
                         pane = tab.filePath ? (
-                            <MarkdownPane filePath={tab.filePath} />
+                            <MarkdownPane
+                                filePath={tab.filePath}
+                                mode={tab.mode ?? "preview"}
+                                tabId={tab.id}
+                                workspaceKey={workspaceKey}
+                            />
                         ) : (
                             <div className="text-muted-foreground p-3">No file specified</div>
                         );

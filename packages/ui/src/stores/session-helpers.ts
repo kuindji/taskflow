@@ -23,6 +23,14 @@ interface Tab {
     url?: string;
     autoTitle?: boolean;
     trayExclude?: boolean;
+    /** markdown tabs only — which pane the tab currently shows. Absent means "preview". */
+    mode?: "preview" | "edit";
+    /** markdown tabs only — scroll offset of the preview pane, restored across pane swaps. */
+    previewScrollTop?: number;
+    /** markdown tabs only — file paths visited in this tab, oldest first. */
+    history?: string[];
+    /** markdown tabs only — index into `history` of the currently shown file. */
+    historyIndex?: number;
 }
 
 function getDefaultSessionLabel(type: Tab["type"]): string {

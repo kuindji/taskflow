@@ -95,7 +95,11 @@ export function WorkspacePane({
             void closeTab(workspaceKey, id);
         };
 
-        if (tab?.type === "editor" && tab.filePath && isEditorDirty(tab.filePath)) {
+        if (
+            (tab?.type === "editor" || tab?.type === "markdown") &&
+            tab.filePath &&
+            isEditorDirty(tab.filePath)
+        ) {
             void confirm({
                 title: "Unsaved Changes",
                 description: `"${tab.filePath.split("/").pop()}" has unsaved changes that will be lost.`,

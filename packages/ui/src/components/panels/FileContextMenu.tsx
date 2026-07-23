@@ -15,7 +15,6 @@ import {
     ExternalLink,
     FilePlus,
     FolderPlus,
-    Eye,
     Terminal,
 } from "lucide-react";
 import { MSG } from "@taskflow/shared";
@@ -34,6 +33,7 @@ import {
     type NativeMenuActionMap,
     type NativeMenuItem,
 } from "@/lib/native-menu";
+import { isMarkdownPath } from "@/lib/open-file-plan";
 import { RenameFileDialog } from "./RenameFileDialog";
 import { DeleteFileDialog } from "./DeleteFileDialog";
 import { CreateFileDialog } from "./CreateFileDialog";
@@ -67,15 +67,16 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
     const workspace = useActiveWorkspace();
     const nativeMenus = supportsNativeMenus();
 
-    const isMarkdown = !isDirectory && filePath.endsWith(".md");
+    const isMarkdown = !isDirectory && isMarkdownPath(filePath);
 
-    const handlePreviewMarkdown = useCallback(() => {
+    const handleOpenInEditor = useCallback(() => {
         const workspaceKey = workspace.workspaceKey;
         if (!workspaceKey) return;
         const store = useSessionStore.getState();
         const existingTabs = store.tabsByWorkspace[workspaceKey] ?? [];
         const existing = existingTabs.find((t) => t.type === "markdown" && t.filePath === filePath);
         if (existing) {
+            store.setTabMode(workspaceKey, existing.id, "edit");
             store.setActiveTab(workspaceKey, existing.id);
             return;
         }
@@ -85,6 +86,9 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
             type: "markdown",
             label,
             filePath,
+            mode: "edit",
+            history: [filePath],
+            historyIndex: 0,
         });
     }, [filePath, workspace.workspaceKey]);
 
@@ -164,8 +168,8 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
             actions["copy-relative-path"] = handleCopyRelativePath;
 
             if (isMarkdown) {
-                items.push({ id: "preview-markdown", label: "Preview Markdown" });
-                actions["preview-markdown"] = handlePreviewMarkdown;
+                items.push({ id: "open-in-editor", label: "Open in Editor" });
+                actions["open-in-editor"] = handleOpenInEditor;
             }
 
             if (!isDirectory) {
@@ -193,7 +197,7 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
             handleCopyRelativePath,
             handleOpenExternal,
             handleOpenInTerminal,
-            handlePreviewMarkdown,
+            handleOpenInEditor,
             handleReveal,
             isDirectory,
             isMarkdown,
@@ -243,9 +247,9 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
                         </ContextMenuItem>
                         <ContextMenuSeparator />
                         {isMarkdown && (
-                            <ContextMenuItem onSelect={handlePreviewMarkdown}>
-                                <Eye />
-                                Preview Markdown
+                            <ContextMenuItem onSelect={handleOpenInEditor}>
+                                <Pencil />
+                                Open in Editor
                             </ContextMenuItem>
                         )}
                         {!isDirectory && (
