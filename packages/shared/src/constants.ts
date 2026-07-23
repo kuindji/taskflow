@@ -1,3 +1,5 @@
+import type { MarkdownWidth } from "./types/settings";
+
 // WebSocket message types
 export const MSG = {
     // Projects
@@ -184,6 +186,35 @@ export const DEFAULT_EDITOR_FONT_FAMILY =
     '"JetBrainsMono Nerd Font", "JetBrains Mono", Menlo, Monaco, monospace';
 export const DEFAULT_EDITOR_FONT_SIZE = 18;
 export const DEFAULT_EDITOR_WORD_WRAP = true;
+
+export const DEFAULT_EDITOR_MARKDOWN_WIDTH: MarkdownWidth = "medium";
+
+export const ALL_MARKDOWN_WIDTHS: readonly MarkdownWidth[] = ["narrow", "medium", "wide", "full"];
+
+export const MARKDOWN_WIDTH_LABELS: Record<MarkdownWidth, string> = {
+    narrow: "Narrow",
+    medium: "Medium",
+    wide: "Wide",
+    full: "Full width",
+};
+
+/**
+ * Reading measure for markdown prose. 74ch is the default: at 88ch the long
+ * bullets in real wiki content start orphaning two or three words onto a
+ * second line, which is the specific failure this caps.
+ */
+export function markdownWidthCss(width: MarkdownWidth): string {
+    switch (width) {
+        case "narrow":
+            return "62ch";
+        case "medium":
+            return "74ch";
+        case "wide":
+            return "88ch";
+        case "full":
+            return "none";
+    }
+}
 
 /** Shared scrollback line count — must match between frontend xterm and backend headless xterm. */
 export const TERMINAL_SCROLLBACK = 50_000;

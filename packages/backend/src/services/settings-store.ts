@@ -8,6 +8,7 @@ import {
     CODEX_SANDBOX_MODES,
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
+    DEFAULT_EDITOR_MARKDOWN_WIDTH,
     DEFAULT_EDITOR_WORD_WRAP,
     DEFAULT_GENERAL_FONT_FAMILY,
     DEFAULT_GENERAL_FONT_SIZE,
@@ -48,6 +49,7 @@ const DEFAULTS: AppSettings = {
         wordWrap: DEFAULT_EDITOR_WORD_WRAP,
         internalEditor: "monaco",
         externalEditor: "system",
+        markdownWidth: DEFAULT_EDITOR_MARKDOWN_WIDTH,
     },
     layout: {
         window: { width: 1400, height: 900, isMaximized: false },

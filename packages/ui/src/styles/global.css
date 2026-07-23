@@ -233,8 +233,10 @@ body {
 .markdown-preview td,
 .markdown-preview th,
 .markdown-preview figcaption {
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    /* overflow-wrap alone breaks only strings that cannot fit (long URLs and
+       paths). word-break: break-word additionally splits ordinary words
+       mid-syllable, which turned wide list items into an unreadable stagger. */
+    overflow-wrap: break-word;
 }
 
 .markdown-preview table {
@@ -303,6 +305,19 @@ body {
 .markdown-preview img {
     max-width: 100%;
     border-radius: 0.375rem;
+}
+
+/* Prose is capped to a reading measure and centred; wide content breaks out. */
+.markdown-preview {
+    margin-inline: auto;
+    max-width: var(--markdown-measure, 74ch);
+}
+
+.markdown-preview > pre,
+.markdown-preview > table,
+.markdown-preview > .markdown-fullbleed {
+    max-width: none;
+    width: 100%;
 }
 
 /* Hide native browser caret on xterm's hidden input textarea — xterm renders

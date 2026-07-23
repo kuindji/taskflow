@@ -17,6 +17,8 @@ import {
 import {
     DEFAULT_TERMINAL_SHELL,
     ALL_AGENT_TYPES,
+    ALL_MARKDOWN_WIDTHS,
+    MARKDOWN_WIDTH_LABELS,
     AGENT_DISPLAY_NAMES,
     type AgentType,
     type ShellInfo,
@@ -37,6 +39,7 @@ interface DefaultsSectionProps {
     agents: AgentAvailability[];
     onInternalEditor: (value: string) => void;
     onExternalEditor: (value: string) => void;
+    onMarkdownWidth: (value: string) => void;
     onDefaultAgent: (value: string) => void;
     onToggleFavoriteAgent: (agent: AgentType, checked: boolean) => void;
     onDefaultShell: (value: string) => void;
@@ -52,6 +55,7 @@ function DefaultsSection({
     agents,
     onInternalEditor,
     onExternalEditor,
+    onMarkdownWidth,
     onDefaultAgent,
     onToggleFavoriteAgent,
     onDefaultShell,
@@ -99,6 +103,20 @@ function DefaultsSection({
                                     {e.name}
                                 </SelectItem>
                             ))}
+                    </SelectContent>
+                </Select>
+            </SettingRow>
+            <SettingRow label="Markdown Width" hint="Reading measure for the markdown preview">
+                <Select value={settings.editor.markdownWidth} onValueChange={onMarkdownWidth}>
+                    <SelectTrigger size="sm" className="w-[180px] text-[13px]">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {ALL_MARKDOWN_WIDTHS.map((width) => (
+                            <SelectItem key={width} value={width}>
+                                {MARKDOWN_WIDTH_LABELS[width]}
+                            </SelectItem>
+                        ))}
                     </SelectContent>
                 </Select>
             </SettingRow>

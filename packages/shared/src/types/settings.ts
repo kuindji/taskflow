@@ -54,12 +54,15 @@ export interface TerminalSettings {
     defaultShell: string;
 }
 
+export type MarkdownWidth = "narrow" | "medium" | "wide" | "full";
+
 export interface EditorSettings {
     fontFamily: string;
     fontSize: number;
     wordWrap: boolean;
     internalEditor: string;
     externalEditor: string;
+    markdownWidth: MarkdownWidth;
 }
 
 export interface WindowSettings {

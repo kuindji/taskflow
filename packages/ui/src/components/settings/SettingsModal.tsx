@@ -18,6 +18,7 @@ import {
     type PiThinkingLevel,
     type KimiPermissionMode,
     type EditorInfo,
+    type MarkdownWidth,
     type SystemInfoResponse,
 } from "@taskflow/shared";
 import {
@@ -248,6 +249,11 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleMarkdownWidth = useCallback(
+        (value: string) => updateSettings({ editor: { markdownWidth: value as MarkdownWidth } }),
+        [updateSettings],
+    );
+
     const handleDefaultAgent = useCallback(
         (value: string) => {
             if (isAgentType(value)) {
@@ -468,6 +474,7 @@ function SettingsModal() {
                                     agents={agents}
                                     onInternalEditor={handleInternalEditor}
                                     onExternalEditor={handleExternalEditor}
+                                    onMarkdownWidth={handleMarkdownWidth}
                                     onDefaultAgent={handleDefaultAgent}
                                     onToggleFavoriteAgent={handleToggleFavoriteAgent}
                                     onDefaultShell={handleDefaultShell}

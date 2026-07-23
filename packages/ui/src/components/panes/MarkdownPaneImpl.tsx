@@ -8,7 +8,13 @@ import { useFileStore } from "@/stores/file-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { onEvent } from "@/hooks/useWebSocket";
-import { MSG, DEFAULT_EDITOR_FONT_SIZE, DEFAULT_EDITOR_FONT_FAMILY } from "@taskflow/shared";
+import {
+    MSG,
+    DEFAULT_EDITOR_FONT_SIZE,
+    DEFAULT_EDITOR_FONT_FAMILY,
+    DEFAULT_EDITOR_MARKDOWN_WIDTH,
+    markdownWidthCss,
+} from "@taskflow/shared";
 import type { FileChangeEvent } from "@taskflow/shared";
 
 interface MarkdownPaneImplProps {
@@ -29,6 +35,9 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
     );
     const editorFontFamily = useSettingsStore(
         (s) => s.settings?.editor?.fontFamily ?? DEFAULT_EDITOR_FONT_FAMILY,
+    );
+    const markdownWidth = useSettingsStore(
+        (s) => s.settings?.editor?.markdownWidth ?? DEFAULT_EDITOR_MARKDOWN_WIDTH,
     );
     const loadIdRef = useRef(0);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -170,8 +179,12 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
             onScroll={handleScroll}
             className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
             <div
-                className="markdown-preview prose prose-invert max-w-none min-w-0"
-                style={{ fontSize: editorFontSize, fontFamily: editorFontFamily }}>
+                className="markdown-preview prose prose-invert min-w-0"
+                style={{
+                    fontSize: editorFontSize,
+                    fontFamily: editorFontFamily,
+                    ["--markdown-measure" as string]: markdownWidthCss(markdownWidth),
+                }}>
                 <Markdown remarkPlugins={remarkPlugins} components={components}>
                     {content}
                 </Markdown>
