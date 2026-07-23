@@ -15,6 +15,7 @@ import { useWikiStore } from "@/stores/wiki-store";
 import { useFileStore } from "@/stores/file-store";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import useIsElectron from "@/hooks/useIsElectron";
 import { openFileInApp } from "@/lib/open-file";
 import { fetchObsidianState, openInObsidian } from "@/lib/wiki/open-in-obsidian";
 import { CreateFileDialog } from "./CreateFileDialog";
@@ -45,6 +46,7 @@ function WikiPanel() {
     const toggleWikiPanel = useUIStore((s) => s.toggleWikiPanel);
     const workspace = useActiveWorkspace();
     const root = useWikiRoot();
+    const isElectron = useIsElectron();
     const index = useWikiStore((s) => (root ? s.indexByRoot[root] : undefined));
     const error = useWikiStore((s) => (root ? s.errorByRoot[root] : undefined));
     const fetchIndex = useWikiStore((s) => s.fetchIndex);
@@ -82,13 +84,20 @@ function WikiPanel() {
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <Toolbar className="justify-between">
-                <span className="text-secondary-foreground text-[13px] font-medium">Wiki</span>
+            <Toolbar className={`gap-2 ${isElectron ? "[-webkit-app-region:drag]" : ""}`}>
+                <span className="text-muted-foreground ml-2 flex h-6 items-center text-xs font-medium">
+                    Wiki
+                </span>
+                <div className="flex-1" />
                 <div className="flex items-center gap-1">
                     {root !== null && (
                         <DropdownMenu onOpenChange={handleMenuOpenChange}>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon-xs" aria-label="Wiki actions">
+                                <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    aria-label="Wiki actions"
+                                    className="[-webkit-app-region:no-drag]">
                                     <Ellipsis className="h-4 w-4" />
                                 </Button>
                             </DropdownMenuTrigger>
@@ -125,8 +134,11 @@ function WikiPanel() {
                         variant="ghost"
                         size="icon-xs"
                         onClick={toggleWikiPanel}
-                        aria-label="Hide wiki">
-                        <X className="h-4 w-4" />
+                        aria-label="Hide wiki panel"
+                        tooltip="Hide wiki panel"
+                        tooltipSide="bottom"
+                        className="[-webkit-app-region:no-drag]">
+                        <X className="h-3 w-3" />
                     </Button>
                 </div>
             </Toolbar>
