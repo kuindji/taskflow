@@ -35,6 +35,8 @@ interface WikiIndexServiceDeps {
 interface RootState {
     data: WikiIndexData;
     parsed: Map<string, ParsedWikiPage>;
+    /** The generation this state was built in; a stop invalidates it. */
+    generation: number;
     watcher: FSWatcher | null;
     timer: ReturnType<typeof setTimeout> | null;
     pending: Set<string>;
@@ -50,8 +52,12 @@ class WikiIndexService {
     private readonly debounceMs: number;
     private readonly roots = new Map<string, RootState>();
     private readonly building = new Map<string, Promise<WikiIndexData>>();
-    /** Set by `stopAll`. A build already in flight must not outlive shutdown. */
-    private stopped = false;
+    /**
+     * Bumped by `stopAll`. A build that started before a stop must not install
+     * a watcher afterwards, while a `get` issued after the stop must still be
+     * able to index and watch — so this is a generation counter, not a flag.
+     */
+    private generation = 0;
 
     constructor({ onChange, debounceMs = 150 }: WikiIndexServiceDeps) {
         this.onChange = onChange;
@@ -71,7 +77,7 @@ class WikiIndexService {
     }
 
     async stopAll(): Promise<void> {
-        this.stopped = true;
+        this.generation++;
         const states = [...this.roots.values()];
         this.roots.clear();
         await Promise.all(
@@ -83,6 +89,7 @@ class WikiIndexService {
     }
 
     private async build(root: string): Promise<WikiIndexData> {
+        const generation = this.generation;
         const usable = await stat(root)
             .then((stats) => stats.isDirectory())
             .catch(() => false);
@@ -100,15 +107,22 @@ class WikiIndexService {
         }
 
         const data = buildWikiGraph(root, true, [...parsed.values()]);
-        // The scan is async, so shutdown can land in the middle of it. Answer
-        // the caller, but do not register a watcher nobody will ever close.
-        if (this.stopped) return data;
+        // The scan is async, so a stop can land in the middle of it. Answer the
+        // caller, but do not register a watcher nobody will ever close.
+        if (generation !== this.generation) return data;
 
-        const state: RootState = { data, parsed, watcher: null, timer: null, pending: new Set() };
+        const state: RootState = {
+            data,
+            parsed,
+            generation,
+            watcher: null,
+            timer: null,
+            pending: new Set(),
+        };
         this.roots.set(root, state);
         state.watcher = await this.watch(root, state);
-        if (this.stopped) {
-            this.roots.delete(root);
+        if (generation !== this.generation) {
+            if (this.roots.get(root) === state) this.roots.delete(root);
             await state.watcher.close();
         }
         return data;
@@ -183,7 +197,7 @@ class WikiIndexService {
     }
 
     private async flush(root: string, state: RootState): Promise<void> {
-        if (this.stopped) return;
+        if (state.generation !== this.generation) return;
         const paths = [...state.pending];
         state.pending.clear();
 

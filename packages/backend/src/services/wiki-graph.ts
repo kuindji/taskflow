@@ -85,7 +85,14 @@ function toNodes(
 ): WikiTreeNode[] {
     const indexId = hoistedId ?? findIndexPageId(builder.pages);
     const declared = indexId === undefined ? [] : (byId.get(indexId)?.children ?? []);
-    const rank = new Map<string, number>(declared.map((id, i) => [id, i]));
+    // A declared entry may name a folder by its shorthand ("business/alpha")
+    // while the node carries that folder's index page id, so entries go through
+    // the same resolver links use.
+    const rank = new Map<string, number>();
+    declared.forEach((target, i) => {
+        const resolved = resolveWikiTarget(target, (id) => byId.has(id));
+        if (resolved !== null) rank.set(resolved, i);
+    });
 
     const folders: WikiTreeNode[] = [...builder.folders.entries()]
         .map(([name, child]) => {

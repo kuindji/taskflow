@@ -60,6 +60,18 @@ describe("buildWikiGraph", () => {
         expect(folder?.children?.map((node) => node.name)).toEqual(["zeta", "alpha"]);
     });
 
+    it("orders a folder named by its shorthand in the declared children list", () => {
+        // "business/alpha" is the folder; its page id is "business/alpha/index".
+        // The declared order must still position it.
+        const graph = buildWikiGraph("/root", true, [
+            page("business/index", { children: ["business/zeta", "business/alpha"] }),
+            page("business/zeta"),
+            page("business/alpha/index"),
+        ]);
+        const folder = graph.tree.find((node) => node.name === "business");
+        expect(folder?.children?.map((node) => node.name)).toEqual(["zeta", "alpha"]);
+    });
+
     it("resolves a link that omits an index suffix to the folder index page", () => {
         const graph = buildWikiGraph("/root", true, [
             page("a", { rawLinks: ["business"] }),

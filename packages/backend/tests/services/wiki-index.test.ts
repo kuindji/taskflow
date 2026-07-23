@@ -94,6 +94,19 @@ describe("WikiIndexService", () => {
         expect(changes).toEqual([]);
     });
 
+    it("watches again after a stop-and-restart cycle", async () => {
+        await service.get(root);
+        await service.stopAll();
+        changes = [];
+
+        await service.get(root);
+        await writeFile(join(root, "extra.md"), "# Extra\n");
+        const data = await waitFor(() =>
+            changes.at(-1)?.pages.some((p) => p.id === "extra") ? changes.at(-1) : undefined,
+        );
+        expect(data.pages.map((p) => p.id).sort()).toEqual(["business/money", "extra", "index"]);
+    });
+
     it("flags a missing root rather than throwing", async () => {
         const data = await service.get(join(root, "does-not-exist"));
         expect(data.rootExists).toBe(false);
