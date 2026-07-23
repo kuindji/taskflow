@@ -19,3 +19,6 @@ export * from "./utils/project-order";
 export * from "./utils/version";
 export * from "./types/attribute";
 export * from "./utils/attributes";
+export * from "./utils/markdown/paths";
+export * from "./utils/markdown/frontmatter";
+export * from "./utils/markdown/outline";

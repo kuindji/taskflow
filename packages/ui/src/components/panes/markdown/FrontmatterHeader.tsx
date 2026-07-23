@@ -1,4 +1,4 @@
-import type { PageFrontmatter } from "@/lib/markdown/frontmatter";
+import type { PageFrontmatter } from "@taskflow/shared";
 
 interface FrontmatterHeaderProps {
     frontmatter: PageFrontmatter;

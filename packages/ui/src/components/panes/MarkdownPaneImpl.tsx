@@ -21,8 +21,6 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { onEvent } from "@/hooks/useWebSocket";
 import { resolveLinkTarget } from "@/lib/markdown/link-target";
-import { dirnameOf, joinRelative } from "@/lib/markdown/paths";
-import { parseFrontmatter } from "@/lib/markdown/frontmatter";
 import { FrontmatterHeader } from "@/components/panes/markdown/FrontmatterHeader";
 import { CodeBlock } from "@/components/panes/markdown/CodeBlock";
 import { MermaidBlock } from "@/components/panes/markdown/MermaidBlock";
@@ -37,6 +35,9 @@ import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_MARKDOWN_WIDTH,
     markdownWidthCss,
+    dirnameOf,
+    joinRelative,
+    parseFrontmatter,
 } from "@taskflow/shared";
 import type { FileChangeEvent } from "@taskflow/shared";
 

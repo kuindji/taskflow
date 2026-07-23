@@ -60,4 +60,4 @@ function joinRelative(baseDir: string, relative: string): string {
     return rooted ? `/${joined}` : joined;
 }
 
-export { dirnameOf, joinRelative };
+export { dirnameOf, isAbsolutePath, joinRelative };

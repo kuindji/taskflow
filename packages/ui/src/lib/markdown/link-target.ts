@@ -1,4 +1,4 @@
-import { dirnameOf, joinRelative } from "./paths";
+import { dirnameOf, joinRelative } from "@taskflow/shared";
 import { isMarkdownPath } from "@/lib/open-file-plan";
 
 /** What a click on a rendered markdown link should do. */
