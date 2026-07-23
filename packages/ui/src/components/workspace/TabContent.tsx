@@ -27,7 +27,8 @@ function isAlwaysMounted(tab: Tab): boolean {
         tab.type === "pi" ||
         tab.type === "kimi" ||
         tab.type === "shell" ||
-        tab.type === "browser"
+        tab.type === "browser" ||
+        tab.type === "markdown"
     );
 }
 
@@ -130,9 +131,11 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
                         );
                         break;
 
+                    // Markdown tabs stay mounted off-screen (never display:none):
+                    // the preview's scrollTop is only preserved while the scroll
+                    // container keeps its layout box.
                     case "markdown":
                         label = tab.filePath?.split("/").pop() ?? "Preview";
-                        if (!isActive) return null;
                         pane = tab.filePath ? (
                             <MarkdownPane
                                 filePath={tab.filePath}

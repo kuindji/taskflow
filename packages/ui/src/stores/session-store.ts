@@ -58,6 +58,7 @@ interface SessionStore {
     getTaskStatus(taskId: string): SessionStatus | undefined;
     renameTab(workspaceKey: string, tabId: string, newLabel: string): void;
     setTabMode(workspaceKey: string, tabId: string, mode: "preview" | "edit"): void;
+    setTabScrollTop(workspaceKey: string, tabId: string, scrollTop: number): void;
     reorderTabs(workspaceKey: string, activeId: string, overId: string): void;
     updateAutoTitle(workspaceKey: string, tabId: string, title: string): void;
     getTabs(workspaceKey: string): Tab[];
@@ -277,6 +278,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 if (tab.id !== tabId || (tab.mode ?? "preview") === mode) return tab;
                 changed = true;
                 return { ...tab, mode };
+            });
+            if (!changed) return s;
+            return { tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: next } };
+        });
+    },
+    setTabScrollTop(workspaceKey, tabId, scrollTop) {
+        set((s) => {
+            const tabs = s.tabsByWorkspace[workspaceKey];
+            if (!tabs) return s;
+            let changed = false;
+            const next = tabs.map((tab) => {
+                if (tab.id !== tabId || tab.previewScrollTop === scrollTop) return tab;
+                changed = true;
+                return { ...tab, previewScrollTop: scrollTop };
             });
             if (!changed) return s;
             return { tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: next } };

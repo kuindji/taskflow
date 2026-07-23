@@ -5,6 +5,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Components } from "react-markdown";
 import { useFileStore } from "@/stores/file-store";
+import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { onEvent } from "@/hooks/useWebSocket";
 import { MSG, DEFAULT_EDITOR_FONT_SIZE, DEFAULT_EDITOR_FONT_FAMILY } from "@taskflow/shared";
@@ -12,11 +13,13 @@ import type { FileChangeEvent } from "@taskflow/shared";
 
 interface MarkdownPaneImplProps {
     filePath: string;
+    tabId: string;
+    workspaceKey: string;
 }
 
 const remarkPlugins = [remarkGfm];
 
-function MarkdownPaneImpl({ filePath }: MarkdownPaneImplProps) {
+function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplProps) {
     const [content, setContent] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -28,6 +31,43 @@ function MarkdownPaneImpl({ filePath }: MarkdownPaneImplProps) {
         (s) => s.settings?.editor?.fontFamily ?? DEFAULT_EDITOR_FONT_FAMILY,
     );
     const loadIdRef = useRef(0);
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const scrollWriteRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Read once: the pane owns the live value from here on, and subscribing
+    // to the store would re-render the pane on every scroll tick.
+    const initialScrollTopRef = useRef(
+        useSessionStore.getState().tabsByWorkspace[workspaceKey]?.find((t) => t.id === tabId)
+            ?.previewScrollTop ?? 0,
+    );
+
+    // Mirrors the container's scrollTop synchronously. React detaches DOM refs
+    // in the mutation phase, before passive effect cleanup runs, so the unmount
+    // flush below cannot read `scrollRef.current` — it reads this instead.
+    // Seeded from the restored offset so an unmount with no scrolling in between
+    // (swap to edit and straight back) re-writes the same value, not 0.
+    const lastScrollTopRef = useRef(initialScrollTopRef.current);
+
+    const handleScroll = useCallback(() => {
+        const top = scrollRef.current?.scrollTop;
+        if (top !== undefined) lastScrollTopRef.current = top;
+        if (scrollWriteRef.current) return;
+        scrollWriteRef.current = setTimeout(() => {
+            scrollWriteRef.current = null;
+            useSessionStore
+                .getState()
+                .setTabScrollTop(workspaceKey, tabId, lastScrollTopRef.current);
+        }, 150);
+    }, [tabId, workspaceKey]);
+
+    // Flush the pending offset on unmount (the preview→edit swap unmounts this pane).
+    useEffect(() => {
+        return () => {
+            if (scrollWriteRef.current) clearTimeout(scrollWriteRef.current);
+            useSessionStore
+                .getState()
+                .setTabScrollTop(workspaceKey, tabId, lastScrollTopRef.current);
+        };
+    }, [tabId, workspaceKey]);
 
     const loadContent = useCallback(async () => {
         const loadId = ++loadIdRef.current;
@@ -62,6 +102,15 @@ function MarkdownPaneImpl({ filePath }: MarkdownPaneImplProps) {
             }
         });
     }, [filePath, loadContent]);
+
+    // Restore once the content has rendered and the container has a scroll height.
+    useEffect(() => {
+        if (loading) return;
+        const el = scrollRef.current;
+        if (!el) return;
+        el.scrollTop = initialScrollTopRef.current;
+        lastScrollTopRef.current = initialScrollTopRef.current;
+    }, [loading]);
 
     const components: Components = {
         code({ className, children, ...rest }) {
@@ -116,7 +165,10 @@ function MarkdownPaneImpl({ filePath }: MarkdownPaneImplProps) {
     }
 
     return (
-        <div className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
+        <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
             <div
                 className="markdown-preview prose prose-invert max-w-none min-w-0"
                 style={{ fontSize: editorFontSize, fontFamily: editorFontFamily }}>

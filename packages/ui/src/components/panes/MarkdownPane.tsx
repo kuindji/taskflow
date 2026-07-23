@@ -68,7 +68,11 @@ function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps
                             Loading preview...
                         </div>
                     }>
-                    <LazyMarkdownPane filePath={filePath} />
+                    <LazyMarkdownPane
+                        filePath={filePath}
+                        tabId={tabId}
+                        workspaceKey={workspaceKey}
+                    />
                 </Suspense>
             )}
         </div>
