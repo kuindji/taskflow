@@ -2,7 +2,10 @@ import { Children, useEffect, useMemo, useState, useCallback, useRef } from "rea
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkFrontmatter from "remark-frontmatter";
+import remarkMath from "remark-math";
 import rehypeSlug from "rehype-slug";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import GithubSlugger from "github-slugger";
 import type { Components } from "react-markdown";
 import { useFileStore } from "@/stores/file-store";
@@ -14,6 +17,7 @@ import { dirnameOf, joinRelative } from "@/lib/markdown/paths";
 import { parseFrontmatter } from "@/lib/markdown/frontmatter";
 import { FrontmatterHeader } from "@/components/panes/markdown/FrontmatterHeader";
 import { CodeBlock } from "@/components/panes/markdown/CodeBlock";
+import { MermaidBlock } from "@/components/panes/markdown/MermaidBlock";
 import { toggleTaskListItemAtLine } from "@/lib/markdown/task-list";
 import { rehypeTaskListLine } from "@/lib/markdown/rehype-task-list-line";
 import { rawFileUrl } from "@/lib/backend-url";
@@ -34,8 +38,8 @@ interface MarkdownPaneImplProps {
     workspaceKey: string;
 }
 
-const remarkPlugins = [remarkGfm, remarkFrontmatter];
-const rehypePlugins = [rehypeSlug, rehypeTaskListLine];
+const remarkPlugins = [remarkGfm, remarkFrontmatter, remarkMath];
+const rehypePlugins = [rehypeSlug, rehypeTaskListLine, rehypeKatex];
 
 /** Pending "#heading" for a page about to be navigated to in this tab. */
 const pendingHashes = new Map<string, string>();
@@ -262,6 +266,10 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                     })
                     .join("")
                     .replace(/\n$/, "");
+
+                if (match?.[1] === "mermaid") {
+                    return <MermaidBlock code={codeString} />;
+                }
 
                 if (match) {
                     return (

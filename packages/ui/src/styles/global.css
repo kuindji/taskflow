@@ -320,6 +320,16 @@ body {
     width: 100%;
 }
 
+.markdown-preview .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.markdown-preview .markdown-fullbleed svg {
+    max-width: 100%;
+    height: auto;
+}
+
 /* Hide native browser caret on xterm's hidden input textarea — xterm renders
    its own cursor, so the browser caret creates a duplicate cursor artifact. */
 .xterm .xterm-helper-textarea {
