@@ -51,6 +51,8 @@ import { ConnectivityService } from "./services/connectivity-service";
 import { registerRemoteAgentHandlers } from "./handlers/remote-agent";
 import { registerTypeScriptHandlers } from "./handlers/typescript";
 import { registerSearchHandlers } from "./handlers/search";
+import { WikiIndexService } from "./services/wiki-index";
+import { registerWikiHandlers } from "./handlers/wiki";
 import { writeFile } from "fs/promises";
 import { homedir } from "os";
 
@@ -91,6 +93,9 @@ async function main() {
         const apiRouter = new ApiRouter();
         const server = createServer(router, config.port, apiRouter);
         const changeTracker = new ChangeTracker(gitService, server.broadcast);
+        const wikiIndex = new WikiIndexService({
+            onChange: (data) => server.broadcast({ type: MSG.WIKI_INDEX_CHANGED, payload: data }),
+        });
         server.onConnect(() => changeTracker.sendCurrentStats());
         let serverPort = config.port;
 
@@ -291,6 +296,7 @@ async function main() {
             broadcast: server.broadcast,
             changeTracker,
         });
+        registerWikiHandlers({ router, taskStore: store, wikiIndex });
         registerGitHandlers({
             router,
             git: gitService,
@@ -479,6 +485,7 @@ async function main() {
             changeTracker.dispose();
             ptyManager.closeAll();
             void fileWatcher.stopAll();
+            void wikiIndex.stopAll();
             stop?.();
             process.exit(0);
         };

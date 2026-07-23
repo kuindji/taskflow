@@ -268,6 +268,11 @@ export interface KimiModelsResponse {
     models: KimiModelInfo[];
 }
 
+// Wiki messages
+export interface WikiIndexPayload {
+    root: string;
+}
+
 // File messages
 export interface FileTreePayload {
     path: string;

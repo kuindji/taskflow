@@ -68,6 +68,11 @@ export const MSG = {
     FILE_DELETE_FILE: "file:delete",
     FILE_MKDIR: "file:mkdir",
     FILE_OPEN_EXTERNAL: "file:open-external",
+
+    // Wiki
+    WIKI_INDEX: "wiki:index",
+    WIKI_INDEX_CHANGED: "wiki:index-changed",
+    WIKI_OBSIDIAN_STATE: "wiki:obsidian-state",
     FILE_REVEAL: "file:reveal",
 
     // TypeScript resolution
