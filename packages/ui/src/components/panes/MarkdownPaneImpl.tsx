@@ -4,8 +4,6 @@ import remarkGfm from "remark-gfm";
 import remarkFrontmatter from "remark-frontmatter";
 import rehypeSlug from "rehype-slug";
 import GithubSlugger from "github-slugger";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Components } from "react-markdown";
 import { useFileStore } from "@/stores/file-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -15,6 +13,9 @@ import { resolveLinkTarget } from "@/lib/markdown/link-target";
 import { dirnameOf, joinRelative } from "@/lib/markdown/paths";
 import { parseFrontmatter } from "@/lib/markdown/frontmatter";
 import { FrontmatterHeader } from "@/components/panes/markdown/FrontmatterHeader";
+import { CodeBlock } from "@/components/panes/markdown/CodeBlock";
+import { toggleTaskListItemAtLine } from "@/lib/markdown/task-list";
+import { rehypeTaskListLine } from "@/lib/markdown/rehype-task-list-line";
 import { openFileInApp } from "@/lib/open-file";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import {
@@ -33,7 +34,7 @@ interface MarkdownPaneImplProps {
 }
 
 const remarkPlugins = [remarkGfm, remarkFrontmatter];
-const rehypePlugins = [rehypeSlug];
+const rehypePlugins = [rehypeSlug, rehypeTaskListLine];
 
 /** Pending "#heading" for a page about to be navigated to in this tab. */
 const pendingHashes = new Map<string, string>();
@@ -65,6 +66,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
     const [error, setError] = useState<string | null>(null);
     const workspace = useActiveWorkspace();
     const readFile = useFileStore((s) => s.readFile);
+    const writeFile = useFileStore((s) => s.writeFile);
     const editorFontSize = useSettingsStore(
         (s) => s.settings?.editor?.fontSize ?? DEFAULT_EDITOR_FONT_SIZE,
     );
@@ -192,6 +194,21 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         (event: React.MouseEvent<HTMLDivElement>) => {
             const target = event.target;
             if (!(target instanceof HTMLElement)) return;
+
+            if (target instanceof HTMLInputElement && target.type === "checkbox") {
+                const item = target.closest<HTMLElement>("li[data-source-line]");
+                const line = Number(item?.dataset.sourceLine);
+                if (!Number.isFinite(line)) return;
+                const next = toggleTaskListItemAtLine(content, line);
+                if (next === content) return;
+                setContent(next);
+                void writeFile(filePath, next).catch(() => {
+                    // The FILE_CHANGED subscription reloads from disk on failure.
+                    void loadContent();
+                });
+                return;
+            }
+
             const anchor = target.closest("a");
             if (!anchor) return;
             const href = anchor.getAttribute("href");
@@ -226,7 +243,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                     break;
             }
         },
-        [filePath, tabId, workspace, workspaceKey],
+        [content, filePath, loadContent, tabId, workspace, workspaceKey, writeFile],
     );
 
     const components: Components = {
@@ -245,17 +262,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
 
             if (match) {
                 return (
-                    <SyntaxHighlighter
-                        style={oneDark}
-                        language={match[1]}
-                        PreTag="div"
-                        customStyle={{
-                            margin: 0,
-                            borderRadius: "0.375rem",
-                            fontSize: editorFontSize,
-                        }}>
-                        {codeString}
-                    </SyntaxHighlighter>
+                    <CodeBlock code={codeString} language={match[1]} fontSize={editorFontSize} />
                 );
             }
 
@@ -264,6 +271,12 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                     {children}
                 </code>
             );
+        },
+        input({ ...rest }) {
+            if (rest.type === "checkbox") {
+                return <input {...rest} disabled={false} readOnly />;
+            }
+            return <input {...rest} />;
         },
     };
 
