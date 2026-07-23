@@ -13,15 +13,19 @@ import { createRoot, type Root } from "react-dom/client";
 
 const files = new Map<string, string>();
 
+// One hoisted store object, as zustand does: a selector that builds a fresh
+// object per call hands out new `readFile`/`writeFile` identities every render,
+// which makes the pane's `loadContent` unstable and re-read the file forever.
+const fileStore = {
+    readFile: (path: string) => Promise.resolve(files.get(path) ?? ""),
+    writeFile: (path: string, content: string) => {
+        files.set(path, content);
+        return Promise.resolve();
+    },
+};
+
 await mock.module("@/stores/file-store", () => ({
-    useFileStore: (selector: (s: unknown) => unknown) =>
-        selector({
-            readFile: (path: string) => Promise.resolve(files.get(path) ?? ""),
-            writeFile: (path: string, content: string) => {
-                files.set(path, content);
-                return Promise.resolve();
-            },
-        }),
+    useFileStore: (selector: (s: typeof fileStore) => unknown) => selector(fileStore),
 }));
 
 await mock.module("@/hooks/useWebSocket", () => ({

@@ -19,6 +19,7 @@ import type { Components, Options } from "react-markdown";
 import { useFileStore } from "@/stores/file-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useUIStore } from "@/stores/ui-store";
 import { onEvent } from "@/hooks/useWebSocket";
 import { resolveLinkTarget } from "@/lib/markdown/link-target";
 import { FrontmatterHeader } from "@/components/panes/markdown/FrontmatterHeader";
@@ -27,6 +28,9 @@ import { MermaidBlock } from "@/components/panes/markdown/MermaidBlock";
 import { toggleTaskListItemAtLine, relocateTaskLine } from "@/lib/markdown/task-list";
 import { rehypeTaskListLine } from "@/lib/markdown/rehype-task-list-line";
 import { remarkWikiLink } from "@/lib/markdown/remark-wiki-link";
+import { WikiRail } from "@/components/panes/markdown/WikiRail";
+import { persistWikiRail } from "@/components/panes/markdown/wiki-rail-settings";
+import { ResizeHandle } from "@/components/ResizeHandle";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { useWikiStore } from "@/stores/wiki-store";
 import { rawFileUrl } from "@/lib/backend-url";
@@ -38,6 +42,7 @@ import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_MARKDOWN_WIDTH,
     markdownWidthCss,
+    extractOutline,
     dirnameOf,
     joinRelative,
     parseFrontmatter,
@@ -150,13 +155,31 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         ];
     }, [wikiIndex, wikiRoot]);
 
+    const wikiRailOpen = useUIStore((s) => s.wikiRailOpen);
+    const wikiRailWidth = useUIStore((s) => s.wikiRailWidth);
+    const outline = useMemo(() => extractOutline(content), [content]);
+    const wikiPageId = useMemo(() => {
+        if (wikiRoot === null || !filePath.startsWith(`${wikiRoot}/`)) return null;
+        return filePath.slice(wikiRoot.length + 1).replace(/\.(md|markdown)$/i, "");
+    }, [filePath, wikiRoot]);
+
     const loadIdRef = useRef(0);
     // The path this pane is actually showing. A queued checkbox write closes
     // over the path it was clicked in, which the tab may have navigated away
     // from by the time the write runs; the write itself still belongs to the
     // old file, but nothing it learns may be pushed into this pane's state.
     const shownPathRef = useRef(filePath);
-    const scrollRef = useRef<HTMLDivElement>(null);
+    const scrollRef = useRef<HTMLDivElement | null>(null);
+    // The rail needs the scroll container as *state* (to re-run its observer
+    // effect once it exists), while the rest of the pane reads it from a ref.
+    // The callback must be stable: an inline one is a new identity every
+    // render, so React detaches and reattaches it, and the resulting
+    // null → node state churn re-renders forever.
+    const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+    const setScrollContainer = useCallback((node: HTMLDivElement | null) => {
+        scrollRef.current = node;
+        setScrollEl(node);
+    }, []);
     const scrollWriteRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // Read imperatively, never subscribed: subscribing to the store would
     // re-render the pane on every scroll tick. `filePath` changes in place when
@@ -268,6 +291,23 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
     }, [filePath, loadedPath, tabId, workspaceKey]);
 
     const frontmatter = useMemo(() => parseFrontmatter(content), [content]);
+
+    // The rail sits on the right, so dragging right must shrink it.
+    const handleRailResize = useCallback((delta: number) => {
+        const { wikiRailWidth, setWikiRailWidth } = useUIStore.getState();
+        setWikiRailWidth(wikiRailWidth - delta);
+    }, []);
+
+    /** Open another wiki page in this tab, from the rail's children/backlinks. */
+    const handleOpenPage = useCallback(
+        (targetId: string) => {
+            if (wikiRoot === null) return;
+            const page = wikiIndex?.pages.find((entry) => entry.id === targetId);
+            const path = page ? `${wikiRoot}/${page.path}` : `${wikiRoot}/${targetId}.md`;
+            useSessionStore.getState().navigateTab(workspaceKey, tabId, path);
+        },
+        [tabId, wikiIndex, wikiRoot, workspaceKey],
+    );
 
     // Frontmatter targets are wiki-style page paths without an extension
     // ("business/money"). Until a wiki root exists (Stage 2) they are resolved
@@ -476,31 +516,51 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
     }
 
     return (
-        <div
-            ref={scrollRef}
-            onScroll={handleScroll}
-            onClick={handleClick}
-            className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
+        <div className="flex min-h-0 min-w-0 flex-1">
             <div
-                className="markdown-preview prose prose-invert min-w-0"
-                style={{
-                    fontSize: editorFontSize,
-                    fontFamily: editorFontFamily,
-                    ["--markdown-measure" as string]: markdownWidthCss(markdownWidth),
-                }}>
-                {frontmatter && (
-                    <FrontmatterHeader
-                        frontmatter={frontmatter}
-                        onNavigate={handleFrontmatterNavigate}
-                    />
-                )}
-                <Markdown
-                    remarkPlugins={remarkPlugins}
-                    rehypePlugins={rehypePlugins}
-                    components={components}>
-                    {content}
-                </Markdown>
+                ref={setScrollContainer}
+                onScroll={handleScroll}
+                onClick={handleClick}
+                className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
+                <div
+                    className="markdown-preview prose prose-invert min-w-0"
+                    style={{
+                        fontSize: editorFontSize,
+                        fontFamily: editorFontFamily,
+                        ["--markdown-measure" as string]: markdownWidthCss(markdownWidth),
+                    }}>
+                    {frontmatter && (
+                        <FrontmatterHeader
+                            frontmatter={frontmatter}
+                            onNavigate={handleFrontmatterNavigate}
+                        />
+                    )}
+                    <Markdown
+                        remarkPlugins={remarkPlugins}
+                        rehypePlugins={rehypePlugins}
+                        components={components}>
+                        {content}
+                    </Markdown>
+                </div>
             </div>
+            {wikiPageId !== null && wikiIndex && wikiRailOpen && (
+                <ResizeHandle
+                    onResize={handleRailResize}
+                    onResizeEnd={persistWikiRail}
+                    panelGap={0}
+                />
+            )}
+            {wikiPageId !== null && wikiIndex && wikiRailOpen && (
+                <div style={{ width: wikiRailWidth }} className="min-h-0 shrink-0">
+                    <WikiRail
+                        outline={outline}
+                        index={wikiIndex}
+                        pageId={wikiPageId}
+                        scrollContainer={scrollEl}
+                        onOpenPage={handleOpenPage}
+                    />
+                </div>
+            )}
         </div>
     );
 }

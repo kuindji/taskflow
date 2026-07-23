@@ -8,6 +8,8 @@ const TASK_INFO_MIN = 150;
 const TASK_INFO_MAX = 500;
 const FLOW_PANEL_MIN = 150;
 const FLOW_PANEL_MAX = 400;
+const WIKI_RAIL_MIN = 160;
+const WIKI_RAIL_MAX = 400;
 
 function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
@@ -106,12 +108,18 @@ interface UIStore {
     setFlowPanelWidth(width: number): void;
     setPanelGap(gap: number): void;
     setProjectCollapsed(projectId: string, collapsed: boolean): void;
+    wikiRailOpen: boolean;
+    wikiRailWidth: number;
+    toggleWikiRail(): void;
+    setWikiRailWidth(width: number): void;
     hydrateLayout(panels: {
         sidebarWidth?: number;
         fileExplorerWidth?: number;
         taskInfoWidth?: number;
         flowPanelWidth?: number;
         collapsedProjectIds?: string[];
+        wikiRailOpen?: boolean;
+        wikiRailWidth?: number;
     }): void;
     toggleSplit(workspaceKey: string): void;
     setSplitRatio(workspaceKey: string, ratio: number): void;
@@ -125,6 +133,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
     fileExplorerOpen: false,
     searchPanelOpen: false,
     wikiPanelOpen: false,
+    wikiRailOpen: true,
+    wikiRailWidth: 220,
     taskInfoOpen: false,
     settingsOpen: false,
     flowPanelOpen: false,
@@ -270,6 +280,12 @@ export const useUIStore = create<UIStore>((set, get) => ({
             ),
         }));
     },
+    toggleWikiRail() {
+        set((s) => ({ wikiRailOpen: !s.wikiRailOpen }));
+    },
+    setWikiRailWidth(width) {
+        set({ wikiRailWidth: clamp(width, WIKI_RAIL_MIN, WIKI_RAIL_MAX) });
+    },
     hydrateLayout(panels) {
         set({
             sidebarWidth: clamp(panels.sidebarWidth ?? 220, SIDEBAR_MIN, SIDEBAR_MAX),
@@ -281,6 +297,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
             taskInfoWidth: clamp(panels.taskInfoWidth ?? 220, TASK_INFO_MIN, TASK_INFO_MAX),
             flowPanelWidth: clamp(panels.flowPanelWidth ?? 220, FLOW_PANEL_MIN, FLOW_PANEL_MAX),
             collapsedProjectIds: panels.collapsedProjectIds ?? [],
+            wikiRailOpen: panels.wikiRailOpen ?? true,
+            wikiRailWidth: clamp(panels.wikiRailWidth ?? 220, WIKI_RAIL_MIN, WIKI_RAIL_MAX),
         });
     },
     toggleSplit(workspaceKey) {

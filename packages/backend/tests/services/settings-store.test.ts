@@ -25,6 +25,8 @@ const DEFAULT_LAYOUT = {
         flowPanelWidth: 220,
         compactSidebar: false,
         collapsedProjectIds: [],
+        wikiRailOpen: true,
+        wikiRailWidth: 220,
     },
 };
 
@@ -256,6 +258,8 @@ describe("SettingsStore", () => {
                 flowPanelWidth: 220,
                 compactSidebar: false,
                 collapsedProjectIds: [],
+                wikiRailOpen: true,
+                wikiRailWidth: 220,
             },
         });
     });
@@ -299,6 +303,8 @@ describe("SettingsStore", () => {
             flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: [],
+            wikiRailOpen: true,
+            wikiRailWidth: 220,
         });
     });
 
@@ -325,6 +331,8 @@ describe("SettingsStore", () => {
             flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: [],
+            wikiRailOpen: true,
+            wikiRailWidth: 220,
         });
     });
 
@@ -345,6 +353,8 @@ describe("SettingsStore", () => {
             flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: ["project-a", "project-b"],
+            wikiRailOpen: true,
+            wikiRailWidth: 220,
         });
     });
 

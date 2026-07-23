@@ -80,6 +80,8 @@ export interface PanelSettings {
     flowPanelWidth: number;
     compactSidebar: boolean;
     collapsedProjectIds: string[];
+    wikiRailOpen: boolean;
+    wikiRailWidth: number;
     markdownEditorPosition?: { x: number; y: number };
     markdownEditorSize?: { width: number; height: number };
 }

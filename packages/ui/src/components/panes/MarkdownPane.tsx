@@ -5,6 +5,9 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { EditorPane } from "@/components/panes/EditorPane";
 import { MarkdownToolbar } from "@/components/panes/markdown/MarkdownToolbar";
+import { persistWikiRail } from "@/components/panes/markdown/wiki-rail-settings";
+import { useUIStore } from "@/stores/ui-store";
+import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { ensureEditorsCached, getInternalEditorId } from "@/lib/open-file";
 
 interface MarkdownPaneProps {
@@ -19,6 +22,15 @@ const LazyMarkdownPane = lazy(() => import("./MarkdownPaneImpl"));
 function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps) {
     const workspace = useActiveWorkspace();
     const internalEditor = useSettingsStore((s) => s.settings?.editor.internalEditor ?? "monaco");
+    const wikiRoot = useWikiRoot();
+    const wikiRailOpen = useUIStore((s) => s.wikiRailOpen);
+    const showRailToggle =
+        mode === "preview" && wikiRoot !== null && filePath.startsWith(`${wikiRoot}/`);
+
+    const handleToggleRail = useCallback(() => {
+        useUIStore.getState().toggleWikiRail();
+        persistWikiRail();
+    }, []);
 
     const historyState = useSessionStore(
         useShallow((s) => {
@@ -83,6 +95,9 @@ function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps
                 onBack={handleBack}
                 onForward={handleForward}
                 onToggleMode={() => void handleToggleMode()}
+                showRailToggle={showRailToggle}
+                railOpen={wikiRailOpen}
+                onToggleRail={handleToggleRail}
             />
             {mode === "edit" ? (
                 <EditorPane filePath={filePath} />

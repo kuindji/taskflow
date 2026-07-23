@@ -60,6 +60,8 @@ const DEFAULTS: AppSettings = {
             flowPanelWidth: 220,
             compactSidebar: false,
             collapsedProjectIds: [],
+            wikiRailOpen: true,
+            wikiRailWidth: 220,
         },
     },
     claude: {
