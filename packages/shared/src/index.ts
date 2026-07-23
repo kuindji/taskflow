@@ -23,3 +23,5 @@ export * from "./utils/markdown/paths";
 export * from "./utils/markdown/frontmatter";
 export * from "./utils/markdown/outline";
 export * from "./utils/wiki-root";
+export * from "./types/wiki";
+export * from "./utils/wiki-link";
