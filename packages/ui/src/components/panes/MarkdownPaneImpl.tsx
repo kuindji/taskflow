@@ -1,6 +1,7 @@
-import { Children, useEffect, useState, useCallback, useRef } from "react";
+import { Children, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkFrontmatter from "remark-frontmatter";
 import rehypeSlug from "rehype-slug";
 import GithubSlugger from "github-slugger";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -11,6 +12,9 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { onEvent } from "@/hooks/useWebSocket";
 import { resolveLinkTarget } from "@/lib/markdown/link-target";
+import { dirnameOf, joinRelative } from "@/lib/markdown/paths";
+import { parseFrontmatter } from "@/lib/markdown/frontmatter";
+import { FrontmatterHeader } from "@/components/panes/markdown/FrontmatterHeader";
 import { openFileInApp } from "@/lib/open-file";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import {
@@ -28,7 +32,7 @@ interface MarkdownPaneImplProps {
     workspaceKey: string;
 }
 
-const remarkPlugins = [remarkGfm];
+const remarkPlugins = [remarkGfm, remarkFrontmatter];
 const rehypePlugins = [rehypeSlug];
 
 /** Pending "#heading" for a page about to be navigated to in this tab. */
@@ -169,6 +173,21 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         lastScrollTopRef.current = initialScrollTopRef.current;
     }, [filePath, loading]);
 
+    const frontmatter = useMemo(() => parseFrontmatter(content), [content]);
+
+    // Frontmatter targets are wiki-style page paths without an extension
+    // ("business/money"). Until a wiki root exists (Stage 2) they are resolved
+    // relative to the current file, which is correct for same-folder siblings
+    // and harmless otherwise — a missing file simply fails to open.
+    const handleFrontmatterNavigate = useCallback(
+        (target: string) => {
+            const withExt = /\.mdx?$|\.markdown$/i.test(target) ? target : `${target}.md`;
+            const path = joinRelative(dirnameOf(filePath), withExt);
+            useSessionStore.getState().navigateTab(workspaceKey, tabId, path);
+        },
+        [filePath, tabId, workspaceKey],
+    );
+
     const handleClick = useCallback(
         (event: React.MouseEvent<HTMLDivElement>) => {
             const target = event.target;
@@ -275,6 +294,12 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                     fontFamily: editorFontFamily,
                     ["--markdown-measure" as string]: markdownWidthCss(markdownWidth),
                 }}>
+                {frontmatter && (
+                    <FrontmatterHeader
+                        frontmatter={frontmatter}
+                        onNavigate={handleFrontmatterNavigate}
+                    />
+                )}
                 <Markdown
                     remarkPlugins={remarkPlugins}
                     rehypePlugins={rehypePlugins}
