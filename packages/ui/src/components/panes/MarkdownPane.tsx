@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
@@ -18,6 +19,23 @@ const LazyMarkdownPane = lazy(() => import("./MarkdownPaneImpl"));
 function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps) {
     const workspace = useActiveWorkspace();
     const internalEditor = useSettingsStore((s) => s.settings?.editor.internalEditor ?? "monaco");
+
+    const historyState = useSessionStore(
+        useShallow((s) => {
+            const tab = s.tabsByWorkspace[workspaceKey]?.find((t) => t.id === tabId);
+            const length = tab?.history?.length ?? 0;
+            const index = tab?.historyIndex ?? 0;
+            return { canGoBack: index > 0, canGoForward: index < length - 1 };
+        }),
+    );
+
+    const handleBack = useCallback(() => {
+        useSessionStore.getState().stepTabHistory(workspaceKey, tabId, -1);
+    }, [tabId, workspaceKey]);
+
+    const handleForward = useCallback(() => {
+        useSessionStore.getState().stepTabHistory(workspaceKey, tabId, 1);
+    }, [tabId, workspaceKey]);
 
     const handleToggleMode = useCallback(async () => {
         const store = useSessionStore.getState();
@@ -58,7 +76,14 @@ function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <MarkdownToolbar mode={mode} onToggleMode={() => void handleToggleMode()} />
+            <MarkdownToolbar
+                mode={mode}
+                canGoBack={historyState.canGoBack}
+                canGoForward={historyState.canGoForward}
+                onBack={handleBack}
+                onForward={handleForward}
+                onToggleMode={() => void handleToggleMode()}
+            />
             {mode === "edit" ? (
                 <EditorPane filePath={filePath} />
             ) : (

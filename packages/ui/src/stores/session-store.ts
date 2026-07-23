@@ -18,6 +18,8 @@ import {
     isKnownSessionType,
     exitedSessions,
     isSessionExited,
+    pushHistory,
+    stepHistory,
 } from "./session-helpers";
 import { syncOwnerTabs } from "./session-sync";
 import type { Tab } from "./session-helpers";
@@ -59,6 +61,8 @@ interface SessionStore {
     renameTab(workspaceKey: string, tabId: string, newLabel: string): void;
     setTabMode(workspaceKey: string, tabId: string, mode: "preview" | "edit"): void;
     setTabScrollTop(workspaceKey: string, tabId: string, scrollTop: number): void;
+    navigateTab(workspaceKey: string, tabId: string, filePath: string): void;
+    stepTabHistory(workspaceKey: string, tabId: string, delta: -1 | 1): void;
     reorderTabs(workspaceKey: string, activeId: string, overId: string): void;
     updateAutoTitle(workspaceKey: string, tabId: string, title: string): void;
     getTabs(workspaceKey: string): Tab[];
@@ -292,6 +296,36 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 if (tab.id !== tabId || tab.previewScrollTop === scrollTop) return tab;
                 changed = true;
                 return { ...tab, previewScrollTop: scrollTop };
+            });
+            if (!changed) return s;
+            return { tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: next } };
+        });
+    },
+    navigateTab(workspaceKey, tabId, filePath) {
+        set((s) => {
+            const tabs = s.tabsByWorkspace[workspaceKey];
+            if (!tabs) return s;
+            let changed = false;
+            const next = tabs.map((tab) => {
+                if (tab.id !== tabId) return tab;
+                const updated = pushHistory(tab, filePath);
+                if (updated !== tab) changed = true;
+                return updated;
+            });
+            if (!changed) return s;
+            return { tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: next } };
+        });
+    },
+    stepTabHistory(workspaceKey, tabId, delta) {
+        set((s) => {
+            const tabs = s.tabsByWorkspace[workspaceKey];
+            if (!tabs) return s;
+            let changed = false;
+            const next = tabs.map((tab) => {
+                if (tab.id !== tabId) return tab;
+                const updated = stepHistory(tab, delta);
+                if (updated !== tab) changed = true;
+                return updated;
             });
             if (!changed) return s;
             return { tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: next } };

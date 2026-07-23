@@ -1,6 +1,8 @@
 import { Children, useEffect, useState, useCallback, useRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeSlug from "rehype-slug";
+import GithubSlugger from "github-slugger";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Components } from "react-markdown";
@@ -8,6 +10,9 @@ import { useFileStore } from "@/stores/file-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { onEvent } from "@/hooks/useWebSocket";
+import { resolveLinkTarget } from "@/lib/markdown/link-target";
+import { openFileInApp } from "@/lib/open-file";
+import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import {
     MSG,
     DEFAULT_EDITOR_FONT_SIZE,
@@ -24,11 +29,37 @@ interface MarkdownPaneImplProps {
 }
 
 const remarkPlugins = [remarkGfm];
+const rehypePlugins = [rehypeSlug];
+
+/** Pending "#heading" for a page about to be navigated to in this tab. */
+const pendingHashes = new Map<string, string>();
+
+function setPendingHash(filePath: string, hash: string): void {
+    pendingHashes.set(filePath, hash);
+}
+
+/**
+ * Scroll to a heading. Tries the fragment verbatim first, then its slugged
+ * form, because a hand-written `#Exchange Rates` (and, in Stage 2, a
+ * `[[page#Exchange Rates]]`) must reach the id `rehype-slug` actually emitted.
+ */
+function scrollToHash(container: HTMLElement | null, hash: string): void {
+    if (!container || hash === "") return;
+    const slugged = new GithubSlugger().slug(hash);
+    for (const candidate of [hash, slugged]) {
+        const target = container.querySelector(`#${CSS.escape(candidate)}`);
+        if (target) {
+            target.scrollIntoView({ block: "start" });
+            return;
+        }
+    }
+}
 
 function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplProps) {
     const [content, setContent] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const workspace = useActiveWorkspace();
     const readFile = useFileStore((s) => s.readFile);
     const editorFontSize = useSettingsStore(
         (s) => s.settings?.editor?.fontSize ?? DEFAULT_EDITOR_FONT_SIZE,
@@ -42,19 +73,30 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
     const loadIdRef = useRef(0);
     const scrollRef = useRef<HTMLDivElement>(null);
     const scrollWriteRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // Read once: the pane owns the live value from here on, and subscribing
-    // to the store would re-render the pane on every scroll tick.
-    const initialScrollTopRef = useRef(
-        useSessionStore.getState().tabsByWorkspace[workspaceKey]?.find((t) => t.id === tabId)
-            ?.previewScrollTop ?? 0,
-    );
-
+    // Read imperatively, never subscribed: subscribing to the store would
+    // re-render the pane on every scroll tick. `filePath` changes in place when
+    // the tab navigates, so this is re-seeded for each page.
+    const initialScrollTopRef = useRef(0);
     // Mirrors the container's scrollTop synchronously. React detaches DOM refs
     // in the mutation phase, before passive effect cleanup runs, so the unmount
     // flush below cannot read `scrollRef.current` — it reads this instead.
-    // Seeded from the restored offset so an unmount with no scrolling in between
-    // (swap to edit and straight back) re-writes the same value, not 0.
-    const lastScrollTopRef = useRef(initialScrollTopRef.current);
+    const lastScrollTopRef = useRef(0);
+
+    useEffect(() => {
+        // Drop any throttled write still holding the previous page's offset;
+        // navigation has already reset the tab's stored offset to 0.
+        if (scrollWriteRef.current) {
+            clearTimeout(scrollWriteRef.current);
+            scrollWriteRef.current = null;
+        }
+        const stored =
+            useSessionStore.getState().tabsByWorkspace[workspaceKey]?.find((t) => t.id === tabId)
+                ?.previewScrollTop ?? 0;
+        initialScrollTopRef.current = stored;
+        // Seed the mirror too, so an unmount before the content finishes loading
+        // re-writes the stored offset rather than clobbering it with 0.
+        lastScrollTopRef.current = stored;
+    }, [filePath, tabId, workspaceKey]);
 
     const handleScroll = useCallback(() => {
         const top = scrollRef.current?.scrollTop;
@@ -117,9 +159,56 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         if (loading) return;
         const el = scrollRef.current;
         if (!el) return;
+        const hash = pendingHashes.get(filePath);
+        if (hash !== undefined) {
+            pendingHashes.delete(filePath);
+            scrollToHash(el, hash);
+            return;
+        }
         el.scrollTop = initialScrollTopRef.current;
         lastScrollTopRef.current = initialScrollTopRef.current;
-    }, [loading]);
+    }, [filePath, loading]);
+
+    const handleClick = useCallback(
+        (event: React.MouseEvent<HTMLDivElement>) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            const anchor = target.closest("a");
+            if (!anchor) return;
+            const href = anchor.getAttribute("href");
+            if (href === null) return;
+
+            // Nothing in a markdown preview should ever navigate the webview itself.
+            event.preventDefault();
+            const action = resolveLinkTarget(href, filePath);
+
+            switch (action.kind) {
+                case "anchor":
+                    scrollToHash(scrollRef.current, action.hash);
+                    break;
+                case "markdown":
+                    useSessionStore.getState().navigateTab(workspaceKey, tabId, action.path);
+                    if (action.hash !== undefined) setPendingHash(action.path, action.hash);
+                    break;
+                case "file": {
+                    const owner =
+                        workspace.scope === "task"
+                            ? { taskId: workspace.task.id }
+                            : workspace.scope === "project"
+                              ? { projectId: workspace.project.id }
+                              : undefined;
+                    void openFileInApp(action.path, workspaceKey, owner);
+                    break;
+                }
+                case "external":
+                    void window.taskflow?.openExternalUrl(action.url);
+                    break;
+                case "ignore":
+                    break;
+            }
+        },
+        [filePath, tabId, workspace, workspaceKey],
+    );
 
     const components: Components = {
         code({ className, children, ...rest }) {
@@ -177,6 +266,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         <div
             ref={scrollRef}
             onScroll={handleScroll}
+            onClick={handleClick}
             className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
             <div
                 className="markdown-preview prose prose-invert min-w-0"
@@ -185,7 +275,10 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                     fontFamily: editorFontFamily,
                     ["--markdown-measure" as string]: markdownWidthCss(markdownWidth),
                 }}>
-                <Markdown remarkPlugins={remarkPlugins} components={components}>
+                <Markdown
+                    remarkPlugins={remarkPlugins}
+                    rehypePlugins={rehypePlugins}
+                    components={components}>
                     {content}
                 </Markdown>
             </div>

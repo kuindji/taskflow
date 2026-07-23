@@ -152,8 +152,51 @@ function usesTerminalActivityStatus(
     );
 }
 
+function labelForPath(filePath: string): string {
+    return filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
+}
+
+/**
+ * Move a markdown tab to `filePath`, truncating any forward entries. Returns
+ * the original tab unchanged when the target is already shown, so Zustand
+ * subscribers do not re-render on a redundant navigation.
+ */
+function pushHistory(tab: Tab, filePath: string): Tab {
+    const history = tab.history ?? (tab.filePath ? [tab.filePath] : []);
+    const index = tab.historyIndex ?? history.length - 1;
+    if (history[index] === filePath) return tab;
+    const nextHistory = [...history.slice(0, index + 1), filePath];
+    return {
+        ...tab,
+        filePath,
+        label: labelForPath(filePath),
+        history: nextHistory,
+        historyIndex: nextHistory.length - 1,
+        previewScrollTop: 0,
+    };
+}
+
+/** Step a markdown tab back (-1) or forward (+1) through its own history. */
+function stepHistory(tab: Tab, delta: -1 | 1): Tab {
+    const history = tab.history;
+    if (!history || history.length === 0) return tab;
+    const index = tab.historyIndex ?? history.length - 1;
+    const nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= history.length) return tab;
+    const filePath = history[nextIndex];
+    return {
+        ...tab,
+        filePath,
+        label: labelForPath(filePath),
+        historyIndex: nextIndex,
+        previewScrollTop: 0,
+    };
+}
+
 export type { Tab };
 export {
+    pushHistory,
+    stepHistory,
     getDefaultSessionLabel,
     normalizeSessionLabel,
     createSessionTab,

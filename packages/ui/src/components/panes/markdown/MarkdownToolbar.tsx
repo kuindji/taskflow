@@ -1,15 +1,47 @@
-import { Eye, Pencil } from "lucide-react";
+import { ArrowLeft, ArrowRight, Eye, Pencil } from "lucide-react";
 import { Toolbar } from "@/components/ui/toolbar";
 import { Button } from "@/components/ui/button";
 
 interface MarkdownToolbarProps {
     mode: "preview" | "edit";
+    canGoBack: boolean;
+    canGoForward: boolean;
+    onBack: () => void;
+    onForward: () => void;
     onToggleMode: () => void;
 }
 
-function MarkdownToolbar({ mode, onToggleMode }: MarkdownToolbarProps) {
+function MarkdownToolbar({
+    mode,
+    canGoBack,
+    canGoForward,
+    onBack,
+    onForward,
+    onToggleMode,
+}: MarkdownToolbarProps) {
     return (
-        <Toolbar className="justify-end gap-1">
+        <Toolbar className="gap-1">
+            <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={!canGoBack}
+                onClick={onBack}
+                aria-label="Back"
+                tooltip="Back"
+                tooltipSide="bottom">
+                <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={!canGoForward}
+                onClick={onForward}
+                aria-label="Forward"
+                tooltip="Forward"
+                tooltipSide="bottom">
+                <ArrowRight className="h-4 w-4" />
+            </Button>
+            <div className="flex-1" />
             <Button
                 variant="ghost"
                 size="icon-xs"
