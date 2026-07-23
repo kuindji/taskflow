@@ -52,6 +52,7 @@ interface UIStore {
     masterWorkspaceActive: boolean;
     fileExplorerOpen: boolean;
     searchPanelOpen: boolean;
+    wikiPanelOpen: boolean;
     taskInfoOpen: boolean;
     settingsOpen: boolean;
     flowPanelOpen: boolean;
@@ -75,6 +76,7 @@ interface UIStore {
     splitByWorkspace: Record<string, WorkspaceSplit>;
     toggleFileExplorer(): void;
     toggleSearchPanel(): void;
+    toggleWikiPanel(): void;
     toggleTaskInfo(): void;
     openSettings(): void;
     toggleSettings(): void;
@@ -122,6 +124,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
     masterWorkspaceActive: false,
     fileExplorerOpen: false,
     searchPanelOpen: false,
+    wikiPanelOpen: false,
     taskInfoOpen: false,
     settingsOpen: false,
     flowPanelOpen: false,
@@ -146,13 +149,19 @@ export const useUIStore = create<UIStore>((set, get) => ({
     toggleFileExplorer() {
         set((s) => ({
             fileExplorerOpen: !s.fileExplorerOpen,
-            ...(!s.fileExplorerOpen ? { searchPanelOpen: false } : {}),
+            ...(!s.fileExplorerOpen ? { searchPanelOpen: false, wikiPanelOpen: false } : {}),
         }));
     },
     toggleSearchPanel() {
         set((s) => ({
             searchPanelOpen: !s.searchPanelOpen,
-            ...(!s.searchPanelOpen ? { fileExplorerOpen: false } : {}),
+            ...(!s.searchPanelOpen ? { fileExplorerOpen: false, wikiPanelOpen: false } : {}),
+        }));
+    },
+    toggleWikiPanel() {
+        set((s) => ({
+            wikiPanelOpen: !s.wikiPanelOpen,
+            ...(!s.wikiPanelOpen ? { fileExplorerOpen: false, searchPanelOpen: false } : {}),
         }));
     },
     toggleTaskInfo() {

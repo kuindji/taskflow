@@ -48,6 +48,7 @@ import {
     Pin,
     Plus,
     Search,
+    BookText,
     Trash2,
 } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
@@ -90,6 +91,8 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const searchPanelOpen = useUIStore((s) => s.searchPanelOpen);
     const toggleSearchPanel = useUIStore((s) => s.toggleSearchPanel);
+    const wikiPanelOpen = useUIStore((s) => s.wikiPanelOpen);
+    const toggleWikiPanel = useUIStore((s) => s.toggleWikiPanel);
     const archiveTask = useTaskStore((s) => s.archiveTask);
     const unarchiveTask = useTaskStore((s) => s.unarchiveTask);
     const deleteTask = useTaskStore((s) => s.deleteTask);
@@ -312,6 +315,17 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
                             tooltipSide="bottom"
                             className="[-webkit-app-region:no-drag]">
                             <Search className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant={wikiPanelOpen ? "secondary" : "ghost"}
+                            size="icon-xs"
+                            onClick={toggleWikiPanel}
+                            aria-pressed={wikiPanelOpen}
+                            aria-label={wikiPanelOpen ? "Hide wiki" : "Show wiki"}
+                            tooltip={wikiPanelOpen ? "Hide wiki" : "Show wiki"}
+                            tooltipSide="bottom"
+                            className="[-webkit-app-region:no-drag]">
+                            <BookText className="h-4 w-4" />
                         </Button>
                     </div>
                     <div className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden">

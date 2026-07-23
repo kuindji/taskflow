@@ -18,6 +18,7 @@ import { TaskCreationDialogHost } from "@/components/sidebar/TaskCreationDialogH
 import { TaskSidebar } from "@/components/sidebar/TaskSidebar";
 import { FileExplorer } from "@/components/panels/FileExplorer";
 import { SearchPanel } from "@/components/panels/SearchPanel";
+import { WikiPanel } from "@/components/panels/WikiPanel";
 import { TaskInfoPanel } from "@/components/panels/TaskInfoPanel";
 import { FlowPanel } from "@/components/flows/FlowPanel";
 import { Workspace } from "@/components/workspace/Workspace";
@@ -146,6 +147,7 @@ export function App() {
                         sidebar={<TaskSidebar />}
                         fileExplorer={<FileExplorer />}
                         searchPanel={<SearchPanel />}
+                        wikiPanel={<WikiPanel />}
                         flowPanel={
                             flowPanelOpen && activeFlowRun && activeOwnerId ? (
                                 <FlowPanel

@@ -11,6 +11,7 @@ interface AppShellProps {
     sidebar: ReactNode;
     fileExplorer: ReactNode;
     searchPanel: ReactNode;
+    wikiPanel: ReactNode;
     flowPanel?: ReactNode;
     workspace: ReactNode;
     taskInfo: ReactNode;
@@ -33,12 +34,14 @@ export function AppShell({
     sidebar,
     fileExplorer,
     searchPanel,
+    wikiPanel,
     flowPanel,
     workspace,
     taskInfo,
 }: AppShellProps) {
     const fileExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
     const searchPanelOpen = useUIStore((s) => s.searchPanelOpen);
+    const wikiPanelOpen = useUIStore((s) => s.wikiPanelOpen);
     const taskInfoOpen = useUIStore((s) => s.taskInfoOpen);
     const sidebarWidth = useUIStore((s) => s.sidebarWidth);
     const fileExplorerWidth = useUIStore((s) => s.fileExplorerWidth);
@@ -136,11 +139,11 @@ export function AppShell({
     // Register/unregister conditional panels so cycleFocus skips hidden ones.
     // Sidebar and workspace are always registered (initial state in ui-store).
     useEffect(() => {
-        if (fileExplorerOpen || searchPanelOpen) {
+        if (fileExplorerOpen || searchPanelOpen || wikiPanelOpen) {
             registerPanel("fileexplorer");
             return () => unregisterPanel("fileexplorer");
         }
-    }, [fileExplorerOpen, searchPanelOpen, registerPanel, unregisterPanel]);
+    }, [fileExplorerOpen, searchPanelOpen, wikiPanelOpen, registerPanel, unregisterPanel]);
 
     useEffect(() => {
         if (taskInfoOpen) {
@@ -207,7 +210,7 @@ export function AppShell({
                     align="end"
                 />
 
-                {(fileExplorerOpen || searchPanelOpen) && (
+                {(fileExplorerOpen || searchPanelOpen || wikiPanelOpen) && (
                     <div
                         className={cn(
                             "bg-card border-border/50 panel-shadow flex shrink-0 flex-col overflow-hidden rounded-(--window-radius) border",
@@ -219,11 +222,11 @@ export function AppShell({
                         onPointerDown={handlePanelPointerDown}
                         onClick={() => handlePanelClick("fileexplorer")}
                         style={{ width: fileExplorerWidth }}>
-                        {fileExplorerOpen ? fileExplorer : searchPanel}
+                        {fileExplorerOpen ? fileExplorer : searchPanelOpen ? searchPanel : wikiPanel}
                     </div>
                 )}
 
-                {(fileExplorerOpen || searchPanelOpen) && (
+                {(fileExplorerOpen || searchPanelOpen || wikiPanelOpen) && (
                     <ResizeHandle
                         onResize={handleFileExplorerResize}
                         onResizeEnd={handleResizeEnd}
