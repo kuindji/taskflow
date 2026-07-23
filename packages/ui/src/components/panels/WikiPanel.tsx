@@ -1,14 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
-import type { WikiTreeNode } from "@taskflow/shared";
+import { Ellipsis, ExternalLink, FilePlus, FolderOpen, X } from "lucide-react";
+import type { ObsidianState, WikiTreeNode } from "@taskflow/shared";
 import { Toolbar } from "@/components/ui/toolbar";
 import { Button } from "@/components/ui/button";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useUIStore } from "@/stores/ui-store";
 import { useWikiStore } from "@/stores/wiki-store";
+import { useFileStore } from "@/stores/file-store";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { openFileInApp } from "@/lib/open-file";
+import { fetchObsidianState, openInObsidian } from "@/lib/wiki/open-in-obsidian";
+import { CreateFileDialog } from "./CreateFileDialog";
 import { WikiTree } from "./WikiTree";
+
+const NOT_A_VAULT_HINT = "Not an Obsidian vault. In Obsidian: Open folder as vault.";
 
 /** Keep only pages whose id matches the filter, and the folders containing them. */
 function filterTree(nodes: WikiTreeNode[], query: string, prefix = ""): WikiTreeNode[] {
@@ -35,6 +47,8 @@ function WikiPanel() {
     const index = useWikiStore((s) => (root ? s.indexByRoot[root] : undefined));
     const error = useWikiStore((s) => (root ? s.errorByRoot[root] : undefined));
     const fetchIndex = useWikiStore((s) => s.fetchIndex);
+    const [obsidian, setObsidian] = useState<ObsidianState | null>(null);
+    const [newPageOpen, setNewPageOpen] = useState(false);
 
     useEffect(() => {
         if (root) void fetchIndex(root);
@@ -43,6 +57,16 @@ function WikiPanel() {
     const tree = useMemo(
         () => (query.trim() === "" ? (index?.tree ?? []) : filterTree(index?.tree ?? [], query)),
         [index, query],
+    );
+
+    // The registry read hits the disk, so it happens when the menu opens rather
+    // than on every render.
+    const handleMenuOpenChange = useCallback(
+        (open: boolean) => {
+            if (!open || root === null) return;
+            void fetchObsidianState(root).then(setObsidian, () => setObsidian(null));
+        },
+        [root],
     );
 
     const handleOpen = useCallback(
@@ -59,14 +83,61 @@ function WikiPanel() {
         <div className="flex min-h-0 flex-1 flex-col">
             <Toolbar className="justify-between">
                 <span className="text-secondary-foreground text-[13px] font-medium">Wiki</span>
-                <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={toggleWikiPanel}
-                    aria-label="Hide wiki">
-                    <X className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                    {root !== null && (
+                        <DropdownMenu onOpenChange={handleMenuOpenChange}>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon-xs" aria-label="Wiki actions">
+                                    <Ellipsis className="h-4 w-4" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                {obsidian?.installed === true && (
+                                    <DropdownMenuItem
+                                        disabled={obsidian.vault !== "registered"}
+                                        title={
+                                            obsidian.vault === "registered"
+                                                ? undefined
+                                                : NOT_A_VAULT_HINT
+                                        }
+                                        onSelect={() => openInObsidian(root)}>
+                                        <ExternalLink className="h-4 w-4" />
+                                        Open in Obsidian
+                                    </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                    onSelect={() => {
+                                        void useFileStore.getState().revealInFinder(root);
+                                    }}>
+                                    <FolderOpen className="h-4 w-4" />
+                                    Reveal in Finder
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onSelect={() => setNewPageOpen(true)}>
+                                    <FilePlus className="h-4 w-4" />
+                                    New page
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    )}
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={toggleWikiPanel}
+                        aria-label="Hide wiki">
+                        <X className="h-4 w-4" />
+                    </Button>
+                </div>
             </Toolbar>
+
+            {root !== null && (
+                <CreateFileDialog
+                    open={newPageOpen}
+                    onOpenChange={setNewPageOpen}
+                    directoryPath={root}
+                    mode="file"
+                />
+            )}
 
             {root === null ? (
                 <div className="text-muted-foreground p-3 text-[13px]">

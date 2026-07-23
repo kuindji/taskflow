@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -8,6 +8,8 @@ import { MarkdownToolbar } from "@/components/panes/markdown/MarkdownToolbar";
 import { persistWikiRail } from "@/components/panes/markdown/wiki-rail-settings";
 import { useUIStore } from "@/stores/ui-store";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
+import { fetchObsidianState, openInObsidian } from "@/lib/wiki/open-in-obsidian";
+import type { ObsidianState } from "@taskflow/shared";
 import { ensureEditorsCached, getInternalEditorId } from "@/lib/open-file";
 
 interface MarkdownPaneProps {
@@ -24,8 +26,31 @@ function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps
     const internalEditor = useSettingsStore((s) => s.settings?.editor.internalEditor ?? "monaco");
     const wikiRoot = useWikiRoot();
     const wikiRailOpen = useUIStore((s) => s.wikiRailOpen);
-    const showRailToggle =
-        mode === "preview" && wikiRoot !== null && filePath.startsWith(`${wikiRoot}/`);
+    const inWiki = wikiRoot !== null && filePath.startsWith(`${wikiRoot}/`);
+    const showRailToggle = mode === "preview" && inWiki;
+    const [obsidian, setObsidian] = useState<ObsidianState | null>(null);
+
+    useEffect(() => {
+        if (!inWiki || wikiRoot === null) {
+            setObsidian(null);
+            return;
+        }
+        let cancelled = false;
+        void fetchObsidianState(wikiRoot).then(
+            (state) => {
+                if (!cancelled) setObsidian(state);
+            },
+            () => {},
+        );
+        return () => {
+            cancelled = true;
+        };
+    }, [inWiki, wikiRoot]);
+
+    const canOpenInObsidian = obsidian?.installed === true && obsidian.vault === "registered";
+    const handleOpenInObsidian = useCallback(() => {
+        openInObsidian(filePath);
+    }, [filePath]);
 
     const handleToggleRail = useCallback(() => {
         useUIStore.getState().toggleWikiRail();
@@ -98,6 +123,8 @@ function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps
                 showRailToggle={showRailToggle}
                 railOpen={wikiRailOpen}
                 onToggleRail={handleToggleRail}
+                canOpenInObsidian={canOpenInObsidian}
+                onOpenInObsidian={handleOpenInObsidian}
             />
             {mode === "edit" ? (
                 <EditorPane filePath={filePath} />

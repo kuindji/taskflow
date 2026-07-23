@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Eye, PanelRight, Pencil } from "lucide-react";
+import { ArrowLeft, ArrowRight, ExternalLink, Eye, PanelRight, Pencil } from "lucide-react";
 import { Toolbar } from "@/components/ui/toolbar";
 import { Button } from "@/components/ui/button";
 
@@ -13,6 +13,9 @@ interface MarkdownToolbarProps {
     showRailToggle: boolean;
     railOpen: boolean;
     onToggleRail: () => void;
+    /** True only when this page lives in a registered Obsidian vault. */
+    canOpenInObsidian: boolean;
+    onOpenInObsidian: () => void;
 }
 
 function MarkdownToolbar({
@@ -25,6 +28,8 @@ function MarkdownToolbar({
     showRailToggle,
     railOpen,
     onToggleRail,
+    canOpenInObsidian,
+    onOpenInObsidian,
 }: MarkdownToolbarProps) {
     return (
         <Toolbar className="gap-1">
@@ -49,6 +54,17 @@ function MarkdownToolbar({
                 <ArrowRight className="h-4 w-4" />
             </Button>
             <div className="flex-1" />
+            {canOpenInObsidian && (
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={onOpenInObsidian}
+                    aria-label="Open in Obsidian"
+                    tooltip="Open in Obsidian"
+                    tooltipSide="bottom">
+                    <ExternalLink className="h-4 w-4" />
+                </Button>
+            )}
             {showRailToggle && (
                 <Button
                     variant={railOpen ? "secondary" : "ghost"}

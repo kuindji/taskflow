@@ -50,3 +50,11 @@ export interface WikiIndexData {
     /** Page ids with no incoming links and no declared parent. */
     orphans: string[];
 }
+
+export type ObsidianVaultState = "registered" | "unregistered-vault" | "plain-folder";
+
+export interface ObsidianState {
+    installed: boolean;
+    /** null when Obsidian is not installed or no wiki root was given. */
+    vault: ObsidianVaultState | null;
+}

@@ -4,6 +4,7 @@ import type { Router } from "../ws/router";
 import type { TaskStore } from "../services/task-store";
 import type { WikiIndexService } from "../services/wiki-index";
 import { assertWorkspacePath } from "../utils/path-validation";
+import { detectObsidian } from "../services/obsidian-detector";
 
 interface WikiHandlerDeps {
     router: Router;
@@ -18,5 +19,11 @@ export function registerWikiHandlers({ router, taskStore, wikiIndex }: WikiHandl
         // like every other path the renderer names.
         const workspaceRoot = await assertWorkspacePath(taskStore, root);
         return wikiIndex.get(workspaceRoot);
+    });
+
+    router.register(MSG.WIKI_OBSIDIAN_STATE, async (payload) => {
+        const { root } = payload as WikiIndexPayload;
+        const workspaceRoot = await assertWorkspacePath(taskStore, root);
+        return detectObsidian(workspaceRoot);
     });
 }
