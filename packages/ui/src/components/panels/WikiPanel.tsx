@@ -19,6 +19,7 @@ import { openFileInApp } from "@/lib/open-file";
 import { fetchObsidianState, openInObsidian } from "@/lib/wiki/open-in-obsidian";
 import { CreateFileDialog } from "./CreateFileDialog";
 import { WikiTree } from "./WikiTree";
+import { WikiHealth } from "./WikiHealth";
 
 const NOT_A_VAULT_HINT = "Not an Obsidian vault. In Obsidian: Open folder as vault.";
 
@@ -176,6 +177,7 @@ function WikiPanel() {
                     <div className="min-h-0 flex-1 overflow-auto p-2">
                         <WikiTree nodes={tree} activePageId={null} onOpen={handleOpen} />
                     </div>
+                    {index && <WikiHealth index={index} onOpenPage={handleOpen} />}
                 </>
             )}
         </div>
