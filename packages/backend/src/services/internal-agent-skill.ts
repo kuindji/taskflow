@@ -57,10 +57,12 @@ This session is scoped to a specific task.
 - At session start, read task info.
 - Log your findings and progress.
 - Log every commit hash when inside task context.
-- Log every edited file as path relative to worktree or repo root.`;
+- Log every edited file as path relative to worktree or repo root.
+- You can add/edit task attributes to save values you will need later.`;
 
 const PROMPT_PROJECT_SCOPE = `
-This session is scoped to a project, not a specific task.`;
+This session is scoped to a project, not a specific task.
+- You can add/edit project attributes to save values you will need later.`;
 
 const PROMPT_FLOW = `
 This session is scoped to a flow step. Expect instructions that imply or specify flow context commands.`;
