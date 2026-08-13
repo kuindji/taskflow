@@ -549,6 +549,31 @@ case "$cmd" in
     subcmd="${1:-}"
     shift 2>/dev/null || true
     case "$subcmd" in
+      complete)
+        if [ -z "$TASKFLOW_FLOW_ID" ]; then
+          echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
+          exit 1
+        fi
+        # Unlike "action complete", the session id is required: completeFlow only
+        # acts when it matches the current action's session, so an empty value
+        # would post successfully, do nothing, and still print {"success":true}.
+        if [ -z "$TASKFLOW_SESSION_ID" ]; then
+          echo "Error: TASKFLOW_SESSION_ID is not set" >&2
+          exit 1
+        fi
+        if [ -n "$TASKFLOW_TASK_ID" ]; then
+          owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
+        else
+          owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
+        fi
+        payload=$(printf '{%s,"flowId":%s,"sessionId":%s}' \
+          "$owner_field" \
+          "$(json_string "$TASKFLOW_FLOW_ID")" \
+          "$(json_string "$TASKFLOW_SESSION_ID")")
+        curl -sf -X POST "$TASKFLOW_API_URL/api/flow/complete" \
+          -H "Content-Type: application/json" \
+          -d "$payload"
+        ;;
       input)
         if [ -z "$TASKFLOW_FLOW_ID" ]; then
           echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
@@ -692,16 +717,29 @@ case "$cmd" in
         flow_name=""
         flow_description=""
         flow_action_ids=""
+        flow_loop=""
         while [ $# -gt 0 ]; do
           case "$1" in
             --name) flow_name="${2:-}"; shift 2 ;;
             --description) flow_description="${2:-}"; shift 2 ;;
             --action) flow_action_ids="$flow_action_ids ${2:-}"; shift 2 ;;
+            --loop)
+              if [ "$flow_loop" = "false" ]; then
+                echo "Error: --loop and --no-loop are mutually exclusive" >&2
+                exit 1
+              fi
+              flow_loop="true"; shift ;;
+            --no-loop)
+              if [ "$flow_loop" = "true" ]; then
+                echo "Error: --loop and --no-loop are mutually exclusive" >&2
+                exit 1
+              fi
+              flow_loop="false"; shift ;;
             *) shift ;;
           esac
         done
         if [ -z "$flow_name" ]; then
-          echo "Usage: taskflow-cli flow create --name <name> --description <desc> [--action <actionId> ...]" >&2
+          echo "Usage: taskflow-cli flow create --name <name> --description <desc> [--action <actionId> ...] [--loop|--no-loop]" >&2
           exit 1
         fi
         flow_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
@@ -728,6 +766,12 @@ case "$cmd" in
           "$(json_string "$now")")
         if [ -n "$TASKFLOW_PROJECT_ID" ]; then
           payload=$(printf '%s' "$payload" | sed "s/}$/,\"projectId\":$(json_string "$TASKFLOW_PROJECT_ID")}/")
+        fi
+        # No json_string here: flow_loop is already the bare JSON literal true or
+        # false, and quoting it would fail the backend's boolean validation.
+        # An empty flow_loop omits the key entirely.
+        if [ -n "$flow_loop" ]; then
+          payload=$(printf '%s' "$payload" | sed "s/}$/,\"loop\":$flow_loop}/")
         fi
         curl -sf -X POST "$TASKFLOW_API_URL/api/flows" \
           -H "Content-Type: application/json" \
@@ -782,7 +826,7 @@ case "$cmd" in
         curl -sf -X DELETE "$TASKFLOW_API_URL/api/flows/$flow_id"
         ;;
       *)
-        echo "Usage: taskflow-cli flow <list|get|actions|create|update|delete|start|stop|pause|resume|skip|jump|run|runs|input>" >&2
+        echo "Usage: taskflow-cli flow <list|get|actions|create|update|delete|start|stop|pause|resume|skip|jump|run|runs|input|complete>" >&2
         exit 1
         ;;
     esac

@@ -276,6 +276,123 @@ describe("taskflow-cli", () => {
         expect(body.agentOptions.permissionMode).toBe("manual");
     });
 
+    it("ends the whole flow from a flow action", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["flow", "complete"], {
+            ...env,
+            TASKFLOW_TASK_ID: "task-1",
+            TASKFLOW_FLOW_ID: "flow-1",
+            TASKFLOW_SESSION_ID: "session-1",
+        });
+
+        expect(result.status).toBe(0);
+        const request = await readCapturedRequest(captureFile);
+        expect(request.method).toBe("POST");
+        expect(request.url).toBe("http://localhost:1234/api/flow/complete");
+        expect(JSON.parse(request.data)).toEqual({
+            taskId: "task-1",
+            flowId: "flow-1",
+            sessionId: "session-1",
+        });
+    });
+
+    it("refuses flow complete outside a flow action", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["flow", "complete"], {
+            ...env,
+            TASKFLOW_TASK_ID: "task-1",
+        });
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("TASKFLOW_FLOW_ID is not set");
+    });
+
+    it("refuses flow complete when the session id is missing", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["flow", "complete"], {
+            ...env,
+            TASKFLOW_TASK_ID: "task-1",
+            TASKFLOW_FLOW_ID: "flow-1",
+        });
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("TASKFLOW_SESSION_ID is not set");
+    });
+
+    it("sets loop on flow create", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+
+        // Include --action so the payload is a flow a real backend would accept —
+        // flow-store.ts:13 rejects a definition with no actions.
+        const result = runCli(
+            cliPath,
+            ["flow", "create", "--name", "Looper", "--action", "action-1", "--loop"],
+            { ...env, TASKFLOW_PROJECT_ID: "project-1" },
+        );
+
+        expect(result.status).toBe(0);
+        const body = JSON.parse((await readCapturedRequest(captureFile)).data) as {
+            loop?: unknown;
+        };
+        expect(body.loop).toBe(true);
+    });
+
+    it("omits loop from flow create when neither flag is given", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            ["flow", "create", "--name", "Plain", "--action", "action-1"],
+            {
+                ...env,
+                TASKFLOW_PROJECT_ID: "project-1",
+            },
+        );
+
+        expect(result.status).toBe(0);
+        expect(JSON.parse((await readCapturedRequest(captureFile)).data)).not.toHaveProperty(
+            "loop",
+        );
+    });
+
+    it("sets loop false on flow create with --no-loop", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            ["flow", "create", "--name", "Plain", "--action", "action-1", "--no-loop"],
+            { ...env, TASKFLOW_PROJECT_ID: "project-1" },
+        );
+
+        expect(result.status).toBe(0);
+        const body = JSON.parse((await readCapturedRequest(captureFile)).data) as {
+            loop?: unknown;
+        };
+        expect(body.loop).toBe(false);
+    });
+
+    it("rejects --loop and --no-loop together", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            ["flow", "create", "--name", "X", "--action", "action-1", "--loop", "--no-loop"],
+            env,
+        );
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("mutually exclusive");
+    });
+
+    it("rejects --no-loop and --loop together regardless of order", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            ["flow", "create", "--name", "X", "--action", "action-1", "--no-loop", "--loop"],
+            env,
+        );
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("mutually exclusive");
+    });
+
     it("fails before issuing requests when task scope is missing", async () => {
         const { cliPath, captureFile, env } = await setupCliHarness();
         const result = runCli(cliPath, ["task"], env);

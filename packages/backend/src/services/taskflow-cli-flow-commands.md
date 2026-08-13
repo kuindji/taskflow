@@ -3,6 +3,8 @@
 `taskflow-cli flow get <flowId>` Get a specific flow definition
 `taskflow-cli flow create --name "My Flow" --description "Does things" --action <actionId>` Create a flow with action references
 `taskflow-cli flow create --name "Pipeline" --description "CI" --action <actionId1> --action <actionId2>` Create a flow with multiple actions
+`taskflow-cli flow create --name "Loop" --action <actionId> --loop` Create a looping flow (restarts from the first action after the last one finishes)
+`taskflow-cli flow create --name "Once" --action <actionId> --no-loop` Create a non-looping flow explicitly
 `taskflow-cli flow update <flowId> --name "New name"` Update flow name
 `taskflow-cli flow update <flowId> --description "New desc"` Update flow description
 `taskflow-cli flow delete <flowId>` Delete a flow
@@ -19,3 +21,5 @@
 
 Note: flowId always refers to flow definition id, not run id.
 Note: actionIndex is zero-based.
+Note: --loop and --no-loop are mutually exclusive and are available on `flow create` only. Turn looping off on an existing flow in the flow editor UI.
+Note: stopping a looped run ends it normally; a looped run does not end on its own.

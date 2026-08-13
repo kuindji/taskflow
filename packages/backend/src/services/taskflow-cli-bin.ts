@@ -608,6 +608,22 @@ async function handleFlow(args: string[]): Promise<void> {
     const subArgs = args.slice(1);
 
     switch (subcmd) {
+        case "complete": {
+            requireFlowId();
+            // Unlike "action complete", the session id is required: completeFlow only
+            // acts when it matches the current action's session, so an empty value
+            // would post successfully, do nothing, and still print {"success":true}.
+            requireSessionId();
+            const of = ownerField();
+            process.stdout.write(
+                await api("POST", "/api/flow/complete", {
+                    ...of,
+                    flowId,
+                    sessionId,
+                }),
+            );
+            break;
+        }
         case "input": {
             requireFlowId();
             const ownerId = resolveOwnerId();
@@ -741,10 +757,22 @@ async function handleFlow(args: string[]): Promise<void> {
             break;
         }
         case "create": {
+            // "action" belongs in the spec even though the repeated values are
+            // collected manually below: parseFlags exits 1 on any flag it does not
+            // know, so omitting it made "flow create --action <id>" unusable.
             const { flags } = parseFlags(subArgs, {
                 name: "string",
                 description: "string",
+                action: "string",
+                loop: "boolean",
+                "no-loop": "boolean",
             });
+            if (flags.loop === true && flags["no-loop"] === true) {
+                process.stderr.write("Error: --loop and --no-loop are mutually exclusive\n");
+                process.exit(1);
+            }
+            const loopFlag =
+                flags.loop === true ? true : flags["no-loop"] === true ? false : undefined;
             // Collect --action flags manually since parseFlags doesn't handle repeated flags
             const actionIds: string[] = [];
             let j = 0;
@@ -758,7 +786,7 @@ async function handleFlow(args: string[]): Promise<void> {
             }
             if (!flags.name) {
                 process.stderr.write(
-                    "Usage: taskflow-cli flow create --name <name> --description <desc> [--action <actionId> ...]\n",
+                    "Usage: taskflow-cli flow create --name <name> --description <desc> [--action <actionId> ...] [--loop|--no-loop]\n",
                 );
                 process.exit(1);
             }
@@ -776,6 +804,9 @@ async function handleFlow(args: string[]): Promise<void> {
                 updatedAt: now,
             };
             if (projectId) body.projectId = projectId;
+            // Left off entirely when neither flag is given, rather than written as
+            // undefined, so the payload matches the shell CLI's byte for byte.
+            if (loopFlag !== undefined) body.loop = loopFlag;
             process.stdout.write(await api("POST", "/api/flows", body));
             break;
         }
@@ -816,7 +847,7 @@ async function handleFlow(args: string[]): Promise<void> {
         }
         default:
             process.stderr.write(
-                "Usage: taskflow-cli flow <list|get|actions|create|update|delete|start|stop|pause|resume|skip|jump|run|runs|input>\n",
+                "Usage: taskflow-cli flow <list|get|actions|create|update|delete|start|stop|pause|resume|skip|jump|run|runs|input|complete>\n",
             );
             process.exit(1);
     }
