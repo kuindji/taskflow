@@ -19,7 +19,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 5 | Stop completes a looped run | clear | `4974457` | Impl `e9dc752`; round 1 fix `5f72826`; round 2 clear; test-only guard `d509159` |
 | 6 | Close session when a looped step completes | clear | `a20836b` | Impl `02b05b4`; round 1 clean, no fix commit |
 | 7 | `completeFlow` and its route | clear | `f2a3228` | Impl `8ea61ed`; round 1 clear, test-only guard `be060a3` |
-| 8 | CLI — `flow complete` and `--loop` on `flow create` | pending | — | |
+| 8 | CLI — `flow complete` and `--loop` on `flow create` | implemented | `fe5d92d` | Impl `6d419d6`; review round 1 due |
 | 9 | Tell the agent it is in a loop | pending | — | |
 | 10 | Flow editor — loop toggle | pending | — | |
 | 11 | Flow panel — iteration indicator, loop-aware stop | pending | — | |
@@ -876,6 +876,95 @@ This document is the source of truth for progress. One bounded step per session.
   `bun run lint` → clean. `bunx prettier --check` on the changed file → clean. `git status` clean
   apart from this handoff, and verified clean again after each mutation experiment was reverted.
 
+### Task 8 — implementation (2026-08-13)
+
+- Base commit `fe5d92d`; implementation commit `6d419d6`. `fe5d92d` is the docs-only commit carrying
+  this handoff, so the review range `fe5d92d..HEAD` contains only code — the standing convention.
+- **Both CLIs changed**, which is this task's headline risk. `taskflow-cli.sh` (the one that runs on
+  macOS/Linux) and `taskflow-cli-bin.ts` were given the same two surfaces, and their request bodies
+  were compared side by side rather than assumed equal — see the parity check below.
+- Four production changes:
+  1. `flow complete` in both CLIs → `POST /api/flow/complete`. Requires `TASKFLOW_FLOW_ID` **and**
+     `TASKFLOW_SESSION_ID`; the session guard is the deliberate divergence from the neighbouring
+     `action complete`, for the reason the plan gives (an empty session id would post, be refused
+     silently by `completeFlow`, and still print `{"success":true}`).
+  2. `--loop` / `--no-loop` on `flow create` in both CLIs, tri-state: `true`, `false`, or the key
+     omitted entirely. Shell appends the bare JSON literal via `sed` after the `projectId` block —
+     no `json_string`, which would produce a string and fail Task 1's boolean validation.
+  3. Mutual-exclusion error in both CLIs, which is what keeps them from disagreeing (shell is
+     last-flag-wins; `consumeFlags` collapses booleans and loses order, so the TS side cannot
+     cheaply be made last-wins).
+  4. `action: "string"` added to the TS `create` flag spec. `flow update`'s spec was left untouched,
+     per the plan's scope decision.
+- **Pre-existing bug fixed and confirmed by direct repro, not by reading.** At base `fe5d92d`,
+  `taskflow-cli-bin.ts flow create --name X --action a1` exited **1** with
+  `Error: unknown flag "--action"` (checked out that exact file version and ran it). `parseFlags`
+  exits on any unknown flag and `create`'s spec omitted `action`, even though the command documents
+  it and collects it in a manual loop afterwards. Adding it to the spec fixes the command; the
+  manual loop still collects every occurrence, since `parseFlags` does not mutate `subArgs`.
+- **Red/green signal, per test.** On `fe5d92d` the file ran **9 pass / 7 fail**. The seven reds were
+  the three `flow complete` tests, `sets loop on flow create`, `sets loop false on flow create with
+  --no-loop`, and both mutual-exclusion tests. `omits loop from flow create when neither flag is
+  given` was **green before and after**, exactly as the plan predicts — it is a regression guard on
+  the absent case, not a driver. After the change: **16 pass / 0 fail**.
+- **Three tests added beyond the plan's snippets, and the mutation matrix shows all three are
+  load-bearing rather than padding:**
+  - `refuses flow complete when the session id is missing` — the only guard on the plan's own
+    deliberate divergence from `action complete`. Nothing else pinned it.
+  - `rejects --no-loop and --loop together regardless of order` — the plan tests one order only.
+    The shell implementation has **two** guards, one per `case` branch, and each order exercises a
+    *different* one, so a single-order test leaves the other guard entirely unguarded. Proven
+    below.
+- **Test power verified by mutation** (each applied to a pristine copy of `taskflow-cli.sh` and
+  reverted immediately; `git diff --stat` checked between):
+
+  | Mutation | Result |
+  |---|---|
+  | `--loop` case branch deleted | 3 fail: `sets loop on flow create`, both exclusion tests |
+  | `--no-loop` case branch deleted | 3 fail: `sets loop false…`, both exclusion tests |
+  | exclusion guard removed from `--loop` branch only | **1 fail: reversed-order test only** |
+  | exclusion guard removed from `--no-loop` branch only | **1 fail: forward-order test only** |
+  | `sed` append of the loop value deleted | 2 fail: `sets loop on…`, `sets loop false…` |
+  | loop value wrapped in `json_string` (the plan's stated hazard) | 2 fail: both payload tests |
+  | `TASKFLOW_SESSION_ID` guard deleted | 1 fail: `refuses flow complete when the session id is missing` |
+
+  The two middle rows are the point: each order test pins exactly one guard, so the plan's single
+  exclusion test would have left the `--loop` branch's guard uncovered.
+- **A first attempt at the `json_string` mutation was malformed and is recorded so the result is not
+  misread.** Escaping `\"` inside the `sed` replacement made sed emit a literal tab
+  (`"loop":<TAB>rue`) instead of a quoted value, which failed only the `true` test and left the
+  `false` one green. Caught by printing the mutated payload by hand rather than trusting the pass
+  count. Re-done as `$(json_string "$flow_loop")` — the realistic mistake — it fails both, as it
+  should.
+- **The TypeScript CLI has no harness in this repo and is not claimed to be test-covered.** It was
+  verified three ways: `bun run typecheck` (all four packages exit 0), the plan's unit-level
+  `consumeFlags` check (`unknown: []`, `flags.loop === true`, both `--action` values seen), and a
+  scratch stub-server harness that ran the real binary as a subprocess across nine scenarios. The
+  bodies came back **identical to the shell CLI's**, including key order:
+  `{"taskId":"task-1","flowId":"flow-1","sessionId":"session-1"}` for `flow complete`, and
+  `…,"projectId":"project-1","loop":true}` / `"loop":false}` / no `loop` key for the three create
+  cases. Both exclusion orders exit 1 with the same message; both missing-env cases exit 1 with the
+  same messages. Project-owner `flow complete` was checked on **both** CLIs and matches
+  (`{"projectId":"p1","flowId":"f1","sessionId":"s1"}`).
+  - Note for anyone re-running that harness: `spawnSync` deadlocks against a `Bun.serve` stub in the
+    same process (the blocked event loop cannot answer the CLI's own fetch). Use `Bun.spawn`.
+- `sh -n` on the modified shell script passes, and `flow bogus` prints the updated usage line, which
+  now lists `complete`.
+- Docs updated: `flow complete` and the loop note in `taskflow-cli-flow-context-commands.md`;
+  `--loop` / `--no-loop` on the `flow create` entries plus two notes in
+  `taskflow-cli-flow-commands.md`, documented on **`create` only**. These are text imports rewritten
+  to `~/.config/taskflow/agent-skills/` on startup, so editing the repo copies is sufficient.
+- **Deviation from the plan's Step 1 snippet, forced by the lint gate.** The plan writes the payload
+  assertions as `expect(JSON.parse(...).loop).toBe(true)`, which `@typescript-eslint/no-unsafe-member-access`
+  rejects (`JSON.parse` returns `any`). Rewritten as a typed cast to `{ loop?: unknown }` plus a
+  member read, matching the `agentOptions` assertion already in that file. No rule disabled; same
+  assertion strength — the `json_string` mutation above still fails both tests.
+- Validation at `6d419d6`: `bun test packages/backend/tests/services/taskflow-cli.test.ts` →
+  **16 pass, 0 fail** (up from 9 by the seven new tests). `bun test packages/backend` → **577 pass,
+  0 fail** (54 files, up from 569). `bun run typecheck` → all four packages exit 0. `bun run lint` →
+  clean. `bunx prettier --check` on the four formattable changed files → clean (the `.sh` has no
+  prettier parser). `git status` clean apart from this handoff.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -1022,67 +1111,101 @@ This document is the source of truth for progress. One bounded step per session.
   tightly than the original buys nothing and makes the pair harder to keep in step; if the
   validation is worth exhaustive coverage it should be extracted and covered once, as a separate
   cleanup outside this plan.
+- 2026-08-13: Task 8 gets a review round rather than being skipped as trivial. It is the first task
+  that changes an **agent-facing** surface — two CLI implementations that must stay byte-identical,
+  plus the docs agents read — and it carries a pre-existing bug fix (`action: "string"`) that was
+  not in the plan's risk framing. A divergence between the two CLIs would not be caught by any test
+  in this repo, since only the shell one has a harness.
+- 2026-08-13: added three tests beyond the plan's Task 8 snippets rather than implementing the plan's
+  set verbatim. The mutation matrix justifies each: the reversed-order exclusion test is the **only**
+  guard on the shell `--loop` branch's mutual-exclusion check (the plan's single order test exercises
+  only the `--no-loop` branch's), and the missing-session-id test is the only guard on the plan's own
+  deliberate divergence from `action complete`. Adding them cost two `spawnSync` runs.
+- 2026-08-13: deviated from the plan's Task 8 assertion style (`JSON.parse(...).loop`) because
+  `@typescript-eslint/no-unsafe-member-access` rejects a member read on `any` and `bun run lint`
+  went red. Cast to `{ loop?: unknown }` first, matching the `agentOptions` assertion already in that
+  file. This is the same class of plan-snippet-versus-lint conflict recorded for Tasks 1 and 4; the
+  standing note about `.rejects` / `.resolves` should be read as one instance of a broader rule —
+  **the plan's test snippets are not lint-checked, so expect to adapt them.**
+- 2026-08-13: verified the TypeScript CLI with a scratch stub-server harness instead of adding a
+  second permanent test harness to the repo. Building one properly is a real piece of work (process
+  spawning, port allocation, request capture) and it belongs to whoever decides the TS CLI needs
+  ongoing coverage — not to a task whose scope is two subcommands. The commit message states plainly
+  that the TS CLI is verified by typecheck plus manual invocation rather than by tests, so nobody
+  reads the green suite as covering it. **If the TS CLI ever ships as the default on macOS/Linux,
+  this gap becomes urgent** — today it does not run there at all.
+- 2026-08-13: did **not** fix the two `flow update` bugs the plan documents (shell `awk` extractor
+  truncating any flow with actions; TS calling `.find` on `{ flows: [...] }`), and did not add
+  `--loop` to `flow update`. Both are out of scope per the plan's scope decision, and both remain
+  open. **Carry them as a follow-up** — they are unrelated to looping and each needs its own tests.
 - 2026-08-13: closed Task 6 round 1 with **no commit at all** — not even a test-only one — and
   marked the task clear. The only uncovered mutation found this round (a redundant `closeSession`
   on the shell clean-exit branch) is a provable no-op rather than wrong behaviour, so there is
   nothing for a test to assert. This is the distinction that separates it from the Task 4 round 4
   and Task 5 round 2 notes, both of which *did* earn test-only commits because their mutations
   silently produced wrong state.
-
 ## Next step
 
-Next step: **Task 8 — implementation** (CLI: `flow complete`, and `--loop` / `--no-loop` on
-`flow create`).
+Next step: **Task 8 — review round 1.**
 
-Record the base commit as HEAD at the start of that session — expected to be the docs-only commit
-carrying this handoff, which is the standing convention (it keeps the eventual review range
-free of prose).
+Run one standard gpt-5.5 review via the `codex-review` skill over `fe5d92d..HEAD`, restricted to
+`packages/` so the diff is exactly implementation commit `6d419d6` and none of this document's prose.
 
-Read plan Task 8 in full before writing anything. Three things about it are easy to get wrong:
+**State the task boundary explicitly in the review prompt.** Task 7 round 1 spent its only "major"
+finding reporting that `taskflow-cli flow complete` did not exist — true at the time, and literally
+the content of Task 8. Tell the reviewer that Task 8 is the CLI surface only, and that Tasks 9-11
+(agent prompt wording, flow editor toggle, flow panel indicator) are still pending, so their absence
+is not a finding.
 
-1. **Both CLIs must change.** `packages/backend/src/services/taskflow-cli.sh` is what actually runs
-   on macOS and Linux; `taskflow-cli-bin.ts` is the TypeScript twin. A change in only one is the
-   single most likely mistake here — see the standing memory note on dual CLI implementations.
-2. **`--loop` ships on `flow create` only, never on `flow update`.** The plan devotes a whole
-   scope section (plan lines 26-50) to why: `flow update` is already broken in *both* CLIs for
-   reasons unrelated to looping (the shell one's `awk` extractor truncates any flow that has
-   actions; the TS one calls `.find` on `{ flows: [...] }`). Do not fix those here and do not add
-   the flag on top of them. File them as a follow-up. **This supersedes the design spec**, which
-   still lists both commands.
-3. **The test harness is specific.** `packages/backend/tests/services/taskflow-cli.test.ts` exercises
-   the **shell** CLI only. `runCli` is synchronous (`result.status`, not `result.exitCode`), the
-   stub `curl` captures the request to a file read via `readCapturedRequest`, and the file uses
-   `it(...)`. The TypeScript CLI has no harness — it is covered by `bun run typecheck` and by hand.
+Worth pointing the review at, in rough order of risk:
 
-Two things this round established that Task 8 should carry rather than re-derive:
+1. **Do the two CLIs actually agree?** This is the task's whole risk. The implementation entry
+   records a nine-scenario parity check with identical bodies, but only the shell CLI has a test
+   harness, so nothing in CI will catch a future divergence. Ask specifically about paths the parity
+   check did *not* cover: `--loop` with no `--action`, a flow name containing quotes or a `}`
+   (the shell appends via `sed "s/}$/.../"`, which is a textual substitution on JSON), and
+   `--loop` passed twice.
+2. **The `sed` append.** `payload=$(printf '%s' "$payload" | sed "s/}$/,\"loop\":$flow_loop}/")`
+   anchors on a trailing `}`. It follows the identical pre-existing `projectId` line, so the pattern
+   is established, but it is still string surgery on JSON and it runs *after* that line.
+3. **`action: "string"` in the TS create spec.** It fixes a real pre-existing bug (verified: the
+   command exited 1 before), but `consumeFlags` keeps only the last value for a repeated string
+   flag, and the manual collector runs over the untouched `subArgs`. Confirm the two cannot fight —
+   `flow create --name X --action a1 --action a2` was checked by hand and produced both actions.
+4. **The session-id guard on `flow complete`.** It is a deliberate divergence from `action complete`.
+   Is refusing locally the right call versus letting the backend refuse silently?
+5. **The docs.** They are agent-facing and rewritten to `~/.config/taskflow/agent-skills/` on
+   startup. Two things must not be claimed: that `--loop` works on `flow update` (it does not), and
+   that a zero exit from `flow complete` proves the run ended (it does not — see below).
 
-- **`POST /api/flow/complete` exists and works** (`flow-routes.ts`), taking
-  `{ taskId | projectId, flowId, sessionId }`. Until Task 8 lands, **no agent can reach it** —
-  round 1's reviewer correctly flagged the missing CLI command, and it was deferred here rather
-  than dismissed.
-- **A refused complete still returns 200 `{ success: true }`.** `completeFlow` returns silently
-  when the run is not `running` or the calling session does not own the current action, exactly
-  as `action-complete` does. So `taskflow-cli flow complete` exiting 0 is *not* proof the run
-  ended. Do not write CLI output or docs that claim otherwise, and carry this into Task 9's
-  agent-facing prompt wording.
+Carry forward, established in earlier rounds and not to be re-derived:
+
+- **A refused complete still returns 200 `{"success":true}`.** `completeFlow` returns silently when
+  the run is not `running` or the calling session does not own the current action. So
+  `taskflow-cli flow complete` exiting 0 is *not* proof the run ended. Task 9's agent-facing prompt
+  must not say otherwise.
+- **`flow update` is broken in both CLIs**, independently of looping, and is still broken after this
+  task. Not in scope; file as a follow-up.
+- **The TypeScript CLI does not run on macOS/Linux today** — the shell script does. That is what
+  makes the missing TS harness tolerable rather than alarming.
 
 Standing constraints, all learned the hard way earlier in this plan:
 
 - **Do not use `await expect(...).rejects` / `.resolves`.** `@typescript-eslint/await-thenable`
-  rejects them (bun-types declares those matchers as returning `void`) and `bun run lint` goes red.
-  Use `const rejection = await promise.catch((e: unknown) => e)` plus `toBeInstanceOf(Error)`.
-- **Do not assert on `completedAt` to detect a duplicate write.** Two `toISOString()` calls across
-  an await boundary land in the same millisecond (1000/1000 samples, measured in Task 2 round 1).
-  Assert on `broadcasts`.
+  rejects them and `bun run lint` goes red. Use `const rejection = await promise.catch((e: unknown) => e)`
+  plus `toBeInstanceOf(Error)`.
+- **Do not read a member off `JSON.parse(...)` directly** in a test — `no-unsafe-member-access` goes
+  red. Cast to a narrow shape first.
+- **Do not assert on `completedAt` to detect a duplicate write.** Two `toISOString()` calls across an
+  await boundary land in the same millisecond. Assert on `broadcasts`.
 - **Verify every finding by mutation before fixing it, and every new guard by mutation after adding
-  it.** Every review round so far turned on evidence a mutation produced and a reading would have
-  missed — including this one.
-- **When two guards can reject the same call, only the first one fires.** A test written for the
-  second guard passes for the wrong reason. Mutate each guard separately.
+  it — then check what the mutation actually produced, not just the pass count.** This round's
+  malformed `sed` mutation looked like a meaningful result (1 fail) and was not.
+- **When two guards can reject the same call, only the first one fires.** Mutate each separately.
 - `withOwnerLock` is **not** re-entrant. `endRun`, `advanceOrComplete`, `startNextIteration`,
   `failFlow`, and the launch helpers must stay unlocked.
 
-Baseline for judging any redness: at `be060a3`,
-`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` -> 54 pass / 0 fail,
-`bun test packages/backend` -> 569 pass / 0 fail, `bun run typecheck` -> all four packages exit 0,
-`bun run lint` -> clean. Anything red belongs to Task 8's own changes.
+Baseline for judging any redness: at `6d419d6`,
+`bun test packages/backend/tests/services/taskflow-cli.test.ts` -> 16 pass / 0 fail,
+`bun test packages/backend` -> 577 pass / 0 fail, `bun run typecheck` -> all four packages exit 0,
+`bun run lint` -> clean. Anything red belongs to this round's own changes.
