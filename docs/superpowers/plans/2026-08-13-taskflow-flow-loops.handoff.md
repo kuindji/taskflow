@@ -19,7 +19,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 5 | Stop completes a looped run | clear | `4974457` | Impl `e9dc752`; round 1 fix `5f72826`; round 2 clear; test-only guard `d509159` |
 | 6 | Close session when a looped step completes | clear | `a20836b` | Impl `02b05b4`; round 1 clean, no fix commit |
 | 7 | `completeFlow` and its route | clear | `f2a3228` | Impl `8ea61ed`; round 1 clear, test-only guard `be060a3` |
-| 8 | CLI — `flow complete` and `--loop` on `flow create` | implemented | `fe5d92d` | Impl `6d419d6`; review round 1 due |
+| 8 | CLI — `flow complete` and `--loop` on `flow create` | clear | `fe5d92d` | Impl `6d419d6`; round 1 clear, no fix commit |
 | 9 | Tell the agent it is in a loop | pending | — | |
 | 10 | Flow editor — loop toggle | pending | — | |
 | 11 | Flow panel — iteration indicator, loop-aware stop | pending | — | |
@@ -965,6 +965,77 @@ This document is the source of truth for progress. One bounded step per session.
   clean. `bunx prettier --check` on the four formattable changed files → clean (the `.sh` has no
   prettier parser). `git status` clean apart from this handoff.
 
+### Task 8 — review round 1 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `fe5d92d..HEAD`, `packages/`
+  only — that range is exactly implementation commit `6d419d6`). The brief stated the task boundary
+  explicitly (Tasks 9-11 pending, `flow update` out of scope, Task 7's route already reviewed), which
+  is what kept this round from repeating Task 7 round 1's out-of-scope "major" finding.
+- Result: **clear — zero substantiated findings.** Task 8 is now **clear.** No fix commit and — for
+  the first time since Task 6 round 1 — **no test-only commit either**; see the mutation result
+  below for why. HEAD stays `afe21de` plus this handoff update. No production code changed in this
+  round, so no round 2.
+- **Claude ran its own end-to-end parity harness rather than relying on the reviewer's reading or on
+  the implementation entry's nine-scenario claim.** This is the task's headline risk and only the
+  shell CLI has a test harness, so "the two CLIs agree" needed to be measured, not asserted. The
+  harness (`scratchpad/t8r1/parity.ts`) runs **both** real CLIs as subprocesses over the same
+  args/env — the shell against the repo's own fake-`curl` capture stub, the TS binary against a
+  `Bun.serve` stub — normalises the uuid and timestamp fields, and diffs body, exit code, and path.
+  **Eleven cases, ten byte-identical matches**, deliberately weighted to the paths the
+  implementation's own check did *not* cover:
+  - `--loop` with no `--action` at all → both `"actions":[],…,"loop":true`.
+  - flow name containing `}` (`we}ird`) → both correct. This is the `sed "s/}$/…/"` hazard, and it
+    is safe for a structural reason worth writing down: the regex is anchored to end-of-line, so the
+    *only* `}` it can match is the final one, no matter how many the payload contains.
+  - flow name containing `"` and `\` → both `"q\"b\\s"`.
+  - description ending in `}` → both correct.
+  - flow name containing a **newline** → both `"line1\nline2"`. The multi-line hazard the `sed` would
+    have (it substitutes per line, so an embedded newline could insert `"loop"` mid-payload) is
+    unreachable because `json_string` escapes newlines to `\n` in awk before the payload is built
+    (`taskflow-cli.sh:16-18`). Checked directly rather than assumed.
+  - `--loop` passed twice; `--loop` placed *before* `--name`; two `--action` values with `--loop`;
+    `--no-loop` with no project id.
+- **The one mismatch is pre-existing and correctly left alone:** `flow complete` with **neither**
+  `TASKFLOW_TASK_ID` nor `TASKFLOW_PROJECT_ID` set. The shell falls through its `if/else` and posts
+  `{"projectId":"",…}` (curl `-sf` then fails the 400, exit 22, no message); the TS `ownerField()`
+  exits 1 with a clear error. Both fail closed. The shell's shape is the **established** local
+  pattern — `taskflow-cli.sh:298` (`action complete`) and `:474` do exactly the same — so
+  "fixing" only the new command would introduce a fresh inconsistency inside the shell script for no
+  behavioural gain. Recorded, not changed.
+- **Pre-existing `--action` bug fix confirmed by direct repro**, not taken from the implementation
+  entry: checked out `taskflow-cli-bin.ts` at `fe5d92d` over the working copy and ran
+  `flow create --name X --action a1` → `Error: unknown flag "--action"`. Restored from a pristine
+  copy and confirmed `git status` clean. At HEAD the same command posts both actions
+  (`"actions":[{…"a1"},{…"a2"}]` in the parity run), so `action: "string"` in the spec and the manual
+  `subArgs` collector do not fight — `parseFlags` does not mutate `subArgs` (`cli-flags.ts:9-40`).
+- Claude also read `consumeFlags` directly to check two things the reviewer asserted: there is **no**
+  `--no-` negation magic (so `flags["no-loop"]` is an ordinary boolean key, not a negation of
+  `loop`), and an unknown `--flag` whose name collides with an `Object.prototype` member yields a
+  non-`"string"`/`"boolean"` `kind` and lands in `unknown`, so there is no prototype-chain hole.
+- **The one mutation that left the whole suite green was chased down and proved to be a no-op** —
+  which is why this round earns no test-only commit, unlike Tasks 4, 5, and 7. Flipping the shell's
+  project-owner branch (`taskflow-cli.sh:567`) from `"projectId"` to `"taskId"` left **16 pass /
+  0 fail**. That looks like an unguarded wrong-owner bug, and it is not: `POST /api/flow/complete`
+  collapses both keys into a single `ownerId` string
+  (`flow-routes.ts:77-82`, `taskId ?? projectId`), and `flowStore.getFlowRun(ownerId, flowId)` takes
+  a plain string with no owner-kind distinction (`flow-store.ts:179`). The same id under either key
+  resolves the same run. **There is nothing for a test to assert** — exactly the Task 6 round 1
+  distinction. Restored from a pristine copy; `git status` clean before continuing.
+- The reviewer's five other focus areas came back clear and each matches what Claude checked
+  independently: the `sed` append, `action: "string"`, the session-id guard (no `set -u` interaction;
+  the script runs `set -e` only, `taskflow-cli.sh:2`), the docs' scoping of `--loop` to `create`, and
+  test non-vacuity.
+- **One docs observation, deliberately not changed:** `taskflow-cli-flow-commands.md` tells the agent
+  to "turn looping off on an existing flow in the flow editor UI" — a UI that **Task 10 has not built
+  yet**. It is a forward reference inside this same plan, the feature is unreleased, and Task 10
+  lands the toggle, so it self-resolves. Flagged here so that **if Task 10 is ever dropped or
+  rescoped, this doc line must be revisited** — otherwise it becomes a standing lie to every agent
+  that reads the skill docs.
+- Validation at `afe21de`: `bun test packages/backend/tests/services/taskflow-cli.test.ts` →
+  **16 pass, 0 fail**. `bun test packages/backend` → **577 pass, 0 fail** (54 files). `bun run
+  typecheck` → all four packages exit 0. `bun run lint` → clean. `git status` clean apart from this
+  handoff, and verified clean again after each mutation and file-swap experiment was reverted.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -1144,50 +1215,74 @@ This document is the source of truth for progress. One bounded step per session.
   nothing for a test to assert. This is the distinction that separates it from the Task 4 round 4
   and Task 5 round 2 notes, both of which *did* earn test-only commits because their mutations
   silently produced wrong state.
+- 2026-08-13: closed Task 8 round 1 with **no commit at all** and marked the task clear — the Task 6
+  round 1 call, not the Task 4/5/7 one. The only mutation that left the suite green (shell
+  `flow complete` posting the project id under the `taskId` key) is a **provable no-op**: the route
+  collapses both keys into one `ownerId` string and the store keys runs by that string alone, so both
+  payloads resolve the same run. A test asserting the key name would pin the shell's internal
+  convention, not any behaviour — which is coverage theatre, and the wrong precedent to set in a file
+  three more tasks will edit.
+- 2026-08-13: did **not** align the shell's `flow complete` owner fallback with the TS
+  `ownerField()`'s hard error when neither owner env var is set. The shell's `if/else` (posting
+  `"projectId":""`, which the route rejects with 400) is the pattern its two nearest neighbours
+  already use (`taskflow-cli.sh:298`, `:474`), both CLIs fail closed, and the case is unreachable
+  from a real flow action, which always has an owner. Changing one of three identical blocks would
+  make the script *less* consistent. If this is ever worth fixing it is worth fixing for all three,
+  as a separate cleanup outside this plan.
+- 2026-08-13: left `taskflow-cli-flow-commands.md`'s "turn looping off in the flow editor UI" line
+  in place even though Task 10 has not built that toggle yet. It is a forward reference inside this
+  plan, not an external promise, and the feature is unreleased so no agent can read it before Task 10
+  lands. **Conditional on Task 10 shipping** — recorded in the round entry so that dropping or
+  rescoping Task 10 forces a revisit rather than silently leaving agent-facing docs wrong.
+
+
 ## Next step
 
-Next step: **Task 8 — review round 1.**
+Next step: **Task 9 — implementation** (plan section "Task 9: Tell the agent it is in a loop").
 
-Run one standard gpt-5.5 review via the `codex-review` skill over `fe5d92d..HEAD`, restricted to
-`packages/` so the diff is exactly implementation commit `6d419d6` and none of this document's prose.
+Record the base commit before touching anything. HEAD at the start of that session will be the
+docs-only commit carrying this handoff — use **that** commit as the base, not the code commit under
+it, so the review range contains only code. This is the standing convention every task since Task 5
+has followed.
 
-**State the task boundary explicitly in the review prompt.** Task 7 round 1 spent its only "major"
-finding reporting that `taskflow-cli flow complete` did not exist — true at the time, and literally
-the content of Task 8. Tell the reviewer that Task 8 is the CLI surface only, and that Tasks 9-11
-(agent prompt wording, flow editor toggle, flow panel indicator) are still pending, so their absence
-is not a finding.
+Task 9 threads loop context into the agent's **system prompt**: `buildActionPrompt`
+(`flow-runner.ts`) gains a `loopIteration?: number` parameter and appends a `## Loop` section when it
+is defined; `launchAction` passes `run.loop ? (run.iteration ?? 1) : undefined`. Step 1 also has to
+extend the test harness's `spawnSession` stub to capture `systemPrompt`, which it does not record
+today — do that first or the new tests cannot assert anything.
 
-Worth pointing the review at, in rough order of risk:
+Specific to this task, in rough order of risk:
 
-1. **Do the two CLIs actually agree?** This is the task's whole risk. The implementation entry
-   records a nine-scenario parity check with identical bodies, but only the shell CLI has a test
-   harness, so nothing in CI will catch a future divergence. Ask specifically about paths the parity
-   check did *not* cover: `--loop` with no `--action`, a flow name containing quotes or a `}`
-   (the shell appends via `sed "s/}$/.../"`, which is a textual substitution on JSON), and
-   `--loop` passed twice.
-2. **The `sed` append.** `payload=$(printf '%s' "$payload" | sed "s/}$/,\"loop\":$flow_loop}/")`
-   anchors on a trailing `}`. It follows the identical pre-existing `projectId` line, so the pattern
-   is established, but it is still string surgery on JSON and it runs *after* that line.
-3. **`action: "string"` in the TS create spec.** It fixes a real pre-existing bug (verified: the
-   command exited 1 before), but `consumeFlags` keeps only the last value for a repeated string
-   flag, and the manual collector runs over the untouched `subArgs`. Confirm the two cannot fight —
-   `flow create --name X --action a1 --action a2` was checked by hand and produced both actions.
-4. **The session-id guard on `flow complete`.** It is a deliberate divergence from `action complete`.
-   Is refusing locally the right call versus letting the backend refuse silently?
-5. **The docs.** They are agent-facing and rewritten to `~/.config/taskflow/agent-skills/` on
-   startup. Two things must not be claimed: that `--loop` works on `flow update` (it does not), and
-   that a zero exit from `flow complete` proves the run ended (it does not — see below).
+1. **The prompt text is a contract with the agent, and this plan has already established one thing
+   it must not say.** A refused `completeFlow` returns 200 `{"success":true}` and
+   `taskflow-cli flow complete` exits 0 either way. The prompt must not tell an agent that running
+   the command proves the run ended. The plan's Step 3 snippet says "Run `taskflow-cli flow complete`
+   to end the whole loop immediately", which is fine as an instruction — do not embellish it into a
+   guarantee.
+2. **The third test is a green-before-and-after guard**, like Tasks 4 and 6 had: `a non-looped flow's
+   prompt does not mention flow complete`. Record its red/green status per test, and do not read its
+   passing as evidence the change worked.
+3. **Watch the guard's substring.** It asserts `not.toContain("flow complete")` on a **finite** run's
+   prompt. The base prompt already contains `taskflow-cli action complete` — check by hand that no
+   existing line contains the literal `flow complete` as a substring, or the guard is red before you
+   start for a reason unrelated to your change.
+4. **Verify by mutation, as every round since Task 2 has.** Deleting the `## Loop` section, and
+   separately changing the call site to pass `run.iteration` without the `?? 1` fallback, should each
+   fail a specific test. If one of them leaves the file green, the tests are the problem.
+5. Docs were already updated in Task 8 (`taskflow-cli-flow-context-commands.md` carries the looped
+   `action complete` / `flow complete` note and the artifact-naming advice). Task 9 duplicates that
+   guidance **into the system prompt**; keep the two consistent, and do not re-edit the docs unless
+   they turn out to disagree with what the prompt now says.
 
 Carry forward, established in earlier rounds and not to be re-derived:
 
-- **A refused complete still returns 200 `{"success":true}`.** `completeFlow` returns silently when
-  the run is not `running` or the calling session does not own the current action. So
-  `taskflow-cli flow complete` exiting 0 is *not* proof the run ended. Task 9's agent-facing prompt
-  must not say otherwise.
-- **`flow update` is broken in both CLIs**, independently of looping, and is still broken after this
-  task. Not in scope; file as a follow-up.
-- **The TypeScript CLI does not run on macOS/Linux today** — the shell script does. That is what
-  makes the missing TS harness tolerable rather than alarming.
+- **A refused complete still returns 200 `{"success":true}`.** See point 1 above — this is now
+  directly load-bearing for Task 9's wording.
+- **`flow update` is broken in both CLIs**, independently of looping. Not in scope; open follow-up.
+- **The TypeScript CLI does not run on macOS/Linux today** — the shell script does. That is what makes
+  its missing test harness tolerable.
+- **`taskflow-cli-flow-commands.md` promises a flow-editor loop toggle that Task 10 has not built
+  yet.** Self-resolves when Task 10 lands; must be revisited if Task 10 is dropped or rescoped.
 
 Standing constraints, all learned the hard way earlier in this plan:
 
@@ -1198,14 +1293,16 @@ Standing constraints, all learned the hard way earlier in this plan:
   red. Cast to a narrow shape first.
 - **Do not assert on `completedAt` to detect a duplicate write.** Two `toISOString()` calls across an
   await boundary land in the same millisecond. Assert on `broadcasts`.
+- **The plan's test snippets are not lint-checked — expect to adapt them.** Three tasks have hit this.
 - **Verify every finding by mutation before fixing it, and every new guard by mutation after adding
-  it — then check what the mutation actually produced, not just the pass count.** This round's
-  malformed `sed` mutation looked like a meaningful result (1 fail) and was not.
+  it — then check what the mutation actually produced, not just the pass count.**
 - **When two guards can reject the same call, only the first one fires.** Mutate each separately.
+- **A green-leaving mutation is not automatically a coverage gap.** Task 8 round 1's was a provable
+  no-op. Trace what the mutated code actually does before writing a test against it.
 - `withOwnerLock` is **not** re-entrant. `endRun`, `advanceOrComplete`, `startNextIteration`,
   `failFlow`, and the launch helpers must stay unlocked.
 
-Baseline for judging any redness: at `6d419d6`,
-`bun test packages/backend/tests/services/taskflow-cli.test.ts` -> 16 pass / 0 fail,
+Baseline for judging any redness: at `afe21de`,
+`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` -> 54 pass / 0 fail,
 `bun test packages/backend` -> 577 pass / 0 fail, `bun run typecheck` -> all four packages exit 0,
-`bun run lint` -> clean. Anything red belongs to this round's own changes.
+`bun run lint` -> clean. Anything red belongs to Task 9's own changes.
