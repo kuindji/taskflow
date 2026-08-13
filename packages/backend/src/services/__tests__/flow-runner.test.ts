@@ -299,6 +299,40 @@ describe("stopFlow — non-looped behaviour is preserved", () => {
     });
 });
 
+describe("owner lock", () => {
+    test("concurrent action completions advance the run only once", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        const sessionId = spawnedSessions[0].sessionId;
+
+        await Promise.all([
+            runner.handleActionComplete("task-1", "flow-1", sessionId),
+            runner.handleActionComplete("task-1", "flow-1", sessionId),
+        ]);
+
+        // One session for action 0, one for action 1. A duplicate advance
+        // would spawn a third.
+        expect(spawnedSessions).toHaveLength(2);
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.currentActionIndex).toBe(1);
+    });
+
+    test("a session exit racing a completion does not overwrite the advanced run", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        const sessionId = spawnedSessions[0].sessionId;
+
+        await Promise.all([
+            runner.handleActionComplete("task-1", "flow-1", sessionId),
+            runner.handleSessionExit(sessionId, 0),
+        ]);
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.status).toBe("running");
+        expect(run?.currentActionIndex).toBe(1);
+        expect(run?.actions[0].status).toBe("completed");
+    });
+});
+
 describe("handleSessionExit", () => {
     test("marks action failed when session exits without action complete", async () => {
         await runner.startFlow(taskOwner, testFlow);

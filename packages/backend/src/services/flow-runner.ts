@@ -58,6 +58,9 @@ class FlowRunner {
         this.deps = deps;
     }
 
+    // Serializes every mutating operation for one owner. NOT re-entrant: a
+    // nested call awaits a gate its own caller holds and hangs forever, so this
+    // is taken at public entry points only. Private helpers stay unlocked.
     private async withOwnerLock<T>(ownerId: string, fn: () => Promise<T>): Promise<T> {
         const previous = this.ownerLocks.get(ownerId) ?? Promise.resolve();
         let release!: () => void;
@@ -140,164 +143,188 @@ class FlowRunner {
     }
 
     async handleActionComplete(ownerId: string, flowId: string, sessionId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
-        if (!run || run.status !== "running") return;
+        return this.withOwnerLock(ownerId, async () => {
+            const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            if (!run || run.status !== "running") return;
 
-        const currentAction = run.actions[run.currentActionIndex];
-        if (!currentAction || currentAction.sessionId !== sessionId) return;
+            const currentAction = run.actions[run.currentActionIndex];
+            if (!currentAction || currentAction.sessionId !== sessionId) return;
 
-        currentAction.status = "completed";
-        currentAction.completedAt = new Date().toISOString();
-        this.sessionFlowMap.delete(sessionId);
+            currentAction.status = "completed";
+            currentAction.completedAt = new Date().toISOString();
+            this.sessionFlowMap.delete(sessionId);
 
-        await this.advanceOrComplete(run);
+            await this.advanceOrComplete(run);
+        });
     }
 
     async skipAction(ownerId: string, flowId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
-        if (!run || run.status !== "running") return;
+        return this.withOwnerLock(ownerId, async () => {
+            const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            if (!run || run.status !== "running") return;
 
-        const currentAction = run.actions[run.currentActionIndex];
-        if (currentAction) {
-            if (currentAction.sessionId) {
+            const currentAction = run.actions[run.currentActionIndex];
+            if (currentAction) {
+                if (currentAction.sessionId) {
+                    this.deps.closeSession(currentAction.sessionId);
+                    this.sessionFlowMap.delete(currentAction.sessionId);
+                    currentAction.sessionId = undefined;
+                }
+                currentAction.status = "skipped";
+                currentAction.completedAt = new Date().toISOString();
+            }
+
+            await this.advanceOrComplete(run);
+        });
+    }
+
+    async jumpToAction(ownerId: string, flowId: string, targetIndex: number): Promise<void> {
+        return this.withOwnerLock(ownerId, async () => {
+            const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            if (!run) return;
+
+            if (targetIndex < 0 || targetIndex >= run.actions.length) {
+                throw new Error(`Invalid action index: ${targetIndex}`);
+            }
+
+            const currentActionIndex = run.currentActionIndex;
+            const currentAction = run.actions[currentActionIndex];
+            if (currentAction?.sessionId) {
                 this.deps.closeSession(currentAction.sessionId);
                 this.sessionFlowMap.delete(currentAction.sessionId);
                 currentAction.sessionId = undefined;
             }
-            currentAction.status = "skipped";
-            currentAction.completedAt = new Date().toISOString();
-        }
 
-        await this.advanceOrComplete(run);
-    }
+            for (let i = targetIndex; i < run.actions.length; i++) {
+                this.resetActionState(run.actions[i]);
+            }
 
-    async jumpToAction(ownerId: string, flowId: string, targetIndex: number): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
-        if (!run) return;
-
-        if (targetIndex < 0 || targetIndex >= run.actions.length) {
-            throw new Error(`Invalid action index: ${targetIndex}`);
-        }
-
-        const currentActionIndex = run.currentActionIndex;
-        const currentAction = run.actions[currentActionIndex];
-        if (currentAction?.sessionId) {
-            this.deps.closeSession(currentAction.sessionId);
-            this.sessionFlowMap.delete(currentAction.sessionId);
-            currentAction.sessionId = undefined;
-        }
-
-        for (let i = targetIndex; i < run.actions.length; i++) {
-            this.resetActionState(run.actions[i]);
-        }
-
-        if (targetIndex > currentActionIndex) {
-            const skippedAt = new Date().toISOString();
-            for (let i = currentActionIndex; i < targetIndex; i++) {
-                if (run.actions[i].status === "running" || run.actions[i].status === "pending") {
-                    run.actions[i].status = "skipped";
-                    run.actions[i].completedAt = skippedAt;
-                    run.actions[i].sessionId = undefined;
+            if (targetIndex > currentActionIndex) {
+                const skippedAt = new Date().toISOString();
+                for (let i = currentActionIndex; i < targetIndex; i++) {
+                    if (
+                        run.actions[i].status === "running" ||
+                        run.actions[i].status === "pending"
+                    ) {
+                        run.actions[i].status = "skipped";
+                        run.actions[i].completedAt = skippedAt;
+                        run.actions[i].sessionId = undefined;
+                    }
                 }
             }
-        }
 
-        run.currentActionIndex = targetIndex;
-        run.actions[targetIndex].status = "running";
-        run.actions[targetIndex].startedAt = new Date().toISOString();
+            run.currentActionIndex = targetIndex;
+            run.actions[targetIndex].status = "running";
+            run.actions[targetIndex].startedAt = new Date().toISOString();
 
-        const resetActionEntryIds = new Set(
-            run.actions.slice(targetIndex).map((action) => action.actionEntryId),
-        );
-        run.artifacts = run.artifacts.filter(
-            (artifact) => !resetActionEntryIds.has(artifact.actionEntryId),
-        );
-        run.status = "running";
+            const resetActionEntryIds = new Set(
+                run.actions.slice(targetIndex).map((action) => action.actionEntryId),
+            );
+            run.artifacts = run.artifacts.filter(
+                (artifact) => !resetActionEntryIds.has(artifact.actionEntryId),
+            );
+            run.status = "running";
 
-        await this.deps.flowStore.saveFlowRun(run);
-        this.broadcastUpdate(run);
+            await this.deps.flowStore.saveFlowRun(run);
+            this.broadcastUpdate(run);
 
-        const owner = this.ownerFromRun(run);
-        await this.launchPersistedActionWithRecovery(owner, flowId, run, targetIndex);
+            const owner = this.ownerFromRun(run);
+            await this.launchPersistedActionWithRecovery(owner, flowId, run, targetIndex);
+        });
     }
 
     async pauseFlow(ownerId: string, flowId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
-        if (!run || run.status !== "running") return;
+        return this.withOwnerLock(ownerId, async () => {
+            const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            if (!run || run.status !== "running") return;
 
-        const currentAction = run.actions[run.currentActionIndex];
-        if (currentAction?.sessionId) {
-            this.deps.closeSession(currentAction.sessionId);
-            this.sessionFlowMap.delete(currentAction.sessionId);
-            currentAction.sessionId = undefined;
-        }
+            const currentAction = run.actions[run.currentActionIndex];
+            if (currentAction?.sessionId) {
+                this.deps.closeSession(currentAction.sessionId);
+                this.sessionFlowMap.delete(currentAction.sessionId);
+                currentAction.sessionId = undefined;
+            }
 
-        run.status = "paused";
-        await this.deps.flowStore.saveFlowRun(run);
-        this.broadcastUpdate(run);
+            run.status = "paused";
+            await this.deps.flowStore.saveFlowRun(run);
+            this.broadcastUpdate(run);
+        });
     }
 
     async resumeFlow(ownerId: string, flowId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
-        if (!run || run.status !== "paused") return;
+        return this.withOwnerLock(ownerId, async () => {
+            const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            if (!run || run.status !== "paused") return;
 
-        run.status = "running";
-        run.actions[run.currentActionIndex].status = "running";
-        run.actions[run.currentActionIndex].startedAt = new Date().toISOString();
-        run.actions[run.currentActionIndex].completedAt = undefined;
-        run.actions[run.currentActionIndex].sessionId = undefined;
-        run.artifacts = run.artifacts.filter(
-            (artifact) =>
-                artifact.actionEntryId !== run.actions[run.currentActionIndex].actionEntryId,
-        );
-        await this.deps.flowStore.saveFlowRun(run);
-        this.broadcastUpdate(run);
+            run.status = "running";
+            run.actions[run.currentActionIndex].status = "running";
+            run.actions[run.currentActionIndex].startedAt = new Date().toISOString();
+            run.actions[run.currentActionIndex].completedAt = undefined;
+            run.actions[run.currentActionIndex].sessionId = undefined;
+            run.artifacts = run.artifacts.filter(
+                (artifact) =>
+                    artifact.actionEntryId !== run.actions[run.currentActionIndex].actionEntryId,
+            );
+            await this.deps.flowStore.saveFlowRun(run);
+            this.broadcastUpdate(run);
 
-        const owner = this.ownerFromRun(run);
-        await this.launchPersistedActionWithRecovery(owner, flowId, run, run.currentActionIndex);
+            const owner = this.ownerFromRun(run);
+            await this.launchPersistedActionWithRecovery(
+                owner,
+                flowId,
+                run,
+                run.currentActionIndex,
+            );
+        });
     }
 
     async stopFlow(ownerId: string, flowId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
-        if (!run) return;
-        await this.failFlow(run);
+        return this.withOwnerLock(ownerId, async () => {
+            const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            if (!run) return;
+            await this.failFlow(run);
+        });
     }
 
     async handleSessionExit(sessionId: string, exitCode: number): Promise<void> {
+        // The mapping lookup stays outside the lock: it is what supplies the
+        // owner key, and it is a synchronous read of an in-memory map.
         const mapping = this.sessionFlowMap.get(sessionId);
         if (!mapping) return;
 
         const { ownerId, flowId, sessionType } = mapping;
-        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
-        if (!run) return;
+        return this.withOwnerLock(ownerId, async () => {
+            const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            if (!run) return;
 
-        const currentAction = run.actions[run.currentActionIndex];
-        if (!currentAction || currentAction.sessionId !== sessionId) return;
+            const currentAction = run.actions[run.currentActionIndex];
+            if (!currentAction || currentAction.sessionId !== sessionId) return;
 
-        // Already completed via action complete signal — ignore
-        if (currentAction.status === "completed" || currentAction.status === "skipped") {
-            this.sessionFlowMap.delete(sessionId);
-            return;
-        }
+            // Already completed via action complete signal — ignore
+            if (currentAction.status === "completed" || currentAction.status === "skipped") {
+                this.sessionFlowMap.delete(sessionId);
+                return;
+            }
 
-        if (sessionType === "shell" && exitCode === 0) {
-            // Shell actions auto-complete on clean exit
-            currentAction.status = "completed";
-            currentAction.completedAt = new Date().toISOString();
-            this.sessionFlowMap.delete(sessionId);
-            await this.advanceOrComplete(run);
-        } else if (run.status === "paused") {
-            // Flow was paused — don't mark as failed, just clean up
-            this.sessionFlowMap.delete(sessionId);
-        } else {
-            // Agent exited without signaling complete — fail the action, pause the flow
-            currentAction.status = "failed";
-            currentAction.completedAt = new Date().toISOString();
-            run.status = "paused";
-            this.sessionFlowMap.delete(sessionId);
-            await this.deps.flowStore.saveFlowRun(run);
-            this.broadcastUpdate(run);
-        }
+            if (sessionType === "shell" && exitCode === 0) {
+                // Shell actions auto-complete on clean exit
+                currentAction.status = "completed";
+                currentAction.completedAt = new Date().toISOString();
+                this.sessionFlowMap.delete(sessionId);
+                await this.advanceOrComplete(run);
+            } else if (run.status === "paused") {
+                // Flow was paused — don't mark as failed, just clean up
+                this.sessionFlowMap.delete(sessionId);
+            } else {
+                // Agent exited without signaling complete — fail the action, pause the flow
+                currentAction.status = "failed";
+                currentAction.completedAt = new Date().toISOString();
+                run.status = "paused";
+                this.sessionFlowMap.delete(sessionId);
+                await this.deps.flowStore.saveFlowRun(run);
+                this.broadcastUpdate(run);
+            }
+        });
     }
 
     async saveArtifact(
@@ -307,40 +334,42 @@ class FlowRunner {
         sessionId: string,
         artifact: Omit<FlowArtifact, "actionEntryId" | "createdAt">,
     ): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
-        if (!run) throw new Error("No flow run found");
-        if (run.status !== "running") throw new Error("Flow run is not active");
+        return this.withOwnerLock(ownerId, async () => {
+            const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            if (!run) throw new Error("No flow run found");
+            if (run.status !== "running") throw new Error("Flow run is not active");
 
-        const currentAction = run.actions[run.currentActionIndex];
-        if (!currentAction || currentAction.status !== "running") {
-            throw new Error("No running action available for artifact save");
-        }
-        if (currentAction.actionEntryId !== actionEntryId) {
-            throw new Error("Artifacts can only be saved for the current action");
-        }
-        if (!currentAction.sessionId || currentAction.sessionId !== sessionId) {
-            throw new Error("Artifacts can only be saved by the active action session");
-        }
+            const currentAction = run.actions[run.currentActionIndex];
+            if (!currentAction || currentAction.status !== "running") {
+                throw new Error("No running action available for artifact save");
+            }
+            if (currentAction.actionEntryId !== actionEntryId) {
+                throw new Error("Artifacts can only be saved for the current action");
+            }
+            if (!currentAction.sessionId || currentAction.sessionId !== sessionId) {
+                throw new Error("Artifacts can only be saved by the active action session");
+            }
 
-        const hasPath = artifact.path !== undefined;
-        const hasText = artifact.text !== undefined;
-        if (hasPath === hasText) {
-            throw new Error("Artifact must include exactly one of path or text");
-        }
+            const hasPath = artifact.path !== undefined;
+            const hasText = artifact.text !== undefined;
+            if (hasPath === hasText) {
+                throw new Error("Artifact must include exactly one of path or text");
+            }
 
-        // Re-saving the same artifact type for the same action replaces the older value
-        run.artifacts = run.artifacts.filter(
-            (existing) =>
-                !(existing.actionEntryId === actionEntryId && existing.type === artifact.type),
-        );
+            // Re-saving the same artifact type for the same action replaces the older value
+            run.artifacts = run.artifacts.filter(
+                (existing) =>
+                    !(existing.actionEntryId === actionEntryId && existing.type === artifact.type),
+            );
 
-        run.artifacts.push({
-            ...artifact,
-            actionEntryId,
-            createdAt: new Date().toISOString(),
+            run.artifacts.push({
+                ...artifact,
+                actionEntryId,
+                createdAt: new Date().toISOString(),
+            });
+            await this.deps.flowStore.saveFlowRun(run);
+            this.broadcastUpdate(run);
         });
-        await this.deps.flowStore.saveFlowRun(run);
-        this.broadcastUpdate(run);
     }
 
     getArtifacts(run: FlowRun, type?: string): FlowArtifact[] {
@@ -349,9 +378,11 @@ class FlowRunner {
     }
 
     async failFlowByIds(ownerId: string, flowId: string): Promise<void> {
-        const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
-        if (!run) return;
-        await this.failFlow(run);
+        return this.withOwnerLock(ownerId, async () => {
+            const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            if (!run) return;
+            await this.failFlow(run);
+        });
     }
 
     // --- Private helpers ---
