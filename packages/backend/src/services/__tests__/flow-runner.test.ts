@@ -413,6 +413,26 @@ describe("stopFlow — looped runs", () => {
         expect(run?.actions[0].status).toBe("skipped");
         expect(run?.actions[1].status).toBe("skipped");
     });
+
+    // Pins that the discriminator reads the *current* action, not "any failed
+    // action in the run". jumpToAction leaves an earlier failed action in place
+    // while the run carries on, so a stop after a deliberate jump past a failure
+    // is a normal loop ending, not a failure.
+    test("ends a looped run stopped after jumping past a failed action as completed", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        // Action 0's agent exits without signalling completion: it is marked
+        // failed and the run is paused.
+        await runner.handleSessionExit(spawnedSessions[0].sessionId, 1);
+        // The user deliberately moves past it; action 0 stays failed.
+        await runner.jumpToAction("task-1", "loop-flow", 1);
+
+        await runner.stopFlow("task-1", "loop-flow");
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("completed");
+        expect(run?.actions[0].status).toBe("failed");
+        expect(run?.actions[1].status).toBe("skipped");
+    });
 });
 
 describe("owner lock", () => {
