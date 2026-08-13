@@ -20,7 +20,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 6 | Close session when a looped step completes | clear | `a20836b` | Impl `02b05b4`; round 1 clean, no fix commit |
 | 7 | `completeFlow` and its route | clear | `f2a3228` | Impl `8ea61ed`; round 1 clear, test-only guard `be060a3` |
 | 8 | CLI — `flow complete` and `--loop` on `flow create` | clear | `fe5d92d` | Impl `6d419d6`; round 1 clear, no fix commit |
-| 9 | Tell the agent it is in a loop | pending | — | |
+| 9 | Tell the agent it is in a loop | implemented | `198efa8` | Impl `8e62ce1`; review round 1 due |
 | 10 | Flow editor — loop toggle | pending | — | |
 | 11 | Flow panel — iteration indicator, loop-aware stop | pending | — | |
 | 12 | Full verification | pending | — | Includes manual E2E — likely a user gate |
@@ -1031,10 +1031,70 @@ This document is the source of truth for progress. One bounded step per session.
   lands the toggle, so it self-resolves. Flagged here so that **if Task 10 is ever dropped or
   rescoped, this doc line must be revisited** — otherwise it becomes a standing lie to every agent
   that reads the skill docs.
-- Validation at `afe21de`: `bun test packages/backend/tests/services/taskflow-cli.test.ts` →
+- Validation at `afe21de` (Task 8): `bun test packages/backend/tests/services/taskflow-cli.test.ts` →
   **16 pass, 0 fail**. `bun test packages/backend` → **577 pass, 0 fail** (54 files). `bun run
   typecheck` → all four packages exit 0. `bun run lint` → clean. `git status` clean apart from this
   handoff, and verified clean again after each mutation and file-swap experiment was reverted.
+
+### Task 9 — implementation (2026-08-13)
+
+- Base commit `198efa8`; implementation commit `8e62ce1`. `198efa8` is the docs-only commit carrying
+  this handoff, per the standing convention — the review range `198efa8..HEAD` then contains only
+  code.
+- Two production changes in `flow-runner.ts`, exactly as the plan specifies:
+  1. `buildActionPrompt` (`:685`) takes an optional `loopIteration?: number` and pushes a `## Loop`
+     section when it is defined. The base sections are unchanged; the local was renamed
+     `systemPrompt` → `sections` and joined at the return.
+  2. The call site in `launchAction` (`:575-581`) passes
+     `run.loop ? (run.iteration ?? 1) : undefined`.
+- The harness change came first, as the plan warns: `spawnedSessions` now records `systemPrompt`,
+  which it did not capture at all. Without it none of these tests can assert anything.
+- **Checked the plan's warning about the guard's substring before writing it** (handoff point 3):
+  the base prompt contains `taskflow-cli flow input` and `taskflow-cli action complete`, but no
+  line contains the literal `flow complete` as a substring. Confirmed empirically — the guard was
+  green on `198efa8`.
+- **Red/green signal recorded per test**, since one of the four is a green-before-and-after guard
+  by design. On `198efa8` the file ran **55 pass / 2 fail**:
+  - RED: `tells the agent the flow loops, which iteration it is, and how to end it`.
+  - RED: `reports the new iteration number after a wrap`.
+  - GREEN before and after: `a non-looped flow's prompt does not mention flow complete`.
+  After the change: **58 pass / 0 fail** (four new tests; the fourth is described below).
+- **Test power verified by mutation, one clause at a time**, and in each case by reading what the
+  mutated code actually produced rather than the pass count alone:
+  - `## Loop` push disabled → **55 pass / 2 fail**, the two positive tests. Restored.
+  - `?? 1` dropped from the call site (`run.loop ? run.iteration : undefined`) → **57 pass / 0
+    fail** on the plan's three tests. This is what motivated the fourth test, below.
+  - Iteration passed unconditionally (`run.iteration ?? 1`, ignoring `run.loop`) → **57 pass / 1
+    fail**, the single failure being the finite-run leak guard. So that guard is load-bearing, not
+    decorative, despite being green before and after.
+  - Restored from a pristine copy after each; `git status` verified showing only the two intended
+    files before committing.
+- **Fourth test added beyond the plan's three:** `a looped run with no iteration recorded still
+  gets the loop section`. It persists a paused looped run with `loop: true` and **no** `iteration`
+  (the established hand-built-run pattern from Task 4 round 3), resumes it, and asserts the
+  relaunched action's prompt still carries `taskflow-cli flow complete` and `iteration 1`. Verified
+  by mutation after adding it: the same `?? 1` removal → **57 pass, 1 fail**, that test and only
+  it.
+  - Why it earned a test rather than a shrug, per the standing "a green-leaving mutation is not
+    automatically a coverage gap" note: the mutation is **not** a no-op. With `iteration` absent
+    the whole `## Loop` section disappears, so the agent is never told it is in a loop and is given
+    no documented way to end the run — observably wrong output, which is the Task 4/5/7 case rather
+    than the Task 6/8 provable-no-op case. It is unreachable from `startFlow` (which has written
+    `loop` and `iteration` together since Task 4), so the fallback only ever matters for a
+    hand-edited or pre-`iteration` run file — the same reachability as Task 4 round 3's unstamped
+    artifact, and closed the same way.
+- **Prompt wording follows the plan literally and honours point 1 of the previous session's brief:**
+  it instructs `Run \`taskflow-cli flow complete\` to end the whole loop immediately` and stops
+  there. It does not claim that running the command proves the run ended — a refused `completeFlow`
+  still returns 200 `{"success":true}`.
+- Docs left untouched, per point 5: read `taskflow-cli-flow-context-commands.md` and confirmed it
+  agrees with the new prompt on both commands and on the artifact-naming advice. Nothing disagrees,
+  so nothing was re-edited.
+- Validation at `8e62ce1`: `bun test packages/backend/src/services/__tests__/flow-runner.test.ts` →
+  **58 pass, 0 fail** (up from 54 by the four new tests). `bun test packages/backend` → **581 pass,
+  0 fail** (54 files, up from 577). `bun run typecheck` → all four packages exit 0. `bun run lint`
+  → clean. `bunx prettier --check` on both changed files → clean. `git status` clean apart from
+  this handoff.
 
 ## Decisions taken
 
@@ -1234,53 +1294,62 @@ This document is the source of truth for progress. One bounded step per session.
   plan, not an external promise, and the feature is unreleased so no agent can read it before Task 10
   lands. **Conditional on Task 10 shipping** — recorded in the round entry so that dropping or
   rescoping Task 10 forces a revisit rather than silently leaving agent-facing docs wrong.
-
+- 2026-08-13: Task 9 gets a review round rather than being skipped as trivial. The diff is small and
+  the tests are green, but the thing it changes is the **contract every looped agent reads**, and the
+  plan has already established one sentence it must not contain (a refused `flow complete` still
+  returns success, so the prompt must not present the command as proof the run ended). Wording is not
+  covered by types, and the suite pins only two substrings of it — exactly the case where a second
+  reader is worth more than another test.
+- 2026-08-13: added a fourth test beyond the plan's three Task 9 snippets rather than accepting the
+  green-leaving `?? 1` mutation as a no-op. The distinction that decided it, applying the standing
+  rule: the mutation deletes the entire `## Loop` section for an unnumbered looped run, leaving the
+  agent with no documented way to end the run — wrong output, not a provable no-op like Task 8 round
+  1's shell key. The case is unreachable from `startFlow` (which writes `loop` and `iteration`
+  together), so this is the Task 4 round 3 situation — unreachable against real data, closed anyway
+  because the cost is one test and Tasks 10-12 add more readers of `run.iteration`.
 
 ## Next step
 
-Next step: **Task 9 — implementation** (plan section "Task 9: Tell the agent it is in a loop").
+Next step: **Task 9 — review round 1.**
 
-Record the base commit before touching anything. HEAD at the start of that session will be the
-docs-only commit carrying this handoff — use **that** commit as the base, not the code commit under
-it, so the review range contains only code. This is the standing convention every task since Task 5
-has followed.
+Review range: `198efa8..HEAD`, `packages/` only — that is exactly implementation commit `8e62ce1`
+(two hunks in `flow-runner.ts`, plus the harness change and four tests in `flow-runner.test.ts`).
+Run one standard gpt-5.5 review via the `codex-review` skill, verify every finding yourself before
+acting on it, fix the substantiated ones, validate, commit.
 
-Task 9 threads loop context into the agent's **system prompt**: `buildActionPrompt`
-(`flow-runner.ts`) gains a `loopIteration?: number` parameter and appends a `## Loop` section when it
-is defined; `launchAction` passes `run.loop ? (run.iteration ?? 1) : undefined`. Step 1 also has to
-extend the test harness's `spawnSession` stub to capture `systemPrompt`, which it does not record
-today — do that first or the new tests cannot assert anything.
+What this round should actually look at, in rough order of risk:
 
-Specific to this task, in rough order of risk:
-
-1. **The prompt text is a contract with the agent, and this plan has already established one thing
-   it must not say.** A refused `completeFlow` returns 200 `{"success":true}` and
-   `taskflow-cli flow complete` exits 0 either way. The prompt must not tell an agent that running
-   the command proves the run ended. The plan's Step 3 snippet says "Run `taskflow-cli flow complete`
-   to end the whole loop immediately", which is fine as an instruction — do not embellish it into a
-   guarantee.
-2. **The third test is a green-before-and-after guard**, like Tasks 4 and 6 had: `a non-looped flow's
-   prompt does not mention flow complete`. Record its red/green status per test, and do not read its
-   passing as evidence the change worked.
-3. **Watch the guard's substring.** It asserts `not.toContain("flow complete")` on a **finite** run's
-   prompt. The base prompt already contains `taskflow-cli action complete` — check by hand that no
-   existing line contains the literal `flow complete` as a substring, or the guard is red before you
-   start for a reason unrelated to your change.
-4. **Verify by mutation, as every round since Task 2 has.** Deleting the `## Loop` section, and
-   separately changing the call site to pass `run.iteration` without the `?? 1` fallback, should each
-   fail a specific test. If one of them leaves the file green, the tests are the problem.
-5. Docs were already updated in Task 8 (`taskflow-cli-flow-context-commands.md` carries the looped
-   `action complete` / `flow complete` note and the artifact-naming advice). Task 9 duplicates that
-   guidance **into the system prompt**; keep the two consistent, and do not re-edit the docs unless
-   they turn out to disagree with what the prompt now says.
+1. **The prompt wording is the deliverable, and it is barely test-covered.** Two `toContain`
+   substrings pin it (`taskflow-cli flow complete`, `iteration N`); every other sentence is
+   unguarded by construction. The hard constraint is the one already established: a refused
+   `completeFlow` returns 200 `{"success":true}` and `taskflow-cli flow complete` exits 0 either
+   way, so the prompt must not tell an agent that running the command proves the run ended. Check
+   the whole `## Loop` block against that, and against `taskflow-cli-flow-context-commands.md`,
+   which says the same things in different words.
+2. **Is telling the agent "artifacts carry over between iterations" accurate after Tasks 4-7?**
+   They do carry across a wrap, but `saveArtifact` dedupes on (`actionEntryId`, `type`), and
+   `resumeFlow` purges the retried action's current-iteration artifacts. The sentence is a
+   simplification; the question for the reviewer is whether it is a *misleading* one for an agent
+   that reads it and then plans around it.
+3. **The `run.loop ? (run.iteration ?? 1) : undefined` call site.** The fallback is unreachable
+   from `startFlow` and is guarded by the fourth test; the reviewer should say whether the ternary
+   is the right shape or whether the loop context belongs on the run object it already reads.
+4. **`buildActionPrompt`'s `sessionType` parameter is unused** — pre-existing, unchanged by this
+   task, and it did not become more or less used here. If the reviewer raises it, it is a cleanup
+   outside this plan, not a Task 9 finding.
+5. **Does a shell action get this prompt at all?** `buildActionPrompt` builds a `systemPrompt` for
+   every session type; whether a shell PTY does anything with it is worth one check, because a
+   looped shell flow now carries loop instructions no shell can read. Harmless if so — but say so
+   explicitly rather than assuming.
 
 Carry forward, established in earlier rounds and not to be re-derived:
 
-- **A refused complete still returns 200 `{"success":true}`.** See point 1 above — this is now
-  directly load-bearing for Task 9's wording.
+- **A refused complete still returns 200 `{"success":true}`.** Load-bearing for point 1 above.
 - **`flow update` is broken in both CLIs**, independently of looping. Not in scope; open follow-up.
-- **The TypeScript CLI does not run on macOS/Linux today** — the shell script does. That is what makes
-  its missing test harness tolerable.
+- **The pre-existing `sessionFlowMap` registration race** (plan lines 60-69) makes fast shell
+  actions stall a loop. Out of scope; matters for Task 12's manual check.
+- **The TypeScript CLI does not run on macOS/Linux today** — the shell script does. That is what
+  makes its missing test harness tolerable.
 - **`taskflow-cli-flow-commands.md` promises a flow-editor loop toggle that Task 10 has not built
   yet.** Self-resolves when Task 10 lands; must be revisited if Task 10 is dropped or rescoped.
 
@@ -1293,16 +1362,17 @@ Standing constraints, all learned the hard way earlier in this plan:
   red. Cast to a narrow shape first.
 - **Do not assert on `completedAt` to detect a duplicate write.** Two `toISOString()` calls across an
   await boundary land in the same millisecond. Assert on `broadcasts`.
-- **The plan's test snippets are not lint-checked — expect to adapt them.** Three tasks have hit this.
+- **The plan's test snippets are not lint-checked — expect to adapt them.** Four tasks have hit this.
 - **Verify every finding by mutation before fixing it, and every new guard by mutation after adding
   it — then check what the mutation actually produced, not just the pass count.**
 - **When two guards can reject the same call, only the first one fires.** Mutate each separately.
 - **A green-leaving mutation is not automatically a coverage gap.** Task 8 round 1's was a provable
-  no-op. Trace what the mutated code actually does before writing a test against it.
+  no-op; Task 9's `?? 1` was not. Trace what the mutated code actually does before writing a test
+  against it.
 - `withOwnerLock` is **not** re-entrant. `endRun`, `advanceOrComplete`, `startNextIteration`,
   `failFlow`, and the launch helpers must stay unlocked.
 
-Baseline for judging any redness: at `afe21de`,
-`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` -> 54 pass / 0 fail,
-`bun test packages/backend` -> 577 pass / 0 fail, `bun run typecheck` -> all four packages exit 0,
-`bun run lint` -> clean. Anything red belongs to Task 9's own changes.
+Baseline for judging any redness: at `8e62ce1`,
+`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` -> 58 pass / 0 fail,
+`bun test packages/backend` -> 581 pass / 0 fail, `bun run typecheck` -> all four packages exit 0,
+`bun run lint` -> clean. Anything red belongs to the review round's own changes.
