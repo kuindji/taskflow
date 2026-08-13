@@ -16,7 +16,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 2 | Extract `endRun` (pure refactor) | clear | `c505881` | Impl `75534e4`; round 1 fixes `552acf8` + `69950b5`; round 2 clean |
 | 3 | Serialize runner public mutators under owner lock | clear | `f2fdb9d` | Impl `7d0cc45`; round 1 clean, no fix commit |
 | 4 | Snapshot `loop` onto run, wrap around | clear | `2e73030` | Impl `934d25d`; round fixes `81ea944` / `7e82f63` / `1cd22d4`; round 4 clear; test-only guard `888f517` |
-| 5 | Stop completes a looped run | implemented | `4974457` | Impl `e9dc752`; review round 1 due |
+| 5 | Stop completes a looped run | in-review round 1 | `4974457` | Impl `e9dc752`; round 1 fix `5f72826`; round 2 due |
 | 6 | Close session when a looped step completes | pending | — | |
 | 7 | `completeFlow` and its route | pending | — | |
 | 8 | CLI — `flow complete` and `--loop` on `flow create` | pending | — | |
@@ -509,6 +509,73 @@ This document is the source of truth for progress. One bounded step per session.
   → clean. `bunx prettier --check` on both changed files → clean. `git status` clean apart from
   this handoff.
 
+### Task 5 — review round 1 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `4974457..a182f5e`,
+  `packages/` only — that range is exactly the implementation commit `e9dc752`).
+- Result: **one substantiated major finding, fixed in `5f72826`.**
+- **Finding (major, accepted and fixed) — a looped run that paused *because its action failed*
+  ended as `completed` when stopped** (`flow-runner.ts:303`). The loop branch passed
+  `status: "completed"` unconditionally, and `endRun` only rewrites a step whose status is
+  `running`, so the failed step survived into a run marked completed. A finite run in exactly
+  that situation reports `failed` (`stopFlow` → `failFlow`), so the same user-visible state —
+  paused on a failed action, then Stop — reported two different outcomes depending on `loop`.
+  The harm is not in the UI (`FlowPanel` only uses `run.status` for `isFlowDone`, which treats
+  both terminal states alike) but in `taskflow-cli flow status`, which agents read: a loop that
+  died on an error reported success.
+  - Reproduced before touching production code, first as a throwaway probe that printed the
+    actual state — `BEFORE STOP: paused ["completed","failed"]` →
+    `AFTER STOP: completed ["completed","failed"]` — then as the permanent test
+    `stopFlow — looped runs > ends a looped run paused on a failed action as failed, not
+    completed`. Red on `a182f5e` (`Expected "failed" / Received "completed"`), green after.
+  - Fix: `status: currentAction?.status === "failed" ? "failed" : "completed"`. One line plus a
+    comment; `runningStepOutcome` and `skipPending` are unchanged.
+- **Why only the *current* action is consulted, not "any failed action".** `jumpToAction`
+  (`flow-runner.ts:204-216`) converts only `running` / `pending` steps to `skipped` when jumping
+  forward — an earlier `failed` step is left as-is while the run carries on. So a run can be
+  legitimately healthy with a failed step behind it that the user deliberately jumped past, and
+  an "any failed action" rule would turn a later Stop into a spurious failure. Checking
+  `run.actions[run.currentActionIndex]` matches what `endRun` itself looks at.
+- **The complementary case was checked and is correct as-is:** `pauseFlow`
+  (`flow-runner.ts:243-248`) clears the session but leaves the action `running`, so a *manually*
+  paused loop still ends `completed`. Pinned by the companion guard
+  `ends a manually paused looped run as completed`.
+- **Test power verified by mutation:**
+  - Fix reverted to unconditional `"completed"` → **41 pass / 1 fail**, the single failure being
+    the new failed-action test. The companion guard stayed green, as designed.
+  - Ternary inverted (`"failed"` and `"completed"` swapped) → **39 pass / 3 fail**: the new
+    failed-action test, the companion guard, and the round-0 `ends a looped run as completed with
+    the in-flight step skipped`. So the companion is not vacuous — it holds the paused-but-not-
+    failed direction that the round-0 test (which stops a *running* loop) does not reach.
+  - Restored after each; `git diff` confirmed the production change is exactly the eight-line
+    hunk before committing.
+- Reviewer's other three focus areas came back **clear**, each re-checked by Claude rather than
+  taken on the reviewer's word:
+  1. **Terminal-status guard breaks no legitimate Stop.** The three production callers —
+     `flow-routes.ts:360`, `handlers/flow.ts:127`, `FlowPanel.tsx:54` — are all fire-and-forget
+     (`{ success: true }` or a relayed route response); none reads the run back or depends on a
+     second broadcast. `FlowPanel` renders the Stop button only for `running` / `paused`
+     (`FlowPanel.tsx:167`), which is exactly the guard's condition, so the terminal case is not
+     reachable from the UI at all.
+  2. **`skipPending: true` erases no history.** Per-iteration action history is not represented
+     in `FlowActionState` after a wrap — `startNextIteration` resets every step — so marking the
+     current iteration's pending steps `skipped` cannot destroy a record that exists. Artifacts
+     are the cross-iteration record and are untouched.
+  3. **Non-looped path unchanged.** Active finite runs still fall through to `failFlow`; only
+     terminal re-stop behaviour changed, which is the guard's stated purpose.
+- One reviewer note **not** actioned (not a defect): the double-stop test's
+  `expect(closedSessions).toEqual(["session-1"])` would stay green with the guard removed, since
+  the first stop already cleared `sessionId` and a second `endRun` would find nothing to close.
+  True, and already anticipated — the plan put the real weight on the `broadcasts` assertion, and
+  the mutation matrix in the Task 5 implementation entry shows that is the clause doing the work.
+  The `closedSessions` line is a harmless no-double-close assertion; removing it would buy
+  nothing.
+- Validation at `5f72826`: `bun test packages/backend/src/services/__tests__/flow-runner.test.ts`
+  → **42 pass, 0 fail** (up from 40 by the two new tests). `bun test packages/backend` →
+  **550 pass, 0 fail** (54 files, up from 548). `bun run typecheck` → all four packages exit 0.
+  `bun run lint` → clean. `bunx prettier --check` on both changed files → clean. `git status`
+  clean apart from this handoff.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -593,6 +660,20 @@ This document is the source of truth for progress. One bounded step per session.
   implementation changes; the point is that the review range `4974457..HEAD` contains only code,
   which keeps the reviewer from spending its budget on this document. This is the same reconciliation
   every prior task did implicitly — writing it down so the next session does not re-derive it.
+- 2026-08-13: deviated from the plan's literal Task 5 Step 3 snippet, which passes
+  `status: "completed"` unconditionally in the loop branch. Round 1 showed that ends a run
+  `completed` when it actually stopped on a failed action. This is a sanctioned deviation rather
+  than a plan violation: the handoff's own round-1 brief posed exactly this as open question 2
+  ("Is `completed` the right ending for a Stop that lands on a *paused* looped run?"), so the
+  plan author left the call to the review. The alternative — keep the plan's literal behaviour on
+  the grounds that "stopping a loop is its normal ending" — was rejected because it makes the same
+  observable situation report two different outcomes depending only on `loop`, and because the
+  consumer that matters here is `taskflow-cli flow status`, which agents read to decide what
+  happened.
+- 2026-08-13: scoped the failure check to `run.actions[run.currentActionIndex]` rather than "any
+  failed action in the run". `jumpToAction` deliberately leaves earlier failed steps in place
+  while the run continues, so an any-failed rule would report a spurious failure for a run the
+  user knowingly jumped past a failure in.
 - 2026-08-13: Task 5 gets a review round rather than being skipped as trivial. It is eleven lines,
   but they sit on the run-ending path that Stop, fail, and (in Task 7) `completeFlow` all share, and
   the terminal-status guard silently changes behaviour for **finite** runs too — a case no test
@@ -601,38 +682,38 @@ This document is the source of truth for progress. One bounded step per session.
 
 ## Next step
 
-Next step: **Task 5 — review round 1.**
+Next step: **Task 5 — review round 2.**
 
-Run one gpt-5.5 review via the `codex-review` skill over `4974457..HEAD`, restricted to `packages/`.
-That range is exactly the implementation commit `e9dc752`. Re-read HEAD with
+Round 1 produced a production fix (`5f72826`), so the plan's loop rule sends this back for one
+more round. Run one gpt-5.5 review via the `codex-review` skill over `a182f5e..HEAD`, restricted
+to `packages/`. That range is exactly the round-1 fix commit `5f72826`. Re-read HEAD with
 `git rev-parse --short HEAD` first — the commit carrying this handoff update sits on top of
-`e9dc752` and must not add prose to the review's code scope.
+`5f72826` and must not add prose to the review's code scope.
 
-The diff is **eleven lines in one method** (`stopFlow`, `flow-runner.ts:295-315`) plus two tests.
-Scope the review to match; do not re-litigate `endRun` (Task 2, cleared over two rounds) or the
-wrap (Task 4, cleared over four).
+The diff is **one line plus a six-line comment** in `stopFlow` (`flow-runner.ts:303-318`) and two
+tests. Scope the review to match. Do **not** re-litigate the terminal-status guard, `skipPending`,
+or the non-looped path — round 1 cleared all three and the fix did not touch them. Do not
+re-litigate `endRun` (Task 2, cleared over two rounds) or the wrap (Task 4, cleared over four).
 
-Point the reviewer at these five questions:
+Point the reviewer at these four questions:
 
-1. **Does the terminal-status guard break any legitimate Stop?** It returns early unless the run is
-   `running` or `paused`. `FlowRunStatus` is `"running" | "paused" | "completed" | "failed"`
-   (`shared/src/types/flow.ts:60`), so only terminal states are refused — confirm that, and confirm
-   no production caller relies on re-stopping a finished run. The callers to walk are the HTTP route,
-   the WS handler, and any UI Stop button.
-2. **Is `completed` the right ending for a Stop that lands on a *paused* looped run?** The run may be
-   paused with a `failed` action. `endRun` only rewrites a step whose status is `running`, so that
-   failed step survives into a run marked `completed`. Is that coherent, or should a paused-with-
-   failure stop end as `failed` even when looped?
-3. **Does `skipPending: true` interact correctly with a wrapped run?** After `startNextIteration`,
-   every action is reset to `pending` except index 0. So a Stop early in iteration *n* marks steps
-   `skipped` that genuinely ran in iterations 1..*n*-1. Confirm whether that is the intended reading
-   of a looped run's final state or whether it erases visible history the UI (Task 11) will need.
-4. **Non-looped regression.** Confirm the finite path through `failFlow` is byte-for-byte unchanged
-   apart from the new early return, and that the three Task 2 characterisation tests still cover it.
-5. **Test power.** Two tests were added. Claude verified by single-clause mutation that each pins its
-   own direction (matrix in the Task 5 implementation entry above). Flag anything that would stay
-   green under a plausible mutation — in particular whether `closedSessions` being asserted as
-   `["session-1"]` in both tests is doing real work in the second one.
+1. **Is `currentAction?.status === "failed"` the right discriminator?** Walk every way a looped run
+   can reach `stopFlow` and check the outcome is the intended one in each: running (→ completed),
+   manually paused via `pauseFlow` which leaves the action `running` (→ completed), paused by
+   `handleSessionExit`'s failure branch (→ failed), paused by a launch failure in
+   `markActionLaunchFailed` (→ ? — confirm what status that leaves the action in, and whether
+   `failed` is the right ending there), and paused mid-wrap when `startNextIteration`'s relaunch
+   throws.
+2. **Does the optional chain hide a real case?** `currentAction` is `undefined` only if
+   `currentActionIndex` is out of range. Confirm that is unreachable, and that `completed` is the
+   right fallback if it ever happens.
+3. **Does `runningStepOutcome: "skipped"` still read correctly on the failed path?** On a
+   failed-action stop the current action is `failed`, so `endRun` leaves it alone and
+   `runningStepOutcome` is inert. Confirm there is no combination where the run ends `failed` but a
+   step is rewritten to `skipped` in a way that misreports what happened.
+4. **Test power.** Two tests were added. Claude verified by mutation that reverting the fix reds
+   only the first, and inverting the ternary reds three (matrix in the Task 5 round-1 entry).
+   Flag anything that would stay green under a plausible mutation.
 
 Standing constraints for whoever runs this round — all learned the hard way earlier in this plan:
 
@@ -642,15 +723,15 @@ Standing constraints for whoever runs this round — all learned the hard way ea
 - **Do not assert on `completedAt` to detect a duplicate write.** Two `toISOString()` calls across an
   await boundary land in the same millisecond (1000/1000 samples, measured in Task 2 round 1).
   Assert on `broadcasts`.
-- **Verify every finding by mutation before fixing it.** Three of the four rounds on Task 4 turned on
+- **Verify every finding by mutation before fixing it.** Four of the five rounds run so far turned on
   evidence a mutation produced and a reading would have missed.
 
-Baseline for judging any redness: at `e9dc752`,
-`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` → 40 pass / 0 fail,
-`bun test packages/backend` → 548 pass / 0 fail, `bun run typecheck` → all four packages exit 0,
+Baseline for judging any redness: at `5f72826`,
+`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` → 42 pass / 0 fail,
+`bun test packages/backend` → 550 pass / 0 fail, `bun run typecheck` → all four packages exit 0,
 `bun run lint` → clean. Anything red belongs to the review round's own changes.
 
-If round 1 comes back with zero substantiated findings, mark Task 5 **clear** and set the next step
+If round 2 comes back with zero substantiated findings, mark Task 5 **clear** and set the next step
 to **Task 6 — Close the session when a looped step completes** (plan lines 833-964), whose base
 commit is whatever HEAD is at that point. If it produces a fix, commit it and set the next step to
-Task 5 review round 2.
+Task 5 review round 3.
