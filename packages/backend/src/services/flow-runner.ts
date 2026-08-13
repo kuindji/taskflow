@@ -296,6 +296,20 @@ class FlowRunner {
         return this.withOwnerLock(ownerId, async () => {
             const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
             if (!run) return;
+            // Stopping an already-ended run must not rewrite it. Without this,
+            // a second Stop on a finished looped run bumps completedAt and
+            // re-broadcasts; on a failed run it would flip it to completed.
+            if (run.status !== "running" && run.status !== "paused") return;
+            if (run.loop) {
+                // Stopping a loop is its normal ending, not an error: a looped
+                // run has no last action to finish on, so Stop is how it ends.
+                await this.endRun(run, {
+                    status: "completed",
+                    runningStepOutcome: "skipped",
+                    skipPending: true,
+                });
+                return;
+            }
             await this.failFlow(run);
         });
     }

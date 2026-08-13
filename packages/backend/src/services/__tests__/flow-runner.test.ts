@@ -355,6 +355,35 @@ describe("stopFlow — non-looped behaviour is preserved", () => {
     });
 });
 
+describe("stopFlow — looped runs", () => {
+    test("ends a looped run as completed with the in-flight step skipped", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.stopFlow("task-1", "loop-flow");
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("completed");
+        expect(run?.completedAt).toBeDefined();
+        expect(run?.actions[0].status).toBe("skipped");
+        expect(run?.actions[1].status).toBe("skipped");
+        expect(closedSessions).toEqual(["session-1"]);
+    });
+
+    // Asserts on `broadcasts` rather than on `completedAt`: endRun stamps
+    // new Date().toISOString(), so two back-to-back stops land in the same
+    // millisecond and a timestamp comparison would go green against unguarded
+    // code. Every write path in endRun ends in broadcastUpdate.
+    test("stopping an already-ended run writes nothing", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.stopFlow("task-1", "loop-flow");
+        const broadcastCount = broadcasts.length;
+
+        await runner.stopFlow("task-1", "loop-flow");
+
+        expect(broadcasts).toHaveLength(broadcastCount);
+        expect(closedSessions).toEqual(["session-1"]);
+    });
+});
+
 describe("owner lock", () => {
     test("concurrent action completions advance the run only once", async () => {
         await runner.startFlow(taskOwner, testFlow);
