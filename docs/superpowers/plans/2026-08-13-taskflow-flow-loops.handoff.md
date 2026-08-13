@@ -15,7 +15,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 1 | Types and `loop` validation | clear | `e72babf` | Round 1 clean; its tests later broke `bun run lint`, repaired in `69950b5` |
 | 2 | Extract `endRun` (pure refactor) | clear | `c505881` | Impl `75534e4`; round 1 fixes `552acf8` + `69950b5`; round 2 clean |
 | 3 | Serialize runner public mutators under owner lock | clear | `f2fdb9d` | Impl `7d0cc45`; round 1 clean, no fix commit |
-| 4 | Snapshot `loop` onto run, wrap around | implemented | `2e73030` | Impl `934d25d`; review round 1 due |
+| 4 | Snapshot `loop` onto run, wrap around | in-review round 2 | `2e73030` | Impl `934d25d`; round 1 fix `81ea944`; round 2 due |
 | 5 | Stop completes a looped run | pending | — | |
 | 6 | Close session when a looped step completes | pending | — | |
 | 7 | `completeFlow` and its route | pending | — | |
@@ -244,6 +244,58 @@ This document is the source of truth for progress. One bounded step per session.
   `bun run lint` → clean. `bunx prettier --check` on both changed files → clean.
   `git status` clean apart from this handoff.
 
+### Task 4 — review round 1 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `2e73030..297398e`,
+  `packages/` only — plan/handoff doc changes excluded from the diff, so the code scope is
+  exactly implementation commit `934d25d`).
+- Result: **one substantiated finding, fixed in `81ea944`.** Plus one minor finding that was
+  the same defect seen from the test side; the same commit closes both.
+- **Finding (major, accepted and fixed) — `resumeFlow` deleted artifacts the wrap had just
+  carried over** (`flow-runner.ts:266-269`). `resumeFlow` unconditionally purges every artifact
+  belonging to the action it is about to retry. That is right for a finite run — the action
+  never finished, so anything it saved is partial. It is wrong for a looped run at the start of
+  a new iteration: the entry that action owns holds a *completed* value from the previous
+  iteration, which `startNextIteration` deliberately preserved and which the retried action may
+  be about to read (agents are told about `taskflow-cli artifact get <type>` in every flow
+  system prompt, so reading the last iteration's output is a first-class loop pattern).
+  - Verified by a failing test before touching production code:
+    `looping > resuming a wrapped iteration keeps the artifact carried from the previous one`.
+    It saves a `plan` artifact in iteration 1, wraps, forces the wrap's relaunch to fail (run
+    paused at iteration 2 / action 0, artifact still attached — asserted mid-test), then
+    resumes. On `297398e` it went **red**: `Expected length: 1 / Received length: 0` at the
+    post-resume artifact assertion. Green after the fix.
+  - Fix: the purge is now skipped when `run.loop`. Two lines plus a comment; no other resume
+    behaviour changed.
+  - Scoped by a companion guard in the `resumeFlow` describe,
+    `drops the retried action's artifacts on a non-looped run`, which pins that a finite run
+    still purges. It was green before the fix and after, which is what makes it a guard.
+- **Finding (minor, accepted) — the launch-failure test could not have caught the above.** True:
+  it asserted only the paused state and never resumed. Closed by the new test rather than by
+  extending the old one, so the paused-state assertions stay a separate, single-purpose test.
+- Four focus areas came back **clear**, each re-checked by Claude rather than taken on the
+  reviewer's word:
+  1. **Wrap coherence.** `FlowActionState` has exactly `actionEntryId`, `status`, `sessionId`,
+     `startedAt`, `completedAt` (`shared/src/types/flow.ts:63`); `resetActionState`
+     (`flow-runner.ts:608`) clears all four mutable fields, so no wrapped step is left both
+     fresh and finished, and no dead `sessionId` survives the wrap.
+  2. **Lock discipline.** `startNextIteration` is reachable only via `advanceOrComplete`, whose
+     three callers (`handleActionComplete`, `skipAction`, `handleSessionExit`) all hold the
+     owner lock; nothing on its transitive launch path re-acquires it.
+  3. **Launch failure across the wrap.** The immediate state is coherent — iteration bumped,
+     action 0 failed, run paused — and the error propagates to `handleActionComplete`'s only
+     production caller (`flow-routes.ts:57`), which catches it and returns 500. Same shape as
+     the pre-existing finite-flow path. The *follow-up* resume was the defect above.
+  4. **`getArtifacts` copy.** Both production callers are the artifact GET routes
+     (`flow-routes.ts:131` and `:137`); each loads a fresh run, reads, and never persists it, so
+     nothing depended on the old in-place sort. The WS path returns raw runs and the UI reads
+     `run.artifacts` directly — neither goes through the helper.
+- Validation at `81ea944`: `bun test packages/backend/src/services/__tests__/` → **66 pass,
+  0 fail** (4 files, up from 64 by the two new tests). `bun test packages/backend` →
+  **543 pass, 0 fail** (54 files, up from 541). `bun run typecheck` → all four packages exit 0.
+  `bun run lint` → clean. `bunx prettier --check` on both changed files → clean.
+  `git status` clean apart from this handoff.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -276,37 +328,53 @@ This document is the source of truth for progress. One bounded step per session.
   `const rejection = await runner.handleActionComplete(...).catch((e: unknown) => e)` plus
   `toBeInstanceOf(Error)` / `toHaveProperty("message", ...)`, matching the repair already applied
   to `flow-store.test.ts`. Same assertion strength, no rule disabled, lint stays green.
+- 2026-08-13: chose the narrow fix for Task 4 round 1's artifact defect — skip the `resumeFlow`
+  purge when `run.loop` — over the reviewer's alternative of adding an `iteration` field to
+  `FlowArtifact` and purging only the current iteration's artifacts. The precise variant is
+  strictly more correct in one edge case (a looped run whose *failed* attempt saved an artifact
+  type the retry does not re-save leaves that partial value behind), but it expands a shared
+  type mid-plan for a case that self-heals on the next save. The chosen fix also matches the
+  loop's own semantics as the plan states them: within a loop, artifacts persist until they are
+  replaced, they are not cleared by lifecycle transitions. Revisit only if Task 12's manual E2E
+  shows a stale artifact actually confusing an agent.
 
 ## Next step
 
-Next step: Task 4 — review round 1. Run one gpt-5.5 review via the `codex-review` skill over
-`2e73030..HEAD`, restricted to `packages/` (exclude the plan/handoff doc changes from the diff),
-then verify every finding yourself before acting on it.
+Next step: Task 4 — review round 2. Round 1 produced a fix commit (`81ea944`), so the plan's
+loop requires another round over that fix before Task 4 can be marked clear.
 
-Notes for that review:
-- The diff is exactly implementation commit `934d25d`. Re-read HEAD with
-  `git rev-parse --short HEAD` rather than trusting this line — the commit carrying this handoff
-  update sits on top of it and must be excluded from the review range's code scope.
-- The four things most worth pointing the reviewer at:
-  1. **Does the wrap leave a coherent run?** `startNextIteration` resets every action including
-     the one that just completed, then immediately marks index 0 running. If the reset and the
-     re-marking disagree, a wrapped run would show a step that is both fresh and finished.
-  2. **Lock discipline.** `startNextIteration` deliberately takes no lock. Confirm there is no
-     path where it is reached other than through an already-locked public entry point — a second
-     acquisition hangs the run silently rather than erroring.
-  3. **The launch-failure path across the wrap.** `launchPersistedActionWithRecovery` calls
-     `markActionLaunchFailed`, which pauses the run and marks *action 0* failed after
-     `iteration` has already been bumped. Check that a subsequent Resume does the right thing
-     from that state — the run is paused at index 0 of iteration 2 with artifacts from
-     iteration 1 still attached.
-  4. **`getArtifacts` copy.** It is a real behaviour change for every caller, not just looped
-     runs: the untyped branch no longer mutates the caller's array order. Confirm nothing
-     depended on the old in-place sort (check the CLI artifact-list path and the routes).
-- Carried forward from Task 3 round 1, still relevant: the owner gate is FIFO and `stopFlow`
-  re-reads the run after acquiring it, so a Stop issued mid-wrap queues behind the in-flight hop
-  rather than racing it. The plan's accepted "no throttle" limitation (plan lines 52-58) rests
-  on that.
-- Baseline for judging any redness: at `934d25d`,
-  `bun test packages/backend/src/services/__tests__/` → 64 pass / 0 fail,
-  `bun test packages/backend` → 541 pass / 0 fail, `bun run typecheck` → all four packages
-  exit 0, `bun run lint` → clean. Anything red belongs to the review round's own changes.
+Run one gpt-5.5 review via the `codex-review` skill over `297398e..HEAD`, restricted to
+`packages/`. That range is exactly the round-1 fix commit `81ea944` — re-read HEAD with
+`git rev-parse --short HEAD` first, since the commit carrying this handoff update sits on top
+of it and must be excluded from the review range's code scope.
+
+Point the reviewer at what the fix actually changed:
+1. **Is the exemption correctly scoped?** `resumeFlow` now skips its artifact purge when
+   `run.loop` is true (`flow-runner.ts:266-277`). Everything else about resume — status,
+   `startedAt`, `completedAt`, `sessionId`, the relaunch — is unchanged for both kinds of run.
+   Confirm the guard cannot swallow the purge for a finite run, and that it does not interact
+   with `jumpToAction`'s separate artifact filter (`flow-runner.ts:222-227`), which was
+   deliberately left alone: a jump is an explicit user rewind, not a retry.
+2. **What the exemption now allows.** In a looped run, an artifact saved by an attempt that
+   later failed survives the retry unless the retry re-saves the same type for the same action
+   entry. `saveArtifact` dedupes on (`actionEntryId`, `type`), so the normal case self-heals.
+   Ask whether there is a reachable case where the stale value is actually read as if it were
+   fresh — that is the one thing that would make the trade-off in "Decisions taken" wrong.
+3. **Test power.** Two tests were added. `resuming a wrapped iteration keeps the artifact
+   carried from the previous one` was verified red on `297398e` (`Expected length: 1 /
+   Received length: 0`) and green after — that is the real regression test.
+   `drops the retried action's artifacts on a non-looped run` is an intentional
+   green-before-and-after guard pinning that the finite path still purges. Flag any *other*
+   test that does not pin what it claims.
+
+Do not re-review the Task 4 implementation itself (`934d25d`) — round 1 covered it and its four
+focus areas came back clear.
+
+Baseline for judging any redness: at `81ea944`,
+`bun test packages/backend/src/services/__tests__/` → 66 pass / 0 fail,
+`bun test packages/backend` → 543 pass / 0 fail, `bun run typecheck` → all four packages
+exit 0, `bun run lint` → clean. Anything red belongs to the review round's own changes.
+
+If round 2 comes back with zero substantiated findings, mark Task 4 **clear** and set the next
+step to Task 5 (Stop completes a looped run), whose base commit is whatever HEAD is at that
+point.
