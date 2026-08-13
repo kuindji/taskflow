@@ -17,7 +17,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 3 | Serialize runner public mutators under owner lock | clear | `f2fdb9d` | Impl `7d0cc45`; round 1 clean, no fix commit |
 | 4 | Snapshot `loop` onto run, wrap around | clear | `2e73030` | Impl `934d25d`; round fixes `81ea944` / `7e82f63` / `1cd22d4`; round 4 clear; test-only guard `888f517` |
 | 5 | Stop completes a looped run | clear | `4974457` | Impl `e9dc752`; round 1 fix `5f72826`; round 2 clear; test-only guard `d509159` |
-| 6 | Close session when a looped step completes | pending | — | |
+| 6 | Close session when a looped step completes | implemented | `a20836b` | Impl `02b05b4`; review round 1 due |
 | 7 | `completeFlow` and its route | pending | — | |
 | 8 | CLI — `flow complete` and `--loop` on `flow create` | pending | — | |
 | 9 | Tell the agent it is in a loop | pending | — | |
@@ -630,6 +630,49 @@ This document is the source of truth for progress. One bounded step per session.
   `bun run lint` → clean. `bunx prettier --check` on the changed file → clean. `git status`
   clean apart from this handoff.
 
+### Task 6 — implementation (2026-08-13)
+
+- Base commit `a20836b`; implementation commit `02b05b4`. `a20836b` is a docs-only commit carrying
+  this handoff, which is exactly the base the standing convention calls for — the review range
+  `a20836b..HEAD` then contains only code.
+- Two production changes in `flow-runner.ts`, both inside methods Task 3 already wrapped in the
+  owner lock; no second lock was added to either:
+  1. `handleActionComplete` (`:159-165`): when `run.loop`, clear `currentAction.sessionId` and call
+     `this.deps.closeSession(sessionId)` after the existing `sessionFlowMap.delete(sessionId)` and
+     before `advanceOrComplete`.
+  2. `handleSessionExit`'s shell clean-exit branch (`:354-358`): when `run.loop`, clear
+     `currentAction.sessionId` only. No `closeSession` — the PTY exited on its own, which is what
+     got the code into that branch.
+- **Red/green signal recorded per test**, as the previous session asked, because two of the four
+  are green-before-and-after guards by design. On `a20836b` the file ran **45 pass / 2 fail**:
+  - RED: `a looped flow closes the completed step's session` (`Expected ["session-1"] /
+    Received []`) — the agent path.
+  - RED: `a looped shell step leaves no session id behind when it auto-completes`
+    (`Expected undefined / Received "session-1"`) — the shell path.
+  - GREEN before and after: `a non-looped flow leaves the completed step's session open` and
+    `a late exit from a closed session does not disturb the wrapped run`, both as the plan predicts.
+  After the change: **47 pass / 0 fail**.
+- **Test power verified by mutation, one clause at a time**, since both clauses landed in the same
+  commit and a joint red would not prove each test pins its own:
+  - Agent-path block deleted, shell clause kept → **46 pass / 1 fail**, the single failure being
+    `a looped flow closes the completed step's session`.
+  - Shell clause deleted, agent block kept → **46 pass / 1 fail**, the single failure being
+    `a looped shell step leaves no session id behind when it auto-completes`. Neither test is a
+    duplicate of the other.
+  - Agent-path guard widened to every run (`if (run.loop)` → `if (true)`) → **45 pass / 2 fail**:
+    the new `a non-looped flow leaves the completed step's session open` guard **and the
+    pre-existing** `jumpToAction > restarts the target action and clears later action state when
+    jumping backward`. That second failure is independent evidence that scoping the close to
+    looped runs is load-bearing rather than stylistic: finite runs really do rely on a completed
+    action retaining its `sessionId`, so this could not have been applied unconditionally.
+  - Restored from a pristine copy after each mutation; `git diff --stat` confirmed the production
+    change is exactly the two hunks (13 inserted lines) before committing.
+- Validation at `02b05b4`: `bun test packages/backend/src/services/__tests__/flow-runner.test.ts` →
+  **47 pass, 0 fail** (up from 43 by the four new tests). `bun test packages/backend` →
+  **555 pass, 0 fail** (54 files, up from 551). `bun run typecheck` → all four packages exit 0.
+  `bun run lint` → clean. `bunx prettier --check` on both changed files → clean. `git status` clean
+  apart from this handoff.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -739,32 +782,43 @@ This document is the source of truth for progress. One bounded step per session.
   but they sit on the run-ending path that Stop, fail, and (in Task 7) `completeFlow` all share, and
   the terminal-status guard silently changes behaviour for **finite** runs too — a case no test
   covered before this task. Small diff, wide blast radius.
+- 2026-08-13: Task 6 gets a review round rather than being skipped as trivial. Thirteen lines, but
+  they change session lifecycle on the hot path of every looped iteration, and the widening mutation
+  showed the `run.loop` scoping is the only thing keeping a pre-existing `jumpToAction` behaviour
+  intact. That is precisely the "chance of breaking something" case the flow's rule reserves review
+  for.
 
 
 ## Next step
 
-Next step: **Task 6 — Close the session when a looped step completes** (plan lines 833-964).
+Next step: **Task 6 — review round 1**, over `a20836b..HEAD`, `packages/` only (that range is
+exactly implementation commit `02b05b4`, plus this handoff update which the path filter excludes).
 
-Base commit is HEAD at the start of that session — record it in the table before writing any code,
-and reconcile it the way every prior task did: if HEAD is a docs-only commit carrying this handoff,
-that docs commit is still the right base, because it keeps the eventual review range free of prose.
+Run one gpt-5.5 review via the `codex-review` skill. Worth pointing it at these specifically, since
+they are where this thirteen-line change could actually bite:
 
-The task has two production edits in `flow-runner.ts`, both inside methods Task 3 already wrapped in
-the owner lock — do **not** add a second lock to either:
+1. **Is closing the session before `advanceOrComplete` safe?** `closeSession` is `ptyManager.close`,
+   whose exit path runs later via `proc.exited.then(cleanup)` — Task 2 round 1 already established
+   there is no synchronous re-entry into `handleSessionExit`. But Task 6 is the first caller to
+   close a session and then immediately keep working on the same run inside the same lock, including
+   the wrap path (`advanceOrComplete` → `startNextIteration` → relaunch). Confirm nothing in that
+   chain reads the `sessionId` that was just cleared.
+2. **The shell branch clears `sessionId` but does not close.** Confirm no PTY is leaked on any shell
+   path — in particular a shell step that exits non-zero, or a looped shell run that is later
+   stopped, where the cleared id means `endRun` finds nothing to close.
+3. **Does clearing `sessionId` on completion break anything that reads it?** The widening mutation
+   proved `jumpToAction` depends on a completed action retaining its session on *finite* runs. Check
+   the looped equivalents — `jumpToAction`, `resumeFlow`, `pauseFlow`, and `FlowPanel`'s session
+   rendering — now that a looped completed step has no `sessionId`.
+4. **Test power.** Four tests, two of which are deliberate green-before-and-after guards. The
+   implementation entry above records a per-clause mutation matrix; check it holds and that no
+   assertion is vacuous.
 
-1. `handleActionComplete` (plan step 3): when `run.loop`, clear `currentAction.sessionId` and call
-   `this.deps.closeSession(sessionId)` after the existing `sessionFlowMap.delete(sessionId)`, before
-   `advanceOrComplete`. Non-looped runs keep leaving the session open — that is deliberate and the
-   plan ships a green-before-and-after guard for it.
-2. `handleSessionExit`'s shell clean-exit branch (plan step 3b): when `run.loop`, clear
-   `currentAction.sessionId` only. **No `closeSession` here** — the PTY exited on its own, which is
-   what got the code into that branch.
-
-Four tests are specified in the plan (lines 845-906). Two of them are green-before-and-after guards
-by design (`a non-looped flow leaves the completed step's session open`, and `a late exit from a
-closed session does not disturb the wrapped run`), so record the red/green signal per test at
-implementation time rather than reporting a joint red — that is what every prior task did, and it is
-what makes the mutation evidence meaningful later.
+Then verify every finding yourself by mutation before fixing it, fix the substantiated ones, and
+validate. Zero substantiated findings → Task 6 is clear and the next step is **Task 7 —
+`completeFlow` and its route** (plan lines 968-1200+, which spans both the runner method and a new
+`POST /api/flow/complete` route, and touches three test files including
+`packages/backend/tests/api/routes.test.ts` — read the plan's harness warning there carefully).
 
 Standing constraints, all learned the hard way earlier in this plan:
 
@@ -780,11 +834,7 @@ Standing constraints, all learned the hard way earlier in this plan:
 - `withOwnerLock` is **not** re-entrant. `endRun`, `advanceOrComplete`, `startNextIteration`,
   `failFlow`, and the launch helpers must stay unlocked.
 
-Baseline for judging any redness: at `d509159`,
-`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` → 43 pass / 0 fail,
-`bun test packages/backend` → 551 pass / 0 fail, `bun run typecheck` → all four packages exit 0,
-`bun run lint` → clean. Anything red belongs to Task 6's own changes.
-
-Task 6 is a behavioural change to session lifecycle on the hot path of every looped iteration, so it
-gets a review round — it is not the trivial case. After implementing and committing it, set the next
-step to **Task 6 — review round 1** over `<base>..HEAD`, `packages/` only.
+Baseline for judging any redness: at `02b05b4`,
+`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` → 47 pass / 0 fail,
+`bun test packages/backend` → 555 pass / 0 fail, `bun run typecheck` → all four packages exit 0,
+`bun run lint` → clean. Anything red belongs to the review round's own changes.
