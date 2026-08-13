@@ -957,6 +957,20 @@ describe("completeFlow", () => {
         expect(run?.actions[0].sessionId).toBeUndefined();
     });
 
+    // The three-step test above uses a looped fixture, so nothing pinned that
+    // pending steps are skipped on a *finite* run. Scoping skipPending to
+    // run.loop would leave a terminal run carrying pending steps forever.
+    test("marks a non-looped run's remaining steps skipped", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await runner.completeFlow("task-1", "flow-1", spawnedSessions[0].sessionId);
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.status).toBe("completed");
+        expect(run?.actions[0].status).toBe("completed");
+        expect(run?.actions[1].status).toBe("skipped");
+        expect(run?.actions[1].completedAt).toBeDefined();
+    });
+
     test("a session that does not own the current step cannot end the run", async () => {
         await runner.startFlow(taskOwner, loopFlow);
         await runner.completeFlow("task-1", "loop-flow", "some-other-session");
