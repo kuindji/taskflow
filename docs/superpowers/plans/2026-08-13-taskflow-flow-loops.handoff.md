@@ -20,7 +20,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 6 | Close session when a looped step completes | clear | `a20836b` | Impl `02b05b4`; round 1 clean, no fix commit |
 | 7 | `completeFlow` and its route | clear | `f2a3228` | Impl `8ea61ed`; round 1 clear, test-only guard `be060a3` |
 | 8 | CLI — `flow complete` and `--loop` on `flow create` | clear | `fe5d92d` | Impl `6d419d6`; round 1 clear, no fix commit |
-| 9 | Tell the agent it is in a loop | in-review round 2 | `198efa8` | Impl `8e62ce1`; round 1 fix `08b987d`; round 2 due |
+| 9 | Tell the agent it is in a loop | clear | `198efa8` | Impl `8e62ce1`; round 1 fix `08b987d`; round 2 clear, no commit |
 | 10 | Flow editor — loop toggle | pending | — | |
 | 11 | Flow panel — iteration indicator, loop-aware stop | pending | — | |
 | 12 | Full verification | pending | — | Includes manual E2E — likely a user gate |
@@ -1170,6 +1170,77 @@ This document is the source of truth for progress. One bounded step per session.
   → clean. `bunx prettier --check` on both changed files → clean. `git status` clean apart from
   this handoff.
 
+### Task 9 — review round 2 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `1b6fb16..HEAD`, `packages/`
+  only — that range is exactly round-1 fix commit `08b987d`: one prose line in `flow-runner.ts`
+  plus one test and its comment).
+- Result: **clear — zero substantiated findings.** Task 9 is now **clear.** **No commit at all**
+  this round — not even a test-only one (the Task 6 / Task 8 round 1 call, not the Task 4/5/7 one).
+  HEAD stays `5adafea` plus this handoff update.
+- The reviewer's four answers were each re-derived by Claude from the code rather than taken on its
+  word, and one of them was **checked further than the reviewer took it** — see the read-path note
+  below, which is the substantive output of this round.
+  1. **Sentence accuracy.** `saveArtifact`'s dedupe filter (`flow-runner.ts:429-433`) removes
+     exactly `existing.actionEntryId === actionEntryId && existing.type === artifact.type`, so
+     "saving a `<type>` again from the same action replaces that action's previous value" is
+     literally accurate. `resumeFlow`'s purge (`:296`) keeps only artifacts with an explicit
+     earlier `iteration` stamp, which is consistent with "fold anything you still need into the
+     new value".
+  2. **Iteration number.** `startNextIteration` bumps `run.iteration` *before*
+     `launchPersistedActionWithRecovery` (`:541-547`), and the prompt call site reads
+     `run.loop ? (run.iteration ?? 1) : undefined` (`:580`). The wrap's prompt reports the new
+     number. Verified by reading both, and already pinned by `reports the new iteration number
+     after a wrap`.
+  3. **Redundancy with the base section.** Real but not a defect: `## Taskflow CLI` says "When you
+     have completed this action, run `taskflow-cli action complete`" (`:703`) and the `## Loop`
+     block says "Run `taskflow-cli action complete` to finish this action and move to the next
+     one" (`:711`). The second adds the loop-specific consequence ("and move to the next one",
+     which in a loop means the wrap), so it is reinforcement, not noise. Reviewer reached the same
+     conclusion independently.
+  4. **Doc consistency.** `taskflow-cli-flow-context-commands.md:11` says "Saving the same type
+     again replaces the previous value" — *less* precise than the prompt (no per-action
+     qualifier), but agreeing in substance and in the direction that matters. Line 13 restates the
+     loop rules and matches. No contradiction.
+- **Test power re-verified by mutation, in both directions:**
+  - Fix reverted to the pre-round-1 sentence → **58 pass / 1 fail**, the single failure being
+    `warns that re-saving an artifact type replaces the carried value`. It is the sole guard
+    against a silent revert, as round 1 claimed.
+  - Sentence **reworded preserving meaning exactly** (`replaces that action's previous value` →
+    `overwrites the value that action saved before`) → same single failure. That is the measured
+    cost of the literal-substring assertion round 1 flagged for challenge: it goes red on a
+    correct rewording. **Kept anyway.** For a deliverable whose product *is* the prose, there is
+    no assertion that pins meaning without pinning words — a regex would only blur the coupling,
+    not remove it — and the three pre-existing tests in the block use the same style. A wording
+    improvement should update the assertion deliberately, which is the behaviour this buys.
+  - Restored from a pristine copy after each; `git status` clean and 59 pass / 0 fail confirmed
+    before writing this entry.
+- **New finding, verified and out of scope — `artifact get <type>` is non-deterministic when two
+  different actions hold the same `<type>`.** This is the one point where Claude's check went past
+  the reviewer's: the report cites `saveArtifact` and `resumeFlow` but **never the read path**, so
+  its clearance on question 1 rested on storage semantics alone.
+  - Repro (throwaway probe, since pinning current behaviour with a permanent test would enshrine
+    a bug): action 1 saves `plan` = "from action 1", completes; action 2 saves `plan` = "from
+    action 2". Both persist — `run.artifacts` has length 2, exactly as the per-action dedupe
+    promises. But `getArtifacts(run, "plan")[0]`, which is what
+    `GET /api/flow/artifact/:ownerId/:flowId/:type` returns (`flow-routes.ts:168-173`), gave
+    **"from action 1"** — the *older* one. Printed `createdAt` for both:
+    `2026-08-13T18:11:12.027Z` for each. Identical to the millisecond, so
+    `b.createdAt.localeCompare(a.createdAt)` returns 0, the sort is a stable no-op, and insertion
+    order wins — the opposite of the descending sort's intent.
+  - So `taskflow-cli artifact get <type>` returns an arbitrary one of the two, decided by whether
+    the saves straddle a millisecond boundary. Same root cause as the standing "do not assert on
+    `completedAt`" rule.
+  - **Not fixed here, and the prompt was not reworded for it.** It is pre-existing, unrelated to
+    looping, and unchanged by this diff; fixing it means changing artifact resolution semantics
+    (a tiebreak, or per-action addressing), which needs its own task and tests. Carried forward as
+    a follow-up.
+- Validation at HEAD `5adafea` (unchanged code, so these are the round-1 numbers reconfirmed):
+  `bun test packages/backend/src/services/__tests__/flow-runner.test.ts` → **59 pass, 0 fail**.
+  `bun test packages/backend` → **582 pass, 0 fail** (54 files). `bun run typecheck` → all four
+  packages exit 0. `bun run lint` → clean. `git status` clean apart from this handoff, and
+  verified clean again after every mutation and after the probe was removed.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -1396,46 +1467,66 @@ This document is the source of truth for progress. One bounded step per session.
   rather than a new one, and the mutation check shows it is the only thing standing between the fix
   and a silent revert. Round 2 is explicitly asked to challenge this — if a better assertion exists,
   it should be adopted there rather than defended out of consistency.
+- 2026-08-13: round 2 **took up that challenge and kept the literal-substring assertion**, having
+  measured its cost rather than assumed it. A semantics-preserving reword turns the test red — so
+  the coupling is real, not theoretical. It is kept because the alternatives are worse for this
+  deliverable specifically: a regex blurs the coupling without removing it, and there is no way to
+  assert *meaning* over prose without a model in the loop. When the product is the wording, a test
+  that forces a deliberate update on a wording change is the correct amount of friction. Recorded so
+  a future session does not re-open this as a third round.
+- 2026-08-13: closed Task 9 round 2 with **no commit at all** and marked the task clear. Zero
+  substantiated findings and no production change, so the plan's "a fix sends you back for another
+  round" rule does not fire. This is the Task 6 / Task 8 round 1 call rather than the Task 4/5/7 one:
+  the only thing this round surfaced worth writing down is a **pre-existing** bug in a path this task
+  does not touch, which a test here would enshrine rather than guard.
+- 2026-08-13: did **not** reword the prompt for the cross-action `artifact get` non-determinism
+  found in round 2, despite the sentence's "readable only until the same action overwrites it"
+  being technically too strong (a *different* action saving the same `<type>` can also change what
+  `artifact get <type>` returns). Two reasons. The sentence's clauses are each literally true of
+  the storage layer they describe, and the overreach only bites in a flow whose author gave two
+  actions the same `<type>` name — a configuration the prompt never encourages and that is
+  ambiguous with or without this wording. And rewording is a production change, which would force a
+  round 3 on prose for a case the underlying bug makes wrong anyway. **Fix the resolution bug, then
+  revisit the sentence** — in that order, outside this plan.
 
 ## Next step
 
-Next step: **Task 9 — review round 2.**
+Next step: **Task 10 — flow editor loop toggle** (plan lines 1198-1265). This is the first UI task
+in the plan, and it is what makes turning looping *off* possible at all, since `--loop` deliberately
+ships on `flow create` only.
 
-Review range: `1b6fb16..HEAD`, `packages/` only — that is exactly round-1 fix commit `08b987d`:
-one changed line in `flow-runner.ts` (the artifact-naming sentence in the `## Loop` block) plus one
-test and its five-line comment in `flow-runner.test.ts`. Run one standard gpt-5.5 review via the
-`codex-review` skill, verify every finding yourself before acting on it, fix the substantiated ones,
-validate, commit.
+Base commit to record before starting: whatever HEAD is at session start (expected to be the
+docs-only commit carrying this handoff — that is the right base, since it keeps the review range
+code-only, the reconciliation every prior task has done).
 
-What this round should look at — it is a small diff, so scope it tightly:
+Scope, as the plan specifies it: `loop` state in `FlowEditor.tsx`, a `Switch` + `Label` control
+below the description field, and `loop` threaded through **four** places — `useState`, the
+`handleSave` payload, that callback's dependency array, and **both** `JSON.stringify` snapshots in
+the dirty check. The plan calls out the failure mode explicitly: miss a snapshot and the Save button
+stays disabled after toggling. Then re-read `flow-store.ts:109` and `handlers/flow.ts:44` to confirm
+they forward the whole definition rather than picking fields (no change expected).
 
-1. **Is the new sentence itself accurate?** It now claims: re-saving a `<type>` from the same action
-   replaces that action's previous value; a carried-over artifact is readable only until the same
-   action overwrites it; fold what you still need into the new value. Check each clause against
-   `saveArtifact` (`flow-runner.ts:429-433`, the dedupe filter) and against `resumeFlow`'s
-   iteration-aware purge (`:272`). The dedupe key is (`actionEntryId`, `type`) — **per action**, not
-   per run — so a different action saving the same `<type>` does *not* collide. Does the wording
-   convey that, or does "the same action" do too much quiet work?
-2. **Is the `## Loop` block now too long to be read?** It is five paragraphs, one of which is now
-   three sentences. The block competes for attention with the base `## Taskflow CLI` section, which
-   already says "When you have completed this action, run `taskflow-cli action complete`" — the Loop
-   block repeats that instruction in different words. Redundancy across two sections of one prompt
-   is a legitimate wording finding for this task.
-3. **Does the added guidance contradict `taskflow-cli-flow-context-commands.md`?** The repo source
-   (`packages/backend/src/services/taskflow-cli-flow-context-commands.md`, **not** the stale copy in
-   `~/.config/taskflow/`) says the same thing at lines 11 and 13. They should agree in substance; if
-   the phrasings now pull in different directions, say which one is wrong.
-4. **Test quality.** The new test pins a single substring, `replaces that action's previous value`.
-   That is a literal-string coupling to the prompt — is it the right assertion, or does it just make
-   the wording harder to improve without buying real protection?
+**Two things to settle in that session, both anticipated here so it does not stall:**
 
-If this round comes back clean, Task 9 is clear and the next step is **Task 10 — flow editor loop
-toggle** (the first UI task in the plan; note it is also what makes turning looping *off* possible
-at all, since `--loop` deliberately ships on `flow create` only).
+1. **The plan's Step 5 asks for a manual Electron check** ("start the app, create a flow, tick the
+   toggle, save, reopen, confirm it stuck"). That is *not* a user gate on its own — it is not
+   destructive or outward-facing. Do the automated validation (`bun run typecheck`, plus the backend
+   suite, plus lint) and, if driving the Electron UI is not workable in-session, record the manual
+   confirmation as **deferred to Task 12**, which already owns manual E2E. Say so explicitly in the
+   handoff rather than implying the toggle was seen working.
+2. **There is no UI test harness in play for this file** — the plan prescribes none, and none of
+   Tasks 1-9 touched `packages/ui`. Decide and record whether this task gets a test at all. If it
+   does not, the commit message must say the toggle is verified by typecheck plus manual
+   invocation, the same honesty the Task 8 CLI decision applied.
+
+Whether Task 10 needs a review round is a judgment for that session, but note it changes a **user-
+facing** surface for the first time in this plan (taste matters, and the copy in that helper
+paragraph is agent-facing documentation in disguise), and the four-place threading is exactly the
+kind of change where missing one place produces a silently dead Save button. Lean toward reviewing.
 
 Carry forward, established in earlier rounds and not to be re-derived:
 
-- **A refused complete still returns 200 `{"success":true}`.** Load-bearing for point 1 above.
+- **A refused complete still returns 200 `{"success":true}`.**
 - **`flow update` is broken in both CLIs**, independently of looping. Not in scope; open follow-up.
 - **The pre-existing `sessionFlowMap` registration race** (plan lines 60-69) makes fast shell
   actions stall a loop. Out of scope; matters for Task 12's manual check.
@@ -1443,14 +1534,22 @@ Carry forward, established in earlier rounds and not to be re-derived:
   makes its missing test harness tolerable.
 - **The agent-skill docs under `~/.config/taskflow/agent-skills/` are a stale runtime copy.** They
   are rewritten by the running app from `COMMAND_FILES` (`internal-agent-skill.ts:27-33`), which
-  imports the markdown in `packages/backend/src/services/`. The `~/.config` copy currently predates
-  Task 8 and has no `flow complete` line. Always read and edit the repo copy; reading the installed
-  one produces phantom "the docs disagree" findings.
+  imports the markdown in `packages/backend/src/services/`. Always read and edit the repo copy;
+  reading the installed one produces phantom "the docs disagree" findings.
 - **`saveArtifact`'s dedupe key is (`actionEntryId`, `type`) — per action, not per run.** Two
-  different actions may hold the same `<type>` simultaneously without colliding. Relevant to any
-  future wording about artifact naming.
-- **`taskflow-cli-flow-commands.md` promises a flow-editor loop toggle that Task 10 has not built
-  yet.** Self-resolves when Task 10 lands; must be revisited if Task 10 is dropped or rescoped.
+  different actions may hold the same `<type>` simultaneously **in storage**. See the correction
+  immediately below for what that means at *read* time.
+- **NEW (Task 9 round 2, verified) — `artifact get <type>` is non-deterministic across actions.**
+  `getArtifacts` sorts by `b.createdAt.localeCompare(a.createdAt)` and the route returns
+  `artifacts[0]` (`flow-routes.ts:168-173`). `createdAt` is millisecond-resolution, so two artifacts
+  of the same `<type>` saved by different actions in the same millisecond compare equal, the sort
+  becomes a stable no-op, and the **older** one is returned. Reproduced: both stamped
+  `2026-08-13T18:11:12.027Z`, `artifact get plan` returned action 1's value after action 2 saved.
+  **Pre-existing, unrelated to looping, open follow-up.** Do not pin it with a test — that would
+  enshrine the bug. Relevant to Task 12's manual E2E, and it is why the `## Loop` prompt's
+  "readable only until the same action overwrites it" was left alone rather than reworded.
+- **`taskflow-cli-flow-commands.md` promises a flow-editor loop toggle** — that promise is what
+  Task 10 now makes good on. It self-resolves when Task 10 lands; revisit if Task 10 is rescoped.
 
 Standing constraints, all learned the hard way earlier in this plan:
 
@@ -1460,19 +1559,20 @@ Standing constraints, all learned the hard way earlier in this plan:
 - **Do not read a member off `JSON.parse(...)` directly** in a test — `no-unsafe-member-access` goes
   red. Cast to a narrow shape first.
 - **Do not assert on `completedAt` to detect a duplicate write.** Two `toISOString()` calls across an
-  await boundary land in the same millisecond. Assert on `broadcasts`.
-- **The plan's test snippets are not lint-checked — expect to adapt them.** Four tasks have hit this.
+  await boundary land in the same millisecond. Assert on `broadcasts`. (Task 9 round 2 found the same
+  millisecond-resolution hazard in *production* code — see the artifact-resolution note above.)
+- **The plan's test snippets are not lint-checked — expect to adapt them.** Five tasks have hit this.
 - **Verify every finding by mutation before fixing it, and every new guard by mutation after adding
   it — then check what the mutation actually produced, not just the pass count.**
 - **When two guards can reject the same call, only the first one fires.** Mutate each separately.
 - **A green-leaving mutation is not automatically a coverage gap.** Task 8 round 1's was a provable
-  no-op; Task 9's `?? 1` was not. Trace what the mutated code actually does before writing a test
-  against it.
+  no-op; Task 9's `?? 1` was not. Trace what the mutated code actually does before writing a test.
+- **Check the reviewer's trace, not just its verdict.** Task 9 round 2's clean report reasoned only
+  about the artifact *write* path; reading the *read* path surfaced a real bug the report missed.
 - `withOwnerLock` is **not** re-entrant. `endRun`, `advanceOrComplete`, `startNextIteration`,
   `failFlow`, and the launch helpers must stay unlocked.
 
-Baseline for judging any redness: at `08b987d`,
+Baseline for judging any redness: at `5adafea`,
 `bun test packages/backend/src/services/__tests__/flow-runner.test.ts` -> 59 pass / 0 fail,
 `bun test packages/backend` -> 582 pass / 0 fail, `bun run typecheck` -> all four packages exit 0,
-`bun run lint` -> clean, `bunx prettier --check` on the two changed files -> clean. Anything red
-belongs to the review round's own changes.
+`bun run lint` -> clean, `git status` clean. Anything red belongs to Task 10's own changes.
