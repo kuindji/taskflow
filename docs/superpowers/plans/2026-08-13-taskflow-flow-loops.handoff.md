@@ -12,7 +12,7 @@ This document is the source of truth for progress. One bounded step per session.
 
 | # | Task | Status | Base commit | Notes |
 |---|------|--------|-------------|-------|
-| 1 | Types and `loop` validation | implemented | `e72babf` | Needs review round 1 |
+| 1 | Types and `loop` validation | clear | `e72babf` | Round 1 clean, no fix commit |
 | 2 | Extract `endRun` (pure refactor) | pending | — | |
 | 3 | Serialize runner public mutators under owner lock | pending | — | |
 | 4 | Snapshot `loop` onto run, wrap around | pending | — | |
@@ -27,7 +27,25 @@ This document is the source of truth for progress. One bounded step per session.
 
 ## Review rounds
 
-_(none yet)_
+### Task 1 — round 1 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `e72babf..ecafa5d`,
+  code files only — plan/handoff doc changes excluded from the diff).
+- Result: **clear — zero findings.** No fix commit; HEAD stays `ecafa5d`.
+- Reviewer traced every `saveFlow` caller (HTTP route `flow-routes.ts:182`, WS handler
+  `handlers/flow.ts:48`, UI `FlowManagementDialog.tsx:86` via the UI flow store, and both
+  CLIs). None currently emits a non-boolean `loop`, so the new validation rejects nothing
+  that previously worked.
+- Verified independently by Claude:
+  - `assertValidFlowDefinition` runs on **load** too (`flow-store.ts:137-139` inside
+    `getFlows`), not only on save. Harmless now — no persisted definition carries `loop` —
+    but it means a hand-edited `definitions.json` with `"loop":"false"` breaks *reads* of
+    every flow, not just that one. Worth remembering if Task 8/10 ever writes the flag as
+    a string.
+  - `bun test packages/backend/src/services/__tests__/flow-store.test.ts` → 19 pass, 0 fail.
+  - `bun run typecheck` → all four packages exit 0 (this is what covers the positive test,
+    which `bun test` cannot fail on since it does not typecheck).
+  - `git status` clean after both runs.
 
 ## Decisions taken
 
@@ -42,4 +60,7 @@ _(none yet)_
 
 ## Next step
 
-Next step: review round 1 for Task 1 — gpt-5.5 review of `e72babf..HEAD`.
+Next step: implement Task 2 — extract `endRun` from `failFlow` in
+`packages/backend/src/services/flow-runner.ts`. Record HEAD as its base commit first.
+This is a pure refactor: the Step 1 characterisation tests must pass **before** the
+extraction as well as after. Task 2 then needs its own review round 1.
