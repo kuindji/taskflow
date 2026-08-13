@@ -326,8 +326,8 @@ describe("flow runs", () => {
 
 describe("assertValidFlowDefinition — loop", () => {
     test("accepts a definition with loop true", async () => {
-        await expect(
-            store.saveFlow({
+        expect(
+            await store.saveFlow({
                 id: "loop-flow",
                 name: "Loop",
                 description: "",
@@ -338,7 +338,7 @@ describe("assertValidFlowDefinition — loop", () => {
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
             }),
-        ).resolves.toBeUndefined();
+        ).toBeUndefined();
     });
 
     test("rejects a non-boolean loop", async () => {
@@ -352,7 +352,11 @@ describe("assertValidFlowDefinition — loop", () => {
             updatedAt: new Date().toISOString(),
         } as unknown as FlowDefinition;
 
-        await expect(store.saveFlow(flow)).rejects.toThrow(
+        const rejection = await store.saveFlow(flow).catch((error: unknown) => error);
+
+        expect(rejection).toBeInstanceOf(Error);
+        expect(rejection).toHaveProperty(
+            "message",
             'Flow "bad-loop-flow" has a non-boolean loop value',
         );
     });
