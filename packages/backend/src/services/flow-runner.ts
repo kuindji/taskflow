@@ -710,7 +710,7 @@ class FlowRunner {
                     `This flow is a loop. After its last action completes it restarts from the first action with the same inputs, and artifacts carry over between iterations. You are in iteration ${loopIteration}.`,
                     `Run \`taskflow-cli action complete\` to finish this action and move to the next one.`,
                     `Run \`taskflow-cli flow complete\` to end the whole loop immediately.`,
-                    `Reuse the same artifact \`<type>\` names on every iteration instead of inventing per-iteration names.`,
+                    `Reuse the same artifact \`<type>\` names on every iteration instead of inventing per-iteration names. Saving a \`<type>\` again from the same action replaces that action's previous value, so a carried-over artifact is readable only until the same action overwrites it — fold anything you still need into the new value.`,
                 ].join("\n\n"),
             );
         }

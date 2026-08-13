@@ -1045,6 +1045,18 @@ describe("looped action prompt", () => {
         expect(spawnedSessions[0].systemPrompt ?? "").not.toContain("flow complete");
     });
 
+    // "artifacts carry over between iterations" and "reuse the same <type> names"
+    // are each true, but an agent cannot act on both unless it is also told that
+    // re-saving a type destroys the carried value (saveArtifact dedupes on
+    // (actionEntryId, type) — pinned by "an artifact re-saved in iteration 2
+    // replaces the iteration 1 value" above).
+    test("warns that re-saving an artifact type replaces the carried value", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        const systemPrompt = spawnedSessions[0].systemPrompt ?? "";
+
+        expect(systemPrompt).toContain("replaces that action's previous value");
+    });
+
     test("a looped run with no iteration recorded still gets the loop section", async () => {
         // startFlow always writes loop and iteration together, so an unnumbered
         // looped run can only come from outside this code — a hand-edited run
