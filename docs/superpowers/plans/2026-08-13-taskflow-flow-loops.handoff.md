@@ -20,7 +20,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 6 | Close session when a looped step completes | clear | `a20836b` | Impl `02b05b4`; round 1 clean, no fix commit |
 | 7 | `completeFlow` and its route | clear | `f2a3228` | Impl `8ea61ed`; round 1 clear, test-only guard `be060a3` |
 | 8 | CLI — `flow complete` and `--loop` on `flow create` | clear | `fe5d92d` | Impl `6d419d6`; round 1 clear, no fix commit |
-| 9 | Tell the agent it is in a loop | implemented | `198efa8` | Impl `8e62ce1`; review round 1 due |
+| 9 | Tell the agent it is in a loop | in-review round 2 | `198efa8` | Impl `8e62ce1`; round 1 fix `08b987d`; round 2 due |
 | 10 | Flow editor — loop toggle | pending | — | |
 | 11 | Flow panel — iteration indicator, loop-aware stop | pending | — | |
 | 12 | Full verification | pending | — | Includes manual E2E — likely a user gate |
@@ -1096,6 +1096,80 @@ This document is the source of truth for progress. One bounded step per session.
   → clean. `bunx prettier --check` on both changed files → clean. `git status` clean apart from
   this handoff.
 
+### Task 9 — review round 1 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `198efa8..HEAD`, `packages/`
+  only — that range is exactly implementation commit `8e62ce1`).
+- Result: **one substantiated minor finding, fixed in `08b987d`.**
+- **Finding (minor, accepted and fixed) — the `## Loop` block asserted two things an agent cannot
+  act on together** (`flow-runner.ts:713`). It said "artifacts carry over between iterations" and,
+  three lines later, "Reuse the same artifact `<type>` names on every iteration". Each sentence is
+  true in isolation. Together they invite an agent to believe the previous iteration's value
+  survives *and* that it should write its own value under that same name — and the second belief
+  destroys the first.
+  - Mechanism confirmed by reading, not taken on the reviewer's word: `saveArtifact`
+    (`flow-runner.ts:429-433`) filters out every existing entry matching (`actionEntryId`, `type`)
+    **before** pushing the new one. The pre-existing Task 4 test `looping > an artifact re-saved in
+    iteration 2 replaces the iteration 1 value` (`flow-runner.test.ts:601`) already demonstrates it:
+    save `plan` = "first" in iteration 1, wrap, save `plan` = "second" in iteration 2, and the run
+    holds exactly one artifact whose text is `"second"`. No new repro was needed — the destructive
+    behaviour was already pinned; what was missing was the prompt telling the agent about it.
+  - Fix: one sentence appended to the artifact-naming line. It keeps the reuse advice unchanged,
+    states the replacement rule, and gives the actionable consequence — "so a carried-over artifact
+    is readable only until the same action overwrites it — fold anything you still need into the
+    new value." That last clause matters: the useful loop pattern is a rolling artifact the agent
+    rewrites while carrying forward what it still needs, and the previous wording gave no hint that
+    this is required rather than optional.
+  - **Why this counted as substantiated rather than a style preference.** Prompt wording *is* Task
+    9's deliverable, so a misleading sentence here is the defect class this task can produce. And
+    the harm is not hypothetical for this plan: the flow that is executing this very plan carries
+    state across iterations in a document, which is exactly the pattern the old wording would have
+    let an agent get wrong.
+- **Test power verified by mutation, after adding the guard.** New test `looped action prompt >
+  warns that re-saving an artifact type replaces the carried value` asserts the substring
+  `replaces that action's previous value`. Reverting `flow-runner.ts` to the exact pre-fix sentence
+  → **58 pass / 1 fail**, the single failure being the new test. Restored from a pristine copy
+  taken before the mutation; `git diff --stat` confirmed the production change back to one line
+  before committing.
+- **The prompt was read end to end, not just diffed.** A throwaway probe test rendered the full
+  generated `systemPrompt` for a looped run at iteration 1 and printed it; the probe file was
+  deleted and `git status` verified clean afterwards. Reading the assembled output is what made the
+  finding legible — the two sentences sit four lines apart in the rendered prompt and read as a
+  contradiction there in a way the diff hunk does not show.
+- Reviewer's other four focus areas came back **clear**, each re-derived by Claude from the code
+  before the report arrived; the two analyses agreed on every point:
+  1. **The `flow complete` wording does not overclaim.** It says "Run `taskflow-cli flow complete`
+     to end the whole loop immediately" — an instruction of intent, not a claim that a zero exit
+     proves the run ended. That matters because `completeFlow` returns silently when the run is not
+     `running` or when the calling session does not own the current action, and the route answers
+     200 `{"success":true}` regardless.
+  2. **The `run.loop ? (run.iteration ?? 1) : undefined` call site is the right shape.** Every
+     launch path (`startFlow`, `advanceOrComplete`, `startNextIteration`, `resumeFlow`,
+     `jumpToAction`) funnels through `launchAction` and passes the **live** `run` object, not a
+     reloaded copy — verified by reading `launchActionWithRecovery` and
+     `launchPersistedActionWithRecovery`, neither of which re-reads the run. `startNextIteration`
+     bumps `run.iteration` *before* relaunching action 0, so the wrap's prompt reports the new
+     number. `undefined` is the correct non-loop signal.
+  3. **Shell sessions do receive the prompt, via env — worth stating precisely rather than
+     "shell ignores it".** `session-lifecycle.ts:389-396` composes `buildSystemPrompt(...)` with the
+     runner's `systemPrompt` and exports the result as `TASKFLOW_SYSTEM_PROMPT` (`:432-434`). So a
+     looped shell action carries loop instructions in an environment variable that nothing reads
+     unless a script chooses to. Harmless, and arguably useful.
+  4. **`buildActionPrompt`'s unused `sessionType` parameter** is pre-existing and unchanged here.
+     The reviewer labelled it out-of-scope cleanup, as asked. Still a follow-up, not a Task 9 defect.
+- **Doc consistency checked, and a stale-copy trap identified for later sessions.** The repo's
+  source doc `packages/backend/src/services/taskflow-cli-flow-context-commands.md` **does** document
+  `flow complete` and the loop note (Task 8 added them), and it agrees with the new prompt —
+  including on the replacement rule, which line 11 has stated all along. The copy under
+  `~/.config/taskflow/agent-skills/` is written by the *running* app and is currently stale (no
+  `flow complete` line). Do not read that copy as the source of truth; `COMMAND_FILES` in
+  `internal-agent-skill.ts:27-33` imports the repo files, which is what ships.
+- Validation at `08b987d`: `bun test packages/backend/src/services/__tests__/flow-runner.test.ts` →
+  **59 pass, 0 fail** (up from 58 by the one new test). `bun test packages/backend` → **582 pass,
+  0 fail** (54 files, up from 581). `bun run typecheck` → all four packages exit 0. `bun run lint`
+  → clean. `bunx prettier --check` on both changed files → clean. `git status` clean apart from
+  this handoff.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -1307,40 +1381,57 @@ This document is the source of truth for progress. One bounded step per session.
   1's shell key. The case is unreachable from `startFlow` (which writes `loop` and `iteration`
   together), so this is the Task 4 round 3 situation — unreachable against real data, closed anyway
   because the cost is one test and Tasks 10-12 add more readers of `run.iteration`.
+- 2026-08-13: accepted Task 9 round 1's wording finding as a **defect** rather than filing it as a
+  style preference. The rule applied: for a task whose deliverable *is* prompt text, a sentence that
+  leads a competent agent to a false belief about runtime behaviour is the defect class the task can
+  produce — there is no other kind. The alternative reading (wording is taste; the skill doc already
+  states the replacement rule at `taskflow-cli-flow-context-commands.md:11`) is defensible, and was
+  rejected on one point: the skill doc reaches the agent as a **file path** it must choose to read
+  (that is the established convention), whereas the `## Loop` block is inlined into the system prompt
+  and read unconditionally. Two contradictory sentences four lines apart in the always-read text are
+  not repaired by a correct sentence in a file the agent may never open.
+- 2026-08-13: pinned the fix with a literal-substring assertion (`replaces that action's previous
+  value`) despite the coupling that creates between the test and the exact prose. Rationale: the
+  three pre-existing prompt tests already work this way, so this is the file's established pattern
+  rather than a new one, and the mutation check shows it is the only thing standing between the fix
+  and a silent revert. Round 2 is explicitly asked to challenge this — if a better assertion exists,
+  it should be adopted there rather than defended out of consistency.
 
 ## Next step
 
-Next step: **Task 9 — review round 1.**
+Next step: **Task 9 — review round 2.**
 
-Review range: `198efa8..HEAD`, `packages/` only — that is exactly implementation commit `8e62ce1`
-(two hunks in `flow-runner.ts`, plus the harness change and four tests in `flow-runner.test.ts`).
-Run one standard gpt-5.5 review via the `codex-review` skill, verify every finding yourself before
-acting on it, fix the substantiated ones, validate, commit.
+Review range: `1b6fb16..HEAD`, `packages/` only — that is exactly round-1 fix commit `08b987d`:
+one changed line in `flow-runner.ts` (the artifact-naming sentence in the `## Loop` block) plus one
+test and its five-line comment in `flow-runner.test.ts`. Run one standard gpt-5.5 review via the
+`codex-review` skill, verify every finding yourself before acting on it, fix the substantiated ones,
+validate, commit.
 
-What this round should actually look at, in rough order of risk:
+What this round should look at — it is a small diff, so scope it tightly:
 
-1. **The prompt wording is the deliverable, and it is barely test-covered.** Two `toContain`
-   substrings pin it (`taskflow-cli flow complete`, `iteration N`); every other sentence is
-   unguarded by construction. The hard constraint is the one already established: a refused
-   `completeFlow` returns 200 `{"success":true}` and `taskflow-cli flow complete` exits 0 either
-   way, so the prompt must not tell an agent that running the command proves the run ended. Check
-   the whole `## Loop` block against that, and against `taskflow-cli-flow-context-commands.md`,
-   which says the same things in different words.
-2. **Is telling the agent "artifacts carry over between iterations" accurate after Tasks 4-7?**
-   They do carry across a wrap, but `saveArtifact` dedupes on (`actionEntryId`, `type`), and
-   `resumeFlow` purges the retried action's current-iteration artifacts. The sentence is a
-   simplification; the question for the reviewer is whether it is a *misleading* one for an agent
-   that reads it and then plans around it.
-3. **The `run.loop ? (run.iteration ?? 1) : undefined` call site.** The fallback is unreachable
-   from `startFlow` and is guarded by the fourth test; the reviewer should say whether the ternary
-   is the right shape or whether the loop context belongs on the run object it already reads.
-4. **`buildActionPrompt`'s `sessionType` parameter is unused** — pre-existing, unchanged by this
-   task, and it did not become more or less used here. If the reviewer raises it, it is a cleanup
-   outside this plan, not a Task 9 finding.
-5. **Does a shell action get this prompt at all?** `buildActionPrompt` builds a `systemPrompt` for
-   every session type; whether a shell PTY does anything with it is worth one check, because a
-   looped shell flow now carries loop instructions no shell can read. Harmless if so — but say so
-   explicitly rather than assuming.
+1. **Is the new sentence itself accurate?** It now claims: re-saving a `<type>` from the same action
+   replaces that action's previous value; a carried-over artifact is readable only until the same
+   action overwrites it; fold what you still need into the new value. Check each clause against
+   `saveArtifact` (`flow-runner.ts:429-433`, the dedupe filter) and against `resumeFlow`'s
+   iteration-aware purge (`:272`). The dedupe key is (`actionEntryId`, `type`) — **per action**, not
+   per run — so a different action saving the same `<type>` does *not* collide. Does the wording
+   convey that, or does "the same action" do too much quiet work?
+2. **Is the `## Loop` block now too long to be read?** It is five paragraphs, one of which is now
+   three sentences. The block competes for attention with the base `## Taskflow CLI` section, which
+   already says "When you have completed this action, run `taskflow-cli action complete`" — the Loop
+   block repeats that instruction in different words. Redundancy across two sections of one prompt
+   is a legitimate wording finding for this task.
+3. **Does the added guidance contradict `taskflow-cli-flow-context-commands.md`?** The repo source
+   (`packages/backend/src/services/taskflow-cli-flow-context-commands.md`, **not** the stale copy in
+   `~/.config/taskflow/`) says the same thing at lines 11 and 13. They should agree in substance; if
+   the phrasings now pull in different directions, say which one is wrong.
+4. **Test quality.** The new test pins a single substring, `replaces that action's previous value`.
+   That is a literal-string coupling to the prompt — is it the right assertion, or does it just make
+   the wording harder to improve without buying real protection?
+
+If this round comes back clean, Task 9 is clear and the next step is **Task 10 — flow editor loop
+toggle** (the first UI task in the plan; note it is also what makes turning looping *off* possible
+at all, since `--loop` deliberately ships on `flow create` only).
 
 Carry forward, established in earlier rounds and not to be re-derived:
 
@@ -1350,6 +1441,14 @@ Carry forward, established in earlier rounds and not to be re-derived:
   actions stall a loop. Out of scope; matters for Task 12's manual check.
 - **The TypeScript CLI does not run on macOS/Linux today** — the shell script does. That is what
   makes its missing test harness tolerable.
+- **The agent-skill docs under `~/.config/taskflow/agent-skills/` are a stale runtime copy.** They
+  are rewritten by the running app from `COMMAND_FILES` (`internal-agent-skill.ts:27-33`), which
+  imports the markdown in `packages/backend/src/services/`. The `~/.config` copy currently predates
+  Task 8 and has no `flow complete` line. Always read and edit the repo copy; reading the installed
+  one produces phantom "the docs disagree" findings.
+- **`saveArtifact`'s dedupe key is (`actionEntryId`, `type`) — per action, not per run.** Two
+  different actions may hold the same `<type>` simultaneously without colliding. Relevant to any
+  future wording about artifact naming.
 - **`taskflow-cli-flow-commands.md` promises a flow-editor loop toggle that Task 10 has not built
   yet.** Self-resolves when Task 10 lands; must be revisited if Task 10 is dropped or rescoped.
 
@@ -1372,7 +1471,8 @@ Standing constraints, all learned the hard way earlier in this plan:
 - `withOwnerLock` is **not** re-entrant. `endRun`, `advanceOrComplete`, `startNextIteration`,
   `failFlow`, and the launch helpers must stay unlocked.
 
-Baseline for judging any redness: at `8e62ce1`,
-`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` -> 58 pass / 0 fail,
-`bun test packages/backend` -> 581 pass / 0 fail, `bun run typecheck` -> all four packages exit 0,
-`bun run lint` -> clean. Anything red belongs to the review round's own changes.
+Baseline for judging any redness: at `08b987d`,
+`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` -> 59 pass / 0 fail,
+`bun test packages/backend` -> 582 pass / 0 fail, `bun run typecheck` -> all four packages exit 0,
+`bun run lint` -> clean, `bunx prettier --check` on the two changed files -> clean. Anything red
+belongs to the review round's own changes.
