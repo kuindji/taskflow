@@ -303,8 +303,15 @@ class FlowRunner {
             if (run.loop) {
                 // Stopping a loop is its normal ending, not an error: a looped
                 // run has no last action to finish on, so Stop is how it ends.
+                // The exception is a loop already paused *on a failed action* —
+                // that run stopped making progress because of the failure, so it
+                // ends failed, the same outcome a finite run reports in exactly
+                // that situation. Only the current action is consulted: an
+                // earlier failed action can be one the user deliberately jumped
+                // past (jumpToAction leaves it failed and keeps the run going).
+                const currentAction = run.actions[run.currentActionIndex];
                 await this.endRun(run, {
-                    status: "completed",
+                    status: currentAction?.status === "failed" ? "failed" : "completed",
                     runningStepOutcome: "skipped",
                     skipPending: true,
                 });

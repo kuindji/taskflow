@@ -382,6 +382,37 @@ describe("stopFlow — looped runs", () => {
         expect(broadcasts).toHaveLength(broadcastCount);
         expect(closedSessions).toEqual(["session-1"]);
     });
+
+    test("ends a looped run paused on a failed action as failed, not completed", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
+        // The agent on action 1 exits without signalling completion: the action
+        // is marked failed and the run is paused.
+        await runner.handleSessionExit(spawnedSessions[1].sessionId, 1);
+
+        await runner.stopFlow("task-1", "loop-flow");
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("failed");
+        expect(run?.completedAt).toBeDefined();
+        expect(run?.actions[0].status).toBe("completed");
+        expect(run?.actions[1].status).toBe("failed");
+    });
+
+    // Companion guard for the test above: pins that only a *failed* current
+    // action turns a loop stop into a failure. pauseFlow leaves the action
+    // "running", so a manual pause still ends the loop as completed.
+    test("ends a manually paused looped run as completed", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.pauseFlow("task-1", "loop-flow");
+
+        await runner.stopFlow("task-1", "loop-flow");
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("completed");
+        expect(run?.actions[0].status).toBe("skipped");
+        expect(run?.actions[1].status).toBe("skipped");
+    });
 });
 
 describe("owner lock", () => {
