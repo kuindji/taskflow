@@ -63,6 +63,40 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
         }
     });
 
+    // --- Flow completion (ends the whole run from any action) ---
+
+    apiRouter.register("POST", "/api/flow/complete", async (req) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+
+        const { taskId, projectId, flowId, sessionId } = body;
+        const ownerId =
+            typeof taskId === "string"
+                ? taskId
+                : typeof projectId === "string"
+                  ? projectId
+                  : undefined;
+        if (!ownerId || typeof flowId !== "string" || typeof sessionId !== "string") {
+            return errorResponse(
+                "Fields flowId, sessionId, and one of taskId/projectId are required strings",
+                400,
+            );
+        }
+
+        try {
+            await flowRunner.completeFlow(ownerId, flowId, sessionId);
+            return jsonResponse({ success: true });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/flow/complete failed:", err);
+            return errorResponse(message, 500);
+        }
+    });
+
     // --- Flow artifacts ---
 
     apiRouter.register("POST", "/api/flow/artifact", async (req) => {

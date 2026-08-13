@@ -219,4 +219,50 @@ describe("flow lifecycle integration", () => {
         expect(run?.actions[1].sessionId).toBe("session-2");
         expect(spawnedSessions).toHaveLength(2);
     });
+
+    test("runs a looped flow through two iterations and ends on completeFlow", async () => {
+        const loopFlow: FlowDefinition = {
+            ...testFlow,
+            id: "loop-flow",
+            loop: true,
+        };
+        await flowStore.saveFlow(loopFlow);
+        await runner.startFlow(taskOwner, loopFlow);
+
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[1].sessionId);
+
+        let run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.iteration).toBe(2);
+        expect(run?.status).toBe("running");
+
+        await runner.completeFlow("task-1", "loop-flow", spawnedSessions[2].sessionId);
+
+        run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("completed");
+    });
+
+    test("resumes a looped run in the same iteration after crash recovery", async () => {
+        const loopFlow: FlowDefinition = { ...testFlow, id: "loop-recover", loop: true };
+        await flowStore.saveFlow(loopFlow);
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.handleActionComplete("task-1", "loop-recover", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "loop-recover", spawnedSessions[1].sessionId);
+
+        // Replicate the startup recovery transform from index.ts:242.
+        const stranded = await flowStore.getFlowRun("task-1", "loop-recover");
+        if (!stranded) throw new Error("expected a run");
+        stranded.status = "paused";
+        stranded.actions[stranded.currentActionIndex].status = "failed";
+        stranded.actions[stranded.currentActionIndex].sessionId = undefined;
+        await flowStore.saveFlowRun(stranded);
+
+        await runner.resumeFlow("task-1", "loop-recover");
+
+        const run = await flowStore.getFlowRun("task-1", "loop-recover");
+        expect(run?.status).toBe("running");
+        expect(run?.loop).toBe(true);
+        expect(run?.iteration).toBe(2);
+        expect(run?.currentActionIndex).toBe(0);
+    });
 });

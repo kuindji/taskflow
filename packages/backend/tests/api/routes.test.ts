@@ -289,6 +289,104 @@ describe("flow artifact routes", () => {
     });
 });
 
+describe("flow complete route", () => {
+    let apiRouter: ApiRouter;
+    const flowRunner = {
+        completeFlow: mock(async () => {}),
+    };
+
+    beforeEach(() => {
+        apiRouter = new ApiRouter();
+        flowRunner.completeFlow.mockClear();
+        registerApiRoutes({
+            apiRouter,
+            taskStore: {} as never,
+            ptyManager: new FakePtyManager() as never,
+            broadcast: () => {},
+            settingsStore: {} as never,
+            flowStore: {} as never,
+            flowRunner: flowRunner as never,
+            gitService: {} as never,
+            agents: [],
+            ...sharedTestDeps,
+            trayStateTracker: new FakeTrayStateTracker() as never,
+            notificationStore: {} as never,
+        });
+    });
+
+    it("delegates a valid request to the runner", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/flow/complete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    taskId: "task-1",
+                    flowId: "flow-1",
+                    sessionId: "session-1",
+                }),
+            }),
+        );
+
+        expect(response?.status).toBe(200);
+        expect(flowRunner.completeFlow).toHaveBeenCalledWith("task-1", "flow-1", "session-1");
+    });
+
+    it("accepts a project owner", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/flow/complete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    projectId: "project-1",
+                    flowId: "flow-1",
+                    sessionId: "session-1",
+                }),
+            }),
+        );
+
+        expect(response?.status).toBe(200);
+        expect(flowRunner.completeFlow).toHaveBeenCalledWith("project-1", "flow-1", "session-1");
+    });
+
+    it("rejects a request with no owner", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/flow/complete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ flowId: "flow-1", sessionId: "session-1" }),
+            }),
+        );
+
+        expect(response?.status).toBe(400);
+        expect(flowRunner.completeFlow).not.toHaveBeenCalled();
+    });
+
+    it("rejects a request with no sessionId", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/flow/complete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ taskId: "task-1", flowId: "flow-1" }),
+            }),
+        );
+
+        expect(response?.status).toBe(400);
+        expect(flowRunner.completeFlow).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invalid JSON body", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/flow/complete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "not json",
+            }),
+        );
+        expect(response?.status).toBe(400);
+        expect(flowRunner.completeFlow).not.toHaveBeenCalled();
+    });
+});
+
 describe("task creation routes", () => {
     let apiRouter: ApiRouter;
     let tempDir: string;

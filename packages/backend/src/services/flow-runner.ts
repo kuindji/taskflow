@@ -168,6 +168,28 @@ class FlowRunner {
         });
     }
 
+    // Ends the run from any step, looped or not. Unlike handleActionComplete,
+    // this always closes the calling session: the run is ending, so there is
+    // nothing left for that session to do — the same thing stopFlow and
+    // failFlow already do via endRun.
+    async completeFlow(ownerId: string, flowId: string, sessionId: string): Promise<void> {
+        return this.withOwnerLock(ownerId, async () => {
+            const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            if (!run || run.status !== "running") return;
+
+            // Only the session running the current step may end the flow, so a
+            // stale session cannot kill a live run.
+            const currentAction = run.actions[run.currentActionIndex];
+            if (!currentAction || currentAction.sessionId !== sessionId) return;
+
+            await this.endRun(run, {
+                status: "completed",
+                runningStepOutcome: "completed",
+                skipPending: true,
+            });
+        });
+    }
+
     async skipAction(ownerId: string, flowId: string): Promise<void> {
         return this.withOwnerLock(ownerId, async () => {
             const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);

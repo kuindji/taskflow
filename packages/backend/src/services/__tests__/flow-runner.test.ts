@@ -909,3 +909,90 @@ describe("saveArtifact", () => {
         ).rejects.toThrow("Artifacts can only be saved by the active action session");
     });
 });
+
+describe("completeFlow", () => {
+    test("ends the run immediately and skips the remaining steps", async () => {
+        const threeStep: FlowDefinition = {
+            ...loopFlow,
+            id: "three-step-flow",
+            actions: [
+                { id: "entry-1", inline: { name: "A", prompt: "a", sessionType: "claude" } },
+                { id: "entry-2", inline: { name: "B", prompt: "b", sessionType: "claude" } },
+                { id: "entry-3", inline: { name: "C", prompt: "c", sessionType: "claude" } },
+            ],
+        };
+        await flowStore.saveFlow(threeStep);
+        await runner.startFlow(taskOwner, threeStep);
+        await runner.handleActionComplete(
+            "task-1",
+            "three-step-flow",
+            spawnedSessions[0].sessionId,
+        );
+        // Now on step 2 of 3.
+        await runner.completeFlow("task-1", "three-step-flow", spawnedSessions[1].sessionId);
+
+        const run = await flowStore.getFlowRun("task-1", "three-step-flow");
+        expect(run?.status).toBe("completed");
+        expect(run?.actions[1].status).toBe("completed");
+        expect(run?.actions[2].status).toBe("skipped");
+        expect(spawnedSessions).toHaveLength(2);
+    });
+
+    test("closes the calling session", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        const sessionId = spawnedSessions[0].sessionId;
+        await runner.completeFlow("task-1", "loop-flow", sessionId);
+
+        expect(closedSessions).toContain(sessionId);
+    });
+
+    test("closes the calling session on a non-looped run too", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        const sessionId = spawnedSessions[0].sessionId;
+        await runner.completeFlow("task-1", "flow-1", sessionId);
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.status).toBe("completed");
+        expect(closedSessions).toContain(sessionId);
+        expect(run?.actions[0].sessionId).toBeUndefined();
+    });
+
+    test("a session that does not own the current step cannot end the run", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.completeFlow("task-1", "loop-flow", "some-other-session");
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("running");
+    });
+
+    test("a later exit from the closed session does not alter the completed run", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        const sessionId = spawnedSessions[0].sessionId;
+        await runner.completeFlow("task-1", "loop-flow", sessionId);
+        await runner.handleSessionExit(sessionId, 0);
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("completed");
+    });
+
+    // The ownership check cannot cover this one: handleSessionExit's failure
+    // branch pauses the run and marks the action failed but leaves its
+    // sessionId in place, so a complete request that lands just after the exit
+    // is processed still passes ownership. Only the status guard stops a run
+    // that died on an error from reporting success.
+    test("a run paused by a failed session exit cannot then be completed", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        const sessionId = spawnedSessions[0].sessionId;
+        await runner.handleSessionExit(sessionId, 1);
+
+        const paused = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(paused?.status).toBe("paused");
+        expect(paused?.actions[0].sessionId).toBe(sessionId);
+
+        await runner.completeFlow("task-1", "loop-flow", sessionId);
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("paused");
+        expect(run?.actions[0].status).toBe("failed");
+    });
+});
