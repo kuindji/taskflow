@@ -274,6 +274,31 @@ describe("resumeFlow", () => {
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.artifacts).toEqual([]);
     });
+
+    // The purge is scoped to the action being retried. An earlier action's
+    // output is finished work the retry may be about to read, so it survives —
+    // on a finite run as much as on a looped one.
+    test("keeps another action's artifacts while dropping the retried action's", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await runner.saveArtifact("task-1", "flow-1", "entry-1", spawnedSessions[0].sessionId, {
+            type: "plan",
+            text: "finished plan from action 1",
+        });
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
+        await runner.saveArtifact("task-1", "flow-1", "entry-2", spawnedSessions[1].sessionId, {
+            type: "review",
+            text: "half-written review",
+        });
+        await runner.pauseFlow("task-1", "flow-1");
+
+        await runner.resumeFlow("task-1", "flow-1");
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.currentActionIndex).toBe(1);
+        expect(run?.artifacts).toHaveLength(1);
+        expect(run?.artifacts[0].actionEntryId).toBe("entry-1");
+        expect(run?.artifacts[0].text).toBe("finished plan from action 1");
+    });
 });
 
 describe("stopFlow", () => {
