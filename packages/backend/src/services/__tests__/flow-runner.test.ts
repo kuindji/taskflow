@@ -57,7 +57,12 @@ function createMockFlowStore(): FlowStore {
 }
 
 let flowStore: FlowStore;
-let spawnedSessions: Array<{ sessionId: string; owner: FlowOwner; prompt: string }>;
+let spawnedSessions: Array<{
+    sessionId: string;
+    owner: FlowOwner;
+    prompt: string;
+    systemPrompt?: string;
+}>;
 let broadcasts: Array<{ type: string; payload: unknown }>;
 let closedSessions: string[];
 let spawnError: Error | null;
@@ -114,7 +119,12 @@ beforeEach(async () => {
                 throw spawnError;
             }
             const sessionId = `session-${spawnedSessions.length + 1}`;
-            spawnedSessions.push({ sessionId, owner: opts.owner, prompt: opts.prompt });
+            spawnedSessions.push({
+                sessionId,
+                owner: opts.owner,
+                prompt: opts.prompt,
+                systemPrompt: opts.systemPrompt,
+            });
             return sessionId;
         },
         closeSession: (sessionId) => {
@@ -1008,5 +1018,62 @@ describe("completeFlow", () => {
         const run = await flowStore.getFlowRun("task-1", "loop-flow");
         expect(run?.status).toBe("paused");
         expect(run?.actions[0].status).toBe("failed");
+    });
+});
+
+describe("looped action prompt", () => {
+    test("tells the agent the flow loops, which iteration it is, and how to end it", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        const systemPrompt = spawnedSessions[0].systemPrompt ?? "";
+
+        expect(systemPrompt).toContain("taskflow-cli flow complete");
+        expect(systemPrompt).toContain("iteration 1");
+    });
+
+    test("reports the new iteration number after a wrap", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[1].sessionId);
+
+        expect(spawnedSessions[2].systemPrompt ?? "").toContain("iteration 2");
+    });
+
+    // Regression guard: green before and after. Pins that loop instructions never
+    // leak into a finite flow's prompt.
+    test("a non-looped flow's prompt does not mention flow complete", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        expect(spawnedSessions[0].systemPrompt ?? "").not.toContain("flow complete");
+    });
+
+    test("a looped run with no iteration recorded still gets the loop section", async () => {
+        // startFlow always writes loop and iteration together, so an unnumbered
+        // looped run can only come from outside this code — a hand-edited run
+        // file, or one persisted before iteration existed. Dropping the whole
+        // Loop section there would leave the agent with no way to end the run,
+        // so the call site falls back to iteration 1 rather than to undefined.
+        await flowStore.saveFlowRun({
+            taskId: "task-1",
+            flowId: "loop-flow",
+            status: "paused",
+            loop: true,
+            currentActionIndex: 0,
+            actions: [
+                {
+                    actionEntryId: "entry-1",
+                    status: "failed",
+                    startedAt: "2026-08-13T10:00:00.000Z",
+                    completedAt: "2026-08-13T10:01:00.000Z",
+                },
+                { actionEntryId: "entry-2", status: "pending" },
+            ],
+            artifacts: [],
+            startedAt: "2026-08-13T09:00:00.000Z",
+        });
+
+        await runner.resumeFlow("task-1", "loop-flow");
+
+        const systemPrompt = spawnedSessions[0].systemPrompt ?? "";
+        expect(systemPrompt).toContain("taskflow-cli flow complete");
+        expect(systemPrompt).toContain("iteration 1");
     });
 });

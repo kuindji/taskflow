@@ -577,6 +577,7 @@ class FlowRunner {
             ownerDescription,
             resolved.sessionType,
             !!owner.projectId,
+            run.loop ? (run.iteration ?? 1) : undefined,
         );
 
         const ownerId = this.getOwnerId(owner);
@@ -687,9 +688,11 @@ class FlowRunner {
         ownerDescription: string,
         sessionType: SessionType,
         isProjectScope: boolean,
+        // Defined only for a looped run; carries the iteration the agent is in.
+        loopIteration?: number,
     ): { prompt: string; systemPrompt?: string } {
         const descriptionHeader = isProjectScope ? "Project Description" : "Task Description";
-        const systemPrompt = [
+        const sections = [
             `## ${descriptionHeader}\n\n${ownerDescription}`,
             `## Taskflow CLI`,
             `Use \`taskflow-cli task\` to read task info and logs.`,
@@ -698,8 +701,21 @@ class FlowRunner {
             `Use \`taskflow-cli flow input\` to list all flow input values.`,
             `Use \`taskflow-cli flow input <id>\` to get a specific input value.`,
             `When you have completed this action, run \`taskflow-cli action complete\`.`,
-        ].join("\n\n");
-        return { prompt: actionPrompt, systemPrompt };
+        ];
+
+        if (loopIteration !== undefined) {
+            sections.push(
+                [
+                    `## Loop`,
+                    `This flow is a loop. After its last action completes it restarts from the first action with the same inputs, and artifacts carry over between iterations. You are in iteration ${loopIteration}.`,
+                    `Run \`taskflow-cli action complete\` to finish this action and move to the next one.`,
+                    `Run \`taskflow-cli flow complete\` to end the whole loop immediately.`,
+                    `Reuse the same artifact \`<type>\` names on every iteration instead of inventing per-iteration names.`,
+                ].join("\n\n"),
+            );
+        }
+
+        return { prompt: actionPrompt, systemPrompt: sections.join("\n\n") };
     }
 
     private broadcastUpdate(run: FlowRun): void {
