@@ -129,6 +129,8 @@ class FlowRunner {
                 })),
                 artifacts: [],
                 inputValues: flow.inputs && flow.inputs.length > 0 ? inputValues : undefined,
+                loop: flow.loop ? true : undefined,
+                iteration: flow.loop ? 1 : undefined,
                 startedAt: new Date().toISOString(),
             };
 
@@ -373,7 +375,9 @@ class FlowRunner {
     }
 
     getArtifacts(run: FlowRun, type?: string): FlowArtifact[] {
-        const artifacts = type ? run.artifacts.filter((a) => a.type === type) : run.artifacts;
+        // filter already returns a new array; the untyped branch needs the copy
+        // so sorting cannot reorder the run's own artifact list in place.
+        const artifacts = type ? run.artifacts.filter((a) => a.type === type) : [...run.artifacts];
         return artifacts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
 
@@ -441,6 +445,10 @@ class FlowRunner {
     private async advanceOrComplete(run: FlowRun): Promise<void> {
         const nextIndex = run.currentActionIndex + 1;
         if (nextIndex >= run.actions.length) {
+            if (run.loop) {
+                await this.startNextIteration(run);
+                return;
+            }
             run.status = "completed";
             run.completedAt = new Date().toISOString();
             await this.deps.flowStore.saveFlowRun(run);
@@ -456,6 +464,24 @@ class FlowRunner {
 
         const owner = this.ownerFromRun(run);
         await this.launchPersistedActionWithRecovery(owner, run.flowId, run, nextIndex);
+    }
+
+    // Runs inside the owner lock already held by the public caller, via the
+    // unlocked advanceOrComplete. It must not take the lock itself.
+    private async startNextIteration(run: FlowRun): Promise<void> {
+        for (const action of run.actions) {
+            this.resetActionState(action);
+        }
+        // Artifacts and inputValues are deliberately preserved across the wrap.
+        run.iteration = (run.iteration ?? 1) + 1;
+        run.currentActionIndex = 0;
+        run.actions[0].status = "running";
+        run.actions[0].startedAt = new Date().toISOString();
+        await this.deps.flowStore.saveFlowRun(run);
+        this.broadcastUpdate(run);
+
+        const owner = this.ownerFromRun(run);
+        await this.launchPersistedActionWithRecovery(owner, run.flowId, run, 0);
     }
 
     private async launchAction(

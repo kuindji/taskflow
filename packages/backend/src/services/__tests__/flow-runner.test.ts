@@ -83,6 +83,19 @@ const testFlow: FlowDefinition = {
     updatedAt: new Date().toISOString(),
 };
 
+const loopFlow: FlowDefinition = {
+    id: "loop-flow",
+    name: "Loop Flow",
+    description: "test",
+    loop: true,
+    actions: [
+        { id: "entry-1", inline: { name: "Plan", prompt: "Write a plan", sessionType: "claude" } },
+        { id: "entry-2", inline: { name: "Review", prompt: "Review it", sessionType: "claude" } },
+    ],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+};
+
 beforeEach(async () => {
     flowStore = createMockFlowStore();
     spawnedSessions = [];
@@ -92,6 +105,7 @@ beforeEach(async () => {
 
     // Seed the flow definition so resolveFlowDefinition can find it
     await flowStore.saveFlow(testFlow);
+    await flowStore.saveFlow(loopFlow);
 
     runner = new FlowRunner({
         flowStore,
@@ -395,6 +409,169 @@ describe("handleSessionExit", () => {
         expect(run?.currentActionIndex).toBe(1);
         expect(run?.actions[1].status).toBe("running");
         expect(spawnedSessions).toHaveLength(2);
+    });
+});
+
+describe("looping", () => {
+    test("wraps to iteration 2 instead of completing", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[1].sessionId);
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("running");
+        expect(run?.iteration).toBe(2);
+        expect(run?.currentActionIndex).toBe(0);
+        expect(run?.actions[0].status).toBe("running");
+        expect(run?.actions[1].status).toBe("pending");
+        expect(run?.actions[1].completedAt).toBeUndefined();
+        expect(spawnedSessions).toHaveLength(3);
+    });
+
+    test("carries inputs and artifacts across the wrap", async () => {
+        const inputFlow: FlowDefinition = {
+            ...loopFlow,
+            id: "loop-input-flow",
+            inputs: [{ id: "topic", label: "Topic", type: "text" }],
+        };
+        await flowStore.saveFlow(inputFlow);
+        await runner.startFlow(taskOwner, inputFlow, { topic: "caching" });
+
+        await runner.saveArtifact(
+            "task-1",
+            "loop-input-flow",
+            "entry-1",
+            spawnedSessions[0].sessionId,
+            { type: "plan", text: "iteration one plan" },
+        );
+        await runner.handleActionComplete(
+            "task-1",
+            "loop-input-flow",
+            spawnedSessions[0].sessionId,
+        );
+        await runner.handleActionComplete(
+            "task-1",
+            "loop-input-flow",
+            spawnedSessions[1].sessionId,
+        );
+
+        const run = await flowStore.getFlowRun("task-1", "loop-input-flow");
+        // Pin that we actually wrapped — without these three, the test passes on
+        // current code, since a completed finite run also retains inputs/artifacts.
+        expect(run?.status).toBe("running");
+        expect(run?.iteration).toBe(2);
+        expect(run?.currentActionIndex).toBe(0);
+        expect(run?.inputValues).toEqual({ topic: "caching" });
+        expect(run?.artifacts).toHaveLength(1);
+        expect(run?.artifacts[0].text).toBe("iteration one plan");
+    });
+
+    test("an artifact re-saved in iteration 2 replaces the iteration 1 value", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.saveArtifact("task-1", "loop-flow", "entry-1", spawnedSessions[0].sessionId, {
+            type: "plan",
+            text: "first",
+        });
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[1].sessionId);
+
+        // Now in iteration 2, action 0, on a fresh session
+        await runner.saveArtifact("task-1", "loop-flow", "entry-1", spawnedSessions[2].sessionId, {
+            type: "plan",
+            text: "second",
+        });
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.artifacts).toHaveLength(1);
+        expect(run?.artifacts[0].text).toBe("second");
+    });
+
+    test("editing loop off on the definition does not change a run already in flight", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await flowStore.saveFlow({ ...loopFlow, loop: false });
+
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[1].sessionId);
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("running");
+        expect(run?.iteration).toBe(2);
+    });
+
+    test("a launch failure on the first action of a new iteration pauses the run", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
+        spawnError = new Error("spawn failed");
+
+        const rejection = await runner
+            .handleActionComplete("task-1", "loop-flow", spawnedSessions[1].sessionId)
+            .catch((error: unknown) => error);
+        expect(rejection).toBeInstanceOf(Error);
+        expect(rejection).toHaveProperty("message", "spawn failed");
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("paused");
+        expect(run?.iteration).toBe(2);
+        expect(run?.actions[0].status).toBe("failed");
+    });
+
+    test("a step failing mid-loop pauses the run instead of wrapping, and Resume retries it", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
+        // Agent on the last step exits without signalling completion.
+        await runner.handleSessionExit(spawnedSessions[1].sessionId, 1);
+
+        let run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("paused");
+        expect(run?.iteration).toBe(1);
+        expect(run?.currentActionIndex).toBe(1);
+        expect(run?.actions[1].status).toBe("failed");
+
+        await runner.resumeFlow("task-1", "loop-flow");
+
+        run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("running");
+        expect(run?.iteration).toBe(1);
+        expect(run?.currentActionIndex).toBe(1);
+        expect(spawnedSessions).toHaveLength(3);
+    });
+
+    // Regression guard: green before and after. Pins that adding the wrap branch
+    // does not change the finite-flow path.
+    test("a non-looped flow still completes after its last action", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[1].sessionId);
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.status).toBe("completed");
+        expect(run?.iteration).toBeUndefined();
+    });
+});
+
+describe("getArtifacts", () => {
+    test("does not reorder the run's artifact array", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        if (!run) throw new Error("expected a run");
+        run.artifacts = [
+            {
+                type: "a",
+                text: "older",
+                actionEntryId: "entry-1",
+                createdAt: "2020-01-01T00:00:00.000Z",
+            },
+            {
+                type: "b",
+                text: "newer",
+                actionEntryId: "entry-1",
+                createdAt: "2030-01-01T00:00:00.000Z",
+            },
+        ];
+
+        runner.getArtifacts(run);
+
+        expect(run.artifacts.map((a) => a.type)).toEqual(["a", "b"]);
     });
 });
 
