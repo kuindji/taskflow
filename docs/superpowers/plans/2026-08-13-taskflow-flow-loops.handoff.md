@@ -21,7 +21,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 7 | `completeFlow` and its route | clear | `f2a3228` | Impl `8ea61ed`; round 1 clear, test-only guard `be060a3` |
 | 8 | CLI — `flow complete` and `--loop` on `flow create` | clear | `fe5d92d` | Impl `6d419d6`; round 1 clear, no fix commit |
 | 9 | Tell the agent it is in a loop | clear | `198efa8` | Impl `8e62ce1`; round 1 fix `08b987d`; round 2 clear, no commit |
-| 10 | Flow editor — loop toggle | pending | — | |
+| 10 | Flow editor — loop toggle | implemented | `62b7da6` | Impl `f32ad9d`; review round 1 due |
 | 11 | Flow panel — iteration indicator, loop-aware stop | pending | — | |
 | 12 | Full verification | pending | — | Includes manual E2E — likely a user gate |
 
@@ -1241,6 +1241,69 @@ This document is the source of truth for progress. One bounded step per session.
   packages exit 0. `bun run lint` → clean. `git status` clean apart from this handoff, and
   verified clean again after every mutation and after the probe was removed.
 
+### Task 10 — implementation (2026-08-13)
+
+- Base commit `62b7da6`; implementation commit `f32ad9d`. `62b7da6` is the docs-only commit
+  carrying this handoff, which is the base the standing convention calls for — the review range
+  `62b7da6..HEAD` then contains only code.
+- **The previous session's open question 2 is resolved: this task gets a test.** The handoff said
+  "there is no UI test harness in play for this file". That was wrong about the repo, not about the
+  plan: `packages/ui` has a real DOM component-test harness — `@happy-dom/global-registrator` is
+  preloaded from the root `bunfig.toml` (`packages/ui/tests/preload.ts`) and three existing tests
+  mount components with `react-dom/client`'s `createRoot` plus `act` (`AttributesSection.test.tsx`,
+  `MarkdownPaneImpl.anchors/checkbox.test.tsx`). The plan prescribes no test here, but the failure
+  mode it names — miss one of four threading places and Save silently stays disabled — is exactly
+  what a mount-and-click test catches and what typecheck cannot.
+- New file `packages/ui/src/components/flows/FlowEditor.loop.test.tsx`, five tests, following the
+  `AttributesSection.test.tsx` shape (`mock.module` on the `@/` alias, `IS_REACT_ACT_ENVIRONMENT`,
+  `createRoot` + `act`, `unmountPrevious` in `beforeEach` and `afterAll`). Two harness notes worth
+  carrying:
+  1. **`@/stores/project-store` must be mocked** — it opens a websocket subscription at import time.
+  2. **`./FlowActionList` must be stubbed.** It pulls in `InlineActionEditor`, which loads
+     **monaco** at import time; monaco attaches document-level listeners that throw
+     `Canceled: Canceled` out of any synthetic `click` dispatched on the mounted tree. Symptom is a
+     failure inside `HTMLButtonElement.dispatchEvent` with a monaco `clipboardService` frame — not
+     an obvious "monaco is loaded" message. Any future test that mounts `FlowEditor` needs the same
+     stub.
+  3. The fixture's inline action needs `agentOptions: { type: "claude" }`. `isValid` requires
+     `agentOptions?.type === sessionType`, and `disabled={!isValid || !hasChanges}` — without it
+     Save stays disabled no matter what the loop toggle does, and every dirty-check assertion is
+     vacuous in the wrong direction.
+- Five production changes in `FlowEditor.tsx`, all as the plan specifies: the `Switch` import, the
+  `loop` state, the `Switch` + `Label` + helper paragraph below the description field, `loop` in the
+  `handleSave` payload and its dependency array, and `loop` in **both** snapshots.
+- Step 4 confirmed with no change needed: `flow-store.ts:109` sends the whole `FlowDefinition` over
+  `MSG.FLOW_DEFINITION_SAVE`, `handlers/flow.ts:44-49` passes the whole payload to
+  `flowStore.saveFlow`, and `FlowManagementDialog.tsx:85-89` forwards the editor's object verbatim.
+  No field-picking anywhere on the path.
+- **Red before, green after**: on `62b7da6` the new file ran **0 pass / 5 fail**, every failure being
+  `no loop switch rendered`. After the change: **5 pass / 0 fail**.
+- **Test power verified by mutation — one threading place at a time**, since all five landed in the
+  same commit and a joint red proves nothing about which test holds which place. Each mutation was
+  applied to a pristine copy and reverted immediately; `git diff --stat` confirmed the restore:
+  - `loop` dropped from **`currentSnapshot`** → 3 pass / 2 fail: both "Save disabled" tests.
+  - `loop` dropped from **`initialSnapshot`** → 3 pass / 2 fail: the same two. (The two snapshot
+    mutations are indistinguishable by symptom — either one makes the snapshots asymmetric, so the
+    editor opens dirty. That is fine: neither is unguarded, which is what the mutation is for.)
+  - `loop` dropped from the **`handleSave` payload** → 3 pass / 2 fail: both "saves loop: …" tests.
+  - `loop` dropped from the **`handleSave` deps array** → the same two. A stale callback saves the
+    pre-toggle value, so it is the same observable defect as dropping the payload field.
+  - `useState(false)` instead of `useState(flow?.loop ?? false)` → 3 pass / 2 fail: `an existing
+    looped flow renders the toggle on with Save disabled` and `toggling loop off …`.
+- **The manual Electron check (plan Step 5) was NOT done — deferred to Task 12**, which owns manual
+  E2E. Saying it plainly rather than implying the toggle was seen working in the app: what is
+  verified here is mount → toggle → save payload, in a component test, plus typecheck and lint. The
+  round-trip through the backend is covered indirectly (Task 1's `flow-store` tests accept `loop`;
+  the save path forwards the whole definition, confirmed by reading all three hops), but nobody has
+  ticked the box in a running app.
+- Validation at `f32ad9d`: `bun test packages/ui/src/components/flows/FlowEditor.loop.test.tsx` →
+  **5 pass, 0 fail**. `bun test packages/ui` → **133 pass, 0 fail** (20 files, up from 128/19 by this
+  file). `bun test packages/backend` → **582 pass, 0 fail** (54 files, unchanged from baseline).
+  `bun run typecheck` → all four packages exit 0. `bun run lint` → clean. `bunx prettier --check` on
+  both changed files → clean (the editor needed one `--write` reflow of the `<code>` element first).
+  The 101 pre-existing `not wrapped in act(...)` warnings in the UI suite were counted at `62b7da6`
+  and again at HEAD — **identical**, so this file adds none.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -1488,41 +1551,71 @@ This document is the source of truth for progress. One bounded step per session.
   ambiguous with or without this wording. And rewording is a production change, which would force a
   round 3 on prose for a case the underlying bug makes wrong anyway. **Fix the resolution bug, then
   revisit the sentence** — in that order, outside this plan.
+- 2026-08-13: **wrote a component test for Task 10**, reversing the previous session's framing that
+  no UI harness was in play. The framing was a factual error about the repo — `packages/ui` has had
+  a happy-dom + `createRoot`/`act` harness since before this plan, used by three existing component
+  tests. Given that, the choice was between a ~140-line test and a "verified by typecheck plus
+  manual invocation" note like Task 8's. It went the other way because the two situations differ in
+  one respect that matters: Task 8's gap was the *TypeScript CLI*, which does not run on this
+  platform at all, whereas this toggle is the only way to turn looping **off** and its failure mode
+  is silent (a Save button that never enables). The mutation matrix earned it — all five threading
+  places are individually guarded, and typecheck catches none of them.
+- 2026-08-13: stubbed `./FlowActionList` in the test rather than making the real component mountable
+  under happy-dom. The real one loads monaco transitively, and monaco's document-level listeners
+  throw out of any synthetic click. Making that work would mean either a monaco stub of its own or a
+  jsdom-vs-happy-dom change — a test-infrastructure project, not part of a loop toggle. The stub
+  costs nothing here because the loop toggle's behaviour is independent of the action list; a future
+  test that needs the *real* list will have to solve the monaco problem, and the implementation entry
+  above records the symptom so nobody re-diagnoses it from the `Canceled: Canceled` trace.
+- 2026-08-13: kept the plan's helper-paragraph copy verbatim rather than trimming it. It is
+  agent-facing documentation in disguise — it is the only place in the UI that names
+  `taskflow-cli flow complete` as the way to end a loop, and it states the two facts an author needs
+  (restarts from the first action; inputs and artifacts carry over). Added `className="bg-muted
+  rounded px-1"` to the `<code>` element, which the plan's snippet omits, to match the two existing
+  `<code>` elements in the same editor's "Action Prompt Tips" block.
+- 2026-08-13: Task 10 gets a review round rather than being skipped as trivial, as the previous
+  session recommended. It is the first **user-facing** change in this plan; the copy is agent-facing
+  documentation; and it introduces a new test file whose harness assumptions (two `mock.module`
+  stubs, a global act flag shared across the whole UI test process) are worth a second reader.
 
 ## Next step
 
-Next step: **Task 10 — flow editor loop toggle** (plan lines 1198-1265). This is the first UI task
-in the plan, and it is what makes turning looping *off* possible at all, since `--loop` deliberately
-ships on `flow create` only.
+Next step: **Task 10 — review round 1** over `62b7da6..HEAD` (`packages/` only, so the diff is
+exactly implementation commit `f32ad9d`). One standard gpt-5.5 review via the `codex-review` skill,
+findings verified by Claude before any fix, then commit and record.
 
-Base commit to record before starting: whatever HEAD is at session start (expected to be the
-docs-only commit carrying this handoff — that is the right base, since it keeps the review range
-code-only, the reconciliation every prior task has done).
+What to point the reviewer at, in rough order of where a real defect would live:
 
-Scope, as the plan specifies it: `loop` state in `FlowEditor.tsx`, a `Switch` + `Label` control
-below the description field, and `loop` threaded through **four** places — `useState`, the
-`handleSave` payload, that callback's dependency array, and **both** `JSON.stringify` snapshots in
-the dirty check. The plan calls out the failure mode explicitly: miss a snapshot and the Save button
-stays disabled after toggling. Then re-read `flow-store.ts:109` and `handlers/flow.ts:44` to confirm
-they forward the whole definition rather than picking fields (no change expected).
+1. **The dirty check.** `initialSnapshot` is a `useMemo` keyed on `[flow, defaultProjectId]`;
+   `currentSnapshot` is recomputed every render. Both now carry `loop`. Ask specifically whether the
+   two can ever disagree for a *reason other than a user edit* — e.g. a persisted definition written
+   before this feature (`loop` absent) versus the editor's `flow?.loop ?? false`, which normalises
+   absent to `false` on the initial side and to `false` on the current side. The claim to check is
+   that opening an old flow does **not** show it as dirty. Test
+   `an unlooped flow renders the toggle off with Save disabled` asserts exactly that for a fixture
+   with no `loop` field, but a reviewer may see a case the fixture does not.
+2. **What gets persisted for an unlooped flow.** `handleSave` now always writes `loop`, so saving a
+   never-looped flow writes `loop: false` where it previously wrote nothing. That reaches
+   `assertValidFlowDefinition`, which accepts a boolean (Task 1), and `startFlow`, which does
+   `flow.loop ? true : undefined` — so `false` and absent behave identically at runtime. Worth a
+   second reader confirming there is no third consumer that distinguishes them. Grep targets:
+   `\.loop` across `packages/`.
+3. **The new test file's harness assumptions.** Three, all recorded in the implementation entry: the
+   `@/stores/project-store` mock, the `./FlowActionList` stub (monaco), and
+   `globalThis.IS_REACT_ACT_ENVIRONMENT = true`, which is process-global and shared with every other
+   UI test file in the same `bun test packages/ui` run. The pre-existing act-warning count was
+   measured identical before and after (101), which is the evidence that the flag change is inert —
+   but ask whether the two `mock.module` calls can leak into another file's module graph, since
+   `mock.module` is also process-wide.
+4. **The copy.** The helper paragraph is the only place in the UI that tells a flow author how a loop
+   ends. Task 9 established one thing its agent-facing sibling text must not do — imply that
+   `flow complete` is proof the run ended, since a refused complete still returns 200
+   `{"success":true}`. This paragraph addresses a *human* author rather than an agent, so the bar is
+   different, but the same reviewer question applies: does any sentence create a false belief about
+   runtime behaviour?
 
-**Two things to settle in that session, both anticipated here so it does not stall:**
-
-1. **The plan's Step 5 asks for a manual Electron check** ("start the app, create a flow, tick the
-   toggle, save, reopen, confirm it stuck"). That is *not* a user gate on its own — it is not
-   destructive or outward-facing. Do the automated validation (`bun run typecheck`, plus the backend
-   suite, plus lint) and, if driving the Electron UI is not workable in-session, record the manual
-   confirmation as **deferred to Task 12**, which already owns manual E2E. Say so explicitly in the
-   handoff rather than implying the toggle was seen working.
-2. **There is no UI test harness in play for this file** — the plan prescribes none, and none of
-   Tasks 1-9 touched `packages/ui`. Decide and record whether this task gets a test at all. If it
-   does not, the commit message must say the toggle is verified by typecheck plus manual
-   invocation, the same honesty the Task 8 CLI decision applied.
-
-Whether Task 10 needs a review round is a judgment for that session, but note it changes a **user-
-facing** surface for the first time in this plan (taste matters, and the copy in that helper
-paragraph is agent-facing documentation in disguise), and the four-place threading is exactly the
-kind of change where missing one place produces a silently dead Save button. Lean toward reviewing.
+Not in scope for the round: the manual Electron check (deferred to Task 12 — do not treat its
+absence as a finding to fix here), and Task 11's `FlowPanel` changes.
 
 Carry forward, established in earlier rounds and not to be re-derived:
 
@@ -1548,8 +1641,18 @@ Carry forward, established in earlier rounds and not to be re-derived:
   **Pre-existing, unrelated to looping, open follow-up.** Do not pin it with a test — that would
   enshrine the bug. Relevant to Task 12's manual E2E, and it is why the `## Loop` prompt's
   "readable only until the same action overwrites it" was left alone rather than reworded.
-- **`taskflow-cli-flow-commands.md` promises a flow-editor loop toggle** — that promise is what
-  Task 10 now makes good on. It self-resolves when Task 10 lands; revisit if Task 10 is rescoped.
+- **`taskflow-cli-flow-commands.md` promises a flow-editor loop toggle** — **resolved.** Task 10
+  (`f32ad9d`) ships the toggle, so the doc line is now accurate.
+- **NEW (Task 10) — `packages/ui` does have a component-test harness.** happy-dom is preloaded from
+  the root `bunfig.toml` via `packages/ui/tests/preload.ts`; mount with `react-dom/client`'s
+  `createRoot` inside `act`, after setting `globalThis.IS_REACT_ACT_ENVIRONMENT = true`. Copy
+  `AttributesSection.test.tsx` or the new `FlowEditor.loop.test.tsx`. Task 11 edits `FlowPanel.tsx`
+  and `FlowManagementDialog.tsx` and can use the same harness.
+- **NEW (Task 10) — mounting anything that reaches `InlineActionEditor` loads monaco**, whose
+  document-level listeners throw `Canceled: Canceled` out of any synthetic `click`. The trace points
+  at `HTMLButtonElement.dispatchEvent` and a monaco `clipboardService` frame, not at monaco being
+  imported. Stub the subtree (`mock.module("./FlowActionList", ...)`). Also mock
+  `@/stores/project-store`, which opens a websocket at import time.
 
 Standing constraints, all learned the hard way earlier in this plan:
 
@@ -1572,7 +1675,10 @@ Standing constraints, all learned the hard way earlier in this plan:
 - `withOwnerLock` is **not** re-entrant. `endRun`, `advanceOrComplete`, `startNextIteration`,
   `failFlow`, and the launch helpers must stay unlocked.
 
-Baseline for judging any redness: at `5adafea`,
-`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` -> 59 pass / 0 fail,
-`bun test packages/backend` -> 582 pass / 0 fail, `bun run typecheck` -> all four packages exit 0,
-`bun run lint` -> clean, `git status` clean. Anything red belongs to Task 10's own changes.
+Baseline for judging any redness: at `f32ad9d`,
+`bun test packages/ui/src/components/flows/FlowEditor.loop.test.tsx` -> 5 pass / 0 fail,
+`bun test packages/ui` -> 133 pass / 0 fail (20 files), `bun test packages/backend` -> 582 pass /
+0 fail (54 files), `bun run typecheck` -> all four packages exit 0, `bun run lint` -> clean,
+`git status` clean. The UI suite also emits **101** pre-existing `not wrapped in act(...)` warnings —
+that count is the baseline too, unchanged by Task 10. Anything beyond this belongs to Task 10's
+review round.
