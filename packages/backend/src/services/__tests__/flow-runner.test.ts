@@ -591,6 +591,45 @@ describe("looping", () => {
         expect(run?.artifacts).toEqual([]);
     });
 
+    test("resuming drops an artifact that carries no iteration stamp", async () => {
+        // A stamp is written by saveArtifact for every artifact a looped run
+        // produces, so an unstamped one can only come from outside this code —
+        // a hand-edited run file, or one persisted before the stamp existed.
+        // Such a value cannot be told apart from the failed attempt's own
+        // partial output, so it must be dropped rather than read as finished.
+        await flowStore.saveFlowRun({
+            taskId: "task-1",
+            flowId: "loop-flow",
+            status: "paused",
+            loop: true,
+            iteration: 2,
+            currentActionIndex: 0,
+            actions: [
+                {
+                    actionEntryId: "entry-1",
+                    status: "failed",
+                    startedAt: "2026-08-13T10:00:00.000Z",
+                    completedAt: "2026-08-13T10:01:00.000Z",
+                },
+                { actionEntryId: "entry-2", status: "pending" },
+            ],
+            artifacts: [
+                {
+                    actionEntryId: "entry-1",
+                    type: "plan",
+                    text: "unstamped partial from the failed attempt",
+                    createdAt: "2026-08-13T10:00:30.000Z",
+                },
+            ],
+            startedAt: "2026-08-13T09:00:00.000Z",
+        });
+
+        await runner.resumeFlow("task-1", "loop-flow");
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.artifacts).toEqual([]);
+    });
+
     test("a step failing mid-loop pauses the run instead of wrapping, and Resume retries it", async () => {
         await runner.startFlow(taskOwner, loopFlow);
         await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);

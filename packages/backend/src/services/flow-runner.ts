@@ -269,9 +269,15 @@ class FlowRunner {
             // the wrap on purpose, so a value stamped with an earlier iteration
             // is a completed one the retried action may be about to read.
             const retriedEntryId = run.actions[run.currentActionIndex].actionEntryId;
+            const currentIteration = run.iteration;
             run.artifacts = run.artifacts.filter((artifact) => {
                 if (artifact.actionEntryId !== retriedEntryId) return true;
-                return run.loop === true && artifact.iteration !== run.iteration;
+                if (run.loop !== true || currentIteration === undefined) return false;
+                // Keep only a value stamped with an *earlier* iteration, which is a
+                // completed one carried across the wrap. An unstamped artifact cannot
+                // be distinguished from this attempt's partial output, so it is
+                // dropped like any other partial rather than trusted as finished.
+                return artifact.iteration !== undefined && artifact.iteration < currentIteration;
             });
             await this.deps.flowStore.saveFlowRun(run);
             this.broadcastUpdate(run);
