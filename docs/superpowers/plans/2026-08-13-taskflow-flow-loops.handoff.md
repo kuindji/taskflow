@@ -18,7 +18,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 4 | Snapshot `loop` onto run, wrap around | clear | `2e73030` | Impl `934d25d`; round fixes `81ea944` / `7e82f63` / `1cd22d4`; round 4 clear; test-only guard `888f517` |
 | 5 | Stop completes a looped run | clear | `4974457` | Impl `e9dc752`; round 1 fix `5f72826`; round 2 clear; test-only guard `d509159` |
 | 6 | Close session when a looped step completes | clear | `a20836b` | Impl `02b05b4`; round 1 clean, no fix commit |
-| 7 | `completeFlow` and its route | pending | — | |
+| 7 | `completeFlow` and its route | implemented | `f2a3228` | Impl `8ea61ed`; review round 1 due |
 | 8 | CLI — `flow complete` and `--loop` on `flow create` | pending | — | |
 | 9 | Tell the agent it is in a loop | pending | — | |
 | 10 | Flow editor — loop toggle | pending | — | |
@@ -737,6 +737,66 @@ This document is the source of truth for progress. One bounded step per session.
   `bun test packages/backend` → **555 pass, 0 fail** (54 files). `bun run typecheck` → all four
   packages exit 0. `bun run lint` → clean. `git status` clean apart from this handoff.
 
+### Task 7 — implementation (2026-08-13)
+
+- Base commit `f2a3228`; implementation commit `8ea61ed`. `f2a3228` is the docs-only commit carrying
+  this handoff, so the review range `f2a3228..HEAD` contains only code — the standing convention.
+- Two production changes, both as the plan specifies:
+  1. New public `completeFlow(ownerId, flowId, sessionId)` on `FlowRunner`, placed directly after
+     `handleActionComplete` (`flow-runner.ts:171-191`). Takes the owner lock, requires
+     `status === "running"`, requires the calling session to own the current action, then delegates
+     everything to `endRun({ status: "completed", runningStepOutcome: "completed",
+     skipPending: true })`. Nothing is re-implemented inline and no second lock is taken.
+  2. `POST /api/flow/complete` registered in `flow-routes.ts`, immediately after
+     `/api/flow/action-complete`, with the same body shape and validation.
+- The plan's refinement of the spec is implemented as written: **`completeFlow` always closes the
+  calling session, looped or not**, because the run is ending. That falls out of delegating to
+  `endRun`, which closes unconditionally — no `run.loop` branch was added here.
+- **Red/green signal.** Six new runner tests were red on `f2a3228` (`runner.completeFlow is not a
+  function`) → 47 pass / 6 fail; green after Step 3 → 53 pass / 0 fail. The five new route tests
+  were red before Step 7 (`ApiRouter.handle` returns `null` for an unregistered path, so
+  `response?.status` is `undefined`) → 22 pass / 5 fail across the two files; the two new
+  `flow-integration.test.ts` cases were **already green** at that point, exactly as the plan
+  predicts, since Step 3 had added the method.
+- **Test power verified by mutation, one clause at a time.** This round the mutations found a real
+  hole and changed a test, so the sequence matters:
+  - **`run.status !== "running"` guard deleted → all 53 tests stayed green.** The originally written
+    `a paused run cannot be completed by its stale session` was **vacuous**: `pauseFlow`
+    (`flow-runner.ts:274-277`) clears `currentAction.sessionId`, so the *ownership* check rejected
+    the call and the status guard was never reached. Replaced with
+    `a run paused by a failed session exit cannot then be completed`, which uses the one reachable
+    state where a non-running run still holds its session id: `handleSessionExit`'s failure branch
+    (`:366-374`) sets the action `failed` and the run `paused` but leaves `sessionId` in place. The
+    test asserts that intermediate state explicitly before calling `completeFlow`, so it cannot
+    silently stop exercising it. Re-run of the same mutation → **52 pass / 1 fail**, that test alone.
+  - Ownership check deleted → 1 fail: `a session that does not own the current step cannot end the
+    run`.
+  - `skipPending: false` → 1 fail: `ends the run immediately and skips the remaining steps`.
+  - `runningStepOutcome: "skipped"` → 1 fail: the same test (it asserts both halves).
+  - Session close scoped to looped runs only (`if (!run.loop) currentAction.sessionId = undefined;`
+    before `endRun`, i.e. the spec's original rule that the plan overrides) → 1 fail:
+    `closes the calling session on a non-looped run too`. So the plan's refinement is pinned, not
+    merely implemented.
+  - Route validation block deleted → 2 fail: `rejects a request with no owner` and
+    `rejects a request with no sessionId`.
+  - `completeFlow(ownerId, sessionId, flowId)` (argument order swapped) → 2 fail:
+    `delegates a valid request to the runner` and `accepts a project owner`. This is what the
+    `toHaveBeenCalledWith` assertions buy over a bare `status === 200`.
+  - Restored from a pristine copy after every mutation; `git status` / `git diff --stat` verified
+    clean before committing.
+- Two tests were added beyond the plan's snippets, both cheap: `accepts a project owner` and
+  `rejects a request with no sessionId` on the route (the plan tested only the taskId and
+  no-owner cases), plus the non-looped close test described above.
+- Harness notes confirmed rather than assumed: route tests went into
+  `packages/backend/tests/api/routes.test.ts` in their **own** `describe` with a hand-mocked
+  `flowRunner` (the top-level block registers `flowRunner: {} as never`), and
+  `flow-integration.test.ts` uses `test(...)`, which is what its two new cases use.
+- Validation at `8ea61ed`: `bun test packages/backend/src/services/__tests__/flow-runner.test.ts` →
+  **53 pass, 0 fail** (up from 47 by the six new tests). `bun test packages/backend` → **568 pass,
+  0 fail** (54 files, up from 555 by 6 runner + 2 integration + 5 route tests). `bun run typecheck`
+  → all four packages exit 0. `bun run lint` → clean. `bunx prettier --check` on all five changed
+  files → clean. `git status` clean apart from this handoff.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -852,6 +912,20 @@ This document is the source of truth for progress. One bounded step per session.
   intact. That is precisely the "chance of breaking something" case the flow's rule reserves review
   for. (Round 1 corrected the `jumpToAction` half of that reasoning — see the correction in the
   round 1 entry — but the decision to review stands on the session-lifecycle change alone.)
+- 2026-08-13: replaced Task 7's `a paused run cannot be completed by its stale session` with
+  `a run paused by a failed session exit cannot then be completed` **before committing**, after a
+  mutation showed the original was vacuous. Both tests describe "a non-running run must not be
+  completed", but only the second reaches the `status !== "running"` guard — `pauseFlow` clears
+  `sessionId`, so the first was rejected one line earlier by the ownership check. Recorded because
+  the general shape recurs in this file: when two guards can both reject the same call, a test only
+  pins the one that fires *first*, and only a mutation reveals which that is.
+- 2026-08-13: implemented the plan's spec refinement (plan lines 71-73) literally — `completeFlow`
+  closes the calling session on **every** run, not only a looped one — and added a test that goes
+  red if a later task scopes it to `run.loop`. The alternative reading (mirror Task 6's looped-only
+  rule) was rejected for the plan's stated reason: Task 6's rule exists because a finite run's
+  completed session is deliberately left open for the user to read, and that only makes sense while
+  the run *continues*. `completeFlow` ends the run, which is the `stopFlow` / `failFlow` case, and
+  both of those already close unconditionally via `endRun`.
 - 2026-08-13: closed Task 6 round 1 with **no commit at all** — not even a test-only one — and
   marked the task clear. The only uncovered mutation found this round (a redundant `closeSession`
   on the shell clean-exit branch) is a provable no-op rather than wrong behaviour, so there is
@@ -862,42 +936,40 @@ This document is the source of truth for progress. One bounded step per session.
 
 ## Next step
 
-Next step: **Task 7 — `completeFlow` and its route** (implementation). Plan lines 968-1266.
+Next step: **Task 7 — review round 1.**
 
-Record the base commit as the HEAD you find at session start (expected: the docs-only commit
-carrying this handoff update, which keeps the later review range code-only — the same
-reconciliation every prior task made).
+Review range: `f2a3228..HEAD`, `packages/` only (exclude `docs/`), which is exactly implementation
+commit `8ea61ed`. Run one standard gpt-5.5 review via the `codex-review` skill, verify every
+finding yourself by mutation before fixing it, fix the substantiated ones, validate, commit.
 
-This is the widest task so far: one new public runner method, one new HTTP route, and **three**
-test files. Steps 1-9 of the plan, in order. Things the plan calls out that are easy to get wrong:
+Scope is 287 inserted lines across five files, but only 56 of them are production code:
+`completeFlow` (22 lines in `flow-runner.ts`) and the `/api/flow/complete` route (34 lines in
+`flow-routes.ts`). Everything else is tests.
 
-1. **`completeFlow` itself is small** — lock, load run, require `status === "running"`, require
-   the calling session to own the current action, then delegate everything to `endRun` with
-   `{ status: "completed", runningStepOutcome: "completed", skipPending: true }`. `endRun` already
-   drops the mapping, closes the session, marks the running step, skips pending steps, and
-   broadcasts. Do **not** re-implement any of that inline, and do **not** take a second lock.
-2. **`completeFlow` always closes the calling session, looped or not** — this is the plan's
-   deliberate refinement of the spec (plan lines 71-73). The looped-only rule applies to
-   `handleActionComplete` (Task 6), where the run continues; here the run is ending.
-3. **The route tests go in `packages/backend/tests/api/routes.test.ts`, not `flow-integration.test.ts`.**
-   `flow-integration.test.ts` wires a real `FlowStore` against a temp dir and calls runner methods
-   directly — it issues no HTTP. And within `routes.test.ts`, do **not** add to the top-level
-   `describe`: it registers `flowRunner: {} as never` (`routes.test.ts:71`), so any route that
-   actually calls the runner throws and returns 500. Copy the `describe("flow artifact routes", ...)`
-   block at `routes.test.ts:217` instead; its router variable is `apiRouter`.
-4. **`flow-integration.test.ts` uses `test(...)`, not `it(...)`**, and does not import `it`.
-5. The plan's two integration cases are worth their cost: two iterations then `completeFlow`, and
-   the crash-recovery case that pins a looped run resumes in the **same** iteration (replicating the
-   startup transform at `index.ts:242-255`, which this round re-confirmed preserves `loop` and
-   `iteration`).
+Questions worth pointing the reviewer at:
 
-Task 6's round 1 established two things Task 7 can rely on rather than re-derive: `endRun`'s
+1. **Is `endRun`'s behaviour right for a *successful* ending?** This is `endRun`'s third caller and
+   the first one that means "this went well". `runningStepOutcome: "completed"` marks the calling
+   step completed; `skipPending: true` marks every still-pending step `skipped`. Is `skipped` the
+   right record for work an agent deliberately declared unnecessary, or should those steps read
+   differently? (No new status should be invented here — the question is whether `skipped`
+   misreports anything a consumer reads.)
+2. **The two-guard structure.** `status === "running"` plus session-owns-current-action. Is there a
+   reachable state where a *legitimate* complete is refused — notably a shell action whose PTY
+   exited before its `taskflow-cli flow complete` request landed, which the plan's known
+   pre-existing race (plan lines 60-69) makes more likely under a loop?
+3. **Interaction with the wrap.** `completeFlow` can land mid-iteration. Is the resulting persisted
+   state coherent for a looped run — `loop` and `iteration` retained on a `completed` run, and does
+   anything downstream (`startFlow`'s terminal-run overwrite path, the crash-recovery transform at
+   `index.ts:242`) mis-handle a completed run that still carries `loop: true`?
+4. **Route parity.** The new route is a near-copy of `/api/flow/action-complete`. Does the
+   duplication hide a divergence, and is the 500-on-throw path right given `completeFlow` currently
+   cannot throw (every rejection path is a silent early return)?
+
+Task 6's round 1 established two things this round can rely on rather than re-derive: `endRun`'s
 delete-mapping-then-close ordering makes the async PTY exit inert (`handleSessionExit` returns at
 its mapping check), and every backend reader of `action.sessionId` looks only at
 `run.actions[run.currentActionIndex]`.
-
-Task 7 needs a review round — it adds a public method on the run-ending path plus a new HTTP entry
-point, which is well past the trivial-change bar.
 
 Standing constraints, all learned the hard way earlier in this plan:
 
@@ -908,12 +980,15 @@ Standing constraints, all learned the hard way earlier in this plan:
   await boundary land in the same millisecond (1000/1000 samples, measured in Task 2 round 1). Assert
   on `broadcasts`.
 - **Verify every finding by mutation before fixing it, and every new guard by mutation after adding
-  it.** Five of the six review rounds run so far turned on evidence a mutation produced and a reading
-  would have missed.
+  it.** Six of the seven review rounds run so far turned on evidence a mutation produced and a
+  reading would have missed — and Task 7's own implementation session caught a vacuous test the same
+  way.
+- **When two guards can reject the same call, only the first one fires.** A test written for the
+  second guard passes for the wrong reason. Mutate each guard separately.
 - `withOwnerLock` is **not** re-entrant. `endRun`, `advanceOrComplete`, `startNextIteration`,
   `failFlow`, and the launch helpers must stay unlocked.
 
-Baseline for judging any redness: at `d202bf6`,
-`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` → 47 pass / 0 fail,
-`bun test packages/backend` → 555 pass / 0 fail, `bun run typecheck` → all four packages exit 0,
-`bun run lint` → clean. Anything red belongs to Task 7's own changes.
+Baseline for judging any redness: at `8ea61ed`,
+`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` → 53 pass / 0 fail,
+`bun test packages/backend` → 568 pass / 0 fail, `bun run typecheck` → all four packages exit 0,
+`bun run lint` → clean. Anything red belongs to this round's own changes.
