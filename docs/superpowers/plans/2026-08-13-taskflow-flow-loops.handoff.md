@@ -13,7 +13,7 @@ This document is the source of truth for progress. One bounded step per session.
 | # | Task | Status | Base commit | Notes |
 |---|------|--------|-------------|-------|
 | 1 | Types and `loop` validation | clear | `e72babf` | Round 1 clean; its tests later broke `bun run lint`, repaired in `69950b5` |
-| 2 | Extract `endRun` (pure refactor) | in-review round 1 (fixes applied) | `c505881` | Impl `75534e4`; round 1 fixes `552acf8`; round 2 due |
+| 2 | Extract `endRun` (pure refactor) | clear | `c505881` | Impl `75534e4`; round 1 fixes `552acf8` + `69950b5`; round 2 clean |
 | 3 | Serialize runner public mutators under owner lock | pending | — | |
 | 4 | Snapshot `loop` onto run, wrap around | pending | — | |
 | 5 | Stop completes a looped run | pending | — | |
@@ -103,6 +103,36 @@ This document is the source of truth for progress. One bounded step per session.
   **54 pass, 0 fail** (4 files). `bun run typecheck` → all four packages exit 0.
   `bun run lint` → clean. `git status` clean apart from this handoff.
 
+### Task 2 — review round 2 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `4508503..16c80cb`,
+  `packages/` only — that range is exactly the two round-1 fix commits `552acf8` and `69950b5`).
+- Result: **clear — zero findings.** No fix commit; HEAD stays `16c80cb` plus this handoff update.
+- The review was pointed at the three things round 1 changed, and confirmed each:
+  1. The `flow-store.test.ts` rewrite (dropping `.resolves` / `.rejects` for the lint gate) did
+     not make either test vacuous. The positive test awaits `saveFlow` directly, so a rejection
+     fails it; the negative test's `rejection` is `undefined` when the validation is removed, so
+     `toBeInstanceOf(Error)` goes red. No unhandled-rejection gap.
+  2. The `broadcasts the ended run` test is sound. `broadcasts` is a module-level `let` and the
+     runner's `broadcast` callback reads that binding at call time (`flow-runner.test.ts:109`),
+     so the mid-test `broadcasts = []` cannot desynchronise it.
+  3. `Extract<FlowActionStatus, "completed" | "skipped" | "failed">` matches the real union
+     (`shared/src/types/flow.ts:61`) — all three literals are members, none silently dropped.
+- Verified independently by Claude:
+  - **Mutation check on finding 2:** deleted `this.broadcastUpdate(run)` from `endRun`
+    (`flow-runner.ts:407`) and re-ran the file → **22 pass, 1 fail**, the single failure being
+    `broadcasts the ended run` (`Expected: "flow:run-updated" / Received: undefined`). Restored
+    the line and re-ran → 23 pass, 0 fail. So the round-1 test really is the only thing standing
+    between a silent broadcast regression and green tests.
+  - Read the `FlowActionStatus` union directly: `"pending" | "running" | "completed" | "skipped"
+    | "failed"` — the `Extract` keeps exactly the three terminal outcomes Tasks 5 and 7 need.
+  - `bun test packages/backend/src/services/__tests__/` → **54 pass, 0 fail** (4 files).
+    `bun run typecheck` → all four packages exit 0. `bun run lint` → clean. `git status` clean
+    apart from this handoff.
+- Non-finding worth carrying forward (reviewer's own note, not a defect): `Extract` fails open —
+  if a literal is ever removed from `FlowActionStatus`, `Extract` silently drops it instead of
+  erroring. Harmless today; only matters if that union is ever narrowed.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -130,18 +160,24 @@ This document is the source of truth for progress. One bounded step per session.
 
 ## Next step
 
-Next step: Task 2 review round 2 — one gpt-5.5 review via the `codex-review` skill over the
-round-1 fixes, `4508503..HEAD` (`packages/` only; exclude the handoff doc). That range is
-exactly the two fix commits `552acf8` and `69950b5`. Verify any findings independently,
-fix the substantiated ones, validate with `bun test packages/backend/src/services/__tests__/`
-plus `bun run typecheck` **and `bun run lint`** (the lint gate is green again as of `69950b5`
-— keep it that way), and commit. Zero substantiated findings → Task 2 is clear and the next
-step is implementing Task 3 (serialize the runner's public mutators under the owner lock).
+Next step: implement Task 3 — serialize the runner's public mutators under the owner lock
+(plan lines 327-459). Record the base commit before touching code.
 
-Notes for that review:
-- The delete-before-close reordering inside `endRun` is intentional and specified by the
-  plan; round 1 already confirmed it safe against the production PTY wiring.
-- The narrowed `runningStepOutcome` type must still admit `"completed"`, `"skipped"` and
-  `"failed"` — Tasks 5 and 7 pass the first two.
-- Round 1's rejected finding (asserting an unchanged `completedAt`) should stay rejected;
-  the timestamp resolution makes it vacuous. See the round-1 notes above for the measurement.
+Notes for that implementation:
+- **The deadlock trap is the whole risk here.** `withOwnerLock` (`flow-runner.ts:61`) is not
+  re-entrant: a nested call awaits a gate its own caller holds and hangs forever. Lock public
+  entry points only. `failFlow`, `endRun`, `advanceOrComplete`, `launchAction`,
+  `launchActionWithRecovery`, `launchPersistedActionWithRecovery` and `markActionLaunchFailed`
+  must stay unlocked. `startFlow` already locks — do not add a second lock to it.
+  A test run that *hangs* rather than fails means a private helper got locked.
+- `handleSessionExit` is the one exception to the wrapping shape: it takes a `sessionId`, not
+  an `ownerId`, so the `sessionFlowMap` lookup must stay outside the lock to supply the key.
+  The plan gives the exact rewritten body.
+- Step 1's two tests are expected to fail on current code because the mock store's `getFlowRun`
+  returns a `structuredClone` — both racers mutate independent copies and the second save
+  clobbers the first, which is the production race in miniature.
+- Task 3 is a genuine behaviour change to every mutating entry point, so it gets a review round;
+  do not skip it as trivial.
+- Validate with `bun test packages/backend/src/services/__tests__/` (54 pass / 0 fail at
+  `16c80cb`), `bun run typecheck`, and `bun run lint` — all three are green right now, so any
+  redness is Task 3's own.
