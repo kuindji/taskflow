@@ -14,7 +14,7 @@ This document is the source of truth for progress. One bounded step per session.
 |---|------|--------|-------------|-------|
 | 1 | Types and `loop` validation | clear | `e72babf` | Round 1 clean; its tests later broke `bun run lint`, repaired in `69950b5` |
 | 2 | Extract `endRun` (pure refactor) | clear | `c505881` | Impl `75534e4`; round 1 fixes `552acf8` + `69950b5`; round 2 clean |
-| 3 | Serialize runner public mutators under owner lock | implemented | `f2fdb9d` | Impl `7d0cc45`; review round 1 due |
+| 3 | Serialize runner public mutators under owner lock | clear | `f2fdb9d` | Impl `7d0cc45`; round 1 clean, no fix commit |
 | 4 | Snapshot `loop` onto run, wrap around | pending | — | |
 | 5 | Stop completes a looped run | pending | — | |
 | 6 | Close session when a looped step completes | pending | — | |
@@ -163,6 +163,58 @@ This document is the source of truth for progress. One bounded step per session.
   `bun run lint` → clean. `bunx prettier --check` on both changed files → clean.
   No test run hung, which is the signal that no private helper got locked.
 
+### Task 3 — review round 1 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `f2fdb9d..8719e5b`,
+  `packages/` only — plan/handoff doc changes excluded from the diff).
+- Result: **clear — zero substantiated findings.** No fix commit; HEAD stays `8719e5b` plus
+  this handoff update.
+- The review was pointed at the four things this task could plausibly have broken. Each was
+  independently re-verified by Claude rather than taken on the reviewer's word:
+
+  1. **Are the nine bodies verbatim?** (the headline risk of a whole-body re-indent).
+     Reviewer's normalized extraction matched seven exactly, with `jumpToAction` / `resumeFlow`
+     differing only by prettier reflow and `handleSessionExit` by the deliberate
+     outside-the-lock mapping lookup. Claude proved it more strongly: stripped **all**
+     whitespace and line comments from `flow-runner.ts` at `f2fdb9d` and at HEAD and ran a
+     character-level `difflib` opcode diff. Every opcode is `insert`; there is **not one
+     `delete` or `replace`**. The inserted text is exactly nine
+     `returnthis.withOwnerLock(ownerId,async()=>{` openers, nine `);}` closers, and one
+     trailing comma from prettier's multi-line reflow of the `resumeFlow` call. That is
+     mechanical proof the bodies are untouched, not a spot check.
+  2. **Nested-lock / deadlock.** Confirmed there are exactly ten `this.withOwnerLock(` sites
+     and **zero** internal calls from any method to a locked public method — so no private
+     helper can nest. All 22 production call sites (`index.ts:221`, `flow-routes.ts`,
+     `task-routes.ts:363,448`, `handlers/flow.ts`, `handlers/task.ts:52`) are top-level entry
+     points. The one callback that re-enters the runner, `onSessionExited` →
+     `handleSessionExit` (`index.ts:220-222`), is fire-and-forget `void`, so a locked method
+     never awaits it — a re-entrant exit queues rather than deadlocks.
+  3. **Lock released on the throwing path.** `saveArtifact` and `jumpToAction` throw from
+     inside the lock. `withOwnerLock` (`flow-runner.ts:64-81`) releases in `finally` and
+     deletes the map entry only when the tail is still its own `queued`. `queued` is built
+     from `previous.catch(() => undefined).then(() => gate)` and `gate` only ever resolves,
+     so `queued` can never reject — a throwing body cannot poison later acquirers for that
+     owner.
+  4. **Test power — verified by mutation, not by reading.** Turned `withOwnerLock` into a
+     passthrough (`if (ownerId) return await fn();`) and re-ran the file: **24 pass, 1 fail**.
+     The single failure is `concurrent action completions advance the run only once`
+     (`Expected length: 2 / Received length: 3` — the duplicate advance spawns a third
+     session). Restored and re-ran → 25 pass, 0 fail. This confirms the asymmetry recorded at
+     implementation time: test 1 is the real lock regression test, test 2 would not catch a
+     removed lock. Reviewer reached the same conclusion independently.
+- One **speculative concern**, raised as such and not a defect: `stopFlow` / `pauseFlow` can be
+  *delayed* behind a held owner lock, notably while a launch awaits `spawnSession`. Both Claude
+  and the reviewer traced the gate and found it FIFO — each caller chains on the current tail,
+  later waiters cannot jump ahead, and `stopFlow` re-reads the run from the store *after*
+  acquiring the lock, so it acts on post-launch state rather than stale state. Delay, not
+  starvation, and bounded by one action launch. Carried forward as context for Task 5 (which
+  makes Stop the normal ending of a loop) — not something to fix here.
+- Validation at `8719e5b`: `bun test packages/backend/src/services/__tests__/flow-runner.test.ts`
+  → 25 pass / 0 fail; `bun test packages/backend/src/services/__tests__/` → **56 pass, 0 fail**
+  (4 files); `bun run typecheck` → all four packages exit 0; `bun run lint` → clean.
+  `git status` clean after the mutation experiment was reverted (verified by `git diff --stat`
+  returning empty before continuing).
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -190,25 +242,32 @@ This document is the source of truth for progress. One bounded step per session.
 
 ## Next step
 
-Next step: Task 3 — review round 1. Run one gpt-5.5 review via the `codex-review` skill over
-`f2fdb9d..HEAD`, restricted to `packages/` (exclude the plan/handoff doc changes, as in the
-Task 1 and 2 rounds).
+Next step: Task 4 — implementation (plan lines 463-742). Snapshot `loop` onto the run in
+`startFlow`, add the wrap branch to `advanceOrComplete` plus the new private
+`startNextIteration`, and fix the in-place sort in `getArtifacts`.
 
-Notes for that review:
-- The diff is `7d0cc45` only: nine method bodies re-indented inside `withOwnerLock`, plus two
-  new tests and one comment. **Ask the reviewer to check the bodies are verbatim** — an
-  accidental edit hidden inside a whole-body re-indent is the most likely defect here.
-- Second thing to point the reviewer at: **any nested-lock path**. It should trace whether a
-  locked method can reach another locked method, directly or through `deps.closeSession` /
-  `deps.spawnSession` / `deps.broadcast` callbacks wired in `index.ts`. A deadlock here hangs
-  a flow forever with no error, so it is worth an independent pass even though Claude checked
-  it. Note `saveArtifact` and `jumpToAction` throw from inside the lock — confirm the lock is
-  released on the throwing path (`withOwnerLock`'s `finally`).
-- Third: whether the now-serialized `stopFlow` / `pauseFlow` can be starved by a long-running
-  locked operation (e.g. `startFlow` awaiting `spawnSession`), since the loop feature relies on
-  Stop being able to interrupt.
-- Validate any fix with `bun test packages/backend/src/services/__tests__/` (56 pass / 0 fail at
-  `7d0cc45`), `bun test packages/backend` (533 pass / 0 fail), `bun run typecheck`, and
-  `bun run lint` — all green right now, so any redness belongs to the round-1 fixes.
-- After this round: zero substantiated findings → Task 3 is clear, next step is implementing
-  Task 4 (plan lines 463-742). Findings fixed → another review round.
+Record HEAD as Task 4's base commit before touching code. At the time of writing that is
+`8719e5b` plus the commit carrying this handoff update — re-read it with `git rev-parse --short HEAD`
+rather than trusting this line.
+
+Notes for that implementation:
+- Task 4 is the first task that changes what a run *does* rather than how it is guarded, so it
+  gets a review round; do not consider skipping it.
+- Step 1 adds a `loopFlow` fixture next to `testFlow` **and** seeds it in `beforeEach` right
+  after `await flowStore.saveFlow(testFlow);`. Missing the seeding is the easy mistake — the
+  looping tests will fail confusingly on a flow the store has never heard of.
+- Two of the Step 1 tests are deliberate regression guards that are **green before and after**
+  (`a non-looped flow still completes after its last action`, and the `carries inputs and
+  artifacts` test's three wrap assertions exist precisely because the rest of it passes on
+  current code). Do not treat their passing as evidence the wrap works — the red-then-green
+  signal comes from `wraps to iteration 2 instead of completing`.
+- `startNextIteration` runs **inside** the lock held by `handleActionComplete`, via the private
+  unlocked `advanceOrComplete`. It must not take the lock itself; doing so deadlocks the run
+  with no error. This is the exact hazard Task 3's round-1 review re-confirmed.
+- Round 1 of Task 3 left one piece of context that matters here: the owner gate is FIFO and
+  `stopFlow` re-reads the run after acquiring it, so a Stop issued mid-wrap queues behind the
+  in-flight hop rather than racing it. The plan's accepted "no throttle" limitation
+  (plan lines 52-58) rests on that, and it now has an independent confirmation.
+- Validate with `bun test packages/backend/src/services/__tests__/` (**56 pass / 0 fail** at
+  `8719e5b`), `bun test packages/backend` (533 pass / 0 fail), `bun run typecheck`, and
+  `bun run lint` — all green right now, so any redness belongs to Task 4.
