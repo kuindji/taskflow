@@ -21,6 +21,51 @@
 - There are **two** CLI implementations: `packages/backend/src/services/taskflow-cli.sh` (the one that runs on macOS/Linux) and `packages/backend/src/services/taskflow-cli-bin.ts`. Any CLI change must land in both.
 - Run backend tests with `bun test packages/backend/src/services/__tests__/<file>` from the repo root.
 
+### Scope decision — `--loop` ships on `flow create` only, not `flow update`
+
+`taskflow-cli flow update` is **already broken in both CLIs**, independently of this feature, so `--loop` is not added to it. Both bugs are reproducible in seconds:
+
+**Shell** — `flow update` extracts the existing flow with an `awk` script using `RS="{"; FS="}"` (`taskflow-cli.sh:745-746`). Any flow with actions contains a nested `{`, so the extraction truncates at `"actions":[` and the `sed` merge (`:772`) posts invalid JSON, which the route rejects with 400:
+
+```bash
+printf '%s' '{"flows":[{"id":"flow-1","name":"L","actions":[{"id":"e1","actionId":"a1"}],"loop":true}]}' \
+  | awk -v id="flow-1" 'BEGIN { RS="{"; FS="}" } NR>1 { obj = "{" $1 "}"; if (index(obj, "\"id\":\"" id "\"") > 0) { print obj; exit } }'
+# {"id":"flow-1","name":"L","actions":[}     <- truncated, not valid JSON
+```
+
+**TypeScript** — `flow get` (`taskflow-cli-bin.ts:738`) and `flow update` (`:790`) do `JSON.parse(...) as ParsedItem[]` then `.find(...)`, but `GET /api/flows` returns `{ flows: [...] }` (`flow-routes.ts:166-168`), so both throw `parsed.find is not a function`.
+
+Neither is caused by looping and neither is in scope here — fixing the shell one means writing a nested-JSON extractor in POSIX sh, which does not belong in a loop feature. **File them as a separate follow-up.**
+
+Consequences for this plan, applied throughout Task 8:
+
+- `flow create` gets `--loop` / `--no-loop`. `flow update` does not.
+- Turning looping off on an existing flow is done in the flow editor UI (Task 10), which posts the whole definition and is unaffected by either bug.
+- No `flow update` CLI tests are added; the tri-state is pinned on `create` only.
+
+**This supersedes the design spec.** The spec still says `flow create` *and* `flow update` gain `--loop` / `--no-loop` (`docs/superpowers/specs/2026-08-13-taskflow-flow-loops-design.md:301-303`), written before those two bugs were found. The plan is the authority here; the spec line is stale.
+
+If you would rather have `--loop` on `flow update`, fix those two bugs first as a prerequisite task with their own tests, then add the flag. Do not add the flag on top of a broken command.
+
+### Accepted limitation — a loop has no throttle and no iteration cap
+
+Nothing in this design rate-limits a wrap. A looped flow whose actions finish instantly (shell actions that just `exit 0`) will spin as fast as the machine can spawn PTYs, indefinitely: `advanceOrComplete` → `startNextIteration` → `launchPersistedActionWithRecovery` → spawn → exit → repeat. This is not stack recursion (each hop is a fresh task off a promise callback), so it will not blow the stack — it will just burn CPU and grow the run's log until someone stops it.
+
+The escape hatch does work: `stopFlow` takes the owner lock, so it queues behind the in-flight hop rather than racing it, and `endRun` clears `currentAction.sessionId` and deletes the `sessionFlowMap` entry — which makes the next `handleSessionExit` return at its mapping check (`flow-runner.ts:255-257`) instead of advancing again. Verify this by hand in Task 12 step 4.
+
+This is accepted for the MVP, matching the spec's "exactly two commands" scope — no max-iteration setting, no minimum wrap delay. If it turns out to bite in practice, the natural follow-up is a `maxIterations` field on `FlowDefinition` snapshotted onto the run beside `loop`, checked in `startNextIteration`. Do not add it in this plan.
+
+### Known pre-existing race — read before the manual shell-loop check
+
+`launchAction` registers the session in `sessionFlowMap` only *after* `spawnSession` resolves (`flow-runner.ts:437`). In production `spawnSession` → `createSession` calls `ptyManager.spawn` at `session-lifecycle.ts:444` but does not return until `session-lifecycle.ts:548`, with `await taskStore.updateTask(...)` / `updateProject(...)` in between (`:517-531`). The PTY's exit path is `void proc.exited.then(cleanup)` (`pty-manager.ts:251`) → `options.onExit` (`:210`) → `flowRunner.handleSessionExit` (`index.ts:220`). So a shell action that exits within milliseconds can fire its exit before the mapping exists, and `handleSessionExit` returns immediately on the missing mapping (`flow-runner.ts:255-257`) — the step stays `running` and the flow stalls.
+
+This is **pre-existing and out of scope for this plan** — it is not caused by looping and the fix (pre-registering the mapping, or buffering exits that arrive before registration) belongs in the session-lifecycle layer. It matters here for two reasons:
+
+1. Looping re-runs every action every iteration, so a race that was rare becomes routine.
+2. Task 12's manual check asks for "a looped flow with two shell actions". Use shell actions that take a beat (`sleep 2; echo done`) rather than instant ones. If a loop stalls with a step stuck on `running` and no live PTY, this race is the first thing to suspect — not the loop code.
+
+Do not attempt the fix as part of this plan. Note it for a follow-up.
+
 ### Refinement to the spec
 
 The spec says `completeFlow` closes the calling session "for a looped flow". During planning this was tightened: **`completeFlow` always closes the calling session**, looped or not, because the run is ending — which is what `stopFlow` and `failFlow` already do. The looped-only rule still applies to `handleActionComplete`, where the run continues. Task 7 implements it this way.
@@ -41,6 +86,12 @@ The spec says `completeFlow` closes the calling session "for a looped flow". Dur
 - [ ] **Step 1: Write the failing test**
 
 Add to `packages/backend/src/services/__tests__/flow-store.test.ts`. Match the file's existing describe/test style and its way of constructing a store — read the top of the file first and reuse its setup helper rather than inventing one.
+
+That file currently imports no shared types (only `FlowStore` from `../flow-store`), so the `as unknown as FlowDefinition` cast below needs a new import:
+
+```ts
+import type { FlowDefinition } from "@taskflow/shared";
+```
 
 ```ts
 describe("assertValidFlowDefinition — loop", () => {
@@ -81,7 +132,7 @@ describe("assertValidFlowDefinition — loop", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun test packages/backend/src/services/__tests__/flow-store.test.ts`
-Expected: FAIL — the first test fails to typecheck or the second does not throw, because `loop` is not yet a field and is not validated.
+Expected: FAIL. Under `bun test` the visible failure is the second test: `assertValidFlowDefinition` has no `loop` check yet, so `saveFlow` resolves instead of throwing. The first test fails only under `bun run typecheck`, where `loop` is not a field on `FlowDefinition` — `bun test` does not typecheck, so do not expect it to go red there.
 
 - [ ] **Step 3: Add the type fields**
 
@@ -489,6 +540,11 @@ describe("looping", () => {
         );
 
         const run = await flowStore.getFlowRun("task-1", "loop-input-flow");
+        // Pin that we actually wrapped — without these three, the test passes on
+        // current code, since a completed finite run also retains inputs/artifacts.
+        expect(run?.status).toBe("running");
+        expect(run?.iteration).toBe(2);
+        expect(run?.currentActionIndex).toBe(0);
         expect(run?.inputValues).toEqual({ topic: "caching" });
         expect(run?.artifacts).toHaveLength(1);
         expect(run?.artifacts[0].text).toBe("iteration one plan");
@@ -562,6 +618,8 @@ describe("looping", () => {
         expect(spawnedSessions).toHaveLength(3);
     });
 
+    // Regression guard: green before and after. Pins that adding the wrap branch
+    // does not change the finite-flow path.
     test("a non-looped flow still completes after its last action", async () => {
         await runner.startFlow(taskOwner, testFlow);
         await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
@@ -708,8 +766,23 @@ describe("stopFlow — looped runs", () => {
         expect(run?.actions[1].status).toBe("skipped");
         expect(closedSessions).toEqual(["session-1"]);
     });
+
+    test("stopping an already-ended run writes nothing", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.stopFlow("task-1", "loop-flow");
+        const broadcastCount = broadcasts.length;
+
+        await runner.stopFlow("task-1", "loop-flow");
+
+        expect(broadcasts).toHaveLength(broadcastCount);
+        expect(closedSessions).toEqual(["session-1"]);
+    });
 });
 ```
+
+That test is the reason for the terminal-status guard in Step 3. It asserts on `broadcasts` rather than on `completedAt` deliberately: `endRun` stamps `new Date().toISOString()`, so two back-to-back stops normally land in the same millisecond and a timestamp comparison would go green against unguarded code. Every write path in `endRun` ends in `broadcastUpdate`, so an unguarded second stop always pushes another entry — that is the reliable signal, and it needs no cast into the mock store (`broadcasts` is a plain array the harness resets in `beforeEach`).
+
+Note the guard also changes the non-looped path, which today happily re-fails a finished run. The Task 2 characterisation tests do not cover a double stop, so confirm the whole file still passes.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -723,6 +796,10 @@ Expected: FAIL with `status` being `"failed"`, not `"completed"`.
         return this.withOwnerLock(ownerId, async () => {
             const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
             if (!run) return;
+            // Stopping an already-ended run must not rewrite it. Without this,
+            // a second Stop on a finished looped run bumps completedAt and
+            // re-broadcasts; on a failed run it would flip it to completed.
+            if (run.status !== "running" && run.status !== "paused") return;
             if (run.loop) {
                 // Stopping a loop is its normal ending, not an error
                 await this.endRun(run, {
@@ -777,6 +854,8 @@ describe("session cleanup on completion", () => {
         expect(run?.actions[0].sessionId).toBeUndefined();
     });
 
+    // Regression guard: green before and after — the current runner never closes
+    // on completion. Pins that the close stays scoped to looped runs.
     test("a non-looped flow leaves the completed step's session open", async () => {
         await runner.startFlow(taskOwner, testFlow);
         await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
@@ -784,6 +863,29 @@ describe("session cleanup on completion", () => {
         expect(closedSessions).toEqual([]);
     });
 
+    test("a looped shell step leaves no session id behind when it auto-completes", async () => {
+        const shellLoop: FlowDefinition = {
+            ...loopFlow,
+            id: "shell-loop-flow",
+            actions: [
+                { id: "entry-1", inline: { name: "A", prompt: "echo a", sessionType: "shell" } },
+                { id: "entry-2", inline: { name: "B", prompt: "echo b", sessionType: "shell" } },
+            ],
+        };
+        await flowStore.saveFlow(shellLoop);
+        await runner.startFlow(taskOwner, shellLoop);
+
+        await runner.handleSessionExit(spawnedSessions[0].sessionId, 0);
+
+        const run = await flowStore.getFlowRun("task-1", "shell-loop-flow");
+        expect(run?.actions[0].status).toBe("completed");
+        expect(run?.actions[0].sessionId).toBeUndefined();
+        expect(run?.currentActionIndex).toBe(1);
+    });
+
+    // Green before this task too, because handleActionComplete already deletes the
+    // mapping. It earns its place by pinning that adding closeSession here does not
+    // make a late exit destructive.
     test("a late exit from a closed session does not disturb the wrapped run", async () => {
         await runner.startFlow(taskOwner, loopFlow);
         const firstSessionId = spawnedSessions[0].sessionId;
@@ -825,6 +927,27 @@ Inside the locked body of `handleActionComplete`, replace the completion block:
 
             await this.advanceOrComplete(run);
 ```
+
+- [ ] **Step 3b: Do the same for shell steps, which complete by a different path**
+
+`handleActionComplete` is the agent path. Shell actions never call it — they auto-complete in `handleSessionExit`'s clean-exit branch (`flow-runner.ts:272-277`), which marks the step completed and advances but leaves `currentAction.sessionId` pointing at the now-dead PTY. `FlowPanel` renders any step with a `sessionId` as clickable session state, so a looped shell run accumulates completed steps that offer to open sessions that no longer exist. In the locked body of `handleSessionExit`:
+
+```ts
+            if (sessionType === "shell" && exitCode === 0) {
+                // Shell actions auto-complete on clean exit
+                currentAction.status = "completed";
+                currentAction.completedAt = new Date().toISOString();
+                if (run.loop) {
+                    // Match the agent path: a looped step keeps no session id.
+                    // The process is already gone, so there is nothing to close.
+                    currentAction.sessionId = undefined;
+                }
+                this.sessionFlowMap.delete(sessionId);
+                await this.advanceOrComplete(run);
+            }
+```
+
+No `closeSession` call here — the PTY exited on its own, which is what got us into this branch. And no nested lock: `advanceOrComplete` is private and unlocked, so this stays inside the single lock `handleSessionExit` already holds from Task 3.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -946,44 +1069,91 @@ Add it directly after `handleActionComplete` in `flow-runner.ts`:
 Run: `bun test packages/backend/src/services/__tests__/flow-runner.test.ts`
 Expected: PASS — whole file.
 
-- [ ] **Step 5: Write the failing route test**
+- [ ] **Step 5: Write the failing route tests**
 
 Note the two different harnesses in this repo — use the right one:
 - `packages/backend/src/services/__tests__/flow-integration.test.ts` wires a **real `FlowStore` against a temp dir** and calls `FlowRunner` methods directly. It does **not** issue HTTP requests.
 - `packages/backend/tests/api/routes.test.ts` builds an `ApiRouter` via `registerApiRoutes` and exercises real HTTP routes.
 
-Put the HTTP test in `packages/backend/tests/api/routes.test.ts`, following that file's existing harness (`ApiRouter`, `registerApiRoutes`, `sharedTestDeps`, the fake PTY manager) rather than inventing a new one:
+Put the HTTP test in `packages/backend/tests/api/routes.test.ts`. **Do not add it to that file's top-level `describe`** — that block registers `flowRunner: {} as never` (`routes.test.ts:71`), so any route that actually calls the runner throws and returns 500. Copy the `describe("flow artifact routes", ...)` block at `routes.test.ts:217` instead, which is the established pattern for flow-route tests: its own `ApiRouter`, a hand-mocked `flowRunner`, everything else stubbed. Note the router variable there is `apiRouter`, and requests go through `apiRouter.handle(...)`.
 
 ```ts
-it("rejects POST /api/flow/complete with no owner", async () => {
-    const response = await router.handle(
-        new Request("http://localhost/api/flow/complete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ flowId: "flow-1", sessionId: "session-1" }),
-        }),
-    );
-    expect(response?.status).toBe(400);
-});
+describe("flow complete route", () => {
+    let apiRouter: ApiRouter;
+    const flowRunner = {
+        completeFlow: mock(async () => {}),
+    };
 
-it("rejects POST /api/flow/complete with an invalid JSON body", async () => {
-    const response = await router.handle(
-        new Request("http://localhost/api/flow/complete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "not json",
-        }),
-    );
-    expect(response?.status).toBe(400);
+    beforeEach(() => {
+        apiRouter = new ApiRouter();
+        flowRunner.completeFlow.mockClear();
+        registerApiRoutes({
+            apiRouter,
+            taskStore: {} as never,
+            ptyManager: new FakePtyManager() as never,
+            broadcast: () => {},
+            settingsStore: {} as never,
+            flowStore: {} as never,
+            flowRunner: flowRunner as never,
+            gitService: {} as never,
+            agents: [],
+            ...sharedTestDeps,
+            trayStateTracker: new FakeTrayStateTracker() as never,
+            notificationStore: {} as never,
+        });
+    });
+
+    it("delegates a valid request to the runner", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/flow/complete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    taskId: "task-1",
+                    flowId: "flow-1",
+                    sessionId: "session-1",
+                }),
+            }),
+        );
+
+        expect(response?.status).toBe(200);
+        expect(flowRunner.completeFlow).toHaveBeenCalledWith("task-1", "flow-1", "session-1");
+    });
+
+    it("rejects a request with no owner", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/flow/complete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ flowId: "flow-1", sessionId: "session-1" }),
+            }),
+        );
+
+        expect(response?.status).toBe(400);
+        expect(flowRunner.completeFlow).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invalid JSON body", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/flow/complete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "not json",
+            }),
+        );
+        expect(response?.status).toBe(400);
+    });
 });
 ```
 
+The `toHaveBeenCalledWith` assertion is the point of the positive test — asserting only `status === 200` would pass against a route that parsed the body and did nothing. The `not.toHaveBeenCalled()` on the rejection case is what pins that validation happens *before* dispatch.
+
 Read how neighbouring tests in that file construct the router and dispatch a request, and match it exactly — the `router.handle(...)` call above is indicative, not verbatim.
 
-Also add a lifecycle test to `flow-integration.test.ts`, which exercises the runner against a real store — this is where the loop's persistence behaviour is worth checking end to end:
+Also add a lifecycle test to `flow-integration.test.ts`, which exercises the runner against a real store — this is where the loop's persistence behaviour is worth checking end to end. That file uses `test(...)`, not `it(...)`, and does not import `it` at all (`flow-integration.test.ts:1`), so keep the snippets below as written:
 
 ```ts
-    it("runs a looped flow through two iterations and ends on completeFlow", async () => {
+    test("runs a looped flow through two iterations and ends on completeFlow", async () => {
         const loopFlow: FlowDefinition = {
             ...testFlow,
             id: "loop-flow",
@@ -1006,10 +1176,38 @@ Also add a lifecycle test to `flow-integration.test.ts`, which exercises the run
     });
 ```
 
+And one for restart recovery — a looped run is the only kind that can realistically be mid-flight when the backend restarts, so its recovery path is worth pinning. `packages/backend/src/index.ts:242` pauses every `running` run at startup and marks its in-flight action `failed`; the run must then resume in the *same* iteration, not a new one:
+
+```ts
+    test("resumes a looped run in the same iteration after crash recovery", async () => {
+        const loopFlow: FlowDefinition = { ...testFlow, id: "loop-recover", loop: true };
+        await flowStore.saveFlow(loopFlow);
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.handleActionComplete("task-1", "loop-recover", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "loop-recover", spawnedSessions[1].sessionId);
+
+        // Replicate the startup recovery transform from index.ts:242.
+        const stranded = await flowStore.getFlowRun("task-1", "loop-recover");
+        if (!stranded) throw new Error("expected a run");
+        stranded.status = "paused";
+        stranded.actions[stranded.currentActionIndex].status = "failed";
+        stranded.actions[stranded.currentActionIndex].sessionId = undefined;
+        await flowStore.saveFlowRun(stranded);
+
+        await runner.resumeFlow("task-1", "loop-recover");
+
+        const run = await flowStore.getFlowRun("task-1", "loop-recover");
+        expect(run?.status).toBe("running");
+        expect(run?.loop).toBe(true);
+        expect(run?.iteration).toBe(2);
+        expect(run?.currentActionIndex).toBe(0);
+    });
+```
+
 - [ ] **Step 6: Run route tests to verify they fail**
 
 Run: `bun test packages/backend/tests/api/routes.test.ts packages/backend/src/services/__tests__/flow-integration.test.ts`
-Expected: FAIL — 404 on the route (it does not exist yet), and `runner.completeFlow is not a function` before Step 3 is done.
+Expected: FAIL — `ApiRouter.handle` returns `null` for an unregistered path (`router.ts:43`), so `response?.status` is `undefined` and all three route assertions fail. The `flow-integration.test.ts` case should already pass at this point, since Step 3 added `completeFlow`; if it fails, Step 3 is incomplete.
 
 - [ ] **Step 7: Register the route**
 
@@ -1057,62 +1255,144 @@ Expected: PASS across the backend suite.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add packages/backend/src/services/flow-runner.ts packages/backend/src/api/routes/flow-routes.ts packages/backend/src/services/__tests__/ packages/backend/tests/api/routes.test.ts
+git add packages/backend/src/services/flow-runner.ts \
+  packages/backend/src/api/routes/flow-routes.ts \
+  packages/backend/src/services/__tests__/flow-runner.test.ts \
+  packages/backend/src/services/__tests__/flow-integration.test.ts \
+  packages/backend/tests/api/routes.test.ts
 git commit -m "feat(flows): add completeFlow and POST /api/flow/complete"
 ```
 
 ---
 
-### Task 8: CLI — `flow complete` and `--loop` on create/update
+### Task 8: CLI — `flow complete` and `--loop` on `flow create`
 
 **Files:**
-- Modify: `packages/backend/src/services/taskflow-cli.sh:548` (the `flow)` case), and its `flow create` / `flow update` handlers at :691 and :736
-- Modify: `packages/backend/src/services/taskflow-cli-bin.ts:605` (`handleFlow`), and its `create` / `update` cases at :743 and :782
+- Modify: `packages/backend/src/services/taskflow-cli.sh:548` (the `flow)` case) and its `flow create` handler at :691
+- Modify: `packages/backend/src/services/taskflow-cli-bin.ts:605` (`handleFlow`) and its `create` case at :743
 - Modify: `packages/backend/src/services/taskflow-cli-flow-context-commands.md`
 - Modify: `packages/backend/src/services/taskflow-cli-flow-commands.md`
 - Test: `packages/backend/tests/services/taskflow-cli.test.ts`
 
 **Interfaces:**
 - Consumes: `POST /api/flow/complete` (Task 7).
-- Produces: `taskflow-cli flow complete`; `--loop` / `--no-loop` flags on `flow create` and `flow update`.
+- Produces: `taskflow-cli flow complete`; `--loop` / `--no-loop` flags on `flow create` only.
 
 Both CLI implementations must change. The shell script is what actually runs on macOS and Linux.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-Add to `packages/backend/tests/services/taskflow-cli.test.ts`, following the file's existing pattern for invoking the CLI against a stub server (read the top of the file first):
+Add to `packages/backend/tests/services/taskflow-cli.test.ts`. **Read the top of that file first** — the harness is specific and easy to get wrong:
+
+- `setupCliHarness()` (async) returns `{ cliPath, captureFile, env }`. `cliPath` points at the **shell** CLI, so this file only exercises `taskflow-cli.sh`. The TypeScript CLI has no test harness; its changes are verified by `bun run typecheck` and by hand.
+- `runCli(cliPath, args, env)` is **synchronous** — it returns `spawnSync`'s result, so the exit code is `result.status`, not `result.exitCode`.
+- The stub `curl` writes the request to `captureFile`; read it with `await readCapturedRequest(captureFile)`, which returns `{ method, url, data }` where `data` is the raw `-d` string.
+- Tests use `it(...)`, not `test(...)`.
 
 ```ts
-test("flow complete posts to /api/flow/complete", async () => {
-    const result = await runCli(["flow", "complete"], {
-        TASKFLOW_TASK_ID: "task-1",
-        TASKFLOW_FLOW_ID: "flow-1",
-        TASKFLOW_SESSION_ID: "session-1",
+    it("ends the whole flow from a flow action", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["flow", "complete"], {
+            ...env,
+            TASKFLOW_TASK_ID: "task-1",
+            TASKFLOW_FLOW_ID: "flow-1",
+            TASKFLOW_SESSION_ID: "session-1",
+        });
+
+        expect(result.status).toBe(0);
+        const request = await readCapturedRequest(captureFile);
+        expect(request.method).toBe("POST");
+        expect(request.url).toBe("http://localhost:1234/api/flow/complete");
+        expect(JSON.parse(request.data)).toEqual({
+            taskId: "task-1",
+            flowId: "flow-1",
+            sessionId: "session-1",
+        });
     });
 
-    expect(result.exitCode).toBe(0);
-    expect(lastRequest.path).toBe("/api/flow/complete");
-    expect(lastRequest.body).toEqual({
-        taskId: "task-1",
-        flowId: "flow-1",
-        sessionId: "session-1",
-    });
-});
+    it("refuses flow complete outside a flow action", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["flow", "complete"], {
+            ...env,
+            TASKFLOW_TASK_ID: "task-1",
+        });
 
-test("flow complete fails when not inside a flow action", async () => {
-    const result = await runCli(["flow", "complete"], {
-        TASKFLOW_TASK_ID: "task-1",
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("TASKFLOW_FLOW_ID is not set");
     });
 
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("TASKFLOW_FLOW_ID is not set");
-});
+    it("sets loop on flow create", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+
+        // Include --action so the payload is a flow a real backend would accept —
+        // flow-store.ts:13 rejects a definition with no actions.
+        const result = runCli(
+            cliPath,
+            ["flow", "create", "--name", "Looper", "--action", "action-1", "--loop"],
+            { ...env, TASKFLOW_PROJECT_ID: "project-1" },
+        );
+
+        expect(result.status).toBe(0);
+        expect(JSON.parse((await readCapturedRequest(captureFile)).data).loop).toBe(true);
+    });
+
+    it("omits loop from flow create when neither flag is given", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            ["flow", "create", "--name", "Plain", "--action", "action-1"],
+            { ...env, TASKFLOW_PROJECT_ID: "project-1" },
+        );
+
+        expect(result.status).toBe(0);
+        expect(JSON.parse((await readCapturedRequest(captureFile)).data)).not.toHaveProperty("loop");
+    });
+
+    it("sets loop false on flow create with --no-loop", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            ["flow", "create", "--name", "Plain", "--action", "action-1", "--no-loop"],
+            { ...env, TASKFLOW_PROJECT_ID: "project-1" },
+        );
+
+        expect(result.status).toBe(0);
+        expect(JSON.parse((await readCapturedRequest(captureFile)).data).loop).toBe(false);
+    });
+
+    it("rejects --loop and --no-loop together", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            ["flow", "create", "--name", "X", "--action", "action-1", "--loop", "--no-loop"],
+            env,
+        );
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("mutually exclusive");
+    });
 ```
+
+Expect these to behave differently in Step 2. Three go red: "sets loop on flow create" and "sets loop false" both fail because the shell `create` payload has no `loop` handling at all (`taskflow-cli.sh:722-731`), and "rejects --loop and --no-loop together" fails because the flag loop's `*) shift ;;` catch-all silently swallows both flags and exits 0. **"omits loop from flow create when neither flag is given" is green before and after** — it is a regression test that pins the absent case, not a driver. Do not treat its passing in Step 2 as a problem.
+
+`not.toHaveProperty("loop")` is the important assertion in that one; asserting `loop === undefined` would pass against a payload that emits `"loop":null`.
+
+There are deliberately **no `flow update` tests here** — see "Scope decision" at the top of this plan. `flow update` is broken in both CLIs today for any flow that has actions, so `--loop` is not added to it.
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun test packages/backend/tests/services/taskflow-cli.test.ts`
-Expected: FAIL — the subcommand is unknown.
+
+Expected, per test — do not expect a uniform FAIL:
+
+| Test | Before |
+|---|---|
+| ends the whole flow from a flow action | FAIL — `flow complete` is an unknown subcommand |
+| refuses flow complete outside a flow action | FAIL — same |
+| sets loop on flow create | FAIL — no `loop` in the create payload |
+| omits loop from flow create when neither flag is given | **PASS** — regression test, green before and after |
+| sets loop false on flow create with --no-loop | FAIL — no `loop` in the create payload |
+| rejects --loop and --no-loop together | FAIL — the flag loop's `*) shift ;;` swallows both and exits 0 |
 
 - [ ] **Step 3: Add `complete` to the shell CLI**
 
@@ -1122,6 +1402,10 @@ In `packages/backend/src/services/taskflow-cli.sh`, inside the `flow)` case (lin
       complete)
         if [ -z "$TASKFLOW_FLOW_ID" ]; then
           echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
+          exit 1
+        fi
+        if [ -z "$TASKFLOW_SESSION_ID" ]; then
+          echo "Error: TASKFLOW_SESSION_ID is not set" >&2
           exit 1
         fi
         if [ -n "$TASKFLOW_TASK_ID" ]; then
@@ -1146,6 +1430,7 @@ In `packages/backend/src/services/taskflow-cli-bin.ts`, inside `handleFlow`'s sw
 ```ts
         case "complete": {
             requireFlowId();
+            requireSessionId();
             const of = ownerField();
             process.stdout.write(
                 await api("POST", "/api/flow/complete", {
@@ -1158,46 +1443,94 @@ In `packages/backend/src/services/taskflow-cli-bin.ts`, inside `handleFlow`'s sw
         }
 ```
 
-- [ ] **Step 5: Add `--loop` / `--no-loop` to create and update**
+The `requireSessionId()` call (and its shell counterpart above) is deliberate and differs from the neighbouring `action complete`, which omits it. `completeFlow` only acts when `sessionId` matches the current action's session, so an empty `sessionId` would otherwise post successfully, do nothing, and print `{"success":true}` — a silent no-op on the one command whose whole job is to end the run. `TASKFLOW_SESSION_ID` is always set for real flow-action sessions (`session-lifecycle.ts:424`), so this only fires on misuse.
 
-In the shell CLI's `flow create` (line 691) and `flow update` (line 736) flag-parsing loops, add:
+- [ ] **Step 5: Add `--loop` / `--no-loop` to `flow create`**
+
+`flow create` only — not `flow update`, which is broken in both CLIs today (see "Scope decision" at the top of this plan). The snippet below is the complete version, guards included; there is no separate unguarded step, and no second `--loop` / `--no-loop` `case` pair anywhere.
+
+**Shell `create` (line 691)** accumulates into named variables and assembles the payload with `printf` at the end, appending `projectId` afterwards via `sed "s/}$/,...}/"`. Initialise `flow_loop=""` beside the existing `flow_name=""` / `flow_description=""` / `flow_action_ids=""`, and add to its flag loop:
 
 ```sh
-            --loop) flow_loop="true"; shift ;;
-            --no-loop) flow_loop="false"; shift ;;
+            --loop)
+              if [ "$flow_loop" = "false" ]; then
+                echo "Error: --loop and --no-loop are mutually exclusive" >&2
+                exit 1
+              fi
+              flow_loop="true"; shift ;;
+            --no-loop)
+              if [ "$flow_loop" = "true" ]; then
+                echo "Error: --loop and --no-loop are mutually exclusive" >&2
+                exit 1
+              fi
+              flow_loop="false"; shift ;;
 ```
 
-Initialise `flow_loop=""` before each loop, and include `"loop":$flow_loop` in the JSON payload only when `flow_loop` is non-empty — an empty value must omit the key entirely so `update` does not clear the flag when the caller did not mention it.
+Then append the value **immediately after the existing `projectId` block and before the `curl`**, so the conditional stays out of the `printf` format string:
 
-In `taskflow-cli-bin.ts`, both cases use the existing `parseFlags(args, spec)` helper (line 131), whose spec maps a flag name to `"string"` or `"boolean"`. Extend both specs:
+```sh
+        if [ -n "$flow_loop" ]; then
+          payload=$(printf '%s' "$payload" | sed "s/}\$/,\"loop\":$flow_loop}/")
+        fi
+```
+
+An empty `flow_loop` omits the key entirely. No `json_string` here — `flow_loop` is already the bare JSON literal `true` or `false`, and quoting it would produce a string that fails the new `typeof flow.loop !== "boolean"` validation from Task 1.
+
+Leave the shell `update` handler alone entirely — no `flow_loop`, no `overlay` entries, no new `case` branches.
+
+**TypeScript `create` (line 743)** uses the existing `parseFlags(args, spec)` helper (line 131), whose spec maps a flag name to `"string"` or `"boolean"`. Extend only the `create` spec; leave `update`'s spec untouched:
 
 ```ts
             const { flags } = parseFlags(subArgs, {
                 name: "string",
                 description: "string",
+                action: "string",
                 loop: "boolean",
                 "no-loop": "boolean",
             });
 ```
 
-(For `update` the call is `parseFlags(subArgs.slice(1), { ... })` — keep that difference.)
+Do not touch the `update` spec at line 792.
 
-Then derive a tri-state value and apply it. In `create`, add to the `body` object literal after `actions`:
+**`action: "string"` fixes a pre-existing bug** and is only in the `create` spec, not `update`. `parseFlags` calls `process.exit(1)` on any flag missing from the spec (`taskflow-cli-bin.ts:131` → `cli-flags.ts:30`), and `create`'s current spec omits `action` even though `create` documents `--action` and collects it in a manual loop afterwards. So `taskflow-cli flow create --name X --action a1` exits 1 with `Error: unknown flag "--action"` today. Verify before and after:
+
+```bash
+bun -e 'import {consumeFlags} from "./packages/backend/src/services/cli-flags";
+console.log(consumeFlags(["--name","X","--action","a1"], {name:"string",description:"string"}).unknown)'
+# prints [ "--action" ] — that non-empty array is what makes parseFlags exit 1
+```
+
+Adding `action: "string"` makes `parseFlags` consume the `--action <id>` pairs (keeping only the last in `flags`, which is unused) and report no unknowns; the existing manual loop still collects all of them, because `parseFlags` does not mutate `subArgs`.
+
+**This fix cannot be covered by `taskflow-cli.test.ts`.** That file's `setupCliHarness` writes and runs `taskflow-cli.sh` (`taskflow-cli.test.ts:35`, `:77`), so every test in it exercises the shell CLI only — the TypeScript CLI has no harness in this repo. Verify the `--action` fix and the TS `--loop` handling by hand, and keep them honest with a unit-level check of the flag spec, which needs no CLI process:
+
+```bash
+bun -e 'import {consumeFlags} from "./packages/backend/src/services/cli-flags";
+const r = consumeFlags(["--name","X","--action","a1","--action","a2","--loop"],
+  {name:"string",description:"string",action:"string",loop:"boolean","no-loop":"boolean"});
+console.log(r.unknown.length === 0 && r.flags.loop === true ? "OK" : "BROKEN", JSON.stringify(r))'
+```
+
+Do not claim the TS CLI is test-covered; state plainly in the commit that it is verified by `bun run typecheck` plus this check plus manual invocation.
+
+Then, in the `create` case only, derive the tri-state value after the `parseFlags` call and apply it to the `body` object literal:
 
 ```ts
+            if (flags.loop === true && flags["no-loop"] === true) {
+                process.stderr.write("Error: --loop and --no-loop are mutually exclusive\n");
+                process.exit(1);
+            }
             const loopFlag =
                 flags.loop === true ? true : flags["no-loop"] === true ? false : undefined;
-            // ...
+            // ...after the body literal is built:
             if (loopFlag !== undefined) body.loop = loopFlag;
 ```
 
-In `update`, add to the `overlay` object beside the existing `if (flags.name !== undefined)` lines:
+`undefined` must leave the key off entirely rather than write `loop: undefined` — `JSON.stringify` drops undefined values so either happens to work over the wire, but the explicit guard is what the "omits loop when neither flag is given" test pins.
 
-```ts
-            if (loopFlag !== undefined) overlay.loop = loopFlag;
-```
+**Rejecting the conflicting pair.** This is not defensive padding — it is what keeps the two CLIs from disagreeing. Left alone, the shell handler is last-flag-wins (each `case` branch overwrites) while the TS expression above is `--loop`-wins, so `flow create --no-loop --loop` would mean different things depending on which CLI ran. `consumeFlags` collapses booleans to `true` and loses their order (`cli-flags.ts:24`), so the TS side cannot cheaply be made last-wins; erroring is the one rule both can implement identically. The shell guard is already folded into the Step 5 snippet above — do not add a second pair of `--loop` / `--no-loop` `case` branches, or the first match wins and the guarded one becomes dead code.
 
-`undefined` must leave the key off entirely, so `flow update --name x` does not silently clear an existing `loop: true`. Note `overlay` is also what the `Object.keys(overlay).length === 0` "No update fields provided" check inspects, so `--loop` alone correctly counts as an update.
+Also update the usage strings so the new surface is discoverable: the `flow create` usage line (`taskflow-cli-bin.ts:759-763`, which must gain `[--loop|--no-loop]`) and the `handleFlow` default-case usage list (`taskflow-cli-bin.ts:816`, which must gain `complete`), plus their shell-script equivalents.
 
 - [ ] **Step 6: Update the CLI docs**
 
@@ -1213,7 +1546,7 @@ And add a note at the end of that file:
 Note: in a looped flow, `action complete` finishes the current step and the flow moves on; after the last step it starts again from the first. `flow complete` ends the entire run immediately. Reuse the same artifact `<type>` names on every iteration rather than inventing new ones per lap.
 ```
 
-In `packages/backend/src/services/taskflow-cli-flow-commands.md`, document `--loop` / `--no-loop` on the `flow create` and `flow update` entries.
+In `packages/backend/src/services/taskflow-cli-flow-commands.md`, document `--loop` / `--no-loop` on the `flow create` entry only. Do not document them on `flow update` — they are not implemented there.
 
 These files are bundled as text imports and rewritten to `~/.config/taskflow/agent-skills/` on startup (`internal-agent-skill.ts:107`), so editing the repo copies is sufficient — no separate sync step.
 
@@ -1290,6 +1623,8 @@ describe("looped action prompt", () => {
         expect(spawnedSessions[2].systemPrompt ?? "").toContain("iteration 2");
     });
 
+    // Regression guard: green before and after. Pins that loop instructions never
+    // leak into a finite flow's prompt.
     test("a non-looped flow's prompt does not mention flow complete", async () => {
         await runner.startFlow(taskOwner, testFlow);
         expect(spawnedSessions[0].systemPrompt ?? "").not.toContain("flow complete");
@@ -1388,7 +1723,7 @@ Beside the existing `description` state at line 62:
 
 - [ ] **Step 2: Add the control**
 
-Import `Switch` and `Label` if not already imported (`@/components/ui/switch`, `@/components/ui/label`). Add below the description field, following the pattern used in `NewTaskDialog.tsx:250`:
+Import `Switch` and `Label` if not already imported (`@/components/ui/switch`, `@/components/ui/label` — both exist). Add below the description field, following the pattern used in `packages/ui/src/components/sidebar/NewTaskDialog.tsx:250`:
 
 ```tsx
                     <div className="flex items-center gap-2">
@@ -1416,11 +1751,11 @@ In the `handleSave` payload (line 188):
             loop,
 ```
 
-Add `loop` to that callback's dependency array (line 195), to the reset object (line 220-223) as `flow?.loop ?? false`, and to the dirty-check dependency list (line 229-232). Follow exactly how `description` is threaded through all four places.
+Add `loop` to that callback's dependency array (line 195). The dirty check is a pair of `JSON.stringify` snapshots, not a reset object: add `loop: flow?.loop ?? false` to `initialSnapshot` (line 216-226) and `loop` to `currentSnapshot` (line 227-234). Follow exactly how `description` is threaded through all four places — `useState`, `handleSave` payload, `handleSave` deps, and both snapshots. Miss a snapshot and the Save button stays disabled after toggling.
 
 - [ ] **Step 4: Confirm the store forwards it**
 
-Read `packages/ui/src/stores/flow-store.ts` and check whether its save action passes the whole `FlowDefinition` through or picks fields explicitly. If it picks fields, add `loop`. If it forwards the object, no change is needed.
+`packages/ui/src/stores/flow-store.ts:109` sends the whole `FlowDefinition` over `MSG.FLOW_DEFINITION_SAVE`, and the backend handler (`packages/backend/src/handlers/flow.ts:44`) passes the whole payload to `flowStore.saveFlow`. No change is expected — re-read both to confirm, and if either picks fields explicitly, add `loop`.
 
 - [ ] **Step 5: Verify**
 
@@ -1495,7 +1830,7 @@ In `FlowManagementDialog.tsx`, inside the flow list row at line 188, render a `R
 Run: `bun run typecheck`
 Expected: no type errors.
 
-Then, in the running app: create a two-step looped flow whose actions are trivial (e.g. shell actions that exit 0), start it, and confirm the header counts up through iterations, the step rows reset each lap, and the Stop button reads "Finish loop" and leaves the run green rather than red.
+Then, in the running app: create a two-step looped flow whose actions are shell actions that take a beat (`sleep 2; echo done` — *not* instant exits; see "Known pre-existing race" at the top of this plan), start it, and confirm the header counts up through iterations, the step rows reset each lap, and the Stop button reads "Finish loop" and leaves the run green rather than red.
 
 - [ ] **Step 5: Commit**
 
@@ -1532,16 +1867,26 @@ Expected: clean. Do not silence eslint rules; fix the cause. If `format:check` c
 
 - [ ] **Step 4: End-to-end check by hand**
 
-In the running app:
-1. Create a looped flow with two shell actions.
-2. Start it on a task. Confirm it wraps and the iteration counter advances.
-3. Confirm only about one agent session is live at a time — not one per step per lap.
-4. From an agent action, run `taskflow-cli flow complete` and confirm the run ends as completed with the later steps skipped.
-5. Start it again and press Stop. Confirm the run ends completed, not failed.
+This needs **two** looped flows, because shell actions and agent actions exercise different paths and only an agent action can run `taskflow-cli flow complete`.
+
+**Flow A — two shell actions**, each `sleep 2; echo done` (not instant exits; see "Known pre-existing race" at the top of this plan):
+
+1. Start it on a task. Confirm it wraps and the iteration counter advances.
+2. Confirm a completed shell step shows no clickable session — Task 6 Step 3b clears `sessionId` on the shell auto-complete path.
+3. Press Stop. Confirm the run ends completed, not failed, and that the loop actually halts rather than spawning another lap.
+
+**Flow B — one shell action then one agent action:**
+
+4. Start it and let it run **at least one full wrap** — have the agent action run `taskflow-cli action complete` so the loop returns to step 1 and the agent step launches a second time. Session accumulation is what Task 6 fixes, and it only shows up across laps: confirm roughly one agent session is live at a time, not one per step per lap.
+5. On the second lap, from the agent action, run `taskflow-cli flow complete`. Confirm the run ends as completed and the agent's own session is closed. To also see the skip-the-rest behaviour, make Flow B three steps (shell, agent, shell) and issue `flow complete` from the middle one — with the agent as the last step there is nothing left to skip.
+6. Run `taskflow-cli flow complete` again from a stale terminal in that closed session. Confirm it does not resurrect or alter the finished run.
 
 - [ ] **Step 5: Commit any fixes**
 
+Run `git status --short` and stage only the paths this plan touched. Never `git add -A` here — it would sweep in unrelated working-tree changes.
+
 ```bash
-git add -A
+git status --short
+git add <the specific files you changed>
 git commit -m "fix(flows): address issues found in full verification"
 ```
