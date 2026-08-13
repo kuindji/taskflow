@@ -23,7 +23,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 9 | Tell the agent it is in a loop | clear | `198efa8` | Impl `8e62ce1`; round 1 fix `08b987d`; round 2 clear, no commit |
 | 10 | Flow editor — loop toggle | clear | `62b7da6` | Impl `f32ad9d`; round 1 clear, no fix commit |
 | 11 | Flow panel — iteration indicator, loop-aware stop | clear | `1a2429d` | Impl `222f399`; round 1 clear, no fix commit |
-| 12 | Full verification | steps 1-3 done, step 4 AWAITING USER | `292dcae` | Suites/lint/typecheck/format all green (`1401af2` fixes a pre-existing format warning). Manual E2E needs the user. |
+| 12 | Full verification | steps 1-3 done, step 4 deferred to 2026-08-14 | `292dcae` | Suites/lint/typecheck/format all green (`1401af2` fixes a pre-existing format warning). Manual E2E deferred by the user, to be done together. |
 
 ## Review rounds
 
@@ -1801,19 +1801,35 @@ This document is the source of truth for progress. One bounded step per session.
   instance; the memory notes on dev-backend and native-sidecar sandboxing record that a mis-sandboxed
   dev backend shares the real data dir and has crashed the running host app before. Neither is a
   minor, reversible choice, so the anti-stall rule does not apply and it goes to the user.
+- 2026-08-13: **the autonomous flow was stopped here at the user's request** ("for now you can stop
+  the flow, tomorrow we will continue with testing the stuff"). `taskflow-cli action complete` was
+  run and the flow was deliberately **not** restarted, so no further session picks this up on its
+  own. Task 12 step 4 is **deferred, not waived** — the distinction matters, because a waived E2E
+  would mean shipping a feature nobody has ever run, and this plan should not be summarised as
+  "verified" until step 4 happens. The next session resumes with the user present.
 
 ## Next step
 
-Next step: **AWAITING USER — Task 12 step 4, the manual end-to-end check, needs a human to drive
-the running Taskflow app. Which of these should happen: (a) the user runs the E2E themselves
-against the two flows the plan specifies and reports back, (b) Claude is authorised to build and
-launch a sandboxed dev instance and drive it, or (c) the E2E is waived and the plan is declared
-complete on automated evidence alone?**
+Next step: **Task 12 step 4 — the manual end-to-end check, DEFERRED by the user to 2026-08-14, to
+be done together rather than autonomously.**
 
-**Everything else in this plan is finished.** Tasks 1-11 are all `clear`; Task 12 steps 1, 2, 3 and
-5 are done and green at `1401af2`. Step 4 is the only outstanding item in the whole plan.
+**User decision (2026-08-13):** asked to stop the autonomous flow here — "for now you can stop the
+flow, tomorrow we will continue with testing the stuff." So the three options this section
+previously posed are resolved as **not (c)**: the E2E is *deferred*, not waived. The loop was
+stopped by running `taskflow-cli action complete` **without** restarting the flow. Nothing is
+blocked on a question anymore; the next session picks this up with the user present.
 
-**Why this is a gate rather than something to decide autonomously.** Step 4 asks for two looped
+**Do not declare the plan complete yet.** Tasks 1-11 are all `clear` and Task 12 steps 1, 2, 3 and
+5 are done and green at `1401af2`, but step 4 is unrun, so the honest status of the feature is
+**"fully implemented and reviewed, never executed end to end."** Say it that way in any summary
+until step 4 actually happens.
+
+**Everything else in this plan is finished.** Step 4 is the only outstanding item in the whole plan.
+
+**Why it was gated rather than decided autonomously** (kept for context — this is the reasoning the
+next session should re-apply if the environment question comes up again).
+
+Step 4 asks for two looped
 flows to be created and run in the app, watched across at least one wrap, and stopped — none of
 which is reachable from a shell. Driving it would mean either operating the user's **live**
 Taskflow (the same app this session runs inside — creating flows, spawning PTYs, and pressing Stop
@@ -1823,7 +1839,8 @@ dev backend shares the real data dir unless `HOME` is faked and `TASKFLOW_DEV_PO
 that getting this wrong has previously crashed the running host app. That is a destructive-risk
 action on the user's own environment, so it needs an explicit yes rather than an assumption.
 
-**Recommendation: (b), with the sandbox.** The E2E is worth actually doing rather than waiving —
+**Standing recommendation for tomorrow: run it against a sandboxed dev instance, not the live app.**
+The E2E is worth actually doing rather than waiving —
 three of the plan's own claims have never been observed by anyone, only reasoned about:
 
 1. **Nobody has seen the panel render.** Tasks 10 and 11 are verified entirely in happy-dom, which
@@ -1835,11 +1852,11 @@ three of the plan's own claims have never been observed by anyone, only reasoned
    fast shell actions, which is why the plan insists on `sleep 2; echo done` rather than instant
    exits. That prediction has never been checked against a real spawn.
 
-If the user picks (c), say so explicitly in the final summary — "the loop feature has never been
-run end to end" is a materially different shipping claim from "verified", and the handoff should
-not blur them.
+If the E2E is ever waived outright rather than deferred, say so explicitly in the final summary —
+"the loop feature has never been run end to end" is a materially different shipping claim from
+"verified", and the handoff should not blur them.
 
-**Exact steps to run, from the plan (lines 1870-1884), once the environment question is settled:**
+**Exact steps to run, from the plan (lines 1870-1884):**
 
 *Flow A — two shell actions, each `sleep 2; echo done`* (not instant exits — see the race note):
 1. Start it on a task. Confirm it wraps and the iteration counter advances.
