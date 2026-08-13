@@ -255,6 +255,32 @@ describe("stopFlow", () => {
     });
 });
 
+describe("stopFlow — non-looped behaviour is preserved", () => {
+    test("closes the session, fails the running action, leaves pending actions pending", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await runner.stopFlow("task-1", "flow-1");
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.status).toBe("failed");
+        expect(run?.completedAt).toBeDefined();
+        expect(run?.actions[0].status).toBe("failed");
+        expect(run?.actions[0].sessionId).toBeUndefined();
+        expect(run?.actions[1].status).toBe("pending");
+        expect(closedSessions).toEqual(["session-1"]);
+    });
+
+    test("does not re-mark an action that is not running", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await runner.skipAction("task-1", "flow-1");
+        // action 0 is now "skipped", action 1 is running
+        await runner.stopFlow("task-1", "flow-1");
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.actions[0].status).toBe("skipped");
+        expect(run?.actions[1].status).toBe("failed");
+    });
+});
+
 describe("handleSessionExit", () => {
     test("marks action failed when session exits without action complete", async () => {
         await runner.startFlow(taskOwner, testFlow);

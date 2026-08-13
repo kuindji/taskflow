@@ -4,6 +4,7 @@ import type {
     FlowOwner,
     FlowRun,
     FlowActionEntry,
+    FlowActionStatus,
     FlowArtifact,
     SessionType,
 } from "@taskflow/shared";
@@ -35,6 +36,14 @@ interface SessionFlowMapping {
     flowId: string;
     actionEntryId: string;
     sessionType: SessionType;
+}
+
+interface EndRunOptions {
+    status: "completed" | "failed";
+    // Applied only to a step whose status is currently "running"
+    runningStepOutcome: FlowActionStatus;
+    // When true, every still-pending step is marked skipped
+    skipPending: boolean;
 }
 
 class FlowRunner {
@@ -360,18 +369,37 @@ class FlowRunner {
     }
 
     private async failFlow(run: FlowRun): Promise<void> {
+        await this.endRun(run, {
+            status: "failed",
+            runningStepOutcome: "failed",
+            skipPending: false,
+        });
+    }
+
+    private async endRun(run: FlowRun, opts: EndRunOptions): Promise<void> {
         const currentAction = run.actions[run.currentActionIndex];
         if (currentAction?.sessionId) {
-            this.deps.closeSession(currentAction.sessionId);
+            // Drop the mapping before closing: handleSessionExit returns early
+            // on a missing mapping, which makes the async exit inert.
             this.sessionFlowMap.delete(currentAction.sessionId);
+            this.deps.closeSession(currentAction.sessionId);
             currentAction.sessionId = undefined;
         }
         if (currentAction?.status === "running") {
-            currentAction.status = "failed";
+            currentAction.status = opts.runningStepOutcome;
             currentAction.completedAt = new Date().toISOString();
         }
+        if (opts.skipPending) {
+            const skippedAt = new Date().toISOString();
+            for (const action of run.actions) {
+                if (action.status === "pending") {
+                    action.status = "skipped";
+                    action.completedAt = skippedAt;
+                }
+            }
+        }
 
-        run.status = "failed";
+        run.status = opts.status;
         run.completedAt = new Date().toISOString();
         await this.deps.flowStore.saveFlowRun(run);
         this.broadcastUpdate(run);
