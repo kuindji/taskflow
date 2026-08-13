@@ -22,8 +22,8 @@ This document is the source of truth for progress. One bounded step per session.
 | 8 | CLI — `flow complete` and `--loop` on `flow create` | clear | `fe5d92d` | Impl `6d419d6`; round 1 clear, no fix commit |
 | 9 | Tell the agent it is in a loop | clear | `198efa8` | Impl `8e62ce1`; round 1 fix `08b987d`; round 2 clear, no commit |
 | 10 | Flow editor — loop toggle | clear | `62b7da6` | Impl `f32ad9d`; round 1 clear, no fix commit |
-| 11 | Flow panel — iteration indicator, loop-aware stop | implemented | `1a2429d` | Impl `222f399`; review round 1 due |
-| 12 | Full verification | pending | — | Includes manual E2E — likely a user gate |
+| 11 | Flow panel — iteration indicator, loop-aware stop | clear | `1a2429d` | Impl `222f399`; round 1 clear, no fix commit |
+| 12 | Full verification | steps 1-3 done, step 4 AWAITING USER | `292dcae` | Suites/lint/typecheck/format all green (`1401af2` fixes a pre-existing format warning). Manual E2E needs the user. |
 
 ## Review rounds
 
@@ -1417,6 +1417,78 @@ This document is the source of truth for progress. One bounded step per session.
   `bun run typecheck` → all four packages exit 0. `bun run lint` → clean. `bunx prettier --check` on
   all three changed files → clean. `git status` clean apart from this handoff.
 
+### Task 11 — review round 1 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `1a2429d..HEAD`, `packages/`
+  only — that range is exactly implementation commit `222f399`).
+- Result: **clear — zero substantiated findings.** Task 11 is now **clear.** No fix commit for the
+  task itself; HEAD stays `292dcae` plus this handoff update and the unrelated `1401af2` recorded
+  under Task 12 below.
+- All four scoped questions came back clean. Per the standing rule, the reviewer's **trace** was
+  checked, not just its verdict — and two of its four claims were re-derived by execution rather
+  than by reading, because both were reasoned about in the report without being run:
+  1. **The header flex wrapper is sound.** `TruncatedText` renders `block min-w-0 truncate`
+     (`truncated-text.tsx:85`), so as a flex child it keeps its own `min-w-0` *and* — because
+     `truncate` sets `overflow:hidden` — its automatic minimum size resolves to 0 regardless. The
+     new wrapper carries `min-w-0` too, and the indicator span is `shrink-0`, so a long name is
+     the thing that gives way. The pattern matches the codebase's established one
+     (`TaskHeader.tsx:331,339,359` all use `flex min-w-0 items-center gap-1.5`). The `ml-2` move
+     from `TruncatedText` to the wrapper preserves header spacing for a non-looped run, since the
+     wrapper is now the flex item the Toolbar positions.
+  2. **`className={undefined}` through the Button — verified by execution, not by reading.** A
+     throwaway probe mounted `FlowPanel` twice and printed the stop button's rendered
+     `className`. Looped: `... text-foreground/90 hover:bg-accent ... size-4 rounded-sm ...` — the
+     ghost variant's own colour survives, so the button is *not* left colourless or inheriting
+     something odd. Non-looped: the same string with `text-foreground/90` **removed** and
+     `text-destructive` appended — tailwind-merge resolves the conflict in the intended direction.
+     So `undefined` and the string differ only in the one class the change is about. Probe deleted;
+     `git status` verified clean afterwards.
+  3. **The dialog badge reads the right field.** `filteredFlows` derives from
+     `useFlowStore((s) => s.flows)` (`FlowManagementDialog.tsx:23,43`), which is
+     `FlowDefinition[]` — so `f.loop` is the *saved* flag, not a run snapshot, which is what a
+     "what this flow will do next time" list should show. `bun run typecheck` exiting 0 is the
+     proof the field exists at that call site. The `<div className="font-medium">` →
+     `<span className="truncate font-medium">` change truncates for the same
+     `overflow:hidden`-implies-`min-width:0` reason, and matches the row's second line, which
+     already truncated that way.
+  4. **The tooltip assertions are not vacuous — verified by grep, not by assumption.** The worry
+     was that `tooltipTextOf` reads whole-`document.body` text, so a never-opened portal might
+     still match text from the mounted panel. `grep -n "Stop\|Finish loop"` over `FlowPanel.tsx`
+     returns only the `tooltip=` prop itself (`:186`) plus a comment and the `handleStop`
+     identifier — neither of which reaches the DOM. So neither string is present pre-hover, and a
+     missing portal fails both stop tests. That is what makes the implementation-entry mutation
+     matrix (tooltip reverted to a constant → both stop tests red) mean what it claims.
+- One **coverage gap** the reviewer raised, explicitly not a finding and not actioned: the six
+  tests exercise no real browser layout, so neither actual truncation nor the dialog badge is
+  seen rendering. Already recorded in the Task 11 implementation entry and in the Decisions list;
+  it belongs to Task 12's manual E2E, which is exactly where it now sits as a user gate.
+- Validation at `292dcae` (unchanged code, so this doubles as Task 12 steps 1-3):
+  `bun test packages/ui/src/components/flows/FlowPanel.loop.test.tsx` → **6 pass, 0 fail**.
+  `bun test packages/ui` → **139 pass, 0 fail** (21 files). `bun test packages/backend` →
+  **582 pass, 0 fail** (54 files). `bun run typecheck` → all four packages exit 0.
+  `bun run lint` → clean. `git status` clean.
+
+### Task 12 — steps 1-3 (2026-08-13)
+
+- The three automated steps are **done and green at `1401af2`**. They were run as this session's
+  review-round validation against unchanged code, so re-running them in a fresh session would
+  only repeat the numbers above.
+  - Step 1 `bun test packages/backend` → **582 pass, 0 fail** (54 files). No pre-existing test
+    asserting on flow completion or stop semantics went red — the plan's specific worry.
+  - Step 2 `bun test packages/ui` → **139 pass, 0 fail** (21 files), with the **101** baseline
+    `not wrapped in act(...)` warnings and no new ones.
+  - Step 3 `bun run lint` → clean; `bun run typecheck` → all four packages exit 0;
+    `bun run format:check` → **clean, after one fix** (below).
+- **`format:check` needed the one-line fix the Decisions list pre-authorised.** It warned on
+  `packages/ui/src/lib/fuzzy-match.test.ts`, dirty-formatted since before this plan started.
+  Confirmed pre-existing rather than a regression: `git diff e72babf..HEAD` on that path is
+  **empty**, so no task in this plan touched it. Fixed with `bunx prettier --write` — a
+  whitespace-only reflow of one function signature onto a single line, no code change — and
+  committed **separately** as `1401af2` so it can be reverted on its own. Its own suite re-run
+  after the fix: **8 pass, 0 fail**. No eslint rule was disabled.
+- **Step 4 (the manual end-to-end check) is NOT done** and is the user gate — see `## Next step`.
+- Step 5 (commit any fixes) is therefore not reached; nothing else needs committing.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -1713,40 +1785,80 @@ This document is the source of truth for progress. One bounded step per session.
   and entirely presentational, but it is the surface a user watches to tell a wrapping loop from a
   glitching panel, the mutation matrix shows all four clauses are individually load-bearing, and one
   of the three changes (the dialog badge) has no test at all.
+- 2026-08-13: ran **Task 12 steps 1-3 in the same session as Task 11's review round**, rather than
+  handing off a fresh session to re-run them. The review round already runs the full backend and UI
+  suites plus lint and typecheck as its own validation, against code the round did not change — so a
+  separate session would have re-executed identical commands for identical numbers. Only
+  `format:check` was genuinely new. The manual step 4 is still gated, which is where the real
+  boundary is.
+- 2026-08-13: fixed the pre-existing `fuzzy-match.test.ts` format warning here, as the first
+  Decisions entry pre-authorised ("if Task 12 requires a clean `format:check`, fix it there as a
+  separate one-line commit"). Confirmed pre-existing before touching it — `git diff e72babf..HEAD`
+  on that path is empty — and committed on its own (`1401af2`) so it is revertible independently of
+  the feature. The change is a whitespace-only reflow; the file's own suite is green after it.
+- 2026-08-13: **did not attempt Task 12's manual E2E autonomously.** The two available routes are
+  driving the user's live Taskflow (the app this session runs inside) or standing up a sandboxed dev
+  instance; the memory notes on dev-backend and native-sidecar sandboxing record that a mis-sandboxed
+  dev backend shares the real data dir and has crashed the running host app before. Neither is a
+  minor, reversible choice, so the anti-stall rule does not apply and it goes to the user.
 
 ## Next step
 
-Next step: **Task 11 — review round 1.** Base commit `1a2429d`; the code under review is exactly
-implementation commit `222f399` (`FlowPanel.tsx`, `FlowManagementDialog.tsx`, and the new
-`FlowPanel.loop.test.tsx`). Run one gpt-5.5 review via the `codex-review` skill over
-`1a2429d..HEAD` scoped to `packages/` so this document stays out of the diff.
+Next step: **AWAITING USER — Task 12 step 4, the manual end-to-end check, needs a human to drive
+the running Taskflow app. Which of these should happen: (a) the user runs the E2E themselves
+against the two flows the plan specifies and reports back, (b) Claude is authorised to build and
+launch a sandboxed dev instance and drive it, or (c) the E2E is waived and the plan is declared
+complete on automated evidence alone?**
 
-Worth pointing the reviewer at, in rough order of where a defect would actually be:
+**Everything else in this plan is finished.** Tasks 1-11 are all `clear`; Task 12 steps 1, 2, 3 and
+5 are done and green at `1401af2`. Step 4 is the only outstanding item in the whole plan.
 
-1. **The header wrapper is the only non-cosmetic edit.** `TruncatedText` moved inside a new
-   `flex min-w-0 items-center gap-1.5` div and lost its own `ml-2` to that wrapper. `TruncatedText`
-   measures its own overflow to decide whether to show a tooltip — does it still truncate correctly
-   as a flex child, and is a long flow name still able to shrink now that a sibling span with
-   `shrink-0` shares the row? No test covers truncation; this is the thing a reader should check by
-   reading `TruncatedText`.
-2. **`className={run.loop ? undefined : "text-destructive"}`** — passing `undefined` to the Button's
-   `cn(buttonVariants({ variant, size, className }))`. Confirmed fine by test, but worth a second
-   reader on whether `undefined` versus omitting the prop differs anywhere in that `cva` path.
-3. **The dialog badge has no test** (see the Decisions entry for why). Verify by reading that
-   `f.loop` is the right field on `FlowDefinition` there — it is the definition, not the run, so it
-   reflects the *saved* flag rather than a run's snapshot. That is intended: the list shows what the
-   flow will do next time it starts.
-4. **The test file's tooltip helper** dispatches `mouseover`/`mouseout` and reads
-   `document.body.textContent`. Is that assertion vacuous in any direction — e.g. would it pass if
-   the portal never opened and the text came from somewhere else in the body? (The mutation matrix
-   says no: reverting the tooltip to a constant `"Stop"` turns both stop tests red. Ask the reviewer
-   to challenge the reasoning, not just the result.)
+**Why this is a gate rather than something to decide autonomously.** Step 4 asks for two looped
+flows to be created and run in the app, watched across at least one wrap, and stopped — none of
+which is reachable from a shell. Driving it would mean either operating the user's **live**
+Taskflow (the same app this session runs inside — creating flows, spawning PTYs, and pressing Stop
+in their real workspace) or standing up a sandboxed dev instance. The second is the safe shape but
+is not free: `project_dev_backend_sandbox` and `project_native_sidecar_sandbox` both record that a
+dev backend shares the real data dir unless `HOME` is faked and `TASKFLOW_DEV_PORT` is set, and
+that getting this wrong has previously crashed the running host app. That is a destructive-risk
+action on the user's own environment, so it needs an explicit yes rather than an assumption.
 
-Not in scope for this round: the manual Electron check (Task 12 owns it), `FlowEditor.tsx`
-(Task 10 is closed), and the two `flow update` bugs (open follow-up, unrelated).
+**Recommendation: (b), with the sandbox.** The E2E is worth actually doing rather than waiving —
+three of the plan's own claims have never been observed by anyone, only reasoned about:
 
-After this round: if it is clear, the next step is **Task 12 — full verification**, which is where
-the manual E2E lives and which the table already flags as a likely user gate.
+1. **Nobody has seen the panel render.** Tasks 10 and 11 are verified entirely in happy-dom, which
+   computes no layout. Header truncation with the new `Iteration N` badge sharing the row is
+   untested by construction, and the `FlowManagementDialog` loop badge has **no test at all**.
+2. **Session accumulation across laps is the point of Task 6** and only shows up over a real wrap
+   with real PTYs. Every test of it so far uses an in-memory `closeSession` spy.
+3. **The pre-existing `sessionFlowMap` registration race** (plan lines 60-69) is expected to bite
+   fast shell actions, which is why the plan insists on `sleep 2; echo done` rather than instant
+   exits. That prediction has never been checked against a real spawn.
+
+If the user picks (c), say so explicitly in the final summary — "the loop feature has never been
+run end to end" is a materially different shipping claim from "verified", and the handoff should
+not blur them.
+
+**Exact steps to run, from the plan (lines 1870-1884), once the environment question is settled:**
+
+*Flow A — two shell actions, each `sleep 2; echo done`* (not instant exits — see the race note):
+1. Start it on a task. Confirm it wraps and the iteration counter advances.
+2. Confirm a completed shell step shows **no clickable session** (Task 6 step 3b clears
+   `sessionId` on the shell auto-complete path).
+3. Press Stop. Confirm the run ends **completed**, not failed, and that the loop actually halts
+   rather than spawning another lap. The Stop button should read **"Finish loop"** and not be red.
+
+*Flow B — three steps (shell, agent, shell)*, so there is something left for `flow complete` to skip:
+4. Let it run **at least one full wrap**, with the agent step calling `taskflow-cli action
+   complete`. Confirm roughly **one agent session is live at a time**, not one per step per lap.
+5. On the second lap, from the agent step, run `taskflow-cli flow complete`. Confirm the run ends
+   completed, the trailing shell step is marked **skipped**, and the agent's own session closes.
+6. Run `taskflow-cli flow complete` again from a stale terminal in that closed session. Confirm it
+   does **not** resurrect or alter the finished run. (Carry-forward: a refused complete still
+   returns 200 `{"success":true}`, so judge by the run's state, not by the CLI's exit.)
+
+If step 4 turns up a defect, it becomes a new implementation step with its own review round, and
+the plan is not complete until that closes.
 
 Carry forward, established in earlier rounds and not to be re-derived:
 
