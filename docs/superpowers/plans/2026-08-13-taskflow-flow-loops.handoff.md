@@ -22,7 +22,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 8 | CLI — `flow complete` and `--loop` on `flow create` | clear | `fe5d92d` | Impl `6d419d6`; round 1 clear, no fix commit |
 | 9 | Tell the agent it is in a loop | clear | `198efa8` | Impl `8e62ce1`; round 1 fix `08b987d`; round 2 clear, no commit |
 | 10 | Flow editor — loop toggle | clear | `62b7da6` | Impl `f32ad9d`; round 1 clear, no fix commit |
-| 11 | Flow panel — iteration indicator, loop-aware stop | pending | — | |
+| 11 | Flow panel — iteration indicator, loop-aware stop | implemented | `1a2429d` | Impl `222f399`; review round 1 due |
 | 12 | Full verification | pending | — | Includes manual E2E — likely a user gate |
 
 ## Review rounds
@@ -1361,6 +1361,62 @@ This document is the source of truth for progress. One bounded step per session.
   `bun run typecheck` → all four packages exit 0. `bun run lint` → clean. `git status` clean apart
   from this handoff.
 
+### Task 11 — implementation (2026-08-13)
+
+- Base commit `1a2429d` (the docs-only commit carrying this handoff, so the review range
+  `1a2429d..HEAD` contains only code); implementation commit `222f399`.
+- Three production changes, all as the plan specifies:
+  1. `FlowPanel.tsx` header (`:142-156`) — the name is now wrapped in a
+     `flex min-w-0 items-center gap-1.5` div beside a `Repeat` + `Iteration {run.iteration ?? 1}`
+     span rendered only when `run.loop`. The `ml-2` moved from the `TruncatedText` to the wrapper
+     so the header spacing is unchanged for a non-looped run.
+  2. `FlowPanel.tsx` stop button (`:179-186`) — `className={run.loop ? undefined :
+     "text-destructive"}` and `tooltip={run.loop ? "Finish loop" : "Stop"}`.
+  3. `FlowManagementDialog.tsx:197` — a muted `Repeat` (`h-3 w-3`, `aria-label="Loops"`) beside the
+     flow name on list rows where `f.loop`.
+- **New test file `FlowPanel.loop.test.tsx`, six tests**, using the harness Task 10 established
+  (happy-dom preloaded from the root `bunfig.toml`, `createRoot` + `act`,
+  `IS_REACT_ACT_ENVIRONMENT`). Two things worth carrying forward about it:
+  - **No `mock.module` was needed at all.** The real `@/stores/flow-store` is imported and seeded
+    with `setState` — nothing in that module connects at import time (`onEvent` only registers a
+    listener), so the process-wide mock hazard the Task 10 entry warns about is avoided entirely.
+    `@/stores/session-store` is likewise imported for real and never reached, since no test clicks
+    an action row. This is the pattern to prefer over stubbing a store.
+  - **Button tooltips are body portals that exist only while hovered.** Asserting the tooltip text
+    requires dispatching `mouseover` (React's enter-event delegation) and reading
+    `document.body.textContent`; a `mouseout` afterwards closes it so the next test starts clean.
+- **Red-then-green, recorded per test** because two of the six are green-before-and-after guards by
+  design. At `1a2429d` the file ran **2 pass / 4 fail**:
+  - RED: `a looped run shows its iteration in the header`, `a looped run with no iteration stamp
+    falls back to 1`, `stop on a looped run reads Finish loop and is not styled as destructive`,
+    `a paused looped run still offers the loop-aware stop`.
+  - GREEN before and after: `a non-looped run shows no iteration indicator` and `stop on a
+    non-looped run stays destructive and reads Stop` — the two regression guards.
+- **Test power verified by mutation, one clause at a time**, since all four clauses landed in the
+  same commit and the two stop-button tests assert on class *and* tooltip (a joint failure on the
+  class line would otherwise hide whether the tooltip is pinned at all):
+  - `tooltip` reverted to a constant `"Stop"` → **4 pass / 2 fail**, both stop-button tests.
+  - `className` reverted to a constant `"text-destructive"` → **4 pass / 2 fail**, same two.
+  - `?? 1` dropped from the iteration expression → **5 pass / 1 fail**, only
+    `a looped run with no iteration stamp falls back to 1`.
+  - `run.loop &&` widened to `true &&` on the indicator → **5 pass / 1 fail**, only
+    `a non-looped run shows no iteration indicator`.
+  - Restored from a pristine copy after each; `git diff --stat` confirmed the production change is
+    exactly the intended hunks before committing.
+- **`FlowManagementDialog` has no test.** Mounting it pulls in `ActionEditor` →
+  `ExpandableTextarea` → monaco, so a test would need a second process-wide `mock.module` stub on
+  top of Task 10's. The change is one conditional rendering a decorative icon; it is covered by
+  typecheck and by reading, and the visual check belongs to Task 12. Stated plainly rather than
+  implied: **nobody has seen this row badge render.**
+- **Plan Step 4's manual app check is deferred to Task 12**, consistent with Task 10. The panel has
+  not been seen in the running Electron app; everything above is happy-dom.
+- Validation at `222f399`: `bun test packages/ui/src/components/flows/FlowPanel.loop.test.tsx` →
+  **6 pass, 0 fail**. `bun test packages/ui` → **139 pass, 0 fail** (21 files, up from 133/20 by
+  this file) with **101** `not wrapped in act(...)` warnings — identical to the baseline, so the new
+  tests add none. `bun test packages/backend` → **582 pass, 0 fail** (54 files, unchanged).
+  `bun run typecheck` → all four packages exit 0. `bun run lint` → clean. `bunx prettier --check` on
+  all three changed files → clean. `git status` clean apart from this handoff.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -1634,51 +1690,63 @@ This document is the source of truth for progress. One bounded step per session.
   session recommended. It is the first **user-facing** change in this plan; the copy is agent-facing
   documentation; and it introduces a new test file whose harness assumptions (two `mock.module`
   stubs, a global act flag shared across the whole UI test process) are worth a second reader.
+- 2026-08-13: seeded the **real** flow store with `setState` in Task 11's test instead of adding a
+  third `mock.module` stub. Checked first that the module has no import-time connection — `onEvent`
+  registers a listener and `sendRequest` is only called from actions — which is what makes this
+  possible. It is strictly better than a stub here: no process-wide mock, and the component reads
+  through the same selector path it uses in the app. The Task 10 note about `mock.module` being
+  process-wide should be read alongside this: **check for import-time side effects before reaching
+  for a stub**, because two of the three UI test stubs in this plan turned out to be avoidable.
+- 2026-08-13: did **not** write a test for `FlowManagementDialog`'s loop badge, unlike Task 10's
+  toggle. The two differ on both sides of the trade: the cost is higher (the dialog reaches monaco
+  through `ActionEditor` as well as `FlowActionList`, so it needs a second process-wide stub that
+  would then apply to every UI test file loaded afterwards), and the risk is lower (one conditional
+  rendering a decorative icon, versus a toggle whose failure mode was a Save button that silently
+  never enables). Task 12's manual E2E covers it. If a later task needs to mount that dialog, the
+  monaco stubs are the work item, not the badge.
+- 2026-08-13: the dialog row's flow name became `<span className="truncate font-medium">` inside a
+  flex wrapper, where it was a plain `<div className="font-medium">` that wrapped onto a second
+  line. Deliberate: with a trailing icon, a wrapping name pushes the badge out of view on a 196px
+  column. The second line of that row (action count / project chip) already truncates the same way,
+  so this makes the two lines consistent rather than introducing a new behaviour.
+- 2026-08-13: Task 11 gets a review round rather than being skipped as trivial. The diff is small
+  and entirely presentational, but it is the surface a user watches to tell a wrapping loop from a
+  glitching panel, the mutation matrix shows all four clauses are individually load-bearing, and one
+  of the three changes (the dialog badge) has no test at all.
 
 ## Next step
 
-Next step: **Task 11 — implementation** (plan lines 1778-1842). Flow panel iteration indicator and
-loop-aware stop. Record the base commit before touching anything; it should be the docs-only commit
-that carries this handoff, so the review range contains only code.
+Next step: **Task 11 — review round 1.** Base commit `1a2429d`; the code under review is exactly
+implementation commit `222f399` (`FlowPanel.tsx`, `FlowManagementDialog.tsx`, and the new
+`FlowPanel.loop.test.tsx`). Run one gpt-5.5 review via the `codex-review` skill over
+`1a2429d..HEAD` scoped to `packages/` so this document stays out of the diff.
 
-Three production changes, all specified verbatim in the plan:
+Worth pointing the reviewer at, in rough order of where a defect would actually be:
 
-1. **`FlowPanel.tsx` header (~line 142)** — import `Repeat` from `lucide-react`, render
-   `Iteration {run.iteration ?? 1}` beside the flow name when `run.loop`. The plan explains why this
-   is not cosmetic: on a wrap every step flips from completed back to pending at once, and without a
-   visible counter that reads as the panel glitching.
-2. **`FlowPanel.tsx` stop button (~line 167)** — when `run.loop`, drop the `text-destructive` class
-   and change the tooltip to "Finish loop". This is the UI half of Task 5: stopping a loop is its
-   normal ending, not an error.
-3. **`FlowManagementDialog.tsx:188`** — a muted `Repeat` icon on flow list rows where `f.loop`.
+1. **The header wrapper is the only non-cosmetic edit.** `TruncatedText` moved inside a new
+   `flex min-w-0 items-center gap-1.5` div and lost its own `ml-2` to that wrapper. `TruncatedText`
+   measures its own overflow to decide whether to show a tooltip — does it still truncate correctly
+   as a flex child, and is a long flow name still able to shrink now that a sibling span with
+   `shrink-0` shares the row? No test covers truncation; this is the thing a reader should check by
+   reading `TruncatedText`.
+2. **`className={run.loop ? undefined : "text-destructive"}`** — passing `undefined` to the Button's
+   `cn(buttonVariants({ variant, size, className }))`. Confirmed fine by test, but worth a second
+   reader on whether `undefined` versus omitting the prop differs anywhere in that `cva` path.
+3. **The dialog badge has no test** (see the Decisions entry for why). Verify by reading that
+   `f.loop` is the right field on `FlowDefinition` there — it is the definition, not the run, so it
+   reflects the *saved* flag rather than a run's snapshot. That is intended: the list shows what the
+   flow will do next time it starts.
+4. **The test file's tooltip helper** dispatches `mouseover`/`mouseout` and reads
+   `document.body.textContent`. Is that assertion vacuous in any direction — e.g. would it pass if
+   the portal never opened and the text came from somewhere else in the body? (The mutation matrix
+   says no: reverting the tooltip to a constant `"Stop"` turns both stop tests red. Ask the reviewer
+   to challenge the reasoning, not just the result.)
 
-Notes for whoever picks this up:
+Not in scope for this round: the manual Electron check (Task 12 owns it), `FlowEditor.tsx`
+(Task 10 is closed), and the two `flow update` bugs (open follow-up, unrelated).
 
-- **`run.iteration ?? 1` is right, and the `?? 1` is load-bearing** — Task 9 already hit this. A
-  looped run always carries `iteration` (`startFlow` writes `loop` and `iteration` together), but a
-  run persisted before the feature would not, and the fallback keeps the header from rendering
-  "Iteration undefined".
-- **This file now has a working test harness — use it.** `FlowEditor.loop.test.tsx` is the template:
-  happy-dom is preloaded from the root `bunfig.toml`, mount with `createRoot` + `act` after setting
-  `globalThis.IS_REACT_ACT_ENVIRONMENT = true`. Task 10's mutation matrix is the argument for
-  bothering: typecheck catches none of the failure modes that matter here (an indicator that renders
-  for a non-looped run, a tooltip that stays "Stop").
-- **`FlowManagementDialog` transitively imports `FlowEditor` → `FlowActionList` → monaco.** If you
-  mount the dialog in a test you will need the same `mock.module("./FlowActionList", ...)` stub, and
-  the failure without it is a `Canceled: Canceled` thrown out of `dispatchEvent` — not an obvious
-  "monaco is loaded" message. Also mock `@/stores/project-store` (opens a websocket at import time).
-  Note the specifier is resolved relative to the *mocking* file, so from a test outside
-  `components/flows/` the path differs.
-- **Watch the process-global mock caveat.** `mock.module` is process-wide in `bun test`, and
-  `FlowEditor.loop.test.tsx` already stubs `@/stores/project-store` for the whole
-  `bun test packages/ui` run. It is inert today (133 pass, 101 act warnings, both baseline). If
-  Task 11 adds a test that wants the *real* project store, it will get the stub instead, and the
-  symptom is an empty project list rather than an error.
-- **Plan Step 4's manual app check stays deferred to Task 12**, consistent with Task 10. Say so
-  explicitly in the handoff entry rather than implying the panel was seen working.
-
-Not in scope: the manual Electron check (Task 12 owns it), and anything in `FlowEditor.tsx` — Task
-10 is closed.
+After this round: if it is clear, the next step is **Task 12 — full verification**, which is where
+the manual E2E lives and which the table already flags as a likely user gate.
 
 Carry forward, established in earlier rounds and not to be re-derived:
 
@@ -1743,10 +1811,18 @@ Standing constraints, all learned the hard way earlier in this plan:
   file loaded after it. Harmless today (suite and act-warning counts are baseline-identical), but a
   later test that needs the real project store will silently get an empty project list.
 
-Baseline for judging any redness: at `f32ad9d`,
-`bun test packages/ui/src/components/flows/FlowEditor.loop.test.tsx` -> 5 pass / 0 fail,
-`bun test packages/ui` -> 133 pass / 0 fail (20 files), `bun test packages/backend` -> 582 pass /
+- **NEW (Task 11) — a UI component test does not always need `mock.module`.** `FlowPanel` reads
+  everything through `@/stores/flow-store`, which has no import-time connection, so
+  `FlowPanel.loop.test.tsx` imports the real store and seeds it with `setState`. Check for
+  import-time side effects before stubbing; two of the three stubs used in this plan were avoidable.
+- **NEW (Task 11) — `Button` tooltips are body portals that render only while hovered.** To assert
+  tooltip text, dispatch `mouseover` on the button (React's enter-event delegation), read
+  `document.body.textContent`, then dispatch `mouseout` to close it.
+
+Baseline for judging any redness: at `222f399`,
+`bun test packages/ui/src/components/flows/FlowPanel.loop.test.tsx` -> 6 pass / 0 fail,
+`bun test packages/ui` -> 139 pass / 0 fail (21 files), `bun test packages/backend` -> 582 pass /
 0 fail (54 files), `bun run typecheck` -> all four packages exit 0, `bun run lint` -> clean,
 `git status` clean. The UI suite also emits **101** pre-existing `not wrapped in act(...)` warnings —
-that count is the baseline too, unchanged by Task 10. Anything beyond this belongs to Task 10's
-review round.
+that count is the baseline too, unchanged by Tasks 10 and 11. Anything beyond this belongs to
+Task 11's review round.
