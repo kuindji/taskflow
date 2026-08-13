@@ -2,10 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { fuzzyMatch } from "./fuzzy-match";
 
 /** Asserts a match and narrows away the null so callers can read `.score`. */
-function expectMatch(
-    query: string,
-    text: string,
-): NonNullable<ReturnType<typeof fuzzyMatch>> {
+function expectMatch(query: string, text: string): NonNullable<ReturnType<typeof fuzzyMatch>> {
     const result = fuzzyMatch(query, text);
     if (result === null) {
         throw new Error(`expected "${query}" to match "${text}"`);
