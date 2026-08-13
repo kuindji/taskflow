@@ -122,9 +122,9 @@ step's session** after marking it complete and removing it from
 `sessionFlowMap`. Live sessions stay at roughly one. Non-looped flows keep
 today's behavior, so a finished flow's agent output remains inspectable.
 
-`completeFlow` does the same for the step that calls it, for the same reason —
-otherwise the last lap leaves a session behind. This supersedes the earlier
-note that the calling session is left to exit on its own.
+`completeFlow` closes the calling session **always**, looped or not, because the
+run is ending — which is already what `stopFlow` and `failFlow` do. The
+looped-only rule applies to `handleActionComplete`, where the run continues.
 
 Closing is safe to do from inside `handleActionComplete`: `PtyManager.close`
 (`pty-manager.ts:291`) kills the process and drops it from its registry, and
@@ -175,9 +175,9 @@ New public method:
 4. Mark every remaining `pending` step `skipped` with the same timestamp.
 5. Set the run `completed` with `completedAt`; save and broadcast.
 
-For a looped flow, step 3 also closes the calling session (see "Session cleanup
-on completion" above); the persist-then-close ordering makes the resulting
-`handleSessionExit` a no-op via the already-completed check (line 267).
+Steps 2–5 are exactly `endRun(run, { status: "completed", runningStepOutcome:
+"completed", skipPending: true })`, which also closes the calling session and
+drops its mapping first — making the asynchronous exit inert.
 
 `completeFlow` applies to looped and non-looped flows alike; on a non-looped
 flow it is simply an early finish.
