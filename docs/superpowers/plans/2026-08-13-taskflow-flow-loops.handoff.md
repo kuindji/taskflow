@@ -14,7 +14,7 @@ This document is the source of truth for progress. One bounded step per session.
 |---|------|--------|-------------|-------|
 | 1 | Types and `loop` validation | clear | `e72babf` | Round 1 clean; its tests later broke `bun run lint`, repaired in `69950b5` |
 | 2 | Extract `endRun` (pure refactor) | clear | `c505881` | Impl `75534e4`; round 1 fixes `552acf8` + `69950b5`; round 2 clean |
-| 3 | Serialize runner public mutators under owner lock | pending | — | |
+| 3 | Serialize runner public mutators under owner lock | implemented | `f2fdb9d` | Impl `7d0cc45`; review round 1 due |
 | 4 | Snapshot `loop` onto run, wrap around | pending | — | |
 | 5 | Stop completes a looped run | pending | — | |
 | 6 | Close session when a looped step completes | pending | — | |
@@ -133,6 +133,36 @@ This document is the source of truth for progress. One bounded step per session.
   if a literal is ever removed from `FlowActionStatus`, `Extract` silently drops it instead of
   erroring. Harmless today; only matters if that union is ever narrowed.
 
+### Task 3 — implementation (2026-08-13)
+
+- Base commit `f2fdb9d`; implementation commit `7d0cc45`.
+- Wrapped nine public mutators in `withOwnerLock`, bodies kept verbatim: `handleActionComplete`,
+  `skipAction`, `jumpToAction`, `pauseFlow`, `resumeFlow`, `stopFlow`, `handleSessionExit`,
+  `saveArtifact`, `failFlowByIds`. `startFlow` already locked and was left alone. No private
+  helper was locked, so there is no re-entrancy path.
+- `handleSessionExit` keeps its `sessionFlowMap` lookup **outside** the lock — it is what
+  supplies the owner key. Added a comment on `withOwnerLock` recording the non-re-entrancy rule
+  so a future edit does not lock a private helper.
+- Step 1 test results were **asymmetric**, worth knowing before the review:
+  - `concurrent action completions advance the run only once` was genuinely **red** on
+    `f2fdb9d` (`Expected length: 2 / Received length: 3` — the duplicate advance spawned a
+    third session) and green after.
+  - `a session exit racing a completion does not overwrite the advanced run` was **already
+    green** on unlocked code. The interleaving happens to land `handleActionComplete`'s save
+    last, so the clobber it is meant to catch is invisible from the final state. It is kept as
+    a regression guard, not treated as proof the lock works — the first test is that proof.
+- Checked every production caller of the nine methods (`index.ts:221`,
+  `api/routes/flow-routes.ts`, `api/routes/task-routes.ts`, `handlers/flow.ts`,
+  `handlers/task.ts`): all are top-level entry points, none is invoked from inside another
+  runner method, so no caller can nest the lock. The one callback that re-enters the runner
+  (`onSessionExited` → `handleSessionExit`, `index.ts:220-222`) is fire-and-forget `void`,
+  so even a synchronous PTY exit queues behind the lock instead of deadlocking.
+- Validation: `bun test packages/backend/src/services/__tests__/` → **56 pass, 0 fail**
+  (4 files, up from 54 by the two new tests). Full `bun test packages/backend` →
+  **533 pass, 0 fail** (54 files). `bun run typecheck` → all four packages exit 0.
+  `bun run lint` → clean. `bunx prettier --check` on both changed files → clean.
+  No test run hung, which is the signal that no private helper got locked.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -160,24 +190,25 @@ This document is the source of truth for progress. One bounded step per session.
 
 ## Next step
 
-Next step: implement Task 3 — serialize the runner's public mutators under the owner lock
-(plan lines 327-459). Record the base commit before touching code.
+Next step: Task 3 — review round 1. Run one gpt-5.5 review via the `codex-review` skill over
+`f2fdb9d..HEAD`, restricted to `packages/` (exclude the plan/handoff doc changes, as in the
+Task 1 and 2 rounds).
 
-Notes for that implementation:
-- **The deadlock trap is the whole risk here.** `withOwnerLock` (`flow-runner.ts:61`) is not
-  re-entrant: a nested call awaits a gate its own caller holds and hangs forever. Lock public
-  entry points only. `failFlow`, `endRun`, `advanceOrComplete`, `launchAction`,
-  `launchActionWithRecovery`, `launchPersistedActionWithRecovery` and `markActionLaunchFailed`
-  must stay unlocked. `startFlow` already locks — do not add a second lock to it.
-  A test run that *hangs* rather than fails means a private helper got locked.
-- `handleSessionExit` is the one exception to the wrapping shape: it takes a `sessionId`, not
-  an `ownerId`, so the `sessionFlowMap` lookup must stay outside the lock to supply the key.
-  The plan gives the exact rewritten body.
-- Step 1's two tests are expected to fail on current code because the mock store's `getFlowRun`
-  returns a `structuredClone` — both racers mutate independent copies and the second save
-  clobbers the first, which is the production race in miniature.
-- Task 3 is a genuine behaviour change to every mutating entry point, so it gets a review round;
-  do not skip it as trivial.
-- Validate with `bun test packages/backend/src/services/__tests__/` (54 pass / 0 fail at
-  `16c80cb`), `bun run typecheck`, and `bun run lint` — all three are green right now, so any
-  redness is Task 3's own.
+Notes for that review:
+- The diff is `7d0cc45` only: nine method bodies re-indented inside `withOwnerLock`, plus two
+  new tests and one comment. **Ask the reviewer to check the bodies are verbatim** — an
+  accidental edit hidden inside a whole-body re-indent is the most likely defect here.
+- Second thing to point the reviewer at: **any nested-lock path**. It should trace whether a
+  locked method can reach another locked method, directly or through `deps.closeSession` /
+  `deps.spawnSession` / `deps.broadcast` callbacks wired in `index.ts`. A deadlock here hangs
+  a flow forever with no error, so it is worth an independent pass even though Claude checked
+  it. Note `saveArtifact` and `jumpToAction` throw from inside the lock — confirm the lock is
+  released on the throwing path (`withOwnerLock`'s `finally`).
+- Third: whether the now-serialized `stopFlow` / `pauseFlow` can be starved by a long-running
+  locked operation (e.g. `startFlow` awaiting `spawnSession`), since the loop feature relies on
+  Stop being able to interrupt.
+- Validate any fix with `bun test packages/backend/src/services/__tests__/` (56 pass / 0 fail at
+  `7d0cc45`), `bun test packages/backend` (533 pass / 0 fail), `bun run typecheck`, and
+  `bun run lint` — all green right now, so any redness belongs to the round-1 fixes.
+- After this round: zero substantiated findings → Task 3 is clear, next step is implementing
+  Task 4 (plan lines 463-742). Findings fixed → another review round.
