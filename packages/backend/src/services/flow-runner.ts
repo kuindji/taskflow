@@ -156,6 +156,14 @@ class FlowRunner {
             currentAction.completedAt = new Date().toISOString();
             this.sessionFlowMap.delete(sessionId);
 
+            if (run.loop) {
+                // A looped run never ends on its own, so a session left open per
+                // step per iteration would accumulate without bound. The mapping
+                // is already deleted above, which makes the async exit inert.
+                currentAction.sessionId = undefined;
+                this.deps.closeSession(sessionId);
+            }
+
             await this.advanceOrComplete(run);
         });
     }
@@ -345,6 +353,11 @@ class FlowRunner {
                 // Shell actions auto-complete on clean exit
                 currentAction.status = "completed";
                 currentAction.completedAt = new Date().toISOString();
+                if (run.loop) {
+                    // Match the agent path: a looped step keeps no session id.
+                    // The process is already gone, so there is nothing to close.
+                    currentAction.sessionId = undefined;
+                }
                 this.sessionFlowMap.delete(sessionId);
                 await this.advanceOrComplete(run);
             } else if (run.status === "paused") {

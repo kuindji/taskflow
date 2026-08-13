@@ -769,6 +769,65 @@ describe("looping", () => {
     });
 });
 
+describe("session cleanup on completion", () => {
+    test("a looped flow closes the completed step's session", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        const sessionId = spawnedSessions[0].sessionId;
+        await runner.handleActionComplete("task-1", "loop-flow", sessionId);
+
+        expect(closedSessions).toEqual([sessionId]);
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.actions[0].sessionId).toBeUndefined();
+    });
+
+    // Regression guard: green before and after — the current runner never closes
+    // on completion. Pins that the close stays scoped to looped runs.
+    test("a non-looped flow leaves the completed step's session open", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
+
+        expect(closedSessions).toEqual([]);
+    });
+
+    test("a looped shell step leaves no session id behind when it auto-completes", async () => {
+        const shellLoop: FlowDefinition = {
+            ...loopFlow,
+            id: "shell-loop-flow",
+            actions: [
+                { id: "entry-1", inline: { name: "A", prompt: "echo a", sessionType: "shell" } },
+                { id: "entry-2", inline: { name: "B", prompt: "echo b", sessionType: "shell" } },
+            ],
+        };
+        await flowStore.saveFlow(shellLoop);
+        await runner.startFlow(taskOwner, shellLoop);
+
+        await runner.handleSessionExit(spawnedSessions[0].sessionId, 0);
+
+        const run = await flowStore.getFlowRun("task-1", "shell-loop-flow");
+        expect(run?.actions[0].status).toBe("completed");
+        expect(run?.actions[0].sessionId).toBeUndefined();
+        expect(run?.currentActionIndex).toBe(1);
+    });
+
+    // Green before this task too, because handleActionComplete already deletes the
+    // mapping. It earns its place by pinning that adding closeSession here does not
+    // make a late exit destructive.
+    test("a late exit from a closed session does not disturb the wrapped run", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        const firstSessionId = spawnedSessions[0].sessionId;
+        await runner.handleActionComplete("task-1", "loop-flow", firstSessionId);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[1].sessionId);
+        // Iteration 2 is now running action 0 on a different session.
+
+        await runner.handleSessionExit(firstSessionId, 1);
+
+        const run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("running");
+        expect(run?.iteration).toBe(2);
+        expect(run?.actions[0].status).toBe("running");
+    });
+});
+
 describe("getArtifacts", () => {
     test("does not reorder the run's artifact array", async () => {
         await runner.startFlow(taskOwner, testFlow);
