@@ -74,6 +74,11 @@ interface FlowArtifact {
     path?: string;
     text?: string;
     actionEntryId: string;
+    // The run iteration that produced this value, copied from FlowRun.iteration
+    // at save time. Undefined on a non-looped run, which has no iterations.
+    // Lets a retry tell its own partial output apart from a completed value
+    // carried over from an earlier iteration.
+    iteration?: number;
     createdAt: string;
 }
 

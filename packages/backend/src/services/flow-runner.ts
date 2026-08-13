@@ -263,18 +263,16 @@ class FlowRunner {
             run.actions[run.currentActionIndex].startedAt = new Date().toISOString();
             run.actions[run.currentActionIndex].completedAt = undefined;
             run.actions[run.currentActionIndex].sessionId = undefined;
-            if (!run.loop) {
-                // Drop whatever the interrupted attempt saved, since it never
-                // finished. A looped run is exempt: its artifacts are carried
-                // across the wrap on purpose, so the entry the retried action
-                // owns may hold a completed value from the previous iteration
-                // that this action is about to read. Re-saving replaces it.
-                run.artifacts = run.artifacts.filter(
-                    (artifact) =>
-                        artifact.actionEntryId !==
-                        run.actions[run.currentActionIndex].actionEntryId,
-                );
-            }
+            // Drop whatever the interrupted attempt saved for the action being
+            // retried, since it never finished. On a looped run only this
+            // iteration's output counts as partial: artifacts are carried across
+            // the wrap on purpose, so a value stamped with an earlier iteration
+            // is a completed one the retried action may be about to read.
+            const retriedEntryId = run.actions[run.currentActionIndex].actionEntryId;
+            run.artifacts = run.artifacts.filter((artifact) => {
+                if (artifact.actionEntryId !== retriedEntryId) return true;
+                return run.loop === true && artifact.iteration !== run.iteration;
+            });
             await this.deps.flowStore.saveFlowRun(run);
             this.broadcastUpdate(run);
 
@@ -342,7 +340,7 @@ class FlowRunner {
         flowId: string,
         actionEntryId: string,
         sessionId: string,
-        artifact: Omit<FlowArtifact, "actionEntryId" | "createdAt">,
+        artifact: Omit<FlowArtifact, "actionEntryId" | "iteration" | "createdAt">,
     ): Promise<void> {
         return this.withOwnerLock(ownerId, async () => {
             const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
@@ -375,6 +373,8 @@ class FlowRunner {
             run.artifacts.push({
                 ...artifact,
                 actionEntryId,
+                // Undefined on a non-looped run, which has no iterations.
+                iteration: run.iteration,
                 createdAt: new Date().toISOString(),
             });
             await this.deps.flowStore.saveFlowRun(run);

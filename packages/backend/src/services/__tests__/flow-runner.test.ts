@@ -562,6 +562,35 @@ describe("looping", () => {
         expect(run?.artifacts[0].text).toBe("iteration one plan");
     });
 
+    test("resuming drops an artifact the current iteration's failed attempt saved", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.saveArtifact("task-1", "loop-flow", "entry-1", spawnedSessions[0].sessionId, {
+            type: "plan",
+            text: "good iteration one plan",
+        });
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[1].sessionId);
+        // Iteration 2, action 0. The attempt saves a partial plan — which replaces
+        // the carried iteration-1 value, since saveArtifact dedupes on
+        // (actionEntryId, type) — and then dies without signalling completion.
+        await runner.saveArtifact("task-1", "loop-flow", "entry-1", spawnedSessions[2].sessionId, {
+            type: "plan",
+            text: "partial plan from the failed attempt",
+        });
+        await runner.handleSessionExit(spawnedSessions[2].sessionId, 1);
+
+        let run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("paused");
+        expect(run?.artifacts[0].text).toBe("partial plan from the failed attempt");
+
+        await runner.resumeFlow("task-1", "loop-flow");
+
+        run = await flowStore.getFlowRun("task-1", "loop-flow");
+        // The retry may complete without re-saving `plan`. If the failed attempt's
+        // partial survives, action 1 reads it as if it were a finished value.
+        expect(run?.artifacts).toEqual([]);
+    });
+
     test("a step failing mid-loop pauses the run instead of wrapping, and Resume retries it", async () => {
         await runner.startFlow(taskOwner, loopFlow);
         await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
