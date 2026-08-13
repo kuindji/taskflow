@@ -15,8 +15,8 @@ This document is the source of truth for progress. One bounded step per session.
 | 1 | Types and `loop` validation | clear | `e72babf` | Round 1 clean; its tests later broke `bun run lint`, repaired in `69950b5` |
 | 2 | Extract `endRun` (pure refactor) | clear | `c505881` | Impl `75534e4`; round 1 fixes `552acf8` + `69950b5`; round 2 clean |
 | 3 | Serialize runner public mutators under owner lock | clear | `f2fdb9d` | Impl `7d0cc45`; round 1 clean, no fix commit |
-| 4 | Snapshot `loop` onto run, wrap around | in-review round 4 | `2e73030` | Impl `934d25d`; round 1 fix `81ea944`; round 2 fix `7e82f63`; round 3 fix `1cd22d4`; round 4 due |
-| 5 | Stop completes a looped run | pending | — | |
+| 4 | Snapshot `loop` onto run, wrap around | clear | `2e73030` | Impl `934d25d`; round fixes `81ea944` / `7e82f63` / `1cd22d4`; round 4 clear; test-only guard `888f517` |
+| 5 | Stop completes a looped run | pending | `888f517` | |
 | 6 | Close session when a looped step completes | pending | — | |
 | 7 | `completeFlow` and its route | pending | — | |
 | 8 | CLI — `flow complete` and `--loop` on `flow create` | pending | — | |
@@ -422,6 +422,57 @@ This document is the source of truth for progress. One bounded step per session.
   `bunx prettier --check` on both changed files → clean. `git status` clean apart from this
   handoff.
 
+### Task 4 — review round 4 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `af4469d..HEAD`, `packages/`
+  only — that range is exactly the round-3 fix commit `1cd22d4`).
+- Result: **clear — zero substantiated defect findings.** Task 4 is now **clear**. One non-blocking
+  *coverage* note was raised, verified as real, and closed by a test-only commit (`888f517`); no
+  production code changed in this round, so no round 5 is required.
+- The four scoped questions all came back clean, each re-checked by Claude rather than taken on the
+  reviewer's word:
+  1. **Predicate across every combination.** Walked by hand: different action → kept by the first
+     branch; finite run → `run.loop !== true` purges unconditionally, so the finite path is
+     unchanged; looped with `iteration === undefined` (unreachable — `startFlow` writes `loop` and
+     `iteration` together) → purge, the conservative outcome; looped at iteration *n* → unstamped
+     purged, earlier stamp kept, current stamp purged, later stamp purged. Every cell lands where
+     the comment says it should.
+  2. **The `currentIteration` hoist.** `resumeFlow` never assigns `run.iteration`, and the `filter`
+     callback runs synchronously inside the same body, so the local cannot drift. The narrowing
+     after `currentIteration === undefined` needs no cast and no non-null assertion — confirmed by
+     `bun run typecheck` exiting 0 on all four packages.
+  3. **`<` versus the `!==` it replaced.** They differ only on a *later*-than-current stamp, which
+     this code cannot produce: `saveArtifact` stamps `run.iteration` and `startNextIteration` only
+     ever increments. If one appeared via hand-edited state, purging is the safer result.
+  4. **Test power / redundancy.** No pair is redundant — round 3's mutation matrix already showed
+     each of the four resume/artifact tests pinning its own direction, and the reviewer reached the
+     same conclusion independently.
+- **Coverage note (verified, then closed).** The reviewer observed that no test pinned the
+  *first* line of the predicate — `if (artifact.actionEntryId !== retriedEntryId) return true;` —
+  which keeps every other action's artifacts. That line is pre-existing and unchanged by this task,
+  and the current code is correct, so it is a coverage gap rather than a defect.
+  - Verified by mutation before acting: flipping that line to `return false` (so resume purges
+    *every* action's artifacts, not just the retried one) left **all 37 tests green**. A future task
+    touching `resumeFlow` — Tasks 5-7 all work in this file — could have silently deleted every
+    artifact on a resume with no test objecting.
+  - Closed by `888f517`, a **test-only** commit: `resumeFlow > keeps another action's artifacts
+    while dropping the retried action's`. It saves a `plan` on action 0, completes it, saves a
+    partial `review` on action 1, pauses, resumes, and asserts the `plan` survives while the
+    `review` is gone — pinning both directions of the branch in one test.
+  - Re-verified by mutation after adding it: same `return false` flip → **37 pass, 1 fail**, the
+    single failure being the new test. Restored; 38 pass / 0 fail.
+- **Why this did not trigger a round 5.** The plan's loop rule sends a *fix* back for another
+  review round. This round produced no production change at all — the commit adds one test whose
+  correctness is established by the red/green mutation evidence above, which is exactly the
+  "trivial change may skip review" case. Marking Task 4 clear here also follows the round-3 note's
+  guidance: three rounds of fixes on twenty lines is enough, and the unreviewed risk now lives in
+  Tasks 5-12.
+- Validation at `888f517`: `bun test packages/backend/src/services/__tests__/flow-runner.test.ts`
+  → **38 pass, 0 fail**. `bun test packages/backend` → **546 pass, 0 fail** (54 files, up from 545
+  by the one new test). `bun run typecheck` → all four packages exit 0. `bun run lint` → clean.
+  `bunx prettier --check` on the changed file → clean. `git status` clean apart from this handoff,
+  and verified clean again after each mutation experiment was reverted.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -487,6 +538,15 @@ This document is the source of truth for progress. One bounded step per session.
   above it, instead of making correctness depend on the reader knowing that a *later* stamp is
   unreachable. `run.iteration` is hoisted into `currentIteration` so the `undefined` narrowing
   survives into the filter closure — no cast, no non-null assertion.
+- 2026-08-13: closed round 4's coverage note with a **test-only** commit (`888f517`) and marked
+  Task 4 clear in the same session, rather than opening a round 5. The note was not a defect — the
+  line it concerns (`resumeFlow`'s "keep other actions' artifacts" branch) is pre-existing,
+  unchanged by this task, and correct. What made it worth a commit anyway is that a mutation proved
+  it entirely unguarded: flipping that branch to purge every action's artifacts left all 37 tests
+  green, and Tasks 5-7 all edit this same file. The plan's "a fix sends you back for another round"
+  rule is about production changes; a test whose power is demonstrated red-then-green is the
+  trivial-change case that may skip review. The opposite call — record it as a follow-up and leave
+  the gap open through eight more tasks — was rejected for that reason.
 - 2026-08-13: kept `jumpToAction`'s artifact filter unguarded and iteration-blind. A jump is an
   explicit user rewind of the target action *and everything after it*, so clearing those
   artifacts is the intended meaning regardless of iteration. Only `resumeFlow` — a retry of an
@@ -495,8 +555,40 @@ This document is the source of truth for progress. One bounded step per session.
 
 ## Next step
 
-Next step: Task 4 — review round 4. Round 3 produced a fix commit (`1cd22d4`), so the plan's loop
-requires another round over that fix before Task 4 can be marked clear.
+Next step: Task 5 — Stop completes a looped run. Base commit is `888f517` (record it in the table
+before implementing; it is already filled in).
+
+Plan section: "### Task 5: Stop completes a looped run" (plan lines 746-829). Five steps, one
+production change: `stopFlow` branches on `run.loop` and calls `endRun` with
+`{ status: "completed", runningStepOutcome: "skipped", skipPending: true }` instead of `failFlow`,
+behind a new terminal-status guard (`if (run.status !== "running" && run.status !== "paused") return;`).
+
+Things this session's context makes worth flagging to whoever picks it up:
+
+1. **The terminal-status guard changes the non-looped path too.** Today a finished finite run can be
+   re-stopped and re-written. The Task 2 characterisation tests do not cover a double stop, so run
+   the whole file, not just the new tests.
+2. **Assert on `broadcasts`, not on `completedAt`.** The plan says this explicitly (plan line 785)
+   and Task 2 round 1 proved it: two `new Date().toISOString()` calls across an await boundary
+   landed in the same millisecond in 1000/1000 samples, so a timestamp assertion would go green
+   against unguarded code. Every write path in `endRun` ends in `broadcastUpdate`, so an unguarded
+   second stop always pushes another entry.
+3. **Do not use `await expect(...).rejects` / `.resolves`.** `@typescript-eslint/await-thenable`
+   rejects them (bun-types declares those matchers as returning `void`) and it will turn
+   `bun run lint` red. Use the `const rejection = await promise.catch((e: unknown) => e)` shape
+   already established in `flow-store.test.ts` and `flow-runner.test.ts`.
+4. **Carried forward from Task 3 round 1:** `stopFlow` can be *delayed* behind a held owner lock —
+   notably while a launch awaits `spawnSession`. The gate is FIFO and `stopFlow` re-reads the run
+   after acquiring the lock, so this is bounded delay, not starvation or stale-state action. Task 5
+   makes Stop the normal ending of a loop, which is why it is repeated here; it needs no fix.
+
+Baseline for judging any redness: at `888f517`,
+`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` → 38 pass / 0 fail,
+`bun test packages/backend` → 546 pass / 0 fail, `bun run typecheck` → all four packages exit 0,
+`bun run lint` → clean. Anything red belongs to Task 5's own changes.
+
+After implementing and committing, set the next step to Task 5 review round 1 — this is a real
+behaviour change on the run-ending path, so it is not a review-skip candidate.
 
 Run one gpt-5.5 review via the `codex-review` skill over `af4469d..HEAD`, restricted to
 `packages/`. That range is exactly the round-3 fix commit `1cd22d4` — re-read HEAD with
