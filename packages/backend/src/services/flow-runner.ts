@@ -40,8 +40,10 @@ interface SessionFlowMapping {
 
 interface EndRunOptions {
     status: "completed" | "failed";
-    // Applied only to a step whose status is currently "running"
-    runningStepOutcome: FlowActionStatus;
+    // Applied only to a step whose status is currently "running". Restricted to
+    // terminal outcomes: the run is ending, so leaving a step "running" or
+    // "pending" would persist a finished run with an active-looking step.
+    runningStepOutcome: Extract<FlowActionStatus, "completed" | "skipped" | "failed">;
     // When true, every still-pending step is marked skipped
     skipPending: boolean;
 }

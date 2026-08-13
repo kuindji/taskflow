@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { FlowRunner } from "../flow-runner";
 import type { FlowStore } from "../flow-store";
 import type { FlowDefinition, FlowRun, ActionDefinition, FlowOwner } from "@taskflow/shared";
-import { MASTER_OWNER_ID, getFlowRunOwnerId } from "@taskflow/shared";
+import { MASTER_OWNER_ID, MSG, getFlowRunOwnerId } from "@taskflow/shared";
 
 function createMockFlowStore(): FlowStore {
     const runs = new Map<string, FlowRun>();
@@ -278,6 +278,24 @@ describe("stopFlow — non-looped behaviour is preserved", () => {
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.actions[0].status).toBe("skipped");
         expect(run?.actions[1].status).toBe("failed");
+    });
+
+    // The persisted-state assertions above all still pass if the run-ending path
+    // stops broadcasting, which would leave every connected UI showing a run that
+    // is still going. Pin the broadcast itself, not just the store write.
+    test("broadcasts the ended run", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        broadcasts = [];
+        await runner.stopFlow("task-1", "flow-1");
+
+        const last = broadcasts.at(-1);
+        expect(last?.type).toBe(MSG.FLOW_RUN_UPDATED);
+        const payload = last?.payload as FlowRun;
+        expect(payload.status).toBe("failed");
+        expect(payload.completedAt).toBeDefined();
+        expect(payload.actions[0].status).toBe("failed");
+        expect(payload.actions[0].sessionId).toBeUndefined();
+        expect(payload.actions[1].status).toBe("pending");
     });
 });
 
