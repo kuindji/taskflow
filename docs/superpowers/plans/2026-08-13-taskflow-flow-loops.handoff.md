@@ -15,7 +15,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 1 | Types and `loop` validation | clear | `e72babf` | Round 1 clean; its tests later broke `bun run lint`, repaired in `69950b5` |
 | 2 | Extract `endRun` (pure refactor) | clear | `c505881` | Impl `75534e4`; round 1 fixes `552acf8` + `69950b5`; round 2 clean |
 | 3 | Serialize runner public mutators under owner lock | clear | `f2fdb9d` | Impl `7d0cc45`; round 1 clean, no fix commit |
-| 4 | Snapshot `loop` onto run, wrap around | in-review round 3 | `2e73030` | Impl `934d25d`; round 1 fix `81ea944`; round 2 fix `7e82f63`; round 3 due |
+| 4 | Snapshot `loop` onto run, wrap around | in-review round 4 | `2e73030` | Impl `934d25d`; round 1 fix `81ea944`; round 2 fix `7e82f63`; round 3 fix `1cd22d4`; round 4 due |
 | 5 | Stop completes a looped run | pending | — | |
 | 6 | Close session when a looped step completes | pending | — | |
 | 7 | `completeFlow` and its route | pending | — | |
@@ -355,6 +355,73 @@ This document is the source of truth for progress. One bounded step per session.
   `bunx prettier --check` on all three changed files → clean. `git status` clean apart from this
   handoff, and verified clean again after each mutation experiment was reverted.
 
+### Task 4 — review round 3 (2026-08-13)
+
+- Reviewer: gpt-5.5 via `codex exec` (Mode B, prompted review over `7b0b909..af4469d`,
+  `packages/` only — that range is exactly the round-2 fix commit `7e82f63`).
+- Result: **one substantiated minor finding, fixed in `1cd22d4`.**
+- **Finding (minor, accepted and fixed) — an artifact with no `iteration` stamp was treated as
+  carried** (`flow-runner.ts:274`). The round-2 predicate ended in
+  `artifact.iteration !== run.iteration`, so an unstamped artifact on a looped run compared
+  `undefined !== 2` and was **kept**. That is right for a value carried from an earlier
+  iteration and wrong for one the current failed attempt saved — the exact harm round 2 set out
+  to remove, surviving through the one input the predicate cannot classify.
+  - Reproduced by Claude before any production change, as a permanent regression test:
+    `looping > resuming drops an artifact that carries no iteration stamp`. It persists a paused
+    looped run at iteration 2 whose action 0 failed, holding one unstamped `plan` artifact, then
+    resumes. Red on `af4469d` (`Received: [{ text: "unstamped partial from the failed attempt" }]`
+    against `Expected: []`), green after.
+  - Fix: keeping an artifact now requires an **explicit earlier stamp** —
+    `run.loop === true && currentIteration !== undefined && artifact.iteration !== undefined &&
+    artifact.iteration < currentIteration`. `<` rather than `!==` states "earlier" directly
+    instead of leaning on inequality; `run.iteration` is hoisted to a local so the narrowing
+    survives into the closure without a cast.
+- **Reachability, stated plainly, because it governed the decision:** this is *not* reachable
+  against real data. Producing an unstamped artifact on a looped run requires a run persisted in
+  the window `934d25d..7e82f63` — three commits, all authored today, all validated against
+  in-memory mocks. Claude checked the real data dir (`~/.config/taskflow/flow-runs`): **zero
+  persisted flow runs, zero containing `loop`**. The feature is unreleased. It was fixed anyway
+  because the change provably cannot alter any state this code can produce (`saveArtifact` stamps
+  every artifact a looped run creates), so the live blast radius is empty, while it removes an
+  implicit semantic — "absent stamp means earlier iteration" — riding accidentally on a
+  comparison in a newly-permanent shared field.
+- Reviewer's other five focus areas came back **clear**, each re-checked by Claude:
+  1. **Only writer.** `run.artifacts.push` appears once (`flow-runner.ts:373`, in `saveArtifact`).
+     Every other mutation is initialisation (`startFlow:130`) or a purge (`jumpToAction:225`,
+     `resumeFlow:272`). Confirmed by grep across `packages/backend/src`, `packages/shared/src`,
+     `packages/ui/src`.
+  2. **No stale-iteration write.** `startNextIteration` bumps `run.iteration` *before* relaunching
+     action 0, and every runner mutator is serialized by `withOwnerLock`, so a queued
+     `saveArtifact` reads the bumped run. A stale session from the previous iteration cannot slip
+     one in either: `saveArtifact` rejects on both the `actionEntryId` and `sessionId` guards
+     (`flow-runner.ts:354-359`).
+  3. **Shared-type back-compat.** `FlowStore` casts parsed JSON with no strict run validation
+     (there is no artifact validator at all — grep for `artifact` in `flow-store.ts` returns
+     nothing); the HTTP artifact routes pass plain JSON through (`flow-routes.ts:131,139`); **both**
+     CLIs `curl`/`api()` the response straight to stdout without parsing
+     (`taskflow-cli.sh:531,539`, `taskflow-cli-bin.ts:587,596`), so an extra field is inert;
+     `FlowPanel.tsx:256-290` reads only `type`, `path`, `text`, `actionEntryId`, `createdAt`.
+  4. **Round 1 not regressed.** `resuming a wrapped iteration keeps the artifact carried from the
+     previous one` is green and still pins its direction — see the mutation matrix below.
+  5. **`saveArtifact` parameter narrowing is safe.** Its one production caller
+     (`flow-routes.ts:103`) passes `{ type, path, text }` and never `iteration`; the route test in
+     `tests/api/routes.test.ts` asserts exactly that shape, and is green.
+- **Test power verified by mutation, not by reading.** Three mutations of the single predicate,
+  each reverted immediately:
+  - `return true` (round-1 blanket keep) → **2 fail**: `resuming drops an artifact the current
+    iteration's failed attempt saved` and the new unstamped test.
+  - `return false` (pre-plan purge-all) → **1 fail**: `resuming a wrapped iteration keeps the
+    artifact carried from the previous one`.
+  - `return artifact.iteration !== currentIteration` (the exact round-2 predicate) → **1 fail**:
+    the new unstamped test, and only it. That is what makes the new test precisely the guard for
+    this round's fix rather than a duplicate of the round-2 one.
+  Restored between each; `git status` clean and 37 pass / 0 fail confirmed after the last revert.
+- Validation at `1cd22d4`: `bun test packages/backend/src/services/__tests__/flow-runner.test.ts`
+  → **37 pass, 0 fail**. `bun test packages/backend` → **545 pass, 0 fail** (54 files, up from 544
+  by the one new test). `bun run typecheck` → all four packages exit 0. `bun run lint` → clean.
+  `bunx prettier --check` on both changed files → clean. `git status` clean apart from this
+  handoff.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -404,6 +471,22 @@ This document is the source of truth for progress. One bounded step per session.
   on an existing shared type, written in one place (`saveArtifact`) and read in one place
   (`resumeFlow`). The field is optional and undefined for every non-looped run, so no persisted
   data or UI path changes — `FlowPanel.tsx:261` renders only `type` and `text`.
+- 2026-08-13: fixed round 3's unstamped-artifact finding despite it being **unreachable against
+  real data** (zero persisted flow runs exist on this machine, and the loop feature is
+  unreleased). Two things made it worth the commit rather than a note: the change provably cannot
+  alter any state the code can produce, since `saveArtifact` stamps every artifact a looped run
+  creates — so the live blast radius is empty — and it converts an accidental implicit semantic
+  ("no stamp means earlier iteration", riding on `undefined !== 2`) into an explicit one on a
+  shared field that is now permanent. The alternative reading is equally defensible in isolation:
+  a finding with no real-data repro is a robustness note, not a defect. It was not left as one
+  because Tasks 8-12 add more readers of this field and an implicit rule is the kind of thing a
+  later task inherits without noticing.
+- 2026-08-13: chose `artifact.iteration < currentIteration` over merely adding an
+  `!== undefined` guard to the round-2 `!==` comparison. Both are identical for well-formed data
+  (iteration never decreases), but `<` states "earlier iteration" directly, matching the comment
+  above it, instead of making correctness depend on the reader knowing that a *later* stamp is
+  unreachable. `run.iteration` is hoisted into `currentIteration` so the `undefined` narrowing
+  survives into the filter closure — no cast, no non-null assertion.
 - 2026-08-13: kept `jumpToAction`'s artifact filter unguarded and iteration-blind. A jump is an
   explicit user rewind of the target action *and everything after it*, so clearing those
   artifacts is the intended meaning regardless of iteration. Only `resumeFlow` — a retry of an
@@ -412,47 +495,54 @@ This document is the source of truth for progress. One bounded step per session.
 
 ## Next step
 
-Next step: Task 4 — review round 3. Round 2 produced a fix commit (`7e82f63`), so the plan's
-loop requires another round over that fix before Task 4 can be marked clear.
+Next step: Task 4 — review round 4. Round 3 produced a fix commit (`1cd22d4`), so the plan's loop
+requires another round over that fix before Task 4 can be marked clear.
 
-Run one gpt-5.5 review via the `codex-review` skill over `7b0b909..HEAD`, restricted to
-`packages/`. That range is exactly the round-2 fix commit `7e82f63` — re-read HEAD with
-`git rev-parse --short HEAD` first, since the commit carrying this handoff update sits on top
-of it and must be excluded from the review range's code scope.
+Run one gpt-5.5 review via the `codex-review` skill over `af4469d..HEAD`, restricted to
+`packages/`. That range is exactly the round-3 fix commit `1cd22d4` — re-read HEAD with
+`git rev-parse --short HEAD` first, since the commit carrying this handoff update sits on top of
+it and must be excluded from the review range's code scope.
 
-This round's fix is larger than round 1's: it touches a **shared type**, so the review should be
-pointed wider than "did the branch flip correctly".
+This round's fix is **small and local**: one predicate inside `resumeFlow`, plus one test. No
+shared type changed, no new field, no new call site. Scope the review to match — a round-4 review
+of a five-line predicate should not re-litigate the design.
 
-1. **Does the `iteration` stamp reach every artifact that needs it?** `saveArtifact` is the only
-   writer (`flow-runner.ts:375-381`), stamping `run.iteration`. Check there is no other path that
-   pushes onto `run.artifacts`, and no path where an artifact is written while `run.iteration` is
-   stale relative to the action that produced it — in particular across `startNextIteration`,
-   where the bump and the relaunch are not atomic from the agent's point of view.
-2. **Is the new `resumeFlow` filter right in all four combinations?** The one predicate is
-   `artifact.actionEntryId !== retriedEntryId || (run.loop === true && artifact.iteration !==
-   run.iteration)`. Walk finite/looped × current-iteration/earlier-iteration and confirm each
-   lands where intended. Pay attention to `undefined` on both sides: a looped run's artifact
-   written before this commit has `iteration === undefined`, and `run.iteration` is `undefined`
-   on a finite run. Is either comparison accidentally load-bearing?
-3. **Backwards compatibility of the shared-type change.** `FlowArtifact.iteration` is optional
-   and additive, and no persisted artifact has it. Confirm nothing validates artifact shape
-   strictly (the flow-store validators, the WS payloads, the CLI's JSON handling) such that an
-   extra field on the wire breaks a consumer, and that `FlowPanel.tsx:256-266` still renders.
-4. **Is the round-1 behaviour still intact?** The carried-artifact case that round 1 fixed must
-   not have regressed while being narrowed. `resuming a wrapped iteration keeps the artifact
-   carried from the previous one` covers it and is green.
-5. **Test power.** Three looping/resume tests now exist. The new one,
-   `resuming drops an artifact the current iteration's failed attempt saved`, was verified red on
-   `7b0b909` and green after. Flag any test that does not pin what it claims.
+1. **Is the predicate correct across every combination now?** It reads:
+   `if (artifact.actionEntryId !== retriedEntryId) return true;`
+   `if (run.loop !== true || currentIteration === undefined) return false;`
+   `return artifact.iteration !== undefined && artifact.iteration < currentIteration;`
+   Walk finite / looped × unstamped / earlier / current / (hypothetically) later. Confirm each
+   lands where intended and that the early-return structure did not change the finite path, which
+   must still purge unconditionally.
+2. **Did hoisting `run.iteration` into `currentIteration` introduce a staleness bug?** The local is
+   read inside a `filter` callback that runs synchronously during the same `resumeFlow` body, so it
+   cannot drift — confirm that, and confirm nothing between the hoist and the filter mutates
+   `run.iteration`.
+3. **Is `<` safe versus the `!==` it replaced?** They differ only for an artifact stamped with a
+   *later* iteration than the run. Confirm that is genuinely unreachable (iteration only ever
+   increments, in `startNextIteration`), and that if it somehow occurred, purging is the safer
+   outcome than keeping.
+4. **Test power across all four looping/resume tests.** There are now four. Claude verified by
+   mutation that each pins its own direction (see round 3 above for the matrix). Flag any pair that
+   is now redundant, or any test that would stay green under a plausible mutation.
+5. **Anything the previous three rounds have collectively missed** about `resumeFlow` on a looped
+   run — this is the fourth pass over the same twenty lines, so a "nothing further" verdict is a
+   perfectly good outcome and should be stated as such rather than padded with nits.
 
-Do not re-review the Task 4 implementation itself (`934d25d`) or the round-1 fix (`81ea944`) —
-rounds 1 and 2 covered them.
+Do not re-review the Task 4 implementation (`934d25d`), the round-1 fix (`81ea944`), or the round-2
+fix (`7e82f63`) — rounds 1-3 covered them.
 
-Baseline for judging any redness: at `7e82f63`,
-`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` → 36 pass / 0 fail,
-`bun test packages/backend` → 544 pass / 0 fail, `bun run typecheck` → all four packages
-exit 0, `bun run lint` → clean. Anything red belongs to the review round's own changes.
+Baseline for judging any redness: at `1cd22d4`,
+`bun test packages/backend/src/services/__tests__/flow-runner.test.ts` → 37 pass / 0 fail,
+`bun test packages/backend` → 545 pass / 0 fail, `bun run typecheck` → all four packages exit 0,
+`bun run lint` → clean. Anything red belongs to the review round's own changes.
 
-If round 3 comes back with zero substantiated findings, mark Task 4 **clear** and set the next
-step to Task 5 (Stop completes a looped run), whose base commit is whatever HEAD is at that
-point.
+If round 4 comes back with zero substantiated findings, mark Task 4 **clear** and set the next step
+to Task 5 (Stop completes a looped run), whose base commit is whatever HEAD is at that point.
+
+**Note for whoever runs round 4:** Task 4 has now consumed three fix rounds, all on the same
+artifact-lifecycle question. Rounds 1 and 2 were genuine reachable defects; round 3 was a
+robustness tightening with no real-data repro (see Decisions taken). If round 4 produces only
+findings of that third kind — correct in principle, unreachable in practice — prefer recording
+them as follow-up notes over another fix round, and mark Task 4 clear. The remaining eight tasks
+are where the unreviewed risk now lives.
