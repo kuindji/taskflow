@@ -51,6 +51,8 @@ interface FlowDefinition {
     description: string;
     actions: FlowActionEntry[];
     inputs?: FlowInputDefinition[];
+    // When true, the run restarts from the first action after the last completes
+    loop?: boolean;
     createdAt: string;
     updatedAt: string;
 }
@@ -90,6 +92,12 @@ type FlowRun = FlowOwner & {
     actions: FlowActionState[];
     artifacts: FlowArtifact[];
     inputValues?: Record<string, string>;
+    // Snapshot of the definition's loop flag, taken at start. The runner reads
+    // this, never the live definition, so editing a flow mid-run cannot change
+    // the behaviour of a run already in flight.
+    loop?: boolean;
+    // 1-based; undefined means iteration 1
+    iteration?: number;
     startedAt: string;
     completedAt?: string;
 };

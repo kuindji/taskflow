@@ -14,6 +14,10 @@ function assertValidFlowDefinition(flow: FlowDefinition): void {
         throw new Error(`Flow "${flow.id}" must define at least one action`);
     }
 
+    if (flow.loop !== undefined && typeof flow.loop !== "boolean") {
+        throw new Error(`Flow "${flow.id}" has a non-boolean loop value`);
+    }
+
     for (const entry of flow.actions) {
         const hasActionId = entry.actionId !== undefined;
         const hasInline = entry.inline !== undefined;

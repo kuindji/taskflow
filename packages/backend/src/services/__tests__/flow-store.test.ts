@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { FlowStore } from "../flow-store";
+import type { FlowDefinition } from "@taskflow/shared";
 
 let tempDir: string;
 let store: FlowStore;
@@ -320,5 +321,39 @@ describe("flow runs", () => {
         await writeFile(join(tempDir, "flow-runs", "task-1--flow-1.json"), "{bad json");
 
         expect(store.getFlowRun("task-1", "flow-1")).rejects.toThrow();
+    });
+});
+
+describe("assertValidFlowDefinition — loop", () => {
+    test("accepts a definition with loop true", async () => {
+        await expect(
+            store.saveFlow({
+                id: "loop-flow",
+                name: "Loop",
+                description: "",
+                loop: true,
+                actions: [
+                    { id: "entry-1", inline: { name: "A", prompt: "p", sessionType: "claude" } },
+                ],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            }),
+        ).resolves.toBeUndefined();
+    });
+
+    test("rejects a non-boolean loop", async () => {
+        const flow = {
+            id: "bad-loop-flow",
+            name: "Bad",
+            description: "",
+            loop: "false",
+            actions: [{ id: "entry-1", inline: { name: "A", prompt: "p", sessionType: "claude" } }],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        } as unknown as FlowDefinition;
+
+        await expect(store.saveFlow(flow)).rejects.toThrow(
+            'Flow "bad-loop-flow" has a non-boolean loop value',
+        );
     });
 });

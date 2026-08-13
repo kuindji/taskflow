@@ -1,5 +1,7 @@
 # Flow Loops Implementation Plan
 
+> Handoff: docs/superpowers/plans/2026-08-13-taskflow-flow-loops.handoff.md
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a flow be marked as a loop so it restarts from its first action when the last one finishes, keeping inputs and artifacts, with agents controlling it through exactly two commands.
