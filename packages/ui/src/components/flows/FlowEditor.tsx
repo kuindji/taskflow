@@ -18,6 +18,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useProjectStore } from "@/stores/project-store";
 import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
 import { FlowActionList } from "./FlowActionList";
@@ -60,6 +61,7 @@ function FlowEditor({
     const projects = useProjectStore((s) => s.projects);
     const [name, setName] = useState(flow?.name ?? "");
     const [description, setDescription] = useState(flow?.description ?? "");
+    const [loop, setLoop] = useState(flow?.loop ?? false);
     const [projectId, setProjectId] = useState<string | undefined>(
         flow?.projectId ?? defaultProjectId,
     );
@@ -187,12 +189,13 @@ function FlowEditor({
             projectId,
             name: name.trim(),
             description: description.trim(),
+            loop,
             actions: normalizedActions,
             inputs: inputs.length > 0 ? inputs : undefined,
             createdAt: flow?.createdAt ?? now,
             updatedAt: now,
         });
-    }, [flow, name, description, actions, inputs, projectId, onSave]);
+    }, [flow, name, description, loop, actions, inputs, projectId, onSave]);
 
     const isValid =
         name.trim() !== "" &&
@@ -219,6 +222,7 @@ function FlowEditor({
                 projectId: flow?.projectId ?? defaultProjectId,
                 name: flow?.name ?? "",
                 description: flow?.description ?? "",
+                loop: flow?.loop ?? false,
                 actions: normalizeActions(flow?.actions ?? []),
                 inputs: flow?.inputs ?? [],
             }),
@@ -228,6 +232,7 @@ function FlowEditor({
         projectId,
         name,
         description,
+        loop,
         actions: normalizeActions(actions),
         inputs,
     });
@@ -267,6 +272,25 @@ function FlowEditor({
                             onChange={(e) => setDescription(e.target.value)}
                             placeholder="Full feature lifecycle..."
                         />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-2">
+                            <Switch id="flow-loop" checked={loop} onCheckedChange={setLoop} />
+                            <Label
+                                htmlFor="flow-loop"
+                                className="cursor-pointer tracking-normal normal-case">
+                                Loop this flow
+                            </Label>
+                        </div>
+                        <p className="text-muted-foreground text-xs">
+                            Restarts from the first action after the last one finishes. Inputs and
+                            artifacts carry over. An agent ends it with{" "}
+                            <code className="bg-muted rounded px-1">
+                                taskflow-cli flow complete
+                            </code>
+                            .
+                        </p>
                     </div>
 
                     <div className="flex flex-col gap-1.5">
