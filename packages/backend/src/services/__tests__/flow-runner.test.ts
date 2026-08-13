@@ -257,6 +257,23 @@ describe("resumeFlow", () => {
         expect(spawnedSessions).toHaveLength(2);
         expect(closedSessions).toEqual(["session-1"]);
     });
+
+    // Guard for the looped counterpart below: a finite run still drops the
+    // artifacts of the action it is about to retry, since that action never
+    // finished and anything it saved is partial.
+    test("drops the retried action's artifacts on a non-looped run", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await runner.saveArtifact("task-1", "flow-1", "entry-1", spawnedSessions[0].sessionId, {
+            type: "plan",
+            text: "half-written plan",
+        });
+        await runner.pauseFlow("task-1", "flow-1");
+
+        await runner.resumeFlow("task-1", "flow-1");
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.artifacts).toEqual([]);
+    });
 });
 
 describe("stopFlow", () => {
@@ -513,6 +530,36 @@ describe("looping", () => {
         expect(run?.status).toBe("paused");
         expect(run?.iteration).toBe(2);
         expect(run?.actions[0].status).toBe("failed");
+    });
+
+    test("resuming a wrapped iteration keeps the artifact carried from the previous one", async () => {
+        await runner.startFlow(taskOwner, loopFlow);
+        await runner.saveArtifact("task-1", "loop-flow", "entry-1", spawnedSessions[0].sessionId, {
+            type: "plan",
+            text: "iteration one plan",
+        });
+        await runner.handleActionComplete("task-1", "loop-flow", spawnedSessions[0].sessionId);
+        // The wrap's relaunch of action 0 fails, leaving the run paused at
+        // iteration 2 with iteration 1's artifact still attached.
+        spawnError = new Error("spawn failed");
+        await runner
+            .handleActionComplete("task-1", "loop-flow", spawnedSessions[1].sessionId)
+            .catch(() => undefined);
+
+        let run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.iteration).toBe(2);
+        expect(run?.artifacts).toHaveLength(1);
+
+        spawnError = null;
+        await runner.resumeFlow("task-1", "loop-flow");
+
+        run = await flowStore.getFlowRun("task-1", "loop-flow");
+        expect(run?.status).toBe("running");
+        expect(run?.iteration).toBe(2);
+        // Retrying action 0 must not delete the output the wrap deliberately
+        // carried over — the retried action may well be reading it.
+        expect(run?.artifacts).toHaveLength(1);
+        expect(run?.artifacts[0].text).toBe("iteration one plan");
     });
 
     test("a step failing mid-loop pauses the run instead of wrapping, and Resume retries it", async () => {

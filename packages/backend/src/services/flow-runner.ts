@@ -263,10 +263,18 @@ class FlowRunner {
             run.actions[run.currentActionIndex].startedAt = new Date().toISOString();
             run.actions[run.currentActionIndex].completedAt = undefined;
             run.actions[run.currentActionIndex].sessionId = undefined;
-            run.artifacts = run.artifacts.filter(
-                (artifact) =>
-                    artifact.actionEntryId !== run.actions[run.currentActionIndex].actionEntryId,
-            );
+            if (!run.loop) {
+                // Drop whatever the interrupted attempt saved, since it never
+                // finished. A looped run is exempt: its artifacts are carried
+                // across the wrap on purpose, so the entry the retried action
+                // owns may hold a completed value from the previous iteration
+                // that this action is about to read. Re-saving replaces it.
+                run.artifacts = run.artifacts.filter(
+                    (artifact) =>
+                        artifact.actionEntryId !==
+                        run.actions[run.currentActionIndex].actionEntryId,
+                );
+            }
             await this.deps.flowStore.saveFlowRun(run);
             this.broadcastUpdate(run);
 
