@@ -15,7 +15,7 @@ This document is the source of truth for progress. One bounded step per session.
 | 1 | Types and `loop` validation | clear | `e72babf` | Round 1 clean; its tests later broke `bun run lint`, repaired in `69950b5` |
 | 2 | Extract `endRun` (pure refactor) | clear | `c505881` | Impl `75534e4`; round 1 fixes `552acf8` + `69950b5`; round 2 clean |
 | 3 | Serialize runner public mutators under owner lock | clear | `f2fdb9d` | Impl `7d0cc45`; round 1 clean, no fix commit |
-| 4 | Snapshot `loop` onto run, wrap around | pending | — | |
+| 4 | Snapshot `loop` onto run, wrap around | implemented | `2e73030` | Impl `934d25d`; review round 1 due |
 | 5 | Stop completes a looped run | pending | — | |
 | 6 | Close session when a looped step completes | pending | — | |
 | 7 | `completeFlow` and its route | pending | — | |
@@ -215,6 +215,35 @@ This document is the source of truth for progress. One bounded step per session.
   `git status` clean after the mutation experiment was reverted (verified by `git diff --stat`
   returning empty before continuing).
 
+### Task 4 — implementation (2026-08-13)
+
+- Base commit `2e73030`; implementation commit `934d25d`.
+- Added the `loopFlow` fixture beside `testFlow` **and** seeded it in `beforeEach` next to
+  `saveFlow(testFlow)` — the mistake the previous session flagged was avoided.
+- Three production changes, all as the plan specifies:
+  1. `startFlow` snapshots `loop: flow.loop ? true : undefined` and `iteration: flow.loop ? 1 :
+     undefined` onto the run. Nothing later reads the live definition for looping.
+  2. `advanceOrComplete` gains one branch at the end-of-list check: `if (run.loop) { await
+     this.startNextIteration(run); return; }`. The finite path below it is untouched.
+  3. New private `startNextIteration` — resets every action, bumps `iteration`, sets index 0
+     running, saves, broadcasts, then relaunches action 0 via
+     `launchPersistedActionWithRecovery`. It takes **no** lock (it runs inside the one
+     `handleActionComplete` already holds, via the unlocked `advanceOrComplete`); a comment on
+     the method records that so a later edit does not deadlock the run.
+  4. `getArtifacts` copies before sorting on the untyped branch (`[...run.artifacts]`), so it no
+     longer reorders the caller's array in place.
+- Red-then-green signal, recorded per the plan's warning about the two green-before-and-after
+  guards: on `2e73030` the file ran **26 pass / 7 fail** — the seven reds being `wraps to
+  iteration 2`, `carries inputs and artifacts`, `an artifact re-saved in iteration 2`,
+  `editing loop off`, `a launch failure on the first action of a new iteration`, `a step failing
+  mid-loop`, and `getArtifacts does not reorder`. `a non-looped flow still completes after its
+  last action` passed before and after, as designed. After the change: **33 pass / 0 fail**.
+- Validation at `934d25d`: `bun test packages/backend/src/services/__tests__/` → **64 pass,
+  0 fail** (4 files, up from 56 by the eight new tests). `bun test packages/backend` →
+  **541 pass, 0 fail** (54 files, up from 533). `bun run typecheck` → all four packages exit 0.
+  `bun run lint` → clean. `bunx prettier --check` on both changed files → clean.
+  `git status` clean apart from this handoff.
+
 ## Decisions taken
 
 - 2026-08-13: `bun run format:check` reports a pre-existing warning on
@@ -239,35 +268,45 @@ This document is the source of truth for progress. One bounded step per session.
   (plan Task 2 step 3) in favour of the narrowed `Extract<...>` union. The plan's own future
   callers only ever pass terminal outcomes, so nothing downstream is blocked, and the
   narrower type removes the footgun round 1 identified.
+- 2026-08-13: deviated from the plan's literal Step 1 snippet for `a launch failure on the first
+  action of a new iteration pauses the run`. The plan writes it as
+  `await expect(...).rejects.toThrow("spawn failed")`, which is exactly the construct that made
+  `bun run lint` red after Task 1 (`@typescript-eslint/await-thenable` — bun-types declares those
+  matchers as returning `void`). Written instead as
+  `const rejection = await runner.handleActionComplete(...).catch((e: unknown) => e)` plus
+  `toBeInstanceOf(Error)` / `toHaveProperty("message", ...)`, matching the repair already applied
+  to `flow-store.test.ts`. Same assertion strength, no rule disabled, lint stays green.
 
 ## Next step
 
-Next step: Task 4 — implementation (plan lines 463-742). Snapshot `loop` onto the run in
-`startFlow`, add the wrap branch to `advanceOrComplete` plus the new private
-`startNextIteration`, and fix the in-place sort in `getArtifacts`.
+Next step: Task 4 — review round 1. Run one gpt-5.5 review via the `codex-review` skill over
+`2e73030..HEAD`, restricted to `packages/` (exclude the plan/handoff doc changes from the diff),
+then verify every finding yourself before acting on it.
 
-Record HEAD as Task 4's base commit before touching code. At the time of writing that is
-`8719e5b` plus the commit carrying this handoff update — re-read it with `git rev-parse --short HEAD`
-rather than trusting this line.
-
-Notes for that implementation:
-- Task 4 is the first task that changes what a run *does* rather than how it is guarded, so it
-  gets a review round; do not consider skipping it.
-- Step 1 adds a `loopFlow` fixture next to `testFlow` **and** seeds it in `beforeEach` right
-  after `await flowStore.saveFlow(testFlow);`. Missing the seeding is the easy mistake — the
-  looping tests will fail confusingly on a flow the store has never heard of.
-- Two of the Step 1 tests are deliberate regression guards that are **green before and after**
-  (`a non-looped flow still completes after its last action`, and the `carries inputs and
-  artifacts` test's three wrap assertions exist precisely because the rest of it passes on
-  current code). Do not treat their passing as evidence the wrap works — the red-then-green
-  signal comes from `wraps to iteration 2 instead of completing`.
-- `startNextIteration` runs **inside** the lock held by `handleActionComplete`, via the private
-  unlocked `advanceOrComplete`. It must not take the lock itself; doing so deadlocks the run
-  with no error. This is the exact hazard Task 3's round-1 review re-confirmed.
-- Round 1 of Task 3 left one piece of context that matters here: the owner gate is FIFO and
-  `stopFlow` re-reads the run after acquiring it, so a Stop issued mid-wrap queues behind the
-  in-flight hop rather than racing it. The plan's accepted "no throttle" limitation
-  (plan lines 52-58) rests on that, and it now has an independent confirmation.
-- Validate with `bun test packages/backend/src/services/__tests__/` (**56 pass / 0 fail** at
-  `8719e5b`), `bun test packages/backend` (533 pass / 0 fail), `bun run typecheck`, and
-  `bun run lint` — all green right now, so any redness belongs to Task 4.
+Notes for that review:
+- The diff is exactly implementation commit `934d25d`. Re-read HEAD with
+  `git rev-parse --short HEAD` rather than trusting this line — the commit carrying this handoff
+  update sits on top of it and must be excluded from the review range's code scope.
+- The four things most worth pointing the reviewer at:
+  1. **Does the wrap leave a coherent run?** `startNextIteration` resets every action including
+     the one that just completed, then immediately marks index 0 running. If the reset and the
+     re-marking disagree, a wrapped run would show a step that is both fresh and finished.
+  2. **Lock discipline.** `startNextIteration` deliberately takes no lock. Confirm there is no
+     path where it is reached other than through an already-locked public entry point — a second
+     acquisition hangs the run silently rather than erroring.
+  3. **The launch-failure path across the wrap.** `launchPersistedActionWithRecovery` calls
+     `markActionLaunchFailed`, which pauses the run and marks *action 0* failed after
+     `iteration` has already been bumped. Check that a subsequent Resume does the right thing
+     from that state — the run is paused at index 0 of iteration 2 with artifacts from
+     iteration 1 still attached.
+  4. **`getArtifacts` copy.** It is a real behaviour change for every caller, not just looped
+     runs: the untyped branch no longer mutates the caller's array order. Confirm nothing
+     depended on the old in-place sort (check the CLI artifact-list path and the routes).
+- Carried forward from Task 3 round 1, still relevant: the owner gate is FIFO and `stopFlow`
+  re-reads the run after acquiring it, so a Stop issued mid-wrap queues behind the in-flight hop
+  rather than racing it. The plan's accepted "no throttle" limitation (plan lines 52-58) rests
+  on that.
+- Baseline for judging any redness: at `934d25d`,
+  `bun test packages/backend/src/services/__tests__/` → 64 pass / 0 fail,
+  `bun test packages/backend` → 541 pass / 0 fail, `bun run typecheck` → all four packages
+  exit 0, `bun run lint` → clean. Anything red belongs to the review round's own changes.
