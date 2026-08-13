@@ -24,6 +24,7 @@ import {
     Loader2,
     RotateCcw,
     Download,
+    Repeat,
 } from "lucide-react";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
@@ -140,9 +141,19 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
         <div className="flex h-full flex-col">
             {/* Header */}
             <Toolbar className="justify-between">
-                <TruncatedText tooltip tooltipSide="bottom" className="ml-2 text-xs font-medium">
-                    {flowName}
-                </TruncatedText>
+                <div className="ml-2 flex min-w-0 items-center gap-1.5">
+                    <TruncatedText tooltip tooltipSide="bottom" className="text-xs font-medium">
+                        {flowName}
+                    </TruncatedText>
+                    {/* A wrap resets every step at once; without a visible counter
+                        that reads as the panel glitching rather than looping. */}
+                    {run.loop && (
+                        <span className="text-muted-foreground flex shrink-0 items-center gap-1 text-[10px]">
+                            <Repeat className="h-2.5 w-2.5" />
+                            Iteration {run.iteration ?? 1}
+                        </span>
+                    )}
+                </div>
                 <div className="flex items-center gap-1">
                     {run.status === "running" && (
                         <Button
@@ -168,9 +179,11 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                         <Button
                             variant="ghost"
                             size="icon-2xs"
-                            className="text-destructive"
+                            // Stopping a loop is its normal ending, not an error
+                            // (the runner ends it as completed) — so no red.
+                            className={run.loop ? undefined : "text-destructive"}
                             onClick={handleStop}
-                            tooltip="Stop"
+                            tooltip={run.loop ? "Finish loop" : "Stop"}
                             tooltipSide="bottom">
                             <Square className="h-2 w-2" />
                         </Button>

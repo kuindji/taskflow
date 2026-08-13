@@ -9,7 +9,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Plus } from "lucide-react";
+import { Plus, Repeat } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
 import { useFlowStore } from "@/stores/flow-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -194,7 +194,15 @@ function FlowManagementDialog() {
                                                 ? "bg-muted text-foreground font-medium"
                                                 : "text-secondary-foreground hover:bg-muted/50"
                                         }`}>
-                                        <div className="font-medium">{f.name}</div>
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="truncate font-medium">{f.name}</span>
+                                            {f.loop && (
+                                                <Repeat
+                                                    aria-label="Loops"
+                                                    className="text-muted-foreground h-3 w-3 shrink-0"
+                                                />
+                                            )}
+                                        </div>
                                         <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
                                             <span>
                                                 {f.actions.length} action
