@@ -8,7 +8,7 @@ import type {
     FlowArtifact,
     SessionType,
 } from "@taskflow/shared";
-import { MASTER_OWNER_ID, MSG, isAgentType } from "@taskflow/shared";
+import { MASTER_OWNER_ID, MSG, isAgentType, latestArtifactsByType } from "@taskflow/shared";
 import type { FlowStore } from "./flow-store";
 
 interface SpawnSessionOpts {
@@ -444,11 +444,13 @@ class FlowRunner {
         });
     }
 
+    // One entry per type, newest write wins. Storage keys artifacts by
+    // (actionEntryId, type), so a later action saving a type another action
+    // already used adds a second row; readers must not see the shadowed one.
+    // latestArtifactsByType builds its own array, so the run's list is untouched.
     getArtifacts(run: FlowRun, type?: string): FlowArtifact[] {
-        // filter already returns a new array; the untyped branch needs the copy
-        // so sorting cannot reorder the run's own artifact list in place.
-        const artifacts = type ? run.artifacts.filter((a) => a.type === type) : [...run.artifacts];
-        return artifacts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        const artifacts = type ? run.artifacts.filter((a) => a.type === type) : run.artifacts;
+        return latestArtifactsByType(artifacts);
     }
 
     async failFlowByIds(ownerId: string, flowId: string): Promise<void> {
@@ -710,7 +712,7 @@ class FlowRunner {
                     `This flow is a loop. After its last action completes it restarts from the first action with the same inputs, and artifacts carry over between iterations. You are in iteration ${loopIteration}.`,
                     `Run \`taskflow-cli action complete\` to finish this action and move to the next one.`,
                     `Run \`taskflow-cli flow complete\` to end the whole loop immediately.`,
-                    `Reuse the same artifact \`<type>\` names on every iteration instead of inventing per-iteration names. Saving a \`<type>\` again from the same action replaces that action's previous value, so a carried-over artifact is readable only until the same action overwrites it — fold anything you still need into the new value.`,
+                    `Reuse the same artifact \`<type>\` names on every iteration instead of inventing per-iteration names. Saving a \`<type>\` again replaces the previous value under that label, so a carried-over artifact is readable only until something overwrites it — fold anything you still need into the new value.`,
                 ].join("\n\n"),
             );
         }

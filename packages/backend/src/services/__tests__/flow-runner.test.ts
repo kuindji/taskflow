@@ -862,6 +862,79 @@ describe("getArtifacts", () => {
 
         expect(run.artifacts.map((a) => a.type)).toEqual(["a", "b"]);
     });
+
+    // Storage keys artifacts by (actionEntryId, type), so a second action reusing
+    // a label leaves two rows behind. Readers must see only the newest.
+    test("collapses one type written by two actions to the newest value", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await runner.saveArtifact("task-1", "flow-1", "entry-1", spawnedSessions[0].sessionId, {
+            type: "summary",
+            text: "from action 1",
+        });
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
+        await runner.saveArtifact("task-1", "flow-1", "entry-2", spawnedSessions[1].sessionId, {
+            type: "summary",
+            text: "from action 2",
+        });
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        if (!run) throw new Error("expected a run");
+        // Both rows are still stored, so a retry of action 2 can restore action 1's value
+        expect(run.artifacts).toHaveLength(2);
+
+        // `artifact list` shows one row per label
+        expect(runner.getArtifacts(run).map((a) => [a.type, a.text])).toEqual([
+            ["summary", "from action 2"],
+        ]);
+        // `artifact get summary` agrees with it
+        expect(runner.getArtifacts(run, "summary").map((a) => a.text)).toEqual(["from action 2"]);
+    });
+
+    test("keeps distinct types, newest first", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        if (!run) throw new Error("expected a run");
+        run.artifacts = [
+            {
+                type: "plan",
+                text: "plan v1",
+                actionEntryId: "entry-1",
+                createdAt: "2020-01-01T00:00:00.000Z",
+            },
+            {
+                type: "review",
+                text: "review",
+                actionEntryId: "entry-2",
+                createdAt: "2030-01-01T00:00:00.000Z",
+            },
+        ];
+
+        expect(runner.getArtifacts(run).map((a) => a.type)).toEqual(["review", "plan"]);
+    });
+
+    // Two saves inside the same millisecond compare equal on createdAt; the one
+    // pushed later is the later save, so it has to win.
+    test("breaks a createdAt tie toward the later entry", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        if (!run) throw new Error("expected a run");
+        run.artifacts = [
+            {
+                type: "summary",
+                text: "first save",
+                actionEntryId: "entry-1",
+                createdAt: "2020-01-01T00:00:00.000Z",
+            },
+            {
+                type: "summary",
+                text: "second save",
+                actionEntryId: "entry-2",
+                createdAt: "2020-01-01T00:00:00.000Z",
+            },
+        ];
+
+        expect(runner.getArtifacts(run).map((a) => a.text)).toEqual(["second save"]);
+    });
 });
 
 describe("getFlowRunOwnerId", () => {
@@ -1047,14 +1120,14 @@ describe("looped action prompt", () => {
 
     // "artifacts carry over between iterations" and "reuse the same <type> names"
     // are each true, but an agent cannot act on both unless it is also told that
-    // re-saving a type destroys the carried value (saveArtifact dedupes on
+    // re-saving a type hides the carried value (saveArtifact dedupes on
     // (actionEntryId, type) — pinned by "an artifact re-saved in iteration 2
-    // replaces the iteration 1 value" above).
+    // replaces the iteration 1 value" above — and readers collapse the rest).
     test("warns that re-saving an artifact type replaces the carried value", async () => {
         await runner.startFlow(taskOwner, loopFlow);
         const systemPrompt = spawnedSessions[0].systemPrompt ?? "";
 
-        expect(systemPrompt).toContain("replaces that action's previous value");
+        expect(systemPrompt).toContain("replaces the previous value under that label");
     });
 
     test("a looped run with no iteration recorded still gets the loop section", async () => {

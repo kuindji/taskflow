@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import type { FlowActionState } from "@taskflow/shared";
+import { latestArtifactsByType } from "@taskflow/shared";
 import { useFlowStore } from "@/stores/flow-store";
 import { useSessionStore } from "@/stores/session-store";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,11 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
 
     const flowDef = flows.find((f) => f.id === run.flowId);
     const flowName = flowDef?.name ?? "Flow";
+
+    // The run carries one artifact per (action, type); show one row per type so a
+    // label written by a later action replaces the earlier action's value on screen,
+    // matching what `taskflow-cli artifact get <type>` hands back.
+    const visibleArtifacts = latestArtifactsByType(run.artifacts);
 
     const workspaceKey = run.taskId
         ? getTaskWorkspaceKey(run.taskId)
@@ -266,12 +272,12 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
             </div>
 
             {/* Artifacts */}
-            {run.artifacts.length > 0 && (
+            {visibleArtifacts.length > 0 && (
                 <div className="border-border border-t px-3 py-2">
                     <div className="text-muted-foreground mb-1 text-[10px] uppercase">
                         Artifacts
                     </div>
-                    {run.artifacts.map((a) => (
+                    {visibleArtifacts.map((a) => (
                         <div
                             key={`${a.actionEntryId}-${a.createdAt}`}
                             className="flex items-center gap-2 text-xs">

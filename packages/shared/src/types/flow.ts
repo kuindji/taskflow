@@ -107,6 +107,21 @@ type FlowRun = FlowOwner & {
     completedAt?: string;
 };
 
+// Artifacts are stored per (actionEntryId, type), so two different actions can
+// each hold a value under the same label. Readers want one entry per label, so
+// collapse to the newest write per type, newest first. Equal createdAt stamps
+// fall back to array order, where a later entry is the later save.
+function latestArtifactsByType(artifacts: FlowArtifact[]): FlowArtifact[] {
+    const newestByType = new Map<string, FlowArtifact>();
+    for (const artifact of artifacts) {
+        const current = newestByType.get(artifact.type);
+        if (!current || artifact.createdAt.localeCompare(current.createdAt) >= 0) {
+            newestByType.set(artifact.type, artifact);
+        }
+    }
+    return [...newestByType.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 function getFlowRunOwnerId(run: FlowRun): string {
     if (run.taskId) return run.taskId;
     if (run.projectId) return run.projectId;
@@ -168,4 +183,4 @@ export type {
     FlowJumpToActionPayload,
     FlowOwnerPayload,
 };
-export { MASTER_OWNER_ID, getFlowRunOwnerId };
+export { MASTER_OWNER_ID, getFlowRunOwnerId, latestArtifactsByType };
