@@ -1,4 +1,5 @@
 import type { Attribute } from "./attribute";
+import type { AgentLaunchOptions } from "./agent";
 
 export type SessionStatus = "working" | "attention" | "initializing";
 
@@ -9,6 +10,20 @@ export interface SessionRef {
     createdAt: string;
     instance?: string;
     trayExclude?: boolean;
+    /** Backend lifetime that most recently owned the live PTY. */
+    bootId?: string;
+    /** Durable lifecycle state. Missing on legacy records and treated as live. */
+    state?: "live" | "interrupted" | "resuming";
+    /** Exact conversation identifier used by the agent CLI's resume command. */
+    nativeSessionId?: string;
+    /** Effective working directory and launch options required to resume safely. */
+    cwd?: string;
+    agentOptions?: AgentLaunchOptions;
+    /** Flow ownership retained across backend restarts. */
+    flow?: {
+        flowId: string;
+        actionEntryId: string;
+    };
 }
 
 export interface TaskWorktreePr {

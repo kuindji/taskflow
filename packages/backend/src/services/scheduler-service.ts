@@ -14,6 +14,7 @@ interface SchedulerDeps {
     closeSession: (sessionId: string) => void;
     broadcast: (event: WsEvent) => void;
     isOnline: () => boolean;
+    enabled?: boolean;
 }
 
 const SYSTEM_PROMPT_ADDON = `You are running as a scheduled job. When you have completed your work, you MUST call the following command to signal completion:
@@ -67,7 +68,14 @@ class SchedulerService {
         this.deps = deps;
     }
 
+    assertEnabled(): void {
+        if (this.deps.enabled === false) {
+            throw new Error("Schedules are owned by the production Taskflow instance");
+        }
+    }
+
     async init(): Promise<void> {
+        if (this.deps.enabled === false) return;
         const schedules = await this.deps.scheduleStore.getAll();
 
         // Clear stale runningSessionIds from crash
@@ -298,6 +306,7 @@ class SchedulerService {
     }
 
     async triggerNow(scheduleId: string): Promise<void> {
+        this.assertEnabled();
         if (!this.deps.isOnline()) {
             throw new Error("Cannot trigger schedule while offline");
         }

@@ -23,6 +23,8 @@ interface Tab {
     url?: string;
     autoTitle?: boolean;
     trayExclude?: boolean;
+    sessionState?: SessionRef["state"];
+    resumeAvailable?: boolean;
     /** markdown tabs only — which pane the tab currently shows. Absent means "preview". */
     mode?: "preview" | "edit";
     /** markdown tabs only — scroll offset of the preview pane, restored across pane swaps. */
@@ -71,6 +73,8 @@ function createSessionTab(session: SessionRef): Tab {
         type: session.type,
         label: normalizeSessionLabel(session.type, session.label),
         sessionId: session.id,
+        sessionState: session.state,
+        resumeAvailable: session.state === "interrupted" && Boolean(session.nativeSessionId),
         ...(session.type === "shell" && { autoTitle: true }),
         ...(session.trayExclude && { trayExclude: true }),
     };

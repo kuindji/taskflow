@@ -254,6 +254,34 @@ describe("flow definitions", () => {
 });
 
 describe("flow runs", () => {
+    test("partitions runs by Taskflow instance", async () => {
+        const production = new FlowStore(
+            join(tempDir, "flows"),
+            join(tempDir, "flow-runs"),
+            "main",
+        );
+        const development = new FlowStore(
+            join(tempDir, "flows"),
+            join(tempDir, "flow-runs"),
+            "dev-main",
+        );
+        await production.init();
+        await development.init();
+        const base = {
+            taskId: "task-1",
+            flowId: "flow-1",
+            currentActionIndex: 0,
+            actions: [{ actionEntryId: "entry-1", status: "running" as const }],
+            artifacts: [],
+            startedAt: new Date().toISOString(),
+        };
+        await production.saveFlowRun({ ...base, status: "running" });
+        await development.saveFlowRun({ ...base, status: "paused" });
+
+        expect((await production.getFlowRun("task-1", "flow-1"))?.status).toBe("running");
+        expect((await development.getFlowRun("task-1", "flow-1"))?.status).toBe("paused");
+    });
+
     test("saveFlowRun and getFlowRun round-trips", async () => {
         const run = {
             taskId: "task-1",

@@ -75,6 +75,8 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
                                 master={workspace.scope === "master" ? true : undefined}
                                 sessionId={tab.sessionId}
                                 sessionType={tab.type}
+                                sessionState={tab.sessionState}
+                                resumeAvailable={tab.resumeAvailable}
                                 visible={isActive}
                             />
                         ) : (
@@ -93,6 +95,8 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
                                     master={workspace.scope === "master" ? true : undefined}
                                     sessionId={tab.sessionId}
                                     sessionType={tab.type}
+                                    sessionState={tab.sessionState}
+                                    resumeAvailable={tab.resumeAvailable}
                                     visible={isActive}
                                 />
                             );

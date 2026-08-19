@@ -33,7 +33,11 @@ class FakeTrayStateTracker {
 }
 
 const sharedTestDeps = {
-    sessionLifecycle: { createSession: async () => "", removeSessionFromOwner: async () => {} },
+    sessionLifecycle: {
+        createSession: async () => "",
+        resumeSession: async (sessionId: string) => sessionId,
+        removeSessionFromOwner: async () => {},
+    },
     schedulerService: {} as never,
     scheduleStore: {} as never,
     shells: [],

@@ -8,7 +8,7 @@ import type {
     TaskLogEntryType,
     TaskWorktree,
 } from "@taskflow/shared";
-import { ARCHIVE_EXPIRY_DAYS, orderProjectsByIds } from "@taskflow/shared";
+import { ARCHIVE_EXPIRY_DAYS, isAgentType, orderProjectsByIds } from "@taskflow/shared";
 import {
     appendFile,
     readFile,
@@ -20,7 +20,7 @@ import {
     rm,
     stat,
 } from "fs/promises";
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
 import {
     isMissingFileError,
@@ -29,6 +29,7 @@ import {
 } from "./task-store-helpers";
 import { addAttribute, editAttribute, removeAttribute } from "./attribute-mutations";
 import { NotFoundError } from "./errors";
+import { acquireFileMutationLock } from "./file-mutation-lock";
 
 interface TaskStoreConfig {
     projectsFile: string;
@@ -36,6 +37,7 @@ interface TaskStoreConfig {
     archiveDir: string;
     taskLogsDir: string;
     sessionLogsDir: string;
+    masterSessionsFile?: string;
 }
 
 export class TaskStore {
@@ -44,6 +46,7 @@ export class TaskStore {
     private sessionLogMutations = new Map<string, Promise<void>>();
     private masterSessions: SessionRef[] = [];
     private projectsMutation: Promise<unknown> = Promise.resolve();
+    private masterSessionsMutation: Promise<unknown> = Promise.resolve();
 
     constructor(config: TaskStoreConfig) {
         this.config = config;
@@ -59,6 +62,22 @@ export class TaskStore {
         await mkdir(this.config.archiveDir, { recursive: true });
         await mkdir(this.config.sessionLogsDir, { recursive: true });
         await mkdir(this.config.taskLogsDir, { recursive: true });
+        await mkdir(dirname(this.masterSessionsFile), { recursive: true });
+        try {
+            this.masterSessions = JSON.parse(
+                await readFile(this.masterSessionsFile, "utf-8"),
+            ) as SessionRef[];
+        } catch (error) {
+            if (!isMissingFileError(error) && !isJsonParseError(error)) throw error;
+            this.masterSessions = [];
+        }
+    }
+
+    private get masterSessionsFile(): string {
+        return (
+            this.config.masterSessionsFile ??
+            join(dirname(this.config.projectsFile), "sessions", "main", "master.json")
+        );
     }
 
     async clearAllSessions(instanceId?: string): Promise<void> {
@@ -92,22 +111,178 @@ export class TaskStore {
 
     // --- Master Sessions ---
 
-    addMasterSession(session: SessionRef): void {
-        this.masterSessions.push(session);
+    private async persistMasterSessions(): Promise<void> {
+        await writeFile(this.masterSessionsFile, JSON.stringify(this.masterSessions, null, 2));
     }
 
-    removeMasterSession(sessionId: string): void {
-        this.masterSessions = this.masterSessions.filter((s) => s.id !== sessionId);
+    private async withMasterSessionsMutation<T>(mutation: () => Promise<T>): Promise<T> {
+        const run = this.masterSessionsMutation.then(async () => {
+            const release = await acquireFileMutationLock(this.masterSessionsFile);
+            try {
+                try {
+                    this.masterSessions = JSON.parse(
+                        await readFile(this.masterSessionsFile, "utf-8"),
+                    ) as SessionRef[];
+                } catch (error) {
+                    if (!isMissingFileError(error) && !isJsonParseError(error)) throw error;
+                    this.masterSessions = [];
+                }
+                return await mutation();
+            } finally {
+                await release();
+            }
+        });
+        this.masterSessionsMutation = run.catch(() => undefined);
+        return run;
+    }
+
+    async addMasterSession(session: SessionRef): Promise<void> {
+        await this.withMasterSessionsMutation(async () => {
+            this.masterSessions.push(session);
+            await this.persistMasterSessions();
+        });
+    }
+
+    async removeMasterSession(sessionId: string): Promise<void> {
+        await this.withMasterSessionsMutation(async () => {
+            this.masterSessions = this.masterSessions.filter((s) => s.id !== sessionId);
+            await this.persistMasterSessions();
+        });
     }
 
     getMasterSessions(): SessionRef[] {
         return [...this.masterSessions];
     }
 
-    updateMasterSession(sessionId: string, updates: Partial<SessionRef>): void {
-        this.masterSessions = this.masterSessions.map((s) =>
-            s.id === sessionId ? { ...s, ...updates } : s,
+    async updateMasterSession(sessionId: string, updates: Partial<SessionRef>): Promise<void> {
+        await this.withMasterSessionsMutation(async () => {
+            this.masterSessions = this.masterSessions.map((s) =>
+                s.id === sessionId ? { ...s, ...updates } : s,
+            );
+            await this.persistMasterSessions();
+        });
+    }
+
+    private reconcileSessionList(
+        sessions: SessionRef[],
+        instanceId: string,
+        bootId: string,
+        onlyBootId?: string,
+    ): { sessions: SessionRef[]; changed: boolean } {
+        let changed = false;
+        const next: SessionRef[] = [];
+        for (const session of sessions) {
+            if (
+                session.instance !== instanceId ||
+                (onlyBootId !== undefined && session.bootId !== onlyBootId)
+            ) {
+                next.push(session);
+                continue;
+            }
+            if (!isAgentType(session.type)) {
+                changed = true;
+                continue;
+            }
+            if (session.bootId === bootId) {
+                next.push(session);
+                continue;
+            }
+            const reconciled: SessionRef = {
+                ...session,
+                state: "interrupted",
+            };
+            next.push(reconciled);
+            if (session.state !== "interrupted") changed = true;
+        }
+        return { sessions: next, changed };
+    }
+
+    async reconcileInterruptedSessions(instanceId: string, bootId: string): Promise<void> {
+        const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
+        for (const task of tasks) {
+            const reconciled = this.reconcileSessionList(task.sessions, instanceId, bootId);
+            if (reconciled.changed) {
+                await this.updateTask(task.id, (current) => ({
+                    sessions: this.reconcileSessionList(current.sessions, instanceId, bootId)
+                        .sessions,
+                }));
+            }
+        }
+        for (const project of projects) {
+            const reconciled = this.reconcileSessionList(project.sessions, instanceId, bootId);
+            if (reconciled.changed) {
+                await this.updateProject(project.id, (current) => ({
+                    sessions: this.reconcileSessionList(current.sessions, instanceId, bootId)
+                        .sessions,
+                }));
+            }
+        }
+        const master = this.reconcileSessionList(this.masterSessions, instanceId, bootId);
+        if (master.changed) {
+            await this.withMasterSessionsMutation(async () => {
+                const latest = this.reconcileSessionList(this.masterSessions, instanceId, bootId);
+                this.masterSessions = latest.sessions;
+                if (latest.changed) await this.persistMasterSessions();
+            });
+        }
+    }
+
+    async markBootSessionsInterrupted(instanceId: string, bootId: string): Promise<void> {
+        const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
+        for (const task of tasks) {
+            const reconciled = this.reconcileSessionList(
+                task.sessions,
+                instanceId,
+                "__next_boot__",
+                bootId,
+            );
+            if (reconciled.changed) {
+                await this.updateTask(task.id, (current) => ({
+                    sessions: this.reconcileSessionList(
+                        current.sessions,
+                        instanceId,
+                        "__next_boot__",
+                        bootId,
+                    ).sessions,
+                }));
+            }
+        }
+        for (const project of projects) {
+            const reconciled = this.reconcileSessionList(
+                project.sessions,
+                instanceId,
+                "__next_boot__",
+                bootId,
+            );
+            if (reconciled.changed) {
+                await this.updateProject(project.id, (current) => ({
+                    sessions: this.reconcileSessionList(
+                        current.sessions,
+                        instanceId,
+                        "__next_boot__",
+                        bootId,
+                    ).sessions,
+                }));
+            }
+        }
+        const master = this.reconcileSessionList(
+            this.masterSessions,
+            instanceId,
+            "__next_boot__",
+            bootId,
         );
+        if (master.changed) {
+            await this.withMasterSessionsMutation(async () => {
+                const latest = this.reconcileSessionList(
+                    this.masterSessions,
+                    instanceId,
+                    "__next_boot__",
+                    bootId,
+                );
+                this.masterSessions = latest.sessions;
+                if (latest.changed) await this.persistMasterSessions();
+            });
+        }
     }
 
     // --- Projects ---
@@ -232,31 +407,38 @@ export class TaskStore {
             throw new Error(`Project path is not a directory: ${resolvedPath}`);
         }
 
-        const projects = await this.listProjects();
-        const duplicate = projects.find((p) => p.path === resolvedPath);
-        if (duplicate) {
-            if (duplicate.hidden) {
-                return this.updateProject(duplicate.id, { hidden: false });
+        return this.withProjectsMutation(async () => {
+            const projects = await this.listProjects();
+            const duplicate = projects.find((p) => p.path === resolvedPath);
+            if (duplicate) {
+                if (duplicate.hidden) {
+                    duplicate.hidden = false;
+                    await writeFile(
+                        this.config.projectsFile,
+                        JSON.stringify(this.stripEphemeralFields(projects), null, 2),
+                    );
+                    return duplicate;
+                }
+                throw new Error(`A project already exists at this path: ${duplicate.name}`);
             }
-            throw new Error(`A project already exists at this path: ${duplicate.name}`);
-        }
-        const project: Project = {
-            id: randomUUID(),
-            name: input.name?.trim() || basename(resolvedPath),
-            path: resolvedPath,
-            sessions: [],
-            attributes: [],
-            createdAt: new Date().toISOString(),
-            ...(input.defaultInitCommand?.trim()
-                ? { defaultInitCommand: input.defaultInitCommand.trim() }
-                : {}),
-        };
-        projects.push(project);
-        await writeFile(
-            this.config.projectsFile,
-            JSON.stringify(this.stripEphemeralFields(projects), null, 2),
-        );
-        return project;
+            const project: Project = {
+                id: randomUUID(),
+                name: input.name?.trim() || basename(resolvedPath),
+                path: resolvedPath,
+                sessions: [],
+                attributes: [],
+                createdAt: new Date().toISOString(),
+                ...(input.defaultInitCommand?.trim()
+                    ? { defaultInitCommand: input.defaultInitCommand.trim() }
+                    : {}),
+            };
+            projects.push(project);
+            await writeFile(
+                this.config.projectsFile,
+                JSON.stringify(this.stripEphemeralFields(projects), null, 2),
+            );
+            return project;
+        });
     }
 
     async getProject(id: string): Promise<Project | null> {
@@ -644,7 +826,15 @@ export class TaskStore {
      * reentrant — never call a locked method from inside another one.
      */
     private withProjectsMutation<T>(mutation: () => Promise<T>): Promise<T> {
-        const run = this.projectsMutation.then(mutation, mutation);
+        const lockedMutation = async () => {
+            const release = await acquireFileMutationLock(this.config.projectsFile);
+            try {
+                return await mutation();
+            } finally {
+                await release();
+            }
+        };
+        const run = this.projectsMutation.then(lockedMutation, lockedMutation);
         this.projectsMutation = run.catch(() => undefined);
         return run;
     }
@@ -661,7 +851,12 @@ export class TaskStore {
         await previous.catch(() => undefined);
 
         try {
-            return await mutation();
+            const releaseFileLock = await acquireFileMutationLock(this.taskPath(id));
+            try {
+                return await mutation();
+            } finally {
+                await releaseFileLock();
+            }
         } finally {
             release();
             if (this.taskMutations.get(id) === queued) {

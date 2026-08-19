@@ -24,6 +24,7 @@ interface SessionRouteDeps {
     agents: AgentAvailability[];
     sessionLifecycle: {
         createSession: (opts: CreateSessionOpts) => Promise<string>;
+        resumeSession: (sessionId: string) => Promise<string>;
         removeSessionFromOwner: (
             sessionId: string,
             owner?: { taskId?: string; projectId?: string },
@@ -192,6 +193,17 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
             const message = err instanceof Error ? err.message : "Unknown error";
             console.error("[api] POST /api/sessions failed:", err);
             return errorResponse(message, 500);
+        }
+    });
+
+    apiRouter.register("POST", "/api/sessions/:sessionId/resume", async (_req, params) => {
+        try {
+            return jsonResponse({
+                sessionId: await sessionLifecycle.resumeSession(params.sessionId),
+            });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            return errorResponse(message, message.startsWith("Session not found") ? 404 : 409);
         }
     });
 

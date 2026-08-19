@@ -142,6 +142,10 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
     };
 
     const isFlowDone = run.status === "completed" || run.status === "failed";
+    const waitingForInterruptedSession =
+        run.status === "paused" &&
+        run.actions[run.currentActionIndex]?.status === "running" &&
+        Boolean(run.actions[run.currentActionIndex]?.sessionId);
 
     return (
         <div className="flex h-full flex-col">
@@ -175,8 +179,13 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
                         <Button
                             variant="ghost"
                             size="icon-2xs"
+                            disabled={waitingForInterruptedSession}
                             onClick={handleResume}
-                            tooltip="Resume"
+                            tooltip={
+                                waitingForInterruptedSession
+                                    ? "Resume the interrupted terminal session"
+                                    : "Resume"
+                            }
                             tooltipSide="bottom">
                             <Play className="h-2 w-2" />
                         </Button>

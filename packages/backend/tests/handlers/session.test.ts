@@ -15,6 +15,7 @@ import { MSG } from "@taskflow/shared";
 import { GitService } from "../../src/services/git-service";
 import { TrayStateTracker } from "../../src/services/tray-state-tracker";
 import { SettingsStore } from "../../src/services/settings-store";
+import { config } from "../../src/config";
 
 class FakePtyManager {
     private nextId = 0;
@@ -24,26 +25,46 @@ class FakePtyManager {
     >();
     private sequenceBySession = new Map<string, number>();
     closed: string[] = [];
-    spawns: Array<{ id: string; cwd?: string; command?: string; args?: string[] }> = [];
+    spawns: Array<{
+        id: string;
+        cwd?: string;
+        command?: string;
+        args?: string[];
+        initialOutput?: string;
+        startSequence?: number;
+    }> = [];
 
     spawn(options: {
         id?: string;
         cwd?: string;
         command?: string;
         args?: string[];
+        initialOutput?: string;
+        startSequence?: number;
         onData: (data: string, sequence: number) => void;
         onExit: (exitCode: number) => void;
     }): string {
         const id = options.id ?? `session-${(this.nextId += 1)}`;
         this.sessions.set(id, options);
         this.sequenceBySession.set(id, 0);
-        this.spawns.push({ id, cwd: options.cwd, command: options.command, args: options.args });
+        this.spawns.push({
+            id,
+            cwd: options.cwd,
+            command: options.command,
+            args: options.args,
+            initialOutput: options.initialOutput,
+            startSequence: options.startSequence,
+        });
         return id;
     }
 
     write(): void {}
 
     resize(): void {}
+
+    has(id: string): boolean {
+        return this.sessions.has(id);
+    }
 
     emit(id: string, data: string): void {
         const session = this.sessions.get(id);
@@ -116,6 +137,11 @@ describe("session handlers", () => {
             getPort: () => 0,
             detectedEditors: [],
             trayStateTracker: new TrayStateTracker(),
+            nativeSessionDiscovery: {
+                acquire: async () => async () => {},
+                capture: async () => new Set<string>(),
+                discover: async () => null,
+            },
         });
         registerSessionHandlers({
             router,
@@ -370,5 +396,44 @@ describe("session handlers", () => {
             data: "",
             lastSequence: 0,
         });
+    });
+
+    it("resumes an interrupted agent with its native ID and retained transcript", async () => {
+        const task = (await router.handle(MSG.TASK_CREATE, {
+            projectId,
+            title: "Task",
+        })) as { id: string };
+        const project = await store.getProject(projectId);
+        await store.appendSessionOutput(task.id, "taskflow-session", 7, "retained output\n");
+        await store.updateTask(task.id, {
+            sessions: [
+                {
+                    id: "taskflow-session",
+                    type: "codex",
+                    label: "Codex",
+                    createdAt: new Date().toISOString(),
+                    instance: config.instanceId,
+                    bootId: "previous-boot",
+                    state: "interrupted",
+                    nativeSessionId: "native-session",
+                    cwd: project!.path,
+                    agentOptions: { type: "codex" },
+                },
+            ],
+        });
+
+        const response = (await router.handle(MSG.SESSION_RESUME, {
+            sessionId: "taskflow-session",
+        })) as { sessionId: string };
+
+        expect(response.sessionId).toBe("taskflow-session");
+        const spawn = ptyManager.spawns.at(-1)!;
+        expect(spawn.args?.slice(0, 2)).toEqual(["resume", "native-session"]);
+        expect(spawn.initialOutput).toBe("retained output\n");
+        expect(spawn.startSequence).toBe(7);
+        const updated = await store.getTask(task.id);
+        expect(updated?.sessions[0].state).toBe("live");
+        expect(updated?.sessions[0].nativeSessionId).toBe("native-session");
+        expect(updated?.sessions[0].bootId).toBe(config.bootId);
     });
 });

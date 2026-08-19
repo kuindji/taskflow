@@ -48,6 +48,7 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
     router.register(
         MSG.SCHEDULE_CREATE,
         typed<ScheduleCreatePayload>(async (payload) => {
+            schedulerService.assertEnabled();
             // Validate expression before persisting
             validateExpression(payload.expression, payload.expressionType);
 
@@ -92,6 +93,7 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
     router.register(
         MSG.SCHEDULE_UPDATE,
         typed<ScheduleUpdatePayload>(async (payload) => {
+            schedulerService.assertEnabled();
             // Validate new expression if provided
             if (payload.expression !== undefined) {
                 const type =
@@ -127,6 +129,7 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
     router.register(
         MSG.SCHEDULE_DELETE,
         typed<ScheduleDeletePayload>(async (payload) => {
+            schedulerService.assertEnabled();
             const schedule = await scheduleStore.getById(payload.id);
             const runningSessionId = schedule?.runningSessionId ?? null;
             await scheduleStore.delete(payload.id);
@@ -138,6 +141,7 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
     router.register(
         MSG.SCHEDULE_TRIGGER,
         typed<ScheduleTriggerPayload>(async (payload) => {
+            schedulerService.assertEnabled();
             await schedulerService.triggerNow(payload.id);
             return { success: true };
         }),

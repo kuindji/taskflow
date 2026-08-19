@@ -27,6 +27,7 @@ import {
 import { MarkdownInputHelper } from "./terminal/MarkdownInputHelper";
 import { useTerminalModifierBlur } from "./terminal/useTerminalModifierBlur";
 import type { Tab } from "@/stores/session-helpers";
+import { Button } from "@/components/ui/button";
 
 const RESIZE_DEBOUNCE_MS = 250;
 
@@ -36,6 +37,8 @@ interface TerminalPaneProps {
     master?: boolean;
     sessionId: string;
     sessionType: Tab["type"];
+    sessionState?: Tab["sessionState"];
+    resumeAvailable?: boolean;
     visible: boolean;
 }
 
@@ -45,12 +48,17 @@ function TerminalPane({
     master,
     sessionId,
     sessionType,
+    sessionState,
+    resumeAvailable = false,
     visible,
 }: TerminalPaneProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const visibleRef = useRef(visible);
+    const interrupted = sessionState === "interrupted" || sessionState === "resuming";
+    const interruptedRef = useRef(interrupted);
+    interruptedRef.current = interrupted;
     const sessionStatus = useSessionStore((s) => s.sessionStatus[sessionId]);
     const isInitializing = sessionStatus === "initializing";
     const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -61,6 +69,9 @@ function TerminalPane({
     const dragCounterRef = useRef(0);
     const sendInput = useSessionStore((s) => s.sendInput);
     const resizeTerminal = useSessionStore((s) => s.resizeTerminal);
+    const resumeSession = useSessionStore((s) => s.resumeSession);
+    const closeSession = useSessionStore((s) => s.closeSession);
+    const [resumeError, setResumeError] = useState<string | null>(null);
     const focusedPanel = useUIStore((s) => s.focusedPanel);
     const { workingDir } = useActiveWorkspace();
     const workingDirRef = useRef(workingDir);
@@ -75,6 +86,7 @@ function TerminalPane({
 
     const sendResizeIfNeeded = useCallback(
         (force = false) => {
+            if (interruptedRef.current) return;
             const term = termRef.current;
             if (!term) return;
             const next = { cols: term.cols, rows: term.rows };
@@ -173,7 +185,9 @@ function TerminalPane({
         term.attachCustomKeyEventHandler((event) => {
             if (event.shiftKey && event.key === "Enter") {
                 if (event.type === "keydown") {
-                    sendInputRef.current(sessionId, "\x1b\r");
+                    if (!interruptedRef.current) {
+                        sendInputRef.current(sessionId, "\x1b\r");
+                    }
                 }
                 return false; // prevent xterm default handling for all event phases
             }
@@ -204,6 +218,7 @@ function TerminalPane({
 
         // User input: only active while mounted
         const dataDisposable = term.onData((data) => {
+            if (interruptedRef.current) return;
             sendInputRef.current(sessionId, data);
         });
 
@@ -337,8 +352,18 @@ function TerminalPane({
     }, [scheduleFit]);
 
     const handleContainerClick = useCallback(() => {
+        if (interruptedRef.current) return;
         termRef.current?.focus();
     }, []);
+
+    const handleResume = useCallback(async () => {
+        setResumeError(null);
+        try {
+            await resumeSession(sessionId);
+        } catch (error) {
+            setResumeError(error instanceof Error ? error.message : "Unable to resume session");
+        }
+    }, [resumeSession, sessionId]);
 
     useEffect(() => {
         const id = sessionId;
@@ -412,6 +437,7 @@ function TerminalPane({
             setDragOver(false);
 
             if (!e.dataTransfer) return;
+            if (interruptedRef.current) return;
 
             const types = Array.from(e.dataTransfer.types);
             console.debug("[drop] drop event, types:", types);
@@ -500,7 +526,49 @@ function TerminalPane({
                     </div>
                 </div>
             )}
-            <MarkdownInputHelper sessionId={sessionId} sessionType={sessionType} />
+            {interrupted && (
+                <div className="absolute inset-x-6 bottom-6 flex justify-center">
+                    <div className="bg-background/95 border-border max-w-lg rounded-lg border p-4 shadow-lg backdrop-blur">
+                        <div className="text-sm font-medium">
+                            {sessionState === "resuming"
+                                ? "Resuming agent session..."
+                                : "Agent session was interrupted"}
+                        </div>
+                        <p className="text-muted-foreground mt-1 text-xs">
+                            The terminal transcript is preserved. Resume starts a new process
+                            attached to the same agent conversation; pending input or approvals
+                            cannot be restored.
+                        </p>
+                        {resumeError && (
+                            <p className="text-destructive mt-2 text-xs">{resumeError}</p>
+                        )}
+                        <div className="mt-3 flex gap-2">
+                            <Button
+                                size="sm"
+                                disabled={!resumeAvailable || sessionState === "resuming"}
+                                onClick={() => void handleResume()}>
+                                Resume
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={sessionState === "resuming"}
+                                onClick={() => void closeSession(sessionId)}>
+                                Close
+                            </Button>
+                        </div>
+                        {!resumeAvailable && sessionState !== "resuming" && (
+                            <p className="text-muted-foreground mt-2 text-xs">
+                                This session was interrupted before its native conversation ID could
+                                be captured, so it cannot be resumed safely.
+                            </p>
+                        )}
+                    </div>
+                </div>
+            )}
+            {!interrupted && (
+                <MarkdownInputHelper sessionId={sessionId} sessionType={sessionType} />
+            )}
         </div>
     );
 }

@@ -20,6 +20,26 @@ const baseArgs = {
 };
 
 describe("syncOwnerTabs", () => {
+    test("refreshes interrupted and resume availability state", () => {
+        const live = makeSession("session-1");
+        const tab = createSessionTab(live);
+        const interrupted = {
+            ...live,
+            state: "interrupted" as const,
+            nativeSessionId: "native-1",
+        };
+        const result = syncOwnerTabs({
+            owners: [{ id: "owner-1", sessions: [interrupted] }],
+            keyPrefix: "task:",
+            getWorkspaceKey: () => "task:owner-1",
+            tabsByWorkspace: { "task:owner-1": [tab] },
+            activeTabByWorkspace: { "task:owner-1": tab.id },
+            pendingSessionCreates: new Set(),
+        });
+        expect(result.tabsByWorkspace["task:owner-1"][0].sessionState).toBe("interrupted");
+        expect(result.tabsByWorkspace["task:owner-1"][0].resumeAvailable).toBe(true);
+    });
+
     test("returns identical references when nothing changed", () => {
         const session = makeSession("s1");
         const tab = createSessionTab(session);

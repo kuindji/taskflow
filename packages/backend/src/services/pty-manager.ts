@@ -22,6 +22,10 @@ interface SpawnOptions {
      * paste followed by Enter.
      */
     initialInput?: string;
+    /** Previously persisted output used to seed a resumed terminal snapshot. */
+    initialOutput?: string;
+    /** Sequence offset retained across resumed PTY attempts. */
+    startSequence?: number;
 }
 
 const MAX_SCROLLBACK = 50_000;
@@ -124,7 +128,7 @@ export class PtyManager {
 
         const scrollback: string[] = [];
         let scrollbackLen = 0;
-        let lastSequence = 0;
+        let lastSequence = options.startSequence ?? 0;
         let sessionEntry: Session | null = null;
 
         const headless = new HeadlessTerminal({
@@ -135,6 +139,13 @@ export class PtyManager {
         });
         const serializer = new SerializeAddon();
         headless.loadAddon(serializer);
+
+        if (options.initialOutput) {
+            const retained = options.initialOutput.slice(-MAX_SCROLLBACK);
+            scrollback.push(retained);
+            scrollbackLen = retained.length;
+            headless.write(retained);
+        }
 
         const initialInput = options.initialInput;
         let injected = initialInput === undefined;

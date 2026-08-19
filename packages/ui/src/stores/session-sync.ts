@@ -39,13 +39,22 @@ function syncPaneTabs(existing: Tab[], sessionsById: Map<string, SessionRef>): T
         }
         const label =
             tab.autoTitle !== true ? normalizeSessionLabel(session.type, session.label) : tab.label;
-        if (tab.type === session.type && tab.label === label) {
+        const sessionState = session.state;
+        const resumeAvailable = sessionState === "interrupted" && Boolean(session.nativeSessionId);
+        if (
+            tab.type === session.type &&
+            tab.label === label &&
+            tab.sessionState === sessionState &&
+            tab.resumeAvailable === resumeAvailable
+        ) {
             next.push(tab);
         } else {
             changed = true;
             next.push({
                 ...tab,
                 type: session.type,
+                sessionState,
+                resumeAvailable,
                 ...(tab.autoTitle !== true && { label }),
             });
         }

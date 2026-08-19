@@ -7,6 +7,7 @@ import type {
     FlowActionStatus,
     FlowArtifact,
     SessionType,
+    SessionRef,
 } from "@taskflow/shared";
 import { MASTER_OWNER_ID, MSG, isAgentType, latestArtifactsByType } from "@taskflow/shared";
 import type { FlowStore } from "./flow-store";
@@ -287,6 +288,10 @@ class FlowRunner {
         return this.withOwnerLock(ownerId, async () => {
             const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
             if (!run || run.status !== "paused") return;
+            const pausedAction = run.actions[run.currentActionIndex];
+            if (pausedAction?.status === "running" && pausedAction.sessionId) {
+                throw new Error("Resume the interrupted agent session from its terminal tab");
+            }
 
             run.status = "running";
             run.actions[run.currentActionIndex].status = "running";
@@ -395,6 +400,79 @@ class FlowRunner {
                 this.broadcastUpdate(run);
             }
         });
+    }
+
+    async recoverInterruptedRuns(recoverableSessionIds?: ReadonlySet<string>): Promise<void> {
+        for (const run of await this.deps.flowStore.getAllActiveRuns()) {
+            if (run.status !== "running") continue;
+            run.status = "paused";
+            const action = run.actions[run.currentActionIndex];
+            if (
+                action?.status === "running" &&
+                (!action.sessionId ||
+                    (recoverableSessionIds && !recoverableSessionIds.has(action.sessionId)))
+            ) {
+                action.status = "failed";
+                action.completedAt = new Date().toISOString();
+                action.sessionId = undefined;
+            }
+            await this.deps.flowStore.saveFlowRun(run);
+            this.broadcastUpdate(run);
+        }
+    }
+
+    async prepareInterruptedSessionResume(
+        session: SessionRef,
+    ): Promise<(() => Promise<void>) | undefined> {
+        if (!session.flow || !isAgentType(session.type)) return undefined;
+        const sessionType = session.type;
+        const { flowId, actionEntryId } = session.flow;
+        const runs = await this.deps.flowStore.getAllActiveRuns();
+        const run = runs.find(
+            (candidate) =>
+                candidate.flowId === flowId &&
+                candidate.actions[candidate.currentActionIndex]?.actionEntryId === actionEntryId &&
+                candidate.actions[candidate.currentActionIndex]?.sessionId === session.id,
+        );
+        if (!run) throw new Error("Interrupted flow run not found for this session");
+        const owner = this.ownerFromRun(run);
+        const ownerId = this.getOwnerId(owner);
+
+        await this.withOwnerLock(ownerId, async () => {
+            const current = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+            const action = current?.actions[current.currentActionIndex];
+            if (
+                !current ||
+                current.status !== "paused" ||
+                action?.actionEntryId !== actionEntryId ||
+                action.sessionId !== session.id
+            ) {
+                throw new Error("Flow is no longer waiting for this interrupted session");
+            }
+            current.status = "running";
+            this.sessionFlowMap.set(session.id, {
+                ownerId,
+                owner,
+                flowId,
+                actionEntryId,
+                sessionType,
+            });
+            await this.deps.flowStore.saveFlowRun(current);
+            this.broadcastUpdate(current);
+        });
+
+        return async () => {
+            await this.withOwnerLock(ownerId, async () => {
+                this.sessionFlowMap.delete(session.id);
+                const current = await this.deps.flowStore.getFlowRun(ownerId, flowId);
+                const action = current?.actions[current.currentActionIndex];
+                if (current?.status === "running" && action?.sessionId === session.id) {
+                    current.status = "paused";
+                    await this.deps.flowStore.saveFlowRun(current);
+                    this.broadcastUpdate(current);
+                }
+            });
+        };
     }
 
     async saveArtifact(

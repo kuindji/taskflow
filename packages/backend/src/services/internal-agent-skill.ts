@@ -196,6 +196,7 @@ export function buildAgentLaunchSpec(
     additionalSystemPrompt?: string,
     isProjectScope?: boolean,
     isFlowScope?: boolean,
+    nativeSession?: { mode: "new" | "resume"; id?: string },
 ): { command: string; args: string[]; env?: Record<string, string>; initialInput?: string } {
     // Codex registers the taskflow skill separately via `skills.config`, so exclude
     // it from the embedded prompt to avoid duplicating the skill content.
@@ -234,6 +235,11 @@ export function buildAgentLaunchSpec(
                 "Bash(taskflow-cli*)",
                 "--append-system-prompt",
                 systemPrompt,
+                ...(nativeSession?.mode === "resume" && nativeSession.id
+                    ? ["--resume", nativeSession.id]
+                    : nativeSession?.mode === "new" && nativeSession.id
+                      ? ["--session-id", nativeSession.id]
+                      : []),
                 ...(prompt ? ["--", prompt] : []),
             ],
         };
@@ -252,6 +258,9 @@ export function buildAgentLaunchSpec(
             if (agentOptions.model) args.push("--model", agentOptions.model);
         }
         if (prompt) args.push("--prompt", prompt);
+        if (nativeSession?.mode === "resume" && nativeSession.id) {
+            args.push("--session", nativeSession.id);
+        }
 
         return {
             command: "opencode",
@@ -274,6 +283,9 @@ export function buildAgentLaunchSpec(
                 ...optionArgs,
                 "--append-system-prompt",
                 systemPrompt,
+                ...(nativeSession?.mode === "resume" && nativeSession.id
+                    ? ["--session", nativeSession.id]
+                    : []),
                 ...(prompt ? [prompt] : []),
             ],
         };
@@ -290,7 +302,12 @@ export function buildAgentLaunchSpec(
         // prompt is typed into the TUI by the PTY layer via initialInput.
         return {
             command: "kimi",
-            args: optionArgs,
+            args: [
+                ...optionArgs,
+                ...(nativeSession?.mode === "resume" && nativeSession.id
+                    ? ["--session", nativeSession.id]
+                    : []),
+            ],
             env: { KIMI_CODE_NO_AUTO_UPDATE: "1" },
             initialInput: prompt ? `${systemPrompt}\n\n---\n\n${prompt}` : undefined,
         };
@@ -332,6 +349,9 @@ export function buildAgentLaunchSpec(
     return {
         command: "codex",
         args: [
+            ...(nativeSession?.mode === "resume" && nativeSession.id
+                ? ["resume", nativeSession.id]
+                : []),
             ...optionArgs,
             "-c",
             `developer_instructions="${escapeTomlBasicString(systemPrompt)}"`,

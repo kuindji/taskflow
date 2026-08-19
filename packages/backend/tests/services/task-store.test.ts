@@ -318,6 +318,130 @@ describe("TaskStore", () => {
         });
     });
 
+    describe("durable session recovery", () => {
+        it("marks stale agent sessions interrupted and removes stale non-agent sessions", async () => {
+            const projectDir = await createProjectDir("recovery");
+            const project = await store.addProject({ name: "recovery", path: projectDir });
+            const task = await store.createTask({
+                projectId: project.id,
+                title: "Task",
+                description: "test",
+            });
+            const createdAt = new Date().toISOString();
+            await store.updateTask(task.id, {
+                sessions: [
+                    {
+                        id: "agent-main",
+                        type: "codex",
+                        label: "Codex",
+                        createdAt,
+                        instance: "main",
+                        bootId: "old-boot",
+                        state: "live",
+                        nativeSessionId: "native-1",
+                    },
+                    {
+                        id: "shell-main",
+                        type: "shell",
+                        label: "Shell",
+                        createdAt,
+                        instance: "main",
+                        bootId: "old-boot",
+                    },
+                    {
+                        id: "agent-dev",
+                        type: "claude",
+                        label: "Claude",
+                        createdAt,
+                        instance: "dev-main",
+                        bootId: "dev-boot",
+                        state: "live",
+                    },
+                ],
+            });
+
+            await store.reconcileInterruptedSessions("main", "new-boot");
+
+            const sessions = (await store.getTask(task.id))!.sessions;
+            expect(sessions.map((session) => session.id)).toEqual(["agent-main", "agent-dev"]);
+            expect(sessions[0].state).toBe("interrupted");
+            expect(sessions[0].nativeSessionId).toBe("native-1");
+            expect(sessions[1].state).toBe("live");
+        });
+
+        it("persists master sessions across TaskStore instances", async () => {
+            const masterSessionsFile = join(tempDir, "sessions", "main", "master.json");
+            const first = new TaskStore({
+                projectsFile: join(tempDir, "projects.json"),
+                tasksDir: join(tempDir, "tasks"),
+                archiveDir: join(tempDir, "archive"),
+                sessionLogsDir: join(tempDir, "session-logs"),
+                taskLogsDir: join(tempDir, "task-logs"),
+                masterSessionsFile,
+            });
+            await first.init();
+            await first.addMasterSession({
+                id: "master-agent",
+                type: "claude",
+                label: "Claude",
+                createdAt: new Date().toISOString(),
+                instance: "main",
+                bootId: "boot-1",
+                nativeSessionId: "master-native",
+            });
+
+            const second = new TaskStore({
+                projectsFile: join(tempDir, "projects.json"),
+                tasksDir: join(tempDir, "tasks"),
+                archiveDir: join(tempDir, "archive"),
+                sessionLogsDir: join(tempDir, "session-logs"),
+                taskLogsDir: join(tempDir, "task-logs"),
+                masterSessionsFile,
+            });
+            await second.init();
+            expect(second.getMasterSessions()).toHaveLength(1);
+            expect(second.getMasterSessions()[0].nativeSessionId).toBe("master-native");
+        });
+
+        it("keeps concurrent session updates from two backend stores", async () => {
+            const projectDir = await createProjectDir("shared-store");
+            const project = await store.addProject({ name: "shared", path: projectDir });
+            const task = await store.createTask({
+                projectId: project.id,
+                title: "Task",
+                description: "test",
+            });
+            const second = new TaskStore({
+                projectsFile: join(tempDir, "projects.json"),
+                tasksDir: join(tempDir, "tasks"),
+                archiveDir: join(tempDir, "archive"),
+                sessionLogsDir: join(tempDir, "session-logs-2"),
+                taskLogsDir: join(tempDir, "task-logs"),
+            });
+            await second.init();
+            const makeSession = (id: string) => ({
+                id,
+                type: "claude" as const,
+                label: "Claude",
+                createdAt: new Date().toISOString(),
+                instance: id,
+            });
+
+            await Promise.all([
+                store.updateTask(task.id, (current) => ({
+                    sessions: [...current.sessions, makeSession("main")],
+                })),
+                second.updateTask(task.id, (current) => ({
+                    sessions: [...current.sessions, makeSession("dev-main")],
+                })),
+            ]);
+
+            expect(
+                (await store.getTask(task.id))?.sessions.map((session) => session.id).sort(),
+            ).toEqual(["dev-main", "main"]);
+        });
+    });
+
     describe("clearAllSessions", () => {
         it("only clears sessions matching the given instanceId", async () => {
             const projectDir = await createProjectDir("test");

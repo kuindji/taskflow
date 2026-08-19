@@ -6,6 +6,7 @@ import type {
     Task,
     SessionStatus,
     SessionCreateResponse,
+    SessionResumeResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, sendFireAndForget } from "../hooks/useWebSocket";
@@ -51,6 +52,7 @@ interface SessionStore {
         targetWorkspaceKey?: string,
     ): Promise<string>;
     closeSession(sessionId: string): Promise<void>;
+    resumeSession(sessionId: string): Promise<void>;
     sendInput(sessionId: string, data: string): void;
     resizeTerminal(sessionId: string, cols: number, rows: number): void;
     addTab(workspaceKey: string, tab: Tab): void;
@@ -150,6 +152,31 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             useTaskStore.getState().fetchTasks(),
             useProjectStore.getState().fetchProjects(),
         ]);
+    },
+    async resumeSession(sessionId) {
+        set((state) => ({
+            tabsByWorkspace: Object.fromEntries(
+                Object.entries(state.tabsByWorkspace).map(([key, tabs]) => [
+                    key,
+                    tabs.map((tab) =>
+                        tab.sessionId === sessionId
+                            ? { ...tab, sessionState: "resuming" as const }
+                            : tab,
+                    ),
+                ]),
+            ),
+        }));
+        try {
+            await sendRequest<SessionResumeResponse>(MSG.SESSION_RESUME, { sessionId });
+        } finally {
+            await Promise.all([
+                useTaskStore.getState().fetchTasks(),
+                useProjectStore.getState().fetchProjects(),
+                sendRequest<{ sessions: SessionRef[] }>(MSG.MASTER_SESSIONS_LIST).then(
+                    ({ sessions }) => get().syncWithMasterSessions(sessions),
+                ),
+            ]);
+        }
     },
     sendInput(sessionId, data) {
         markInteraction(sessionId);
@@ -496,6 +523,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                     return {
                         ...tab,
                         type: session.type,
+                        sessionState: session.state,
+                        resumeAvailable:
+                            session.state === "interrupted" && Boolean(session.nativeSessionId),
                         ...(tab.autoTitle !== true && {
                             label: normalizeSessionLabel(session.type, session.label),
                         }),
@@ -513,6 +543,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                     return {
                         ...tab,
                         type: session.type,
+                        sessionState: session.state,
+                        resumeAvailable:
+                            session.state === "interrupted" && Boolean(session.nativeSessionId),
                         ...(tab.autoTitle !== true && {
                             label: normalizeSessionLabel(session.type, session.label),
                         }),

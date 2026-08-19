@@ -4,6 +4,7 @@ import { mkdir, writeFile, access } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { getConfigBaseDir } from "./services/platform";
+import { randomUUID } from "crypto";
 
 const BASE_DIR = getConfigBaseDir();
 const DATA_LOCATION_FILE = join(BASE_DIR, "data-location.json");
@@ -21,7 +22,7 @@ function readDataDir(): string {
     return BASE_DIR;
 }
 
-function buildDataPaths(dataDir: string) {
+function buildDataPaths(dataDir: string, instanceId: string) {
     return {
         dataDir,
         projectsFile: join(dataDir, "projects.json"),
@@ -34,6 +35,8 @@ function buildDataPaths(dataDir: string) {
         flowRunsDir: join(dataDir, "flow-runs"),
         schedulesFile: join(dataDir, "schedules.json"),
         notificationsFile: join(dataDir, "notifications.json"),
+        masterSessionsFile: join(dataDir, "sessions", instanceId, "master.json"),
+        sessionLogsDir: join(dataDir, "session-logs", instanceId),
     };
 }
 
@@ -60,14 +63,8 @@ function getDevBranch(): string | null {
 
 const devBranch = getDevBranch();
 
-function getSessionLogsDir(): string {
-    if (devBranch) {
-        return join(tmpdir(), `taskflow-session-logs-dev-${devBranch}`);
-    }
-    return join(tmpdir(), "taskflow-session-logs");
-}
-
 const initialDataDir = readDataDir();
+const instanceId = devBranch ? `dev-${devBranch}` : "main";
 
 export const config = {
     baseDir: BASE_DIR,
@@ -76,13 +73,13 @@ export const config = {
     settingsFile: join(BASE_DIR, "settings.json"),
     portFile: process.env.TASKFLOW_PORT_FILE ?? join(tmpdir(), `.taskflow-port-${process.pid}`),
     port: Number.isInteger(devPort) && devPort > 0 ? devPort : 0,
-    sessionLogsDir: getSessionLogsDir(),
-    instanceId: devBranch ? `dev-${devBranch}` : "main",
-    ...buildDataPaths(initialDataDir),
+    instanceId,
+    bootId: randomUUID(),
+    ...buildDataPaths(initialDataDir, instanceId),
 };
 
 export function updateConfigDataDir(newDataDir: string): void {
-    const paths = buildDataPaths(newDataDir);
+    const paths = buildDataPaths(newDataDir, config.instanceId);
     Object.assign(config, paths);
 }
 

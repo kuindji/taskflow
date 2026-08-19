@@ -167,6 +167,14 @@ export interface SessionCreateResponse {
     sessionId: string;
 }
 
+export interface SessionResumePayload {
+    sessionId: string;
+}
+
+export interface SessionResumeResponse {
+    sessionId: string;
+}
+
 export interface SessionClosePayload {
     sessionId: string;
 }

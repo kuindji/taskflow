@@ -194,6 +194,44 @@ describe("startFlow", () => {
     });
 });
 
+describe("interrupted flow recovery", () => {
+    test("pauses the run and reattaches the same session on resume", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        const sessionId = spawnedSessions[0].sessionId;
+
+        await runner.recoverInterruptedRuns();
+        let run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.status).toBe("paused");
+        expect(run?.actions[0].status).toBe("running");
+        expect(run?.actions[0].sessionId).toBe(sessionId);
+
+        await runner.prepareInterruptedSessionResume({
+            id: sessionId,
+            type: "claude",
+            label: "Claude",
+            createdAt: new Date().toISOString(),
+            flow: { flowId: "flow-1", actionEntryId: "entry-1" },
+        });
+        run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.status).toBe("running");
+
+        await runner.handleSessionExit(sessionId, 1);
+        run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.status).toBe("paused");
+        expect(run?.actions[0].status).toBe("failed");
+    });
+
+    test("marks a running step failed when its session cannot be recovered", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await runner.recoverInterruptedRuns(new Set());
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.status).toBe("paused");
+        expect(run?.actions[0].status).toBe("failed");
+        expect(run?.actions[0].sessionId).toBeUndefined();
+    });
+});
+
 describe("handleActionComplete", () => {
     test("advances to next action", async () => {
         await runner.startFlow(taskOwner, testFlow);

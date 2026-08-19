@@ -27,6 +27,11 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
     });
 
     apiRouter.register("POST", "/api/schedules", async (req) => {
+        try {
+            schedulerService.assertEnabled();
+        } catch (err) {
+            return errorResponse(err instanceof Error ? err.message : "Schedules disabled", 409);
+        }
         let body: Record<string, unknown>;
         try {
             body = (await req.json()) as Record<string, unknown>;
@@ -103,6 +108,7 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
     apiRouter.register("PATCH", "/api/schedules/:id", async (req, params) => {
         let body: Record<string, unknown>;
         try {
+            schedulerService.assertEnabled();
             body = (await req.json()) as Record<string, unknown>;
         } catch {
             return errorResponse("Invalid JSON body", 400);
@@ -150,6 +156,7 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
 
     apiRouter.register("DELETE", "/api/schedules/:id", async (_req, params) => {
         try {
+            schedulerService.assertEnabled();
             const schedule = await scheduleStore.getById(params.id);
             if (!schedule) return errorResponse("Schedule not found", 404);
             const runningSessionId = schedule.runningSessionId ?? null;

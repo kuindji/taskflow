@@ -1,7 +1,9 @@
 import { readFile, writeFile, readdir, unlink, mkdir } from "fs/promises";
+import type { Dirent } from "fs";
 import { join } from "path";
 import type { ActionDefinition, FlowDefinition, FlowRun } from "@taskflow/shared";
 import { getFlowRunOwnerId } from "@taskflow/shared";
+import { acquireFileMutationLock } from "./file-mutation-lock";
 
 const FLOW_RUN_SEPARATOR = "--";
 
@@ -81,11 +83,17 @@ class FlowStore {
     constructor(
         private flowsDir: string,
         private flowRunsDir: string,
+        private instanceId = "main",
     ) {}
+
+    private get instanceFlowRunsDir(): string {
+        return join(this.flowRunsDir, this.instanceId);
+    }
 
     async init(): Promise<void> {
         await mkdir(this.flowsDir, { recursive: true });
         await mkdir(this.flowRunsDir, { recursive: true });
+        await mkdir(this.instanceFlowRunsDir, { recursive: true });
     }
 
     // --- Action Definitions ---
@@ -99,7 +107,7 @@ class FlowStore {
     }
 
     async saveAction(action: ActionDefinition): Promise<void> {
-        await this.withMutation("actions", async () => {
+        await this.withMutation("definitions", async () => {
             const actions = await this.getActions();
             const index = actions.findIndex((s) => s.id === action.id);
             if (index >= 0) {
@@ -173,11 +181,17 @@ class FlowStore {
     // --- Flow Runs ---
 
     private flowRunPath(ownerId: string, flowId: string): string {
+        return join(this.instanceFlowRunsDir, `${ownerId}${FLOW_RUN_SEPARATOR}${flowId}.json`);
+    }
+
+    private legacyFlowRunPath(ownerId: string, flowId: string): string {
         return join(this.flowRunsDir, `${ownerId}${FLOW_RUN_SEPARATOR}${flowId}.json`);
     }
 
     async getFlowRun(ownerId: string, flowId: string): Promise<FlowRun | null> {
-        return await this.readJsonFile<FlowRun>(this.flowRunPath(ownerId, flowId));
+        const current = await this.readJsonFile<FlowRun>(this.flowRunPath(ownerId, flowId));
+        if (current || this.instanceId !== "main") return current;
+        return this.readJsonFile<FlowRun>(this.legacyFlowRunPath(ownerId, flowId));
     }
 
     async saveFlowRun(run: FlowRun): Promise<void> {
@@ -198,59 +212,53 @@ class FlowStore {
                     throw error;
                 }
             }
+            if (this.instanceId === "main") {
+                try {
+                    await unlink(this.legacyFlowRunPath(ownerId, flowId));
+                } catch (error) {
+                    if (!isMissingFileError(error)) throw error;
+                }
+            }
         });
     }
 
-    async getFlowRunsForOwner(ownerId: string): Promise<FlowRun[]> {
-        const runs: FlowRun[] = [];
-        let files: string[];
-        try {
-            files = await readdir(this.flowRunsDir);
-        } catch (error) {
-            if (isMissingFileError(error)) {
-                return [];
-            }
-            throw error;
-        }
+    private async getOwnRunFiles(): Promise<string[]> {
+        const files = (await readdir(this.instanceFlowRunsDir)).map((file) =>
+            join(this.instanceFlowRunsDir, file),
+        );
+        if (this.instanceId !== "main") return files;
+        const legacy = (await readdir(this.flowRunsDir, { withFileTypes: true }))
+            .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+            .map((entry) => join(this.flowRunsDir, entry.name));
+        return [...files, ...legacy];
+    }
 
-        const prefix = `${ownerId}${FLOW_RUN_SEPARATOR}`;
-        for (const file of files) {
-            if (file.startsWith(prefix) && file.endsWith(".json")) {
-                const run = await this.readJsonFile<FlowRun>(join(this.flowRunsDir, file));
-                if (run) {
-                    runs.push(run);
-                }
-            }
+    private async getOwnRuns(): Promise<FlowRun[]> {
+        const byKey = new Map<string, FlowRun>();
+        for (const file of await this.getOwnRunFiles()) {
+            if (!file.endsWith(".json")) continue;
+            const run = await this.readJsonFile<FlowRun>(file);
+            if (!run) continue;
+            const key = `${getFlowRunOwnerId(run)}${FLOW_RUN_SEPARATOR}${run.flowId}`;
+            if (!byKey.has(key)) byKey.set(key, run);
         }
-        return runs;
+        return [...byKey.values()];
+    }
+
+    async getFlowRunsForOwner(ownerId: string): Promise<FlowRun[]> {
+        return (await this.getOwnRuns()).filter((run) => getFlowRunOwnerId(run) === ownerId);
     }
 
     async getAllActiveRuns(): Promise<FlowRun[]> {
-        const runs: FlowRun[] = [];
-        let files: string[];
-        try {
-            files = await readdir(this.flowRunsDir);
-        } catch (error) {
-            if (isMissingFileError(error)) {
-                return [];
-            }
-            throw error;
-        }
-
-        for (const file of files) {
-            if (!file.endsWith(".json")) continue;
-            const run = await this.readJsonFile<FlowRun>(join(this.flowRunsDir, file));
-            if (run && (run.status === "running" || run.status === "paused")) {
-                runs.push(run);
-            }
-        }
-        return runs;
+        return (await this.getOwnRuns()).filter(
+            (run) => run.status === "running" || run.status === "paused",
+        );
     }
 
     private async hasActiveRunsForFlow(flowId: string): Promise<boolean> {
-        let files: string[];
+        let entries: Dirent[];
         try {
-            files = await readdir(this.flowRunsDir);
+            entries = await readdir(this.flowRunsDir, { withFileTypes: true });
         } catch (error) {
             if (isMissingFileError(error)) {
                 return false;
@@ -258,11 +266,22 @@ class FlowStore {
             throw error;
         }
 
-        for (const file of files) {
-            if (!file.endsWith(".json")) {
-                continue;
+        const files: string[] = [];
+        for (const entry of entries) {
+            if (entry.isFile() && entry.name.endsWith(".json")) {
+                files.push(join(this.flowRunsDir, entry.name));
+            } else if (entry.isDirectory()) {
+                const nested = await readdir(join(this.flowRunsDir, entry.name));
+                files.push(
+                    ...nested
+                        .filter((file) => file.endsWith(".json"))
+                        .map((file) => join(this.flowRunsDir, entry.name, file)),
+                );
             }
-            const run = await this.readJsonFile<FlowRun>(join(this.flowRunsDir, file));
+        }
+
+        for (const file of files) {
+            const run = await this.readJsonFile<FlowRun>(file);
             if (!run || run.flowId !== flowId) {
                 continue;
             }
@@ -300,7 +319,14 @@ class FlowStore {
         this.flowMutations.set(key, queued);
         await previous.catch(() => undefined);
         try {
-            return await mutation();
+            const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
+            const lockTarget = join(this.flowRunsDir, `.mutation-${safeKey}`);
+            const releaseFileLock = await acquireFileMutationLock(lockTarget);
+            try {
+                return await mutation();
+            } finally {
+                await releaseFileLock();
+            }
         } finally {
             release();
             if (this.flowMutations.get(key) === queued) {

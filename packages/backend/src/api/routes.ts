@@ -44,6 +44,7 @@ interface ApiRouteDeps {
     agents: AgentAvailability[];
     sessionLifecycle: {
         createSession: (opts: CreateSessionOpts) => Promise<string>;
+        resumeSession: (sessionId: string) => Promise<string>;
         removeSessionFromOwner: (
             sessionId: string,
             owner?: { taskId?: string; projectId?: string },

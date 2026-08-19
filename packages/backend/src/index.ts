@@ -68,13 +68,13 @@ async function main() {
             archiveDir: config.archiveDir,
             sessionLogsDir: config.sessionLogsDir,
             taskLogsDir: config.taskLogsDir,
+            masterSessionsFile: config.masterSessionsFile,
         });
         await store.init();
-        await store.clearAllSessions(config.instanceId);
-        await store.cleanupAllSessionLogs();
+        await store.reconcileInterruptedSessions(config.instanceId, config.bootId);
         await store.cleanExpiredArchives();
 
-        const flowStore = new FlowStore(config.flowsDir, config.flowRunsDir);
+        const flowStore = new FlowStore(config.flowsDir, config.flowRunsDir, config.instanceId);
         await flowStore.init();
 
         const notificationStore = new NotificationStore(config.notificationsFile);
@@ -162,6 +162,7 @@ async function main() {
             },
             broadcast: server.broadcast,
             isOnline: () => connectivityService.isOnline,
+            enabled: config.instanceId === "main",
         });
 
         async function logToTask(
@@ -239,20 +240,31 @@ async function main() {
             },
         });
 
-        // Recover flow runs stuck in "running" from a previous process crash
-        const activeRuns = await flowStore.getAllActiveRuns();
-        for (const run of activeRuns) {
-            if (run.status === "running") {
-                run.status = "paused";
-                const currentAction = run.actions[run.currentActionIndex];
-                if (currentAction?.status === "running") {
-                    currentAction.status = "failed";
-                    currentAction.completedAt = new Date().toISOString();
-                    currentAction.sessionId = undefined;
-                }
-                await flowStore.saveFlowRun(run);
-            }
-        }
+        const [recoveryTasks, recoveryProjects] = await Promise.all([
+            store.listTasks(),
+            store.listProjects(),
+        ]);
+        const recoverableFlowSessionIds = new Set(
+            [
+                ...recoveryTasks.flatMap((task) => task.sessions),
+                ...recoveryProjects.flatMap((project) => project.sessions),
+                ...store.getMasterSessions(),
+            ]
+                .filter(
+                    (session) =>
+                        session.instance === config.instanceId &&
+                        session.state === "interrupted" &&
+                        Boolean(session.nativeSessionId),
+                )
+                .map((session) => session.id),
+        );
+        await flowRunner.recoverInterruptedRuns(recoverableFlowSessionIds);
+        sessionLifecycle.setRecoveredSessionResumeHandler((session) =>
+            flowRunner.prepareInterruptedSessionResume(session),
+        );
+        sessionLifecycle.setRecoveredSessionExitHandler((_session, _owner, exitCode) => {
+            void flowRunner.handleSessionExit(_session.id, exitCode);
+        });
 
         registerProjectHandlers(
             router,
@@ -431,8 +443,10 @@ async function main() {
                 payload: { online },
             });
             if (online) {
-                void schedulerService.resumeDeferred();
-                void remoteAgentService.retryAutoStartIfEnabled();
+                if (config.instanceId === "main") void schedulerService.resumeDeferred();
+                if (config.instanceId === "main") {
+                    void remoteAgentService.retryAutoStartIfEnabled();
+                }
             }
         });
 
@@ -461,7 +475,9 @@ async function main() {
         await schedulerService.init();
 
         // Auto-start remote agent if enabled
-        void remoteAgentService.autoStartIfEnabled();
+        if (config.instanceId === "main") {
+            void remoteAgentService.autoStartIfEnabled();
+        }
 
         // Register projects for change tracking
         const initialProjects = await store.listProjects();
@@ -479,19 +495,26 @@ async function main() {
             }
         }
 
-        const shutdown = () => {
+        let shuttingDown = false;
+        const shutdown = async () => {
+            if (shuttingDown) return;
+            shuttingDown = true;
+            try {
+                await sessionLifecycle.prepareForShutdown();
+            } catch (error) {
+                console.error("Failed to persist interrupted sessions during shutdown:", error);
+            }
             connectivityService.shutdown();
             schedulerService.shutdown();
             changeTracker.dispose();
             ptyManager.closeAll();
-            void fileWatcher.stopAll();
-            void wikiIndex.stopAll();
+            await Promise.allSettled([fileWatcher.stopAll(), wikiIndex.stopAll()]);
             stop?.();
             process.exit(0);
         };
-        process.on("SIGINT", shutdown);
+        process.on("SIGINT", () => void shutdown());
         if (process.platform !== "win32") {
-            process.on("SIGTERM", shutdown);
+            process.on("SIGTERM", () => void shutdown());
         }
     } catch (error) {
         stop?.();

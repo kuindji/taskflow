@@ -1,6 +1,7 @@
 import { MSG } from "@taskflow/shared";
 import type {
     SessionCreatePayload,
+    SessionResumePayload,
     SessionClosePayload,
     SessionRenamePayload,
     SessionInputPayload,
@@ -64,6 +65,11 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
         return { success: true };
     });
 
+    router.register(MSG.SESSION_RESUME, async (payload) => {
+        const { sessionId } = payload as SessionResumePayload;
+        return { sessionId: await sessionLifecycle.resumeSession(sessionId) };
+    });
+
     router.register(MSG.SESSION_CLOSE, async (payload) => {
         const { sessionId } = payload as SessionClosePayload;
         await sessionLifecycle.removeSessionFromOwner(sessionId);
@@ -98,7 +104,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
         // Check master sessions
         const masterSessions = taskStore.getMasterSessions();
         if (masterSessions.some((s) => s.id === sessionId)) {
-            taskStore.updateMasterSession(sessionId, { label });
+            await taskStore.updateMasterSession(sessionId, { label });
             return { success: true };
         }
 

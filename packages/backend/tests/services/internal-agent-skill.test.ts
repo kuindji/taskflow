@@ -447,3 +447,49 @@ describe("buildAgentLaunchSpec kimi", () => {
         expect(spec.initialInput).toContain("EXTRA CONTEXT");
     });
 });
+
+describe("buildAgentLaunchSpec native resume", () => {
+    const SKILL = "/tmp/taskflow-internal-api/SKILL.md";
+
+    it("uses each agent's native resume command without replaying a prompt", () => {
+        const cases = [
+            ["claude", ["--resume", "native-id"]],
+            ["codex", ["resume", "native-id"]],
+            ["opencode", ["--session", "native-id"]],
+            ["pi", ["--session", "native-id"]],
+            ["kimi", ["--session", "native-id"]],
+        ] as const;
+
+        for (const [type, expectedPair] of cases) {
+            const spec = buildAgentLaunchSpec(
+                type,
+                undefined,
+                SKILL,
+                { type } as never,
+                undefined,
+                false,
+                false,
+                { mode: "resume", id: "native-id" },
+            );
+            const index = spec.args.indexOf(expectedPair[0]);
+            expect(index).toBeGreaterThanOrEqual(0);
+            expect(spec.args[index + 1]).toBe(expectedPair[1]);
+            expect(spec.initialInput).toBeUndefined();
+        }
+    });
+
+    it("preassigns a Claude conversation ID for a new session", () => {
+        const spec = buildAgentLaunchSpec(
+            "claude",
+            "Start work",
+            SKILL,
+            { type: "claude" },
+            undefined,
+            false,
+            false,
+            { mode: "new", id: "taskflow-session-id" },
+        );
+        const index = spec.args.indexOf("--session-id");
+        expect(spec.args[index + 1]).toBe("taskflow-session-id");
+    });
+});
