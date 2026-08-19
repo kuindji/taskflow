@@ -1,8 +1,16 @@
 import { useState, useCallback, useEffect } from "react";
-import type { GitStatusResponse, GitCreatePrResult, GitCommitResult } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import type {
+    AgentLaunchOptions,
+    AgentType,
+    GitStatusResponse,
+    GitCreatePrResult,
+    GitCommitResult,
+} from "@taskflow/shared";
+import { AGENT_DISPLAY_NAMES, ALL_AGENT_TYPES, isAgentType, MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
+import { isAgentAvailable, useAgentAvailability } from "@/hooks/useAgentAvailability";
 import { useSessionStore } from "@/stores/session-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import {
     Dialog,
     DialogContent,
@@ -14,6 +22,16 @@ import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
+import { ChevronRight } from "lucide-react";
 
 type SessionOwner = { projectId: string } | { taskId: string };
 
@@ -25,8 +43,13 @@ interface CommitDialogProps {
 }
 
 export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: CommitDialogProps) {
+    const defaultAgent = useSettingsStore((s) => s.settings?.general.defaultAgent ?? "claude");
     const [message, setMessage] = useState("");
     const [useAgent, setUseAgent] = useState(false);
+    const [agentType, setAgentType] = useState<AgentType>(defaultAgent);
+    const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
+    const [agentOptionsOpen, setAgentOptionsOpen] = useState(false);
+    const [agentOptionsKey, setAgentOptionsKey] = useState(0);
     const [push, setPush] = useState(false);
     const [createPr, setCreatePr] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -38,10 +61,15 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const [behind, setBehind] = useState(0);
 
     const createSession = useSessionStore((s) => s.createSession);
+    const agents = useAgentAvailability();
 
     const resetForm = useCallback(() => {
         setMessage("");
         setUseAgent(false);
+        setAgentType(defaultAgent);
+        setAgentOptions(undefined);
+        setAgentOptionsOpen(false);
+        setAgentOptionsKey(0);
         setPush(false);
         setCreatePr(false);
         setLoading(false);
@@ -51,7 +79,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         setIncludeUnstaged(true);
         setAhead(null);
         setBehind(0);
-    }, []);
+    }, [defaultAgent]);
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
@@ -84,6 +112,18 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const handlePushChange = useCallback((checked: boolean) => {
         setPush(checked);
         if (!checked) setCreatePr(false);
+    }, []);
+
+    const handleAgentTypeChange = useCallback((value: string) => {
+        if (!isAgentType(value)) return;
+        setAgentType(value);
+        setAgentOptions(undefined);
+        setAgentOptionsKey((current) => current + 1);
+    }, []);
+
+    const handleResetAgentOptions = useCallback(() => {
+        setAgentOptions(undefined);
+        setAgentOptionsKey((current) => current + 1);
     }, []);
 
     const taskId = "taskId" in sessionOwner ? sessionOwner.taskId : undefined;
@@ -132,7 +172,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
             }
 
             if (useAgent) {
-                // Agent mode: create a new claude session with a prompt
+                // Agent mode: create a new session with a prompt
                 const parts: string[] = [
                     includeUnstaged
                         ? "Create commits for all changes, staged and unstaged."
@@ -149,11 +189,14 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                 }
                 const prompt = parts.join(" ");
 
-                try {
-                    await createSession(sessionOwner, "claude", "Commit", prompt);
-                } catch {
-                    await createSession(sessionOwner, "codex", "Commit", prompt);
-                }
+                await createSession(
+                    sessionOwner,
+                    agentType,
+                    "Commit",
+                    prompt,
+                    undefined,
+                    agentOptions,
+                );
                 handleOpenChange(false);
                 return;
             }
@@ -193,6 +236,8 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     }, [
         message,
         useAgent,
+        agentType,
+        agentOptions,
         push,
         pushOnly,
         prOnly,
@@ -283,6 +328,65 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                         Use agent
                                     </Label>
                                 </div>
+
+                                {useAgent && (
+                                    <div className="ml-6 flex flex-col gap-2">
+                                        <div className="flex flex-col gap-1.5">
+                                            <Label htmlFor="commit-agent">Agent</Label>
+                                            <Select
+                                                value={agentType}
+                                                onValueChange={handleAgentTypeChange}>
+                                                <SelectTrigger
+                                                    id="commit-agent"
+                                                    size="sm"
+                                                    className="w-full">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {ALL_AGENT_TYPES.map((type) => {
+                                                        const available = isAgentAvailable(
+                                                            agents,
+                                                            type,
+                                                        );
+                                                        return (
+                                                            <SelectItem
+                                                                key={type}
+                                                                value={type}
+                                                                disabled={!available}>
+                                                                {AGENT_DISPLAY_NAMES[type]}
+                                                                {!available
+                                                                    ? " (not installed)"
+                                                                    : ""}
+                                                            </SelectItem>
+                                                        );
+                                                    })}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <Collapsible
+                                            open={agentOptionsOpen}
+                                            onOpenChange={setAgentOptionsOpen}>
+                                            <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1 text-sm transition-colors">
+                                                <ChevronRight
+                                                    className={`h-4 w-4 transition-transform ${agentOptionsOpen ? "rotate-90" : ""}`}
+                                                />
+                                                Agent Options
+                                            </CollapsibleTrigger>
+                                            <CollapsibleContent>
+                                                <div className="border-border mt-1.5 rounded-md border p-3">
+                                                    <AgentOptionsPanel
+                                                        key={`${agentType}-${agentOptionsKey}`}
+                                                        agentType={agentType}
+                                                        value={agentOptions}
+                                                        onChange={setAgentOptions}
+                                                        onReset={handleResetAgentOptions}
+                                                    />
+                                                </div>
+                                            </CollapsibleContent>
+                                        </Collapsible>
+                                    </div>
+                                )}
 
                                 <div className="flex items-center gap-2">
                                     <Switch
