@@ -265,12 +265,14 @@ function TerminalPane({
 
     useEffect(() => {
         if (!visible || !termRef.current || !fitRef.current) return;
-        // Force viewport recalculation when becoming visible.
+        // Force viewport recalculation when becoming visible or when a resumed
+        // session becomes live. The forced resize gives the replacement PTY the
+        // current dimensions even if xterm's own size did not change.
         // Don't force scrollToBottom — preserve the user's scroll position.
         // Skip focus during navigation mode — usePanelActivation handles that.
         const shouldFocus = focusedPanel === "workspace" && !useUIStore.getState().navigationMode;
         scheduleFit(true, shouldFocus, false);
-    }, [focusedPanel, visible, sessionId, scheduleFit]);
+    }, [focusedPanel, interrupted, visible, sessionId, scheduleFit]);
 
     // Dedicated focus effect — independent of fit/resize logic.
     // Uses rAF for fast path + bounded retry loop as fallback for cases
@@ -359,7 +361,8 @@ function TerminalPane({
     const handleResume = useCallback(async () => {
         setResumeError(null);
         try {
-            await resumeSession(sessionId);
+            const term = termRef.current;
+            await resumeSession(sessionId, term?.cols, term?.rows);
         } catch (error) {
             setResumeError(error instanceof Error ? error.message : "Unable to resume session");
         }
@@ -514,6 +517,7 @@ function TerminalPane({
                 className={cn(
                     "h-full overflow-hidden",
                     dragOver && "ring-primary/50 ring-2 ring-inset",
+                    interrupted && "pointer-events-none",
                 )}
                 style={{ overflowAnchor: "none" }}
                 onClick={handleContainerClick}
@@ -527,7 +531,7 @@ function TerminalPane({
                 </div>
             )}
             {interrupted && (
-                <div className="absolute inset-x-6 bottom-6 flex justify-center">
+                <div className="absolute inset-x-6 bottom-6 z-20 flex justify-center">
                     <div className="bg-background/95 border-border max-w-lg rounded-lg border p-4 shadow-lg backdrop-blur">
                         <div className="text-sm font-medium">
                             {sessionState === "resuming"

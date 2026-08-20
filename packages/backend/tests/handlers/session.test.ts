@@ -32,6 +32,8 @@ class FakePtyManager {
         args?: string[];
         initialOutput?: string;
         startSequence?: number;
+        cols?: number;
+        rows?: number;
     }> = [];
 
     spawn(options: {
@@ -41,6 +43,8 @@ class FakePtyManager {
         args?: string[];
         initialOutput?: string;
         startSequence?: number;
+        cols?: number;
+        rows?: number;
         onData: (data: string, sequence: number) => void;
         onExit: (exitCode: number) => void;
     }): string {
@@ -54,6 +58,8 @@ class FakePtyManager {
             args: options.args,
             initialOutput: options.initialOutput,
             startSequence: options.startSequence,
+            cols: options.cols,
+            rows: options.rows,
         });
         return id;
     }
@@ -424,6 +430,8 @@ describe("session handlers", () => {
 
         const response = (await router.handle(MSG.SESSION_RESUME, {
             sessionId: "taskflow-session",
+            cols: 142,
+            rows: 38,
         })) as { sessionId: string };
 
         expect(response.sessionId).toBe("taskflow-session");
@@ -431,6 +439,8 @@ describe("session handlers", () => {
         expect(spawn.args?.slice(0, 2)).toEqual(["resume", "native-session"]);
         expect(spawn.initialOutput).toBe("retained output\n");
         expect(spawn.startSequence).toBe(7);
+        expect(spawn.cols).toBe(142);
+        expect(spawn.rows).toBe(38);
         const updated = await store.getTask(task.id);
         expect(updated?.sessions[0].state).toBe("live");
         expect(updated?.sessions[0].nativeSessionId).toBe("native-session");

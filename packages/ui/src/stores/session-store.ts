@@ -52,7 +52,7 @@ interface SessionStore {
         targetWorkspaceKey?: string,
     ): Promise<string>;
     closeSession(sessionId: string): Promise<void>;
-    resumeSession(sessionId: string): Promise<void>;
+    resumeSession(sessionId: string, cols?: number, rows?: number): Promise<void>;
     sendInput(sessionId: string, data: string): void;
     resizeTerminal(sessionId: string, cols: number, rows: number): void;
     addTab(workspaceKey: string, tab: Tab): void;
@@ -153,7 +153,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             useProjectStore.getState().fetchProjects(),
         ]);
     },
-    async resumeSession(sessionId) {
+    async resumeSession(sessionId, cols, rows) {
         set((state) => ({
             tabsByWorkspace: Object.fromEntries(
                 Object.entries(state.tabsByWorkspace).map(([key, tabs]) => [
@@ -167,7 +167,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             ),
         }));
         try {
-            await sendRequest<SessionResumeResponse>(MSG.SESSION_RESUME, { sessionId });
+            await sendRequest<SessionResumeResponse>(MSG.SESSION_RESUME, {
+                sessionId,
+                cols,
+                rows,
+            });
         } finally {
             await Promise.all([
                 useTaskStore.getState().fetchTasks(),

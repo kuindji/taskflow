@@ -169,6 +169,8 @@ export interface SessionCreateResponse {
 
 export interface SessionResumePayload {
     sessionId: string;
+    cols?: number;
+    rows?: number;
 }
 
 export interface SessionResumeResponse {

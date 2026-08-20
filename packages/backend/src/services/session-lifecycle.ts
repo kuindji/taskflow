@@ -699,7 +699,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         return master ? { session: master, owner: { master: true } } : null;
     }
 
-    async function resumeSession(sessionId: string): Promise<string> {
+    async function resumeSession(sessionId: string, cols?: number, rows?: number): Promise<string> {
         const found = await findSession(sessionId);
         if (!found) throw new Error(`Session not found: ${sessionId}`);
         const { session, owner } = found;
@@ -726,6 +726,8 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 cwd: session.cwd,
                 agentOptions: session.agentOptions,
                 flow: session.flow,
+                cols,
+                rows,
                 resumeSession: session,
                 onSessionExited: (_id, exitCode) => {
                     recoveredSessionExitHandler?.(session, owner, exitCode);

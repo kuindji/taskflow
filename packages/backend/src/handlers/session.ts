@@ -66,8 +66,8 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
     });
 
     router.register(MSG.SESSION_RESUME, async (payload) => {
-        const { sessionId } = payload as SessionResumePayload;
-        return { sessionId: await sessionLifecycle.resumeSession(sessionId) };
+        const { sessionId, cols, rows } = payload as SessionResumePayload;
+        return { sessionId: await sessionLifecycle.resumeSession(sessionId, cols, rows) };
     });
 
     router.register(MSG.SESSION_CLOSE, async (payload) => {
