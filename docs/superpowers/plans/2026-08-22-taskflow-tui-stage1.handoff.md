@@ -14,7 +14,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
-| 7 | Kitty key decoder and protocol negotiation | implemented | `11af111` | commit `846de64`; review round 1 due |
+| 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | pending | — | |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
@@ -1044,10 +1044,46 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 **Task 6 is clear.**
 
-Next step: Review round 1 for Task 7. Run one gpt-5.5 review via the
-`codex-review` skill over `11af111..HEAD` (the whole Task 7 diff, including the
-`csi.ts` extraction and the `decode-legacy.ts` move). Verify every finding
-independently before acting on it, fix the substantiated ones, revalidate with
-`bun run lint && bun run typecheck && bun test`, and commit. Zero substantiated
-findings means Task 7 is clear and the next step is implementing Task 8
-(per-child key encoding).
+- **Task 7, round 1** (gpt-5.5 via codex-review, Mode A over `--base 11af111`,
+  covering the whole task diff: `csi.ts` extraction, `decode-kitty.ts`,
+  `negotiate.ts` and the `decode-legacy.ts` move): **zero findings.**
+
+  Codex reported no material defects in the kitty decoder, the CSI scanner, the
+  negotiation helper, or the legacy-decoder paths the extraction touched. It
+  could not run the test suite itself — the read-only sandbox blocks the test
+  preload from creating its temp home — so its confidence rests on diff
+  inspection; the suite was run here instead and passes (below).
+
+  Independent read of `decode-kitty.ts`, `negotiate.ts` and `csi.ts` this round
+  found nothing substantiated either. Cases walked through by hand, all correct:
+  a split `CSI … u` across two reads; a non-kitty CSI that is still in flight at
+  the end of a read; a stranded lone ESC before a kitty sequence; `CSI ? 1 u`
+  (the negotiation reply) arriving as input, dropped by both decoders; an
+  out-of-range codepoint and an empty parameter list, both dropped rather than
+  thrown; a shifted-key alternate sub-parameter, ignored in favour of the base
+  codepoint. `chunk` in the mixed-input branch is always non-empty, so the loop
+  cannot spin.
+
+  Two things were considered and deliberately left alone:
+
+  - `negotiateKitty` waits the full 150 ms on a terminal that does not speak the
+    protocol, because silence is the only negative answer it looks for. Sending
+    a Primary DA (`CSI c`) chaser after the query would turn that into a
+    definitive fast negative. It is not what the plan specifies, and the cost is
+    a one-off 150 ms at startup. Revisit when Task 15 wires the real terminal.
+  - A `decodeKitty` carry of three bytes or more is still dropped by
+    `flushCarry`, the same known behaviour recorded for Task 6 round 4. Not a
+    regression introduced here.
+
+- Validation at `846de64` (no code changed this round): `bun run lint` exit 0,
+  `bun run typecheck` exit 0 across all five packages, `bun test` 934 pass /
+  8 fail — the 8 are the recorded pre-existing `MarkdownPaneImpl`
+  suite-ordering failures, unchanged; the pass count rose from 915 by the
+  Task 7 input tests.
+
+**Task 7 is clear.**
+
+Next step: Implement Task 8 (per-child key encoding). Record HEAD as the base
+commit first, follow the plan's Task 8 steps, validate with
+`bun run lint && bun run typecheck && bun test`, and commit. Then review
+round 1 for Task 8.
