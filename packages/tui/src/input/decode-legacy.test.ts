@@ -162,6 +162,24 @@ describe("decodeLegacy", () => {
         ]);
     });
 
+    test("decodes the rxvt home and end tilde sequences", () => {
+        expect(decodeLegacy("\x1b[7~", "").events[0]).toEqual({
+            name: "home",
+            mods: noMods(),
+            kind: "press",
+        });
+        expect(decodeLegacy("\x1b[8~", "").events[0]).toEqual({
+            name: "end",
+            mods: noMods(),
+            kind: "press",
+        });
+        expect(decodeLegacy("\x1b[8;5~", "").events[0]).toEqual({
+            name: "end",
+            mods: { ...noMods(), ctrl: true },
+            kind: "press",
+        });
+    });
+
     test("treats an out-of-range modifier parameter as no modifiers", () => {
         expect(decodeLegacy("\x1b[1;0C", "").events[0]).toEqual({
             name: "right",

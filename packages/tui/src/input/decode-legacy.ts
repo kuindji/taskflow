@@ -18,6 +18,10 @@ const TILDE_TO_NAME: Record<number, KeyName | undefined> = {
     4: "end",
     5: "pageup",
     6: "pagedown",
+    // rxvt and the Linux console report Home and End as 7 and 8 rather than
+    // the 1 and 4 xterm uses, so both encodings have to be recognized.
+    7: "home",
+    8: "end",
 };
 
 interface DecodeResult {
