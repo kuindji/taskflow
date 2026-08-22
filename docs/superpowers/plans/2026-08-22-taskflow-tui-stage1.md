@@ -150,6 +150,7 @@ interface NetLike {
 **Files:**
 - Create: `packages/tui/package.json`
 - Create: `packages/tui/tsconfig.json`
+- Modify: `eslint.config.js`
 - Create: `packages/tui/src/net/client.ts`
 - Test: `packages/tui/src/net/client.test.ts`
 
@@ -200,7 +201,34 @@ The existing UI client (`packages/ui/src/hooks/useWebSocket.ts`) is a module-lev
 
 Then run `bun install` from the repo root to link the workspace.
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 2: Give the new package its ESLint globals**
+
+`packages/tui/src/**` matches no globals block today, so `bun run lint` would
+report `Bun`, `process`, `WebSocket` and `MessageEvent` as undefined. Extend the
+existing backend/shared block in `eslint.config.js` — the one whose `files`
+array ends with `"packages/shared/tests/**/*.ts"` — by adding the TUI path and
+the two WebSocket globals:
+
+```js
+        files: [
+            // ...existing entries unchanged...
+            "packages/shared/tests/**/*.ts",
+            "packages/tui/src/**/*.ts",
+        ],
+        languageOptions: {
+            globals: {
+                ...globals.node,
+                Bun: "readonly",
+                WebSocket: "readonly",
+                MessageEvent: "readonly",
+            },
+        },
+```
+
+Verify with `bun run lint` once the first source file exists; it must pass with
+no `no-undef` errors.
+
+- [ ] **Step 3: Write the failing test**
 
 `packages/tui/src/net/client.test.ts`:
 
@@ -209,7 +237,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import type { Server } from "bun";
 import { WsClient } from "./client";
 
-let server: Server | null = null;
+let server: Server<unknown> | null = null;
 
 afterEach(() => {
     server?.stop(true);
@@ -220,7 +248,7 @@ function startEchoServer(): number {
     server = Bun.serve({
         port: 0,
         fetch(req, s) {
-            if (s.upgrade(req)) return undefined;
+            if (s.upgrade(req, { data: {} })) return undefined;
             return new Response("no");
         },
         websocket: {
@@ -252,7 +280,7 @@ function startEchoServer(): number {
             },
         },
     });
-    return server.port;
+    return server.port ?? 0;
 }
 
 describe("WsClient", () => {
@@ -288,12 +316,12 @@ describe("WsClient", () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [ ] **Step 4: Run test to verify it fails**
 
 Run: `bun test packages/tui/src/net/client.test.ts`
 Expected: FAIL — cannot resolve module `./client`.
 
-- [ ] **Step 4: Write the implementation**
+- [ ] **Step 5: Write the implementation**
 
 `packages/tui/src/net/client.ts`:
 
@@ -397,15 +425,15 @@ export { WsClient };
 export type { NetLike };
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 6: Run tests and lint to verify they pass**
 
-Run: `bun test packages/tui/src/net/client.test.ts`
-Expected: PASS, 3 tests.
+Run: `bun test packages/tui/src/net/client.test.ts && bun run lint`
+Expected: PASS, 3 tests, and lint clean.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add packages/tui bun.lock
+git add packages/tui bun.lock eslint.config.js
 git commit -m "feat(tui): add package scaffold and WebSocket client"
 ```
 
@@ -451,11 +479,22 @@ describe("startBackend", () => {
     });
 
     test("passes TASKFLOW_DEV_BRANCH through to the child", async () => {
+        // The fake backend encodes the branch it received into the port digits,
+        // so a backend that never received it cannot make this assertion pass.
         const binary = await writeFakeBackend(
-            'printf "%s" "$TASKFLOW_DEV_BRANCH" > "$TASKFLOW_PORT_FILE.branch"; echo 4322 > "$TASKFLOW_PORT_FILE"; sleep 30',
+            'if [ "$TASKFLOW_DEV_BRANCH" = "my-branch" ]; then echo 4322 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; sleep 30',
         );
         const handle = await startBackend({ binary, args: [], devBranch: "my-branch" });
         expect(handle.port).toBe(4322);
+        handle.stop();
+    });
+
+    test("does not set TASKFLOW_DEV_BRANCH when devBranch is null", async () => {
+        const binary = await writeFakeBackend(
+            'if [ -z "$TASKFLOW_DEV_BRANCH" ]; then echo 4323 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; sleep 30',
+        );
+        const handle = await startBackend({ binary, args: [], devBranch: null });
+        expect(handle.port).toBe(4323);
         handle.stop();
     });
 
@@ -522,8 +561,13 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
     });
 
     let exitCode: number | null = null;
+    let spawnError: Error | null = null;
     child.once("exit", (code) => {
         exitCode = code ?? 0;
+    });
+    // Without this listener Node throws on ENOENT instead of rejecting.
+    child.once("error", (err: Error) => {
+        spawnError = err;
     });
 
     const stop = (): void => {
@@ -535,6 +579,10 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
     for (;;) {
         const port = await readPort(portFile);
         if (port !== null) return { port, stop };
+        if (spawnError !== null) {
+            await rm(portFile, { force: true });
+            throw new Error(`Backend failed to start: ${(spawnError as Error).message}`);
+        }
         if (exitCode !== null) {
             throw new Error(`Backend exited before startup (code ${String(exitCode)})`);
         }
@@ -553,7 +601,7 @@ export type { BackendHandle };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/backend/manager.test.ts`
-Expected: PASS, 3 tests.
+Expected: PASS, 4 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -897,6 +945,17 @@ describe("Screen", () => {
         expect(sink.output).toContain("\x1b[?25h");
     });
 
+    test("does not share cell objects between frames", () => {
+        const sink = collectingSink();
+        const screen = new Screen(sink, 4, 1);
+        screen.setCursor(null);
+        screen.flush();
+        sink.output = "";
+        screen.back.get(0, 0).ch = "X"; // mutated in place, not via set()
+        screen.flush();
+        expect(sink.output).toContain("X");
+    });
+
     test("repaints everything after a resize", () => {
         const sink = collectingSink();
         const screen = new Screen(sink, 10, 2);
@@ -1012,7 +1071,9 @@ class Screen {
     private cloneFront(): ScreenBuffer {
         const next = new ScreenBuffer(this.front.cols, this.front.rows);
         for (let y = 0; y < this.front.rows; y++) {
-            for (let x = 0; x < this.front.cols; x++) next.set(x, y, this.front.get(x, y));
+            // Copy each cell: sharing references would make an in-place edit
+            // to the back buffer invisible to the next frame's diff.
+            for (let x = 0; x < this.front.cols; x++) next.set(x, y, { ...this.front.get(x, y) });
         }
         return next;
     }
@@ -1025,7 +1086,7 @@ export type { Sink };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/render/screen.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1485,11 +1546,13 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
     return { events, carry: "" };
 }
 
+export { decodeLegacy };
+export type { DecodeResult };
+
 /**
  * Convert a carry that has gone stale into events. `decodeLegacy` cannot know
- * whether a trailing ESC begins a longer sequence or is a real Escape press, so
+ * whether a trailing ESC starts a longer sequence or is a real Escape press, so
  * it holds it; the caller calls this after a short idle timeout to release it.
- * Without this, pressing Escape alone would never register.
  */
 function flushCarry(carry: string): KeyEvent[] {
     if (carry === "") return [];
@@ -1498,8 +1561,7 @@ function flushCarry(carry: string): KeyEvent[] {
     return [];
 }
 
-export { decodeLegacy, flushCarry };
-export type { DecodeResult };
+export { flushCarry };
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
@@ -1575,6 +1637,13 @@ describe("decodeKitty", () => {
         expect(decodeKitty("q", "").events[0]?.char).toBe("q");
     });
 
+    test("keeps both keys when a chunk mixes legacy and kitty input", () => {
+        // A single read can contain both; delegating the whole tail to the
+        // legacy decoder silently swallowed the CSI-u sequence.
+        const { events } = decodeKitty("q\x1b[13;2u", "");
+        expect(events.map((e) => e.name)).toEqual(["char", "enter"]);
+    });
+
     test("carries an incomplete u sequence", () => {
         const first = decodeKitty("\x1b[27;", "");
         expect(first.events).toEqual([]);
@@ -1641,6 +1710,14 @@ const CODEPOINT_TO_NAME: Record<number, KeyName> = {
 const KITTY_SEQUENCE = /^\x1b\[([0-9;:]*)u/;
 const INCOMPLETE_CSI = /^\x1b(\[[0-9;:]*)?$/;
 
+/** Index of the next kitty `u` sequence at or after offset 1, or -1. */
+function findNextKitty(buf: string): number {
+    for (let i = 1; i < buf.length; i++) {
+        if (buf[i] === "\x1b" && KITTY_SEQUENCE.test(buf.slice(i))) return i;
+    }
+    return -1;
+}
+
 function eventKind(value: number | undefined): KeyEvent["kind"] {
     if (value === 2) return "repeat";
     if (value === 3) return "release";
@@ -1680,10 +1757,14 @@ function decodeKitty(input: string, carry: string): DecodeResult {
 
         if (INCOMPLETE_CSI.test(rest)) return { events, carry: rest };
 
-        // Not a kitty sequence — hand the remainder to the legacy decoder.
-        const legacy = decodeLegacy(rest, "");
+        // Not a kitty sequence here. Decode legacy input only up to the next
+        // kitty sequence, so a chunk mixing both kinds keeps all of its keys.
+        const nextKitty = findNextKitty(rest);
+        const chunk = nextKitty === -1 ? rest : rest.slice(0, nextKitty);
+        const legacy = decodeLegacy(chunk, "");
         events.push(...legacy.events);
-        return { events, carry: legacy.carry };
+        if (nextKitty === -1) return { events, carry: legacy.carry };
+        rest = rest.slice(nextKitty);
     }
 
     return { events, carry: "" };
@@ -1721,7 +1802,7 @@ export { negotiateKitty };
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/input/`
-Expected: PASS, 19 tests across the three input test files.
+Expected: PASS, 22 tests across the three input test files.
 
 - [ ] **Step 6: Commit**
 
@@ -1806,6 +1887,24 @@ describe("encodeForChild", () => {
         expect(encodeForChild(ev, modes)).toBe("\x1b[13;2u");
     });
 
+    test("keeps a plain key literal under flag 1 rather than forcing CSI u", () => {
+        // Flag 1 is "disambiguate escape codes": the child still expects legacy
+        // bytes for ordinary keys. Sending ESC[97u here would break typing.
+        const modes = { ...legacy, kittyFlags: 1 };
+        expect(encodeForChild(key({ name: "char", char: "a" }), modes)).toBe("a");
+    });
+
+    test("uses CSI u under flag 8, which asks for all keys as escape codes", () => {
+        const modes = { ...legacy, kittyFlags: 8 };
+        expect(encodeForChild(key({ name: "char", char: "a" }), modes)).toBe("\x1b[97u");
+    });
+
+    test("drops a release when the child did not request event types", () => {
+        const modes = { ...legacy, kittyFlags: 1 };
+        const ev = key({ name: "char", char: "a", kind: "release" });
+        expect(encodeForChild(ev, modes)).toBe("");
+    });
+
     test("drops release events for a child that did not ask for them", () => {
         expect(encodeForChild(key({ name: "char", char: "a", kind: "release" }), legacy)).toBe("");
     });
@@ -1887,13 +1986,35 @@ function hasModifier(mods: KeyMods): boolean {
     return mods.ctrl || mods.alt || mods.shift || mods.super;
 }
 
-function encodeKitty(ev: KeyEvent, flags: number): string {
+const KITTY_REPORT_EVENT_TYPES = 2;
+const KITTY_REPORT_ALL_KEYS = 8;
+
+/**
+ * Keys legacy encoding cannot express unambiguously. Under flag 1
+ * (disambiguate) the child expects legacy bytes for everything else, so
+ * sending CSI u for a plain letter would break ordinary typing.
+ */
+function needsKittyEncoding(ev: KeyEvent): boolean {
+    if (ev.mods.super) return true;
+    if (ev.name === "char") return false;
+    const named = ev.name === "enter" || ev.name === "tab" || ev.name === "escape";
+    return named && (ev.mods.shift || ev.mods.ctrl);
+}
+
+function encodeKitty(ev: KeyEvent, modes: ChildModes, flags: number): string {
+    if (ev.kind !== "press" && (flags & KITTY_REPORT_EVENT_TYPES) === 0) return "";
+
+    const forceAll = (flags & KITTY_REPORT_ALL_KEYS) !== 0;
+    if (!forceAll && !needsKittyEncoding(ev)) return encodeLegacy(ev, modes);
+
     const codepoint =
         ev.name === "char" ? (ev.char?.codePointAt(0) ?? 0) : (KITTY_CODEPOINTS[ev.name] ?? 0);
-    if (codepoint === 0) return encodeLegacy(ev, { applicationCursorKeys: false });
+    if (codepoint === 0) return encodeLegacy(ev, modes);
+
     const param = modParam(ev.mods);
-    const reportsEvents = (flags & 2) !== 0;
-    const kindSuffix = reportsEvents && ev.kind !== "press" ? `:${ev.kind === "repeat" ? "2" : "3"}` : "";
+    const reportsEvents = (flags & KITTY_REPORT_EVENT_TYPES) !== 0;
+    const kindSuffix =
+        reportsEvents && ev.kind !== "press" ? `:${ev.kind === "repeat" ? "2" : "3"}` : "";
     if (param === 1 && kindSuffix === "") return `\x1b[${String(codepoint)}u`;
     return `\x1b[${String(codepoint)};${String(param)}${kindSuffix}u`;
 }
@@ -1931,7 +2052,7 @@ function encodeLegacy(ev: KeyEvent, modes: { applicationCursorKeys: boolean }): 
 
 function encodeForChild(ev: KeyEvent, modes: ChildModes): string {
     if (modes.kittyFlags === null && ev.kind !== "press") return "";
-    if (modes.kittyFlags !== null) return encodeKitty(ev, modes.kittyFlags);
+    if (modes.kittyFlags !== null) return encodeKitty(ev, modes, modes.kittyFlags);
     return encodeLegacy(ev, modes);
 }
 
@@ -1946,7 +2067,7 @@ export type { ChildModes };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/input/encode.test.ts`
-Expected: PASS, 11 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2017,6 +2138,7 @@ function readRow(term: SessionTerminal, y: number): string {
     return term.terminal.buffer.active.getLine(y)?.translateToString(true) ?? "";
 }
 
+/** Modes are set by the child's output stream, which is still queued. */
 async function settle(): Promise<void> {
     await Bun.sleep(30);
 }
@@ -2028,7 +2150,6 @@ describe("SessionTerminal", () => {
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
-        await settle();
         expect(readRow(term, 0)).toBe("HELLO");
         term.dispose();
     });
@@ -2040,7 +2161,6 @@ describe("SessionTerminal", () => {
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
-        await settle();
         expect(readRow(term, 0)).toBe("FROMLOG");
         term.dispose();
     });
@@ -2067,7 +2187,6 @@ describe("SessionTerminal", () => {
         net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "BBB", sequence: 6 });
         release();
         await attached;
-        await settle();
         expect(readRow(term, 0)).toBe("AAABBB");
         term.dispose();
     });
@@ -2131,6 +2250,32 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
+    test("writes a process-exited marker when the session ends", async () => {
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
+        await term.attach();
+        net.emit(MSG.SESSION_EXITED, { sessionId: "s1", exitCode: 3 });
+        await settle();
+        const text = [0, 1, 2].map((y) => readRow(term, y)).join("");
+        expect(text).toContain("[Process exited with code 3]");
+        term.dispose();
+    });
+
+    test("ignores an exit belonging to another session", async () => {
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
+        await term.attach();
+        net.emit(MSG.SESSION_EXITED, { sessionId: "other", exitCode: 1 });
+        await settle();
+        const text = [0, 1, 2].map((y) => readRow(term, y)).join("");
+        expect(text).not.toContain("Process exited");
+        term.dispose();
+    });
+
     test("sends a resize request and resizes the local grid", async () => {
         const net = fakeNet({
             [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
@@ -2162,6 +2307,7 @@ import type {
     SessionSnapshotResponse,
     SessionHistoryResponse,
     TerminalOutputEvent,
+    SessionExitedEvent,
 } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 import type { ChildModes } from "../input/encode";
@@ -2193,6 +2339,8 @@ class SessionTerminal {
     private kittyFlags: number | null = null;
     private hiddenCursor = false;
     private readonly disposers: Array<() => void> = [];
+    /** Serializes writes so `attach()` can await the parser actually finishing. */
+    private writeQueue: Promise<void> = Promise.resolve();
 
     constructor(private readonly deps: SessionTerminalDeps) {
         this.terminal = new Terminal({
@@ -2208,8 +2356,18 @@ class SessionTerminal {
             deps.net.on(MSG.TERMINAL_OUTPUT, (payload) => {
                 const event = payload as TerminalOutputEvent;
                 if (event.sessionId !== deps.sessionId) return;
-                if (this.historyLoaded) this.terminal.write(event.data);
+                if (this.historyLoaded) void this.enqueue(event.data);
                 else this.pending.push({ data: event.data, sequence: event.sequence });
+            }),
+        );
+
+        this.disposers.push(
+            deps.net.on(MSG.SESSION_EXITED, (payload) => {
+                const event = payload as SessionExitedEvent;
+                if (event.sessionId !== deps.sessionId) return;
+                void this.enqueue(
+                    `\r\n\x1b[90m[Process exited with code ${String(event.exitCode)}]\x1b[0m\r\n`,
+                );
             }),
         );
     }
@@ -2245,6 +2403,18 @@ class SessionTerminal {
         track(parser.registerCsiHandler({ prefix: "?", final: "l" }, setCursorVisible(false)));
     }
 
+    /**
+     * `Terminal.write` is asynchronous and reports completion by callback.
+     * Queueing through it keeps writes ordered and lets `attach()` resolve only
+     * once the parser has consumed everything.
+     */
+    private enqueue(data: string): Promise<void> {
+        this.writeQueue = this.writeQueue.then(
+            () => new Promise<void>((resolve) => this.terminal.write(data, resolve)),
+        );
+        return this.writeQueue;
+    }
+
     get modes(): ChildModes {
         return {
             applicationCursorKeys: this.terminal.modes.applicationCursorKeysMode,
@@ -2264,12 +2434,12 @@ class SessionTerminal {
                 { sessionId: this.deps.sessionId },
             );
             if (snapshot.snapshot !== null) {
-                this.terminal.write(snapshot.snapshot);
+                void this.enqueue(snapshot.snapshot);
                 if (snapshot.cursorHidden) {
-                    this.terminal.write("\x1b[?25l");
+                    void this.enqueue("\x1b[?25l");
                     this.hiddenCursor = true;
                 }
-                this.finishLoad(snapshot.lastSequence);
+                await this.finishLoad(snapshot.lastSequence);
                 return;
             }
         } catch {
@@ -2281,19 +2451,20 @@ class SessionTerminal {
                 MSG.SESSION_HISTORY,
                 { ...this.deps.owner, sessionId: this.deps.sessionId },
             );
-            if (history.data) this.terminal.write(history.data);
-            this.finishLoad(history.lastSequence);
+            if (history.data) void this.enqueue(history.data);
+            await this.finishLoad(history.lastSequence);
         } catch {
-            this.finishLoad(-1);
+            await this.finishLoad(-1);
         }
     }
 
-    private finishLoad(lastSequence: number): void {
+    private async finishLoad(lastSequence: number): Promise<void> {
         this.historyLoaded = true;
         for (const chunk of this.pending) {
-            if (chunk.sequence > lastSequence) this.terminal.write(chunk.data);
+            if (chunk.sequence > lastSequence) void this.enqueue(chunk.data);
         }
         this.pending = [];
+        await this.writeQueue;
     }
 
     resize(cols: number, rows: number): void {
@@ -2317,9 +2488,11 @@ export type { SessionOwner };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/term/session-terminal.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 10 tests.
 
-If the kitty-flags test fails because `registerCsiHandler` does not match a `>` prefix, log the raw params in the handler and adjust the `IFunctionIdentifier` — the prefix may need to be supplied as `intermediates` for this sequence. Do not work around it by parsing the raw stream separately.
+The `registerCsiHandler` approach here is verified, not assumed: with `prefix` set to `>`, `<`, and `?`, all four handlers fire and `params` arrives as `[1]`, `[0]`, `[25]` and `[1]` respectively, while `terminal.modes` tracks the DEC modes in parallel.
+
+`attach()` resolves only once the parser has consumed every queued write, so tests read the buffer immediately after awaiting it. Do not reintroduce a sleep to paper over an ordering bug.
 
 - [ ] **Step 5: Commit**
 
@@ -2441,6 +2614,15 @@ describe("blitTerminal", () => {
         term.dispose();
     });
 
+    test("returns null when the cursor sits past the last column", async () => {
+        // IBuffer.cursorX may equal cols ("after last cell of the row"), which
+        // is outside the rect and would bleed into the neighbouring pane.
+        const term = await terminalWith("abcde", 5, 2);
+        const buf = new ScreenBuffer(10, 4);
+        expect(blitTerminal(term, buf, 0, 0, 5, 2)).toBeNull();
+        term.dispose();
+    });
+
     test("returns null for a hidden cursor", async () => {
         const term = await terminalWith("\x1b[?25labc");
         const buf = new ScreenBuffer(20, 5);
@@ -2541,6 +2723,9 @@ function blitTerminal(
     }
 
     if (source.cursorHidden) return null;
+    // cursorX may equal cols ("after last cell of the row"), which is outside
+    // the rect; parking the real cursor there would bleed into the next pane.
+    if (active.cursorX >= cols || active.cursorY >= rows) return null;
     return { x: x0 + active.cursorX, y: y0 + active.cursorY };
 }
 
@@ -2550,7 +2735,7 @@ export { blitTerminal };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/term/blit.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2849,12 +3034,18 @@ describe("route with the kitty protocol available", () => {
 
     test("every other key reaches the child when the session has focus", () => {
         const ev = key({ name: "char", char: "j" });
-        expect(route("session", ev, true, false).action).toEqual({ kind: "to-child", ev });
+        expect(route("session", ev, true, false).action).toEqual({
+            kind: "to-child",
+            events: [ev],
+        });
     });
 
     test("a plain escape reaches the child, not the switcher", () => {
         const ev = key({ name: "escape" });
-        expect(route("session", ev, true, false).action).toEqual({ kind: "to-child", ev });
+        expect(route("session", ev, true, false).action).toEqual({
+            kind: "to-child",
+            events: [ev],
+        });
     });
 
     test("sidebar keys map to commands", () => {
@@ -2905,10 +3096,13 @@ describe("route in legacy mode", () => {
         expect(result.pendingEscape).toBe(false);
     });
 
-    test("a non-escape key after a held escape sends both to the child", () => {
+    test("a non-escape key after a held escape sends both to the child, in order", () => {
         const ev = key({ char: "a" });
         const result = route("session", ev, false, true);
-        expect(result.action).toEqual({ kind: "to-child", ev });
+        expect(result.action).toEqual({
+            kind: "to-child",
+            events: [key({ name: "escape" }), ev],
+        });
         expect(result.pendingEscape).toBe(false);
     });
 });
@@ -2924,7 +3118,7 @@ Expected: FAIL — cannot resolve `./routing`.
 `packages/tui/src/ui/routing.ts`:
 
 ```ts
-import type { KeyEvent } from "../input/keys";
+import { noMods, type KeyEvent } from "../input/keys";
 
 type Focus = "sidebar" | "session";
 
@@ -2940,7 +3134,7 @@ type Action =
     | { kind: "close-pane" }
     | { kind: "quit" }
     | { kind: "help" }
-    | { kind: "to-child"; ev: KeyEvent };
+    | { kind: "to-child"; events: KeyEvent[] };
 
 interface RouteResult {
     action: Action;
@@ -2982,7 +3176,12 @@ function route(
     }
 
     if (focus === "session") {
-        return { action: { kind: "to-child", ev }, pendingEscape: false };
+        // A held Escape that turned out not to be a double-Esc still belongs to
+        // the child, and must arrive before the key that followed it.
+        const events = pendingEscape
+            ? [{ name: "escape" as const, mods: noMods(), kind: "press" as const }, ev]
+            : [ev];
+        return { action: { kind: "to-child", events }, pendingEscape: false };
     }
 
     if (ev.name === "enter") return { action: { kind: "open" }, pendingEscape: false };
@@ -3650,7 +3849,8 @@ class App {
             case "to-child": {
                 const session = this.sessions[this.activeSession];
                 if (!session) return;
-                const data = encodeForChild(action.ev, session.term.modes);
+                let data = "";
+                for (const ev of action.events) data += encodeForChild(ev, session.term.modes);
                 if (data === "") return;
                 void this.deps.net
                     .request(MSG.SESSION_INPUT, { sessionId: session.id, data })
@@ -3707,7 +3907,7 @@ import { startBackend } from "./backend/manager";
 import { WsClient } from "./net/client";
 import { Store } from "./state/store";
 import { Screen } from "./render/screen";
-import { Tty } from "./term/tty";
+import { Tty, leaveSequence } from "./term/tty";
 import { negotiateKitty } from "./input/negotiate";
 import { decodeKitty } from "./input/decode-kitty";
 import { decodeLegacy, flushCarry } from "./input/decode-legacy";
@@ -3741,13 +3941,18 @@ async function main(): Promise<void> {
     await net.connect();
 
     const sink = { write: (data: string) => void process.stdout.write(data) };
+    // Raw mode is entered before anything that can throw, so the handlers that
+    // undo it are installed first. Without this, a failure in negotiation or
+    // init leaves the user staring at a dead shell.
+    const tty = new Tty(sink, { kitty: false });
+    tty.installExitHandlers();
     process.stdin.setRawMode(true);
     process.stdin.resume();
 
     const kittyAvailable = await negotiateKitty({ write: sink.write, waitForData: readOnce });
-    const tty = new Tty(sink, { kitty: kittyAvailable });
-    tty.installExitHandlers();
-    tty.enter();
+    const ttyReal = new Tty(sink, { kitty: kittyAvailable });
+    ttyReal.installExitHandlers();
+    ttyReal.enter();
 
     const cols = process.stdout.columns || 80;
     const rows = process.stdout.rows || 24;
@@ -3783,7 +3988,7 @@ async function main(): Promise<void> {
     const timer = setInterval(() => {
         if (!app.running) {
             clearInterval(timer);
-            tty.leave();
+            ttyReal.leave();
             net.close();
             backend.stop();
             process.exit(0);
@@ -3792,7 +3997,14 @@ async function main(): Promise<void> {
     }, FRAME_INTERVAL_MS);
 }
 
-void main();
+void main().catch((err: unknown) => {
+    // Restore unconditionally: main() may have thrown before its own handlers
+    // were armed, and a half-configured terminal is unusable.
+    process.stdout.write(leaveSequence({ kitty: true }));
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    console.error(err);
+    process.exit(1);
+});
 ```
 
 - [ ] **Step 6: Manual smoke test**
