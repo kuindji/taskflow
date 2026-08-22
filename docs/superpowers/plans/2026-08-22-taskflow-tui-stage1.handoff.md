@@ -16,7 +16,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
-| 9 | Session terminal — attach, resync and mode tracking | pending | — | |
+| 9 | Session terminal — attach, resync and mode tracking | implemented | `4572b1f` | commit `f693314`; review round 1 due |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
@@ -1223,7 +1223,26 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   changed this round, so HEAD stays at the `207cdd3` validation. **Task 8 is
   clear.**
 
-Next step: Implement Task 9 — session terminal (attach, resync and mode
-tracking). Record HEAD as the base commit first, implement only that task,
-validate with `bun run lint && bun run typecheck && bun test`, commit, then
-review round 1.
+- **Task 9 implemented** in `f693314` (base `4572b1f`). New
+  `packages/tui/src/term/session-terminal.ts` plus its 12-test suite, following
+  the plan's listing. Test written first and observed red (`Cannot find module
+  './session-terminal'`) before the implementation existed.
+
+  Two deviations from the plan's listing, both small and local:
+  - `attach()` now also clears `hiddenCursor` when it calls `terminal.reset()`
+    on a re-attach. `reset()` restores DECTCEM to visible but emits nothing
+    through the parser, so without this the tracked flag would stay stuck on
+    `true` after a reconnect of a session whose child had hidden the cursor,
+    and the renderer would keep the cursor hidden forever.
+  - `finishLoad` takes the pending list before replaying it rather than after,
+    so a chunk arriving synchronously during the replay is not dropped by the
+    subsequent `this.pending = []`.
+
+- Validation at `f693314`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 972 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
+  the pass count rose from 960 by the 12 new tests.
+
+Next step: Task 9 review round 1 — one gpt-5.5 review via the codex-review
+skill over `--base 4572b1f`, verify each finding, fix the substantiated ones,
+validate and commit.
