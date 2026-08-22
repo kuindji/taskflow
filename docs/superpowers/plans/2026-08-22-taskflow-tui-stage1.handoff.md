@@ -10,7 +10,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
 | 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
-| 3 | Cell model and SGR encoding | in-review round 2 | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`; round 1 found 2, round 2 found 1, all fixed |
+| 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
 | 6 | Legacy key decoder | pending | — | |
@@ -432,7 +432,68 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
   gpt-5.5 raised no other Task 3 defects.
 
+- **Task 3, round 3** (gpt-5.5 via codex-review, Mode B over `ebf7354..HEAD`):
+  two findings, **neither substantiated**. Task 3 is clear.
+  - *"Invisible/hidden SGR state is dropped"* — rejected. The trace is
+    conditional on a caller that does not exist: *"if a caller represents hidden
+    with the next bit, e.g. `attrs: 64`"*. There is no `ATTR_HIDDEN` constant to
+    reach for, and the plan's own Task 10 mapping (plan lines 2808-2817,
+    `function attributes(cell: IBufferCell)`) enumerates exactly the six
+    supported bits and never calls `isInvisible()`. No input reaching `sgrDiff`
+    can set bit 64, so there is no failure to reproduce. The `28` in the review
+    prompt was mine, not the plan's — the finding is an artifact of my own
+    brief. Adding `ATTR_HIDDEN` now would also be an unused export until Task 10,
+    which the plan's global constraints forbid outright. Recorded as a Task 10
+    note instead (see Decisions taken).
+  - *"`sgrDiff` is not minimal for known-to-known transitions"* — rejected. This
+    is the documented design, stated in the function's own doc comment: *"Always
+    emits a full reset before setting, which keeps the encoder stateless at the
+    cost of a few bytes per changed run."* gpt-5.5 concedes in the same report
+    that "the reset-plus-restate path reaches the right final state", so there is
+    no wrong output, only extra bytes on a changed run — and unchanged runs, the
+    ones that dominate a 60fps loop, already emit nothing via the `stylesEqual`
+    fast path. The proposed incremental encoder (22/23/24/27/29, 39/49, plus the
+    bold-dim interaction) is a stateful rewrite of a function the plan pins, with
+    a much larger bug surface, bought for bytes on a local pipe.
+
+  gpt-5.5 raised no other Task 3 defects and explicitly cleared
+  `ScreenBuffer.get/set/clear`, `cellsEqual` and `stylesEqual`.
+
+  Independent coverage work this round (test-only, commit `8e6d9fb`): reading
+  `ATTR_CODES` by hand showed only bold and underline were asserted, and the
+  `48;5;n` / `48;2;r;g;b` background forms had no test at all — a transposed
+  number in any of those would have produced wrong colours in every session pane
+  with nothing to catch it. Verified the encoder's actual output first by
+  running it directly, then locked all six attribute codes, their combined
+  bit order, both background forms and the fg-before-bg ordering into
+  `sgr.test.ts`. Confirmed the tests bite by mutating `sgr.ts`
+  (`ATTR_INVERSE`→`"5"`, `ATTR_DIM`→`"8"`, background base forced to 38):
+  3 fail / 12 pass mutated, 0 fail / 15 pass restored. No source change, so no
+  further review round is due.
+
+  Full check green — `bun run lint` clean, `bun run typecheck` clean,
+  `bun test packages/tui` 53 pass / 0 fail, full `bun test` 869 pass / 8 fail
+  with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
+
 ## Decisions taken
+
+- **Hidden/invisible text is out of scope for Stage 1, and Task 10 should say so.**
+  Round 3 surfaced that `IBufferCell.isInvisible()` has no home in the six-bit
+  attribute set, so an agent that emits `ESC[8m` will have that text rendered
+  visibly in the session pane. That is a real fidelity gap, but it lives in
+  Task 10's `attributes()` mapping, not in Task 3 — and the fix cannot land here
+  without creating an export nothing imports, which the plan's global constraints
+  forbid. Carrying it forward: when Task 10 is implemented, either add
+  `ATTR_HIDDEN = 64` plus `[ATTR_HIDDEN, "8"]` and map `isInvisible()` in the same
+  commit, or record that hidden text is deliberately rendered visible.
+
+- **`sgrDiff` stays a stateless reset-and-restate encoder.** Round 3 proposed an
+  incremental encoder emitting only changed parameters. Declined: output is already
+  correct, the unchanged-run fast path already emits nothing, and the incremental
+  form needs the 22/23/24/27/29 and 39/49 reset codes plus the bold-dim coupling
+  (clearing one without the other needs `22` then a restate) — materially more
+  logic and more ways to leave a terminal in the wrong state, in exchange for
+  bytes written to a local pipe.
 
 - **`ScreenBuffer.set` keeps storing the caller's `Cell` by reference.** Round 2's
   finding also noted that `set(0, 0, c); set(1, 0, c)` aliases one object into two
@@ -516,4 +577,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 3 review round 3 — one gpt-5.5 review via the codex-review skill over `ebf7354..HEAD` (`5ab47fb`), verify each finding, fix the substantiated ones, validate and commit. Round 2 fixed a finding, so another round is due before the task can be marked clear.
+Next step: Task 4 — Screen diffing and flush (plan section "Task 4"). Record HEAD
+(`8e6d9fb`) as the base commit, create `packages/tui/src/render/screen.ts` and
+`screen.test.ts` per the plan, validate with `bun run lint && bun run typecheck &&
+bun test`, and commit. Review round 1 follows in the next session.
