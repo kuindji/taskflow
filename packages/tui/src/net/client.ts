@@ -17,6 +17,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 class WsClient implements NetLike {
     private ws: WebSocket | null = null;
+    private connected = false;
+    private settleConnect: ((error?: Error) => void) | null = null;
     private readonly pending = new Map<string, Pending>();
     private readonly listeners = new Map<string, Set<(payload: unknown) => void>>();
     private readonly statusListeners = new Set<(status: { connected: boolean }) => void>();
@@ -24,24 +26,38 @@ class WsClient implements NetLike {
     constructor(private readonly port: number) {}
 
     connect(): Promise<void> {
-        return new Promise((resolve, reject) => {
+        // A second connect() supersedes the first: tear the old socket down so it
+        // cannot deliver events or linger open behind the new one.
+        this.disconnect(new Error("Connection replaced"));
+        return new Promise<void>((resolve, reject) => {
+            const settle = (error?: Error): void => {
+                if (this.settleConnect !== settle) return;
+                this.settleConnect = null;
+                if (error) reject(error);
+                else resolve();
+            };
+            this.settleConnect = settle;
             const ws = new WebSocket(`ws://127.0.0.1:${String(this.port)}`);
             this.ws = ws;
             ws.onopen = () => {
-                this.notifyStatus(true);
-                resolve();
+                if (this.ws !== ws) return;
+                this.setStatus(true);
+                settle();
             };
             ws.onerror = () => {
-                reject(new Error("WebSocket connection error"));
+                if (this.ws !== ws) return;
+                settle(new Error("WebSocket connection error"));
             };
             ws.onclose = () => {
-                if (this.ws !== ws) return; // superseded by a newer socket
+                if (this.ws !== ws) return;
                 // Drop the reference: request() must not try to send on it.
                 this.ws = null;
-                this.notifyStatus(false);
+                settle(new Error("Connection closed before it opened"));
+                this.setStatus(false);
                 this.failPending(new Error("Connection lost"));
             };
             ws.onmessage = (event: MessageEvent) => {
+                if (this.ws !== ws) return;
                 this.handleMessage(String(event.data));
             };
         });
@@ -54,7 +70,9 @@ class WsClient implements NetLike {
         };
     }
 
-    private notifyStatus(connected: boolean): void {
+    private setStatus(connected: boolean): void {
+        if (this.connected === connected) return;
+        this.connected = connected;
         for (const listener of this.statusListeners) listener({ connected });
     }
 
@@ -64,6 +82,22 @@ class WsClient implements NetLike {
             pending.reject(reason);
         }
         this.pending.clear();
+    }
+
+    /** Detach and close the current socket, settling everything that depends on it. */
+    private disconnect(reason: Error): void {
+        const ws = this.ws;
+        this.ws = null;
+        this.settleConnect?.(reason);
+        if (ws) {
+            ws.onopen = null;
+            ws.onerror = null;
+            ws.onclose = null;
+            ws.onmessage = null;
+            ws.close();
+        }
+        this.setStatus(false);
+        this.failPending(reason);
     }
 
     private handleMessage(raw: string): void {
@@ -128,10 +162,7 @@ class WsClient implements NetLike {
     }
 
     close(): void {
-        this.failPending(new Error("Client closed"));
-        const ws = this.ws;
-        this.ws = null;
-        ws?.close();
+        this.disconnect(new Error("Client closed"));
     }
 }
 
