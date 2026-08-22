@@ -16,7 +16,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
-| 9 | Session terminal — attach, resync and mode tracking | in-review round 2 | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`; round 2's codex pass was void, 1 defect found independently and fixed |
+| 9 | Session terminal — attach, resync and mode tracking | in-review round 3 (paused mid-round) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`; round 3 report in hand, both findings reproduced red, **fixes not written yet** |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
@@ -1368,7 +1368,68 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   the pass count rose from 977 by 11 new shared tests, 1 new TUI test and 1 new
   backend test.
 
-Next step: Task 9 review round 3 — one gpt-5.5 review via the codex-review
-skill over `--base 4572b1f`, with the working tree left untouched until the
-report lands. Verify each finding, fix the substantiated ones, validate and
-commit.
+- **Task 9, round 3** (gpt-5.5 via codex-review, Mode A over `--base 4572b1f`;
+  the working tree was left untouched until the report landed): two findings,
+  **both substantiated and both reproduced red**. The fixes are not written yet
+  — the session was stopped after the repro step. Process note: the first codex
+  launch was backgrounded with `nohup ... &` inside a Bash call and was killed
+  with exit 130 when that call returned; use the harness's own
+  `run_in_background` instead.
+
+  - **Substantiated — the backend snapshot claims a sequence it has not parsed.**
+    `packages/backend/src/services/pty-manager.ts:354`. `lastSequence` is bumped
+    synchronously in the `DataBatcher` callback, but `headless.write(...)` on the
+    line above parses on a later tick. `getSnapshot()` reads `snapshot`,
+    `cursorHidden` and the new `kittyStack` off the headless terminal while
+    reporting the *issued* sequence, so a client attaching in that window gets
+    state that predates the sequence it is told the state covers. The client's
+    `finishLoad` then drops every buffered chunk with `sequence <= lastSequence`
+    — including the one carrying `CSI > flags u` — and stays on legacy key
+    encoding until the child renegotiates. Two red repros in
+    `packages/backend/tests/services/pty-manager-snapshot.test.ts`:
+    `does not claim a sequence the restored log has not been parsed into yet`
+    (`claimsRestoredSequence` received `true`, expected `false`) and
+    `does not claim a live batch the headless terminal has not parsed`
+    (`reported` `1`, expected `< 1`). Run with
+    `bun test packages/backend/tests/services/pty-manager-snapshot.test.ts`.
+    Note the staleness is not kitty-specific — the serialized screen and
+    `cursorHidden` ride the same race — but `kittyStack` is what round 2 added.
+    Intended fix: track a `parsedSequence` set from the `headless.write(data, cb)`
+    completion callback (and initialised to `0` while a restored `initialOutput`
+    is still being parsed, settling to `startSequence` when it completes), and
+    have `getSnapshot` report that instead of `lastSequence`. `getHistory` keeps
+    `lastSequence` — scrollback is pushed synchronously, so it is already right.
+
+  - **Substantiated — re-attach re-enables modes the child has since turned off.**
+    `packages/tui/src/term/session-terminal.ts:165-166`. On a second `attach()`
+    the pre-drop `applicationCursorKeys` / `bracketedPaste` are written back
+    after `terminal.reset()` and *before* the fresh snapshot. Verified against
+    the installed addon source
+    (`packages/backend/node_modules/@xterm/addon-serialize/lib/addon-serialize.js`,
+    `_serializeModes`): it emits `\x1b[?1h` / `\x1b[?2004h` only when the mode is
+    on and emits **nothing** when it is off. So the snapshot cannot switch a
+    restored mode back off, and the client keeps encoding `\x1bOA` for arrows the
+    child no longer wants. Red repro:
+    `bun test packages/tui/src/term/session-terminal.test.ts -t "takes its modes from the snapshot"`
+    — `Expected: false / Received: true`.
+    Intended fix: the snapshot is authoritative, so the saved modes must only be
+    replayed on the **no-snapshot fallback** path (history is trimmed raw
+    scrollback and may have lost the sequences that set them). Move the `restore`
+    write out of the reset branch and emit it just before the history request.
+    The two existing re-attach mode tests were rescoped onto the history path
+    (`snapshot: null` plus a `SESSION_HISTORY` stub) because they encoded the
+    wrong contract for the snapshot path.
+
+## Working tree state at the pause
+
+Uncommitted, and deliberately left in place: the three repro tests above, in
+`packages/tui/src/term/session-terminal.test.ts` and
+`packages/backend/tests/services/pty-manager-snapshot.test.ts`. Nothing under
+`src/` was touched, so `git diff --stat` should show exactly those two test
+files. They are **red on purpose** — do not treat the failures as a broken
+environment, and do not commit them without the fixes.
+
+Next step: finish Task 9 review round 3 — apply the two fixes described above,
+confirm the three repro tests go green, run `bun run lint && bun run typecheck &&
+bun test` (expect the 8 recorded pre-existing `MarkdownPaneImpl` suite-ordering
+failures and nothing else), commit, and set the next step to review round 4.
