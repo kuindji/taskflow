@@ -1,5 +1,5 @@
 import {
-    cellsEqual,
+    stylesEqual,
     ATTR_BOLD,
     ATTR_DIM,
     ATTR_ITALIC,
@@ -36,7 +36,7 @@ const ATTR_CODES: Array<[number, string]> = [
  * stateless at the cost of a few bytes per changed run.
  */
 function sgrDiff(from: Cell | null, to: Cell): string {
-    if (from !== null && cellsEqual({ ...from, ch: to.ch }, to)) return "";
+    if (from !== null && stylesEqual(from, to)) return "";
 
     const params = ["0"];
     for (const [bit, code] of ATTR_CODES) {

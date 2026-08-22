@@ -31,14 +31,16 @@ function colorsEqual(a: Color, b: Color): boolean {
     return true;
 }
 
+/**
+ * True when two cells would be drawn with the same SGR state. Deliberately
+ * ignores `ch` and `width`, which are glyph properties rather than attributes.
+ */
+function stylesEqual(a: Cell, b: Cell): boolean {
+    return a.attrs === b.attrs && colorsEqual(a.fg, b.fg) && colorsEqual(a.bg, b.bg);
+}
+
 function cellsEqual(a: Cell, b: Cell): boolean {
-    return (
-        a.ch === b.ch &&
-        a.width === b.width &&
-        a.attrs === b.attrs &&
-        colorsEqual(a.fg, b.fg) &&
-        colorsEqual(a.bg, b.bg)
-    );
+    return a.ch === b.ch && a.width === b.width && stylesEqual(a, b);
 }
 
 class ScreenBuffer {
@@ -52,6 +54,9 @@ class ScreenBuffer {
     }
 
     get(x: number, y: number): Cell {
+        if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) {
+            throw new RangeError(`Cell out of range: ${String(x)},${String(y)}`);
+        }
         const cell = this.cells[y * this.cols + x];
         if (!cell) throw new RangeError(`Cell out of range: ${String(x)},${String(y)}`);
         return cell;
@@ -67,6 +72,6 @@ class ScreenBuffer {
     }
 }
 
-export { ScreenBuffer, blankCell, cellsEqual, DEFAULT_COLOR };
+export { ScreenBuffer, blankCell, cellsEqual, stylesEqual, DEFAULT_COLOR };
 export { ATTR_BOLD, ATTR_DIM, ATTR_ITALIC, ATTR_UNDERLINE, ATTR_INVERSE, ATTR_STRIKE };
 export type { Cell, Color };

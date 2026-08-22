@@ -45,3 +45,19 @@ describe("cellsEqual", () => {
         expect(cellsEqual(cell({ ch: "x" }), cell({ ch: "x" }))).toBe(true);
     });
 });
+
+describe("sgrDiff — glyph metrics are not attribute state", () => {
+    test("emits nothing when only the character differs", () => {
+        expect(sgrDiff(cell({ ch: "a" }), cell({ ch: "b" }))).toBe("");
+    });
+
+    test("emits nothing when only the width differs", () => {
+        const from = cell({ ch: "漢", width: 2 });
+        expect(sgrDiff(from, cell({ ch: "", width: 0 }))).toBe("");
+    });
+
+    test("still emits when the style differs alongside a width change", () => {
+        const from = cell({ ch: "漢", width: 2 });
+        expect(sgrDiff(from, cell({ ch: "", width: 0, attrs: ATTR_BOLD }))).toBe("\x1b[0;1m");
+    });
+});
