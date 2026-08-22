@@ -8,7 +8,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
-| 1 | Package scaffold and WebSocket client | pending | — | |
+| 1 | Package scaffold and WebSocket client | implemented | `49b7967` | commit `22b9b7d` |
 | 2 | Backend lifecycle | pending | — | |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
@@ -29,10 +29,20 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 ## Review rounds
 
-(none yet)
+- Task 1: round 1 not yet run.
 
 ## Decisions taken
 
-(none yet)
+- **Pre-existing test failures.** `bun test` reports 8 failures in
+  `packages/ui/src/components/panes/MarkdownPaneImpl.*` when the whole suite runs
+  (they pass in isolation — suite-ordering flakiness). Verified identical at base
+  commit `49b7967`, so they are pre-existing and not a gate on TUI work. Treat the
+  TUI check as green when lint, typecheck and the tui tests pass and the UI failure
+  count stays at 8.
+- **Task 1 test file adjusted for lint.** The plan's `client.test.ts` tripped
+  `no-floating-promises` on `server?.stop(true)` and `await-thenable` on
+  `expect(...).rejects.toThrow(...)`. Rewrote the `afterEach` as async/await and the
+  rejection assertion as try/catch on the error message. Behaviour is unchanged; no
+  eslint-disable was added.
 
-Next step: implement Task 1 — Package scaffold and WebSocket client
+Next step: review round 1 for Task 1 (gpt-5.5 via codex-review over `49b7967..22b9b7d`)
