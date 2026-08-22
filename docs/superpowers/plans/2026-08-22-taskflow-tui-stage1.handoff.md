@@ -15,7 +15,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
-| 8 | Per-child key encoding | implemented | `7932626` | commit `4a8ac77` |
+| 8 | Per-child key encoding | in-review round 1 | `7932626` | commits `4a8ac77`, `7e38b14`; round 1 found real issues, fixed |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
@@ -476,6 +476,13 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
 
 ## Decisions taken
+
+- **Task 8 deviates from the plan's sample encoder in four places.** The plan
+  inlines the full `encode.ts` body, and round 1 showed four of its behaviours to
+  be wrong against the Task 6 decoder and the kitty spec: Shift+Tab, non-letter
+  ctrl chords, dropped key repeats, and legacy-encoded releases under flag 2.
+  Fixed rather than kept, since the plan's own goal is a faithful round-trip; the
+  plan's 17 tests all still pass unchanged, with 5 added.
 
 - **Task 7 extracts the CSI scanner into `src/input/csi.ts`.** The plan gives
   `decode-kitty.ts` and `negotiate.ts` their own regexes for the same grammar
@@ -1103,6 +1110,43 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
   the pass count rose from 934 by the 17 Task 8 tests.
 
-Next step: Review round 1 for Task 8 — one gpt-5.5 review via the codex-review
-skill over `7932626..HEAD` (the `encode.ts` / `encode.test.ts` diff). Verify any
-findings independently, fix the substantiated ones, validate and commit.
+- **Task 8, round 1** (gpt-5.5 via codex-review, Mode A over `--commit 4a8ac77`):
+  two findings, both substantiated against the Task 6 decoder, both fixed in
+  `7e38b14`.
+  - *"Preserve legacy Shift+Tab when forwarding"* — real. `decodeLegacy` turns
+    `CSI Z` into `{name:"tab", shift:true}` (`decode-legacy.ts:124`), and
+    `encodeLegacy` hit the `SIMPLE` table before looking at shift, so a legacy
+    child received a plain `\t`. Fixed: shifted tab encodes back to `ESC [ Z`.
+  - *"Round-trip non-letter Ctrl chords"* — real. `decodeControl` reports NUL as
+    Ctrl+@ and 0x1c-0x1f as Ctrl+\ ] ^ _ (`decode-legacy.ts:44-51`), but the
+    encoder only mapped Ctrl+A..Ctrl+Z and fell through to the printable
+    character, so Ctrl+Space reached the child as `@`. Fixed by encoding the
+    whole `@`..`_` range as `upper - 64`, mirroring the decoder.
+
+  Two further issues found while verifying, in the same event-kind logic and
+  fixed in the same commit — both checked against the kitty spec
+  (`sw.kovidgoyal.net/kitty/keyboard-protocol/`):
+  - Key **repeats were dropped** whenever the child did not report event types.
+    The spec says "key repeat events are treated as key press events" there, so
+    holding a key would have sent one character. Now encoded as presses, for
+    legacy children and for kitty children without flag 2.
+  - Under flag 2, a **release of a text key was re-sent as its legacy bytes** —
+    it would read to the child as a second keypress. The spec only reports
+    releases for keys that have an escape code, so text keys now encode to
+    nothing, and arrows/tilde keys carry the `:2`/`:3` event subparameter
+    (`ESC [ 1;1:3 A`) instead of a bare, press-shaped sequence.
+
+  Not reachable end-to-end today — `tty.ts` pushes only flag 1 to the outer
+  terminal, so no release or repeat events are produced yet — but the encoder's
+  own contract covers them and Task 12 routes whatever the decoders emit.
+
+- Validation at `7e38b14`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 956 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
+  the pass count rose from 951 by the 5 new regression tests.
+
+Next step: Review round 2 for Task 8 — one gpt-5.5 review via the codex-review
+skill over `7932626..HEAD` (`encode.ts` plus its test, including the round 1
+fixes). Verify any findings independently, fix the substantiated ones, validate
+and commit. Zero substantiated findings means Task 8 is clear and Task 9
+(session terminal — attach, resync and mode tracking) is next.
