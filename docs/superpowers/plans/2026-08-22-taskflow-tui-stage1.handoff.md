@@ -11,7 +11,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
 | 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
-| 4 | Screen diffing and flush | implemented | `7ff1b11` | commit `cc48d84` |
+| 4 | Screen diffing and flush | in-review round 1 | `7ff1b11` | commits `cc48d84`, `ecab7a5`; round 1 found 3 |
 | 5 | TTY control and restoration | pending | — | |
 | 6 | Legacy key decoder | pending | — | |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
@@ -577,7 +577,41 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 4 review round 1 — run one gpt-5.5 review via the codex-review
-skill over `7ff1b11..cc48d84` (`packages/tui/src/render/screen.ts` and
-`screen.test.ts`), verify every finding independently, fix the substantiated ones,
-re-run `bun run lint && bun run typecheck && bun test`, and commit.
+- **Task 4, round 1** (gpt-5.5 via codex-review, Mode A over `--commit cc48d84`):
+  three findings, all substantiated and fixed in `ecab7a5`. One came from Codex,
+  two from independent reading of the diff. Each has a regression test in
+  `screen.test.ts`; all three are red on `cc48d84` and green after the fix
+  (verified by checking the two source files back out at `cc48d84` and re-running
+  `bun test packages/tui/src/render/screen.test.ts` — 10 pass / 3 fail before,
+  13 pass after).
+  - **The cursor drifted after any frame that painted.** `cursorSequence()` only
+    re-emitted when the logical position changed, but painting a run leaves the
+    real cursor at the end of that run. Frame 2 of `setCursor({x:4,y:2})` then
+    painting at `(7,0)` emitted `\x1b[1;8H\x1b[0mZ` and nothing else, so the visible
+    cursor sat at row 1 col 9. Now a frame that painted re-states a visible cursor;
+    a hidden one is skipped, since where it sits is not observable. Test:
+    `re-states the cursor after a frame that painted elsewhere`, plus
+    `stays silent on an unchanged frame with a visible cursor` guarding the
+    still-nothing-on-an-idle-frame property that the force could have broken.
+  - **`lastCursor` aliased the caller's object.** `this.lastCursor = cursor` stored
+    the reference, so a caller holding one cursor object, mutating `pos.x` and
+    re-calling `setCursor(pos)` compared it against itself and emitted no move at
+    all. Now stores `{ ...cursor }`. Test:
+    `tracks a cursor object the caller keeps mutating`.
+  - **Codex: `cloneFront()`'s shallow spread shared `fg`/`bg`.** `{ ...cell }`
+    copies the cell but not its colour objects, so front and back kept pointing at
+    the same `Color`; an in-place edit through `back.get(x,y).fg` compared equal on
+    both sides and never repainted. This is the same in-place-mutation path the
+    plan's own `does not share cell objects between frames` test blesses for `ch`.
+    Added `copyCell()` in `cells.ts` (next to the frozen-default rationale it has
+    to respect) which deep-copies colours and canonicalises `kind: "default"` back
+    to the shared frozen `DEFAULT_COLOR` — so blank cells, the overwhelming
+    majority, still clone without allocating a colour. Test:
+    `does not share colour objects between frames`.
+
+Next step: Task 4 review round 2 — round 1 fixed three findings, so the task gets
+another round. Run one gpt-5.5 review via the codex-review skill over
+`7ff1b11..HEAD` (`packages/tui/src/render/screen.ts`, `screen.test.ts` and the
+`copyCell` addition in `cells.ts`), verify every finding independently, fix the
+substantiated ones, re-run `bun run lint && bun run typecheck && bun test`, and
+commit.
