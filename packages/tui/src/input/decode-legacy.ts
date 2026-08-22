@@ -190,6 +190,17 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
 function flushCarry(carry: string): KeyEvent[] {
     if (carry === "") return [];
     if (carry === ESC) return [press("escape")];
+    // `ESC [` and `ESC O` open a CSI and an SS3 sequence, and they are also
+    // exactly what Alt+[ and Alt+O send. decodeLegacy has to carry them in case
+    // the rest is still in flight; once the idle timer has expired, the chord
+    // is all they can have been. These are the only two-byte carries it emits.
+    if (carry.length === 2 && carry.startsWith(ESC)) {
+        const next = carry[1] ?? "";
+        const code = next.charCodeAt(0);
+        if (code >= 32 && code !== 127) {
+            return [press("char", { ...noMods(), alt: true }, next)];
+        }
+    }
     // A partial CSI/SS3 that never completed: drop it rather than emit garbage.
     return [];
 }

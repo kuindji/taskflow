@@ -180,6 +180,24 @@ describe("decodeLegacy", () => {
         });
     });
 
+    test("flushCarry releases an ambiguous alt prefix as an alt chord", () => {
+        // Alt+[ and Alt+O send exactly `ESC [` and `ESC O`, which are also the
+        // openings of a CSI and an SS3 sequence. decodeLegacy has to carry them
+        // in case the rest is still in flight; once the idle timer says nothing
+        // is coming, the chord is all they can have been.
+        const bracket = decodeLegacy("\x1b[", "");
+        expect(bracket.carry).toBe("\x1b[");
+        expect(flushCarry(bracket.carry)).toEqual([
+            { name: "char", char: "[", mods: { ...noMods(), alt: true }, kind: "press" },
+        ]);
+
+        const ss3 = decodeLegacy("\x1bO", "");
+        expect(ss3.carry).toBe("\x1bO");
+        expect(flushCarry(ss3.carry)).toEqual([
+            { name: "char", char: "O", mods: { ...noMods(), alt: true }, kind: "press" },
+        ]);
+    });
+
     test("treats an out-of-range modifier parameter as no modifiers", () => {
         expect(decodeLegacy("\x1b[1;0C", "").events[0]).toEqual({
             name: "right",
