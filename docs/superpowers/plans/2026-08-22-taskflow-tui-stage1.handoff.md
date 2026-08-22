@@ -12,7 +12,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
 | 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
-| 5 | TTY control and restoration | in-review round 2 | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; round 3 due |
+| 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
 | 6 | Legacy key decoder | pending | — | |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
 | 8 | Per-child key encoding | pending | — | |
@@ -756,10 +756,28 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass count rose
   from 889 by exactly the two new tty tests.
 
-Next step: Review round 3 for Task 5 — a substantiated finding was fixed this
-round, so run one more gpt-5.5 review via the codex-review skill over the full
-Task 5 diff (`--base cef9dcb`, now covering `af9bc46`), verify every finding
-independently, fix the substantiated ones, re-run
-`bun run lint && bun run typecheck && bun test`, and commit. Zero substantiated
-findings clears Task 5 and the next step becomes implementing Task 6 (legacy key
-decoder).
+- **Task 5, round 3** (gpt-5.5 via codex-review, Mode A over `--base cef9dcb`,
+  covering the full task diff including `af9bc46`): **zero findings.** Codex
+  reported no material defects in the TTY control/restoration changes or their
+  tests.
+
+  Independent read of the diff alongside the report agreed. One cosmetic
+  asymmetry was noticed and deliberately left alone: in the signal handler,
+  a `leave()` that throws skips `process.exit(130)` and instead surfaces through
+  the `uncaughtException` handler, which exits 1. Raw mode is still cleared on
+  that path (the `finally` in `leave()`), so the terminal-restoration guarantee
+  — the only thing this module owes — holds; only the exit code differs. Not a
+  defect, not worth a guard.
+
+- Validation at `fd531dc` (no code changed this round): `bun run lint` clean,
+  `bun run typecheck` clean across all five packages, `bun test` 891 pass /
+  8 fail — the 8 are the recorded pre-existing `MarkdownPaneImpl` suite-ordering
+  failures, unchanged from the previous round.
+
+**Task 5 is clear.**
+
+Next step: Implement Task 6 (legacy key decoder). Record current HEAD as the
+task's base commit in the table before starting, follow the plan's Task 6 steps
+(test first, then implementation), run
+`bun run lint && bun run typecheck && bun test`, and commit. Then the next step
+becomes review round 1 for Task 6.
