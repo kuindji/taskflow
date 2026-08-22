@@ -10,7 +10,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
 | 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
-| 3 | Cell model and SGR encoding | implemented | `ebf7354` | commit `93d23c0`; awaiting review round 1 |
+| 3 | Cell model and SGR encoding | in-review round 1 | `ebf7354` | commits `93d23c0`, `0379d71`; round 1 found 2, both fixed |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
 | 6 | Legacy key decoder | pending | — | |
@@ -381,7 +381,54 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
     the 8 being the known pre-existing `MarkdownPaneImpl` failures. Zero stray `sleep 30`
     processes after the run.
 
+- **Task 3, round 1** (gpt-5.5 via codex-review, Mode B over `ebf7354..HEAD`):
+  two findings, both substantiated and fixed in `0379d71`. Both were reproduced
+  independently before the report landed, and gpt-5.5 raised the same two.
+  - `ScreenBuffer.get` flattened `(x, y)` into `y * cols + x` with no bounds
+    check, so an `x` outside `[0, cols)` wrapped into a neighbouring row and
+    returned a real cell instead of throwing. On a 3x2 buffer, `get(3, 0)`
+    returned the cell at `(0, 1)` and `get(-1, 1)` returned `(2, 0)`. The
+    `RangeError` branch was unreachable for any wrapped `x`. This would have
+    silently corrupted Task 10's offset blit rather than failing loudly.
+    Fixed by mirroring `set`'s bounds check before indexing. Regression tests:
+    `ScreenBuffer > get throws instead of wrapping when x runs past the right edge`
+    and `... when x is negative` in `src/render/cells.test.ts`.
+  - `sgrDiff` used `cellsEqual({ ...from, ch: to.ch }, to)` for its no-change
+    fast path, which compares `width`. A wide glyph followed by a narrow cell
+    with identical attributes returned `"\x1b[0m"` instead of `""`, so every
+    CJK continuation cell in a session pane would emit a redundant reset on
+    each Task 4 flush. Fixed by splitting `stylesEqual` (attrs, fg, bg only)
+    out of `cellsEqual` and using it for the fast path. Regression test:
+    `sgrDiff — glyph metrics are not attribute state > emits nothing when only
+    the width differs` in `src/render/sgr.test.ts`.
+
+  Verified red-before/green-after by reverting just the two source changes with
+  the new tests in place: 3 fail / 15 pass before, 0 fail / 47 pass after.
+  Full check green — `bun run lint` clean, `bun run typecheck` clean,
+  `bun test packages/tui` 47 pass / 0 fail, full `bun test` 863 pass / 8 fail
+  with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
+
 ## Decisions taken
+
+- **`stylesEqual` is a new export, `cellsEqual` keeps its meaning.** Round 1's
+  `sgrDiff` fix needed an attribute-only comparison, and the plan's `cellsEqual`
+  compares the whole cell including `ch` and `width`. Task 4 still needs the
+  whole-cell form for its dirty-cell diff, so rather than narrowing `cellsEqual`
+  (which would make Task 4's diff skip cells whose character changed), split
+  `stylesEqual` out and have `cellsEqual` delegate to it. Both are imported —
+  `stylesEqual` by `sgr.ts` and the tests, `cellsEqual` by the tests and Task 4 —
+  so neither is an unused export.
+- **`get` bounds-checks, `set` still clips silently.** The asymmetry is now
+  deliberate rather than accidental: Task 10 blits a terminal buffer at an
+  offset and wants writes past the edge dropped, while a read past the edge is
+  always a caller bug and should fail loudly. Kept the redundant `if (!cell)`
+  guard after the bounds check because `noUncheckedIndexedAccess` types the
+  lookup as `Cell | undefined`.
+- **ScreenBuffer tests live in `cells.test.ts`.** The plan only specifies
+  `sgr.test.ts`, which left `ScreenBuffer` with no direct coverage at all —
+  that is how the `get` wrap-around survived implementation. Added a colocated
+  `cells.test.ts` per the plan's own "tests colocated as `<name>.test.ts`
+  beside the file under test" rule.
 
 - **Task 2 strips `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the backend's env.**
   The plan's `manager.ts` inherits `process.env` wholesale; `electron/src/backend-manager.ts:114`
@@ -436,4 +483,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 3 review round 1 — one gpt-5.5 review via the codex-review skill over `ebf7354..93d23c0`, verify each finding, fix the substantiated ones, validate and commit.
+Next step: Task 3 review round 2 — one gpt-5.5 review via the codex-review skill over `ebf7354..HEAD` (`0379d71`), verify each finding, fix the substantiated ones, validate and commit. Round 1 fixed findings, so another round is due before the task can be marked clear.
