@@ -11,7 +11,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
 | 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
-| 4 | Screen diffing and flush | pending | — | |
+| 4 | Screen diffing and flush | implemented | `7ff1b11` | commit `cc48d84` |
 | 5 | TTY control and restoration | pending | — | |
 | 6 | Legacy key decoder | pending | — | |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
@@ -577,7 +577,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 4 — Screen diffing and flush (plan section "Task 4"). Record HEAD
-(`8e6d9fb`) as the base commit, create `packages/tui/src/render/screen.ts` and
-`screen.test.ts` per the plan, validate with `bun run lint && bun run typecheck &&
-bun test`, and commit. Review round 1 follows in the next session.
+Next step: Task 4 review round 1 — run one gpt-5.5 review via the codex-review
+skill over `7ff1b11..cc48d84` (`packages/tui/src/render/screen.ts` and
+`screen.test.ts`), verify every finding independently, fix the substantiated ones,
+re-run `bun run lint && bun run typecheck && bun test`, and commit.
