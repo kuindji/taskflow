@@ -48,6 +48,7 @@ function hasModifier(mods: KeyMods): boolean {
     return mods.ctrl || mods.alt || mods.shift || mods.super;
 }
 
+const KITTY_DISAMBIGUATE = 1;
 const KITTY_REPORT_EVENT_TYPES = 2;
 const KITTY_REPORT_ALL_KEYS = 8;
 
@@ -80,10 +81,10 @@ const BACK_TAB = "\x1b[Z";
 
 /**
  * `eventTag` is the kitty `:2`/`:3` event-type subparameter, non-empty only
- * for a repeat or release the child asked to see. Keys that have an escape code
- * carry it; text keys have nowhere to put it, and the kitty spec does not report
- * their repeats or releases at all, so they encode to nothing rather than to a
- * second keypress.
+ * for a repeat or release the child asked to see. Arrows and tilde keys carry
+ * it in their escape code; every other key has nowhere to put it, so flag 2 is
+ * simply ignored for them — the spec reports no release, and a repeat is
+ * encoded as another press.
  */
 function encodeLegacy(
     ev: KeyEvent,
@@ -108,7 +109,10 @@ function encodeLegacy(
         return `\x1b[${String(tilde)}~`;
     }
 
-    if (tagged) return "";
+    // The keys below have no escape code to carry `eventTag`. The kitty spec
+    // does not report their releases at all, and a repeat with nowhere to mark
+    // itself is just another press — dropping it would stop auto-repeat.
+    if (ev.kind === "release") return "";
 
     // A legacy terminal reports Shift+Tab as back-tab and has no other way to
     // spell it, so a bare tab byte would drop the direction.
@@ -141,8 +145,14 @@ function encodeKitty(ev: KeyEvent, modes: ChildModes, flags: number): string {
     // press, which is what auto-repeat has to look like to the child.
     const kindSuffix = reportsEvents ? eventSuffix(ev.kind) : "";
 
+    // Flag 1 is what asks for ctrl/alt/escape as CSI u; a child that pushed only
+    // other flags never negotiated that and still expects the legacy bytes, so
+    // Ctrl+C has to stay the interrupt byte for it.
+    const disambiguate = (flags & KITTY_DISAMBIGUATE) !== 0;
     const forceAll = (flags & KITTY_REPORT_ALL_KEYS) !== 0;
-    if (!forceAll && !needsKittyEncoding(ev)) return encodeLegacy(ev, modes, kindSuffix);
+    if (!forceAll && !(disambiguate && needsKittyEncoding(ev))) {
+        return encodeLegacy(ev, modes, kindSuffix);
+    }
 
     const codepoint =
         ev.name === "char" ? (ev.char?.codePointAt(0) ?? 0) : (KITTY_CODEPOINTS[ev.name] ?? 0);

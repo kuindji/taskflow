@@ -130,6 +130,24 @@ describe("encodeForChild", () => {
         expect(encodeForChild(key({ name: "enter", kind: "release" }), modes)).toBe("");
     });
 
+    test("keeps Ctrl+C legacy for a child that asked only for event types", () => {
+        // Flag 1 is what moves ctrl/alt/escape to CSI u. A child that pushed
+        // only flag 2 never asked for that, so Ctrl+C must still be the
+        // interrupt byte rather than an escape code it will not understand.
+        const modes = { ...legacy, kittyFlags: 2 };
+        const ev = key({ name: "char", char: "c", mods: { ...noMods(), ctrl: true } });
+        expect(encodeForChild(ev, modes)).toBe("\x03");
+    });
+
+    test("treats a repeat as a press when the key has no escape code to tag", () => {
+        // Flag 2 is ignored for keys that stay legacy: there is nowhere to put
+        // the event subparameter, so a repeat has to look like another press or
+        // auto-repeat stops reaching the child.
+        const modes = { ...legacy, kittyFlags: 1 | 2 };
+        expect(encodeForChild(key({ name: "char", char: "a", kind: "repeat" }), modes)).toBe("a");
+        expect(encodeForChild(key({ name: "enter", kind: "repeat" }), modes)).toBe("\r");
+    });
+
     test("tags a functional-key release with the kitty event type", () => {
         const modes = { ...legacy, kittyFlags: 1 | 2 };
         expect(encodeForChild(key({ name: "up", kind: "release" }), modes)).toBe("\x1b[1;1:3A");
