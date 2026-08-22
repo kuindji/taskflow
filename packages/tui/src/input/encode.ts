@@ -77,6 +77,21 @@ function needsKittyEncoding(ev: KeyEvent): boolean {
     return false;
 }
 
+/**
+ * The C0 byte a ctrl chord sends, or undefined for a key that has none. The
+ * byte is the character minus 64, covering Ctrl+A..Ctrl+Z, Ctrl+@ and Ctrl+\,
+ * Ctrl+], Ctrl+^ and Ctrl+_ — the same range decodeControl reads. Space is its
+ * own case: it sends NUL like Ctrl+@, but the kitty decoder reports `CSI 32;5u`
+ * as a space rather than an `@`.
+ */
+function controlByte(char: string | undefined): string | undefined {
+    if (char === undefined) return undefined;
+    if (char === " ") return "\x00";
+    const upper = char.toUpperCase().charCodeAt(0);
+    if (upper >= 64 && upper <= 95) return String.fromCharCode(upper - 64);
+    return undefined;
+}
+
 const BACK_TAB = "\x1b[Z";
 
 /**
@@ -118,22 +133,17 @@ function encodeLegacy(
     // spell it, so a bare tab byte would drop the direction.
     if (ev.name === "tab" && ev.mods.shift) return ev.mods.alt ? `\x1b${BACK_TAB}` : BACK_TAB;
 
+    // Ahead of the SIMPLE table, which would spell Ctrl+Space as a bare space.
+    if (ev.mods.ctrl) {
+        const control = controlByte(ev.name === "space" ? " " : ev.char);
+        if (control !== undefined) return ev.mods.alt ? `\x1b${control}` : control;
+    }
+
     const simple = SIMPLE[ev.name];
     if (simple !== undefined) return ev.mods.alt ? `\x1b${simple}` : simple;
 
     const char = ev.char;
     if (char === undefined) return "";
-
-    if (ev.mods.ctrl) {
-        // The C0 byte for a ctrl chord is the character minus 64, which covers
-        // Ctrl+A..Ctrl+Z as well as Ctrl+@ (NUL, what Ctrl+Space sends) and
-        // Ctrl+\, Ctrl+], Ctrl+^ and Ctrl+_ — the same range decodeControl reads.
-        const upper = char.toUpperCase().charCodeAt(0);
-        if (upper >= 64 && upper <= 95) {
-            const control = String.fromCharCode(upper - 64);
-            return ev.mods.alt ? `\x1b${control}` : control;
-        }
-    }
 
     return ev.mods.alt ? `\x1b${char}` : char;
 }

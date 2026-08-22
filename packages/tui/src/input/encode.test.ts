@@ -113,6 +113,17 @@ describe("encodeForChild", () => {
         expect(encodeForChild(ctrl("_"), legacy)).toBe("\x1f");
     });
 
+    test("round-trips Ctrl+Space to NUL for a legacy child", () => {
+        // The kitty decoder reports `CSI 32;5u` as a space char with ctrl held,
+        // not as an `@`, so the C0 mapping has to cover it or the chord reaches
+        // the child as an ordinary space.
+        const ev = key({ name: "char", char: " ", mods: { ...noMods(), ctrl: true } });
+        expect(encodeForChild(ev, legacy)).toBe("\x00");
+        expect(encodeForChild(key({ name: "space", mods: { ...noMods(), ctrl: true } }), legacy)).toBe(
+            "\x00",
+        );
+    });
+
     test("treats a repeat as a press for a child that does not report events", () => {
         // Per the kitty spec, without the report-event-types flag "key repeat
         // events are treated as key press events" — dropping them would stop
