@@ -72,6 +72,27 @@ describe("startBackend", () => {
         }
     });
 
+    test("does not let a TASKFLOW_DEV in its own env make a devBranch-null child dev", async () => {
+        // TASKFLOW_DEV alone is enough: the backend derives a dev branch from git HEAD
+        // when it sees it. The TUI's own `bun run dev` script sets it, so a TUI started
+        // that way would silently talk to a dev instance while asking for none.
+        const previous = process.env.TASKFLOW_DEV;
+        process.env.TASKFLOW_DEV = "1";
+        try {
+            const binary = await writeFakeBackend(
+                'if [ -z "$TASKFLOW_DEV" ] && [ -z "$TASKFLOW_DEV_BRANCH" ]; then echo 4333 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',
+            );
+            const handle = await start({ binary, args: [], devBranch: null });
+            expect(handle.port).toBe(4333);
+        } finally {
+            if (previous === undefined) {
+                delete process.env.TASKFLOW_DEV;
+            } else {
+                process.env.TASKFLOW_DEV = previous;
+            }
+        }
+    });
+
     test("strips the Claude Code session markers from the child environment", async () => {
         const previous = {
             CLAUDECODE: process.env.CLAUDECODE,
@@ -328,6 +349,26 @@ describe("startBackend", () => {
         }
         expect(message).toMatch(/exited before startup \(code 3\)/);
         expect(message).toMatch(/bind: address already in use/);
+    });
+
+    test("reports a spawn failure that lands while the port file is being read", async () => {
+        // The failure arrives during the poll's await. Reporting a timeout there tells
+        // the user the backend hung when it never started at all.
+        let message = "";
+        try {
+            handles.push(
+                await startBackend({
+                    binary: join(tmpdir(), "taskflow-tui-no-such-binary-race"),
+                    args: [],
+                    devBranch: null,
+                    timeoutMs: 1,
+                }),
+            );
+        } catch (err) {
+            message = err instanceof Error ? err.message : String(err);
+        }
+        expect(message).toMatch(/failed to start/);
+        expect(message).toMatch(/ENOENT/);
     });
 
     test("names the signal when the backend is killed before startup", async () => {

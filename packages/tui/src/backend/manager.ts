@@ -53,13 +53,16 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
 
     // Agents the backend spawns refuse to launch when they see the two Claude Code
     // markers, so they are stripped here exactly as electron/src/backend-manager.ts
-    // does. TASKFLOW_DEV_BRANCH is stripped too so that `devBranch` is the only thing
-    // deciding the child's instance: inheriting it would put the backend on a dev
-    // instance the caller explicitly asked not to use.
+    // does. Both dev-instance selectors are stripped too so that `devBranch` is the
+    // only thing deciding the child's instance: TASKFLOW_DEV_BRANCH names one
+    // directly, and TASKFLOW_DEV makes the backend derive one from the current git
+    // branch (packages/backend/src/config.ts:44-61). Inheriting either would put the
+    // backend on a dev instance the caller explicitly asked not to use.
     const {
         CLAUDECODE: _cc,
         CLAUDE_CODE_ENTRYPOINT: _cce,
         TASKFLOW_DEV_BRANCH: _devBranch,
+        TASKFLOW_DEV: _dev,
         ...safeEnv
     } = process.env;
 
@@ -127,21 +130,39 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
         return tail === "" ? "" : `: ${tail}`;
     };
 
+    // Null while the child is still a candidate; an Error once it has failed for a
+    // reason of its own. Built on demand so that the message reflects the state at
+    // the moment it is thrown.
+    const failure = (): Error | null => {
+        if (outcome.spawnError !== null) {
+            return new Error(`Backend failed to start: ${outcome.spawnError.message}`);
+        }
+        if (outcome.exit !== null) {
+            const { code, signal } = outcome.exit;
+            const how = signal === null ? `code ${String(code ?? 0)}` : `signal ${signal}`;
+            return new Error(`Backend exited before startup (${how})` + stderrSuffix());
+        }
+        return null;
+    };
+
     const deadline = Date.now() + timeoutMs;
     for (;;) {
         // Failure is checked before the port file: a child that wrote a port and then
         // died has not started up, and its handle would point at a dead backend.
-        if (outcome.spawnError !== null) {
+        const failedEarly = failure();
+        if (failedEarly !== null) {
             removePortFile(portFile);
-            throw new Error(`Backend failed to start: ${outcome.spawnError.message}`);
-        }
-        if (outcome.exit !== null) {
-            removePortFile(portFile);
-            const { code, signal } = outcome.exit;
-            const how = signal === null ? `code ${String(code ?? 0)}` : `signal ${signal}`;
-            throw new Error(`Backend exited before startup (${how})` + stderrSuffix());
+            throw failedEarly;
         }
         const port = await readPort(portFile);
+        // The read is an await, so the child can fail during it. That failure is the
+        // real reason startup did not happen, and it is checked before both the port
+        // and the deadline so it is never reported as a timeout.
+        const failedDuringRead = failure();
+        if (failedDuringRead !== null) {
+            removePortFile(portFile);
+            throw failedDuringRead;
+        }
         if (port !== null) return { port, stop };
         // The wait is clamped to what is left of the budget, so the last poll lands on
         // the deadline instead of up to one whole interval past it.
