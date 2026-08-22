@@ -94,6 +94,47 @@ describe("encodeForChild", () => {
     test("drops release events for a child that did not ask for them", () => {
         expect(encodeForChild(key({ name: "char", char: "a", kind: "release" }), legacy)).toBe("");
     });
+
+    test("round-trips Shift+Tab as back-tab for a legacy child", () => {
+        // decodeLegacy turns `CSI Z` into tab with shift; a plain \t would lose
+        // the reverse direction.
+        const ev = key({ name: "tab", mods: { ...noMods(), shift: true } });
+        expect(encodeForChild(ev, legacy)).toBe("\x1b[Z");
+    });
+
+    test("round-trips non-letter ctrl chords to their C0 bytes", () => {
+        // decodeControl reports NUL as Ctrl+@ and 0x1d as Ctrl+]; sending the
+        // printable character back would not reach the child as a control key.
+        const ctrl = (char: string): KeyEvent =>
+            key({ name: "char", char, mods: { ...noMods(), ctrl: true } });
+        expect(encodeForChild(ctrl("@"), legacy)).toBe("\x00");
+        expect(encodeForChild(ctrl("]"), legacy)).toBe("\x1d");
+        expect(encodeForChild(ctrl("\\"), legacy)).toBe("\x1c");
+        expect(encodeForChild(ctrl("_"), legacy)).toBe("\x1f");
+    });
+
+    test("treats a repeat as a press for a child that does not report events", () => {
+        // Per the kitty spec, without the report-event-types flag "key repeat
+        // events are treated as key press events" — dropping them would stop
+        // auto-repeat from reaching the child.
+        expect(encodeForChild(key({ name: "char", char: "a", kind: "repeat" }), legacy)).toBe("a");
+        const modes = { ...legacy, kittyFlags: 1 };
+        expect(encodeForChild(key({ name: "char", char: "a", kind: "repeat" }), modes)).toBe("a");
+    });
+
+    test("reports no release for a text key under flags 1 and 2", () => {
+        // The spec only reports release events for keys that are sent as escape
+        // codes; emitting the legacy bytes would look like a second keypress.
+        const modes = { ...legacy, kittyFlags: 1 | 2 };
+        expect(encodeForChild(key({ name: "char", char: "a", kind: "release" }), modes)).toBe("");
+        expect(encodeForChild(key({ name: "enter", kind: "release" }), modes)).toBe("");
+    });
+
+    test("tags a functional-key release with the kitty event type", () => {
+        const modes = { ...legacy, kittyFlags: 1 | 2 };
+        expect(encodeForChild(key({ name: "up", kind: "release" }), modes)).toBe("\x1b[1;1:3A");
+        expect(encodeForChild(key({ name: "delete", kind: "repeat" }), modes)).toBe("\x1b[3;1:2~");
+    });
 });
 
 describe("encodePaste", () => {

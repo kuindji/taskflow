@@ -51,6 +51,13 @@ function hasModifier(mods: KeyMods): boolean {
 const KITTY_REPORT_EVENT_TYPES = 2;
 const KITTY_REPORT_ALL_KEYS = 8;
 
+/** The kitty event-type subparameter: press is the default and has none. */
+function eventSuffix(kind: KeyEvent["kind"]): string {
+    if (kind === "repeat") return ":2";
+    if (kind === "release") return ":3";
+    return "";
+}
+
 /**
  * Which keys flag 1 ("disambiguate escape codes") moves to CSI u. Per the kitty
  * protocol spec: "the terminal will report the Esc, alt+key, ctrl+key,
@@ -69,18 +76,43 @@ function needsKittyEncoding(ev: KeyEvent): boolean {
     return false;
 }
 
-function encodeLegacy(ev: KeyEvent, modes: { applicationCursorKeys: boolean }): string {
+const BACK_TAB = "\x1b[Z";
+
+/**
+ * `eventTag` is the kitty `:2`/`:3` event-type subparameter, non-empty only
+ * for a repeat or release the child asked to see. Keys that have an escape code
+ * carry it; text keys have nowhere to put it, and the kitty spec does not report
+ * their repeats or releases at all, so they encode to nothing rather than to a
+ * second keypress.
+ */
+function encodeLegacy(
+    ev: KeyEvent,
+    modes: { applicationCursorKeys: boolean },
+    eventTag = "",
+): string {
+    const tagged = eventTag !== "";
+
     const arrow = ARROW_FINALS[ev.name];
     if (arrow !== undefined) {
-        if (hasModifier(ev.mods)) return `\x1b[1;${String(modParam(ev.mods))}${arrow}`;
+        if (hasModifier(ev.mods) || tagged) {
+            return `\x1b[1;${String(modParam(ev.mods))}${eventTag}${arrow}`;
+        }
         return modes.applicationCursorKeys ? `\x1bO${arrow}` : `\x1b[${arrow}`;
     }
 
     const tilde = TILDE_CODES[ev.name];
     if (tilde !== undefined) {
-        if (hasModifier(ev.mods)) return `\x1b[${String(tilde)};${String(modParam(ev.mods))}~`;
+        if (hasModifier(ev.mods) || tagged) {
+            return `\x1b[${String(tilde)};${String(modParam(ev.mods))}${eventTag}~`;
+        }
         return `\x1b[${String(tilde)}~`;
     }
+
+    if (tagged) return "";
+
+    // A legacy terminal reports Shift+Tab as back-tab and has no other way to
+    // spell it, so a bare tab byte would drop the direction.
+    if (ev.name === "tab" && ev.mods.shift) return ev.mods.alt ? `\x1b${BACK_TAB}` : BACK_TAB;
 
     const simple = SIMPLE[ev.name];
     if (simple !== undefined) return ev.mods.alt ? `\x1b${simple}` : simple;
@@ -89,10 +121,12 @@ function encodeLegacy(ev: KeyEvent, modes: { applicationCursorKeys: boolean }): 
     if (char === undefined) return "";
 
     if (ev.mods.ctrl) {
-        const lower = char.toLowerCase();
-        const code = lower.charCodeAt(0);
-        if (code >= 97 && code <= 122) {
-            const control = String.fromCharCode(code - 96);
+        // The C0 byte for a ctrl chord is the character minus 64, which covers
+        // Ctrl+A..Ctrl+Z as well as Ctrl+@ (NUL, what Ctrl+Space sends) and
+        // Ctrl+\, Ctrl+], Ctrl+^ and Ctrl+_ — the same range decodeControl reads.
+        const upper = char.toUpperCase().charCodeAt(0);
+        if (upper >= 64 && upper <= 95) {
+            const control = String.fromCharCode(upper - 64);
             return ev.mods.alt ? `\x1b${control}` : control;
         }
     }
@@ -101,26 +135,29 @@ function encodeLegacy(ev: KeyEvent, modes: { applicationCursorKeys: boolean }): 
 }
 
 function encodeKitty(ev: KeyEvent, modes: ChildModes, flags: number): string {
-    if (ev.kind !== "press" && (flags & KITTY_REPORT_EVENT_TYPES) === 0) return "";
+    const reportsEvents = (flags & KITTY_REPORT_EVENT_TYPES) !== 0;
+    if (!reportsEvents && ev.kind === "release") return "";
+    // Without the report-event-types flag a repeat is indistinguishable from a
+    // press, which is what auto-repeat has to look like to the child.
+    const kindSuffix = reportsEvents ? eventSuffix(ev.kind) : "";
 
     const forceAll = (flags & KITTY_REPORT_ALL_KEYS) !== 0;
-    if (!forceAll && !needsKittyEncoding(ev)) return encodeLegacy(ev, modes);
+    if (!forceAll && !needsKittyEncoding(ev)) return encodeLegacy(ev, modes, kindSuffix);
 
     const codepoint =
         ev.name === "char" ? (ev.char?.codePointAt(0) ?? 0) : (KITTY_CODEPOINTS[ev.name] ?? 0);
-    if (codepoint === 0) return encodeLegacy(ev, modes);
+    if (codepoint === 0) return encodeLegacy(ev, modes, kindSuffix);
 
     const param = modParam(ev.mods);
-    const reportsEvents = (flags & KITTY_REPORT_EVENT_TYPES) !== 0;
-    const kindSuffix =
-        reportsEvents && ev.kind !== "press" ? `:${ev.kind === "repeat" ? "2" : "3"}` : "";
     if (param === 1 && kindSuffix === "") return `\x1b[${String(codepoint)}u`;
     return `\x1b[${String(codepoint)};${String(param)}${kindSuffix}u`;
 }
 
 function encodeForChild(ev: KeyEvent, modes: ChildModes): string {
-    if (modes.kittyFlags === null && ev.kind !== "press") return "";
     if (modes.kittyFlags !== null) return encodeKitty(ev, modes, modes.kittyFlags);
+    // A child that never pushed the protocol has no encoding for a release, and
+    // reads a repeat as another press.
+    if (ev.kind === "release") return "";
     return encodeLegacy(ev, modes);
 }
 
