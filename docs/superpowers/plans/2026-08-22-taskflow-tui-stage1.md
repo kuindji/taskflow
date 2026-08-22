@@ -141,6 +141,7 @@ interface ChildModes {
 interface NetLike {
     request<T>(type: string, payload?: unknown): Promise<T>;
     on(type: string, handler: (payload: unknown) => void): () => void;
+    onStatusChange(listener: (status: { connected: boolean }) => void): () => void;
 }
 ```
 
@@ -157,7 +158,9 @@ interface NetLike {
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `interface NetLike { request<T>(type: string, payload?: unknown): Promise<T>; on(type: string, handler: (payload: unknown) => void): () => void }` and `class WsClient implements NetLike` with `constructor(port: number)`, `connect(): Promise<void>`, `close(): void`.
+- Produces: `interface NetLike { request<T>(type, payload?): Promise<T>; on(type, handler): () => void; onStatusChange(listener: (status: { connected: boolean }) => void): () => void }` and `class WsClient implements NetLike` with `constructor(port: number)`, `connect(): Promise<void>`, `close(): void`.
+
+`onStatusChange` belongs on the interface, not just the class, because `App` holds its dependency as `NetLike` and subscribes to connection state in Task 18. Every test fake therefore implements it as `onStatusChange: () => () => undefined`.
 
 The existing UI client (`packages/ui/src/hooks/useWebSocket.ts`) is a module-level singleton. Deliberately do not copy that shape — a class is needed so tests can run several clients at once.
 
@@ -333,6 +336,7 @@ import type { WsRequest, WsResponse, WsEvent } from "@taskflow/shared";
 interface NetLike {
     request<T>(type: string, payload?: unknown): Promise<T>;
     on(type: string, handler: (payload: unknown) => void): () => void;
+    onStatusChange(listener: (status: { connected: boolean }) => void): () => void;
 }
 
 interface Pending {
@@ -347,20 +351,51 @@ class WsClient implements NetLike {
     private ws: WebSocket | null = null;
     private readonly pending = new Map<string, Pending>();
     private readonly listeners = new Map<string, Set<(payload: unknown) => void>>();
+    private readonly statusListeners = new Set<(status: { connected: boolean }) => void>();
 
     constructor(private readonly port: number) {}
 
     connect(): Promise<void> {
         return new Promise((resolve, reject) => {
-            const ws = new WebSocket(`ws://127.0.0.1:${this.port}`);
+            const ws = new WebSocket(`ws://127.0.0.1:${String(this.port)}`);
             this.ws = ws;
-            ws.onopen = () => resolve();
+            ws.onopen = () => {
+                this.notifyStatus(true);
+                resolve();
+            };
             ws.onerror = () => reject(new Error("WebSocket connection error"));
+            ws.onclose = () => {
+                if (this.ws !== ws) return; // superseded by a newer socket
+                // Drop the reference: request() must not try to send on it.
+                this.ws = null;
+                this.notifyStatus(false);
+                this.failPending(new Error("Connection lost"));
+            };
             ws.onmessage = (event: MessageEvent) => {
                 this.handleMessage(String(event.data));
             };
         });
     }
+
+    onStatusChange(listener: (status: { connected: boolean }) => void): () => void {
+        this.statusListeners.add(listener);
+        return () => {
+            this.statusListeners.delete(listener);
+        };
+    }
+
+    private notifyStatus(connected: boolean): void {
+        for (const listener of this.statusListeners) listener({ connected });
+    }
+
+    private failPending(reason: Error): void {
+        for (const pending of this.pending.values()) {
+            clearTimeout(pending.timer);
+            pending.reject(reason);
+        }
+        this.pending.clear();
+    }
+
 
     private handleMessage(raw: string): void {
         const parsed: unknown = JSON.parse(raw);
@@ -385,7 +420,9 @@ class WsClient implements NetLike {
 
     request<T>(type: string, payload: unknown = {}): Promise<T> {
         const ws = this.ws;
-        if (!ws) return Promise.reject(new Error("Not connected"));
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            return Promise.reject(new Error("Not connected"));
+        }
         const correlationId = randomUUID();
         const message: WsRequest = { correlationId, type, payload };
         return new Promise<T>((resolve, reject) => {
@@ -402,6 +439,8 @@ class WsClient implements NetLike {
         });
     }
 
+    onStatusChange: () => () => undefined,
+
     on(type: string, handler: (payload: unknown) => void): () => void {
         let handlers = this.listeners.get(type);
         if (!handlers) {
@@ -415,10 +454,10 @@ class WsClient implements NetLike {
     }
 
     close(): void {
-        for (const pending of this.pending.values()) clearTimeout(pending.timer);
-        this.pending.clear();
-        this.ws?.close();
+        this.failPending(new Error("Client closed"));
+        const ws = this.ws;
         this.ws = null;
+        ws?.close();
     }
 }
 
@@ -561,14 +600,18 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
         },
     });
 
-    let exitCode: number | null = null;
-    let spawnError: Error | null = null;
+    // Held in an object: TypeScript narrows a plain `let` to `never` here,
+    // because it cannot see the assignment that happens inside the callback.
+    const outcome: { exitCode: number | null; spawnError: Error | null } = {
+        exitCode: null,
+        spawnError: null,
+    };
     child.once("exit", (code) => {
-        exitCode = code ?? 0;
+        outcome.exitCode = code ?? 0;
     });
     // Without this listener Node throws on ENOENT instead of rejecting.
     child.once("error", (err: Error) => {
-        spawnError = err;
+        outcome.spawnError = err;
     });
 
     const stop = (): void => {
@@ -580,12 +623,12 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
     for (;;) {
         const port = await readPort(portFile);
         if (port !== null) return { port, stop };
-        if (spawnError !== null) {
+        if (outcome.spawnError !== null) {
             await rm(portFile, { force: true });
-            throw new Error(`Backend failed to start: ${(spawnError as Error).message}`);
+            throw new Error(`Backend failed to start: ${outcome.spawnError.message}`);
         }
-        if (exitCode !== null) {
-            throw new Error(`Backend exited before startup (code ${String(exitCode)})`);
+        if (outcome.exitCode !== null) {
+            throw new Error(`Backend exited before startup (code ${String(outcome.exitCode)})`);
         }
         if (Date.now() > deadline) {
             stop();
@@ -957,6 +1000,20 @@ describe("Screen", () => {
         expect(sink.output).toContain("X");
     });
 
+    test("re-emits the cursor after a resize even if it did not move", () => {
+        // A full repaint leaves the real cursor wherever the last painted run
+        // ended, so an unchanged logical position still has to be re-sent.
+        const sink = collectingSink();
+        const screen = new Screen(sink, 10, 3);
+        screen.setCursor({ x: 2, y: 1 });
+        screen.flush();
+        screen.resize(12, 4);
+        sink.output = "";
+        screen.setCursor({ x: 2, y: 1 });
+        screen.flush();
+        expect(sink.output).toContain("\x1b[2;3H");
+    });
+
     test("repaints everything after a resize", () => {
         const sink = collectingSink();
         const screen = new Screen(sink, 10, 2);
@@ -1019,6 +1076,10 @@ class Screen {
         this.front = new ScreenBuffer(cols, rows);
         this.back = new ScreenBuffer(cols, rows);
         this.forceRepaint = true;
+        // A full repaint leaves the real cursor wherever the last run ended, so
+        // it must be re-emitted even if its logical position did not change.
+        this.cursorInitialised = false;
+        this.lastCursor = null;
     }
 
     flush(): void {
@@ -1087,7 +1148,7 @@ export type { Sink };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/render/screen.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1888,11 +1949,29 @@ describe("encodeForChild", () => {
         expect(encodeForChild(ev, modes)).toBe("\x1b[13;2u");
     });
 
-    test("keeps a plain key literal under flag 1 rather than forcing CSI u", () => {
-        // Flag 1 is "disambiguate escape codes": the child still expects legacy
-        // bytes for ordinary keys. Sending ESC[97u here would break typing.
+    test("keeps plain text literal under flag 1", () => {
         const modes = { ...legacy, kittyFlags: 1 };
         expect(encodeForChild(key({ name: "char", char: "a" }), modes)).toBe("a");
+    });
+
+    test("sends Ctrl+C as CSI u under flag 1, not as an interrupt byte", () => {
+        // Per the kitty spec, flag 1 means "ctrl+c will no longer generate the
+        // SIGINT signal, but instead be delivered as a CSI u escape code".
+        const modes = { ...legacy, kittyFlags: 1 };
+        const ev = key({ name: "char", char: "c", mods: { ...noMods(), ctrl: true } });
+        expect(encodeForChild(ev, modes)).toBe("\x1b[99;5u");
+    });
+
+    test("sends Alt+key and Escape as CSI u under flag 1", () => {
+        const modes = { ...legacy, kittyFlags: 1 };
+        const alt = key({ name: "char", char: "a", mods: { ...noMods(), alt: true } });
+        expect(encodeForChild(alt, modes)).toBe("\x1b[97;3u");
+        expect(encodeForChild(key({ name: "escape" }), modes)).toBe("\x1b[27u");
+    });
+
+    test("keeps Enter legacy under flag 1, for shell compatibility", () => {
+        const modes = { ...legacy, kittyFlags: 1 };
+        expect(encodeForChild(key({ name: "enter" }), modes)).toBe("\r");
     });
 
     test("uses CSI u under flag 8, which asks for all keys as escape codes", () => {
@@ -1991,15 +2070,21 @@ const KITTY_REPORT_EVENT_TYPES = 2;
 const KITTY_REPORT_ALL_KEYS = 8;
 
 /**
- * Keys legacy encoding cannot express unambiguously. Under flag 1
- * (disambiguate) the child expects legacy bytes for everything else, so
- * sending CSI u for a plain letter would break ordinary typing.
+ * Which keys flag 1 ("disambiguate escape codes") moves to CSI u. Per the kitty
+ * protocol spec: "the terminal will report the Esc, alt+key, ctrl+key,
+ * ctrl+alt+key, shift+alt+key keys using CSI u sequences instead of legacy
+ * ones", and "ctrl+c will no longer generate the SIGINT signal, but instead be
+ * delivered as a CSI u escape code". Plain text stays literal, and Enter, Tab
+ * and Backspace keep their legacy bytes for shell compatibility.
  */
 function needsKittyEncoding(ev: KeyEvent): boolean {
-    if (ev.mods.super) return true;
-    if (ev.name === "char") return false;
-    const named = ev.name === "enter" || ev.name === "tab" || ev.name === "escape";
-    return named && (ev.mods.shift || ev.mods.ctrl);
+    if (ev.mods.ctrl || ev.mods.alt || ev.mods.super) return true;
+    if (ev.name === "escape") return true;
+    // Unmodified these stay legacy; their shifted forms have no legacy encoding.
+    if (ev.name === "enter" || ev.name === "tab" || ev.name === "backspace") {
+        return ev.mods.shift;
+    }
+    return false;
 }
 
 function encodeKitty(ev: KeyEvent, modes: ChildModes, flags: number): string {
@@ -2068,7 +2153,7 @@ export type { ChildModes };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/input/encode.test.ts`
-Expected: PASS, 14 tests.
+Expected: PASS, 17 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2118,6 +2203,7 @@ function fakeNet(responses: Record<string, unknown>): FakeNet {
             if (response === undefined) return Promise.reject(new Error(`no stub for ${type}`));
             return Promise.resolve(response as T);
         },
+        onStatusChange: () => () => undefined,
         on(type: string, handler: (payload: unknown) => void): () => void {
             let set = listeners.get(type);
             if (!set) {
@@ -2587,6 +2673,7 @@ function stubNet(): NetLike {
             return Promise.resolve({} as T);
         },
         on: () => () => undefined,
+        onStatusChange: () => () => undefined,
     };
 }
 
@@ -2849,6 +2936,7 @@ function fakeNet(projects: Project[], tasks: Task[]): FakeNet {
             if (type === MSG.TASK_LIST) return Promise.resolve({ tasks } as T);
             return Promise.reject(new Error(`no stub for ${type}`));
         },
+        onStatusChange: () => () => undefined,
         on(type, handler) {
             let set = listeners.get(type);
             if (!set) {
@@ -3325,6 +3413,7 @@ function stubNet(projects: Project[], tasks: Task[]): NetLike {
             return Promise.reject(new Error(`no stub for ${type}`));
         },
         on: () => () => undefined,
+        onStatusChange: () => () => undefined,
     };
 }
 
@@ -3535,6 +3624,7 @@ function stubNet(): NetLike {
             return Promise.resolve({} as T);
         },
         on: () => () => undefined,
+        onStatusChange: () => () => undefined,
     };
 }
 
@@ -3734,6 +3824,7 @@ function stubNet(): NetLike {
             return Promise.resolve({} as T);
         },
         on: () => () => undefined,
+        onStatusChange: () => () => undefined,
     };
 }
 
@@ -4372,11 +4463,19 @@ Expected: FAIL — `onStatusChange` is not a function.
 
 - [ ] **Step 3: Add reconnection to `WsClient`**
 
-Add these fields to the class, and give the constructor a host so Task 18's
-remote targets work without touching `connect()` again:
+Task 1 already provides `onStatusChange`, `notifyStatus` and `failPending`, and
+already clears `this.ws` on close. This step adds only the retry loop and the
+host parameter that Task 18 needs.
+
+Add the backoff ceiling beside `REQUEST_TIMEOUT_MS`:
 
 ```ts
-    private readonly statusListeners = new Set<(status: { connected: boolean }) => void>();
+const MAX_RECONNECT_DELAY_MS = 5_000;
+```
+
+Add three fields and widen the constructor:
+
+```ts
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private reconnectAttempt = 0;
     private closed = false;
@@ -4387,20 +4486,28 @@ remote targets work without touching `connect()` again:
     ) {}
 ```
 
-Add the status API and the backoff scheduler:
+Use the host in `connect()`:
 
 ```ts
-    onStatusChange(listener: (status: { connected: boolean }) => void): () => void {
-        this.statusListeners.add(listener);
-        return () => {
-            this.statusListeners.delete(listener);
-        };
-    }
+            const ws = new WebSocket(`ws://${this.host}:${String(this.port)}`);
+```
 
-    private notifyStatus(connected: boolean): void {
-        for (const listener of this.statusListeners) listener({ connected });
-    }
+Reset the attempt counter once a connection succeeds, inside `ws.onopen`:
 
+```ts
+                this.reconnectAttempt = 0;
+```
+
+Schedule a retry from `ws.onclose`, after the existing `notifyStatus(false)` and
+`failPending(...)` calls:
+
+```ts
+                this.scheduleReconnect();
+```
+
+Add the scheduler itself:
+
+```ts
     private scheduleReconnect(): void {
         if (this.closed || this.reconnectTimer !== null) return;
         const delay = Math.min(250 * 2 ** this.reconnectAttempt, MAX_RECONNECT_DELAY_MS);
@@ -4414,51 +4521,7 @@ Add the status API and the backoff scheduler:
     }
 ```
 
-with the constant beside `REQUEST_TIMEOUT_MS`:
-
-```ts
-const MAX_RECONNECT_DELAY_MS = 5_000;
-```
-
-Wire the socket handlers in `connect()` so a drop schedules a retry. Replace the
-body of the returned promise with:
-
-```ts
-        return new Promise((resolve, reject) => {
-            const ws = new WebSocket(`ws://${this.host}:${String(this.port)}`);
-            this.ws = ws;
-            ws.onopen = () => {
-                this.reconnectAttempt = 0;
-                this.notifyStatus(true);
-                resolve();
-            };
-            ws.onerror = () => reject(new Error("WebSocket connection error"));
-            ws.onclose = () => {
-                if (this.ws !== ws) return; // superseded by a newer socket
-                this.notifyStatus(false);
-                this.failPending(new Error("Connection lost"));
-                this.scheduleReconnect();
-            };
-            ws.onmessage = (event: MessageEvent) => {
-                this.handleMessage(String(event.data));
-            };
-        });
-```
-
-Add the helper that rejects in-flight requests on a drop, so callers are not
-left hanging until the 30s request timeout:
-
-```ts
-    private failPending(reason: Error): void {
-        for (const pending of this.pending.values()) {
-            clearTimeout(pending.timer);
-            pending.reject(reason);
-        }
-        this.pending.clear();
-    }
-```
-
-Finally make `close()` stop the retry loop:
+And make `close()` stop the loop, before the existing `failPending` call:
 
 ```ts
     close(): void {
@@ -4474,8 +4537,10 @@ Finally make `close()` stop the retry loop:
     }
 ```
 
-Note the ordering: `this.ws` is cleared before `ws.close()` so the `onclose`
-guard sees a superseded socket and does not schedule a reconnect.
+Two orderings matter here. `this.ws` is cleared before `ws.close()` so the
+`onclose` guard sees a superseded socket and does not schedule a reconnect after
+an intentional shutdown. And `closed` is set before anything else, so a close
+racing an in-flight timer cannot restart the loop.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -4537,6 +4602,15 @@ describe("parseArgs", () => {
         expect(() => parseArgs(["--connect", "desktop:abc"])).toThrow(/host:port/);
     });
 
+    test("rejects a port with trailing garbage", () => {
+        // parseInt alone would accept this as 123.
+        expect(() => parseArgs(["--connect", "desktop:123abc"])).toThrow(/host:port/);
+    });
+
+    test("rejects an out-of-range port", () => {
+        expect(() => parseArgs(["--connect", "desktop:99999"])).toThrow(/host:port/);
+    });
+
     test("rejects an unknown flag", () => {
         expect(() => parseArgs(["--nope"])).toThrow(/Unknown/);
     });
@@ -4561,10 +4635,11 @@ function parseTarget(value: string): { host: string; port: number } {
     const separator = value.lastIndexOf(":");
     if (separator <= 0) throw new Error(`--connect expects host:port. ${USAGE}`);
     const host = value.slice(0, separator);
-    const port = Number.parseInt(value.slice(separator + 1), 10);
-    if (!Number.isInteger(port) || port <= 0) {
-        throw new Error(`--connect expects host:port. ${USAGE}`);
-    }
+    const rawPort = value.slice(separator + 1);
+    // parseInt would accept "123abc" as 123, so require digits only.
+    if (!/^\d+$/.test(rawPort)) throw new Error(`--connect expects host:port. ${USAGE}`);
+    const port = Number.parseInt(rawPort, 10);
+    if (port < 1 || port > 65535) throw new Error(`--connect expects host:port. ${USAGE}`);
     return { host, port };
 }
 
@@ -4597,7 +4672,7 @@ export type { CliOptions };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/cli.test.ts`
-Expected: PASS, 6 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Branch on the mode in `index.ts`**
 
