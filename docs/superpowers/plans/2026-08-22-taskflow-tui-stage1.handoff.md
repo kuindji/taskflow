@@ -8,7 +8,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
-| 1 | Package scaffold and WebSocket client | in-review round 2 (fixed) | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8` |
+| 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
 | 2 | Backend lifecycle | pending | — | |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
@@ -78,6 +78,28 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
     settles any in-flight `connect()`, fails pending requests and reports the
     status transition. `setStatus` deduplicates so repeated closes stay quiet.
 
+- **Task 1, round 3** (gpt-5.5 via codex-review, Mode B over `49b7967..cbd0dfd`
+  restricted to `packages/tui` and `eslint.config.js`): one finding, not
+  substantiated. **Task 1 is clear — no code changed this round.**
+  - Codex reported that `packages/tui/package.json`'s `dev` and `build:bin`
+    scripts point at `src/index.ts`, which does not exist, so `bun run dev` fails
+    with `Module not found "src/index.ts"`. The observation is accurate but it is
+    not a defect: that manifest is reproduced verbatim from the plan (plan lines
+    172-192), and `src/index.ts` is created by Task 15 (plan line 3771). The
+    dangling script references resolve then. No change made.
+  - Codex explicitly reported no remaining substantive defects in `WsClient` for
+    the interleavings it was asked to probe, and verified with
+    `bun test packages/tui/src/net/client.test.ts --repeat-each 20`,
+    `bun run typecheck` and `bun run lint`.
+  - Independently probed two paths the earlier rounds had not covered, both
+    healthy: reconnect after a server-side close (`onStatusChange` sees
+    `[true, false, true]` and a request on the new socket resolves), and a
+    request in flight when the server goes away (rejects with `Connection lost`).
+    Throwaway probe, not kept in the suite — Task 17 owns reconnection tests and
+    the plan gives it its own `reconnect.test.ts`.
+  - Validation at `cbd0dfd`: `bun run lint` and `bun run typecheck` exit 0,
+    `bun test packages/tui` is 7 pass / 0 fail.
+
 ## Decisions taken
 
 - **Pre-existing test failures.** `bun test` reports 8 failures in
@@ -97,4 +119,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: review round 3 for Task 1 (gpt-5.5 via codex-review over `49b7967..HEAD`, currently `8bdedf8`)
+Next step: implement Task 2 (Backend lifecycle)
