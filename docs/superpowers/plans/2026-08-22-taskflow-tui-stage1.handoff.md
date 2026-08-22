@@ -15,7 +15,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
-| 8 | Per-child key encoding | pending | — | |
+| 8 | Per-child key encoding | implemented | `7932626` | commit `4a8ac77` |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
@@ -1083,7 +1083,26 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 **Task 7 is clear.**
 
-Next step: Implement Task 8 (per-child key encoding). Record HEAD as the base
-commit first, follow the plan's Task 8 steps, validate with
-`bun run lint && bun run typecheck && bun test`, and commit. Then review
-round 1 for Task 8.
+- **Task 8 implementation** (base `7932626`, commit `4a8ac77`): added
+  `packages/tui/src/input/encode.ts` and its test, exactly as the plan
+  specifies. `encodeForChild` picks between a legacy encoder (CSI/SS3 arrows
+  honouring application-cursor-keys mode, tilde sequences, control bytes for
+  Ctrl+letter, ESC-prefix for Alt) and a kitty CSI u encoder used only when the
+  child itself pushed the protocol. Flag 1 moves Esc, Alt+key, Ctrl+key and
+  shifted Enter/Tab/Backspace to CSI u while leaving plain text and unmodified
+  Enter/Tab/Backspace legacy; flag 8 forces every key to CSI u; flag 2 gates
+  release and repeat events, which are dropped otherwise. `encodePaste` wraps
+  in bracketed-paste markers when the child enabled the mode.
+
+  TDD order followed: test written first, run and confirmed failing with
+  "Cannot find module ./encode", then the implementation; the file's 17 tests
+  pass, matching the count the plan predicts.
+
+- Validation at `4a8ac77`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 951 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
+  the pass count rose from 934 by the 17 Task 8 tests.
+
+Next step: Review round 1 for Task 8 — one gpt-5.5 review via the codex-review
+skill over `7932626..HEAD` (the `encode.ts` / `encode.test.ts` diff). Verify any
+findings independently, fix the substantiated ones, validate and commit.
