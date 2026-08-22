@@ -11,7 +11,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
 | 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
-| 4 | Screen diffing and flush | in-review round 1 | `7ff1b11` | commits `cc48d84`, `ecab7a5`; round 1 found 3 |
+| 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
 | 5 | TTY control and restoration | pending | — | |
 | 6 | Legacy key decoder | pending | — | |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
@@ -609,9 +609,34 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
     majority, still clone without allocating a colour. Test:
     `does not share colour objects between frames`.
 
-Next step: Task 4 review round 2 — round 1 fixed three findings, so the task gets
-another round. Run one gpt-5.5 review via the codex-review skill over
-`7ff1b11..HEAD` (`packages/tui/src/render/screen.ts`, `screen.test.ts` and the
-`copyCell` addition in `cells.ts`), verify every finding independently, fix the
-substantiated ones, re-run `bun run lint && bun run typecheck && bun test`, and
-commit.
+
+- **Task 4, round 2** (gpt-5.5 via codex-review, Mode A over `--base 7ff1b11`):
+  zero findings. Codex reported "No material defects were found in the changed
+  screen diffing/cell-copy code or its tests." Independent reading of
+  `screen.ts`, `cells.ts` and `screen.test.ts` raised four candidates and none
+  survived:
+  - *A run starting on a wide char's continuation cell would position the cursor
+    mid-glyph.* Not reachable: reaching that state needs the width-2 lead cell to
+    compare equal while its width-0 continuation differs, which a consistent
+    blitter cannot produce. Both realistic directions (narrow run overwritten by a
+    wide char, wide char overwritten by narrow cells) were traced by hand and emit
+    correct sequences.
+  - *SGR state leaks past the end of a frame.* Real, but harmless within Task 4:
+    every frame's first painted cell goes through `sgrDiff(null, cell)`, which
+    always prefixes a full `0` reset, so the next frame self-corrects. Emitting a
+    trailing reset belongs to Task 5's TTY restore path, not here.
+  - *`sink.write` throwing leaves `front` describing content the terminal never
+    got.* Self-correcting: the throw propagates before `forceRepaint = false`, so
+    the next flush is a full repaint.
+  - *Reassigning the public `back` each flush strands a cached reference.* A usage
+    contract, not a defect; every planned consumer reads `screen.back` fresh.
+  Validation: `bun run lint` clean, `bun run typecheck` clean across all five
+  packages, `bun test` 882 pass / 8 fail (the recorded pre-existing
+  `MarkdownPaneImpl` suite-ordering failures, unchanged). No code change was
+  needed, so this round produced no commit.
+
+Next step: Implement Task 5 — TTY control and restoration
+(`packages/tui/src/term/tty.ts` + tests, plan section "Task 5"). Record the
+current HEAD as the task's base commit before starting, implement only that task,
+run `bun run lint && bun run typecheck && bun test`, commit, then queue review
+round 1.
