@@ -18,7 +18,13 @@ const ATTR_UNDERLINE = 8;
 const ATTR_INVERSE = 16;
 const ATTR_STRIKE = 32;
 
-const DEFAULT_COLOR: Color = { kind: "default" };
+/**
+ * Shared by every cell `blankCell()` produces, for both `fg` and `bg`. Frozen
+ * because that sharing makes an in-place edit global: without it, one
+ * `Object.assign(cell.fg, ...)` would recolour every default-coloured cell in
+ * the process. Freezing turns that into an immediate TypeError.
+ */
+const DEFAULT_COLOR: Color = Object.freeze({ kind: "default" });
 
 function blankCell(): Cell {
     return { ch: " ", width: 1, fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, attrs: 0 };
@@ -62,6 +68,13 @@ class ScreenBuffer {
         return cell;
     }
 
+    /**
+     * Takes ownership of `cell` — the buffer stores the reference rather than
+     * copying, so the caller must not hand the same object to two coordinates
+     * or keep mutating it afterwards. Copying here would allocate on every
+     * blitted cell of every frame; Task 4's `Screen` copies at the one place
+     * that needs it, when cloning the front buffer.
+     */
     set(x: number, y: number, cell: Cell): void {
         if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) return;
         this.cells[y * this.cols + x] = cell;

@@ -45,6 +45,19 @@ describe("ScreenBuffer", () => {
     });
 });
 
+describe("blankCell", () => {
+    test("the shared default color cannot be mutated in place", () => {
+        const a = blankCell();
+        const b = blankCell();
+        expect(() => Object.assign(a.fg, { kind: "palette", index: 2 })).toThrow(TypeError);
+        // What the throw prevents: fg and bg of every blank cell in the
+        // process are the same object, so a successful mutation would
+        // recolour cells nothing ever touched.
+        expect(b.fg).toEqual({ kind: "default" });
+        expect(a.bg).toEqual({ kind: "default" });
+    });
+});
+
 describe("stylesEqual", () => {
     test("ignores ch and width", () => {
         expect(stylesEqual(cell({ ch: "a", width: 1 }), cell({ ch: "", width: 0 }))).toBe(true);
