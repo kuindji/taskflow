@@ -439,8 +439,6 @@ class WsClient implements NetLike {
         });
     }
 
-    onStatusChange: () => () => undefined,
-
     on(type: string, handler: (payload: unknown) => void): () => void {
         let handlers = this.listeners.get(type);
         if (!handlers) {
