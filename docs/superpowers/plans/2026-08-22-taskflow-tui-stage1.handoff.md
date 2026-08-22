@@ -13,7 +13,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
 | 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
-| 6 | Legacy key decoder | pending | — | |
+| 6 | Legacy key decoder | implemented | `f7f072b` | commit `cfde4b3`; review round 1 due |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
 | 8 | Per-child key encoding | pending | — | |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
@@ -477,6 +477,65 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 ## Decisions taken
 
+- **Task 6 widens CSI parsing to the full ECMA-48 shape instead of the plan's
+  `/^\x1b\[([0-9;]*)([A-Za-z~])/`.** The plan's regex only matches numeric
+  parameters, and on no match it returns the whole tail as the carry. Any CSI
+  sequence with a private-parameter prefix (`?`, `<`, `>`, `=`) or an
+  intermediate byte therefore becomes a permanent carry: it never matches, so
+  every later read is prepended to it and every key typed afterwards is
+  swallowed. Probed against a verbatim copy of the plan's implementation —
+  after `ESC [ ? 1 u` (a late kitty-protocol reply, the exact sequence Task 7's
+  `negotiateKitty` provokes and can miss when its 150ms timeout fires first),
+  typing `a`, `b`, Enter produced **zero** events and a carry that grew to
+  `"\x1b[?1uab\r"`. The decoder now scans parameters (0x30-0x3f), intermediates
+  (0x20-0x2f) and one final byte (0x40-0x7e), consumes any complete sequence, and
+  drops the ones it does not recognise — private parameters and intermediates
+  included — rather than carrying them. Regression tests: `consumes a private CSI
+  reply instead of stalling on it`, `keeps decoding keys typed after an
+  unrecognized CSI sequence`, `carries a private CSI sequence that is still
+  incomplete`.
+
+- **A tail that can never complete a CSI sequence is no longer carried.** Same
+  wedge, second door: the plan carried `ESC [ CR` forever too (probe: events
+  `[]`, carry `"\x1b[\r"`). `scanCsi` now distinguishes *incomplete* (could still
+  grow into a sequence — carried, as before) from *invalid* (the next byte is in
+  none of the three CSI ranges). On invalid the ESC is emitted as a real Escape
+  press and decoding resumes one byte later, so `ESC [ CR` reads back as Escape,
+  literal `[`, Enter. Only the wedge is fixed; the plan's carry semantics for
+  genuinely incomplete sequences are unchanged, and `flushCarry` still drops a
+  stale partial. Test: `does not carry a tail that can never complete a CSI
+  sequence`.
+
+- **Astral characters are decoded as one key event, not two surrogates.** The
+  plan stepped the buffer one UTF-16 code unit at a time, so a pasted emoji
+  emitted two `char` events holding lone surrogates (probe: `\u{1F680}` →
+  `["\ud83d","\ude80"]`). Task 8 re-encodes `char` on the way to the child, where
+  a lone surrogate becomes U+FFFD, so pasted emoji and less common CJK would
+  reach the agent corrupted. The non-ESC branch now reads a whole code point via
+  `codePointAt` and advances by its length. A pair split across two reads is
+  still emitted as lone surrogates — carrying a trailing high surrogate would
+  only move the loss into `flushCarry`, which drops non-ESC carries. Test:
+  `keeps an astral character whole`.
+
+- **`modsFromParam` floors its bitmask at zero.** The plan computed
+  `param - 1` unguarded, so a malformed `CSI 1;0 C` gives `bits === -1` and every
+  modifier reads as held (verified: `{shift,alt,ctrl,super}` all `true`), and a
+  parameter that failed to parse would do the same via `NaN`. `param >= 1` also
+  rejects `NaN`, so both cases now mean no modifiers. Task 7 calls this function
+  too, with its own `|| 1` fallback, so the guard is belt-and-braces there.
+  Test: `treats an out-of-range modifier parameter as no modifiers`.
+
+- **`FINAL_TO_NAME` / `TILDE_TO_NAME` are typed `Record<K, KeyName | undefined>`.**
+  The plan's `Record<string, KeyName>` claims every lookup succeeds, which made
+  the plan's own `if (name)` guards look redundant. The honest type lets the
+  guards be `name !== undefined` and keeps the "unknown final byte is dropped"
+  branch visible to the type checker.
+
+- **Task 6 test file has 20 tests, not the plan's 12.** The plan's twelve are
+  kept verbatim; the extra eight cover the four deviations above plus the
+  tilde-final navigation keys (`CSI 3 ~`, `CSI 5;2 ~`), which the plan
+  implements but never exercises.
+
 - **`leaveSequence()` emits an explicit `\x1b[0m` even though the leak it guards
   against is not reachable.** Task 5 round 1 reported an SGR leak into the shell
   prompt; a `@xterm/headless` probe showed `\x1b[?1049l` already restores the
@@ -644,6 +703,27 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   `MarkdownPaneImpl` suite-ordering failures, unchanged). No code change was
   needed, so this round produced no commit.
 
+## Task 6 implementation
+
+- Commit `cfde4b3` — `feat(tui): add legacy key decoder`. Files created:
+  `packages/tui/src/input/keys.ts`, `packages/tui/src/input/decode-legacy.ts`,
+  `packages/tui/src/input/decode-legacy.test.ts`.
+- Written test-first: the suite was red with `Cannot find module './decode-legacy'`
+  before either source file existed.
+- No regex anywhere in the decoder. `eslint.configs.recommended` enables
+  `no-control-regex`, which flags `\x1b` inside a regex literal, and the plan
+  forbids `eslint-disable`. The CSI scanner is a hand-rolled character-code scan
+  instead, which also made the incomplete/invalid distinction natural to express.
+  **Task 7 will hit the same rule** — its planned `KITTY_SEQUENCE`,
+  `INCOMPLETE_CSI` and `REPLY` regexes all contain `\x1b`, so they need the same
+  treatment.
+- Validation at `cfde4b3`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 911 pass / 8 fail — the 8 are the recorded
+  pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass count rose
+  from 891 by exactly the 20 new decoder tests.
+- Review needed: yes. This is new parsing logic that every keystroke in the TUI
+  will pass through, and it deviates from the plan in four places.
+
 ## Task 5 implementation
 
 - **Base commit:** `cef9dcb`. **Commit:** `4b6d4b7`
@@ -776,8 +856,11 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 **Task 5 is clear.**
 
-Next step: Implement Task 6 (legacy key decoder). Record current HEAD as the
-task's base commit in the table before starting, follow the plan's Task 6 steps
-(test first, then implementation), run
-`bun run lint && bun run typecheck && bun test`, and commit. Then the next step
-becomes review round 1 for Task 6.
+Next step: Review round 1 for Task 6 (legacy key decoder). Run one gpt-5.5
+review via the codex-review skill over `f7f072b..HEAD` (currently `cfde4b3`),
+scoped to `packages/tui/src/input/`. Verify each finding independently before
+acting on it, fix the substantiated ones, run
+`bun run lint && bun run typecheck && bun test`, and commit. Zero substantiated
+findings clears Task 6 and the next step becomes implementing Task 7 (kitty key
+decoder and protocol negotiation) — see the `no-control-regex` note in "Task 6
+implementation" before writing Task 7's regexes.
