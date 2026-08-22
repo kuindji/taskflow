@@ -9,7 +9,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
-| 2 | Backend lifecycle | in-review round 2 | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`; round 2 found 3, all 3 fixed |
+| 2 | Backend lifecycle | in-review round 3 | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`; round 3 found 2, both fixed |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
@@ -202,6 +202,48 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
     with the 8 being the known pre-existing `MarkdownPaneImpl` failures. Zero stray
     `sleep 30` processes after the run.
 
+- **Task 2, round 3** (gpt-5.5 via codex-review, Mode B over `ee98048..dd501ff`
+  restricted to `packages/tui/src/backend/`): two findings, **both substantiated and
+  fixed in `b55e5c6`**. Each was reproduced independently before the fix. Run the repros
+  with `bun test packages/tui/src/backend/manager.test.ts`.
+  - **Substantiated — a startup timeout threw away the backend's own error message.**
+    The drain collects a stderr tail and the early-exit branch appends it, but the
+    timeout branch threw only `Backend startup timeout after Nms`. Observable symptom:
+    the port is already taken, the backend prints `bind: address already in use` and
+    then sits there, and the TUI tells the user nothing but "timeout". Regression test:
+    `reports the backend's stderr when startup times out` — red (message was exactly
+    `Backend startup timeout after 1500ms`), green (the tail is appended). Fix: both
+    branches now go through a shared `stderrSuffix()`.
+  - **Substantiated — a backend that ignores SIGTERM survived a startup timeout.**
+    `stop()` sends SIGTERM, ignores the return value and never escalates, so the timeout
+    path rejected while leaving the child alive holding the port. Observable symptom: a
+    wedged backend makes the *next* start fail too, because the port it never released is
+    still bound. Regression test: `kills a backend that ignores SIGTERM when startup times
+    out` — the fake backend does `trap '' TERM` and records its pid; red (pid still alive
+    2s after the rejection), green (gone). Fix: the startup paths call a new async
+    `terminate()` that sends SIGTERM, polls for the exit for `KILL_GRACE_MS` (1000ms) and
+    then sends SIGKILL, and the timeout branch awaits it before rejecting.
+    The test polls for the pid to disappear rather than checking once: SIGKILL delivery
+    and reaping are asynchronous and a checked-once assertion saw a zombie as alive.
+  - Codex also suggested making the handle's `stop()` async or exposing completion so the
+    caller can know the kill worked. Not done — see "Decisions taken".
+  - How much of this reaches the *real* backend: the message loss is unconditional. The
+    survival case needs a backend whose SIGTERM handling is broken or blocked; the real
+    backend registers its SIGTERM handler at `packages/backend/src/index.ts:517`, *after*
+    the port write at line 470, so during the startup window it has no handler and dies on
+    the default action. The escalation matters for a backend wedged after registering it,
+    for a wrapper script that traps, and as a guarantee the timeout path leaves nothing
+    behind. Kept because it is cheap and the failure it prevents (every retry failing) is
+    the expensive kind.
+  - Codex ran `bun test packages/tui/src/backend/manager.test.ts`, `bun run typecheck` and
+    `bun run lint`, all passing, but could not execute its own proposed repros — the
+    read-only sandbox denied the temp writes. Both were re-derived and run here.
+  - Validation at `b55e5c6`: `bun run lint` and `bun run typecheck` exit 0,
+    `bun test packages/tui` is 25 pass / 0 fail, the manager file alone is 18 pass / 0 fail
+    and stable across three consecutive runs, full `bun test` is 841 pass / 8 fail with the
+    8 being the known pre-existing `MarkdownPaneImpl` failures. No stray fake-backend or
+    `sleep 30` processes attributable to the run.
+
 ## Decisions taken
 
 - **Task 2 strips `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the backend's env.**
@@ -221,6 +263,15 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   up the port file on spawn-error and timeout but not when the child exits early,
   leaking a tmp file per failed start. Added the same `rm` there.
 
+- **`BackendHandle.stop()` stays `(): void`, SIGTERM-only.** Round 3 raised making it
+  async or having it escalate to SIGKILL. Both plan call sites run
+  `backend.stop(); process.exit(0)` on consecutive lines (plan lines 4131 and 4705), so a
+  `setTimeout`-based escalation scheduled inside `stop()` could never fire, and widening
+  the return type is a change to the interface the plan pins at line 490 and to Task 15's
+  shutdown path. The escalation lives on the startup paths instead, which are already
+  async and can await it. If Task 15 later wants a guaranteed-dead backend at exit, that
+  is a change to the handle's contract and belongs there, not here.
+
 - **Pre-existing test failures.** `bun test` reports 8 failures in
   `packages/ui/src/components/panes/MarkdownPaneImpl.*` when the whole suite runs
   (they pass in isolation — suite-ordering flakiness). Verified identical at base
@@ -238,4 +289,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 2 review round 3 — gpt-5.5 via codex-review over `ee98048..HEAD`, restricted to `packages/tui/src/backend/` (round 2 changed code, so another round is due)
+Next step: Task 2 review round 4 — gpt-5.5 via codex-review over `ee98048..HEAD`, restricted to `packages/tui/src/backend/` (round 3 changed code, so another round is due)
