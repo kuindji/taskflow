@@ -12,7 +12,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
 | 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
-| 5 | TTY control and restoration | implemented | `cef9dcb` | commit `4b6d4b7`; review round 1 due |
+| 5 | TTY control and restoration | in-review round 1 | `cef9dcb` | commits `4b6d4b7`, `db65873`; round 2 due |
 | 6 | Legacy key decoder | pending | — | |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
 | 8 | Per-child key encoding | pending | — | |
@@ -477,6 +477,15 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 ## Decisions taken
 
+- **`leaveSequence()` emits an explicit `\x1b[0m` even though the leak it guards
+  against is not reachable.** Task 5 round 1 reported an SGR leak into the shell
+  prompt; a `@xterm/headless` probe showed `\x1b[?1049l` already restores the
+  saved character attributes, so no leak occurs on a compliant terminal. The
+  reset was added anyway: it is one escape sequence with no behavioural risk, it
+  covers terminals that ignore 1049, and it closes the trailing-reset thread that
+  Task 4 round 2 explicitly deferred to this task. Recorded as hardening so a
+  later reader does not mistake it for evidence of a real defect.
+
 - **Hidden/invisible text is out of scope for Stage 1, and Task 10 should say so.**
   Round 3 surfaced that `IBufferCell.isInvisible()` has no home in the six-bit
   attribute set, so an agent that emits `ESC[8m` will have that text rendered
@@ -657,10 +666,52 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   cursor — the worst failure the plan names for this task.
 
 
-Next step: Review round 1 for Task 5 — run one gpt-5.5 review via the
-codex-review skill over `cef9dcb..HEAD` (the Task 5 diff:
-`packages/tui/src/term/tty.ts` and `packages/tui/src/term/tty.test.ts`), verify
-every finding independently, fix the substantiated ones, re-run
-`bun run lint && bun run typecheck && bun test`, and commit. Zero substantiated
-findings clears Task 5 and the next step becomes implementing Task 6 (legacy key
-decoder).
+## Task 5 review rounds
+
+- **Task 5, round 1** (gpt-5.5 via codex-review, Mode A over `--base cef9dcb`):
+  two findings. One substantiated and fixed in `db65873`; one not reproducible.
+
+  - **Substantiated — raw mode survived a failing leave write.** `leave()` set
+    `entered = false`, then wrote the leave sequence, then cleared raw mode. A
+    sink whose `write` throws therefore propagated out before
+    `setRawMode(false)` ran, and because `entered` was already cleared the
+    installed `exit`/signal handlers could not retry — the shell was left in raw
+    mode, which is precisely the failure the plan names as the worst one for
+    this task. Repro: the new test
+    `Tty > clears raw mode even when the leave write throws` in
+    `packages/tui/src/term/tty.test.ts` — red on `4b6d4b7`
+    (`modes` is `[true]`, the `false` never arrives), green after the fix.
+    Command: `bun test packages/tui/src/term/tty.test.ts`. Fix: the write moved
+    into a `try` with the raw-mode reset in `finally`. The test stubs
+    `process.stdin.isTTY`/`setRawMode` (stdin is not a TTY under `bun test`) and
+    restores the original property descriptors afterwards, deleting the stub
+    where no own property existed before.
+
+  - **Not substantiated — "styled output leaks SGR back to the shell".** Codex
+    argued `leaveSequence()` never resets SGR, so a prompt could inherit bold or
+    colour. Checked against a real terminal implementation rather than by
+    reading: a `@xterm/headless` probe fed alt-screen entry, `\x1b[1;31mX`, the
+    actual `leaveSequence({ kitty: false })`, then `"$ "`, and read the cell
+    attributes at the cursor. The prompt cell came back unstyled — `\x1b[?1049l`
+    performs the DECRC half of 1049 and restores the saved character attributes.
+    The probe is discriminating: dropping `\x1b[?1049l` from the exit sequence
+    made the same assertion fail with `bold: 134217728, fgDefault: false`. So the
+    leak is not reachable on a compliant terminal.
+
+    Decision: an explicit `\x1b[0m` was still added to `leaveSequence()` — one
+    escape sequence, no behavioural risk, covering terminals that ignore 1049
+    and closing the thread Task 4 round 2 deferred here. Recorded as hardening,
+    not as a confirmed-defect fix.
+
+- Validation before `db65873`: `bun run lint` clean, `bun run typecheck` clean
+  across all five packages, `bun test` 889 pass / 8 fail — the 8 are the recorded
+  pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass count rose
+  from 888 by exactly the one new tty test.
+
+Next step: Review round 2 for Task 5 — a substantiated finding was fixed this
+round, so run one more gpt-5.5 review via the codex-review skill over the full
+Task 5 diff (`--base cef9dcb`, now covering `tty.ts` and `tty.test.ts` including
+the `db65873` fix), verify every finding independently, fix the substantiated
+ones, re-run `bun run lint && bun run typecheck && bun test`, and commit. Zero
+substantiated findings clears Task 5 and the next step becomes implementing
+Task 6 (legacy key decoder).
