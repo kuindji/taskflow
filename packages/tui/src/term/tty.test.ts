@@ -11,6 +11,14 @@ function collectingSink(): Sink & { output: string } {
     };
 }
 
+// `process.stdin` is not a TTY under `bun test`, so `isTTY`/`setRawMode` are
+// stubbed onto it and then put back exactly as they were — deleting the stub
+// when the property did not exist before, rather than leaving `undefined` behind.
+function restore(target: object, key: string, saved: PropertyDescriptor | undefined): void {
+    if (saved === undefined) Reflect.deleteProperty(target, key);
+    else Object.defineProperty(target, key, saved);
+}
+
 describe("enterSequence", () => {
     test("enters the alternate screen and hides the cursor", () => {
         const out = enterSequence({ kitty: false });
@@ -56,5 +64,40 @@ describe("Tty", () => {
         const sink = collectingSink();
         new Tty(sink, { kitty: false }).leave();
         expect(sink.output).toBe("");
+    });
+
+    // The whole point of this module is that the shell never survives in raw mode.
+    // A sink that throws on the way out is the one path where that could still
+    // happen, so raw mode has to be cleared even when the write fails.
+    test("clears raw mode even when the leave write throws", () => {
+        const stdin: NodeJS.ReadStream = process.stdin;
+        const savedIsTTY = Object.getOwnPropertyDescriptor(stdin, "isTTY");
+        const savedSetRawMode = Object.getOwnPropertyDescriptor(stdin, "setRawMode");
+        const modes: boolean[] = [];
+        stdin.isTTY = true;
+        stdin.setRawMode = (mode: boolean): NodeJS.ReadStream => {
+            modes.push(mode);
+            return stdin;
+        };
+        try {
+            let failing = false;
+            const tty = new Tty(
+                {
+                    write() {
+                        if (failing) throw new Error("stdout closed");
+                    },
+                },
+                { kitty: false },
+            );
+            tty.enter();
+            failing = true;
+            expect(() => {
+                tty.leave();
+            }).toThrow("stdout closed");
+            expect(modes).toEqual([true, false]);
+        } finally {
+            restore(stdin, "setRawMode", savedSetRawMode);
+            restore(stdin, "isTTY", savedIsTTY);
+        }
     });
 });

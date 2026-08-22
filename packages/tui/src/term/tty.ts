@@ -11,13 +11,17 @@ const CURSOR_SHOW = "\x1b[?25h";
 const MOUSE_OFF = "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l";
 const KITTY_PUSH = "\x1b[>1u";
 const KITTY_POP = "\x1b[<u";
+// Exiting the alternate screen restores the saved cursor, which on a compliant
+// terminal carries the SGR state with it. Terminals that ignore 1049 do not, so
+// the reset is emitted explicitly rather than trusted to the restore.
+const SGR_RESET = "\x1b[0m";
 
 function enterSequence(opts: TtyOptions): string {
     return `${ALT_SCREEN_ON}${CURSOR_HIDE}${opts.kitty ? KITTY_PUSH : ""}`;
 }
 
 function leaveSequence(opts: TtyOptions): string {
-    return `${opts.kitty ? KITTY_POP : ""}${MOUSE_OFF}${CURSOR_SHOW}${ALT_SCREEN_OFF}`;
+    return `${opts.kitty ? KITTY_POP : ""}${SGR_RESET}${MOUSE_OFF}${CURSOR_SHOW}${ALT_SCREEN_OFF}`;
 }
 
 class Tty {
@@ -39,8 +43,13 @@ class Tty {
     leave(): void {
         if (!this.entered) return;
         this.entered = false;
-        this.sink.write(leaveSequence(this.opts));
-        if (process.stdin.isTTY) process.stdin.setRawMode(false);
+        // Raw mode has to come off even when the write fails. A shell left in raw
+        // mode is unusable; a leave sequence that never reached it is cosmetic.
+        try {
+            this.sink.write(leaveSequence(this.opts));
+        } finally {
+            if (process.stdin.isTTY) process.stdin.setRawMode(false);
+        }
     }
 
     installExitHandlers(): void {
