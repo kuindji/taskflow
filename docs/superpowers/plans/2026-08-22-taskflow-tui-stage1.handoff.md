@@ -15,7 +15,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
-| 8 | Per-child key encoding | in-review round 2 | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`; round 2 found real issues, fixed |
+| 8 | Per-child key encoding | in-review round 3 | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`; round 3 found one real issue, fixed |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
@@ -1171,8 +1171,30 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
   the pass count rose from 956 by the 2 new regression tests.
 
-Next step: Review round 3 for Task 8 — one gpt-5.5 review via the codex-review
-skill over `7932626..HEAD` (`encode.ts` plus its test, including the round 1 and
-round 2 fixes). Verify any findings independently, fix the substantiated ones,
+- **Task 8, round 3** (gpt-5.5 via codex-review, Mode A over `--base 7932626`):
+  one finding, substantiated, fixed in `2eec4c1`.
+  - *"Preserve Ctrl+Space when forwarding to legacy children"* — real. Kitty
+    sends Ctrl+Space as `CSI 32;5u`; `CODEPOINT_TO_NAME` in `decode-kitty.ts`
+    deliberately omits 32, so the decoder reports `{name:"char", char:" ",
+    ctrl:true}`. The encoder's C0 mapping only covered `@`..`_` (64..95), so a
+    space (32) fell through to the literal character and a legacy child got an
+    ordinary space instead of NUL. The C0 mapping moved into a `controlByte`
+    helper that special-cases space, and the ctrl branch now runs ahead of the
+    `SIMPLE` table — which would otherwise have spelled a `space`-named event as
+    a bare space too. Ctrl+Enter, Ctrl+Tab, Ctrl+Backspace and Ctrl+Escape are
+    unchanged: they carry no `char`, so `controlByte` returns undefined and they
+    fall through to `SIMPLE` exactly as before.
+
+  Confirmed with a test written first and observed red (`Expected: "\x00" /
+  Received: " "`) before the fix: `bun test packages/tui/src/input/encode.test.ts`.
+
+- Validation at `2eec4c1`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 959 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
+  the pass count rose from 958 by the 1 new regression test.
+
+Next step: Review round 4 for Task 8 — one gpt-5.5 review via the codex-review
+skill over `7932626..HEAD` (`encode.ts` plus its test, including the round 1, 2
+and 3 fixes). Verify any findings independently, fix the substantiated ones,
 validate and commit. Zero substantiated findings means Task 8 is clear and Task 9
 (session terminal — attach, resync and mode tracking) is next.
