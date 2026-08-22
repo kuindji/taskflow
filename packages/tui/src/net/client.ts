@@ -67,7 +67,14 @@ class WsClient implements NetLike {
     }
 
     private handleMessage(raw: string): void {
-        const parsed: unknown = JSON.parse(raw);
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(raw);
+        } catch {
+            // A frame that is not JSON cannot be correlated to anything; drop it
+            // rather than letting the error escape the socket's message handler.
+            return;
+        }
         if (typeof parsed !== "object" || parsed === null) return;
 
         if ("correlationId" in parsed) {
