@@ -13,7 +13,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
 | 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
-| 6 | Legacy key decoder | in-review round 2 | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`; round 3 due |
+| 6 | Legacy key decoder | in-review round 3 | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; round 4 due |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
 | 8 | Per-child key encoding | pending | — | |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
@@ -923,11 +923,41 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass
   count rose from 913 by exactly the one new decoder test.
 
-Next step: Review round 3 for Task 6 (legacy key decoder). Run one gpt-5.5
-review via the codex-review skill over `--base f7f072b` (HEAD is now `6bccf51`),
-covering the whole task diff including the round-2 fix. Verify each finding
-independently before acting on it, fix the substantiated ones, run
-`bun run lint && bun run typecheck && bun test`, and commit. Zero substantiated
-findings clears Task 6 and the next step becomes implementing Task 7 (kitty key
-decoder and protocol negotiation) — see the `no-control-regex` note in "Task 6
-implementation" before writing Task 7's regexes.
+- **Task 6, round 3** (gpt-5.5 via codex-review, Mode A over `--base f7f072b`,
+  covering the whole task diff including the round-2 fix): **one finding,
+  substantiated and fixed in `d045f40`.**
+
+  **Alt+[ and Alt+O do nothing.** Those two chords send exactly `ESC [` and
+  `ESC O` — byte for byte the opening of a CSI and an SS3 sequence. The decoder
+  cannot tell them apart from a real sequence whose tail is still in flight, so
+  it correctly parks them in the carry. But `flushCarry`, which the idle timer
+  calls to release a stale carry, only ever converted a lone `ESC` back into a
+  key; every longer carry was dropped. So the press vanished — nothing reached
+  the TUI or any child session, no matter how long the user waited.
+
+  Repro: the new test `decodeLegacy > flushCarry releases an ambiguous alt
+  prefix as an alt chord` in `packages/tui/src/input/decode-legacy.test.ts` —
+  red on `6bccf51` (`flushCarry("\x1b[")` returns `[]`), green after the fix.
+  Command: `bun test packages/tui/src/input/decode-legacy.test.ts`.
+
+  Fix: `flushCarry` now releases a two-byte `ESC` + printable carry as the
+  matching Alt+char event, which is the same reading `decodeLegacy` already
+  gives `ESC` + any other printable byte. By construction those are the only
+  two-byte carries the decoder emits (the CSI-incomplete and SS3-short paths),
+  so the new branch cannot swallow a partial sequence of three bytes or more —
+  those still drop, as before.
+
+- Validation before `d045f40`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 915 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass
+  count rose from 914 by exactly the one new decoder test.
+
+Next step: Review round 4 for Task 6 (legacy key decoder). Run one gpt-5.5
+review via the codex-review skill over `--base f7f072b` (HEAD is now `d045f40`
+plus this docs commit), covering the whole task diff including the round-3 fix.
+Verify each finding independently before acting on it, fix the substantiated
+ones, run `bun run lint && bun run typecheck && bun test`, and commit. Zero
+substantiated findings clears Task 6 and the next step becomes implementing
+Task 7 (kitty key decoder and protocol negotiation) — see the
+`no-control-regex` note in "Task 6 implementation" before writing Task 7's
+regexes.
