@@ -825,6 +825,15 @@ function writeText(screen: Screen, x: number, y: number, text: string): void {
 }
 
 describe("Screen", () => {
+    test("repaints the whole screen on the first frame", () => {
+        const sink = collectingSink();
+        const screen = new Screen(sink, 4, 2);
+        screen.setCursor(null);
+        screen.flush();
+        expect(sink.output).toContain("\x1b[1;1H");
+        expect(sink.output).toContain("\x1b[2;1H");
+    });
+
     test("emits nothing when nothing changed between frames", () => {
         const sink = collectingSink();
         const screen = new Screen(sink, 10, 3);
@@ -838,8 +847,10 @@ describe("Screen", () => {
     test("positions the cursor once per changed run and writes the text", () => {
         const sink = collectingSink();
         const screen = new Screen(sink, 10, 3);
-        writeText(screen, 2, 1, "abc");
         screen.setCursor(null);
+        screen.flush(); // first frame repaints everything and seeds the front buffer
+        sink.output = "";
+        writeText(screen, 2, 1, "abc");
         screen.flush();
         expect(sink.output).toContain("\x1b[2;3H");
         expect(sink.output).toContain("abc");
@@ -1014,7 +1025,7 @@ export type { Sink };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/render/screen.test.ts`
-Expected: PASS, 6 tests.
+Expected: PASS, 7 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1207,9 +1218,11 @@ git commit -m "feat(tui): add tty setup with guaranteed restoration"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `KeyMods`, `KeyName`, `KeyEvent`, `noMods(): KeyMods` from `keys.ts`; and `function decodeLegacy(input: string, carry: string): { events: KeyEvent[]; carry: string }` from `decode-legacy.ts`.
+- Produces: `KeyMods`, `KeyName`, `KeyEvent`, `noMods(): KeyMods`, `modsFromParam(param: number): KeyMods` from `keys.ts`; and `function decodeLegacy(input: string, carry: string): { events: KeyEvent[]; carry: string }` plus `function flushCarry(carry: string): KeyEvent[]` from `decode-legacy.ts`.
 
 Escape sequences split across two reads are normal on a slow pipe, so `carry` returns the unconsumed tail for the next call.
+
+A trailing lone `ESC` is ambiguous: it may begin `ESC [ A` whose remainder has not arrived, or it may be a real Escape press. A pure function over one chunk cannot tell, so `decodeLegacy` holds it and `flushCarry` releases it once the caller's idle timer says no continuation is coming. Skipping `flushCarry` means Escape never registers at all.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1217,7 +1230,7 @@ Escape sequences split across two reads are normal on a slow pipe, so `carry` re
 
 ```ts
 import { describe, test, expect } from "bun:test";
-import { decodeLegacy } from "./decode-legacy";
+import { decodeLegacy, flushCarry } from "./decode-legacy";
 import { noMods } from "./keys";
 
 describe("decodeLegacy", () => {
@@ -1261,8 +1274,23 @@ describe("decodeLegacy", () => {
         });
     });
 
-    test("decodes a lone escape", () => {
-        expect(decodeLegacy("\x1b", "").events[0]?.name).toBe("escape");
+    test("carries a lone escape rather than emitting it", () => {
+        const { events, carry } = decodeLegacy("\x1b", "");
+        expect(events).toEqual([]);
+        expect(carry).toBe("\x1b");
+    });
+
+    test("a carried escape still completes a split sequence", () => {
+        const first = decodeLegacy("\x1b", "");
+        expect(decodeLegacy("[A", first.carry).events[0]?.name).toBe("up");
+    });
+
+    test("flushCarry releases a stranded escape as a real Escape press", () => {
+        expect(flushCarry("\x1b")[0]?.name).toBe("escape");
+    });
+
+    test("flushCarry drops an incomplete CSI rather than emitting garbage", () => {
+        expect(flushCarry("\x1b[1;")).toEqual([]);
     });
 
     test("decodes alt plus character", () => {
@@ -1457,14 +1485,27 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
     return { events, carry: "" };
 }
 
-export { decodeLegacy };
+/**
+ * Convert a carry that has gone stale into events. `decodeLegacy` cannot know
+ * whether a trailing ESC begins a longer sequence or is a real Escape press, so
+ * it holds it; the caller calls this after a short idle timeout to release it.
+ * Without this, pressing Escape alone would never register.
+ */
+function flushCarry(carry: string): KeyEvent[] {
+    if (carry === "") return [];
+    if (carry === "\x1b") return [press("escape")];
+    // A partial CSI/SS3 that never completed: drop it rather than emit garbage.
+    return [];
+}
+
+export { decodeLegacy, flushCarry };
 export type { DecodeResult };
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/input/decode-legacy.test.ts`
-Expected: PASS, 10 tests.
+Expected: PASS, 12 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -3669,10 +3710,12 @@ import { Screen } from "./render/screen";
 import { Tty } from "./term/tty";
 import { negotiateKitty } from "./input/negotiate";
 import { decodeKitty } from "./input/decode-kitty";
-import { decodeLegacy } from "./input/decode-legacy";
+import { decodeLegacy, flushCarry } from "./input/decode-legacy";
 import { App } from "./ui/app";
 
 const FRAME_INTERVAL_MS = 16;
+/** How long a held ESC waits for a continuation before counting as a real Escape. */
+const ESCAPE_IDLE_MS = 25;
 
 function readOnce(timeoutMs: number): Promise<string> {
     return new Promise((resolve) => {
@@ -3714,11 +3757,27 @@ async function main(): Promise<void> {
     await app.init();
 
     let carry = "";
+    let carryTimer: ReturnType<typeof setTimeout> | null = null;
+
     process.stdin.on("data", (chunk: Buffer) => {
+        if (carryTimer !== null) {
+            clearTimeout(carryTimer);
+            carryTimer = null;
+        }
         const decode = kittyAvailable ? decodeKitty : decodeLegacy;
         const result = decode(chunk.toString("utf-8"), carry);
         carry = result.carry;
         for (const ev of result.events) app.handleKey(ev);
+
+        // A held ESC is only a real Escape press if nothing follows it.
+        if (carry !== "") {
+            carryTimer = setTimeout(() => {
+                carryTimer = null;
+                const stranded = carry;
+                carry = "";
+                for (const ev of flushCarry(stranded)) app.handleKey(ev);
+            }, ESCAPE_IDLE_MS);
+        }
     });
 
     const timer = setInterval(() => {
@@ -3752,8 +3811,9 @@ Verify, in order:
 1. The sidebar lists your projects and their active tasks.
 2. `j` and `k` move the selection and the highlight follows.
 3. `Ctrl+Esc` moves focus to the session pane and back.
-4. `Q` exits, and the terminal is returned to normal — cursor visible, echo working, no leftover alternate screen.
-5. `kill -TERM <pid>` from another terminal also restores the terminal cleanly.
+4. Pressing `Esc` on its own does not hang or get swallowed, and pressing an arrow key still moves the selection — this is the `flushCarry` idle timer working.
+5. `Q` exits, and the terminal is returned to normal — cursor visible, echo working, no leftover alternate screen.
+6. `kill -TERM <pid>` from another terminal also restores the terminal cleanly.
 
 Any failure here is a bug in an earlier task, not something to patch in `index.ts`.
 
