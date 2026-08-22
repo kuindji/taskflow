@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import type { Terminal } from "bun";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { TERMINAL_SCROLLBACK } from "@taskflow/shared";
+import { TERMINAL_SCROLLBACK, KittyKeyboardStack } from "@taskflow/shared";
 import type { SessionSnapshotResponse } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 import { isWindows } from "./platform";
@@ -110,7 +110,7 @@ interface Session {
     headless: HeadlessTerminal;
     serializer: SerializeAddon;
     /** Kitty keyboard protocol state the child pushed; SerializeAddon does not carry it. */
-    kitty: { flags: number | null };
+    kitty: KittyKeyboardStack;
     /** Cancels a pending initial-input injection; set only when spawned with initialInput. */
     cancelInitialInput?: () => void;
 }
@@ -147,14 +147,15 @@ export class PtyManager {
         // client attaching later cannot recover it from the serialized screen.
         // Track it here and report it alongside the snapshot. Registered before
         // any output is written so a restored session re-derives its state.
-        const kitty: { flags: number | null } = { flags: null };
+        const kitty = new KittyKeyboardStack();
         headless.parser.registerCsiHandler({ prefix: ">", final: "u" }, (params) => {
             const first = params[0];
-            kitty.flags = typeof first === "number" ? first : 1;
+            kitty.push(typeof first === "number" ? first : 0);
             return false;
         });
-        headless.parser.registerCsiHandler({ prefix: "<", final: "u" }, () => {
-            kitty.flags = null;
+        headless.parser.registerCsiHandler({ prefix: "<", final: "u" }, (params) => {
+            const first = params[0];
+            kitty.pop(typeof first === "number" ? first : 1);
             return false;
         });
 
@@ -338,7 +339,7 @@ export class PtyManager {
     getSnapshot(id: string): SessionSnapshotResponse {
         const session = this.sessions.get(id);
         if (!session) {
-            return { snapshot: null, lastSequence: 0, cursorHidden: false, kittyFlags: null };
+            return { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] };
         }
         // Access internal API: SerializeAddon v0.13.0 doesn't serialize DECTCEM
         // (cursor visibility), so we read it from the headless terminal's core.
@@ -350,7 +351,7 @@ export class PtyManager {
             snapshot: session.serializer.serialize(),
             lastSequence: session.lastSequence,
             cursorHidden,
-            kittyFlags: session.kitty.flags,
+            kittyStack: session.kitty.toArray(),
         };
     }
 

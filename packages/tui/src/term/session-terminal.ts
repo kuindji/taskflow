@@ -1,5 +1,5 @@
 import { Terminal } from "@xterm/headless";
-import { MSG } from "@taskflow/shared";
+import { MSG, KittyKeyboardStack } from "@taskflow/shared";
 import type {
     SessionSnapshotResponse,
     SessionHistoryResponse,
@@ -36,7 +36,7 @@ class SessionTerminal {
 
     private historyLoaded = false;
     private pending: PendingChunk[] = [];
-    private kittyFlags: number | null = null;
+    private readonly kitty = new KittyKeyboardStack();
     private hiddenCursor = false;
     private readonly disposers: Array<() => void> = [];
     /** Serializes writes so `attach()` can await the parser actually finishing. */
@@ -89,13 +89,14 @@ class SessionTerminal {
         track(
             parser.registerCsiHandler({ prefix: ">", final: "u" }, (params) => {
                 const first = params[0];
-                this.kittyFlags = typeof first === "number" ? first : 1;
+                this.kitty.push(typeof first === "number" ? first : 0);
                 return false;
             }),
         );
         track(
-            parser.registerCsiHandler({ prefix: "<", final: "u" }, () => {
-                this.kittyFlags = null;
+            parser.registerCsiHandler({ prefix: "<", final: "u" }, (params) => {
+                const first = params[0];
+                this.kitty.pop(typeof first === "number" ? first : 1);
                 return false;
             }),
         );
@@ -136,7 +137,7 @@ class SessionTerminal {
         return {
             applicationCursorKeys: this.terminal.modes.applicationCursorKeysMode,
             bracketedPaste: this.terminal.modes.bracketedPasteMode,
-            kittyFlags: this.kittyFlags,
+            kittyFlags: this.kitty.flags,
         };
     }
 
@@ -176,7 +177,7 @@ class SessionTerminal {
                 // The serialized screen carries no kitty keyboard state, so the
                 // backend reports it separately; without it a client attaching
                 // to a session already in kitty mode would encode legacy keys.
-                this.kittyFlags = snapshot.kittyFlags;
+                this.kitty.restore(snapshot.kittyStack);
                 void this.enqueue(snapshot.snapshot);
                 if (snapshot.cursorHidden) {
                     void this.enqueue("\x1b[?25l");

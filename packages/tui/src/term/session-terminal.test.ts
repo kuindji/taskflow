@@ -48,7 +48,7 @@ async function settle(): Promise<void> {
 describe("SessionTerminal", () => {
     test("restores from a snapshot when one is available", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "HELLO", lastSequence: 5, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "HELLO", lastSequence: 5, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -58,7 +58,7 @@ describe("SessionTerminal", () => {
 
     test("falls back to history when there is no snapshot", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
             [MSG.SESSION_HISTORY]: { data: "FROMLOG", lastSequence: 2 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
@@ -77,7 +77,7 @@ describe("SessionTerminal", () => {
             if (type === MSG.SESSION_SNAPSHOT) {
                 return gate.then(
                     () =>
-                        ({ snapshot: "AAA", lastSequence: 5, cursorHidden: false, kittyFlags: null }) as unknown as T,
+                        ({ snapshot: "AAA", lastSequence: 5, cursorHidden: false, kittyStack: [] }) as unknown as T,
                 );
             }
             return Promise.reject(new Error(`no stub for ${type}`));
@@ -95,7 +95,7 @@ describe("SessionTerminal", () => {
 
     test("ignores output belonging to other sessions", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -107,7 +107,7 @@ describe("SessionTerminal", () => {
 
     test("tracks application cursor keys and bracketed paste from child output", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -125,7 +125,7 @@ describe("SessionTerminal", () => {
 
     test("tracks the kitty protocol flags the child pushes and pops", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -139,9 +139,30 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
+    test("restores the outer kitty flags when a nested push is popped", async () => {
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        // A shell that speaks the protocol pushes, then an editor run inside it
+        // pushes its own flags and pops them again on exit.
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[>1u", sequence: 1 });
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[>5u", sequence: 2 });
+        await settle();
+        expect(term.modes.kittyFlags).toBe(5);
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[<u", sequence: 3 });
+        await settle();
+        expect(term.modes.kittyFlags).toBe(1);
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[<u", sequence: 4 });
+        await settle();
+        expect(term.modes.kittyFlags).toBeNull();
+        term.dispose();
+    });
+
     test("tracks cursor visibility", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -154,7 +175,7 @@ describe("SessionTerminal", () => {
 
     test("writes a process-exited marker when the session ends", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
         await term.attach();
@@ -175,7 +196,7 @@ describe("SessionTerminal", () => {
             if (type === MSG.SESSION_SNAPSHOT) {
                 return gate.then(
                     () =>
-                        ({ snapshot: "WORK", lastSequence: 0, cursorHidden: false, kittyFlags: null }) as unknown as T,
+                        ({ snapshot: "WORK", lastSequence: 0, cursorHidden: false, kittyStack: [] }) as unknown as T,
                 );
             }
             return Promise.reject(new Error(`no stub for ${type}`));
@@ -195,7 +216,7 @@ describe("SessionTerminal", () => {
 
     test("ignores an exit belonging to another session", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
         await term.attach();
@@ -210,7 +231,7 @@ describe("SessionTerminal", () => {
         // What Task 18 does on reconnect. Without the reset, the snapshot is
         // drawn on top of the old grid and everything appears twice.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 0, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -221,7 +242,7 @@ describe("SessionTerminal", () => {
 
     test("re-attaching preserves modes the child set before the drop", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -239,7 +260,7 @@ describe("SessionTerminal", () => {
 
     test("re-attaching clears output that was still queued when the drop happened", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 0, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
         await term.attach();
@@ -252,7 +273,7 @@ describe("SessionTerminal", () => {
 
     test("re-attach reads modes from output that was still queued", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -263,24 +284,29 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
-    test("restores the kitty flags the snapshot reports", async () => {
+    test("restores the kitty stack the snapshot reports", async () => {
         const net = fakeNet({
             [MSG.SESSION_SNAPSHOT]: {
                 snapshot: "",
                 lastSequence: 0,
                 cursorHidden: false,
-                kittyFlags: 5,
+                // The child is already nested: a shell pushed 1, an editor pushed 5.
+                kittyStack: [null, 1, 5],
             },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
         expect(term.modes.kittyFlags).toBe(5);
+        // Quitting the editor has to hand the shell its own flags back, not legacy.
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[<u", sequence: 1 });
+        await settle();
+        expect(term.modes.kittyFlags).toBe(1);
         term.dispose();
     });
 
     test("sends a resize request and resizes the local grid", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
             [MSG.TERMINAL_RESIZE]: { success: true },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });

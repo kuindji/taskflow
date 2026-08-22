@@ -234,8 +234,13 @@ export interface SessionSnapshotResponse {
     snapshot: string | null;
     lastSequence: number;
     cursorHidden: boolean;
-    /** Kitty keyboard protocol flags the child pushed, or null if it pushed none. */
-    kittyFlags: number | null;
+    /**
+     * The child's kitty keyboard protocol stack, outermost first and the flags in
+     * force last; empty if it never pushed. The serialized screen does not carry
+     * it, and an attaching client needs the whole stack so a later pop restores
+     * the flags underneath rather than dropping to legacy.
+     */
+    kittyStack: (number | null)[];
 }
 
 // Shell detection

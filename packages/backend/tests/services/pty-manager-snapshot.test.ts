@@ -58,7 +58,25 @@ describe("PtyManager.getSnapshot", () => {
 
         // The headless terminal parses asynchronously.
         await new Promise((resolve) => setTimeout(resolve, 50));
-        expect(manager.getSnapshot(sessionId).kittyFlags).toBe(5);
+        expect(manager.getSnapshot(sessionId).kittyStack).toEqual([null, 5]);
+        manager.close(sessionId);
+    });
+
+    it("restores the outer kitty flags when a nested push is popped", async () => {
+        const sessionId = manager.spawn({
+            command: testShell,
+            args: [],
+            cwd: testCwd,
+            // A shell pushes its own flags, an editor run inside it pushes and
+            // then pops on exit; the shell's flags have to come back.
+            initialOutput: "\x1b[>1u\x1b[>5u\x1b[<u",
+            onData: () => {},
+            onExit: () => {},
+        });
+
+        // The headless terminal parses asynchronously.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(manager.getSnapshot(sessionId).kittyStack).toEqual([null, 1]);
         manager.close(sessionId);
     });
 
