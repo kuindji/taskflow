@@ -9,7 +9,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
-| 2 | Backend lifecycle | in-review round 3 | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`; round 3 found 2, both fixed |
+| 2 | Backend lifecycle | in-review round 4 | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`; round 4 found 2, both fixed |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
@@ -244,6 +244,52 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
     8 being the known pre-existing `MarkdownPaneImpl` failures. No stray fake-backend or
     `sleep 30` processes attributable to the run.
 
+- **Task 2, round 4** (gpt-5.5 via codex-review, Mode B over `ee98048..34b2174`
+  restricted to `packages/tui/src/backend/`): two findings, **both substantiated and
+  fixed in `1a16bf1`**. Each was reproduced independently before the fix. Run the repros
+  with `bun test packages/tui/src/backend/manager.test.ts`.
+  - **Substantiated — `devBranch: null` still inherited a `TASKFLOW_DEV_BRANCH` from the
+    TUI's own environment.** `safeEnv` spread `process.env` wholesale and only the
+    non-null branch touched the variable, so the option could not turn dev mode *off*.
+    Observable symptom: a TUI launched from a shell that exports `TASKFLOW_DEV_BRANCH`
+    (the dev launcher at plan line 4156 does exactly that) spawns its backend on that dev
+    instance even when the caller asked for none, so the TUI shows a different instance's
+    projects and tasks than expected. Regression test: `does not let a
+    TASKFLOW_DEV_BRANCH in its own env reach a devBranch-null child` — red (port 9999,
+    i.e. the child saw the variable), green (4332). The pre-existing null test passed only
+    because the ambient env happened to be clean. Fix: strip `TASKFLOW_DEV_BRANCH` in the
+    same destructure as the Claude Code markers, leaving `opts.devBranch` as the only
+    thing that sets it.
+    Reachability note: the plan's own callers derive `devBranch` from
+    `process.env.TASKFLOW_DEV_BRANCH ?? null` (plan lines 4074, 4689), so they cannot hit
+    the mismatch today. Fixed anyway because the option's contract should hold for any
+    caller, and because it makes the existing test test what its name claims.
+  - **Substantiated — port-file cleanup could throw and mask the real startup error.**
+    All three failure branches called `rmSync(portFile, { force: true })`; `force` does not
+    make a non-recursive `rmSync` remove a directory. A child that leaves a directory at
+    `TASKFLOW_PORT_FILE` makes cleanup throw `EISDIR`, and that error propagates in place
+    of the backend's own. Observable symptom: the user is told
+    `Path is a directory: rm returned EISDIR /tmp/taskflow-tui-port-...` instead of
+    `Backend exited before startup (code 3): bind: address already in use`, and the
+    directory is left behind. Regression test: `does not let port-file cleanup mask the
+    backend's own startup error` — red (message was the EISDIR text), green (both the exit
+    code and the stderr tail). Fix: a `removePortFile()` helper that removes recursively
+    inside a `try/catch`, used by all three branches and by `stop()`.
+    Trigger is contrived — the real backend writes a file — but the guarantee that cleanup
+    never replaces the error being reported is worth having unconditionally.
+  - Codex found no fresh `terminate()` spin/hang issue and no type looseness, and could not
+    run its own repros (read-only sandbox). Both were re-derived and run here.
+  - Independently probed one thing Codex did not raise, and did **not** find a defect: the
+    loop checks `outcome.exit` *before* `await readPort()`, so in principle an exit event
+    delivered during that await could let a dead backend resolve. Stress-tested with 400
+    consecutive starts of `echo 4321 > $PORT; exit 7`: 0 resolved, 400 rejected. The exit
+    event is always delivered before the next poll's read completes, so the window is not
+    reachable in practice. Not fixed, not reported as a finding.
+  - Validation at `1a16bf1`: `bun run lint` and `bun run typecheck` exit 0,
+    `bun test packages/tui` is 27 pass / 0 fail, full `bun test` is 843 pass / 8 fail with
+    the 8 being the known pre-existing `MarkdownPaneImpl` failures. Zero stray `sleep 30`
+    processes after the run.
+
 ## Decisions taken
 
 - **Task 2 strips `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the backend's env.**
@@ -289,4 +335,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 2 review round 4 — gpt-5.5 via codex-review over `ee98048..HEAD`, restricted to `packages/tui/src/backend/` (round 3 changed code, so another round is due)
+Next step: Task 2 review round 5 — gpt-5.5 via codex-review over `ee98048..HEAD`, restricted to `packages/tui/src/backend/` (round 4 changed code, so another round is due)
