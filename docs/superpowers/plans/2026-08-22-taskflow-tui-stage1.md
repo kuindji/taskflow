@@ -2277,6 +2277,37 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
+    test("re-attaching replaces the screen instead of appending to it", async () => {
+        // What Task 18 does on reconnect. Without the reset, the snapshot is
+        // drawn on top of the old grid and everything appears twice.
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 0, cursorHidden: false },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        await term.attach();
+        expect([0, 1, 2].map((y) => readRow(term, y)).join("")).toBe("PROMPT>");
+        term.dispose();
+    });
+
+    test("re-attaching preserves modes the child set before the drop", async () => {
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "\x1b[?1h\x1b[?2004h",
+            sequence: 1,
+        });
+        await settle();
+        await term.attach();
+        expect(term.modes.applicationCursorKeys).toBe(true);
+        expect(term.modes.bracketedPaste).toBe(true);
+        term.dispose();
+    });
+
     test("sends a resize request and resizes the local grid", async () => {
         const net = fakeNet({
             [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
@@ -2429,6 +2460,21 @@ class SessionTerminal {
     }
 
     async attach(): Promise<void> {
+        // A second attach means the connection dropped and came back. The
+        // snapshot is the entire screen, so the old grid must go first or it
+        // renders twice. terminal.reset() also clears DEC modes, which the
+        // child set long ago and will not send again, so they are restored.
+        if (this.historyLoaded) {
+            const previous = this.modes;
+            this.historyLoaded = false;
+            this.pending = [];
+            this.terminal.reset();
+            let restore = "";
+            if (previous.applicationCursorKeys) restore += "\x1b[?1h";
+            if (previous.bracketedPaste) restore += "\x1b[?2004h";
+            if (restore !== "") await this.enqueue(restore);
+        }
+
         try {
             const snapshot = await this.deps.net.request<SessionSnapshotResponse>(
                 MSG.SESSION_SNAPSHOT,
@@ -2489,7 +2535,7 @@ export type { SessionOwner };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/term/session-terminal.test.ts`
-Expected: PASS, 10 tests.
+Expected: PASS, 12 tests.
 
 The `registerCsiHandler` approach here is verified, not assumed: with `prefix` set to `>`, `<`, and `?`, all four handlers fire and `params` arrives as `[1]`, `[0]`, `[25]` and `[1]` respectively, while `terminal.modes` tracks the DEC modes in parallel.
 
