@@ -13,7 +13,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
 | 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
-| 6 | Legacy key decoder | in-review round 1 | `f7f072b` | commits `cfde4b3`, `74af2bd`; round 2 due |
+| 6 | Legacy key decoder | in-review round 2 | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`; round 3 due |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
 | 8 | Per-child key encoding | pending | — | |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
@@ -894,9 +894,38 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 **Task 5 is clear.**
 
-Next step: Review round 2 for Task 6 (legacy key decoder). Run one gpt-5.5
-review via the codex-review skill over `f7f072b..HEAD` (currently `74af2bd`),
-covering the whole task diff including the round-1 fixes. Verify each finding
+- **Task 6, round 2** (gpt-5.5 via codex-review, Mode A over `--base f7f072b`,
+  covering the whole task diff including the round-1 fixes): **one finding,
+  substantiated and fixed in `6bccf51`.**
+
+  **Home and End do nothing on rxvt and the Linux console.** Those terminals
+  report Home as `CSI 7~` and End as `CSI 8~`, not the `CSI 1~` / `CSI 4~` that
+  xterm sends. `scanCsi` recognized them as well-formed tilde sequences and
+  consumed them, but `TILDE_TO_NAME` had no entry for `7` or `8`, so no key
+  event came out — the press vanished in the TUI and in every child session the
+  events are forwarded to.
+
+  Repro: the new test `decodeLegacy > decodes the rxvt home and end tilde
+  sequences` in `packages/tui/src/input/decode-legacy.test.ts` — red on
+  `74af2bd` (`events[0]` is `undefined` for both), green after the fix.
+  Command: `bun test packages/tui/src/input/decode-legacy.test.ts`.
+
+  Fix: `7 -> home` and `8 -> end` added to `TILDE_TO_NAME`. Modifier handling
+  needed no change; the test also covers `CSI 8;5~` (Ctrl+End) to prove it.
+
+  One thing deliberately left alone: `decodeControl`'s `code === 32` branch is
+  unreachable, because the only caller guards on `code < 32 || code === 127`.
+  It is dead but harmless and correct if the function is ever called directly,
+  so it was not touched during a review round.
+
+- Validation before `6bccf51`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 914 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass
+  count rose from 913 by exactly the one new decoder test.
+
+Next step: Review round 3 for Task 6 (legacy key decoder). Run one gpt-5.5
+review via the codex-review skill over `--base f7f072b` (HEAD is now `6bccf51`),
+covering the whole task diff including the round-2 fix. Verify each finding
 independently before acting on it, fix the substantiated ones, run
 `bun run lint && bun run typecheck && bun test`, and commit. Zero substantiated
 findings clears Task 6 and the next step becomes implementing Task 7 (kitty key
