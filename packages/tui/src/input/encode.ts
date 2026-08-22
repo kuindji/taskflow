@@ -78,15 +78,36 @@ function needsKittyEncoding(ev: KeyEvent): boolean {
 }
 
 /**
+ * Chords whose control byte does not follow the minus-64 rule. xterm sends the
+ * unshifted digit row as the C0 bytes its shifted symbols would produce —
+ * Ctrl+2 is NUL like Ctrl+@, Ctrl+6 is 0x1e like Ctrl+^ — and `/` and `?` are
+ * the other two conventional spellings of 0x1f and DEL. A kitty terminal
+ * reports the physical key, so Ctrl+6 arrives as the digit `6` and would
+ * otherwise be typed into the child as text.
+ */
+const CTRL_ALIASES: Record<string, string | undefined> = {
+    " ": "\x00",
+    "2": "\x00",
+    "3": "\x1b",
+    "4": "\x1c",
+    "5": "\x1d",
+    "6": "\x1e",
+    "7": "\x1f",
+    "8": "\x7f",
+    "/": "\x1f",
+    "?": "\x7f",
+};
+
+/**
  * The C0 byte a ctrl chord sends, or undefined for a key that has none. The
  * byte is the character minus 64, covering Ctrl+A..Ctrl+Z, Ctrl+@ and Ctrl+\,
- * Ctrl+], Ctrl+^ and Ctrl+_ — the same range decodeControl reads. Space is its
- * own case: it sends NUL like Ctrl+@, but the kitty decoder reports `CSI 32;5u`
- * as a space rather than an `@`.
+ * Ctrl+], Ctrl+^ and Ctrl+_ — the same range decodeControl reads. Every other
+ * chord that carries a control byte is in CTRL_ALIASES.
  */
 function controlByte(char: string | undefined): string | undefined {
     if (char === undefined) return undefined;
-    if (char === " ") return "\x00";
+    const alias = CTRL_ALIASES[char];
+    if (alias !== undefined) return alias;
     const upper = char.toUpperCase().charCodeAt(0);
     if (upper >= 64 && upper <= 95) return String.fromCharCode(upper - 64);
     return undefined;

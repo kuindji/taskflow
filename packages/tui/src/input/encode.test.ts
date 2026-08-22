@@ -124,6 +124,24 @@ describe("encodeForChild", () => {
         );
     });
 
+    test("round-trips ctrl plus digit chords to their C0 bytes", () => {
+        // A kitty terminal reports Ctrl+6 as `CSI 54;5u`, so the decoder hands
+        // us the digit itself; xterm's table is what a legacy child expects.
+        const ctrl = (char: string): KeyEvent =>
+            key({ name: "char", char, mods: { ...noMods(), ctrl: true } });
+        expect(encodeForChild(ctrl("2"), legacy)).toBe("\x00");
+        expect(encodeForChild(ctrl("3"), legacy)).toBe("\x1b");
+        expect(encodeForChild(ctrl("4"), legacy)).toBe("\x1c");
+        expect(encodeForChild(ctrl("5"), legacy)).toBe("\x1d");
+        expect(encodeForChild(ctrl("6"), legacy)).toBe("\x1e");
+        expect(encodeForChild(ctrl("7"), legacy)).toBe("\x1f");
+        expect(encodeForChild(ctrl("8"), legacy)).toBe("\x7f");
+        expect(encodeForChild(ctrl("/"), legacy)).toBe("\x1f");
+        expect(encodeForChild(ctrl("?"), legacy)).toBe("\x7f");
+        // Unmodified digits are still text.
+        expect(encodeForChild(key({ name: "char", char: "6" }), legacy)).toBe("6");
+    });
+
     test("treats a repeat as a press for a child that does not report events", () => {
         // Per the kitty spec, without the report-event-types flag "key repeat
         // events are treated as key press events" — dropping them would stop
