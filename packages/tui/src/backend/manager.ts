@@ -20,6 +20,7 @@ interface BackendHandle {
 const DEFAULT_TIMEOUT_MS = 10_000;
 const POLL_INTERVAL_MS = 50;
 const STDERR_TAIL_BYTES = 8192;
+const KILL_GRACE_MS = 1000;
 
 // The backend writes the port with a single small `writeFile`, so a reader either
 // sees nothing or sees the whole number. Anything that is not a bare port number is
@@ -79,10 +80,32 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
     });
 
     // Removal is synchronous so that a caller which exits right after `stop()`
-    // still leaves no port file behind.
+    // still leaves no port file behind. `stop()` stays synchronous and sends only
+    // SIGTERM for the same reason: its callers run `process.exit(0)` on the next
+    // line, so any escalation timer this scheduled would never fire.
     const stop = (): void => {
         child.kill();
         rmSync(portFile, { force: true });
+    };
+
+    // The startup paths can wait, so they escalate: SIGTERM gives the backend its
+    // shutdown handler, and a child that ignores it or has wedged is SIGKILLed
+    // rather than left alive holding the port a retry needs.
+    const terminate = async (): Promise<void> => {
+        if (outcome.exit !== null) return;
+        child.kill("SIGTERM");
+        const graceUntil = Date.now() + KILL_GRACE_MS;
+        while (outcome.exit === null) {
+            const left = graceUntil - Date.now();
+            if (left <= 0) break;
+            await Bun.sleep(Math.min(POLL_INTERVAL_MS, left));
+        }
+        if (outcome.exit === null) child.kill("SIGKILL");
+    };
+
+    const stderrSuffix = (): string => {
+        const tail = outcome.stderr.trim();
+        return tail === "" ? "" : `: ${tail}`;
     };
 
     const deadline = Date.now() + timeoutMs;
@@ -97,10 +120,7 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
             rmSync(portFile, { force: true });
             const { code, signal } = outcome.exit;
             const how = signal === null ? `code ${String(code ?? 0)}` : `signal ${signal}`;
-            const tail = outcome.stderr.trim();
-            throw new Error(
-                `Backend exited before startup (${how})` + (tail === "" ? "" : `: ${tail}`),
-            );
+            throw new Error(`Backend exited before startup (${how})` + stderrSuffix());
         }
         const port = await readPort(portFile);
         if (port !== null) return { port, stop };
@@ -108,8 +128,11 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
         // the deadline instead of up to one whole interval past it.
         const remaining = deadline - Date.now();
         if (remaining <= 0) {
-            stop();
-            throw new Error(`Backend startup timeout after ${String(timeoutMs)}ms`);
+            await terminate();
+            rmSync(portFile, { force: true });
+            throw new Error(
+                `Backend startup timeout after ${String(timeoutMs)}ms` + stderrSuffix(),
+            );
         }
         await Bun.sleep(Math.min(POLL_INTERVAL_MS, remaining));
     }

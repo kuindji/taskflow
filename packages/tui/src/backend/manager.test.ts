@@ -232,6 +232,67 @@ describe("startBackend", () => {
         expect(message).toMatch(/timeout/);
     }, 10_000);
 
+    test("reports the backend's stderr when startup times out", async () => {
+        // Without this the only thing the user sees is "startup timeout", even though
+        // the backend already said exactly why it could not come up.
+        const binary = await writeFakeBackend(
+            'echo "bind: address already in use" >&2; exec sleep 30',
+        );
+        let message = "";
+        try {
+            handles.push(await startBackend({ binary, args: [], devBranch: null, timeoutMs: 1500 }));
+        } catch (err) {
+            message = err instanceof Error ? err.message : String(err);
+        }
+        expect(message).toMatch(/timeout/);
+        expect(message).toMatch(/bind: address already in use/);
+    }, 10_000);
+
+    test("kills a backend that ignores SIGTERM when startup times out", async () => {
+        // A wedged backend left alive keeps the port, so the next start fails too.
+        const dir = await mkdtemp(join(tmpdir(), "tui-backend-sigterm-"));
+        const pidFile = join(dir, "pid");
+        const binary = await writeFakeBackend(
+            `trap '' TERM; printf '%s' "$$" > ${pidFile}; while :; do sleep 0.2; done`,
+        );
+        let message = "";
+        try {
+            handles.push(await startBackend({ binary, args: [], devBranch: null, timeoutMs: 1500 }));
+        } catch (err) {
+            message = err instanceof Error ? err.message : String(err);
+        }
+        expect(message).toMatch(/timeout/);
+        expect(existsSync(pidFile)).toBe(true);
+        const pid = Number((await readFile(pidFile, "utf-8")).trim());
+        // SIGKILL delivery and reaping are asynchronous, so give the pid a bounded
+        // window to disappear. A child that only ever received SIGTERM never does.
+        const stillAlive = (): boolean => {
+            try {
+                process.kill(pid, 0);
+                return true;
+            } catch {
+                return false;
+            }
+        };
+        const until = Date.now() + 2000;
+        let alive = stillAlive();
+        while (alive && Date.now() < until) {
+            await Bun.sleep(50);
+            alive = stillAlive();
+        }
+        try {
+            expect(alive).toBe(false);
+        } finally {
+            if (alive) {
+                try {
+                    process.kill(pid, "SIGKILL");
+                } catch {
+                    // already gone
+                }
+            }
+        }
+    }, 15_000);
+
     test("names the signal when the backend is killed before startup", async () => {
         const binary = await writeFakeBackend("kill -TERM $$");
         let message = "";
