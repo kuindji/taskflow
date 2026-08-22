@@ -12,7 +12,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
 | 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
-| 5 | TTY control and restoration | pending | — | |
+| 5 | TTY control and restoration | implemented | `cef9dcb` | commit `4b6d4b7`; review round 1 due |
 | 6 | Legacy key decoder | pending | — | |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
 | 8 | Per-child key encoding | pending | — | |
@@ -635,8 +635,32 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   `MarkdownPaneImpl` suite-ordering failures, unchanged). No code change was
   needed, so this round produced no commit.
 
-Next step: Implement Task 5 — TTY control and restoration
-(`packages/tui/src/term/tty.ts` + tests, plan section "Task 5"). Record the
-current HEAD as the task's base commit before starting, implement only that task,
-run `bun run lint && bun run typecheck && bun test`, commit, then queue review
-round 1.
+## Task 5 implementation
+
+- **Base commit:** `cef9dcb`. **Commit:** `4b6d4b7`
+  (`feat(tui): add tty setup with guaranteed restoration`).
+- Added `packages/tui/src/term/tty.ts` and `packages/tui/src/term/tty.test.ts`
+  exactly as the plan's Task 5 specifies: `enterSequence`/`leaveSequence` string
+  builders, and a `Tty` class that guards `enter`/`leave` with an `entered` flag,
+  toggles raw mode only when `process.stdin.isTTY`, and installs `exit`,
+  `SIGINT`/`SIGTERM`/`SIGHUP` and `uncaughtException` handlers behind a
+  `handlersInstalled` guard.
+- TDD order followed: the test file was written first and failed with
+  `Cannot find module './tty'`, then went 6 pass / 0 fail after the
+  implementation landed.
+- Validation before the commit: `bun run lint` clean, `bun run typecheck` clean
+  across all five packages, `bun test` 888 pass / 8 fail — the 8 failures are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass
+  count rose from the previously recorded 882 by exactly the 6 new tty tests.
+- Review needed: yes. The module owns terminal restoration and process-level
+  signal handlers, so a defect leaves the user's shell in raw mode with a hidden
+  cursor — the worst failure the plan names for this task.
+
+
+Next step: Review round 1 for Task 5 — run one gpt-5.5 review via the
+codex-review skill over `cef9dcb..HEAD` (the Task 5 diff:
+`packages/tui/src/term/tty.ts` and `packages/tui/src/term/tty.test.ts`), verify
+every finding independently, fix the substantiated ones, re-run
+`bun run lint && bun run typecheck && bun test`, and commit. Zero substantiated
+findings clears Task 5 and the next step becomes implementing Task 6 (legacy key
+decoder).
