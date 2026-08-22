@@ -8,7 +8,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
-| 1 | Package scaffold and WebSocket client | implemented | `49b7967` | commit `22b9b7d` |
+| 1 | Package scaffold and WebSocket client | in-review round 1 (fixed) | `49b7967` | commits `22b9b7d`, `6e5e6f4` |
 | 2 | Backend lifecycle | pending | — | |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
@@ -29,7 +29,20 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 ## Review rounds
 
-- Task 1: round 1 not yet run.
+- **Task 1, round 1** (gpt-5.5 via codex-review, Mode B over `49b7967..22b9b7d`):
+  one finding, substantiated and fixed in `6e5e6f4`.
+  - `handleMessage` called `JSON.parse` with no `try/catch`, so a frame that is
+    not valid JSON threw straight out of the socket's `onmessage` handler.
+    Reproduced independently before the report landed. Regression test:
+    `WsClient > ignores a frame that is not JSON and still resolves the request`
+    in `packages/tui/src/net/client.test.ts` — red on `22b9b7d`, green on
+    `6e5e6f4`. Run with `bun test packages/tui`.
+  - Codex also noted the timeout and status-change branches are uncovered.
+    Not treated as a defect: `onStatusChange` reconnection behaviour is Task 17,
+    which the plan gives its own `reconnect.test.ts`.
+  - Fix rule chosen: a malformed frame carries no correlation id, so it is
+    dropped rather than used to fail a pending request; the pending request
+    still times out normally.
 
 ## Decisions taken
 
@@ -45,4 +58,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: review round 1 for Task 1 (gpt-5.5 via codex-review over `49b7967..22b9b7d`)
+Next step: review round 2 for Task 1 (gpt-5.5 via codex-review over `49b7967..HEAD`, currently `6e5e6f4`)
