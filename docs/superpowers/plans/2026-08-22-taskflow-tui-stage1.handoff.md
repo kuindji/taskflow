@@ -9,7 +9,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
-| 2 | Backend lifecycle | implemented | `ee98048` | commit `f27a5aa`; review round 1 due |
+| 2 | Backend lifecycle | in-review round 1 | `ee98048` | commits `f27a5aa`, `f156640`; round 1 found 4, 3 fixed |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
@@ -100,6 +100,59 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   - Validation at `cbd0dfd`: `bun run lint` and `bun run typecheck` exit 0,
     `bun test packages/tui` is 7 pass / 0 fail.
 
+- **Task 2, round 1** (gpt-5.5 via codex-review, Mode B over `ee98048..07fdfac`
+  restricted to `packages/tui/src/backend/`): four findings, three substantiated
+  and fixed in `f156640`, one reproducible only against a contrived child.
+  Run the repros with `bun test packages/tui/src/backend/manager.test.ts`.
+  - **Substantiated — the stderr pipe was never drained.** `stdio` set stderr to
+    `"pipe"` but nothing read it, so once the child had written more than the pipe
+    buffer it blocked in `write()` and never ran again. Observable symptom: the
+    backend goes permanently unresponsive after logging a few hundred KB, and the
+    TUI freezes with no error. Found independently before the report landed.
+    Two regression tests: `keeps a chatty backend running instead of wedging its
+    stderr pipe` (4MB of stderr before the port write — red as
+    `Backend startup timeout after 4000ms`, green with the drain) and `reports the
+    backend's stderr when it exits before startup`, which makes the drained tail
+    observable. `electron/src/backend-manager.ts:126` already drains it the same way;
+    the plan's sketch dropped that.
+  - **Substantiated — a backend that wrote a port and then died still resolved.**
+    The poll loop read the port file before checking `outcome.exitCode`, so
+    `startBackend` handed back a handle for a dead process instead of rejecting.
+    Regression test: `rejects when the backend writes a port and then dies` — red
+    (resolved with port 4321), green (rejects with `exited before startup (code 7)`).
+    Fix: the spawn-error and exit branches now run before the port read, matching
+    electron's `Promise.race`, which also treats an early exit as failure.
+  - **Substantiated — `readPort` parsed leniently.** `Number.parseInt` accepted
+    trailing junk, so a file holding `43x` yielded port 43. Regression test:
+    `ignores port-file contents that are not a bare port number` — red (43), green
+    (waits and returns 4327). Now requires `/^\d+$/` and 1..65535.
+  - **Not reachable — truncated port read.** Codex's headline finding was that a
+    child caught mid-write can publish a prefix (`printf 43` then `printf 21` a
+    second later yields port 43). Reproduced exactly as described, but only against
+    a child that writes the port in two syscalls. The real backend writes it with a
+    single `await writeFile(config.portFile, String(port))` of at most five bytes
+    (`packages/backend/src/index.ts:470`), which a reader sees whole or not at all.
+    A stability check across consecutive polls was considered and rejected: the
+    poll interval is 50ms and Codex's own repro spaces the writes a second apart,
+    so it would not have caught it either. The strict-format fix above is the part
+    that is worth having; the two-syscall window stays open by design, and the
+    contract is now stated in a comment on `readPort`.
+  - **Hardening, not a defect — port-file name collision.** Codex reported that
+    `pid + Date.now()` collides for two starts in the same millisecond. Could not
+    reproduce without stubbing `Date.now`: two genuinely concurrent `startBackend`
+    calls got distinct files and distinct ports (4321 / 4322). Changed the suffix to
+    `randomUUID()` anyway — one line, removes the window. The accompanying test
+    `gives concurrent starts their own port file` passes on the pre-fix code too and
+    is kept as a guard, not as a repro.
+  - **Test hygiene — orphaned `sleep` processes.** Every fake backend ended in
+    `sleep 30` as a child of `/bin/sh`, so `stop()`'s SIGTERM killed the shell and
+    reparented the sleep to init: a full `bun test packages/tui` left five stray
+    processes alive for 30s. The fake backends now `exec sleep 30`. Verified: zero
+    strays after a run (`ps -ax -o command | grep -c '^sleep 30'`).
+  - Validation at `f156640`: `bun run lint` and `bun run typecheck` exit 0,
+    `bun test packages/tui` is 20 pass / 0 fail, full `bun test` is 836 pass / 8 fail
+    with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
+
 ## Decisions taken
 
 - **Task 2 strips `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the backend's env.**
@@ -136,4 +189,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 2 review round 1 — gpt-5.5 via codex-review over `ee98048..f27a5aa`, restricted to `packages/tui`
+Next step: Task 2 review round 2 — gpt-5.5 via codex-review over `ee98048..HEAD`, restricted to `packages/tui/src/backend/` (round 1 changed code, so another round is due)
