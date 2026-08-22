@@ -1,0 +1,183 @@
+import { noMods, modsFromParam, type KeyEvent, type KeyName } from "./keys";
+
+const ESC = "\x1b";
+
+const FINAL_TO_NAME: Record<string, KeyName | undefined> = {
+    A: "up",
+    B: "down",
+    C: "right",
+    D: "left",
+    H: "home",
+    F: "end",
+};
+
+const TILDE_TO_NAME: Record<number, KeyName | undefined> = {
+    1: "home",
+    2: "insert",
+    3: "delete",
+    4: "end",
+    5: "pageup",
+    6: "pagedown",
+};
+
+interface DecodeResult {
+    events: KeyEvent[];
+    carry: string;
+}
+
+function press(name: KeyName, mods = noMods(), char?: string): KeyEvent {
+    return char === undefined
+        ? { name, mods, kind: "press" }
+        : { name, char, mods, kind: "press" };
+}
+
+function decodeControl(code: number): KeyEvent {
+    if (code === 13 || code === 10) return press("enter");
+    if (code === 9) return press("tab");
+    if (code === 127 || code === 8) return press("backspace");
+    if (code === 32) return press("char", noMods(), " ");
+    const letter = String.fromCharCode(code + 96);
+    return press("char", { ...noMods(), ctrl: true }, letter);
+}
+
+/**
+ * A CSI sequence is `ESC [`, then parameter bytes, then intermediate bytes,
+ * then one final byte (ECMA-48 5.4). `incomplete` means the tail could still
+ * grow into a sequence and belongs in the carry; `invalid` means it never can,
+ * so the caller must consume something and move on rather than carry forever.
+ */
+type CsiScan =
+    | { kind: "sequence"; params: string; intermediates: string; final: string; length: number }
+    | { kind: "incomplete" }
+    | { kind: "invalid" };
+
+function inRange(code: number, min: number, max: number): boolean {
+    return code >= min && code <= max;
+}
+
+/** Scans the CSI sequence starting at `start`, where `buf[start]` is ESC. */
+function scanCsi(buf: string, start: number): CsiScan {
+    let i = start + 2;
+    while (i < buf.length && inRange(buf.charCodeAt(i), 0x30, 0x3f)) i++;
+    const params = buf.slice(start + 2, i);
+
+    const intermediateStart = i;
+    while (i < buf.length && inRange(buf.charCodeAt(i), 0x20, 0x2f)) i++;
+    const intermediates = buf.slice(intermediateStart, i);
+
+    if (i >= buf.length) return { kind: "incomplete" };
+    if (!inRange(buf.charCodeAt(i), 0x40, 0x7e)) return { kind: "invalid" };
+    return { kind: "sequence", params, intermediates, final: buf[i] ?? "", length: i + 1 - start };
+}
+
+/** True for the plain numeric parameter list this decoder knows how to read. */
+function isNumericParams(params: string): boolean {
+    for (let i = 0; i < params.length; i++) {
+        const code = params.charCodeAt(i);
+        if (!inRange(code, 0x30, 0x39) && code !== 0x3b) return false;
+    }
+    return true;
+}
+
+/**
+ * Decode one read from a legacy terminal. `carry` holds bytes left over from
+ * the previous call because they formed an incomplete escape sequence.
+ */
+function decodeLegacy(input: string, carry: string): DecodeResult {
+    const buf = carry + input;
+    const events: KeyEvent[] = [];
+    let i = 0;
+
+    while (i < buf.length) {
+        const ch = buf[i] ?? "";
+
+        if (ch !== ESC) {
+            const code = ch.charCodeAt(0);
+            if (code < 32 || code === 127) {
+                events.push(decodeControl(code));
+                i++;
+                continue;
+            }
+            // Astral characters (emoji, less common CJK) arrive as a UTF-16
+            // surrogate pair. Stepping one code unit at a time would emit two
+            // lone surrogates, which re-encode to U+FFFD on the way to a child.
+            const codePoint = buf.codePointAt(i);
+            const text = codePoint === undefined ? ch : String.fromCodePoint(codePoint);
+            events.push(press("char", noMods(), text));
+            i += text.length;
+            continue;
+        }
+
+        const remaining = buf.length - i;
+
+        if (remaining === 1) return { events, carry: buf.slice(i) };
+
+        if (buf[i + 1] === "[") {
+            const scan = scanCsi(buf, i);
+            if (scan.kind === "incomplete") return { events, carry: buf.slice(i) };
+            if (scan.kind === "invalid") {
+                // Nothing here can complete a CSI sequence, so the ESC was a
+                // real Escape press and the rest is separate input. Carrying it
+                // instead would wedge the decoder on every later read.
+                events.push(press("escape"));
+                i++;
+                continue;
+            }
+            i += scan.length;
+            // Private parameters (`CSI ? … u`, a late kitty-protocol reply) and
+            // intermediate bytes are terminal replies rather than keys: consumed
+            // above, dropped here.
+            if (scan.intermediates !== "" || !isNumericParams(scan.params)) continue;
+            const params = scan.params
+                .split(";")
+                .filter((p) => p !== "")
+                .map(Number);
+            const mods = params.length > 1 ? modsFromParam(params[1] ?? 1) : noMods();
+            if (scan.final === "~") {
+                const name = TILDE_TO_NAME[params[0] ?? 0];
+                if (name !== undefined) events.push(press(name, mods));
+            } else {
+                const name = FINAL_TO_NAME[scan.final];
+                if (name !== undefined) events.push(press(name, mods));
+            }
+            continue;
+        }
+
+        if (buf[i + 1] === "O") {
+            if (remaining < 3) return { events, carry: buf.slice(i) };
+            const name = FINAL_TO_NAME[buf[i + 2] ?? ""];
+            if (name !== undefined) events.push(press(name));
+            i += 3;
+            continue;
+        }
+
+        // ESC followed by a printable character is Alt + that character.
+        const next = buf[i + 1] ?? "";
+        const code = next.charCodeAt(0);
+        if (code >= 32 && code !== 127) {
+            events.push(press("char", { ...noMods(), alt: true }, next));
+            i += 2;
+            continue;
+        }
+
+        events.push(press("escape"));
+        i++;
+    }
+
+    return { events, carry: "" };
+}
+
+/**
+ * Convert a carry that has gone stale into events. `decodeLegacy` cannot know
+ * whether a trailing ESC starts a longer sequence or is a real Escape press, so
+ * it holds it; the caller calls this after a short idle timeout to release it.
+ */
+function flushCarry(carry: string): KeyEvent[] {
+    if (carry === "") return [];
+    if (carry === ESC) return [press("escape")];
+    // A partial CSI/SS3 that never completed: drop it rather than emit garbage.
+    return [];
+}
+
+export { decodeLegacy, flushCarry };
+export type { DecodeResult };
