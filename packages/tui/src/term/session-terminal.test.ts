@@ -48,7 +48,7 @@ async function settle(): Promise<void> {
 describe("SessionTerminal", () => {
     test("restores from a snapshot when one is available", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "HELLO", lastSequence: 5, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "HELLO", lastSequence: 5, cursorHidden: false, kittyFlags: null },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -58,7 +58,7 @@ describe("SessionTerminal", () => {
 
     test("falls back to history when there is no snapshot", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyFlags: null },
             [MSG.SESSION_HISTORY]: { data: "FROMLOG", lastSequence: 2 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
@@ -77,7 +77,7 @@ describe("SessionTerminal", () => {
             if (type === MSG.SESSION_SNAPSHOT) {
                 return gate.then(
                     () =>
-                        ({ snapshot: "AAA", lastSequence: 5, cursorHidden: false }) as unknown as T,
+                        ({ snapshot: "AAA", lastSequence: 5, cursorHidden: false, kittyFlags: null }) as unknown as T,
                 );
             }
             return Promise.reject(new Error(`no stub for ${type}`));
@@ -95,7 +95,7 @@ describe("SessionTerminal", () => {
 
     test("ignores output belonging to other sessions", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -107,7 +107,7 @@ describe("SessionTerminal", () => {
 
     test("tracks application cursor keys and bracketed paste from child output", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -125,7 +125,7 @@ describe("SessionTerminal", () => {
 
     test("tracks the kitty protocol flags the child pushes and pops", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -141,7 +141,7 @@ describe("SessionTerminal", () => {
 
     test("tracks cursor visibility", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -154,7 +154,7 @@ describe("SessionTerminal", () => {
 
     test("writes a process-exited marker when the session ends", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
         await term.attach();
@@ -165,9 +165,37 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
+    test("holds the exit marker until the initial stream has been replayed", async () => {
+        let release = (): void => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const net = fakeNet({});
+        net.request = <T,>(type: string): Promise<T> => {
+            if (type === MSG.SESSION_SNAPSHOT) {
+                return gate.then(
+                    () =>
+                        ({ snapshot: "WORK", lastSequence: 0, cursorHidden: false, kittyFlags: null }) as unknown as T,
+                );
+            }
+            return Promise.reject(new Error(`no stub for ${type}`));
+        };
+
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
+        const attached = term.attach();
+        // The child exits while the snapshot request is still in flight.
+        net.emit(MSG.SESSION_EXITED, { sessionId: "s1", exitCode: 0 });
+        release();
+        await attached;
+        await settle();
+        expect(readRow(term, 0)).toBe("WORK");
+        expect(readRow(term, 1)).toContain("[Process exited with code 0]");
+        term.dispose();
+    });
+
     test("ignores an exit belonging to another session", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
         await term.attach();
@@ -182,7 +210,7 @@ describe("SessionTerminal", () => {
         // What Task 18 does on reconnect. Without the reset, the snapshot is
         // drawn on top of the old grid and everything appears twice.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 0, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 0, cursorHidden: false, kittyFlags: null },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -193,7 +221,7 @@ describe("SessionTerminal", () => {
 
     test("re-attaching preserves modes the child set before the drop", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -209,9 +237,50 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
+    test("re-attaching clears output that was still queued when the drop happened", async () => {
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
+        await term.attach();
+        // Output arrives and is still in the write queue when the socket drops.
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "OLDOLDOLD", sequence: 1 });
+        await term.attach();
+        expect([0, 1, 2].map((y) => readRow(term, y)).join("")).toBe("PROMPT>");
+        term.dispose();
+    });
+
+    test("re-attach reads modes from output that was still queued", async () => {
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1h", sequence: 1 });
+        // No settle(): the mode-setting write is still queued when we re-attach.
+        await term.attach();
+        expect(term.modes.applicationCursorKeys).toBe(true);
+        term.dispose();
+    });
+
+    test("restores the kitty flags the snapshot reports", async () => {
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyFlags: 5,
+            },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        expect(term.modes.kittyFlags).toBe(5);
+        term.dispose();
+    });
+
     test("sends a resize request and resizes the local grid", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyFlags: null },
             [MSG.TERMINAL_RESIZE]: { success: true },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });

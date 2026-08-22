@@ -234,6 +234,8 @@ export interface SessionSnapshotResponse {
     snapshot: string | null;
     lastSequence: number;
     cursorHidden: boolean;
+    /** Kitty keyboard protocol flags the child pushed, or null if it pushed none. */
+    kittyFlags: number | null;
 }
 
 // Shell detection

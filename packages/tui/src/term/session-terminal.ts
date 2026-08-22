@@ -25,7 +25,8 @@ interface SessionTerminalDeps {
 
 interface PendingChunk {
     data: string;
-    sequence: number;
+    /** null for markers this client generates itself, which are never stale. */
+    sequence: number | null;
 }
 
 const SCROLLBACK = 5000;
@@ -64,9 +65,12 @@ class SessionTerminal {
             deps.net.on(MSG.SESSION_EXITED, (payload) => {
                 const event = payload as SessionExitedEvent;
                 if (event.sessionId !== deps.sessionId) return;
-                void this.enqueue(
-                    `\r\n\x1b[90m[Process exited with code ${String(event.exitCode)}]\x1b[0m\r\n`,
-                );
+                // A session that exits while attach() is still waiting for the
+                // snapshot must not have its marker drawn ahead of the output
+                // it belongs after, so it queues with the rest.
+                const marker = `\r\n\x1b[90m[Process exited with code ${String(event.exitCode)}]\x1b[0m\r\n`;
+                if (this.historyLoaded) void this.enqueue(marker);
+                else this.pending.push({ data: marker, sequence: null });
             }),
         );
     }
@@ -122,6 +126,12 @@ class SessionTerminal {
         return this.writeQueue;
     }
 
+    /** Runs `action` in write order, once the parser has caught up. */
+    private enqueueAction(action: () => void): Promise<void> {
+        this.writeQueue = this.writeQueue.then(action);
+        return this.writeQueue;
+    }
+
     get modes(): ChildModes {
         return {
             applicationCursorKeys: this.terminal.modes.applicationCursorKeysMode,
@@ -140,15 +150,20 @@ class SessionTerminal {
         // renders twice. terminal.reset() also clears DEC modes, which the
         // child set long ago and will not send again, so they are restored.
         if (this.historyLoaded) {
-            const previous = this.modes;
             this.historyLoaded = false;
             this.pending = [];
-            this.terminal.reset();
-            // reset() restores DECTCEM to visible; our tracking has to follow it.
-            this.hiddenCursor = false;
             let restore = "";
-            if (previous.applicationCursorKeys) restore += "\x1b[?1h";
-            if (previous.bracketedPaste) restore += "\x1b[?2004h";
+            // The reset goes through the write queue: output that was still
+            // queued when the socket dropped has to be parsed before the clear,
+            // or it lands on the fresh grid and the modes it carries are lost.
+            await this.enqueueAction(() => {
+                const previous = this.modes;
+                this.terminal.reset();
+                // reset() restores DECTCEM to visible; our tracking has to follow it.
+                this.hiddenCursor = false;
+                if (previous.applicationCursorKeys) restore += "\x1b[?1h";
+                if (previous.bracketedPaste) restore += "\x1b[?2004h";
+            });
             if (restore !== "") await this.enqueue(restore);
         }
 
@@ -158,6 +173,10 @@ class SessionTerminal {
                 { sessionId: this.deps.sessionId },
             );
             if (snapshot.snapshot !== null) {
+                // The serialized screen carries no kitty keyboard state, so the
+                // backend reports it separately; without it a client attaching
+                // to a session already in kitty mode would encode legacy keys.
+                this.kittyFlags = snapshot.kittyFlags;
                 void this.enqueue(snapshot.snapshot);
                 if (snapshot.cursorHidden) {
                     void this.enqueue("\x1b[?25l");
@@ -187,7 +206,9 @@ class SessionTerminal {
         const replay = this.pending;
         this.pending = [];
         for (const chunk of replay) {
-            if (chunk.sequence > lastSequence) void this.enqueue(chunk.data);
+            if (chunk.sequence === null || chunk.sequence > lastSequence) {
+                void this.enqueue(chunk.data);
+            }
         }
         await this.writeQueue;
     }

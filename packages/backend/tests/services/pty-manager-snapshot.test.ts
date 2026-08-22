@@ -44,6 +44,24 @@ describe("PtyManager.getSnapshot", () => {
         manager.close(sessionId);
     });
 
+    it("reports the kitty keyboard flags the child pushed", async () => {
+        const sessionId = manager.spawn({
+            command: testShell,
+            args: [],
+            cwd: testCwd,
+            // A restored session replays its log through the headless terminal,
+            // which is where the kitty push is picked up again.
+            initialOutput: "\x1b[>5u",
+            onData: () => {},
+            onExit: () => {},
+        });
+
+        // The headless terminal parses asynchronously.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(manager.getSnapshot(sessionId).kittyFlags).toBe(5);
+        manager.close(sessionId);
+    });
+
     it("returns null snapshot after session exits", async () => {
         let exited = false;
         const command = isWindows ? testShell : "echo";
