@@ -1,5 +1,15 @@
 import { describe, test, expect } from "bun:test";
-import { blankCell, cellsEqual, ATTR_BOLD, ATTR_UNDERLINE, type Cell } from "./cells";
+import {
+    blankCell,
+    cellsEqual,
+    ATTR_BOLD,
+    ATTR_DIM,
+    ATTR_ITALIC,
+    ATTR_UNDERLINE,
+    ATTR_INVERSE,
+    ATTR_STRIKE,
+    type Cell,
+} from "./cells";
 import { sgrDiff } from "./sgr";
 
 function cell(patch: Partial<Cell>): Cell {
@@ -59,5 +69,42 @@ describe("sgrDiff — glyph metrics are not attribute state", () => {
     test("still emits when the style differs alongside a width change", () => {
         const from = cell({ ch: "漢", width: 2 });
         expect(sgrDiff(from, cell({ ch: "", width: 0, attrs: ATTR_BOLD }))).toBe("\x1b[0;1m");
+    });
+});
+
+describe("sgrDiff — every attribute and background encoding", () => {
+    // ATTR_CODES pairs each bit with its SGR number; only bold and underline
+    // were covered above, so a typo in any of the other four would have shipped
+    // silently. Same for the 48;… background forms, which had no test at all.
+    test("emits the documented SGR number for each attribute bit", () => {
+        expect(sgrDiff(null, cell({ attrs: ATTR_DIM }))).toBe("\x1b[0;2m");
+        expect(sgrDiff(null, cell({ attrs: ATTR_ITALIC }))).toBe("\x1b[0;3m");
+        expect(sgrDiff(null, cell({ attrs: ATTR_INVERSE }))).toBe("\x1b[0;7m");
+        expect(sgrDiff(null, cell({ attrs: ATTR_STRIKE }))).toBe("\x1b[0;9m");
+    });
+
+    test("emits attributes in bit order when several are set", () => {
+        const all = ATTR_BOLD | ATTR_DIM | ATTR_ITALIC | ATTR_UNDERLINE | ATTR_INVERSE | ATTR_STRIKE;
+        expect(sgrDiff(null, cell({ attrs: all }))).toBe("\x1b[0;1;2;3;4;7;9m");
+    });
+
+    test("emits an indexed background for a palette color, never rgb", () => {
+        const out = sgrDiff(null, cell({ bg: { kind: "palette", index: 4 } }));
+        expect(out).toBe("\x1b[0;48;5;4m");
+        expect(out).not.toContain("48;2");
+    });
+
+    test("emits truecolor background only for an rgb color", () => {
+        expect(sgrDiff(null, cell({ bg: { kind: "rgb", r: 9, g: 8, b: 7 } }))).toBe(
+            "\x1b[0;48;2;9;8;7m",
+        );
+    });
+
+    test("emits foreground before background when both are set", () => {
+        const out = sgrDiff(
+            null,
+            cell({ fg: { kind: "palette", index: 1 }, bg: { kind: "rgb", r: 2, g: 3, b: 4 } }),
+        );
+        expect(out).toBe("\x1b[0;38;5;1;48;2;2;3;4m");
     });
 });
