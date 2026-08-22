@@ -32,7 +32,9 @@ covers both, and the backend already spawns internal editors as PTY sessions
 
 | Question | Decision |
 |---|---|
-| Client/server topology | One client per backend. The TUI spawns and owns its backend process |
+| Client/server topology | Two modes: local (the TUI spawns and owns a backend) and remote (the TUI attaches to an existing one) |
+| Remote transport | An SSH tunnel. The backend binds to loopback; SSH provides authentication and encryption |
+| Concurrent clients | Allowed and unsynchronized. The TUI warns when another client is attached; it does not negotiate geometry |
 | Where the code lives | New workspace package `packages/tui`, importing `@taskflow/shared` |
 | Runtime | Bun + TypeScript, shipped via `bun build --compile` |
 | VT emulation | `@xterm/headless`, one `Terminal` per open session, client-side |
@@ -74,6 +76,17 @@ which would then have to be replaced with a third-party VT crate. Bad trade.
 
 **A `TASKFLOW_BASE_DIR` override for true dev isolation.** Considered and
 rejected by the user as unnecessary; see Assumptions.
+
+**A token in the WebSocket handshake for remote access.** Self-contained and
+needs no SSH session, but it is authentication code written from scratch, and
+it leaves the traffic unencrypted unless TLS is added too — meaning prompts,
+source and agent output would cross the network in clear text. An SSH tunnel
+provides both properties using key material the user already manages.
+
+**Per-client viewports on the backend.** The correct fix for two clients sharing
+one session, and the prerequisite for using the desktop app and the TUI on the
+same session at once. Rejected for now because the user accepted the
+misrendering instead; see Remote operation.
 
 ## Architecture
 
@@ -263,6 +276,49 @@ background. Omarchy's active theme therefore applies with no code, and survives
 `omarchy-theme-set` with no restart. The existing `theme-parsers` are not used
 by this client.
 
+## Remote operation
+
+The TUI runs in two modes.
+
+**Local.** `taskflow-tui` spawns its own backend, as described above, and owns
+its lifetime.
+
+**Remote.** `taskflow-tui --connect <host>:<port>` attaches to a backend that is
+already running and never spawns one. The intended deployment is a desktop
+running the backend and a laptop running the TUI, reached over an SSH tunnel:
+
+```
+laptop$ ssh -N -L 7777:127.0.0.1:54892 desktop &
+laptop$ taskflow-tui --connect 127.0.0.1:7777
+```
+
+Authentication, encryption and key management are SSH's responsibility. The TUI
+adds no auth of its own.
+
+This requires one backend change. `Bun.serve` currently defaults to all
+interfaces, so the backend listens on `*:<port>` with no authentication — a
+device on the same network can already spawn a shell on the host. Binding to
+`127.0.0.1` closes that and makes the tunnel the only route in. It is a
+one-line change and is worth making regardless of the TUI.
+
+**Concurrent clients are permitted and will misrender.** A session has exactly
+one terminal grid on the backend, resized by whichever client resized last
+(`pty-manager.ts:295-300`). With the desktop app and the TUI viewing the same
+session at different window sizes, the one that did not resize last draws
+incorrectly until it resizes. Fixing this properly means per-client viewports,
+which is deferred. Instead the backend broadcasts its connected-client count and
+the TUI shows a banner when more than one client is attached, so the
+misrendering is explained rather than mysterious.
+
+**Reconnection is expected, not exceptional.** A tunnel drops when the laptop
+sleeps or changes network. The WebSocket client reconnects with backoff, and on
+reconnect every open session re-runs its attach sequence, recovering the current
+screen from `SESSION_SNAPSHOT`. The snapshot-and-sequence design already carries
+this: the backend drops terminal output to clients that fall behind
+(`ws/server.ts:33-37`, `dropOnBackpressure`) precisely because a client can
+resync from a snapshot afterwards. Over a slow link this becomes the normal path
+rather than an edge case.
+
 ## Dev isolation
 
 The TUI passes `TASKFLOW_DEV_BRANCH` when spawning its backend, exactly as
@@ -304,6 +360,11 @@ and action definitions, schedule records, notifications and settings
 data dir). Only sessions, session logs and flow runs are isolated. Two backends
 against the same data dir means two processes writing the same JSON files with
 no locking, which is already true of dev-Electron alongside production today.
+
+Remote mode assumes the user can open an SSH session to the backend host. No
+fallback is provided for a host reachable only over plain TCP; on such a host
+the backend would have to keep binding to a routable interface, which this
+design explicitly removes.
 
 Omarchy 4 is assumed to ship a terminal supporting the Kitty keyboard protocol.
 Ghostty, Kitty, foot and Alacritty all do. If that turns out to be false the

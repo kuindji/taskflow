@@ -24,7 +24,7 @@
 
 ## Stage scope
 
-In this stage: package scaffold, backend lifecycle, WS client, the render core, the input pipeline, session attach, the state store, and a working sidebar-plus-session UI.
+In this stage: package scaffold, backend lifecycle, WS client, the render core, the input pipeline, session attach, the state store, a working sidebar-plus-session UI, and remote operation over an SSH tunnel.
 
 Deferred to Stage 2: flows, actions, schedules, YAML record editing.
 Deferred to Stage 3: git changes and commit, settings pickers, task detail, notifications.
@@ -51,7 +51,8 @@ Deferred to Stage 3: git changes and commit, settings pickers, task detail, noti
 | `src/ui/sidebar.ts` | Draw the project and task tree |
 | `src/ui/session-pane.ts` | Draw the tab strip and the session cell grid |
 | `src/ui/app.ts` | Compose the above, own layout and focus |
-| `src/index.ts` | Entry point and main loop |
+| `src/index.ts` | Entry point, CLI argument parsing, and main loop |
+| `packages/backend/src/ws/server.ts` | Modified: bind to loopback, broadcast client count |
 
 ## Shared interfaces
 
@@ -4039,6 +4040,618 @@ git commit -m "feat(tui): wire the application shell and entry point"
 
 ---
 
+---
+
+### Task 16: Backend — bind to loopback and report connected clients
+
+**Files:**
+- Modify: `packages/backend/src/ws/server.ts`
+- Modify: `packages/shared/src/constants.ts`
+- Modify: `packages/shared/src/types/ws.ts`
+- Test: `packages/backend/src/ws/server.test.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `MSG.SYSTEM_CLIENTS` (`"system:clients"`) and `interface SystemClientsEvent { count: number }` in `@taskflow/shared`.
+
+Two changes to the existing backend, both small. `Bun.serve` defaults to all interfaces, so the backend currently listens on `*:<port>` with no authentication — verifiable with `lsof -nP -iTCP -sTCP:LISTEN | grep taskflow`. Binding to loopback closes that and makes an SSH tunnel the only remote route.
+
+The client count exists so the TUI can explain misrendering when the desktop app is attached to the same session (spec, Remote operation). The server already tracks a `Set` of clients; this only reports its size.
+
+- [ ] **Step 1: Write the failing test**
+
+`packages/backend/src/ws/server.test.ts`:
+
+```ts
+import { describe, test, expect, afterEach } from "bun:test";
+import { MSG } from "@taskflow/shared";
+import { Router } from "./router";
+import { createServer } from "./server";
+
+let stop: (() => void) | null = null;
+
+afterEach(() => {
+    stop?.();
+    stop = null;
+});
+
+async function startTestServer(): Promise<number> {
+    const router = new Router();
+    router.register("ping", () => Promise.resolve({ ok: true }));
+    const server = createServer(router, 0);
+    const started = await server.start();
+    stop = started.stop;
+    return started.port;
+}
+
+function connect(port: number, host = "127.0.0.1"): Promise<WebSocket> {
+    return new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://${host}:${port}`);
+        ws.onopen = () => resolve(ws);
+        ws.onerror = () => reject(new Error("connect failed"));
+    });
+}
+
+describe("createServer", () => {
+    test("accepts connections on loopback", async () => {
+        const port = await startTestServer();
+        const ws = await connect(port);
+        expect(ws.readyState).toBe(WebSocket.OPEN);
+        ws.close();
+    });
+
+    test("broadcasts the connected client count as clients join", async () => {
+        const port = await startTestServer();
+        const first = await connect(port);
+
+        const counts: number[] = [];
+        first.onmessage = (event: MessageEvent) => {
+            const parsed = JSON.parse(String(event.data)) as {
+                type?: string;
+                payload?: { count?: number };
+            };
+            if (parsed.type === MSG.SYSTEM_CLIENTS && typeof parsed.payload?.count === "number") {
+                counts.push(parsed.payload.count);
+            }
+        };
+
+        const second = await connect(port);
+        await Bun.sleep(50);
+        expect(counts).toContain(2);
+
+        second.close();
+        await Bun.sleep(50);
+        expect(counts).toContain(1);
+        first.close();
+    });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `bun test packages/backend/src/ws/server.test.ts`
+Expected: FAIL — `MSG.SYSTEM_CLIENTS` does not exist.
+
+- [ ] **Step 3: Add the message and its payload type**
+
+In `packages/shared/src/constants.ts`, beside the existing `SYSTEM_INFO` entry:
+
+```ts
+    SYSTEM_INFO: "system:info",
+    SYSTEM_CLIENTS: "system:clients",
+```
+
+In `packages/shared/src/types/ws.ts`, beside the other system types:
+
+```ts
+export interface SystemClientsEvent {
+    count: number;
+}
+```
+
+- [ ] **Step 4: Bind to loopback and broadcast the count**
+
+In `packages/backend/src/ws/server.ts`, add the hostname to the `Bun.serve` call:
+
+```ts
+        server = Bun.serve({
+            port,
+            hostname: "127.0.0.1",
+            async fetch(req, server) {
+```
+
+Then broadcast the count whenever the client set changes. Replace the existing
+`open` and `close` handlers with:
+
+```ts
+                open(ws) {
+                    clients.add(ws);
+                    if (connectCallback) connectCallback();
+                    broadcastClientCount();
+                },
+                close(ws) {
+                    clients.delete(ws);
+                    broadcastClientCount();
+                },
+```
+
+and add this helper next to `broadcast`:
+
+```ts
+    function broadcastClientCount(): void {
+        broadcast({ type: MSG.SYSTEM_CLIENTS, payload: { count: clients.size } });
+    }
+```
+
+`MSG` needs importing in this file if it is not already:
+
+```ts
+import { MSG } from "@taskflow/shared";
+```
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `bun test packages/backend/src/ws/server.test.ts`
+Expected: PASS, 2 tests.
+
+- [ ] **Step 6: Verify the exposure is actually closed**
+
+Start the backend and confirm it no longer listens on all interfaces:
+
+```bash
+lsof -nP -iTCP -sTCP:LISTEN | grep taskflow
+```
+
+Expected: an address of the form `127.0.0.1:<port>`. A `*:<port>` result means
+the change did not take effect. Before this task that command reports `*:<port>`.
+
+- [ ] **Step 7: Run the full check and commit**
+
+```bash
+bun run lint && bun run typecheck && bun test
+git add packages/backend packages/shared
+git commit -m "feat(backend): bind to loopback and report connected client count"
+```
+
+---
+
+### Task 17: Reconnection and session resync
+
+**Files:**
+- Modify: `packages/tui/src/net/client.ts`
+- Test: `packages/tui/src/net/reconnect.test.ts`
+
+**Interfaces:**
+- Consumes: `WsClient` (Task 1).
+- Produces: on `WsClient` — `onStatusChange(listener: (status: { connected: boolean }) => void): () => void`, and automatic reconnection with exponential backoff.
+
+Over a tunnel the connection drops whenever the laptop sleeps or changes network, so reconnection is the normal path rather than an error path. Recovery costs nothing extra: each open session re-runs `SessionTerminal.attach()`, which restores the current screen from `SESSION_SNAPSHOT` (Task 9).
+
+- [ ] **Step 1: Write the failing test**
+
+`packages/tui/src/net/reconnect.test.ts`:
+
+```ts
+import { describe, test, expect, afterEach } from "bun:test";
+import type { Server } from "bun";
+import { WsClient } from "./client";
+
+let server: Server<unknown> | null = null;
+
+afterEach(() => {
+    server?.stop(true);
+    server = null;
+});
+
+function serveOn(port: number): Server<unknown> {
+    return Bun.serve({
+        port,
+        fetch(req, s) {
+            if (s.upgrade(req, { data: {} })) return undefined;
+            return new Response("no");
+        },
+        websocket: {
+            message(ws, raw) {
+                const req = JSON.parse(String(raw)) as { correlationId: string; type: string };
+                ws.send(
+                    JSON.stringify({
+                        correlationId: req.correlationId,
+                        type: req.type,
+                        payload: { ok: true },
+                    }),
+                );
+            },
+        },
+    });
+}
+
+describe("WsClient reconnection", () => {
+    test("reports disconnect and reconnects when the server returns", async () => {
+        server = serveOn(0);
+        const port = server.port ?? 0;
+
+        const client = new WsClient(port);
+        await client.connect();
+
+        const states: boolean[] = [];
+        client.onStatusChange((status) => states.push(status.connected));
+
+        server.stop(true);
+        await Bun.sleep(150);
+        expect(states).toContain(false);
+
+        server = serveOn(port);
+        await Bun.sleep(1500);
+        expect(states).toContain(true);
+
+        const result = await client.request<{ ok: boolean }>("ping");
+        expect(result.ok).toBe(true);
+        client.close();
+    });
+
+    test("stops reconnecting after close", async () => {
+        server = serveOn(0);
+        const port = server.port ?? 0;
+        const client = new WsClient(port);
+        await client.connect();
+        client.close();
+
+        server.stop(true);
+        await Bun.sleep(300);
+        await expect(client.request("ping")).rejects.toThrow();
+    });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `bun test packages/tui/src/net/reconnect.test.ts`
+Expected: FAIL — `onStatusChange` is not a function.
+
+- [ ] **Step 3: Add reconnection to `WsClient`**
+
+Add these fields to the class, and give the constructor a host so Task 18's
+remote targets work without touching `connect()` again:
+
+```ts
+    private readonly statusListeners = new Set<(status: { connected: boolean }) => void>();
+    private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private reconnectAttempt = 0;
+    private closed = false;
+
+    constructor(
+        private readonly port: number,
+        private readonly host = "127.0.0.1",
+    ) {}
+```
+
+Add the status API and the backoff scheduler:
+
+```ts
+    onStatusChange(listener: (status: { connected: boolean }) => void): () => void {
+        this.statusListeners.add(listener);
+        return () => {
+            this.statusListeners.delete(listener);
+        };
+    }
+
+    private notifyStatus(connected: boolean): void {
+        for (const listener of this.statusListeners) listener({ connected });
+    }
+
+    private scheduleReconnect(): void {
+        if (this.closed || this.reconnectTimer !== null) return;
+        const delay = Math.min(250 * 2 ** this.reconnectAttempt, MAX_RECONNECT_DELAY_MS);
+        this.reconnectAttempt++;
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            void this.connect().catch(() => {
+                this.scheduleReconnect();
+            });
+        }, delay);
+    }
+```
+
+with the constant beside `REQUEST_TIMEOUT_MS`:
+
+```ts
+const MAX_RECONNECT_DELAY_MS = 5_000;
+```
+
+Wire the socket handlers in `connect()` so a drop schedules a retry. Replace the
+body of the returned promise with:
+
+```ts
+        return new Promise((resolve, reject) => {
+            const ws = new WebSocket(`ws://${this.host}:${String(this.port)}`);
+            this.ws = ws;
+            ws.onopen = () => {
+                this.reconnectAttempt = 0;
+                this.notifyStatus(true);
+                resolve();
+            };
+            ws.onerror = () => reject(new Error("WebSocket connection error"));
+            ws.onclose = () => {
+                if (this.ws !== ws) return; // superseded by a newer socket
+                this.notifyStatus(false);
+                this.failPending(new Error("Connection lost"));
+                this.scheduleReconnect();
+            };
+            ws.onmessage = (event: MessageEvent) => {
+                this.handleMessage(String(event.data));
+            };
+        });
+```
+
+Add the helper that rejects in-flight requests on a drop, so callers are not
+left hanging until the 30s request timeout:
+
+```ts
+    private failPending(reason: Error): void {
+        for (const pending of this.pending.values()) {
+            clearTimeout(pending.timer);
+            pending.reject(reason);
+        }
+        this.pending.clear();
+    }
+```
+
+Finally make `close()` stop the retry loop:
+
+```ts
+    close(): void {
+        this.closed = true;
+        if (this.reconnectTimer !== null) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        this.failPending(new Error("Client closed"));
+        const ws = this.ws;
+        this.ws = null;
+        ws?.close();
+    }
+```
+
+Note the ordering: `this.ws` is cleared before `ws.close()` so the `onclose`
+guard sees a superseded socket and does not schedule a reconnect.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `bun test packages/tui/src/net/`
+Expected: PASS, 5 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/tui/src/net
+git commit -m "feat(tui): reconnect to the backend with backoff"
+```
+
+---
+
+### Task 18: Remote mode
+
+**Files:**
+- Modify: `packages/tui/src/index.ts`
+- Create: `packages/tui/src/cli.ts`
+- Test: `packages/tui/src/cli.test.ts`
+
+**Interfaces:**
+- Consumes: `startBackend` (Task 2); `WsClient` (Tasks 1, 17); `App` (Task 15).
+- Produces: `interface CliOptions { connect: { host: string; port: number } | null }` and `function parseArgs(argv: string[]): CliOptions`.
+
+Argument parsing is a pure function so it can be tested without launching anything.
+
+- [ ] **Step 1: Write the failing test**
+
+`packages/tui/src/cli.test.ts`:
+
+```ts
+import { describe, test, expect } from "bun:test";
+import { parseArgs } from "./cli";
+
+describe("parseArgs", () => {
+    test("defaults to local mode", () => {
+        expect(parseArgs([])).toEqual({ connect: null });
+    });
+
+    test("parses host and port from --connect", () => {
+        expect(parseArgs(["--connect", "127.0.0.1:7777"])).toEqual({
+            connect: { host: "127.0.0.1", port: 7777 },
+        });
+    });
+
+    test("accepts --connect=host:port", () => {
+        expect(parseArgs(["--connect=desktop.local:9000"])).toEqual({
+            connect: { host: "desktop.local", port: 9000 },
+        });
+    });
+
+    test("rejects a target with no port", () => {
+        expect(() => parseArgs(["--connect", "desktop"])).toThrow(/host:port/);
+    });
+
+    test("rejects a non-numeric port", () => {
+        expect(() => parseArgs(["--connect", "desktop:abc"])).toThrow(/host:port/);
+    });
+
+    test("rejects an unknown flag", () => {
+        expect(() => parseArgs(["--nope"])).toThrow(/Unknown/);
+    });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `bun test packages/tui/src/cli.test.ts`
+Expected: FAIL — cannot resolve module `./cli`.
+
+- [ ] **Step 3: Write `cli.ts`**
+
+```ts
+interface CliOptions {
+    connect: { host: string; port: number } | null;
+}
+
+const USAGE = "usage: taskflow-tui [--connect <host:port>]";
+
+function parseTarget(value: string): { host: string; port: number } {
+    const separator = value.lastIndexOf(":");
+    if (separator <= 0) throw new Error(`--connect expects host:port. ${USAGE}`);
+    const host = value.slice(0, separator);
+    const port = Number.parseInt(value.slice(separator + 1), 10);
+    if (!Number.isInteger(port) || port <= 0) {
+        throw new Error(`--connect expects host:port. ${USAGE}`);
+    }
+    return { host, port };
+}
+
+function parseArgs(argv: string[]): CliOptions {
+    let connect: CliOptions["connect"] = null;
+
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i] ?? "";
+        if (arg.startsWith("--connect=")) {
+            connect = parseTarget(arg.slice("--connect=".length));
+            continue;
+        }
+        if (arg === "--connect") {
+            const value = argv[i + 1];
+            if (value === undefined) throw new Error(`--connect expects host:port. ${USAGE}`);
+            connect = parseTarget(value);
+            i++;
+            continue;
+        }
+        throw new Error(`Unknown argument: ${arg}. ${USAGE}`);
+    }
+
+    return { connect };
+}
+
+export { parseArgs };
+export type { CliOptions };
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `bun test packages/tui/src/cli.test.ts`
+Expected: PASS, 6 tests.
+
+- [ ] **Step 5: Branch on the mode in `index.ts`**
+
+`WsClient` already accepts a host from Task 17, so only `index.ts` changes here.
+Replace the backend-and-client setup at the top of `main()` with:
+
+```ts
+    const options = parseArgs(process.argv.slice(2));
+
+    let backend: { port: number; stop(): void } | null = null;
+    let net: WsClient;
+
+    if (options.connect === null) {
+        const devBranch = process.env.TASKFLOW_DEV_BRANCH ?? null;
+        const binary = process.env.TASKFLOW_BACKEND_BIN ?? "taskflow-backend";
+        backend = await startBackend({ binary, args: [], devBranch });
+        net = new WsClient(backend.port);
+    } else {
+        net = new WsClient(options.connect.port, options.connect.host);
+    }
+
+    await net.connect();
+```
+
+and make shutdown tolerate the remote case, where there is no child to kill:
+
+```ts
+            ttyReal.leave();
+            net.close();
+            backend?.stop();
+            process.exit(0);
+```
+
+- [ ] **Step 6: Resync sessions on reconnect and warn about other clients**
+
+In `App`, subscribe to both signals in `init()`:
+
+```ts
+        this.deps.net.onStatusChange((status) => {
+            if (!status.connected) return;
+            // The backend keeps the PTY alive across a dropped connection, so a
+            // reconnect only has to re-fetch each session's current screen.
+            void this.deps.store.load().catch(() => undefined);
+            for (const session of this.sessions) {
+                void session.term.attach().catch(() => undefined);
+            }
+        });
+
+        this.disposers.push(
+            this.deps.net.on(MSG.SYSTEM_CLIENTS, (payload) => {
+                const event = payload as SystemClientsEvent;
+                this.otherClients = Math.max(0, event.count - 1);
+            }),
+        );
+```
+
+backed by two new fields and a disposer list on the class:
+
+```ts
+    private otherClients = 0;
+    private readonly disposers: Array<() => void> = [];
+```
+
+and rendered as a banner on the tab row in `render()`, after `drawTabs`:
+
+```ts
+        if (this.otherClients > 0) {
+            const warning = ` ${String(this.otherClients)} other client(s) attached `;
+            const startX = Math.max(paneX, cols - warning.length);
+            for (let i = 0; i < warning.length && startX + i < cols; i++) {
+                screen.back.set(startX + i, 0, {
+                    ...blankCell(),
+                    ch: warning[i] ?? " ",
+                    attrs: ATTR_INVERSE,
+                });
+            }
+        }
+```
+
+importing `blankCell` and `ATTR_INVERSE` from `../render/cells`, and
+`SystemClientsEvent` from `@taskflow/shared`.
+
+The banner exists because a session has one terminal grid on the backend and the
+last resize wins. When the desktop app is attached to the same session at a
+different size, one of the two renders incorrectly; the banner tells the user why
+rather than leaving it a mystery.
+
+- [ ] **Step 7: Manual smoke test over a tunnel**
+
+On the machine running the backend, confirm it is on loopback only:
+
+```bash
+lsof -nP -iTCP -sTCP:LISTEN | grep taskflow    # expect 127.0.0.1:<port>
+```
+
+From the second machine:
+
+```bash
+ssh -N -L 7777:127.0.0.1:<port> <desktop-host> &
+taskflow-tui --connect 127.0.0.1:7777
+```
+
+Verify:
+1. The sidebar lists the projects that live on the desktop.
+2. Killing the `ssh` process shows a disconnected state, and restarting the
+   tunnel reconnects without restarting the TUI.
+3. With the desktop app also open, the banner reports another client attached.
+
+- [ ] **Step 8: Run the full check and commit**
+
+```bash
+bun run lint && bun run typecheck && bun test
+git add packages/tui
+git commit -m "feat(tui): connect to a remote backend over a tunnel"
+```
+
 ## What this stage does not do
 
 These are deliberate omissions, each deferred to a named stage. Do not close
@@ -4076,7 +4689,7 @@ output makes the difference measurable.
 
 ## Follow-up stages
 
-**Stage 2 — Sessions and flows.** Session create, close, resume and tab management; flow definitions, runs and controls; actions; schedules; the YAML-through-`$EDITOR` record editor.
+**Stage 2 — Sessions and flows.** Session create, close, resume and tab management; OSC 52 clipboard, which matters once the terminal is on a different machine from the backend; flow definitions, runs and controls; actions; schedules; the YAML-through-`$EDITOR` record editor.
 
 **Stage 3 — Git and settings.** The changes pane with staging and commit, agent-generated commit messages, settings pickers fed by the backend's detection endpoints, task detail with the task log and attributes, and `notify-send` notifications.
 
