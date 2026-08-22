@@ -16,7 +16,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
-| 9 | Session terminal — attach, resync and mode tracking | implemented | `4572b1f` | commit `f693314`; review round 1 due |
+| 9 | Session terminal — attach, resync and mode tracking | in-review round 1 | `4572b1f` | commits `f693314`, `b2de3c4`; round 1 found 3, all fixed |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
@@ -476,6 +476,16 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
 
 ## Decisions taken
+
+- **Task 9's kitty resync fix crosses into `shared` and `backend`.** The plan
+  scopes Task 9 to `packages/tui/src/term/session-terminal.ts`, but the state the
+  round-1 finding is about does not exist anywhere in the TUI — `SerializeAddon`
+  never emitted it and `SessionSnapshotResponse` had no field for it. A
+  TUI-only change would have been dead code, so `PtyManager` gained the two CSI
+  handlers and `SessionSnapshotResponse` gained `kittyFlags: number | null`
+  (~25 lines, additive, no existing caller broken). The alternative — deferring
+  to Task 16/17 — would have left Task 9 clear with a known defect in the
+  behaviour the task is named for.
 
 - **Task 8 deviates from the plan's sample encoder in four places.** The plan
   inlines the full `encode.ts` body, and round 1 showed four of its behaviours to
@@ -1243,6 +1253,50 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
   the pass count rose from 960 by the 12 new tests.
 
-Next step: Task 9 review round 1 — one gpt-5.5 review via the codex-review
+- **Task 9, round 1** (gpt-5.5 via codex-review, Mode A over `--base 4572b1f`):
+  two findings reported, both substantiated. A third defect was found
+  independently while verifying them. All three fixed in `b2de3c4`, each with a
+  test written first and observed red.
+
+  - *"Buffer exit markers until history is loaded"* (codex) — real. If the child
+    exits while `attach()` is still waiting on `SESSION_SNAPSHOT`, the
+    `SESSION_EXITED` handler wrote `[Process exited with code N]` straight into
+    the write queue, ahead of the snapshot that had not arrived yet. A session
+    that dies right after you open it showed the exit line first and its own
+    output underneath. `PendingChunk.sequence` is now `number | null`; the
+    marker queues as `null`, which `finishLoad` always replays and never treats
+    as stale. Red before the fix (`Expected: "WORK" / Received: ""`):
+    `bun test ./packages/tui/src/term/session-terminal.test.ts -t "holds the exit marker"`.
+
+  - *"Preserve kitty flags across snapshot attach"* (codex) — real.
+    `SerializeAddon` emits the screen, not the kitty keyboard stack, so a client
+    attaching fresh to a session whose child had pushed `CSI > flags u` came up
+    with `modes.kittyFlags === null` and the Task 8 encoder sent legacy bytes to
+    a kitty-negotiated child — the enhanced-only chords silently stopped
+    working. Fixed on both sides: `PtyManager` registers the same two CSI
+    handlers on its headless terminal (before `initialOutput` is written, so a
+    restored session re-derives the state) and reports `kittyFlags` in
+    `SessionSnapshotResponse`; `attach()` adopts it on the snapshot path. Red
+    before the fix (`Expected: 5 / Received: undefined`):
+    `bun test ./packages/backend/tests/services/pty-manager-snapshot.test.ts -t "kitty keyboard flags"`.
+
+  - *"Re-attach resets ahead of queued output"* (found while verifying, not
+    reported by codex) — real. `terminal.reset()` ran synchronously while
+    earlier `terminal.write` calls were still sitting in `writeQueue`, so the
+    clear happened first and the stale chunk was drawn onto the fresh grid
+    afterwards. After a reconnect the pane showed a line of pre-drop output
+    stuck in front of the restored prompt. Reading `this.modes` before the same
+    drain had the mirror problem: modes carried by still-queued output were lost
+    across the reconnect. The reset is now a queued step (`enqueueAction`) and
+    the modes are captured inside it. Red before the fix
+    (`Expected: "PROMPT>" / Received: "OLDOLDOLDPROMPT>"`):
+    `bun test ./packages/tui/src/term/session-terminal.test.ts -t "re-attaching clears output"`.
+
+- Validation at `b2de3c4`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 977 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
+  the pass count rose from 972 by the 4 new TUI tests and 1 new backend test.
+
+Next step: Task 9 review round 2 — one gpt-5.5 review via the codex-review
 skill over `--base 4572b1f`, verify each finding, fix the substantiated ones,
 validate and commit.
