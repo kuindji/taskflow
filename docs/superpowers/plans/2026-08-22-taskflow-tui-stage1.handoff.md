@@ -10,7 +10,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
 | 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
-| 3 | Cell model and SGR encoding | in-review round 1 | `ebf7354` | commits `93d23c0`, `0379d71`; round 1 found 2, both fixed |
+| 3 | Cell model and SGR encoding | in-review round 2 | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`; round 1 found 2, round 2 found 1, all fixed |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
 | 6 | Legacy key decoder | pending | — | |
@@ -408,7 +408,40 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   `bun test packages/tui` 47 pass / 0 fail, full `bun test` 863 pass / 8 fail
   with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
 
+- **Task 3, round 2** (gpt-5.5 via codex-review, Mode B over `ebf7354..HEAD`):
+  one finding, substantiated and fixed in `5ab47fb`.
+  - `DEFAULT_COLOR` was a shared mutable singleton: `blankCell()` hands the same
+    object to every cell's `fg` *and* `bg`, so a single in-place edit recoloured
+    every default-coloured cell in the process. Reproduced before accepting the
+    report — `Object.assign(a.fg, { kind: "palette", index: 2 })` on one blank
+    cell turned an untouched second cell's `sgrDiff(null, b)` from `"\x1b[0m"`
+    into `"\x1b[0;38;5;2;48;5;2m"`. The trace is TypeScript-legal:
+    `Object.assign`'s `<T, U>(target: T, source: U): T & U` signature accepts it
+    even though direct property writes on the `Color` union do not typecheck.
+    Fixed with `Object.freeze`, which turns silent global corruption into an
+    immediate `TypeError`. Regression test: `blankCell > the shared default
+    color cannot be mutated in place` in `src/render/cells.test.ts`.
+
+  Verified red-before/green-after by stashing just the source change with the
+  new test in place: 2 fail / 17 pass before, 0 fail / 48 pass after. The red
+  run also took down the unrelated `stylesEqual > still distinguishes
+  attributes and colors`, which is the cross-contamination the fix prevents.
+  Full check green — `bun run lint` clean, `bun run typecheck` clean,
+  `bun test packages/tui` 48 pass / 0 fail, full `bun test` 864 pass / 8 fail
+  with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
+
+  gpt-5.5 raised no other Task 3 defects.
+
 ## Decisions taken
+
+- **`ScreenBuffer.set` keeps storing the caller's `Cell` by reference.** Round 2's
+  finding also noted that `set(0, 0, c); set(1, 0, c)` aliases one object into two
+  coordinates. Left as-is: copying in `set` would allocate on every blitted cell of
+  every frame (Task 10 blits the whole viewport per frame at 60fps), and the plan
+  already copies at the one place the invariant matters — Task 4's `cloneFront` does
+  `{ ...cell }` precisely so the front and back buffers never share objects. Documented
+  the ownership contract on `set` instead: the buffer takes the cell, the caller must
+  not reuse or keep mutating it.
 
 - **`stylesEqual` is a new export, `cellsEqual` keeps its meaning.** Round 1's
   `sgrDiff` fix needed an attribute-only comparison, and the plan's `cellsEqual`
@@ -483,4 +516,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 3 review round 2 — one gpt-5.5 review via the codex-review skill over `ebf7354..HEAD` (`0379d71`), verify each finding, fix the substantiated ones, validate and commit. Round 1 fixed findings, so another round is due before the task can be marked clear.
+Next step: Task 3 review round 3 — one gpt-5.5 review via the codex-review skill over `ebf7354..HEAD` (`5ab47fb`), verify each finding, fix the substantiated ones, validate and commit. Round 2 fixed a finding, so another round is due before the task can be marked clear.
