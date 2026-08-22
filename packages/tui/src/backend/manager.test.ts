@@ -52,6 +52,26 @@ describe("startBackend", () => {
         expect(handle.port).toBe(4323);
     });
 
+    test("does not let a TASKFLOW_DEV_BRANCH in its own env reach a devBranch-null child", async () => {
+        // `devBranch` is what decides the child's instance. Inheriting the variable
+        // would silently put the backend on a dev instance the caller said not to use.
+        const previous = process.env.TASKFLOW_DEV_BRANCH;
+        process.env.TASKFLOW_DEV_BRANCH = "stale";
+        try {
+            const binary = await writeFakeBackend(
+                'if [ -z "$TASKFLOW_DEV_BRANCH" ]; then echo 4332 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',
+            );
+            const handle = await start({ binary, args: [], devBranch: null });
+            expect(handle.port).toBe(4332);
+        } finally {
+            if (previous === undefined) {
+                delete process.env.TASKFLOW_DEV_BRANCH;
+            } else {
+                process.env.TASKFLOW_DEV_BRANCH = previous;
+            }
+        }
+    });
+
     test("strips the Claude Code session markers from the child environment", async () => {
         const previous = {
             CLAUDECODE: process.env.CLAUDECODE,
@@ -292,6 +312,23 @@ describe("startBackend", () => {
             }
         }
     }, 15_000);
+
+    test("does not let port-file cleanup mask the backend's own startup error", async () => {
+        // The child leaves a directory where the port file should be. A non-recursive
+        // rm throws EISDIR there, and an unguarded cleanup would report that instead of
+        // the reason the backend actually failed.
+        const binary = await writeFakeBackend(
+            'mkdir "$TASKFLOW_PORT_FILE"; echo "bind: address already in use" >&2; exit 3',
+        );
+        let message = "";
+        try {
+            handles.push(await startBackend({ binary, args: [], devBranch: null, timeoutMs: 2000 }));
+        } catch (err) {
+            message = err instanceof Error ? err.message : String(err);
+        }
+        expect(message).toMatch(/exited before startup \(code 3\)/);
+        expect(message).toMatch(/bind: address already in use/);
+    });
 
     test("names the signal when the backend is killed before startup", async () => {
         const binary = await writeFakeBackend("kill -TERM $$");

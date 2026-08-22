@@ -22,6 +22,17 @@ const POLL_INTERVAL_MS = 50;
 const STDERR_TAIL_BYTES = 8192;
 const KILL_GRACE_MS = 1000;
 
+// Cleanup runs on paths that are already reporting a failure, so it must never throw:
+// a child that left a directory at the port-file path would make a plain `rmSync` fail
+// with EISDIR and replace the backend's own error message with a filesystem one.
+function removePortFile(portFile: string): void {
+    try {
+        rmSync(portFile, { force: true, recursive: true });
+    } catch {
+        // Nothing useful to do here — the caller is already reporting the real error.
+    }
+}
+
 // The backend writes the port with a single small `writeFile`, so a reader either
 // sees nothing or sees the whole number. Anything that is not a bare port number is
 // treated as "not written yet" rather than parsed leniently.
@@ -40,9 +51,17 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
     const portFile = join(tmpdir(), `taskflow-tui-port-${process.pid}-${randomUUID()}`);
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-    // Agents the backend spawns refuse to launch when they see these, so they are
-    // stripped here exactly as electron/src/backend-manager.ts does.
-    const { CLAUDECODE: _cc, CLAUDE_CODE_ENTRYPOINT: _cce, ...safeEnv } = process.env;
+    // Agents the backend spawns refuse to launch when they see the two Claude Code
+    // markers, so they are stripped here exactly as electron/src/backend-manager.ts
+    // does. TASKFLOW_DEV_BRANCH is stripped too so that `devBranch` is the only thing
+    // deciding the child's instance: inheriting it would put the backend on a dev
+    // instance the caller explicitly asked not to use.
+    const {
+        CLAUDECODE: _cc,
+        CLAUDE_CODE_ENTRYPOINT: _cce,
+        TASKFLOW_DEV_BRANCH: _devBranch,
+        ...safeEnv
+    } = process.env;
 
     const child: ChildProcess = spawn(opts.binary, opts.args, {
         stdio: ["ignore", "ignore", "pipe"],
@@ -85,7 +104,7 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
     // line, so any escalation timer this scheduled would never fire.
     const stop = (): void => {
         child.kill();
-        rmSync(portFile, { force: true });
+        removePortFile(portFile);
     };
 
     // The startup paths can wait, so they escalate: SIGTERM gives the backend its
@@ -113,11 +132,11 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
         // Failure is checked before the port file: a child that wrote a port and then
         // died has not started up, and its handle would point at a dead backend.
         if (outcome.spawnError !== null) {
-            rmSync(portFile, { force: true });
+            removePortFile(portFile);
             throw new Error(`Backend failed to start: ${outcome.spawnError.message}`);
         }
         if (outcome.exit !== null) {
-            rmSync(portFile, { force: true });
+            removePortFile(portFile);
             const { code, signal } = outcome.exit;
             const how = signal === null ? `code ${String(code ?? 0)}` : `signal ${signal}`;
             throw new Error(`Backend exited before startup (${how})` + stderrSuffix());
@@ -129,7 +148,7 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
         const remaining = deadline - Date.now();
         if (remaining <= 0) {
             await terminate();
-            rmSync(portFile, { force: true });
+            removePortFile(portFile);
             throw new Error(
                 `Backend startup timeout after ${String(timeoutMs)}ms` + stderrSuffix(),
             );
