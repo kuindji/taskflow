@@ -13,7 +13,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
 | 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
-| 6 | Legacy key decoder | implemented | `f7f072b` | commit `cfde4b3`; review round 1 due |
+| 6 | Legacy key decoder | in-review round 1 | `f7f072b` | commits `cfde4b3`, `74af2bd`; round 2 due |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
 | 8 | Per-child key encoding | pending | — | |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
@@ -836,6 +836,44 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass count rose
   from 889 by exactly the two new tty tests.
 
+- **Task 6, round 1** (gpt-5.5 via codex-review, Mode A over `--base f7f072b`):
+  two findings, both substantiated and fixed in `74af2bd`.
+
+  1. **Shift+Tab never reaches anything.** A legacy terminal reports Shift+Tab
+     as `CSI Z`. `scanCsi` parsed it fine, but the final byte `Z` was in neither
+     `TILDE_TO_NAME` nor `FINAL_TO_NAME`, so the sequence was consumed and no
+     event was emitted — the key was silently swallowed in the TUI and in every
+     child session the events get forwarded to. Repro: the new test
+     `decodeLegacy > decodes back-tab as shift plus tab` in
+     `packages/tui/src/input/decode-legacy.test.ts` — red on `cfde4b3` (the
+     event array is empty), green after the fix. Command:
+     `bun test packages/tui/src/input/decode-legacy.test.ts`.
+
+     Fix: a `scan.final === "Z"` branch emitting `tab` with `shift` forced on,
+     merged over any modifier parameter that happened to be present.
+
+  2. **NUL decoded as Ctrl+backtick.** `decodeControl` mapped every remaining C0
+     byte with `code + 96`, which is only correct for `0x01`–`0x1a`. NUL — what
+     Ctrl+Space and Ctrl+@ send — came out as Ctrl+`` ` ``, a chord that cannot
+     round-trip back to the byte the terminal actually sent.
+
+     **Codex only flagged NUL; the same arithmetic is wrong for `0x1c`–`0x1f`
+     too**, which came out as Ctrl+`|`, Ctrl+`}`, Ctrl+`~` and Ctrl+DEL instead
+     of Ctrl+`\`, Ctrl+`]`, Ctrl+`^` and Ctrl+`_` — the last one emitting a raw
+     DEL as a printable `char`. Verified by probe before fixing, and fixed as
+     one class rather than the single case reported. Repro: the new test
+     `decodeLegacy > decodes the non-letter control characters by their real key`
+     — red on `cfde4b3` (`"@"` received as `` "`" ``, and `\]^_` received as
+     `|}~` plus DEL), green after the fix.
+
+     Fix: `code + 64` (the actual C0-to-ASCII rule), lowercased for the
+     `A`–`Z` range so `\x01` still reports `a` as the existing test requires.
+
+- Validation before `74af2bd`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 913 pass / 8 fail — the 8 are the recorded
+  pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass count rose
+  from 911 by exactly the two new decoder tests.
+
 - **Task 5, round 3** (gpt-5.5 via codex-review, Mode A over `--base cef9dcb`,
   covering the full task diff including `af9bc46`): **zero findings.** Codex
   reported no material defects in the TTY control/restoration changes or their
@@ -856,10 +894,10 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 **Task 5 is clear.**
 
-Next step: Review round 1 for Task 6 (legacy key decoder). Run one gpt-5.5
-review via the codex-review skill over `f7f072b..HEAD` (currently `cfde4b3`),
-scoped to `packages/tui/src/input/`. Verify each finding independently before
-acting on it, fix the substantiated ones, run
+Next step: Review round 2 for Task 6 (legacy key decoder). Run one gpt-5.5
+review via the codex-review skill over `f7f072b..HEAD` (currently `74af2bd`),
+covering the whole task diff including the round-1 fixes. Verify each finding
+independently before acting on it, fix the substantiated ones, run
 `bun run lint && bun run typecheck && bun test`, and commit. Zero substantiated
 findings clears Task 6 and the next step becomes implementing Task 7 (kitty key
 decoder and protocol negotiation) — see the `no-control-regex` note in "Task 6
