@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "child_process";
-import { readFile, rm } from "fs/promises";
+import { readFile } from "fs/promises";
+import { rmSync } from "fs";
 import { randomUUID } from "crypto";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -53,8 +54,12 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
 
     // Held in an object: TypeScript narrows a plain `let` to `never` here,
     // because it cannot see the assignment that happens inside the callback.
-    const outcome: { exitCode: number | null; spawnError: Error | null; stderr: string } = {
-        exitCode: null,
+    const outcome: {
+        exit: { code: number | null; signal: NodeJS.Signals | null } | null;
+        spawnError: Error | null;
+        stderr: string;
+    } = {
+        exit: null,
         spawnError: null,
         stderr: "",
     };
@@ -63,17 +68,21 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
     child.stderr?.on("data", (chunk: Buffer) => {
         outcome.stderr = (outcome.stderr + chunk.toString("utf-8")).slice(-STDERR_TAIL_BYTES);
     });
-    child.once("exit", (code: number | null) => {
-        outcome.exitCode = code ?? 0;
+    // A child killed by a signal reports a null code, so the exit is recorded as an
+    // object: `code` alone cannot distinguish "exited with 0" from "not exited yet".
+    child.once("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+        outcome.exit = { code, signal };
     });
     // Without this listener Node throws on ENOENT instead of rejecting.
     child.once("error", (err: Error) => {
         outcome.spawnError = err;
     });
 
+    // Removal is synchronous so that a caller which exits right after `stop()`
+    // still leaves no port file behind.
     const stop = (): void => {
         child.kill();
-        void rm(portFile, { force: true });
+        rmSync(portFile, { force: true });
     };
 
     const deadline = Date.now() + timeoutMs;
@@ -81,24 +90,28 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
         // Failure is checked before the port file: a child that wrote a port and then
         // died has not started up, and its handle would point at a dead backend.
         if (outcome.spawnError !== null) {
-            await rm(portFile, { force: true });
+            rmSync(portFile, { force: true });
             throw new Error(`Backend failed to start: ${outcome.spawnError.message}`);
         }
-        if (outcome.exitCode !== null) {
-            await rm(portFile, { force: true });
+        if (outcome.exit !== null) {
+            rmSync(portFile, { force: true });
+            const { code, signal } = outcome.exit;
+            const how = signal === null ? `code ${String(code ?? 0)}` : `signal ${signal}`;
             const tail = outcome.stderr.trim();
             throw new Error(
-                `Backend exited before startup (code ${String(outcome.exitCode)})` +
-                    (tail === "" ? "" : `: ${tail}`),
+                `Backend exited before startup (${how})` + (tail === "" ? "" : `: ${tail}`),
             );
         }
         const port = await readPort(portFile);
         if (port !== null) return { port, stop };
-        if (Date.now() > deadline) {
+        // The wait is clamped to what is left of the budget, so the last poll lands on
+        // the deadline instead of up to one whole interval past it.
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
             stop();
             throw new Error(`Backend startup timeout after ${String(timeoutMs)}ms`);
         }
-        await Bun.sleep(POLL_INTERVAL_MS);
+        await Bun.sleep(Math.min(POLL_INTERVAL_MS, remaining));
     }
 }
 

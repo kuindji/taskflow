@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { mkdtemp, writeFile, chmod } from "fs/promises";
+import { mkdtemp, writeFile, chmod, readFile } from "fs/promises";
+import { existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { startBackend, type BackendHandle } from "./manager";
@@ -182,4 +183,63 @@ describe("startBackend", () => {
         expect(a.port).toBe(4328);
         expect(b.port).toBe(4329);
     }, 15_000);
+
+    test("stop() removes the port file before it returns", async () => {
+        // The fake backend echoes the port-file path it was given so the test can
+        // watch it; a caller that exits right after stop() must leave nothing behind.
+        const dir = await mkdtemp(join(tmpdir(), "tui-backend-portfile-"));
+        const echoed = join(dir, "which-port-file");
+        const binary = await writeFakeBackend(
+            `printf '%s' "$TASKFLOW_PORT_FILE" > ${echoed}; echo 4331 > "$TASKFLOW_PORT_FILE"; exec sleep 30`,
+        );
+        const handle = await start({ binary, args: [], devBranch: null });
+        const portFile = (await readFile(echoed, "utf-8")).trim();
+        expect(existsSync(portFile)).toBe(true);
+        handle.stop();
+        expect(existsSync(portFile)).toBe(false);
+    });
+
+    test("does not accept a port that only appears after the deadline", async () => {
+        // The backend never writes a port itself; the test writes it one poll interval
+        // after the deadline has passed, which a loop that polls past its budget would
+        // still accept.
+        const dir = await mkdtemp(join(tmpdir(), "tui-backend-late-"));
+        const echoed = join(dir, "which-port-file");
+        const binary = await writeFakeBackend(
+            `printf '%s' "$TASKFLOW_PORT_FILE" > ${echoed}; exec sleep 30`,
+        );
+        const timeoutMs = 1000;
+        const started = Date.now();
+        const pending = startBackend({ binary, args: [], devBranch: null, timeoutMs });
+        const late = (async (): Promise<void> => {
+            while (!existsSync(echoed)) await Bun.sleep(10);
+            const portFile = (await readFile(echoed, "utf-8")).trim();
+            await Bun.sleep(started + timeoutMs + 25 - Date.now());
+            await writeFile(portFile, "4330");
+        })();
+
+        let message = "";
+        let port = 0;
+        try {
+            const handle = await pending;
+            handles.push(handle);
+            port = handle.port;
+        } catch (err) {
+            message = err instanceof Error ? err.message : String(err);
+        }
+        await late;
+        expect(port).toBe(0);
+        expect(message).toMatch(/timeout/);
+    }, 10_000);
+
+    test("names the signal when the backend is killed before startup", async () => {
+        const binary = await writeFakeBackend("kill -TERM $$");
+        let message = "";
+        try {
+            handles.push(await startBackend({ binary, args: [], devBranch: null, timeoutMs: 2000 }));
+        } catch (err) {
+            message = err instanceof Error ? err.message : String(err);
+        }
+        expect(message).toMatch(/exited before startup \(signal SIGTERM\)/);
+    });
 });
