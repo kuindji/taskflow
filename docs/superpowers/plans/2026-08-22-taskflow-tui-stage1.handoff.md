@@ -10,7 +10,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
 | 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
-| 3 | Cell model and SGR encoding | pending | — | |
+| 3 | Cell model and SGR encoding | implemented | `ebf7354` | commit `93d23c0`; awaiting review round 1 |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
 | 6 | Legacy key decoder | pending | — | |
@@ -436,4 +436,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 3 — "Cell model and SGR encoding". Record HEAD as its base commit, implement it, validate with `bun run lint && bun run typecheck && bun test`, and commit.
+Next step: Task 3 review round 1 — one gpt-5.5 review via the codex-review skill over `ebf7354..93d23c0`, verify each finding, fix the substantiated ones, validate and commit.
