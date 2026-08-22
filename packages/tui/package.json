@@ -1,0 +1,19 @@
+{
+    "name": "@taskflow/tui",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "TASKFLOW_DEV=1 bun run src/index.ts",
+        "build:bin": "bun build src/index.ts --compile --outfile dist/taskflow-tui",
+        "test": "bun test",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@taskflow/shared": "workspace:*",
+        "@xterm/headless": "^5.5.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.7.0"
+    }
+}

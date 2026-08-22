@@ -22,7 +22,7 @@
     },
     "electron": {
       "name": "taskflow",
-      "version": "0.11.2",
+      "version": "0.14.0",
       "dependencies": {
         "electron-updater": "^6.8.3",
       },
@@ -54,6 +54,17 @@
       "dependencies": {
         "github-slugger": "^2.0.0",
         "yaml": "^2.7.0",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.0",
+      },
+    },
+    "packages/tui": {
+      "name": "@taskflow/tui",
+      "version": "0.1.0",
+      "dependencies": {
+        "@taskflow/shared": "workspace:*",
+        "@xterm/headless": "^5.5.0",
       },
       "devDependencies": {
         "typescript": "^5.7.0",
@@ -570,6 +581,8 @@
     "@taskflow/backend": ["@taskflow/backend@workspace:packages/backend"],
 
     "@taskflow/shared": ["@taskflow/shared@workspace:packages/shared"],
+
+    "@taskflow/tui": ["@taskflow/tui@workspace:packages/tui"],
 
     "@taskflow/ui": ["@taskflow/ui@workspace:packages/ui"],
 

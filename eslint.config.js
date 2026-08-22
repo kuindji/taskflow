@@ -76,11 +76,14 @@ export default tseslint.config(
             "packages/backend/tests/**/*.ts",
             "packages/shared/src/**/*.ts",
             "packages/shared/tests/**/*.ts",
+            "packages/tui/src/**/*.ts",
         ],
         languageOptions: {
             globals: {
                 ...globals.node,
                 Bun: "readonly",
+                WebSocket: "readonly",
+                MessageEvent: "readonly",
             },
         },
     },
