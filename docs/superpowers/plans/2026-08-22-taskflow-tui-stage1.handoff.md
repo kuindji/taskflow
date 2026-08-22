@@ -9,7 +9,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
-| 2 | Backend lifecycle | in-review round 5 | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; round 5 found 2, both fixed |
+| 2 | Backend lifecycle | clear | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; clear after round 6 |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
@@ -336,6 +336,51 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
     `bun test` is 845 pass / 8 fail with the 8 being the known pre-existing
     `MarkdownPaneImpl` failures. Zero stray `sleep 30` processes after the run.
 
+- **Task 2, round 6** (gpt-5.5 via codex-review, Mode B over `ee98048..4643cb4`
+  restricted to `packages/tui/src/backend/`): one finding, **not substantiated as a
+  defect. Task 2 is clear — no code changed this round.**
+  - Codex reported that the poll loop reads the port file before checking the deadline
+    (`manager.ts:157`/`:166` vs `:169`), so if the event loop is blocked past the
+    deadline the loop resumes, finds a port that was written after it, and resolves
+    instead of timing out.
+  - **The mechanism is real and was reproduced.** Throwaway probe: a fake backend that
+    writes its port from a background subshell 300ms in, `timeoutMs: 400`, and the test
+    busy-spins the event loop to +1500ms. `startBackend` resolved with port 4340 at
+    t=1555ms — 1.15s past its own budget. The same probe with a shorter spin (to +955ms,
+    before the write landed) rejected with `Backend startup timeout after 400ms`, so the
+    probe is measuring the described window and not something else.
+  - **Not fixed, deliberately.** Enforcing "reject any port found by a poll that began
+    after the deadline" would reject backends that came up *in time*. Measured the final
+    poll's start relative to the deadline over 20 runs of the clamped-sleep loop:
+    `0,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,3` ms *past* the deadline. Bun's timer wakes
+    late by 1-3ms as a matter of course, so the strict rule would turn 19 of those 20
+    in-time startups into spurious `startup timeout` failures — exactly the case round 2
+    went out of its way to keep working. A tolerance wide enough to absorb the jitter
+    (one `POLL_INTERVAL_MS`) would just reopen the window round 2 closed.
+  - The decisive argument is that the strict rule buys no timing guarantee at all: the
+    timeout branch is subject to the same scheduler delay as the resolve branch. A
+    blocked loop delivers the rejection just as late as it delivers the resolution, so
+    the change would only convert a successful start into a failure at the same late
+    moment. What the timeout is for — not hanging forever — is unaffected.
+  - Codex also called the existing test at `manager.test.ts:243` "false-green for this
+    case". It is not false-green: it goes red on the round-2 code (documented there) and
+    green on the fix. It covers a systematically-late poll, not a blocked event loop.
+    That is a coverage gap for a behaviour deliberately left as-is, not a broken test.
+  - Independently probed the one success-path question earlier rounds left open, and
+    found it healthy: the retained stderr listener **does** keep draining after the
+    handle is returned. Probe: a backend that writes its port, then 8MB of stderr, then a
+    marker file. The marker appeared, so the child never blocked in `write()` — a TUI
+    that runs a chatty backend for hours will not wedge it. Throwaway probe, not kept.
+  - Operational note for future rounds: `nohup codex ... &` launched through a
+    backgrounded Bash call reports "completed, exit 0" as soon as the launching shell
+    exits, while codex keeps running for another ten minutes. Two runs were started on
+    that false signal and both wrote to the same `-o` path. Poll for the report file (or
+    the codex pid), do not trust the task-completion notification.
+  - Validation at `4643cb4`: `bun run lint` and `bun run typecheck` exit 0,
+    `bun test packages/tui` is 29 pass / 0 fail, full `bun test` is 845 pass / 8 fail with
+    the 8 being the known pre-existing `MarkdownPaneImpl` failures. Zero stray `sleep 30`
+    processes after the run.
+
 ## Decisions taken
 
 - **Task 2 strips `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the backend's env.**
@@ -364,6 +409,16 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   async and can await it. If Task 15 later wants a guaranteed-dead backend at exit, that
   is a change to the handle's contract and belongs there, not here.
 
+- **The startup timeout is a liveness bound, not a strict "no port after N ms" rule.**
+  Round 6 reproduced a case where a blocked event loop lets a port written after the
+  deadline be accepted. Left as-is: the timeout branch is delayed by exactly the same
+  scheduler stall as the resolve branch, so enforcing the strict rule would not make
+  `startBackend` return any sooner — it would only turn a successful start into a
+  failure. Measured Bun timer jitter puts the final poll 1-3ms past the deadline even on
+  an idle machine, so the strict rule would also fail startups that were in time. The
+  guarantee kept is "never hangs forever"; "never resolves after `timeoutMs` of wall
+  clock" is not offered and cannot be, given the loop can be preempted.
+
 - **Pre-existing test failures.** `bun test` reports 8 failures in
   `packages/ui/src/components/panes/MarkdownPaneImpl.*` when the whole suite runs
   (they pass in isolation — suite-ordering flakiness). Verified identical at base
@@ -381,4 +436,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 2 review round 6 — gpt-5.5 via codex-review over `ee98048..HEAD`, restricted to `packages/tui/src/backend/` (round 5 changed code, so another round is due)
+Next step: Task 3 — "Cell model and SGR encoding". Record HEAD as its base commit, implement it, validate with `bun run lint && bun run typecheck && bun test`, and commit.
