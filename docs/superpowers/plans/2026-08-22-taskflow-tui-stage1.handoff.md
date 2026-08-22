@@ -8,7 +8,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
-| 1 | Package scaffold and WebSocket client | in-review round 1 (fixed) | `49b7967` | commits `22b9b7d`, `6e5e6f4` |
+| 1 | Package scaffold and WebSocket client | in-review round 2 (fixed) | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8` |
 | 2 | Backend lifecycle | pending | — | |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
@@ -44,6 +44,40 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
     dropped rather than used to fail a pending request; the pending request
     still times out normally.
 
+- **Task 1, round 2** (gpt-5.5 via codex-review, Mode B over `49b7967..f2af28b`
+  restricted to `packages/tui` and `eslint.config.js`): four findings, two
+  substantiated and fixed in `8bdedf8`, one not reproducible, one accepted as
+  test hygiene. Run the repros with `bun test packages/tui`.
+  - **Substantiated — superseded socket still dispatched events.** A second
+    `connect()` overwrote `this.ws` without closing the old socket, and
+    `onmessage` had no current-socket guard, so a frame arriving on the stale
+    socket was still delivered to event subscribers. Its pending requests were
+    also left to the 30s timeout rather than failed. Regression test:
+    `WsClient > a socket superseded by a new connect() no longer delivers events`
+    — red on `f2af28b` (received `[{stale: true}]`), green on `8bdedf8`.
+  - **Substantiated — `close()` never reported the disconnect.** `close()` nulled
+    `this.ws` before calling `ws.close()`, so the `onclose` guard treated the
+    socket as stale and `notifyStatus(false)` never ran. A `onStatusChange`
+    subscriber stayed on `{ connected: true }` forever after an explicit close.
+    Regression test: `WsClient > close() reports the disconnect to status
+    listeners` — red on `f2af28b` (`[true]`), green on `8bdedf8` (`[true, false]`).
+  - **Not reproducible — `connect()` hanging when `close()` precedes `onopen`.**
+    Codex claimed the promise never settles. On Bun it does: closing a
+    `CONNECTING` socket fires `onerror` (then `onclose`), which rejects the
+    connect promise. Verified with a standalone probe and with the test
+    `WsClient > connect() settles when close() happens before the socket opens`,
+    which passes on `f2af28b` unmodified. The test was kept, and the restructure
+    now settles the connect promise explicitly rather than depending on Bun
+    firing `onerror`.
+  - **Test hygiene — clients leaked on assertion failure.** Each test called
+    `client.close()` as its last line, so a failing assertion skipped it and left
+    a socket and a 30s timer alive. Tests now register clients in a module-level
+    list that `afterEach` closes. Low severity; fixed because it is one line.
+  - Fix shape: both substantiated defects now route through a single private
+    `disconnect(reason)` that detaches the socket handlers, closes the socket,
+    settles any in-flight `connect()`, fails pending requests and reports the
+    status transition. `setStatus` deduplicates so repeated closes stay quiet.
+
 ## Decisions taken
 
 - **Pre-existing test failures.** `bun test` reports 8 failures in
@@ -52,10 +86,15 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   commit `49b7967`, so they are pre-existing and not a gate on TUI work. Treat the
   TUI check as green when lint, typecheck and the tui tests pass and the UI failure
   count stays at 8.
+- **Test server typing.** Refactoring `client.test.ts` to keep a list of servers
+  lost the contextual `Server<unknown>` typing the old single `let server` binding
+  provided, and `Bun.serve` then inferred the upgrade data type as `undefined`.
+  Annotated each local as `const server: Server<unknown> = Bun.serve({...})` rather
+  than casting.
 - **Task 1 test file adjusted for lint.** The plan's `client.test.ts` tripped
   `no-floating-promises` on `server?.stop(true)` and `await-thenable` on
   `expect(...).rejects.toThrow(...)`. Rewrote the `afterEach` as async/await and the
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: review round 2 for Task 1 (gpt-5.5 via codex-review over `49b7967..HEAD`, currently `6e5e6f4`)
+Next step: review round 3 for Task 1 (gpt-5.5 via codex-review over `49b7967..HEAD`, currently `8bdedf8`)
