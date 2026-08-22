@@ -9,7 +9,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
-| 2 | Backend lifecycle | pending | — | |
+| 2 | Backend lifecycle | implemented | `ee98048` | commit `f27a5aa`; review round 1 due |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
@@ -102,6 +102,23 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 ## Decisions taken
 
+- **Task 2 strips `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the backend's env.**
+  The plan's `manager.ts` inherits `process.env` wholesale; `electron/src/backend-manager.ts:114`
+  strips these two before spawning because agents the backend later spawns refuse to
+  launch when they see them ("cannot be launched inside another Claude Code session").
+  A TUI started from inside a Claude Code session would hit exactly that. Added the
+  same destructure plus a regression test — `startBackend > strips the Claude Code
+  session markers from the child environment`, red without the strip (port 9999
+  instead of 4324), green with it.
+- **Task 2 test file has 8 tests, not the plan's 4.** Kept the plan's four verbatim
+  (modulo the shared `afterEach` cleanup and the try/catch rejection assertion the
+  lint config forces, same as Task 1) and added four: env stripping, `args`
+  pass-through, ENOENT on a missing binary, and the startup timeout. The last two
+  cover the two error branches the plan's implementation has but never exercises.
+- **`portFile` is removed on the exit branch too.** The plan's implementation cleans
+  up the port file on spawn-error and timeout but not when the child exits early,
+  leaking a tmp file per failed start. Added the same `rm` there.
+
 - **Pre-existing test failures.** `bun test` reports 8 failures in
   `packages/ui/src/components/panes/MarkdownPaneImpl.*` when the whole suite runs
   (they pass in isolation — suite-ordering flakiness). Verified identical at base
@@ -119,4 +136,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: implement Task 2 (Backend lifecycle)
+Next step: Task 2 review round 1 — gpt-5.5 via codex-review over `ee98048..f27a5aa`, restricted to `packages/tui`
