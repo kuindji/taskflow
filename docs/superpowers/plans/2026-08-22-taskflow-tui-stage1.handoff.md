@@ -15,7 +15,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
-| 8 | Per-child key encoding | in-review round 3 | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`; round 3 found one real issue, fixed |
+| 8 | Per-child key encoding | in-review round 4 | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; round 4 found one real issue, fixed |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
@@ -1193,8 +1193,31 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
   the pass count rose from 958 by the 1 new regression test.
 
-Next step: Review round 4 for Task 8 — one gpt-5.5 review via the codex-review
-skill over `7932626..HEAD` (`encode.ts` plus its test, including the round 1, 2
-and 3 fixes). Verify any findings independently, fix the substantiated ones,
-validate and commit. Zero substantiated findings means Task 8 is clear and Task 9
-(session terminal — attach, resync and mode tracking) is next.
+- **Task 8, round 4** (gpt-5.5 via codex-review, Mode A over `--base 7932626`):
+  one finding, substantiated, fixed in `207cdd3`.
+  - *"Map Ctrl+number chords before falling back to literals"* — real. A kitty
+    terminal reports the physical key, so Ctrl+6 arrives as `CSI 54;5u` and
+    `decodeKitty` hands the encoder `{name:"char", char:"6", ctrl:true}`.
+    `controlByte` covered only space and ASCII 64..95, so the chord fell through
+    to the literal branch and a legacy child was typed a `6` — in vim, Ctrl+6
+    ("switch to the alternate buffer") inserted a digit instead. The digit row
+    now goes through a `CTRL_ALIASES` table carrying the xterm convention
+    (Ctrl+2..Ctrl+8 as NUL, ESC, 0x1c, 0x1d, 0x1e, 0x1f, DEL) plus `/` and `?`,
+    the other two conventional spellings of 0x1f and DEL. Space moved into the
+    same table. Unmodified digits are untouched — the branch only runs under
+    ctrl — and the kitty-out path is unchanged, since Ctrl+6 for a kitty child
+    still encodes as `CSI 54;5u`.
+
+  Confirmed with a test written first and observed red (`Expected: "\x1e" /
+  Received: "6"`) before the fix: `bun test ./packages/tui/src/input/encode.test.ts`.
+
+- Validation at `207cdd3`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 960 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
+  the pass count rose from 959 by the 1 new regression test.
+
+Next step: Review round 5 for Task 8 — one gpt-5.5 review via the codex-review
+skill over `7932626..HEAD` (`encode.ts` plus its test, including the round 1-4
+fixes). Verify any findings independently, fix the substantiated ones, validate
+and commit. Zero substantiated findings means Task 8 is clear and Task 9 (session
+terminal — attach, resync and mode tracking) is next.
