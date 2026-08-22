@@ -4156,9 +4156,21 @@ In `packages/backend/src/ws/server.ts`, add the hostname to the `Bun.serve` call
 ```ts
         server = Bun.serve({
             port,
-            hostname: "127.0.0.1",
+            hostname: process.env.TASKFLOW_HOST ?? "127.0.0.1",
             async fetch(req, server) {
 ```
+
+The existing clients all address the backend by name, not by address — the UI
+uses `ws://localhost:${port}` (`useWebSocket.ts:67`) and every spawned agent gets
+`TASKFLOW_API_URL: http://localhost:${port}` (`session-lifecycle.ts:454`). The
+current socket is an IPv6 wildcard, so this change makes it IPv4-only, which
+looks like it could strand a client that resolves `localhost` to `::1`.
+
+It does not, and that was checked rather than assumed: with a server bound to
+`127.0.0.1`, a request to `http://localhost:<port>` succeeds, because clients try
+both address families. The escape hatch is there for the unusual host that
+resolves `localhost` to `::1` only, where `TASKFLOW_HOST=::1` restores service
+without reopening the socket to the network.
 
 Then broadcast the count whenever the client set changes. Replace the existing
 `open` and `close` handlers with:
@@ -4204,6 +4216,10 @@ lsof -nP -iTCP -sTCP:LISTEN | grep taskflow
 
 Expected: an address of the form `127.0.0.1:<port>`. A `*:<port>` result means
 the change did not take effect. Before this task that command reports `*:<port>`.
+
+Then confirm the existing clients still work, since they connect by name: launch
+the Electron app and check it reaches the backend, and run `taskflow-cli task`
+inside an agent session. Both go through `localhost` and must still succeed.
 
 - [ ] **Step 7: Run the full check and commit**
 
