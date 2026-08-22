@@ -15,7 +15,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
-| 8 | Per-child key encoding | in-review round 4 | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; round 4 found one real issue, fixed |
+| 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
@@ -1216,8 +1216,14 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
   the pass count rose from 959 by the 1 new regression test.
 
-Next step: Review round 5 for Task 8 — one gpt-5.5 review via the codex-review
-skill over `7932626..HEAD` (`encode.ts` plus its test, including the round 1-4
-fixes). Verify any findings independently, fix the substantiated ones, validate
-and commit. Zero substantiated findings means Task 8 is clear and Task 9 (session
-terminal — attach, resync and mode tracking) is next.
+- **Task 8, round 5** (gpt-5.5 via codex-review, Mode A over `--base 7932626`):
+  zero findings. Codex reported "no blocking defects in the Task 8 encoder
+  changes" and independently ran root lint, the full workspace typecheck and the
+  `packages/tui` suite (144 pass / 0 fail) as part of the review. No code
+  changed this round, so HEAD stays at the `207cdd3` validation. **Task 8 is
+  clear.**
+
+Next step: Implement Task 9 — session terminal (attach, resync and mode
+tracking). Record HEAD as the base commit first, implement only that task,
+validate with `bun run lint && bun run typecheck && bun test`, commit, then
+review round 1.
