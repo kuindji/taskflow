@@ -36,7 +36,13 @@ function decodeControl(code: number): KeyEvent {
     if (code === 9) return press("tab");
     if (code === 127 || code === 8) return press("backspace");
     if (code === 32) return press("char", noMods(), " ");
-    const letter = String.fromCharCode(code + 96);
+    // A C0 byte is Ctrl plus the ASCII character `code + 64`: NUL is Ctrl+@
+    // (what Ctrl+Space sends), 0x01-0x1a are Ctrl+A..Ctrl+Z, and 0x1c-0x1f are
+    // Ctrl+\, Ctrl+], Ctrl+^ and Ctrl+_. Letters are reported lowercase so a
+    // ctrl chord reads the way it is typed and written.
+    const upper = code + 64;
+    const isLetter = upper >= 65 && upper <= 90;
+    const letter = String.fromCharCode(isLetter ? upper + 32 : upper);
     return press("char", { ...noMods(), ctrl: true }, letter);
 }
 
@@ -136,6 +142,11 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
             if (scan.final === "~") {
                 const name = TILDE_TO_NAME[params[0] ?? 0];
                 if (name !== undefined) events.push(press(name, mods));
+            } else if (scan.final === "Z") {
+                // `CSI Z` is back-tab, which is how a legacy terminal reports
+                // Shift+Tab. It carries no modifier parameter of its own, so
+                // the shift bit is implied by the sequence.
+                events.push(press("tab", { ...mods, shift: true }));
             } else {
                 const name = FINAL_TO_NAME[scan.final];
                 if (name !== undefined) events.push(press(name, mods));

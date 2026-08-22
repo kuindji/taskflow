@@ -134,6 +134,34 @@ describe("decodeLegacy", () => {
         ]);
     });
 
+    test("decodes back-tab as shift plus tab", () => {
+        // `CSI Z` is what every legacy terminal sends for Shift+Tab. Dropping
+        // it would make the key unreachable both in the TUI and in any child
+        // session the events are forwarded to.
+        expect(decodeLegacy("\x1b[Z", "").events).toEqual([
+            { name: "tab", mods: { ...noMods(), shift: true }, kind: "press" },
+        ]);
+    });
+
+    test("decodes the non-letter control characters by their real key", () => {
+        // C0 codes map to ASCII `code + 64`: NUL is Ctrl+@ (what Ctrl+Space
+        // sends), and 0x1c-0x1f are Ctrl+\, Ctrl+], Ctrl+^ and Ctrl+_. Only
+        // 0x01-0x1a are the Ctrl+letter range.
+        const ctrl = { ...noMods(), ctrl: true };
+        expect(decodeLegacy("\x00", "").events[0]).toEqual({
+            name: "char",
+            char: "@",
+            mods: ctrl,
+            kind: "press",
+        });
+        expect(decodeLegacy("\x1c\x1d\x1e\x1f", "").events.map((e) => e.char)).toEqual([
+            "\\",
+            "]",
+            "^",
+            "_",
+        ]);
+    });
+
     test("treats an out-of-range modifier parameter as no modifiers", () => {
         expect(decodeLegacy("\x1b[1;0C", "").events[0]).toEqual({
             name: "right",
