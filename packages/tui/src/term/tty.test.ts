@@ -19,6 +19,25 @@ function restore(target: object, key: string, saved: PropertyDescriptor | undefi
     else Object.defineProperty(target, key, saved);
 }
 
+// Runs `body` with a stubbed TTY stdin and hands it the recorded setRawMode calls.
+function withStubbedTtyStdin(body: (modes: boolean[]) => void): void {
+    const stdin: NodeJS.ReadStream = process.stdin;
+    const savedIsTTY = Object.getOwnPropertyDescriptor(stdin, "isTTY");
+    const savedSetRawMode = Object.getOwnPropertyDescriptor(stdin, "setRawMode");
+    const modes: boolean[] = [];
+    stdin.isTTY = true;
+    stdin.setRawMode = (mode: boolean): NodeJS.ReadStream => {
+        modes.push(mode);
+        return stdin;
+    };
+    try {
+        body(modes);
+    } finally {
+        restore(stdin, "setRawMode", savedSetRawMode);
+        restore(stdin, "isTTY", savedIsTTY);
+    }
+}
+
 describe("enterSequence", () => {
     test("enters the alternate screen and hides the cursor", () => {
         const out = enterSequence({ kitty: false });
@@ -70,16 +89,7 @@ describe("Tty", () => {
     // A sink that throws on the way out is the one path where that could still
     // happen, so raw mode has to be cleared even when the write fails.
     test("clears raw mode even when the leave write throws", () => {
-        const stdin: NodeJS.ReadStream = process.stdin;
-        const savedIsTTY = Object.getOwnPropertyDescriptor(stdin, "isTTY");
-        const savedSetRawMode = Object.getOwnPropertyDescriptor(stdin, "setRawMode");
-        const modes: boolean[] = [];
-        stdin.isTTY = true;
-        stdin.setRawMode = (mode: boolean): NodeJS.ReadStream => {
-            modes.push(mode);
-            return stdin;
-        };
-        try {
+        withStubbedTtyStdin((modes) => {
             let failing = false;
             const tty = new Tty(
                 {
@@ -95,9 +105,48 @@ describe("Tty", () => {
                 tty.leave();
             }).toThrow("stdout closed");
             expect(modes).toEqual([true, false]);
-        } finally {
-            restore(stdin, "setRawMode", savedSetRawMode);
-            restore(stdin, "isTTY", savedIsTTY);
-        }
+        });
+    });
+
+    // The same guarantee on the way in. `enter()` may run before
+    // `installExitHandlers()`, so a failing entry write has no handler to fall back
+    // on — raw mode has to come off inline or it outlives the process.
+    test("clears raw mode even when the enter write throws", () => {
+        withStubbedTtyStdin((modes) => {
+            const tty = new Tty(
+                {
+                    write() {
+                        throw new Error("stdout closed");
+                    },
+                },
+                { kitty: false },
+            );
+            expect(() => {
+                tty.enter();
+            }).toThrow("stdout closed");
+            expect(modes).toEqual([true, false]);
+        });
+    });
+
+    // ...and the leave sequence is still owed afterwards: part of the entry
+    // sequence may have reached the terminal before the write failed.
+    test("still emits the leave sequence after a failed enter write", () => {
+        withStubbedTtyStdin(() => {
+            let failing = true;
+            const sink: Sink & { output: string } = {
+                output: "",
+                write(data: string) {
+                    if (failing) throw new Error("stdout closed");
+                    this.output += data;
+                },
+            };
+            const tty = new Tty(sink, { kitty: false });
+            expect(() => {
+                tty.enter();
+            }).toThrow("stdout closed");
+            failing = false;
+            tty.leave();
+            expect(sink.output).toContain("\x1b[?1049l");
+        });
     });
 });

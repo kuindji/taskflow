@@ -37,7 +37,15 @@ class Tty {
         if (this.entered) return;
         this.entered = true;
         if (process.stdin.isTTY) process.stdin.setRawMode(true);
-        this.sink.write(enterSequence(this.opts));
+        try {
+            this.sink.write(enterSequence(this.opts));
+        } catch (err) {
+            // Raw mode must not outlive a failed entry write, and the exit handlers
+            // may not be installed yet. `entered` deliberately stays set: part of the
+            // entry sequence may have landed, so the leave sequence is still owed.
+            if (process.stdin.isTTY) process.stdin.setRawMode(false);
+            throw err;
+        }
     }
 
     leave(): void {
