@@ -16,7 +16,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
-| 9 | Session terminal — attach, resync and mode tracking | in-review round 1 | `4572b1f` | commits `f693314`, `b2de3c4`; round 1 found 3, all fixed |
+| 9 | Session terminal — attach, resync and mode tracking | in-review round 2 | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`; round 2's codex pass was void, 1 defect found independently and fixed |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
@@ -476,6 +476,21 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
 
 ## Decisions taken
+
+- **The kitty tracking lives in `@taskflow/shared`, not twice.** Round 2's fix
+  needed the same stack logic on both sides, and round 1 had already shown what
+  duplicating it costs: the backend mirror was written by copying the TUI's
+  single-value tracker, so it inherited the same defect. `KittyKeyboardStack` in
+  `packages/shared/src/utils/kitty-keyboard.ts` is now the one implementation,
+  imported by `SessionTerminal` and `PtyManager`. This widens Task 9's footprint
+  into a third package, on the same reasoning already recorded below for the
+  round-1 fix crossing into `backend`.
+
+- **`SessionSnapshotResponse.kittyFlags` was replaced, not extended.** The field
+  was added in round 1 and has exactly two touch points (`PtyManager.getSnapshot`
+  and `SessionTerminal.attach`), both changed in the same commit, so there was no
+  reason to keep a top-of-stack field alongside a stack field. It is now
+  `kittyStack: (number | null)[]`. No persisted data and no other client reads it.
 
 - **Task 9's kitty resync fix crosses into `shared` and `backend`.** The plan
   scopes Task 9 to `packages/tui/src/term/session-terminal.ts`, but the state the
@@ -1297,6 +1312,63 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
   the pass count rose from 972 by the 4 new TUI tests and 1 new backend test.
 
-Next step: Task 9 review round 2 — one gpt-5.5 review via the codex-review
-skill over `--base 4572b1f`, verify each finding, fix the substantiated ones,
-validate and commit.
+- **Task 9, round 2** (gpt-5.5 via codex-review, Mode A over `--base 4572b1f`):
+  **the codex pass is void — it reviewed a moving target.** The fix below was
+  being written into the working tree while codex was still running, so the only
+  thing it reported was that `packages/shared/src/utils/kitty-keyboard.ts` was
+  untracked and the patch therefore would not build from a clean checkout. That
+  is an artefact of the concurrent edit, not a defect in the Task 9 diff. Codex
+  raised nothing about the code itself, and it cannot be read as a clean round.
+  Process note for later rounds: leave the tree alone until the report lands.
+
+  One real defect was found independently while the review ran, and is fixed in
+  `6261aea` with the test written first and observed red.
+
+  - *"A kitty pop drops straight to legacy instead of restoring the outer
+    flags"* — real, and reachable in Task 9's own scope without any reconnect.
+    The kitty keyboard protocol keeps a **stack**: `CSI > flags u` pushes the
+    current flags and installs new ones, `CSI < number u` pops that many back
+    (spec: `https://sw.kovidgoyal.net/kitty/keyboard-protocol/`). Both the TUI
+    tracker and the backend mirror added in round 1 stored a single
+    `number | null` and set it to `null` on any pop. A shell that speaks the
+    protocol (fish, and zsh under a kitty-aware setup) pushes once; an editor
+    started inside it (neovim 0.10+) pushes again and pops on exit — at which
+    point the real child is back on the shell's flags while our tracker says
+    "no protocol", so the Task 8 encoder sends legacy bytes and the shell's
+    enhanced chords silently stop working. Red before the fix
+    (`Expected: 1 / Received: null`):
+    `bun test ./packages/tui/src/term/session-terminal.test.ts -t "nested push"`
+    and
+    `bun test ./packages/backend/tests/services/pty-manager-snapshot.test.ts -t "nested push"`.
+  - Same defect on the snapshot path, confirmed by a standalone probe before it
+    was fixed: `SessionSnapshotResponse.kittyFlags` reported only the top of the
+    stack, so a client attaching to an already-nested session adopted `5`, and
+    the editor's pop took it to `null` rather than the shell's `1`. This needs no
+    reconnection — a first attach to a session that is already nested hits it.
+    The field is now `kittyStack: (number | null)[]`, outermost first with the
+    flags in force last, and empty when the child is outside the protocol.
+    Covered by `restores the kitty stack the snapshot reports`.
+  - Fix shape: the two copies of the tracking are now one `KittyKeyboardStack`
+    in `@taskflow/shared` (`src/utils/kitty-keyboard.ts`, 11 unit tests). Keeping
+    one implementation is the point — round 1 introduced the backend copy by
+    mirroring the TUI copy, so both carried the same flaw. It follows the spec on
+    all four edges: omitted push flags default to **zero** (verified against the
+    spec text — the previous `: 1` fallback was also dead, since xterm hands a
+    missing param through as `0`), a pop defaults to one entry, a pop that
+    empties the stack resets the flags, and a full stack (16 entries, kitty's own
+    limit) evicts its oldest entry so a child spamming pushes cannot grow it.
+  - Checked and **not** changed: the spec also requires the main and alternate
+    screens to keep independent stacks. Neither side models that. Left alone —
+    it needs alt-screen tracking that does not exist yet, and no finding was
+    produced for it.
+
+- Validation at `6261aea`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 990 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
+  the pass count rose from 977 by 11 new shared tests, 1 new TUI test and 1 new
+  backend test.
+
+Next step: Task 9 review round 3 — one gpt-5.5 review via the codex-review
+skill over `--base 4572b1f`, with the working tree left untouched until the
+report lands. Verify each finding, fix the substantiated ones, validate and
+commit.
