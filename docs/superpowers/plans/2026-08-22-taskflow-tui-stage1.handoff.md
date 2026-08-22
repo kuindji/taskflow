@@ -13,7 +13,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 3 | Cell model and SGR encoding | clear | `ebf7354` | commits `93d23c0`, `0379d71`, `5ab47fb`, `8e6d9fb`; clear after round 3 |
 | 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
-| 6 | Legacy key decoder | in-review round 3 | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; round 4 due |
+| 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | pending | — | |
 | 8 | Per-child key encoding | pending | — | |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
@@ -952,12 +952,38 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass
   count rose from 914 by exactly the one new decoder test.
 
-Next step: Review round 4 for Task 6 (legacy key decoder). Run one gpt-5.5
-review via the codex-review skill over `--base f7f072b` (HEAD is now `d045f40`
-plus this docs commit), covering the whole task diff including the round-3 fix.
-Verify each finding independently before acting on it, fix the substantiated
-ones, run `bun run lint && bun run typecheck && bun test`, and commit. Zero
-substantiated findings clears Task 6 and the next step becomes implementing
-Task 7 (kitty key decoder and protocol negotiation) — see the
-`no-control-regex` note in "Task 6 implementation" before writing Task 7's
-regexes.
+- **Task 6, round 4** (gpt-5.5 via codex-review, Mode A over `--base f7f072b`,
+  covering the whole task diff including the round-3 fix): **zero findings.**
+
+  Codex reported no material defects in the legacy key decoder changes. Its own
+  checks — the focused decoder test, the TUI typecheck, and lint over the
+  changed input files — all passed.
+
+  Independent read of `decode-legacy.ts` and `keys.ts` this round found nothing
+  substantiated either. Two things were considered and deliberately left alone:
+
+  - A carry of three bytes or more that opens with `ESC [` — for example
+    Alt+`[` followed by a digit — is still dropped by `flushCarry`. Releasing
+    the prefix and re-decoding the tail would recover it, but the ambiguity is
+    genuine and the current behaviour is documented in the function's comment.
+    Not a defect in what the task specifies.
+  - A surrogate pair split across two reads would emit two lone surrogates,
+    because `carry` only ever holds escape-sequence tails. Whether this can
+    happen at all depends on how stdin is decoded, and no caller exists yet —
+    Task 12 wires the decoder to the terminal. Re-check it there; if stdin is
+    read with a UTF-8 string decoder the split cannot reach `decodeLegacy`.
+
+- Validation at `8b62efd` (no code changed this round): `bun run lint` exit 0,
+  `bun run typecheck` exit 0 across all five packages, `bun test` 915 pass /
+  8 fail — the 8 are the recorded pre-existing `MarkdownPaneImpl`
+  suite-ordering failures, unchanged from the previous round.
+
+**Task 6 is clear.**
+
+Next step: Implement Task 7 (kitty key decoder and protocol negotiation). Record
+the current HEAD as Task 7's base commit in the table before starting. Follow the
+plan's Task 7 steps; before writing any regex over control characters, read the
+`no-control-regex` note in "Task 6 implementation" — the ESLint rule bans control
+characters in regex literals, so build those patterns from character-code checks
+the way `scanCsi` does. Validate with `bun run lint && bun run typecheck &&
+bun test`, commit, then the next step becomes review round 1 for Task 7.
