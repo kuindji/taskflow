@@ -130,4 +130,55 @@ describe("Screen", () => {
         screen.flush();
         expect(sink.output).toContain("keep");
     });
+    test("re-states the cursor after a frame that painted elsewhere", () => {
+        // Painting moves the real cursor to the end of the last run, so a frame
+        // that drew anything has to send the cursor back even if it did not move.
+        const sink = collectingSink();
+        const screen = new Screen(sink, 10, 3);
+        screen.setCursor({ x: 4, y: 2 });
+        screen.back.set(0, 0, textCell("a"));
+        screen.flush();
+        sink.output = "";
+        screen.back.set(7, 0, textCell("Z"));
+        screen.flush();
+        expect(sink.output).toContain("Z");
+        expect(sink.output.endsWith("\x1b[3;5H\x1b[?25h")).toBe(true);
+    });
+
+    test("stays silent on an unchanged frame with a visible cursor", () => {
+        const sink = collectingSink();
+        const screen = new Screen(sink, 10, 3);
+        screen.setCursor({ x: 4, y: 2 });
+        writeText(screen, 0, 0, "hi");
+        screen.flush();
+        sink.output = "";
+        screen.flush();
+        expect(sink.output).toBe("");
+    });
+
+    test("tracks a cursor object the caller keeps mutating", () => {
+        const sink = collectingSink();
+        const screen = new Screen(sink, 10, 3);
+        const pos = { x: 1, y: 1 };
+        screen.setCursor(pos);
+        screen.flush();
+        sink.output = "";
+        pos.x = 5;
+        screen.setCursor(pos);
+        screen.flush();
+        expect(sink.output).toContain("\x1b[2;6H");
+    });
+
+    test("does not share colour objects between frames", () => {
+        const sink = collectingSink();
+        const screen = new Screen(sink, 4, 1);
+        screen.setCursor(null);
+        screen.back.set(0, 0, textCell("x", { fg: { kind: "palette", index: 1 } }));
+        screen.flush();
+        sink.output = "";
+        const fg = screen.back.get(0, 0).fg; // mutated in place, not via set()
+        if (fg.kind === "palette") fg.index = 5;
+        screen.flush();
+        expect(sink.output).toContain("38;5;5");
+    });
 });

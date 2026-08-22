@@ -1,4 +1,4 @@
-import { ScreenBuffer, cellsEqual, type Cell } from "./cells";
+import { ScreenBuffer, cellsEqual, copyCell, type Cell } from "./cells";
 import { sgrDiff } from "./sgr";
 
 interface Sink {
@@ -45,6 +45,7 @@ class Screen {
     flush(): void {
         let out = "";
         let pen: Cell | null = null;
+        let painted = false;
 
         for (let y = 0; y < this.back.rows; y++) {
             let x = 0;
@@ -56,6 +57,7 @@ class Screen {
                 }
 
                 out += `\x1b[${String(y + 1)};${String(x + 1)}H`;
+                painted = true;
                 // Emit the contiguous run of changed cells starting here.
                 while (x < this.back.cols) {
                     const cell = this.back.get(x, y);
@@ -70,21 +72,26 @@ class Screen {
             }
         }
 
-        out += this.cursorSequence();
+        out += this.cursorSequence(painted);
 
         if (out !== "") this.sink.write(out);
         this.forceRepaint = false;
         this.back = this.cloneFront();
     }
 
-    private cursorSequence(): string {
+    private cursorSequence(painted: boolean): string {
         const cursor = this.cursor;
-        const changed =
-            !this.cursorInitialised ||
-            cursor?.x !== this.lastCursor?.x ||
-            cursor?.y !== this.lastCursor?.y;
+        const moved = cursor?.x !== this.lastCursor?.x || cursor?.y !== this.lastCursor?.y;
+        // Painting a run leaves the real cursor at the end of that run, so any
+        // frame that drew something has to re-state a visible cursor even when
+        // its logical position did not change. A hidden one needs no re-state:
+        // where it sits is not observable.
+        const changed = !this.cursorInitialised || moved || (painted && cursor !== null);
         this.cursorInitialised = true;
-        this.lastCursor = cursor;
+        // Copied, not aliased: a caller that keeps mutating the object it passed
+        // to setCursor would otherwise drag lastCursor along with it and every
+        // move would compare equal.
+        this.lastCursor = cursor === null ? null : { ...cursor };
         if (!changed) return "";
         if (cursor === null) return "\x1b[?25l";
         return `\x1b[${String(cursor.y + 1)};${String(cursor.x + 1)}H\x1b[?25h`;
@@ -93,9 +100,10 @@ class Screen {
     private cloneFront(): ScreenBuffer {
         const next = new ScreenBuffer(this.front.cols, this.front.rows);
         for (let y = 0; y < this.front.rows; y++) {
-            // Copy each cell: sharing references would make an in-place edit
-            // to the back buffer invisible to the next frame's diff.
-            for (let x = 0; x < this.front.cols; x++) next.set(x, y, { ...this.front.get(x, y) });
+            // Copy each cell, colours included: sharing any reference would
+            // make an in-place edit to the back buffer invisible to the next
+            // frame's diff.
+            for (let x = 0; x < this.front.cols; x++) next.set(x, y, copyCell(this.front.get(x, y)));
         }
         return next;
     }

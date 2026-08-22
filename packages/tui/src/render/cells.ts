@@ -30,6 +30,21 @@ function blankCell(): Cell {
     return { ch: " ", width: 1, fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, attrs: 0 };
 }
 
+function copyColor(color: Color): Color {
+    // Defaults canonicalise back to the frozen singleton instead of allocating
+    // a fresh object per blank cell per frame.
+    return color.kind === "default" ? DEFAULT_COLOR : { ...color };
+}
+
+/**
+ * Fully independent copy of `cell`. `ScreenBuffer` stores cell references, so a
+ * shallow spread would leave the copy sharing `fg`/`bg` with the original and an
+ * in-place colour edit on one would be invisible to a diff against the other.
+ */
+function copyCell(cell: Cell): Cell {
+    return { ...cell, fg: copyColor(cell.fg), bg: copyColor(cell.bg) };
+}
+
 function colorsEqual(a: Color, b: Color): boolean {
     if (a.kind !== b.kind) return false;
     if (a.kind === "palette" && b.kind === "palette") return a.index === b.index;
@@ -85,6 +100,6 @@ class ScreenBuffer {
     }
 }
 
-export { ScreenBuffer, blankCell, cellsEqual, stylesEqual, DEFAULT_COLOR };
+export { ScreenBuffer, blankCell, copyCell, cellsEqual, stylesEqual, DEFAULT_COLOR };
 export { ATTR_BOLD, ATTR_DIM, ATTR_ITALIC, ATTR_UNDERLINE, ATTR_INVERSE, ATTR_STRIKE };
 export type { Cell, Color };
