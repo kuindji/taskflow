@@ -15,7 +15,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
-| 8 | Per-child key encoding | in-review round 1 | `7932626` | commits `4a8ac77`, `7e38b14`; round 1 found real issues, fixed |
+| 8 | Per-child key encoding | in-review round 2 | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`; round 2 found real issues, fixed |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
@@ -1145,8 +1145,34 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
   the pass count rose from 951 by the 5 new regression tests.
 
-Next step: Review round 2 for Task 8 — one gpt-5.5 review via the codex-review
-skill over `7932626..HEAD` (`encode.ts` plus its test, including the round 1
-fixes). Verify any findings independently, fix the substantiated ones, validate
-and commit. Zero substantiated findings means Task 8 is clear and Task 9
+- **Task 8, round 2** (gpt-5.5 via codex-review, Mode A over `--base 7932626`):
+  one finding, substantiated, fixed in `603c444` along with a second issue found
+  while verifying it.
+  - *"Gate CSI u encoding on flag 1"* — real. `encodeKitty` treated any non-null
+    `kittyFlags` as permission to move ctrl/alt/escape keys to CSI u, so a child
+    that pushed only event types (`CSI > 2 u`) got Ctrl+C as `ESC [ 99;5u`
+    instead of `\x03` and would never see SIGINT. Flag 1 is what negotiates
+    disambiguated escape codes, so the switch now requires it; flag 8 still
+    forces every key to CSI u on its own.
+  - Found while verifying, same commit: under flags 1|2 a **repeat of any
+    legacy-encoded key encoded to nothing** — `encodeLegacy` bailed out on any
+    non-empty event tag. Holding a letter, Enter or Backspace in such a child
+    typed once. Flag 2 is ignored for keys with no escape code to carry the
+    `:2`/`:3` subparameter, so those repeats now encode as presses, exactly as
+    on the no-flag-2 path; releases still encode to nothing, and arrows and
+    tilde keys keep carrying the tag.
+
+  Both were confirmed with tests written first and observed red (`Expected:
+  "\x03" / Received: "[99;5u"` and `Expected: "a" / Received: ""`) before the
+  fix: `bun test packages/tui/src/input/encode.test.ts`.
+
+- Validation at `603c444`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 958 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged;
+  the pass count rose from 956 by the 2 new regression tests.
+
+Next step: Review round 3 for Task 8 — one gpt-5.5 review via the codex-review
+skill over `7932626..HEAD` (`encode.ts` plus its test, including the round 1 and
+round 2 fixes). Verify any findings independently, fix the substantiated ones,
+validate and commit. Zero substantiated findings means Task 8 is clear and Task 9
 (session terminal — attach, resync and mode tracking) is next.
