@@ -9,7 +9,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
-| 2 | Backend lifecycle | in-review round 4 | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`; round 4 found 2, both fixed |
+| 2 | Backend lifecycle | in-review round 5 | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`, `b55e5c6`, `1a16bf1`, `b4ac6a0`; round 5 found 2, both fixed |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
@@ -290,6 +290,52 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
     the 8 being the known pre-existing `MarkdownPaneImpl` failures. Zero stray `sleep 30`
     processes after the run.
 
+- **Task 2, round 5** (gpt-5.5 via codex-review, Mode B over `ee98048..84efb0e`
+  restricted to `packages/tui/src/backend/`): two findings, **both substantiated and
+  fixed in `b4ac6a0`**. Each was reproduced independently before the fix. Run the repros
+  with `bun test packages/tui/src/backend/manager.test.ts`.
+  - **Substantiated — `TASKFLOW_DEV` still reached the child, so `devBranch: null` could
+    still be a dev instance.** Round 4 stripped `TASKFLOW_DEV_BRANCH`, but that is only one
+    of the two selectors: `getDevBranch()` at `packages/backend/src/config.ts:44-61` falls
+    back to `TASKFLOW_DEV` and derives the branch from `git rev-parse HEAD`, which becomes
+    `instanceId = dev-<branch>`. Observable symptom: the TUI shows a different instance's
+    projects and tasks than the caller asked for. **Reachable through the plan's own
+    tooling** — `packages/tui/package.json:7` is
+    `"dev": "TASKFLOW_DEV=1 bun run src/index.ts"`, and the plan's callers compute
+    `devBranch = process.env.TASKFLOW_DEV_BRANCH ?? null` (plan lines 4074, 4689), so
+    `bun run dev` in `packages/tui` asks for no dev branch and gets one anyway. Regression
+    test: `does not let a TASKFLOW_DEV in its own env make a devBranch-null child dev` —
+    red (port 9999, i.e. the child saw the variable), green (4333). Fix: `TASKFLOW_DEV`
+    joins the same destructure.
+  - **Substantiated — a failure that landed during the port read was reported as a
+    timeout.** The loop checked `spawnError`/`exit` at the top, then `await readPort()`,
+    then went straight to the deadline branch, so a failure delivered during that await
+    was overwritten by `Backend startup timeout after Nms`. Observable symptom: the user is
+    told the backend hung when it never started — e.g. a missing binary reported as a
+    timeout rather than ENOENT. Regression test: `reports a spawn failure that lands while
+    the port file is being read` — red (message was exactly
+    `Backend startup timeout after 1ms`), green (`Backend failed to start: ... ENOENT`).
+    Fix: the two failure branches moved into a `failure()` helper called both before the
+    read and after it, ahead of the port check and the deadline. Checking it before the
+    port check preserves round 1's rule that a backend which wrote a port and then died
+    must not resolve.
+    Reachability with the default 10s budget is low — ENOENT arrives in milliseconds — but
+    the same window is open for any failure that lands in the final poll, and the fix is
+    contained.
+  - Codex explicitly cleared success-path listener lifetime, `stop()` staying synchronous
+    and SIGTERM-only, the `TASKFLOW_PORT_FILE` override ordering, and the existing child
+    cleanup tests.
+  - Considered and deliberately not changed: `TASKFLOW_DEV_PORT` is also inherited, and it
+    pins the child to a fixed port. Left alone — it does not change which instance the
+    backend serves, the TUI always discovers the port from the port file, and the only
+    failure it can cause (the port already being bound) is now reported loudly with the
+    backend's own `address already in use` on it. Silent wrong-instance is the class worth
+    stripping; a loud bind failure is not.
+  - Validation at `b4ac6a0`: `bun run lint` and `bun run typecheck` exit 0,
+    `bun test packages/tui/src/backend/manager.test.ts` is 22 pass / 0 fail, full
+    `bun test` is 845 pass / 8 fail with the 8 being the known pre-existing
+    `MarkdownPaneImpl` failures. Zero stray `sleep 30` processes after the run.
+
 ## Decisions taken
 
 - **Task 2 strips `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the backend's env.**
@@ -335,4 +381,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 2 review round 5 — gpt-5.5 via codex-review over `ee98048..HEAD`, restricted to `packages/tui/src/backend/` (round 4 changed code, so another round is due)
+Next step: Task 2 review round 6 — gpt-5.5 via codex-review over `ee98048..HEAD`, restricted to `packages/tui/src/backend/` (round 5 changed code, so another round is due)
