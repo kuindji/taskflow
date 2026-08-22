@@ -14,7 +14,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 4 | Screen diffing and flush | clear | `7ff1b11` | commits `cc48d84`, `ecab7a5`; clear after round 2 |
 | 5 | TTY control and restoration | clear | `cef9dcb` | commits `4b6d4b7`, `db65873`, `af9bc46`; clear after round 3 |
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
-| 7 | Kitty key decoder and protocol negotiation | pending | — | |
+| 7 | Kitty key decoder and protocol negotiation | implemented | `11af111` | commit `846de64`; review round 1 due |
 | 8 | Per-child key encoding | pending | — | |
 | 9 | Session terminal — attach, resync and mode tracking | pending | — | |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
@@ -477,6 +477,49 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 ## Decisions taken
 
+- **Task 7 extracts the CSI scanner into `src/input/csi.ts`.** The plan gives
+  `decode-kitty.ts` and `negotiate.ts` their own regexes for the same grammar
+  `decode-legacy.ts` already scans by hand, and those regexes cannot be written
+  under `no-control-regex`. Rather than hand-roll the scan three times, `scanCsi`
+  (plus `inRange` and a new `isDigits`) moved to `csi.ts` and all three modules
+  import it. Pure move — no behaviour change, and `decode-legacy.test.ts` still
+  covers it in full.
+
+- **`decodeKitty` reports space as a char event, not as `name: "space"`.** The
+  plan's `CODEPOINT_TO_NAME` maps codepoint 32 to `"space"`, but `decodeLegacy`
+  reports the same key as `{ name: "char", char: " " }`. Both decoders feed one
+  router and one encoder (Task 8), so two shapes for one key would mean every
+  consumer handling both or silently missing one. Kitty now matches legacy.
+  Test: `reports space the same way the legacy decoder does`, which asserts the
+  two decoders return equal events.
+
+- **An out-of-range codepoint is dropped instead of crashing.** The plan's
+  `String.fromCodePoint(codepoint)` throws `RangeError` above U+10FFFF, so a
+  single malformed sequence — `\x1b[99999999u` — would take down the input
+  pipeline that every keystroke passes through. `kittyEvent` range-checks first
+  and returns `undefined`. Test: `drops a sequence whose codepoint is out of
+  range`.
+
+- **Only the first sub-field of the key parameter is the codepoint.** Kitty
+  encodes `unicode-key-code : shifted-key : base-layout-key`; the plan parsed the
+  field with `Number.parseInt`, which happens to stop at the `:` and get the
+  right answer, but only by accident. `subField` splits explicitly, and the same
+  helper reads the event type out of the modifier field. Test: `keeps the
+  shifted-key alternate out of the codepoint`.
+
+- **A legacy carry stranded before a kitty sequence is released, not dropped.**
+  The plan's loop delegates the run before a kitty sequence to `decodeLegacy` and
+  then discards that call's carry. For input like `ESC` + `CSI 13;2 u` the lone
+  ESC vanished. Since a kitty sequence follows in the same read, nothing can ever
+  complete that carry, so it is passed through `flushCarry` — the same reading the
+  idle timer gives it. Test: `releases an escape stranded before a kitty
+  sequence`.
+
+- **`negotiateKitty` searches the reply instead of matching it whole.** The reply
+  can arrive with real keystrokes around it; the plan's `REPLY.test` already
+  allowed that, and `isFlagsReply` keeps it by scanning every CSI in the string.
+  Test: `finds the reply among other pending input`.
+
 - **Task 6 widens CSI parsing to the full ECMA-48 shape instead of the plan's
   `/^\x1b\[([0-9;]*)([A-Za-z~])/`.** The plan's regex only matches numeric
   parameters, and on no match it returns the whole tail as the carry. Any CSI
@@ -702,6 +745,27 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   packages, `bun test` 882 pass / 8 fail (the recorded pre-existing
   `MarkdownPaneImpl` suite-ordering failures, unchanged). No code change was
   needed, so this round produced no commit.
+
+## Task 7 implementation
+
+- **Base commit:** `11af111`. **Commit:** `846de64`
+  (`feat(tui): add kitty key decoder and protocol negotiation`).
+- Added `packages/tui/src/input/decode-kitty.ts`, `negotiate.ts` and their
+  colocated tests, plus `packages/tui/src/input/csi.ts` (see the decisions
+  below). `decode-legacy.ts` lost its private CSI scanner to that new module and
+  is otherwise unchanged.
+- Written test-first: both suites were red with `Cannot find module
+  './decode-kitty'` / `'./negotiate'` before either source file existed.
+- As the Task 6 note predicted, every regex the plan specified for this task
+  (`KITTY_SEQUENCE`, `INCOMPLETE_CSI`, `REPLY`) contains `\x1b` and would trip
+  `no-control-regex`. All three are character-code scans instead, sharing the
+  scanner Task 6 already wrote.
+- Validation at `846de64`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 934 pass / 8 fail — the 8 are the recorded
+  pre-existing `MarkdownPaneImpl` suite-ordering failures, and the pass count rose
+  from 915 by exactly the 19 new tests (14 decoder, 5 negotiation).
+- Review needed: yes. New parsing logic on the keystroke path, and it deviates
+  from the plan in five places.
 
 ## Task 6 implementation
 
@@ -980,10 +1044,10 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 **Task 6 is clear.**
 
-Next step: Implement Task 7 (kitty key decoder and protocol negotiation). Record
-the current HEAD as Task 7's base commit in the table before starting. Follow the
-plan's Task 7 steps; before writing any regex over control characters, read the
-`no-control-regex` note in "Task 6 implementation" — the ESLint rule bans control
-characters in regex literals, so build those patterns from character-code checks
-the way `scanCsi` does. Validate with `bun run lint && bun run typecheck &&
-bun test`, commit, then the next step becomes review round 1 for Task 7.
+Next step: Review round 1 for Task 7. Run one gpt-5.5 review via the
+`codex-review` skill over `11af111..HEAD` (the whole Task 7 diff, including the
+`csi.ts` extraction and the `decode-legacy.ts` move). Verify every finding
+independently before acting on it, fix the substantiated ones, revalidate with
+`bun run lint && bun run typecheck && bun test`, and commit. Zero substantiated
+findings means Task 7 is clear and the next step is implementing Task 8
+(per-child key encoding).
