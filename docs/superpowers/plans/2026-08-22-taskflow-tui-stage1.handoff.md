@@ -9,7 +9,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | # | Task | Status | Base commit | Notes |
 |---|---|---|---|---|
 | 1 | Package scaffold and WebSocket client | clear | `49b7967` | commits `22b9b7d`, `6e5e6f4`, `8bdedf8`; clear after round 3 |
-| 2 | Backend lifecycle | in-review round 1 | `ee98048` | commits `f27a5aa`, `f156640`; round 1 found 4, 3 fixed |
+| 2 | Backend lifecycle | in-review round 2 | `ee98048` | commits `f27a5aa`, `f156640`, `88f5dce`; round 2 found 3, all 3 fixed |
 | 3 | Cell model and SGR encoding | pending | — | |
 | 4 | Screen diffing and flush | pending | — | |
 | 5 | TTY control and restoration | pending | — | |
@@ -153,6 +153,55 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
     `bun test packages/tui` is 20 pass / 0 fail, full `bun test` is 836 pass / 8 fail
     with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
 
+- **Task 2, round 2** (gpt-5.5 via codex-review, Mode B over `ee98048..740dc22`
+  restricted to `packages/tui/src/backend/`): three findings, **all three
+  substantiated and fixed in `88f5dce`**. Each was reproduced independently before
+  the fix. Run the repros with `bun test packages/tui/src/backend/manager.test.ts`.
+  - **Substantiated — `stop()` left the port file behind if the caller exited
+    immediately.** `stop()` called `rm()` fire-and-forget, so the removal was still
+    pending when it returned. Observable symptom: a TUI that shuts the backend down
+    and exits leaves a `taskflow-tui-port-*` file in `/tmp` on every run. Regression
+    test: `stop() removes the port file before it returns` — the fake backend echoes
+    the `TASKFLOW_PORT_FILE` path it was given into a side file so the test can watch
+    it; red (`existsSync` still `true` right after `stop()`), green with `rmSync`.
+  - **Substantiated — a port published after the deadline was still accepted.** The
+    loop read the port file before checking the deadline, so the last poll could land
+    up to one full `POLL_INTERVAL_MS` (50ms) past `timeoutMs` and resolve. Regression
+    test: `does not accept a port that only appears after the deadline` — the fake
+    backend never writes a port; the test writes it 25ms after the deadline. Red
+    (resolved with port 4330), green (rejects with `timeout`). Fix: the wait is
+    clamped to `deadline - Date.now()`, so the final poll lands on the deadline rather
+    than past it, and a backend that *did* publish in time is still accepted.
+    Codex's own repro numbers (`timeoutMs: 75`, `sleep 0.09`) do not reproduce on this
+    machine — child startup here is ~300ms, so the write lands far past the deadline
+    and the old code timed out correctly. The bug is real; the window is one poll
+    interval wide, which is why the kept test controls the write time itself instead
+    of relying on a `sleep` in the child. Stable over `--repeat-each 15`.
+  - **Substantiated — a startup death by signal was reported as `code 0`.** The exit
+    handler stored `code ?? 0`, and a signal-killed child reports `code === null`.
+    Observable symptom: the backend is SIGKILLed (or OOM-killed) during startup and
+    the TUI says `Backend exited before startup (code 0)`, which reads like a clean
+    exit. Regression test: `names the signal when the backend is killed before
+    startup` — red (`code 0`), green (`signal SIGTERM`). Fix: the exit is recorded as
+    `{ code, signal }`. This also closes a latent hole — with `code ?? 0` the
+    `exitCode !== null` sentinel could never distinguish "not exited yet" from a real
+    exit, so a signal death was detected only by coincidence of the coercion.
+  - Codex explicitly cleared the retained stderr listener: keeping it attached is what
+    continues draining the pipe for the life of the handle.
+  - Independently probed three things Codex did not raise, all healthy: `stop()` is
+    idempotent and does kill the child (verified by pid, `ps` shows it gone after a
+    double `stop()`); multi-byte UTF-8 split across stderr chunk boundaries does *not*
+    corrupt the tail (364KB of 3-byte characters through the drain produced zero
+    replacement characters — the one replacement character an earlier probe showed came
+    from `head -c` truncating the source data, not from the decode); and the success
+    path's remaining listeners leak nothing at this task's scope, since the handle's
+    contract is `{ port, stop }` and post-startup crash notification belongs to the
+    app shell (Task 15) / reconnection (Task 17).
+  - Validation at `88f5dce`: `bun run lint` and `bun run typecheck` exit 0,
+    `bun test packages/tui` is 23 pass / 0 fail, full `bun test` is 839 pass / 8 fail
+    with the 8 being the known pre-existing `MarkdownPaneImpl` failures. Zero stray
+    `sleep 30` processes after the run.
+
 ## Decisions taken
 
 - **Task 2 strips `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the backend's env.**
@@ -189,4 +238,4 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   rejection assertion as try/catch on the error message. Behaviour is unchanged; no
   eslint-disable was added.
 
-Next step: Task 2 review round 2 — gpt-5.5 via codex-review over `ee98048..HEAD`, restricted to `packages/tui/src/backend/` (round 1 changed code, so another round is due)
+Next step: Task 2 review round 3 — gpt-5.5 via codex-review over `ee98048..HEAD`, restricted to `packages/tui/src/backend/` (round 2 changed code, so another round is due)
