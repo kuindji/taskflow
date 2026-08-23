@@ -30,8 +30,8 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
 | 19.2 | Mouse — outer tracking on/off | clear | `3829f83` | commit `5345824`; round 1 fixed in `a7af6dd`; round 2 found nothing — clear after two rounds |
 | 19.3 | Mouse — layout hoist and hit testing | clear | `db844f4` | commit `ec39171`; round 1 found only test gaps, fixed in `10e7b0f`; round 2 found nothing — clear after two rounds |
-| 19.4 | Mouse — app wiring | implemented | `4e89f26` | commit `adf7c5a`; next step is review round 1 |
-| 19.5 | Mouse — forward to the child | pending | — | `ChildModes.mouseTracking`/`mouseEncoding`, `encodeMouseForChild` |
+| 19.4 | Mouse — app wiring | clear | `4e89f26` | commit `adf7c5a`; round 1 found nothing — clear after round 1 |
+| 19.5 | Mouse — forward to the child | in-review round 1 | `1288c64` | commits `f377413`, `1a9179f`; round 1 found one substantiated defect, fixed — next step is review round 2 |
 | 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
 | 21 | Bound the incomplete-CSI carry | pending | — | **added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
@@ -5530,13 +5530,92 @@ packages, `bun test packages/tui` → 449 pass, 0 fail (420 → 449: 15 new `enc
 cases, 6 new `SessionTerminal` cases, 6 new `App` cases, and two pre-existing `App` cases
 rewritten in place).
 
-Next step: review Task 19.5, round 1.
-One standard gpt-5.5 review via the codex-review skill over `1288c64..f377413`, restricted to
-`packages/tui`. Worth putting in the brief so the round is not spent re-deriving them: the four
-decisions above; the outbound X10 cap at zero-based 94 is deliberate (the plan's "Known and
-accepted" list); `?1003h` bare motion is never generated; extra buttons 8-11 decode as `"none"`
-and are never forwarded; `?1016` is tracked only so reports can be dropped; a mouse report
-deliberately does not drain `pendingEscape`; and the `sessions` element-access seam in
-`app.test.ts` is the plan's own decision, replaced by Stage 2's `SESSION_CREATE`.
+## Task 19.5 — review round 1
+
+Base `1288c64`, head `f377413` (code) / `eaf8e2c` (docs); fixed in `1a9179f`. One standard
+gpt-5.5 review via the codex-review skill, Mode B (the brief carried the plan's requirements
+and the seven deliberate decisions, so the round was not spent re-deriving them). Codex read
+the repo, ran `bun test packages/tui` (449 pass), `bun run lint` and `bun run typecheck`, and
+returned **one finding** — verdict "Changes required".
+
+**One finding, substantiated and fixed in `1a9179f`.** It was found independently while
+reading the diff, before the report landed, and both accounts agree on the mechanism.
+
+### Substantiated — a snapshot re-attach stranded the child's mouse encoding
+
+**What a user would see.** Reconnect to a session running any modern mouse-aware TUI (vim,
+tmux, htop, fzf — anything that sends `?1002h ?1006h`), and from then on clicking in the
+right-hand two-thirds of a wide pane does nothing at all, while clicks near the left edge may
+land wrong or not at all depending on how forgiving the child's parser is. Before the
+reconnect the same clicks worked.
+
+**Evidence.** Regression test
+`SessionTerminal > a snapshot re-attach keeps the encoding the snapshot cannot carry` in
+`packages/tui/src/term/session-terminal.test.ts` — red on `f377413`
+(`Expected: "sgr" / Received: "x10"`), green on `1a9179f`. Run with
+`bun test packages/tui/src/term/session-terminal.test.ts`.
+
+**Mechanism.** `attach()` reset `mouseEncoding` to `"x10"` after `terminal.reset()` and
+replayed the saved value only on the history-fallback path. But the snapshot path is the
+*primary* reconnect path, and the snapshot cannot carry the encoding: it is
+`SerializeAddon.serialize()` output, and `_serializeModes` writes
+`applicationCursorKeysMode`, `applicationKeypadMode`, `bracketedPasteMode`, `insertMode`,
+`originMode`, `reverseWraparoundMode`, `sendFocusMode`, `wraparoundMode` and
+`mouseTrackingMode` — and nothing for `?1005`/`?1006`/`?1015`/`?1016`, because `IModes` has
+no member for them, which is the same reason `SessionTerminal` has to hand-track it in the
+first place. Verified directly against the installed
+`node_modules/.bun/@xterm+addon-serialize@0.13.0` bundle, not from memory. So tracking came
+back correct (`drag`) and the encoding came back `"x10"`, and `encodeMouseForChild` then
+spelled every report in legacy bytes — which, past zero-based column or row 94, the outbound
+transport cap drops outright.
+
+**Fix.** The encoding now survives `terminal.reset()` rather than being reset and replayed.
+Neither path can restore it, so the pre-drop value is the only thing that knows what the
+child is parsing, and output replayed after the reset still overrides it. `MOUSE_ENCODING_SET`
+became dead and was deleted; `MOUSE_TRACKING_SET` stays, because tracking *is* xterm's own,
+the reset really does clear it, and the history path really does have to put it back.
+
+**One existing test encoded the wrong premise and was corrected.**
+`a re-attach does not carry the old encoding onto a fresh grid` asserted that an empty
+snapshot leaves `mouseEncoding` at `"x10"`, with a comment claiming "the snapshot ... carries
+the child's modes with it". That is true of the tracking mode and false of the encoding. It
+is now `a re-attach does not carry the old tracking mode onto a fresh grid` and keeps only
+the half the snapshot can actually speak about; the other half is pinned by the new test.
+
+**Mutation-checked.** Restoring `this.mouseEncoding = "x10"` reddens the new test (that is
+the pre-fix run). Deleting `restore += MOUSE_TRACKING_SET[previous.mouseTracking]` still
+reddens two tests (`a re-attach that falls back to history puts the mouse modes back` and
+`history that carries a later mouse mode overrides the replayed one`), so removing the
+encoding half of the replay did not leave the tracking half uncovered.
+
+**Codex found nothing else** — it explicitly cleared the button arithmetic, the gating
+matrix, the pane coordinate translation and the child-grid bounds check. Independently
+re-derived the same four: button base values and the +32 drag / +64 wheel / 4-8-16 modifier
+bits match xterm's ctlseqs; `tracks()` matches the plan's gating table row for row; the SGR
+`M`/`m` split and the one-based conversion are right; the non-SGR release value of 3 carries
+modifiers as real terminals do; and the `x10` cap fires at exactly the byte the plan derived
+(one-based 96 + 32 = 128).
+
+**Noted, not raised as a finding.** A child in `?1016` (SGR-Pixels) makes its whole pane
+inert: `App.handleMouse`'s guard fires on `mouseTracking !== "none"` and returns before
+`routeMouse`, so the report is neither forwarded (the encoder refuses pixel coordinates) nor
+used to scroll the pane. That follows from the plan's own guard condition and its decision to
+refuse `?1016` rather than guess a cell size, and no real child enables `?1016` without a
+prior `?1006`-style negotiation this client answers. Recorded so a later round does not
+rediscover it as a defect.
+
+Verification at `1a9179f`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 450 pass, 0 fail (449 → 450: one new test, one renamed
+and narrowed in place).
+
+Next step: review Task 19.5, round 2.
+One standard gpt-5.5 review via the codex-review skill over `1288c64..1a9179f`, restricted to
+`packages/tui`. Carry the same brief as round 1 — the seven deliberate decisions, the
+outbound X10 cap at zero-based 94, `?1003h` bare motion never being generated, extra buttons
+8-11 decoding as `"none"`, `?1016` being tracked only so reports can be dropped, a mouse
+report not draining `pendingEscape`, and the `sessions` element-access seam — and add round
+1's own two: the mouse encoding now deliberately survives `terminal.reset()` because nothing
+on either re-attach path can restore it, and the inert-pane consequence of a `?1016` child is
+known and accepted.
 After 19.5 is clear: 19.6 (**user gate — manual smoke test**), then Tasks 16-18, then Tasks 20
 and 21 (each needs its own plan).
