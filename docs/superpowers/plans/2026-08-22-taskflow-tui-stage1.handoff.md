@@ -22,7 +22,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | in-review round 7 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; round 7 found one defect, fixed |
+| 15 | Application shell and entry point | in-review round 8 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; round 8 found one real defect, NOT fixed — user gate on scope |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
@@ -3877,22 +3877,91 @@ packages, `bun test packages/tui` 336 pass / 0 fail, full `bun test` 1169 pass /
 `prettier --check` clean on the three touched files. The +2 over the `98d3d0c` baseline
 of 334 is the two new regression tests.
 
-Next step: Task 15 review round 8 — gpt-5.5 via codex-review over `43df638..3bc5ee8`
-(Mode B, restricted to `packages/tui`). Round 7 found a real defect, so the task is not
-clear and another round is owed. New surface to point the reviewer at: `armReaper` and
-the changed `stop()` in `packages/tui/src/backend/manager.ts`. Ask specifically about —
-the shell script's portability and quoting; whether `spawn()` inside a
-`process.on("exit")` handler is guaranteed to complete the fork (the end-to-end test says
-it does on this machine, but ask whether it is contractual); whether `detached: true`
-plus `unref()` is enough for the reaper to survive every way the TUI dies; the pid-reuse
-window between two 1s polls; whether 10s can cut short a legitimately slow backend
-shutdown; and whether arming a reaper per `stop()` can accumulate strays in any flow.
-Launch **two** codex runs in parallel over the same prompt and reconcile them. Carry the
-round-6 exclusion list forward unchanged and add round 7's own accepted decisions (the
-detached-reaper choice over an in-process await, and the 10s grace) so round 8 does not
-re-litigate them.
-After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then
-implement it, then Tasks 16-18.
+- **Task 15, round 8** (gpt-5.5 via codex-review, Mode B over `43df638..3bc5ee8`
+  restricted to `packages/tui`): two independent codex runs over the same prompt,
+  launched in parallel, as rounds 5-7 did. Both returned "Verdict: Changes required"
+  and both named the **same single finding**, independently. Nothing else was raised
+  by either run. **No code change was made — the finding is real but its fix is
+  outside the plan's scope, so it is a user gate.**
+  - **Substantiated — `kill -9` on the TUI leaves the backend running forever.**
+    What you would see: a TUI that has stopped responding, so you `kill -9` it (or
+    your session manager does) — and `taskflow-backend` is still running afterwards,
+    holding its data dir, its file watchers and any agent PTYs it had open, with
+    nothing left that can stop it. Mechanism: every route that releases the backend
+    is rooted in `process.on("exit")` (`releaseOnExit` in `index.ts:69`, handed to
+    `startBackend` as `onSpawn`), and SIGKILL runs neither JS signal handlers nor
+    `exit` handlers. So neither `child.kill()` nor round 7's `armReaper()` runs at
+    all. Independently reproduced before writing this up.
+    Repro (one command from the repo root), saved at
+    `/private/tmp/claude-501/-Users-kuindji-Projects-taskflow/320e390a-3d80-4f3f-9f39-2d4ed7fbd082/scratchpad/r8/repro-sigkill-leak.sh`
+    and copied to `/tmp/repro-sigkill-leak.sh`:
+
+        sh /tmp/repro-sigkill-leak.sh
+
+    It points the TUI at a fake backend that records its pid, `kill -9`s the TUI,
+    and checks the backend two seconds later. Output on `3bc5ee8`:
+    `RESULT: backend LEAKED (still alive 2s after the TUI was SIGKILLed)`.
+    The script is self-contained and cleans up after itself.
+  - **Why no fix was committed.** This is not a defect the task introduced. It is
+    inherent to the spawn-a-child design the plan gave Task 2, which the plan
+    explicitly scopes as mirroring `electron/src/backend-manager.ts` — and the
+    shipping Electron app has the *same* leak, in a worse form (`killBackendProcess`
+    at `electron/src/backend-manager.ts:161` sends a bare SIGTERM with no escalation
+    at all, and there is no orphan detection anywhere in `packages/backend`). Both
+    reviewers' suggested fix is a **backend-side** parent-death contract — pass the
+    TUI pid down and have the backend shut itself down when orphaned — which lives
+    outside `packages/tui` and changes shipping Electron behaviour too. Every
+    TUI-side alternative is an architectural addition the plan did not ask for, and
+    each carries its own new risk (see the options below). That is a plan-scope
+    decision, not a review fix.
+  - **Both runs otherwise reported clean**, including every surface the round-8
+    prompt pointed them at: the generated reaper script's portability and quoting,
+    `spawn()` from inside a `process.on("exit")` handler, `detached: true` +
+    `unref()` survival, the pid-reuse window between polls, whether 10s can cut short
+    the real backend's shutdown (both traced `packages/backend/src/index.ts`'s
+    SIGTERM handler through `sessionLifecycle.prepareForShutdown`,
+    `ptyManager.closeAll`, `fileWatcher.stopAll` and `wikiIndex.stopAll`), and
+    reaper accumulation across `stop()` call sites. Run A additionally executed
+    `bun test packages/tui/src` (336 pass), the typecheck and the lint itself, and
+    re-ran the two round-7 regression tests specifically.
+  - **Unverified, carried forward:** run B restated the pid-reuse window between the
+    reaper's last poll and its `kill -9` as theoretical and explicitly declined to
+    treat it as blocking. Not reproduced by either run or by me.
+  - Neither run re-raised any carried-forward known-and-accepted item.
+
+## Decisions taken (Task 15 round 8)
+
+- **`reapGraceSeconds` is left unvalidated.** Probed directly: a fractional, zero or
+  negative value makes `[ $i -lt 0.5 ]` fail with `integer expression expected`, the
+  loop falls through and `kill -9` fires immediately. Only the test passes the option
+  (`manager.test.ts:454`, value `1`); no production path can reach it. Run A found the
+  same and likewise found no caller that can feed it. Recorded as a latent trap rather
+  than fixed, so that round 9 does not re-derive it.
+
+Checks: no code changed this round, so `3bc5ee8`'s recorded checks stand — `bun run lint`
+clean, `bun run typecheck` clean across all five packages, `bun test packages/tui` 336 pass
+/ 0 fail. Run A re-ran the tui suite itself and reported the same 336.
+
+Next step: AWAITING USER — the SIGKILL backend leak is real and reproduced, but fixing it
+is a plan-scope decision. Which of these?
+  (a) **Accept for Stage 1.** Record it as known-and-accepted (parity with the shipping
+      Electron app, which leaks the same way), add it to the exclusion list, and mark
+      Task 15 clear. Cheapest; leaves a real leak behind a `kill -9`.
+  (b) **TUI-side guardian.** Arm one detached `sh` at spawn time that polls the TUI's
+      pid and, once the TUI is gone, does SIGTERM → grace → SIGKILL on the backend.
+      This subsumes round 7's `armReaper`, so `stop()`'s arming would be removed and
+      round 7's `manager.test.ts` reaper test reworked — real regression risk in a task
+      already eight rounds deep, and it leaves one extra `sh` visible in `ps` for the
+      whole session.
+  (c) **Backend-side orphan shutdown** — what both reviewers actually recommended.
+      Pass the parent pid to `taskflow-backend` and have it shut itself down when
+      orphaned. Fixes the Electron app at the same time. Outside `packages/tui`, so it
+      wants its own task rather than being smuggled into Task 15 round 8.
+  Recommendation: (a) now to clear Task 15, plus (c) as its own follow-up task, since
+  (c) is the only option that also fixes the shipping Electron path and it is the wrong
+  shape to land inside a review round.
+After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then implement
+it, then Tasks 16-18.
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
