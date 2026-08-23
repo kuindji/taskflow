@@ -169,6 +169,29 @@ describe("route edge cases", () => {
         expect(route("sidebar", shiftEnter, true, false).action).toEqual({ kind: "open" });
     });
 
+    test("ctrl+escape with an extra modifier is not the switcher", () => {
+        for (const mod of ["alt", "super", "shift"] as const) {
+            const chord = key({
+                name: "escape",
+                mods: { ...noMods(), ctrl: true, [mod]: true },
+            });
+            expect(route("session", chord, true, false).action).toEqual({
+                kind: "to-child",
+                events: [chord],
+            });
+            expect(route("sidebar", chord, true, false).action).toEqual({ kind: "none" });
+        }
+    });
+
+    test("a modified escape does not start a legacy double-esc", () => {
+        for (const mod of ["ctrl", "alt", "super", "shift"] as const) {
+            const chord = key({ name: "escape", mods: { ...noMods(), [mod]: true } });
+            const result = route("session", chord, false, false);
+            expect(result.action).toEqual({ kind: "to-child", events: [chord] });
+            expect(result.pendingEscape).toBe(false);
+        }
+    });
+
     test("kitty mode never injects a held escape into the child", () => {
         const ev = key({ char: "a" });
         const result = route("session", ev, true, true);

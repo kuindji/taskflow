@@ -32,8 +32,27 @@ const SIDEBAR_CHARS: Record<string, Action | undefined> = {
     "?": { kind: "help" },
 };
 
+/**
+ * The focus switch under the kitty protocol is exactly `Ctrl+Escape`. Any
+ * further modifier makes it a different chord, which belongs to the child:
+ * `Ctrl+Alt+Escape` reaches us as `CSI 27;7u` and must not be swallowed.
+ */
 function isSwitcher(ev: KeyEvent): boolean {
-    return ev.name === "escape" && ev.mods.ctrl;
+    return ev.name === "escape" && ev.mods.ctrl && !ev.mods.alt && !ev.mods.super && !ev.mods.shift;
+}
+
+/**
+ * A bare Escape press — the half of a legacy double-Esc. Shift counts here,
+ * unlike on a printable, because Escape has no shifted character to arrive as.
+ */
+function isBareEscape(ev: KeyEvent): boolean {
+    return (
+        ev.name === "escape" &&
+        !ev.mods.ctrl &&
+        !ev.mods.alt &&
+        !ev.mods.super &&
+        !ev.mods.shift
+    );
 }
 
 /**
@@ -64,7 +83,7 @@ function route(
 
     if (kittyAvailable) {
         if (isSwitcher(ev)) return { action: { kind: "toggle-focus" }, pendingEscape: false };
-    } else if (ev.name === "escape" && !ev.mods.ctrl && !ev.mods.alt) {
+    } else if (isBareEscape(ev)) {
         if (held) return { action: { kind: "toggle-focus" }, pendingEscape: false };
         return { action: { kind: "none" }, pendingEscape: true };
     }
