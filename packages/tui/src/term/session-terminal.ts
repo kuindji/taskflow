@@ -152,6 +152,7 @@ class SessionTerminal {
         // child set long ago and will not send again, so they are held here
         // for the fallback path below.
         let restore = "";
+        let savedKitty: (number | null)[] = [];
         if (this.historyLoaded) {
             this.historyLoaded = false;
             this.pending = [];
@@ -160,9 +161,16 @@ class SessionTerminal {
             // or it lands on the fresh grid and the modes it carries are lost.
             await this.enqueueAction(() => {
                 const previous = this.modes;
+                savedKitty = this.kitty.toArray();
                 this.terminal.reset();
                 // reset() restores DECTCEM to visible; our tracking has to follow it.
                 this.hiddenCursor = false;
+                // The kitty stack is ours, not xterm's, so reset() leaves it
+                // alone — but everything that built it is about to be replayed.
+                // Keeping it would stack a second copy of the child's push on
+                // top, and the child's next pop would land on the duplicate
+                // instead of leaving the protocol.
+                this.kitty.restore([]);
                 if (previous.applicationCursorKeys) restore += "\x1b[?1h";
                 if (previous.bracketedPaste) restore += "\x1b[?2004h";
             });
@@ -203,11 +211,23 @@ class SessionTerminal {
                 MSG.SESSION_HISTORY,
                 { ...this.deps.owner, sessionId: this.deps.sessionId },
             );
-            if (history.data) void this.enqueue(history.data);
+            if (history.data) await this.enqueue(history.data);
+            this.recoverKittyStack(savedKitty);
             await this.finishLoad(history.lastSequence);
         } catch {
+            this.recoverKittyStack(savedKitty);
             await this.finishLoad(-1);
         }
+    }
+
+    /**
+     * History has been replayed; if it still carried the child's pushes the
+     * stack rebuilt itself and stands. If it was trimmed past them the stack is
+     * empty and the pre-drop state is the best guess left, the same reasoning
+     * that replays the saved DEC modes on this path.
+     */
+    private recoverKittyStack(saved: readonly (number | null)[]): void {
+        if (this.kitty.flags === null && saved.length > 0) this.kitty.restore(saved);
     }
 
     private async finishLoad(lastSequence: number): Promise<void> {

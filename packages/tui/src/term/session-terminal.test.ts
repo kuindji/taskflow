@@ -319,6 +319,29 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
+    test("re-attaching without a snapshot rebuilds the kitty stack from history", async () => {
+        // The history path replays raw scrollback that still contains the
+        // child's original push. Carrying the pre-drop stack across the reset
+        // would push a second copy of it, and the child's next pop would land
+        // on the duplicate instead of leaving the protocol.
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_HISTORY]: { data: "\x1b[>5u", lastSequence: 0 },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        await settle();
+        expect(term.modes.kittyFlags).toBe(5);
+        await term.attach();
+        await settle();
+        expect(term.modes.kittyFlags).toBe(5);
+        // One push happened in the child, so one pop leaves the protocol.
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[<u", sequence: 1 });
+        await settle();
+        expect(term.modes.kittyFlags).toBeNull();
+        term.dispose();
+    });
+
     test("restores the kitty stack the snapshot reports", async () => {
         const net = fakeNet({
             [MSG.SESSION_SNAPSHOT]: {
