@@ -22,7 +22,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | implemented | `43df638` | commits `8c01132`, `584f615`; smoke-tested, arrows added after it |
+| 15 | Application shell and entry point | in-review round 1 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`; round 1 found three, all fixed |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
@@ -3331,6 +3331,39 @@ End-to-end confirmation, same PTY harness as the investigation, kitty path: down
 from **0 bytes written back to 82** — the highlight moves from row 2 to row 3. `j`, `k` and
 `Q` unchanged.
 
+- **Task 15, round 1** (gpt-5.5 via codex-review, Mode B over `43df638..584f615`
+  restricted to `packages/tui`): three findings, all three substantiated and fixed
+  in `8045ed4`. Each was reproduced before the fix was written.
+  - **Substantiated — the spawned backend outlived the TUI.** `backend.stop()` and
+    `net.close()` were reached only from the one clean path where the render loop
+    saw `app.running` go false. A signal, an uncaught exception, or any throw
+    during startup after the spawn left the backend running and its port file on
+    disk. Repro before writing a test: a fake backend that records its pid, writes
+    port 1 and sleeps; the TUI's connect is refused, it exits 1, and the fake
+    backend is still alive. Regression tests: `tui entry point > stops the backend
+    when startup fails after it was spawned` and `... when the TUI is terminated by
+    a signal` in the new `packages/tui/src/index.test.ts` — both red on `584f615`,
+    green on `8045ed4`. Run with `bun test packages/tui/src/index.test.ts`.
+  - **Substantiated — keys typed during startup were dropped.** `readOnce` removes
+    its `data` listener but leaves stdin flowing, so between the kitty negotiation
+    and the decode loop — a window spanning the whole first snapshot load — bytes
+    were emitted with nothing listening. Confirmed against real stream semantics
+    with a standalone script before touching `index.ts`, then as a regression test:
+    `tui entry point > does not lose a key typed while the first snapshot is still
+    loading` (the fake backend holds its list responses back 1.2s so `Q` lands
+    inside `init()`; a dropped `Q` means the TUI never exits) — red on `584f615`
+    (timed out at 20s), green on `8045ed4`.
+  - **Substantiated — the sidebar movement tests passed for the wrong reason.**
+    Both asserted only `sink.output !== ""`, which any repainting action satisfies.
+    Demonstrated by mutation: rerouting `j` to `zoom` left `App > j and k move the
+    sidebar selection` green. They now read the inverse-video row off the painted
+    frame (`screen.back`, `ATTR_INVERSE`) and assert the selection moved to row 1
+    and back to row 0. The same mutant is red against the new assertions.
+    (The arrow test happened to catch that particular mutant already, by luck of
+    its second `up` press producing no frame change — it was no less weak.)
+  - Codex reported no findings on terminal restoration itself, on the routing
+    change, or on the project's type and export constraints.
+
 ## Decisions taken (Task 15 arrow keys)
 
 - **Up/Down only. Left/Right stay unbound.** The spec gives `h`/`l` the job of moving between
@@ -3345,6 +3378,30 @@ from **0 bytes written back to 82** — the highlight moves from row 2 to row 3.
 Checks on `584f615`: `bun run lint` clean, `bun run typecheck` clean across all five packages,
 `bun test packages/tui` 319 pass / 0 fail, full `bun test` 1152 pass / 8 fail (the known
 `MarkdownPaneImpl` eight). `prettier --check` clean.
+
+## Decisions taken (Task 15 round 1)
+
+- **Release hangs off `process.on("exit")` rather than duplicating cleanup into
+  each handler.** `Tty.installExitHandlers` already owns the signal and
+  `uncaughtException` handlers and calls `process.exit` straight after restoring
+  the terminal, so `exit` is the one hook every route out of the process passes
+  through. `Tty` is Task 5 and already clear; this adds to it rather than
+  rewriting it.
+- **Registered per resource, as it is created**, not once at the end of `main`:
+  `main` can throw between the spawn and the connect, and that gap is exactly the
+  case the first finding is about.
+- **The release callbacks swallow their own errors.** Exit is the last chance for
+  every other resource too, so one that fails to close must not strand the rest.
+- **The explicit `net.close()` / `backend.stop()` in the quit path were removed**
+  rather than left as belt-and-braces — `process.exit(0)` on the next line runs
+  the same handlers, and two callers make it ambiguous which one is responsible.
+- **`index.test.ts` runs the real entry point as a process.** `index.ts` runs
+  `main()` on import, so there is nothing importable to unit-test; the lifecycle
+  is only observable from outside. It costs about 5s.
+- **The strengthened tests read the frame rather than a new `selected` getter.**
+  Exposing internal state purely for a test would widen the public surface for
+  no behavioural reason, and the rendered inverse-video row is what the user
+  actually sees.
 
 ## Task 19 — Mouse support (added post-plan, needs a plan of its own)
 
@@ -3369,13 +3426,13 @@ defect fix. It is not a one-task change — a sketch of what it touches, for who
 Per the repo's own rule for new features, this gets a written plan reviewed by gpt-5.5 twice
 before any code, appended to the Stage 1 plan as new tasks.
 
-Next step: Task 15 review round 1 — gpt-5.5 via codex-review over `43df638..584f615`
-(Mode B, restricted to `packages/tui`). That range is the application shell, the entry point
-and the arrow-key binding, which is the whole of Task 15 as it now stands. Review this before
-starting Task 19's plan: the mouse work rewrites `routing.ts` and the decoders, and reviewing
-a small diff now beats reviewing a large one later.
-After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then implement it,
-then Tasks 16-18.
+Next step: Task 15 review round 2 — gpt-5.5 via codex-review over `43df638..8045ed4`
+(Mode B, restricted to `packages/tui`). Round 1 found three and all three were fixed, so
+the task is not clear yet and another round is owed. The new `index.test.ts` spawns real
+processes, which is a shape nothing else in this package has — worth pointing the reviewer
+at its flake surface (fixed sleeps, pid files, the 20s per-test timeouts) specifically.
+After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then implement
+it, then Tasks 16-18.
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
@@ -3384,8 +3441,10 @@ reproduces the documented baseline exactly. It recurred in Task 14 round 1: a
 `bun test packages/tui` launched while codex was running its own `bun test` reported
 306 pass / 1 fail, and the same command re-run once codex was idle reported 307 / 0.
 
-Baseline as of `584f615`: `bun run lint` clean, `bun run typecheck` clean across all five
-packages, `bun test packages/tui` 319 pass / 0 fail, full `bun test` 1152 pass / 8 fail with
+Baseline as of `8045ed4`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 322 pass / 0 fail, full `bun test` 1155 pass / 8 fail with
 the 8 being the known pre-existing `MarkdownPaneImpl` failures (three fragment-link tests and
-five checkbox-click tests). Those eight are flaky upward, not downward: one full run during
-Task 15 reported 9 fail, and a clean re-run of the same tree reported 8 again.
+five checkbox-click tests). `prettier --check` clean on the three touched files. The +3 over
+the `584f615` baseline of 1152 is exactly the three new `index.test.ts` cases. Those eight
+`MarkdownPaneImpl` failures are flaky upward, not downward: one full run during Task 15
+reported 9 fail, and a clean re-run of the same tree reported 8 again.
