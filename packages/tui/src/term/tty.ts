@@ -1,3 +1,5 @@
+import { constants } from "os";
+
 import type { Sink } from "../render/screen";
 
 interface TtyOptions {
@@ -70,7 +72,9 @@ class Tty {
         for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
             process.on(signal, () => {
                 restore();
-                process.exit(signal === "SIGINT" ? 130 : 143);
+                // 128 + the signal number, which is how a shell reports a
+                // signalled exit; one code for every signal would misname it.
+                process.exit(128 + constants.signals[signal]);
             });
         }
         process.on("uncaughtException", (err: unknown) => {

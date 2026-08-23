@@ -187,6 +187,17 @@ describe("tui entry point", () => {
         expect(await waitUntilDead(backendPid)).toBe(true);
     }, 20_000);
 
+    test("reports a hangup with the conventional exit code", async () => {
+        const pidFile = join(await tempDir("tui-index-pid-"), "pid");
+        const child = runTui(await slowBackend(pidFile, 5));
+        await waitForPid(pidFile);
+
+        // 128 + the signal number, which every shell and supervisor reads as
+        // "killed by SIGHUP". Reporting SIGTERM's 143 instead misattributes it.
+        child.kill("SIGHUP");
+        expect(await child.exited).toBe(129);
+    }, 20_000);
+
     test("stops the backend when the TUI is terminated by a signal", async () => {
         const dir = await tempDir("tui-index-pid-");
         const pidFile = join(dir, "pid");
@@ -203,6 +214,23 @@ describe("tui entry point", () => {
         child.kill("SIGTERM");
         await child.exited;
         expect(await waitUntilDead(backendPid)).toBe(true);
+    }, 20_000);
+
+    test("does not lose a key typed before the kitty query goes out", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+
+        // Written before the TUI has read a byte, so it is already sitting in the
+        // pipe when the negotiation window opens — the one moment something reads
+        // stdin before the decoder exists.
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+
+        // `Q` is quit. Swallowed by the negotiation read, it leaves the TUI
+        // running until the harness kills it.
+        expect(await child.exited).toBe(0);
     }, 20_000);
 
     test("does not lose a key typed while the first snapshot is still loading", async () => {

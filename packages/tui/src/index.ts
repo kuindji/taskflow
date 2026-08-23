@@ -1,3 +1,5 @@
+import { constants } from "os";
+
 import { startBackend } from "./backend/manager";
 import { WsClient } from "./net/client";
 import { Store } from "./state/store";
@@ -32,7 +34,10 @@ function setRawMode(enabled: boolean): void {
 function installSignalExit(): void {
     for (const signal of SIGNALS) {
         process.on(signal, () => {
-            process.exit(signal === "SIGINT" ? 130 : 143);
+            // 128 + the signal number is what a shell or supervisor reads back as
+            // "killed by this signal". Collapsing them onto one code would report
+            // a hangup as a termination.
+            process.exit(128 + constants.signals[signal]);
         });
     }
 }
@@ -115,7 +120,8 @@ async function main(): Promise<void> {
     process.stdin.resume();
     const disarmRawGuard = armRawModeGuard();
 
-    const kittyAvailable = await negotiateKitty({ write: sink.write, waitForData: readOnce });
+    const negotiated = await negotiateKitty({ write: sink.write, waitForData: readOnce });
+    const kittyAvailable = negotiated.kitty;
     // `readOnce` drops its listener but leaves the stream flowing, so anything
     // typed between here and the decode loop below would be emitted with nothing
     // listening and lost. A paused stream buffers it instead, and the loop
@@ -138,13 +144,13 @@ async function main(): Promise<void> {
     let carry = "";
     let carryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    process.stdin.on("data", (chunk: Buffer) => {
+    const feed = (text: string): void => {
         if (carryTimer !== null) {
             clearTimeout(carryTimer);
             carryTimer = null;
         }
         const decode = kittyAvailable ? decodeKitty : decodeLegacy;
-        const result = decode(chunk.toString("utf-8"), carry);
+        const result = decode(text, carry);
         carry = result.carry;
         for (const ev of result.events) app.handleKey(ev);
 
@@ -157,7 +163,15 @@ async function main(): Promise<void> {
                 for (const ev of flushCarry(stranded)) app.handleKey(ev);
             }, ESCAPE_IDLE_MS);
         }
+    };
+
+    process.stdin.on("data", (chunk: Buffer) => {
+        feed(chunk.toString("utf-8"));
     });
+    // Whatever the user typed into the negotiation window was consumed by
+    // `readOnce` and is not coming again, so it goes through the decoder here
+    // or it is dropped. It precedes anything the stream is about to deliver.
+    if (negotiated.rest !== "") feed(negotiated.rest);
     process.stdin.resume();
 
     const timer = setInterval(() => {
