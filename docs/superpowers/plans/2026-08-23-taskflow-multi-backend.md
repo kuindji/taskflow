@@ -275,7 +275,7 @@ git commit -m "feat(backend): bind loopback, report protocol version, write a st
 The instance id is now reduced to [A-Za-z0-9._-], capped at 64 characters, so it
 is safe as a filename, as a beacon field and inside a command run over ssh. A dev
 instance whose branch name contained anything outside that set moves to a new
-data directory.""
+data directory."
 ```
 
 ---
@@ -772,13 +772,57 @@ function joinAllInterfaces(socket: dgram.Socket): void {
     }
 }
 
-function bindDiscoverySocket(onMessage: (bytes: Uint8Array, address: string) => void) {
+/**
+ * `onFailed` is not optional, and swallowing the error here was a bug rather
+ * than a simplification. `bind(port, callback)` only calls back on success, so
+ * a bind that fails emits `error` and the surrounding promise never settles.
+ * The backend `await`s `advertiser.start()` during boot
+ * (`applyNetworkSettings`), so a failed bind wedged startup **after** the HTTP
+ * server was already listening: the app half-starts, nothing is logged, and the
+ * spec's rule that discovery failure is non-fatal
+ * (`specs/2026-08-23-taskflow-multi-backend-design.md:197`) is violated in the
+ * worst available way.
+ */
+function bindDiscoverySocket(
+    onMessage: (bytes: Uint8Array, address: string) => void,
+    onFailed: (error: Error) => void,
+) {
     const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
     socket.on("message", (message, rinfo) => onMessage(message, rinfo.address));
-    socket.on("error", () => {
-        // A socket-level error leaves discovery dead but must never crash the host process.
-    });
+    socket.on("error", onFailed);
     return socket;
+}
+
+/**
+ * Shared by both `start` implementations. Settles the promise once, drops the
+ * socket reference so a later `start` retries rather than short-circuiting on
+ * the idempotence guard, and says so out loud — a silently absent beacon is the
+ * one discovery failure nobody can diagnose, which is why Task 11 has to
+ * explain an empty menu to macOS users at all.
+ *
+ * Both call sites wrap this as `(error) => discoveryFailureHandler(bound, …)(error)`
+ * rather than calling it directly in the argument list. That is deliberate and
+ * not a simplification opportunity: `bound` is the `const` being initialised by
+ * the very `bindDiscoverySocket` call this handler is an argument to, so
+ * reading it eagerly is a temporal-dead-zone `ReferenceError`. The arrow defers
+ * the read until the error actually fires, by which point `bound` is assigned.
+ */
+function discoveryFailureHandler(
+    socket: dgram.Socket,
+    clear: () => void,
+    settle: () => void,
+): (error: Error) => void {
+    return (error) => {
+        console.warn("Taskflow LAN discovery is unavailable:", error.message);
+        clear();
+        try {
+            socket.close();
+        } catch {
+            // Throws when the socket never finished binding, which is the case
+            // this handler exists for.
+        }
+        settle();
+    };
 }
 
 function sendToGroup(socket: dgram.Socket, bytes: Uint8Array): void {
@@ -807,17 +851,37 @@ function createAdvertiser(opts: { payload: () => BeaconAnnounce }): DiscoveryHan
             // the caller should not have to track whether it already started.
             if (socket) return Promise.resolve();
             return new Promise((resolve) => {
-                const bound = bindDiscoverySocket((bytes) => {
-                    const message = parseDatagram(bytes);
-                    if (message && "probe" in message) announceNow();
-                });
+                // Settled at most once: a socket can fail its bind and then be
+                // closed, and both would otherwise call through.
+                let settled = false;
+                const settle = () => {
+                    if (settled) return;
+                    settled = true;
+                    resolve();
+                };
+                const bound: dgram.Socket = bindDiscoverySocket(
+                    (bytes) => {
+                        const message = parseDatagram(bytes);
+                        if (message && "probe" in message) announceNow();
+                    },
+                    (error) =>
+                        discoveryFailureHandler(
+                            bound,
+                            () => {
+                                socket = null;
+                                if (timer) clearInterval(timer);
+                                timer = null;
+                            },
+                            settle,
+                        )(error),
+                );
                 socket = bound;
                 bound.bind(DISCOVERY_PORT, () => {
                     bound.setMulticastTTL(DISCOVERY_TTL);
                     joinAllInterfaces(bound);
                     announceNow();
                     timer = setInterval(announceNow, ANNOUNCE_INTERVAL_MS);
-                    resolve();
+                    settle();
                 });
             });
         },
@@ -866,7 +930,13 @@ function createListener(opts: {
             // group and still delivering into a map nothing reads.
             if (socket) return Promise.resolve();
             return new Promise((resolve) => {
-                const bound = bindDiscoverySocket((bytes, address) => {
+                let settled = false;
+                const settle = () => {
+                    if (settled) return;
+                    settled = true;
+                    resolve();
+                };
+                const bound: dgram.Socket = bindDiscoverySocket((bytes, address) => {
                     const message = parseDatagram(bytes);
                     if (!message || "probe" in message) return;
                     const id = backendIdFor(message.hostname, message.instanceId);
@@ -897,13 +967,28 @@ function createListener(opts: {
                     }
                     seen.set(id, { ...message, address, lastSeenAt: Date.now() });
                     opts.onChange(live());
-                });
+                },
+                (error) =>
+                    discoveryFailureHandler(
+                        bound,
+                        () => {
+                            socket = null;
+                            if (sweepTimer) clearInterval(sweepTimer);
+                            sweepTimer = null;
+                            // The menu must not keep offering machines this
+                            // listener can no longer hear from.
+                            seen.clear();
+                            opts.onChange(live());
+                        },
+                        settle,
+                    )(error),
+                );
                 socket = bound;
                 bound.bind(DISCOVERY_PORT, () => {
                     bound.setMulticastTTL(DISCOVERY_TTL);
                     joinAllInterfaces(bound);
                     sweepTimer = setInterval(sweep, ANNOUNCE_INTERVAL_MS);
-                    resolve();
+                    settle();
                 });
             });
         },
@@ -2099,6 +2184,28 @@ async function readRemotePort(
     ]);
     const port = Number.parseInt(stdout.trim(), 10);
     if (Number.isInteger(port) && port > 0) return { port };
+
+    // ssh reserves 255 for its own failures — auth, host keys, no route — and
+    // otherwise exits with the *remote command's* status. So a code that is
+    // neither 255 nor null means the connection worked and `cat` failed, which
+    // is the single most likely outcome of a first manual connect: Taskflow is
+    // not running over there, or it is running as a different user than the one
+    // we logged in as, so `~` is a different home.
+    //
+    // `classifyTunnelFailure` has no pattern for that — it matches on ssh's own
+    // stderr — so it falls through to its default and the user is told
+    // **"SSH exited with code 1."** That names neither the cause nor the
+    // remedy, and the remedy is the Backend port field one line above in the
+    // dialog they are already looking at.
+    if (code !== null && code !== 255) {
+        return {
+            failure: {
+                kind: "no-backend",
+                message: `Could not read Taskflow's port on ${record.host}. Check it is running there as ${record.user}, or enter its port in the connect dialog.`,
+                stderr,
+            },
+        };
+    }
     return { failure: classifyTunnelFailure(stderr, code) };
 }
 
@@ -2634,15 +2741,29 @@ async function setActive(id: string, origin: string): Promise<void> {
 async function revertActiveBackend(): Promise<void> {
     const abandoned = activeId;
     activeId = previousId;
-    activeOrigin = previousOrigin;
     lastUsedId = previousId;
-    if (abandoned !== LOCAL_ID && abandoned !== previousId) {
+    // Keyed on the id alone — **no** `!== previousId` clause. A **Reconnect**
+    // re-activates the id that is already active, so `abandoned === previousId`
+    // there, and that clause would decline to close the ssh child
+    // `activateBackend` had just spawned. `pendingActivationId` was cleared by
+    // `setActive`, so `cancelActivation` cannot reach it either, and it lives
+    // until the next attempt or until the app quits. This is the same guard
+    // shape that had to come out of `cancelActivation` in round 8, for the same
+    // reason, in the same flow.
+    if (abandoned !== LOCAL_ID) {
         try {
             closeTunnel(abandoned);
         } catch (error) {
             console.error("Failed to close a reverted activation's tunnel:", error);
         }
     }
+    // On a reconnect, `previousOrigin` names the tunnel `openTunnel` already
+    // killed on its way in — `openTunnel` closes any existing child for an id
+    // before spawning. Restoring it would leave main pointing at a dead local
+    // port that `notification-poller` and `tray-manager` then hit every tick.
+    // Null is the honest answer; the renderer's `dropped` banner is what the
+    // user acts on, and it is still set because the switch failed.
+    activeOrigin = abandoned === previousId ? null : previousOrigin;
     await persist();
     deps.onChanged();
 }
@@ -3378,6 +3499,35 @@ describe("switching connections", () => {
         expect(getBackendOrigin()).toBe(b.origin);
     });
 
+    test("a failed user-initiated reconnect leaves the backoff armed", async () => {
+        // The path that had nothing armed: the tunnel drops, `onclose` arms the
+        // backoff, the user presses Reconnect, `connectTo` cancels the backoff
+        // on entry, and the new socket fails before open — by which point
+        // `onerror` has cleared `pending`, so the `abortPending` in `switchTo`'s
+        // catch has nothing to abort. Without the re-arm the app sits at
+        // "Reconnecting…" with no timer and never recovers on its own.
+        const a = track(startServer());
+        await connectTo(a.origin);
+        promoteConnection();
+
+        a.stop(); // the live backend goes away; onclose arms the backoff
+        await Bun.sleep(100);
+
+        // Stand in for the user pressing Reconnect against a host that is down.
+        await expect(connectTo("ws://127.0.0.1:1")).rejects.toThrow();
+        abortPending(); // `switchTo`'s catch, with `pending` already null
+
+        const statuses: Array<{ connected: boolean; reconnecting: boolean }> = [];
+        const unsubscribe = onStatusChange((status) => statuses.push({ ...status }));
+        await Bun.sleep(2_500);
+        unsubscribe();
+
+        // Something is still trying. A single `reconnecting` here would be the
+        // stale flag from the cancelled arm, not a live timer, so assert on the
+        // count the way the backoff test above does.
+        expect(statuses.filter((s) => s.reconnecting).length).toBeGreaterThan(1);
+    });
+
     test("a superseded socket closing does not report the app as disconnected", async () => {
         const a = track(startServer());
         const b = track(startServer());
@@ -3499,6 +3649,24 @@ function scheduleReconnect(): void {
     }, delay);
 }
 
+/**
+ * Re-arms the reconnect backoff if the live connection is down.
+ *
+ * `connectTo` cancels the backoff on its way in, so **every** path that ends an
+ * attempt without promoting has to come back through here or the app is left
+ * with a dead `current`, no timer, and `reconnecting` still true from the arm
+ * that got cancelled — sitting at "Reconnecting…" forever. There are three such
+ * paths and they were added in different rounds, which is how two of them ended
+ * up missing it: the pending socket erroring before open, the pending socket
+ * closing before promotion, and `abortPending` — including the case where
+ * `abortPending` finds nothing pending, which is the common one, because a
+ * failed **Reconnect** has already had its `pending` cleared by `onerror`
+ * before `switchTo`'s catch runs.
+ */
+function scheduleReconnectIfCurrentDown(): void {
+    if (current && current.socket.readyState !== WebSocket.OPEN) scheduleReconnect();
+}
+
 function rejectGeneration(generation: number, reason: string): void {
     for (const [correlationId, request] of [...pendingRequests]) {
         if (request.generation !== generation) continue;
@@ -3558,6 +3726,7 @@ function attachHandlers(connection: Connection): void {
             pendingSettle = null;
             rejectGeneration(generation, "WebSocket closed");
             settle?.reject(new Error("WebSocket closed before it was ready"));
+            scheduleReconnectIfCurrentDown();
             return;
         }
         // Only the live connection may report a disconnect or retry. Without
@@ -3623,6 +3792,7 @@ function connectTo(origin: string): Promise<void> {
             pending = null;
             pendingSettle = null;
             reject(new Error("WebSocket connection error"));
+            scheduleReconnectIfCurrentDown();
         };
     });
 }
@@ -3685,7 +3855,15 @@ function promoteConnection(): boolean {
  * no caller is left waiting on a connection that no longer exists.
  */
 function abortPending(): void {
-    if (!pending) return;
+    if (!pending) {
+        // Not a no-op. `connectTo` cancelled the backoff on entry, and by the
+        // time `switchTo`'s catch calls this after a failed **Reconnect**,
+        // `onerror` has usually already cleared `pending` — so returning here
+        // without re-arming is exactly how the app ends up with a dead
+        // connection and no timer.
+        scheduleReconnectIfCurrentDown();
+        return;
+    }
     const { socket, generation } = pending;
     const settle = pendingSettle;
     pending = null;
@@ -3698,16 +3876,7 @@ function abortPending(): void {
     rejectGeneration(generation, BACKEND_SWITCHED);
     settle?.reject(new Error(BACKEND_SWITCHED));
 
-    // `connectTo` cancelled the reconnect backoff on its way in, and if the
-    // attempt it cancelled it for is now being thrown away, nothing else will
-    // ever arm it again. The reachable path: a remote backend's tunnel drops,
-    // `onclose` arms the backoff, the user presses **Reconnect**, the handshake
-    // fails — and from then on the app sits at "Reconnecting…" with no timer
-    // pending and no automatic recovery, because `reconnecting` was left true
-    // by the arm that got cancelled. Only re-arm when the live connection is
-    // actually down; after a failed *switch* away from a healthy backend there
-    // is nothing to reconnect to.
-    if (current && current.socket.readyState !== WebSocket.OPEN) scheduleReconnect();
+    scheduleReconnectIfCurrentDown();
 }
 ```
 
@@ -3855,7 +4024,7 @@ point, not the plumbing.
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `bun test packages/ui`
-Expected: PASS, including the twelve new connection tests.
+Expected: PASS, including the thirteen new connection tests.
 
 - [ ] **Step 7: Commit**
 
@@ -6014,6 +6183,21 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
 - Open the backend menu and click somewhere else in the app. Expected: it
   closes. A menu that stays open means it was hand-rolled as a `<div>` instead
   of going through the two branches Step 1 asks for.
+- Occupy the discovery port before starting the backend
+  (`nc -ulk 47654` in another terminal, or any process that binds it
+  exclusively) and start Taskflow. Expected: it finishes starting, logs
+  "Taskflow LAN discovery is unavailable", and works with discovery simply
+  absent. A backend that prints its "running on port" line and then hangs means
+  a failed UDP bind is wedging `advertiser.start()`.
+- Connect to a remote backend, let its tunnel drop, press **Reconnect**, and
+  make the handshake fail (stop Taskflow on the other machine first, leaving
+  ssh reachable). Expected: `pgrep -fl "ssh -N -L"` shows no child afterwards.
+  One left behind means `revertActiveBackend` is skipping the tunnel it just
+  opened because the reconnect re-activated the same id.
+- Add a backend by host while Taskflow is **not** running on that machine, with
+  the Backend port field left blank. Expected: the error names the machine and
+  points at the port field. "SSH exited with code 1." means `readRemotePort` is
+  still handing a failed `cat` to `classifyTunnelFailure`.
 - On a remote backend, open the wiki root's menu. Expected: "Open in Obsidian"
   and "Reveal in Finder" are greyed out, "New page" is not.
 - Connect to machine B, then start a switch and kill B's `ssh` child from a
