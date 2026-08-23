@@ -36,7 +36,7 @@
 | `packages/shared/src/discovery/beacon.ts` | Pure datagram codec and staleness. No I/O |
 | `packages/shared/src/discovery/socket.ts` | Advertiser and listener over `node:dgram` |
 | `packages/shared/src/discovery/index.ts` | Barrel for the `./discovery` package export |
-| `electron/src/backend-records.ts` | Pure record list operations. No Electron, no fs |
+| `electron/src/backend-records.ts` | Record list operations and the parser for `backends.json`. No Electron, no fs; `node:os` only, for a default ssh user |
 | `electron/src/backend-registry.ts` | Persistence of records + active id; discovery listener |
 | `electron/src/tunnel-args.ts` | Pure `buildTunnelArgs` and `classifyTunnelFailure` |
 | `electron/src/tunnel-manager.ts` | Spawns and supervises `ssh`; readiness probe; known_hosts |
@@ -1216,7 +1216,7 @@ Pure list operations, separated from persistence so they can be tested without E
 
 **Interfaces:**
 - Consumes: `BackendRecord`, `DiscoveredBackend`, `backendIdFor` from `@taskflow/shared`.
-- Produces: `upsertRecord`, `removeRecord`, `recordFromDiscovered`, `matchesDiscovered`, `mergeForMenu`, and the `MenuEntry` type. `sameHost` stays module-private. There is deliberately no `renameRecord`: the Manage dialog edits three fields, and `upsertRecord` covers all of them at once without a second way to write a record.
+- Produces: `upsertRecord`, `removeRecord`, `recordFromDiscovered`, `matchesDiscovered`, `mergeForMenu`, `normalizeRecords`, and the `MenuEntry` type. `sameHost` stays module-private. There is deliberately no `renameRecord`: the Manage dialog edits three fields, and `upsertRecord` covers all of them at once without a second way to write a record.
 
 - [ ] **Step 1: Depend on the shared package**
 
@@ -1237,7 +1237,13 @@ Create `electron/src/backend-records.test.ts`:
 ```ts
 import { describe, expect, test } from "bun:test";
 import type { BackendRecord, DiscoveredBackend, MenuEntry } from "@taskflow/shared";
-import { mergeForMenu, recordFromDiscovered, removeRecord, upsertRecord } from "./backend-records";
+import {
+    mergeForMenu,
+    normalizeRecords,
+    recordFromDiscovered,
+    removeRecord,
+    upsertRecord,
+} from "./backend-records";
 
 /** Narrows a menu entry to one that carries a record, so the assertions below
  *  do not have to cast their way past the `local` member of the union. */
@@ -1301,6 +1307,32 @@ describe("removeRecord", () => {
     test("remove drops the matching record", () => {
         expect(removeRecord([saved], "desktop:main")).toHaveLength(0);
     });
+});
+
+describe("normalizeRecords", () => {
+    test("a record written before manualPort existed does not resolve to an undefined port", () => {
+        // `resolveBackendPort` tests `manualPort !== null`, so `undefined` here
+        // short-circuits resolution and hands ssh `-L …:127.0.0.1:undefined`.
+        const { manualPort: _gone, ...legacy } = saved;
+        expect(normalizeRecords([legacy])[0]?.manualPort).toBeNull();
+    });
+
+    test("a missing hostSource is inferred from whether the id was derived from the host", () => {
+        const { hostSource: _gone, ...legacy } = saved;
+        // Discovered: id is keyed on the announced hostname, host is the address.
+        expect(normalizeRecords([legacy])[0]?.hostSource).toBe("discovery");
+        // Manual: `addBackend` builds the id out of the host that was typed.
+        const typed = { ...legacy, id: "devbox:main", host: "devbox" };
+        expect(normalizeRecords([typed])[0]?.hostSource).toBe("manual");
+    });
+
+    test("an explicit hostSource is kept and a record with no id is dropped", () => {
+        expect(normalizeRecords([{ ...saved, hostSource: "manual" }])[0]?.hostSource).toBe("manual");
+        const { id: _gone, ...headless } = saved;
+        expect(normalizeRecords([headless])).toEqual([]);
+        expect(normalizeRecords("not an array")).toEqual([]);
+    });
+
 });
 
 describe("mergeForMenu", () => {
@@ -1412,6 +1444,7 @@ Expected: FAIL — `Cannot find module './backend-records'`.
 Create `electron/src/backend-records.ts`:
 
 ```ts
+import { userInfo } from "node:os";
 import { backendIdFor, isStale } from "@taskflow/shared/discovery";
 import type { BackendRecord, DiscoveredBackend, MenuEntry } from "@taskflow/shared";
 
@@ -1543,13 +1576,103 @@ function mergeForMenu(
     return entries;
 }
 
-export { matchesDiscovered, mergeForMenu, recordFromDiscovered, removeRecord, upsertRecord };
+/**
+ * Everything above assumes a `BackendRecord` really has the shape its type
+ * claims. Nothing enforces that: the registry gets its records from
+ * `JSON.parse` on a file under `userData` and asserts the type (Task 7's
+ * `load`). Two of the fields are read with tests that only work on the exact
+ * declared shape, so a record that is merely *plausible* is worse than one that
+ * is obviously wrong:
+ *
+ * - `resolveBackendPort` short-circuits on `record.manualPort !== null`. A
+ *   record written before that field existed has `undefined` there, `undefined
+ *   !== null` is true, and the resolver returns `{ port: undefined }`. ssh is
+ *   then handed `-L <local>:127.0.0.1:undefined` and the connect fails with a
+ *   forwarding-spec error that names nothing the user recognises.
+ * - `mergeForMenu` refreshes `host` only when `hostSource === "discovery"`. A
+ *   record written before *that* field existed reads as manual, so a machine
+ *   that was added by discovery stops following its own beacon and breaks for
+ *   good the next time DHCP moves it.
+ *
+ * So parse rather than assert. This is also the only place that can repair a
+ * hand-edited file — Task 14 tells the user to open `backends.json`, so assume
+ * they will.
+ */
+function normalizeRecords(input: unknown): BackendRecord[] {
+    if (!Array.isArray(input)) return [];
+    const records: BackendRecord[] = [];
+    for (const candidate of input) {
+        const record = normalizeRecord(candidate);
+        if (record) records.push(record);
+    }
+    return records;
+}
+
+function normalizeRecord(candidate: unknown): BackendRecord | null {
+    if (typeof candidate !== "object" || candidate === null) return null;
+    const value = candidate as Record<string, unknown>;
+    const id = str(value.id);
+    const host = str(value.host);
+    const instanceId = str(value.instanceId);
+    // No id, host or instance means nothing downstream can address it. Dropping
+    // the row is the only honest outcome; keeping it would put a dead entry in
+    // the menu that fails differently every time it is clicked.
+    if (id === null || host === null || instanceId === null) return null;
+    return {
+        id,
+        host,
+        instanceId,
+        displayName: str(value.displayName) ?? host,
+        user: str(value.user) ?? userInfo().username,
+        sshPort: port(value.sshPort) ?? 22,
+        // Inferred, not defaulted. `addBackend` derives a manual record's id
+        // from the host the user typed, so `id === backendIdFor(host, ...)` is
+        // exactly the manual case; a discovered record is keyed on the
+        // announced hostname while its host is the source address, so the two
+        // do not match. Guessing "manual" for everything would freeze
+        // discovered records; guessing "discovery" would clobber typed
+        // hostnames — the bug the field exists to prevent.
+        hostSource:
+            value.hostSource === "manual" || value.hostSource === "discovery"
+                ? value.hostSource
+                : id === backendIdFor(host, instanceId)
+                  ? "manual"
+                  : "discovery",
+        manualPort: port(value.manualPort) ?? null,
+        lastKnownPort: port(value.lastKnownPort) ?? null,
+        addedAt: str(value.addedAt) ?? new Date(0).toISOString(),
+    };
+}
+
+function str(value: unknown): string | null {
+    return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function port(value: unknown): number | null {
+    return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535
+        ? value
+        : null;
+}
+
+export {
+    matchesDiscovered,
+    mergeForMenu,
+    normalizeRecords,
+    recordFromDiscovered,
+    removeRecord,
+    upsertRecord,
+};
 ```
+
+`backendIdFor` comes from `@taskflow/shared` (Task 2) and `userInfo` from
+`node:os`. `node:os` is the one impurity in this otherwise I/O-free module, and
+it is worth it: the alternative is a record with a blank ssh user, which is the
+failure the discovered-backend flow already had once.
 
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `bun test electron/src/backend-records.test.ts`
-Expected: PASS, 16 tests.
+Expected: PASS, 19 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -2225,6 +2348,7 @@ import type {
 import {
     matchesDiscovered,
     mergeForMenu,
+    normalizeRecords,
     recordFromDiscovered,
     removeRecord,
     upsertRecord,
@@ -2269,14 +2393,22 @@ function storePath(): string {
 async function load(): Promise<void> {
     try {
         const parsed: unknown = JSON.parse(await readFile(storePath(), "utf-8"));
+        // `normalizeRecords`, not `as BackendRecord[]`. This file has already
+        // changed shape twice — the `Array.isArray` branch below exists because
+        // of the first time — and two fields are read with tests that only hold
+        // for the exact declared shape: `manualPort !== null` turns an absent
+        // field into `{ port: undefined }`, and an absent `hostSource` reads as
+        // manual and freezes a discovered record's host. See its comment in
+        // Task 4. It is also the only guard on a file the user can hand-edit,
+        // which Task 14's verification step invites them to do.
         if (typeof parsed === "object" && parsed !== null && "records" in parsed) {
             const file = parsed as { records?: unknown; activeId?: unknown };
-            records = Array.isArray(file.records) ? (file.records as BackendRecord[]) : [];
+            records = normalizeRecords(file.records);
             lastUsedId = typeof file.activeId === "string" ? file.activeId : LOCAL_ID;
             return;
         }
         // A file written before activeId was persisted.
-        if (Array.isArray(parsed)) records = parsed as BackendRecord[];
+        if (Array.isArray(parsed)) records = normalizeRecords(parsed);
     } catch {
         records = [];
     }
@@ -4480,7 +4612,37 @@ git commit -m "feat(ui): switch the active backend behind a compatibility handsh
 
 - [ ] **Step 1: Build the menu**
 
-Create `packages/ui/src/components/sidebar/BackendMenu.tsx`. Follow the dropdown pattern already used by `packages/ui/src/components/workspace/AgentDropdownMenu.tsx` — read that file first and reuse its primitives rather than introducing a second menu idiom.
+Create `packages/ui/src/components/sidebar/BackendMenu.tsx`.
+
+**Read `packages/ui/src/components/workspace/AgentDropdownMenu.tsx` first, and
+note that it has two branches.** Like `FileContextMenu`, it builds a
+`NativeMenuItem[]` and calls `showNativeMenuAndRun` when `supportsNativeMenus()`
+(`AgentDropdownMenu.tsx:146,190`), and falls back to the Radix
+`DropdownMenu*` primitives otherwise. That is the app's menu idiom, in both the
+desktop app and the browser dev server.
+
+The code below is written against the Radix branch only, and deliberately spells
+the structure out rather than abbreviating it — the entries, the active tick,
+the liveness dot, the two footer actions. **It is a specification of the menu's
+contents, not a licence to hand-roll a third idiom.** Two concrete reasons this
+matters rather than being a style note:
+
+- A bare `<div role="menu">` positioned with `absolute` has no dismiss. Nothing
+  in this component closes `open` except the trigger and the items themselves,
+  so clicking anywhere else in the app leaves the menu sitting over the
+  sidebar, and Escape does nothing. Radix's `DropdownMenu` and the native menu
+  both handle that; a div does not.
+- In the desktop build the native branch is what runs for every other menu, so
+  a floating div here is the one menu in the app that does not look or behave
+  like the OS.
+
+So: build the entry list once, then render it through both branches the way
+`AgentDropdownMenu` does. `NativeMenuItem` has `checked` and `type: "checkbox"`
+(`packages/ui/src/env.d.ts:3-10`), which covers the Master Workspace toggle and
+the active-backend tick; `enabled: switching === null` covers the disabled rows.
+The liveness dot and the instance badge have no native equivalent — fold them
+into the label (`desktop — dev`, and a trailing `(not seen)` for an `unseen`
+entry) rather than dropping the information.
 
 ```tsx
 import { useEffect, useState } from "react";
@@ -5060,17 +5222,33 @@ a machine that rebooted, and re-running the switch is correct for both.
 A denied local-network permission is silent from inside the process: no error,
 no datagrams, an empty list — identical to a network with nothing on it. That
 makes it the one discovery failure a user cannot diagnose, so the menu says so.
-When `entries` holds only the local entry and the platform is macOS, render
-below the list:
+Compute the condition once and render it through both branches:
+
+```ts
+const showLocalNetworkHint = entries.length === 1 && navigator.platform.startsWith("Mac");
+const localNetworkHint =
+    "No other backends found — check System Settings → Privacy & Security → Local Network";
+```
+
+Native branch — `NativeMenuItem` has `type: "label"`
+(`packages/ui/src/env.d.ts:8`), which is exactly an unselectable note:
+
+```ts
+if (showLocalNetworkHint) items.push({ type: "label", label: localNetworkHint });
+```
+
+Radix branch:
 
 ```tsx
-{entries.length === 1 && navigator.platform.startsWith("Mac") && (
-    <p className="text-muted-foreground px-2 py-1 text-[10px]">
-        No other backends found. If you expected one, check System Settings →
-        Privacy &amp; Security → Local Network.
-    </p>
+{showLocalNetworkHint && (
+    <DropdownMenuLabel className="text-muted-foreground text-[10px]">
+        {localNetworkHint}
+    </DropdownMenuLabel>
 )}
 ```
+
+This is the macOS-only case on purpose: it is the only platform that can deny
+multicast receive without saying so.
 
 - [ ] **Step 7: Keep the non-Electron renderer working**
 
@@ -5082,9 +5260,14 @@ that case so they are visible but inert:
     const hasBridge = typeof window.taskflow !== "undefined";
 ```
 
-and put `disabled={!hasBridge}` on both. Verify with `bun run dev:ui` against a
-backend started by `bun run dev:backend`: the menu opens, shows one entry, and
-nothing throws.
+and put `disabled={!hasBridge}` on both. This only ever bites in the Radix
+branch: `supportsNativeMenus()` tests for `window.taskflow.showNativeMenu`, so
+the native branch cannot run without a bridge and `hasBridge` is always true
+there. Do not skip it on that reasoning, though — the Radix branch *is* the
+no-bridge case, and it is the one this step is about.
+
+Verify with `bun run dev:ui` against a backend started by `bun run dev:backend`:
+the menu opens, shows one entry, and nothing throws.
 
 - [ ] **Step 8: Verify by hand**
 
@@ -5186,7 +5369,53 @@ In each of `NewProjectDialog.tsx`, `MissingLocationDialog.tsx`, `SettingsModal.t
 
 - [ ] **Step 6: Gate the reveal sites — and only those**
 
-In `packages/ui/src/components/panels/FileContextMenu.tsx`, disable the "Open with…" and "Reveal in Finder" items when `!useBackendIsLocal()`. Both hand a path to *this* machine's file manager or editor.
+`packages/ui/src/components/panels/FileContextMenu.tsx` renders **two menus, not
+one**, and gating the one you can see in the JSX gates the one that never runs.
+`supportsNativeMenus()` is true whenever `window.taskflow.showNativeMenu` exists
+(`packages/ui/src/lib/native-menu.ts:24-26`) — which is always, in the desktop
+app, which is the only place a remote backend exists at all. So
+`FileContextMenu.tsx:210` takes the native branch and the Radix
+`<ContextMenu>` below it is dead code there. Gate both.
+
+The items are "Open in External Editor" and "Reveal in Finder"; both hand a path
+to *this* machine's editor or file manager. Add the hook once:
+
+```tsx
+    const isLocal = useBackendIsLocal();
+```
+
+Native branch, inside `handleNativeContextMenu` (`:174-184`) — `NativeMenuItem`
+carries `enabled` (`packages/ui/src/env.d.ts:6`), so the items stay visible and
+greyed rather than disappearing and moving everything else up:
+
+```ts
+            if (!isDirectory) {
+                items.push({ id: "open-external", label: "Open in External Editor", enabled: isLocal });
+                actions["open-external"] = handleOpenExternal;
+            }
+
+            items.push(
+                { id: "reveal", label: "Reveal in Finder", enabled: isLocal },
+                { id: "open-terminal", label: "Open in Terminal" },
+            );
+```
+
+Add `isLocal` to `handleNativeContextMenu`'s dependency array (`:195-206`) — it
+is a `useCallback`, and without it the menu keeps the enablement from whichever
+backend was active when the callback was last built.
+
+Radix branch (`:254-264`), for the browser dev server where
+`supportsNativeMenus()` is false:
+
+```tsx
+                        {!isDirectory && (
+                            <ContextMenuItem disabled={!isLocal} onSelect={handleOpenExternal}>
+```
+
+and the same `disabled={!isLocal}` on the "Reveal in Finder" item.
+
+"Open in Terminal" is deliberately not gated: it creates a session on the
+backend, like `runInShell` below, and works fine remotely.
 
 **Do not gate `runInShell`.** `packages/ui/src/lib/run-in-shell.ts:27-45` asks the
 active backend for its shells over the WebSocket and creates a backend session;
@@ -5524,6 +5753,17 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
   it is still running. Expected: the new backend's search panel is empty and
   idle. `Backend switched` in its error slot means the `search-store.ts:120`
   guard is missing.
+- On a remote backend, right-click a file in the explorer. Expected: "Open in
+  External Editor" and "Reveal in Finder" are greyed out. If they are live, the
+  native menu branch was missed — the desktop app never renders the Radix one,
+  so gating only the JSX looks correct in review and changes nothing.
+- Open the backend menu and click somewhere else in the app. Expected: it
+  closes. A menu that stays open means it was hand-rolled as a `<div>` instead
+  of going through the two branches Step 1 asks for.
+- Quit, add `"hostSource"` and `"manualPort"` by hand to a record in
+  `backends.json`, delete both again, and relaunch. Expected: the backend still
+  connects. `Bad local forwarding specification` in the failure banner means
+  `normalizeRecords` was skipped and `manualPort: undefined` reached ssh.
 - Open a file, type into it without saving, then try to switch → refused, naming the unsaved file.
 - Pull the network while a remote backend is active → disconnected banner. ssh
   gives up after `ServerAliveInterval` × `ServerAliveCountMax`, roughly 45
