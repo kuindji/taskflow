@@ -442,6 +442,31 @@ describe("tui entry point", () => {
         expect(child.exitCode).toBeNull();
     }, 20_000);
 
+    test("a click reaches the app rather than being dropped by the feed loop", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+
+        // An SGR left press well inside the session pane. stdout is a pipe, so
+        // the frame is the 80x24 fallback and the sidebar is 26 columns wide;
+        // SGR is 1-based, so this is column 40, row 5 in the pane's own terms.
+        await child.stdin.write("\x1b[<0;41;6M");
+        await child.stdin.flush();
+        await Bun.sleep(200);
+
+        // The click moved focus onto the session, so `Q` now belongs to the
+        // child and no longer quits. A feed loop that dropped the report would
+        // leave the sidebar focused and exit here.
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+
+        await Bun.sleep(400);
+        expect(child.exitCode).toBeNull();
+    }, 20_000);
+
     test("drops a half-written SGR report whose tail never arrives", async () => {
         const dir = await tempDir("tui-index-pid-");
         const pidFile = join(dir, "pid");

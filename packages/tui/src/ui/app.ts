@@ -3,12 +3,21 @@ import type { Screen } from "../render/screen";
 import type { Store } from "../state/store";
 import type { NetLike } from "../net/client";
 import type { KeyEvent } from "../input/keys";
+import type { MouseReport } from "../input/mouse";
 import { encodeForChild } from "../input/encode";
 import type { SessionTerminal } from "../term/session-terminal";
 import { buildRows, drawSidebar, type SidebarRow } from "./sidebar";
 import { drawTabs, drawSessionPane, type TabSpec } from "./session-pane";
-import { route, type Focus } from "./routing";
+import { route, routeMouse, type Focus } from "./routing";
 import { computeLayout } from "./layout";
+
+/**
+ * Pull `index` inside a list of `length`, and onto 0 when the list is empty —
+ * `length - 1` is -1 there, which the outer `Math.max` takes back to 0.
+ */
+function clampIndex(index: number, length: number): number {
+    return Math.max(0, Math.min(index, length - 1));
+}
 
 interface AppDeps {
     net: NetLike;
@@ -50,7 +59,40 @@ class App {
      */
     private setRows(rows: SidebarRow[]): void {
         this.sidebarRows = rows;
-        this.selected = Math.max(0, Math.min(this.selected, rows.length - 1));
+        this.selected = clampIndex(this.selected, rows.length);
+    }
+
+    /**
+     * The one place the selection moves. A click names an absolute row and a
+     * key names a delta, but both land here, so the two can never disagree
+     * about where the list ends.
+     */
+    private selectRow(index: number): void {
+        this.selected = clampIndex(index, this.sidebarRows.length);
+    }
+
+    /**
+     * Make tab `index` the active one, or do nothing if there is no such tab.
+     * Shared by the number keys and by a click on the strip for the same reason
+     * as `selectRow`. Reports whether it applied, because a click that missed
+     * must not move focus into a pane that did not change.
+     */
+    private selectTab(index: number): boolean {
+        if (index < 0 || index >= this.sessions.length) return false;
+        this.activeSession = index;
+        return true;
+    }
+
+    /**
+     * The tab strip as it is drawn. Hit-testing goes through the same list as
+     * `render`, so a click is tested against the labels that were painted
+     * rather than against a second guess at them.
+     */
+    private tabSpecs(): TabSpec[] {
+        return this.sessions.map((_, i) => ({
+            label: `session ${String(i + 1)}`,
+            active: i === this.activeSession,
+        }));
     }
 
     get focus(): Focus {
@@ -71,13 +113,10 @@ class App {
                 this.focusTarget = this.focusTarget === "sidebar" ? "session" : "sidebar";
                 return;
             case "move":
-                this.selected = Math.max(
-                    0,
-                    Math.min(this.sidebarRows.length - 1, this.selected + action.delta),
-                );
+                this.selectRow(this.selected + action.delta);
                 return;
             case "select-tab":
-                if (action.index < this.sessions.length) this.activeSession = action.index;
+                this.selectTab(action.index);
                 return;
             case "zoom":
                 this.zoomed = !this.zoomed;
@@ -87,6 +126,53 @@ class App {
                 return;
             case "to-child":
                 this.sendToChild(action.events);
+                return;
+            default:
+                return;
+        }
+    }
+
+    /**
+     * A decoded mouse report, hit-tested against the layout the frame was drawn
+     * with and applied to the same state the keymap moves.
+     *
+     * The layout is recomputed rather than remembered from `render`: `cols` and
+     * `rows` are owned here and free to read, and a cached rectangle would be
+     * one frame stale after a resize — long enough for a click to land in the
+     * wrong pane.
+     *
+     * A report never touches `pendingEscape`. In legacy mode a bare Escape is
+     * held for 25ms waiting for its pair, so a click inside that window reaches
+     * the child ahead of the Escape it followed. That is left alone: the window
+     * is 25ms, no binding can observe the reordering, and draining the carry
+     * from here would put escape timing in two places.
+     */
+    handleMouse(report: MouseReport): void {
+        const { cols, rows } = this.deps;
+        const layout = computeLayout(cols, rows, this.zoomed);
+        const action = routeMouse(report, layout, {
+            rows: this.sidebarRows.length,
+            tabs: this.tabSpecs(),
+        });
+
+        switch (action.kind) {
+            case "select":
+                this.selectRow(action.index);
+                this.focusTarget = "sidebar";
+                return;
+            case "move":
+                this.selectRow(this.selected + action.delta);
+                return;
+            case "open-tab":
+                if (this.selectTab(action.index)) this.focusTarget = "session";
+                return;
+            case "focus":
+                this.focusTarget = action.target;
+                return;
+            case "scroll":
+                // Nothing is open in Stage 1, and a wheel notch over an empty
+                // pane has nothing to move rather than something to report.
+                this.sessions[this.activeSession]?.term.scroll(action.delta);
                 return;
             default:
                 return;
@@ -122,11 +208,7 @@ class App {
             drawSidebar(screen.back, this.sidebarRows, this.selected, layout.sidebarWidth, rows);
         }
 
-        const tabs: TabSpec[] = this.sessions.map((_, i) => ({
-            label: `session ${String(i + 1)}`,
-            active: i === this.activeSession,
-        }));
-        drawTabs(screen.back, layout.paneX, layout.tabRow, layout.paneWidth, tabs);
+        drawTabs(screen.back, layout.paneX, layout.tabRow, layout.paneWidth, this.tabSpecs());
 
         const active = this.sessions[this.activeSession];
         const cursor = drawSessionPane(screen.back, active?.term ?? null, {

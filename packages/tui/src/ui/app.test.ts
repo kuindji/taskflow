@@ -6,6 +6,7 @@ import { ATTR_INVERSE } from "../render/cells";
 import { Store } from "../state/store";
 import { App } from "./app";
 import { noMods, type KeyEvent } from "../input/keys";
+import type { MouseReport } from "../input/mouse";
 import type { NetLike } from "../net/client";
 
 function project(id: string, name: string): Project {
@@ -66,6 +67,31 @@ function collectingSink(): Sink & { output: string } {
 
 function key(patch: Partial<KeyEvent>): KeyEvent {
     return { name: "char", mods: noMods(), kind: "press", ...patch };
+}
+
+function mouse(patch: Partial<MouseReport>): MouseReport {
+    return {
+        kind: "mouse",
+        action: "press",
+        button: "left",
+        col: 0,
+        row: 0,
+        mods: noMods(),
+        ...patch,
+    };
+}
+
+/** Two projects and two tasks: Alpha, One, Beta, Two — four sidebar rows. */
+function fourRows(): Promise<{
+    app: App;
+    sink: Sink & { output: string };
+    screen: Screen;
+    net: FakeNet;
+}> {
+    return makeApp(
+        [project("p1", "Alpha"), project("p2", "Beta")],
+        [task("t1", "p1", "One"), task("t2", "p2", "Two")],
+    );
 }
 
 async function makeApp(
@@ -173,6 +199,84 @@ describe("App", () => {
         expect(app.running).toBe(true);
         app.handleKey(key({ char: "Q" }));
         expect(app.running).toBe(false);
+    });
+
+    test("a click on a sidebar row moves the selection there", async () => {
+        const { app, screen } = await fourRows();
+        app.render();
+        expect(selectedRow(screen)).toBe(0);
+        app.handleMouse(mouse({ col: 2, row: 3 }));
+        app.render();
+        expect(selectedRow(screen)).toBe(3);
+    });
+
+    test("a click on a sidebar row also takes focus back from the session", async () => {
+        const { app } = await fourRows();
+        app.handleKey(key({ name: "escape", mods: { ...noMods(), ctrl: true } }));
+        expect(app.focus).toBe("session");
+        app.handleMouse(mouse({ col: 2, row: 1 }));
+        expect(app.focus).toBe("sidebar");
+    });
+
+    test("a click past the last row leaves the selection alone", async () => {
+        const { app, screen } = await fourRows();
+        app.handleMouse(mouse({ col: 2, row: 2 }));
+        app.render();
+        expect(selectedRow(screen)).toBe(2);
+        // Four rows are drawn into a ten-row sidebar; row 7 is inside the
+        // sidebar's columns but past the end of the list.
+        app.handleMouse(mouse({ col: 2, row: 7 }));
+        app.render();
+        expect(selectedRow(screen)).toBe(2);
+    });
+
+    test("a click in the pane focuses the session", async () => {
+        const { app } = await makeApp();
+        expect(app.focus).toBe("sidebar");
+        app.handleMouse(mouse({ col: 40, row: 5 }));
+        expect(app.focus).toBe("session");
+    });
+
+    test("the wheel over the sidebar moves the selection", async () => {
+        const { app, screen } = await fourRows();
+        app.handleMouse(mouse({ col: 2, row: 0, button: "wheel-down" }));
+        app.handleMouse(mouse({ col: 2, row: 0, button: "wheel-down" }));
+        app.render();
+        expect(selectedRow(screen)).toBe(2);
+        app.handleMouse(mouse({ col: 2, row: 0, button: "wheel-up" }));
+        app.render();
+        expect(selectedRow(screen)).toBe(1);
+    });
+
+    test("the wheel stops at the ends of the row list", async () => {
+        const { app, screen } = await fourRows();
+        for (let i = 0; i < 8; i++) app.handleMouse(mouse({ col: 2, button: "wheel-down" }));
+        app.render();
+        expect(selectedRow(screen)).toBe(3);
+
+        // Overshoot is dropped notch by notch, not carried. Deliberately not
+        // rendered in between: the frame re-clamps the selection on its own, so
+        // a frame between the two runs would hide an unclamped move entirely.
+        for (let i = 0; i < 8; i++) app.handleMouse(mouse({ col: 2, button: "wheel-down" }));
+        app.handleMouse(mouse({ col: 2, button: "wheel-up" }));
+        app.render();
+        expect(selectedRow(screen)).toBe(2);
+
+        for (let i = 0; i < 8; i++) app.handleMouse(mouse({ col: 2, button: "wheel-up" }));
+        app.handleMouse(mouse({ col: 2, button: "wheel-down" }));
+        app.render();
+        expect(selectedRow(screen)).toBe(1);
+    });
+
+    test("the wheel over an empty pane is harmless", async () => {
+        const { app, screen } = await fourRows();
+        app.handleMouse(mouse({ col: 2, row: 1 }));
+        app.render();
+        // No session is open in Stage 1, so there is nothing to scroll and the
+        // sidebar's selection must not move on the pane's behalf.
+        app.handleMouse(mouse({ col: 40, row: 5, button: "wheel-up" }));
+        app.render();
+        expect(selectedRow(screen)).toBe(1);
     });
 
     test("a second identical frame writes nothing", async () => {

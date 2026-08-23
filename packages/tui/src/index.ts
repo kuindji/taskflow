@@ -239,11 +239,8 @@ async function main(): Promise<void> {
         const result = decode(text, carry);
         carry = result.carry;
         for (const ev of result.events) {
-            // 19.2 turned tracking on, so reports do arrive here now. Until
-            // 19.4 routes them, a click is silently ignored rather than leaking
-            // its payload bytes as keystrokes.
-            if (ev.kind === "mouse") continue; // wired up in 19.4
-            app.handleKey(ev);
+            if (ev.kind === "mouse") app.handleMouse(ev);
+            else app.handleKey(ev);
         }
 
         if (!isPartialMouseReport(carry)) {

@@ -552,4 +552,29 @@ describe("SessionTerminal", () => {
         expect(net.requests.some((r) => r.type === MSG.TERMINAL_RESIZE)).toBe(true);
         term.dispose();
     });
+    test("scroll moves the viewport back over the scrollback and returns to it", async () => {
+        const lines = Array.from({ length: 20 }, (_, i) => `L${String(i + 1)}`).join("\r\n");
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_HISTORY]: { data: lines, lastSequence: 1 },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+
+        const buffer = term.terminal.buffer.active;
+        const base = buffer.baseY;
+        expect(base).toBeGreaterThan(3);
+        expect(buffer.viewportY).toBe(base);
+
+        term.scroll(-3);
+        expect(term.terminal.buffer.active.viewportY).toBe(base - 3);
+        // The view really moved onto older output rather than onto blank rows:
+        // unscrolled it starts at L16, three lines back it starts at L13.
+        expect(readRow(term, base)).toBe("L16");
+        expect(readRow(term, term.terminal.buffer.active.viewportY)).toBe("L13");
+
+        term.scroll(3);
+        expect(term.terminal.buffer.active.viewportY).toBe(base);
+        term.dispose();
+    });
 });

@@ -302,6 +302,17 @@ class SessionTerminal {
         await this.writeQueue;
     }
 
+    /**
+     * Move the scrollback view by `lines` — negative is back into history.
+     *
+     * A method here rather than a reach through the public `terminal` from the
+     * UI layer: xterm's scrolling API stays in one place, and Stage 2 will want
+     * this to interact with `attach()`'s replay, which only this class can see.
+     */
+    scroll(lines: number): void {
+        this.terminal.scrollLines(lines);
+    }
+
     resize(cols: number, rows: number): void {
         this.terminal.resize(cols, rows);
         void this.deps.net
