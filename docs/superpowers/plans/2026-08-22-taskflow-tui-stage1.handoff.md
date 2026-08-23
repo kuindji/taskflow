@@ -4477,18 +4477,91 @@ deadline` in `packages/tui/src/backend/manager.test.ts` is deadline-sensitive an
 out when the machine is loaded (it failed while a Codex review ran concurrently, and
 passes on its own and on an idle full run). Pre-existing, unrelated to 19.1.
 
-Next step: review round 5 for Task 19.1.
-Round 4 fixed a substantiated finding, so the task takes another round rather than
+## Task 19.1 — review round 5 (`ee518be`)
+
+gpt-5.5 via the `codex-review` skill (Mode B, prompted) over `e00cd13..HEAD`,
+`packages/tui` only. **Codex returned Clear — zero findings.** It traced the X10 payload
+consumption, the incomplete-carry hold, the `App.handleKey` mouse filter and the kitty
+delegation path, and ran `bun test` on the five input/entry test files plus
+`bun run typecheck`, all green.
+
+Reviewing the diff independently alongside Codex found one thing Codex missed.
+
+- **Substantiated and fixed — a click split mid-report leaked its tail as keystrokes.**
+  Rounds 2-4 hardened the X10 form, which is only the *fallback* encoding. The SGR form,
+  which is the one the TUI actually asks for, had no protection at all. `flushCarry` has
+  no key to make of an incomplete `CSI <` sequence, so it returned `[]` — and
+  `flushHeldEscape` then cleared the carry. The tail of the report arrived on the next
+  read with no `CSI <` in front of it, so the parameter digits and the final decoded as
+  ordinary typed characters. In the sidebar `1` through `9` select a session tab; under
+  session focus the whole run is forwarded to the focused agent as if the user had typed
+  it.
+
+  Independently reproduced. Trace against `decode-legacy.ts` at `9374b8e`:
+
+  ```
+  decodeLegacy("\x1b[<0;50;10", "")  → { events: [], carry: "\x1b[<0;50;10" }
+  flushCarry("\x1b[<0;50;10")        → []            (so the carry is cleared)
+  decodeLegacy("0;10M", "")          → chars "0" ";" "1" "0" "M"
+  ```
+
+  Fix: `isPartialX10` becomes `isPartialMouseReport` and now also returns true for a
+  carry that starts `CSI <` and that `scanCsi` calls incomplete. `CSI <` is a
+  private-parameter prefix that no key sequence uses, so holding it cannot delay a
+  keystroke — unlike an ordinary partial CSI such as `CSI 1;5`, which really can be the
+  head of a chord and stays flushable. `MOUSE_PAYLOAD_IDLE_MS` /
+  `dropStrandedMousePayload` become `MOUSE_REPORT_IDLE_MS` / `dropStrandedMouseReport`
+  and now bound both shapes.
+
+  Regression tests, both in `packages/tui`:
+  - `decodeLegacy > a half-written SGR report is held rather than orphaned by the idle
+    flush` in `src/input/decode-legacy.test.ts` — red at `9374b8e`
+    (`expect(isPartialMouseReport(first.carry)).toBe(true)` received `false`, with the
+    assertions above it showing the tail decoding as `0 ; 1 0 M`), green at `ee518be`.
+  - `tui entry point > drops a half-written SGR report whose tail never arrives` in
+    `src/index.test.ts` — the wedge guard, same shape as the round-4 one. Confirmed
+    meaningful by neutering the body of `dropStrandedMouseReport`, which makes it fail
+    with `the TUI never quit on a key typed after a dead SGR click`.
+
+  Run with `bun test packages/tui/src/input/decode-legacy.test.ts packages/tui/src/index.test.ts`.
+
+## Decisions taken (Task 19.1, round 5)
+
+- **Hold `CSI <` but not partial CSIs in general.** Extending the hold to every
+  incomplete CSI would fix arrows and function keys the same way, but it costs a real
+  keystroke: a stranded `CSI 1;5` plus a typed `h` scans as one complete `CSI 1;5h`, so
+  the `h` is eaten as the sequence's final byte. `CSI <` has no such ambiguity, so it is
+  the only prefix that earns the longer window. This is why the existing
+  `isPartialMouseReport("\x1b[1;5") === false` assertion stays.
+- **Not a re-litigation of the settled `ESC [` boundary.** That one is a two-byte carry
+  `flushCarry` turns into Alt+`[`, a genuine chord. This is a three-or-more-byte carry
+  `flushCarry` turns into nothing at all, so clearing it was pure loss.
+- **The rename is part of the fix, not tidying.** `isPartialX10` no longer describes what
+  the predicate tests, and a stale name on a security-shaped guard is how the next round
+  misreads it.
+
+Verification at `ee518be`: `bun run lint` clean, `bun run typecheck` clean across all
+five packages, `bun test packages/tui` → 365 pass, 0 fail (363 before, plus the two new
+regression tests).
+
+Still standing: `startBackend > does not accept a port that only appears after the
+deadline` in `packages/tui/src/backend/manager.test.ts` is deadline-sensitive under load.
+Pre-existing, unrelated to 19.1, and it passed on this run.
+
+Next step: review round 6 for Task 19.1.
+Round 5 fixed a substantiated finding, so the task takes another round rather than
 closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
 (`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
 Settled, do not re-litigate: the X10 UTF-8 payload limitation (round 1, accepted in the
 plan), the extra-button release sentinel (round 1, fixed in `39299ff`), the idle-timer
 carry exception (round 2, fixed in `cbfde10`), the one-byte button bound (round 3, fixed
-in `436313f`), and the stranded-header drop window (round 4, fixed in `3770749`) — each
-only if the fix itself is shown wrong. Also settled: bare motion (`?1003h`) is never
-enabled on the outer terminal, so an X10 `b = 35` decoding as a release is out of scope by
-plan decision; and the `ESC [` two-byte split, per the round-4 decision above. Verify
-every new finding independently before fixing it; a finding without a repro is not a
-finding. Zero substantiated findings → 19.1 is clear and 19.2 is next.
+in `436313f`), the stranded-report drop window (round 4, fixed in `3770749`), and the SGR
+carry hold (round 5, fixed in `ee518be`) — each only if the fix itself is shown wrong.
+Also settled: bare motion (`?1003h`) is never enabled on the outer terminal, so an X10
+`b = 35` decoding as a release is out of scope by plan decision; the `ESC [` two-byte
+split, per the round-4 decision; and holding partial CSIs beyond `CSI <` and `CSI M`, per
+the round-5 decision above. Verify every new finding independently before fixing it; a
+finding without a repro is not a finding. Zero substantiated findings → 19.1 is clear and
+19.2 is next.
 After 19.1: 19.2 - 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
 touches `packages/backend` and `electron/`, not `packages/tui`).
