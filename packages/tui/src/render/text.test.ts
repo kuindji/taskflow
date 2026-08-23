@@ -102,6 +102,25 @@ describe("fitToWidth", () => {
             expect(fitToWidth(`${mark}A`, 2)).toBe("A");
         }
     });
+
+    test("keeps the printable base behind a format character that binds forwards", () => {
+        // U+0600 ARABIC NUMBER SIGN is `Cf`, but its grapheme-cluster break is
+        // `Prepend`: it attaches to what follows, so the segmenter hands back
+        // one cluster whose real base sits behind it. Reading only the first
+        // code point would throw the base away with the invisible sign.
+        expect(fitToWidth("\u0600A", 2)).toBe("\u0600A");
+        expect(fitToWidth("\u0600\u0661\u0662", 2)).toBe("\u0600\u0661\u0662");
+        // The base still decides the width, so a wide one still costs two.
+        expect(fitToWidth("\u0600\u6f22", 1)).toBe("");
+        expect(fitToWidth("\u0600\u6f22", 2)).toBe("\u0600\u6f22");
+    });
+
+    test("still drops a cluster that is only marks and format characters", () => {
+        // The forward-binding case above must not reopen the baseless rule: a
+        // prepend with nothing printable behind it has no base either.
+        expect(fitToWidth("\u0600\u0301", 2)).toBe("");
+        expect(fitToWidth("\u0600", 2)).toBe("");
+    });
 });
 
 describe("layoutText", () => {
@@ -208,6 +227,18 @@ describe("layoutText", () => {
         const cells = layoutText("\u0915\u093eb", 3, 0);
         expect(cells.map((c) => c.ch)).toEqual(["\u0915\u093e", "b", " "]);
         expect(cells.map((c) => c.width)).toEqual([1, 1, 1]);
+    });
+
+    test("gives the base behind a forward-binding format character its own cell", () => {
+        const cells = layoutText("؀A", 3, 0);
+        expect(cells.map((c) => c.ch)).toEqual(["؀A", " ", " "]);
+        expect(cells.map((c) => c.width)).toEqual([1, 1, 1]);
+    });
+
+    test("measures a forward-binding format character by the base behind it", () => {
+        const cells = layoutText("؀漢", 3, 0);
+        expect(cells.map((c) => c.ch)).toEqual(["؀漢", "", " "]);
+        expect(cells.map((c) => c.width)).toEqual([2, 0, 1]);
     });
 
     test("returns a distinct cell object per column", () => {

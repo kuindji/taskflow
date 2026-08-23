@@ -308,4 +308,19 @@ describe("drawSidebar", () => {
         expect(buf.get(1, 0).ch).toBe(" ");
         expect(rowText(buf, 0, 8)).toBe("  A");
     });
+
+    test("draws a title that begins with a format character binding forwards", () => {
+        // U+0600 ARABIC NUMBER SIGN prefixes the digits that follow it, so the
+        // digits are the row's real text. Dropping the whole cluster left the
+        // row blank and the task unidentifiable.
+        const buf = new ScreenBuffer(10, 1);
+        drawSidebar(
+            buf,
+            [{ kind: "task", id: "t1", label: "؀١٢٣", sessionCount: 0 }],
+            0,
+            10,
+            1,
+        );
+        expect(rowText(buf, 0, 10)).toBe("  ؀١٢٣");
+    });
 });

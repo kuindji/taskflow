@@ -141,15 +141,17 @@ const WIDE_RANGES: readonly (readonly [number, number])[] = [
 ];
 
 /**
- * Code points that cannot begin a visible cluster: combining marks and format
- * characters. Tested against a cluster's *base*, so a mark only matches here
- * when the segmenter had nothing to attach it to — inside a normal cluster the
- * mark rides along in its base character's cell and never reaches this test.
+ * Code points that cannot begin a visible cluster on their own: combining marks
+ * and format characters. A cluster made of nothing but these has no base, and
+ * `graphemeWidth` drops it — kept, it would attach to whatever the caller
+ * concatenates ahead of it and repaint a cell the text does not own.
  *
- * `Mc` spacing marks are included even though they are not zero-width. They
- * bind to the cluster in front of them, so a baseless one handed back to a
- * caller re-attaches to whatever that caller concatenates ahead of it and
- * repaints a cell the text does not own.
+ * `Mc` spacing marks are included even though they are not zero-width, for
+ * exactly that reason: they bind to the cluster in front of them.
+ *
+ * Matching here is not by itself a reason to drop, because a `Cf` character
+ * whose grapheme-cluster break is `Prepend` binds *forwards* — see
+ * `baseCodePoint`.
  */
 const NO_BASE = /^[\p{Mn}\p{Me}\p{Mc}\p{Cf}]$/u;
 
@@ -194,6 +196,30 @@ function graphemes(text: string): string[] {
 }
 
 /**
+ * The code point that decides `grapheme`'s width, or `undefined` when the
+ * cluster has no base at all and must be dropped.
+ *
+ * Usually the cluster's first code point, but not always: `Cf` characters whose
+ * grapheme-cluster break is `Prepend` — the Arabic and Kaithi number signs,
+ * U+0600..U+0605, U+06DD, U+070F, U+0890..U+0891, U+08E2, U+110BD, U+110CD and
+ * the rest — bind to what *follows* them, so the segmenter hands them back
+ * leading a cluster whose real base sits behind them. Reading only the first
+ * code point there would drop a printable character along with the invisible
+ * sign in front of it.
+ *
+ * Scanning past the leading marks is safe in the other direction too: a `Mn`,
+ * `Me` or `Mc` mark binds backwards, so it can only lead a cluster the
+ * segmenter had nothing to attach it to, and such a cluster has no non-`NO_BASE`
+ * code point for this to find.
+ */
+function baseCodePoint(grapheme: string): number | undefined {
+    for (const ch of grapheme) {
+        if (!NO_BASE.test(ch)) return ch.codePointAt(0);
+    }
+    return undefined;
+}
+
+/**
  * Columns `grapheme` occupies. The base character usually decides, and any
  * combining marks the segmenter folded into the same grapheme ride along in the
  * same cell — but two cluster shapes are wider than their base and have to be
@@ -206,13 +232,12 @@ function graphemes(text: string): string[] {
  * width table calls wide, so a base carrying one can advance three columns
  * where this returns 2. A cell holds at most two columns, so counting it
  * honestly is not expressible here; the four are rare enough in a task title to
- * leave. A baseless one is dropped by `NO_BASE` before this matters.
+ * leave. A baseless one has no base for `baseCodePoint` to find and is dropped
+ * before this matters.
  */
 function graphemeWidth(grapheme: string): 0 | 1 | 2 {
-    const cp = grapheme.codePointAt(0);
+    const cp = baseCodePoint(grapheme);
     if (cp === undefined) return 0;
-    const base = String.fromCodePoint(cp);
-    if (NO_BASE.test(base)) return 0;
     if (isWide(cp)) return 2;
     if (grapheme.includes(EMOJI_PRESENTATION)) return 2;
     return isRegionalIndicator(cp) ? 2 : 1;
@@ -226,12 +251,13 @@ function cell(ch: string, width: 0 | 1 | 2, attrs: number): Cell {
  * The longest prefix of `text` that fits in `cols` display columns without
  * splitting a grapheme. Use before appending anything that must stay visible.
  *
- * A baseless cluster — a combining mark with no base of its own, which
+ * A baseless cluster — nothing but marks and format characters, which
  * `Intl.Segmenter` yields only at the start of a string or after another such
  * cluster — is dropped rather than kept. `layoutText` drops it too, and a
  * caller that concatenates this result after a prefix would otherwise hand the
  * segmenter a mark that attaches to the prefix's last character and repaints a
- * cell the label does not own. See `NO_BASE`.
+ * cell the label does not own. A cluster that merely *starts* with a format
+ * character is kept: see `baseCodePoint`.
  */
 function fitToWidth(text: string, cols: number): string {
     let used = 0;
