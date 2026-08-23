@@ -27,7 +27,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | in-review round 3 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`; next is review round 4 |
+| 19.1 | Mouse — report decoding | in-review round 6 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`; next is review round 7 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
@@ -4548,20 +4548,104 @@ Still standing: `startBackend > does not accept a port that only appears after t
 deadline` in `packages/tui/src/backend/manager.test.ts` is deadline-sensitive under load.
 Pre-existing, unrelated to 19.1, and it passed on this run.
 
-Next step: review round 6 for Task 19.1.
-Round 5 fixed a substantiated finding, so the task takes another round rather than
+- **Task 19.1, round 6** (gpt-5.5 via codex-review, Mode B over `e00cd13..4a2318a`
+  restricted to `packages/tui`): two findings, both substantiated and fixed in `012049f`.
+  Run the repros with
+  `bun test packages/tui/src/input/decode-legacy.test.ts packages/tui/src/index.test.ts`.
+
+- **Substantiated and fixed — a stranded report spilled onto the keymap the moment an
+  ESC followed it.** Rounds 4 and 5 protected the held run against the *idle timer*.
+  Nothing protected it against the next byte. A `CSI <` run followed by ESC scans as an
+  `invalid` CSI, and `decodeLegacy`'s recovery for that emits a real Escape press and
+  advances one character — so the whole dead report walks out as `[`, `<`, digits and
+  `;` before the live input is decoded. It does not need a typed key to trigger: the
+  common case is a click whose tail was lost and the *next mouse report* arriving inside
+  the drop window, because that starts with ESC too.
+
+  Independently reproduced at `4a2318a`, in both decoders (`decodeKitty` delegates the
+  run to `decodeLegacy`, and a following SGR report is not a kitty sequence so
+  `nextKittyStart` does not split it away):
+
+  ```
+  decodeLegacy("\x1b[<0;50;10", "")            → { events: [], carry: "\x1b[<0;50;10" }
+  decodeLegacy("\x1b[<0;1;1M", carry)          → escape, "[", "<", "0", ";", "5", "0",
+                                                  ";", "1", "0", then the real click
+  ```
+
+  In the sidebar `1` through `9` select a session tab; under session focus the run is
+  forwarded to the focused agent as typed input.
+
+  Fix: `scanCsi`'s `invalid` variant now reports `length` — the offset of the byte that
+  ruled the sequence out — and `decodeLegacy` discards a `CSI <` run wholesale and
+  resumes on that byte. `CSI <` is a private-parameter prefix no key sequence uses, so
+  nothing else can be lost with it. Every other invalid CSI keeps the Escape recovery.
+
+  Regression tests in `src/input/decode-legacy.test.ts`, both red at `4a2318a` and green
+  at `012049f`: `a stranded SGR prefix is discarded when the next byte rules it out`
+  (received 109 lines of key events where none were expected) and `a stranded SGR prefix
+  does not swallow the key that follows it` (the same, for a Ctrl+C ending the run).
+  `an ordinary invalid CSI still reports a real Escape press` is the non-regression guard
+  and passes either way.
+
+- **Substantiated and fixed — typing kept a dead report alive and was swallowed doing
+  it.** `MOUSE_REPORT_IDLE_MS` was a duration restarted on every read. A byte typed after
+  a stranded `CSI <` is a valid parameter byte, so it joins the carry, decodes to
+  nothing, and resets the window — so the keystrokes themselves held the report open
+  indefinitely and every one of them was eaten. Round 4 bounded the wedge at one second
+  of *silence*; it was never bounded in wall time.
+
+  Regression test: `tui entry point > a dead SGR report cannot be kept alive by what is
+  typed after it` in `src/index.test.ts` — writes a headless `\x1b[<0;50;10`, a `1` at
+  600ms, then `Q` at 1200ms. Red at `4a2318a` (`the TUI never quit on a key
+  typed after a padded dead click`), green at `012049f`.
+
+  Fix: `mouseCarryDeadline`, an absolute deadline set when a partial report is first
+  held. `flushHeldEscape` arms the drop timer for whatever is left of it, and drops
+  immediately if it has already passed. Only a read that actually decoded an event
+  refreshes it.
+
+## Decisions taken (Task 19.1, round 6)
+
+- **Refresh the deadline on decoded events, not on bytes arriving.** A sustained drag
+  over a slow link ends most reads mid-report, so an unrefreshable deadline would drop a
+  live drag after a second. Every such read also *completes* the previous report, so
+  `result.events.length > 0` separates "reports are flowing" from "a dead run is being
+  padded" exactly. The one keystroke typed inside the window is still lost — it is
+  genuinely ambiguous with the report's own tail, and no rule can recover it.
+- **Discard only `CSI <` on an invalid CSI, not every private-parameter run.** Same
+  reasoning as the round-5 hold decision: `<` is the only prefix known to be a mouse
+  report and nothing else. Widening it would start eating real sequences.
+- **`scanCsi` gained a field rather than decode-legacy recomputing the offset.** The scan
+  already knows where it stopped; recomputing it from `params.length +
+  intermediates.length` in the caller duplicates the scanner's own boundary rules.
+
+Verification at `012049f`: `bun run lint` clean, `bun run typecheck` clean across all
+five packages, `bun test packages/tui` → 369 pass, 0 fail (365 before, plus four new
+tests).
+
+Independent of Codex: fuzzed 8000 randomized read-splits of mixed key/mouse streams
+through both decoders plus the `index.ts` idle-flush rule — no payload byte reached the
+keymap, no event lost or duplicated, before or after the fix. Two cosmetic oddities were
+noted and left alone, neither with a reachable symptom: `decodeLegacy`'s SGR branch does
+not reject intermediate bytes the way its X10 branch does, and SGR coordinates have no
+upper bound (only the button does). No terminal emits either shape.
+
+Next step: review round 7 for Task 19.1.
+Round 6 fixed two substantiated findings, so the task takes another round rather than
 closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
 (`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
 Settled, do not re-litigate: the X10 UTF-8 payload limitation (round 1, accepted in the
 plan), the extra-button release sentinel (round 1, fixed in `39299ff`), the idle-timer
 carry exception (round 2, fixed in `cbfde10`), the one-byte button bound (round 3, fixed
-in `436313f`), the stranded-report drop window (round 4, fixed in `3770749`), and the SGR
-carry hold (round 5, fixed in `ee518be`) — each only if the fix itself is shown wrong.
+in `436313f`), the stranded-report drop window (round 4, fixed in `3770749`), the SGR
+carry hold (round 5, fixed in `ee518be`), and the invalid-CSI discard plus the absolute
+drop deadline (round 6, fixed in `012049f`) — each only if the fix itself is shown wrong.
 Also settled: bare motion (`?1003h`) is never enabled on the outer terminal, so an X10
 `b = 35` decoding as a release is out of scope by plan decision; the `ESC [` two-byte
-split, per the round-4 decision; and holding partial CSIs beyond `CSI <` and `CSI M`, per
-the round-5 decision above. Verify every new finding independently before fixing it; a
-finding without a repro is not a finding. Zero substantiated findings → 19.1 is clear and
-19.2 is next.
+split, per the round-4 decision; holding partial CSIs beyond `CSI <` and `CSI M`, per the
+round-5 decision; and refreshing the drop deadline on decoded events rather than on bytes
+arriving, per the round-6 decision above. Verify every new finding independently before
+fixing it; a finding without a repro is not a finding. Zero substantiated findings → 19.1
+is clear and 19.2 is next.
 After 19.1: 19.2 - 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
 touches `packages/backend` and `electron/`, not `packages/tui`).
