@@ -361,4 +361,16 @@ describe("decodeLegacy", () => {
         expect(result.events).toEqual([]);
         expect(result.carry).toBe("");
     });
+
+    test("a CSI carrying intermediate bytes is not read as an SGR mouse report", () => {
+        // `CSI <0;1;1 M` — an intermediate byte (0x20) sits between the
+        // parameters and the final, so this is not the SGR mouse form however
+        // much its parameters look like one. Read as one it fabricates a left
+        // click on the origin, which moves the sidebar selection. The X10
+        // branch above already refuses a sequence with intermediates; this is
+        // the same rule on the SGR side.
+        const result = decodeLegacy("\x1b[<0;1;1\x20M", "");
+        expect(result.events).toEqual([]);
+        expect(result.carry).toBe("");
+    });
 });

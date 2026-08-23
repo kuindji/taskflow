@@ -132,7 +132,15 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
                 if (report !== undefined) events.push(report);
                 continue;
             }
-            if (scan.params.startsWith("<") && (scan.final === "M" || scan.final === "m")) {
+            // Intermediates are excluded for the same reason the X10 branch
+            // above excludes them: a CSI carrying one is not a mouse report,
+            // however much its parameters read like one, and decoding it as
+            // one fabricates a click at whatever cell it names.
+            if (
+                scan.params.startsWith("<") &&
+                scan.intermediates === "" &&
+                (scan.final === "M" || scan.final === "m")
+            ) {
                 i += scan.length;
                 const report = parseSgrMouse(scan.params, scan.final);
                 if (report !== undefined) events.push(report);

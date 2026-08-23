@@ -503,6 +503,52 @@ describe("tui entry point", () => {
         expect(await waitForExit(child, "quit on a key typed past the click deadline")).toBe(0);
     }, 20_000);
 
+    test("a mouse report that starts while a dead one is held gets its own window", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+        // The ready marker is written from inside `app.init()`, before stdin is
+        // resumed, so the first chunk below could otherwise be buffered and fed
+        // hundreds of milliseconds after the test wrote it — which would move
+        // the deadline this test is aiming between.
+        await Bun.sleep(500);
+
+        // A click whose `M` never arrives. It is held, and given a second to
+        // find its tail.
+        await child.stdin.write("\x1b[<0;50;10");
+        await child.stdin.flush();
+        await Bun.sleep(900);
+
+        // A second click arrives, split across the read boundary, while the
+        // first is still held. The dead prefix is discarded as an invalid CSI
+        // and this one takes its place in the carry — a different report, whose
+        // own tail is only just in flight. It is entitled to the full window.
+        await child.stdin.write("\x1b[<0;1");
+        await child.stdin.flush();
+        await Bun.sleep(400);
+
+        // Now past the first report's deadline but well inside the second's.
+        // Held correctly, this `Q` lands inside a live report and is consumed
+        // as one of its parameter bytes. If the second report inherited the
+        // dead one's deadline it was dropped instead, and the quit gets
+        // through — which means the report's own tail would have reached the
+        // keymap, or a focused agent, as typed characters.
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+        await Bun.sleep(400);
+        expect(child.exitCode).toBe(null);
+
+        // Still alive and still reading: once the second report's window has
+        // run out too, the next key reaches the keymap normally.
+        await Bun.sleep(900);
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+        expect(await waitForExit(child, "quit once the held report had expired")).toBe(0);
+    }, 20_000);
+
     test("drops a click header whose payload never arrives", async () => {
         const dir = await tempDir("tui-index-pid-");
         const pidFile = join(dir, "pid");

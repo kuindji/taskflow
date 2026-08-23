@@ -226,6 +226,10 @@ async function main(): Promise<void> {
         if (mouseCarryDeadline !== null && Date.now() >= mouseCarryDeadline) {
             dropStrandedMouseReport();
         }
+        // What was being held before this read, so that a carry which is a
+        // different report — rather than the same one grown by a few bytes —
+        // can be told apart below.
+        const held = carry;
         const decode = kittyAvailable ? decodeKitty : decodeLegacy;
         const result = decode(text, carry);
         carry = result.carry;
@@ -239,10 +243,19 @@ async function main(): Promise<void> {
 
         if (!isPartialMouseReport(carry)) {
             mouseCarryDeadline = null;
-        } else if (mouseCarryDeadline === null || result.events.length > 0) {
+        } else if (
+            mouseCarryDeadline === null ||
+            result.events.length > 0 ||
+            !carry.startsWith(held)
+        ) {
             // Either this is a newly held report, or the read that carried it
             // also decoded something and so was a report arriving rather than a
-            // dead one being padded. Both deserve the full window.
+            // dead one being padded, or the carry is no longer the run that was
+            // being held at all. The last case is a second click landing while
+            // the first is still stranded: the dead prefix is discarded as an
+            // invalid CSI and this report takes its place, so it is as new as
+            // one held from an empty carry and owed the same window. Only a
+            // carry the previous one is a prefix of is the same report grown.
             mouseCarryDeadline = Date.now() + MOUSE_REPORT_IDLE_MS;
         }
 
