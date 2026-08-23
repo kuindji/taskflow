@@ -161,6 +161,17 @@ async function main(): Promise<void> {
 
     let carry = "";
     let carryTimer: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * When the half-written mouse report in `carry` stops being worth waiting
+     * for, or `null` when the carry is not one. It is a deadline rather than a
+     * timer duration because a stranded report goes on absorbing whatever is
+     * typed after it — parameter bytes join the carry and decode to nothing —
+     * so restarting the wait on each read would let those very keystrokes hold
+     * the report open for as long as the user keeps typing, and every one of
+     * them would be swallowed. Only a read that actually decoded something has
+     * made progress, and only that earns a fresh deadline.
+     */
+    let mouseCarryDeadline: number | null = null;
 
     /**
      * Discard the first half of a mouse report whose tail never arrived.
@@ -172,6 +183,7 @@ async function main(): Promise<void> {
     const dropStrandedMouseReport = (): void => {
         carryTimer = null;
         if (isPartialMouseReport(carry)) carry = "";
+        mouseCarryDeadline = null;
     };
 
     /** Release a held ESC as a real Escape press, rather than waiting it out. */
@@ -184,9 +196,15 @@ async function main(): Promise<void> {
         // Half a mouse report owes the other half. Waiting cannot turn it into
         // a key, so releasing it would strip the front of the report and let
         // the tail land on the keymap as typed characters. Give it a window of
-        // its own instead, and drop it if that expires too.
+        // its own instead, and drop it once that has run out too.
         if (isPartialMouseReport(carry)) {
-            carryTimer = setTimeout(dropStrandedMouseReport, MOUSE_REPORT_IDLE_MS);
+            const remaining = (mouseCarryDeadline ?? 0) - Date.now();
+            if (remaining > 0) {
+                carryTimer = setTimeout(dropStrandedMouseReport, remaining);
+                return;
+            }
+            carry = "";
+            mouseCarryDeadline = null;
             return;
         }
         const stranded = carry;
@@ -208,6 +226,15 @@ async function main(): Promise<void> {
             // leaking its payload bytes as keystrokes.
             if (ev.kind === "mouse") continue; // wired up in 19.4
             app.handleKey(ev);
+        }
+
+        if (!isPartialMouseReport(carry)) {
+            mouseCarryDeadline = null;
+        } else if (mouseCarryDeadline === null || result.events.length > 0) {
+            // Either this is a newly held report, or the read that carried it
+            // also decoded something and so was a report arriving rather than a
+            // dead one being padded. Both deserve the full window.
+            mouseCarryDeadline = Date.now() + MOUSE_REPORT_IDLE_MS;
         }
 
         // A held ESC is only a real Escape press if nothing follows it.

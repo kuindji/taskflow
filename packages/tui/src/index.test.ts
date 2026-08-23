@@ -443,6 +443,35 @@ describe("tui entry point", () => {
         expect(await waitForExit(child, "quit on a key typed after a dead SGR click")).toBe(0);
     }, 20_000);
 
+    test("a dead SGR report cannot be kept alive by what is typed after it", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+
+        // The front of an SGR click whose `M` never arrives.
+        await child.stdin.write("\x1b[<0;50;10");
+        await child.stdin.flush();
+        // A digit typed inside the window the report is given. It is a valid
+        // parameter byte, so it joins the held run instead of decoding — and if
+        // that restarted the window, the report would live for as long as the
+        // user kept typing and eat every keystroke that reached it.
+        await Bun.sleep(600);
+        await child.stdin.write("1");
+        await child.stdin.flush();
+
+        // Past the deadline the report was given when it was first held. `Q` is
+        // quit; still held, the run would take it as its final byte instead and
+        // consume it as part of a click that is never coming.
+        await Bun.sleep(600);
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+
+        expect(await waitForExit(child, "quit on a key typed after a padded dead click")).toBe(0);
+    }, 20_000);
+
     test("drops a click header whose payload never arrives", async () => {
         const dir = await tempDir("tui-index-pid-");
         const pidFile = join(dir, "pid");

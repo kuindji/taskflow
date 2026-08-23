@@ -3,11 +3,14 @@
  * then one final byte (ECMA-48 5.4). `incomplete` means the tail could still
  * grow into a sequence and belongs in a carry; `invalid` means it never can,
  * so the caller must consume something and move on rather than carry forever.
+ * An `invalid` scan reports `length` too: the distance from `start` to the
+ * byte that ruled the sequence out, so a caller that knows the scanned run was
+ * never keys can discard exactly that run and resume on the offending byte.
  */
 type CsiScan =
     | { kind: "sequence"; params: string; intermediates: string; final: string; length: number }
     | { kind: "incomplete" }
-    | { kind: "invalid" };
+    | { kind: "invalid"; length: number };
 
 function inRange(code: number, min: number, max: number): boolean {
     return code >= min && code <= max;
@@ -28,7 +31,7 @@ function scanCsi(buf: string, start: number): CsiScan {
     const intermediates = buf.slice(intermediateStart, i);
 
     if (i >= buf.length) return { kind: "incomplete" };
-    if (!inRange(buf.charCodeAt(i), 0x40, 0x7e)) return { kind: "invalid" };
+    if (!inRange(buf.charCodeAt(i), 0x40, 0x7e)) return { kind: "invalid", length: i - start };
     return { kind: "sequence", params, intermediates, final: buf[i] ?? "", length: i + 1 - start };
 }
 

@@ -315,6 +315,45 @@ describe("decodeLegacy", () => {
         expect(result.carry).toBe("");
     });
 
+    test("a stranded SGR prefix is discarded when the next byte rules it out", () => {
+        // The tail of the first click is lost and the next one arrives before
+        // the drop window expires. The ESC that starts it makes the held run an
+        // invalid CSI, and the generic recovery for that emits Escape and walks
+        // the rest out one character at a time — so the parameters of the dead
+        // report land on the keymap while the live click is still delivered.
+        const first = decodeLegacy("\x1b[<0;50;10", "");
+        expect(first.carry).toBe("\x1b[<0;50;10");
+        const second = decodeLegacy("\x1b[<0;1;1M", first.carry);
+        expect(second.events).toEqual([
+            { kind: "mouse", action: "press", button: "left", col: 0, row: 0, mods: noMods() },
+        ]);
+        expect(second.carry).toBe("");
+    });
+
+    test("a stranded SGR prefix does not swallow the key that follows it", () => {
+        // Ctrl+C is not a CSI byte, so it ends the held run the same way an ESC
+        // does. Discarding the run must resume on it rather than consume it.
+        const result = decodeLegacy("\x03", "\x1b[<0;50;10");
+        expect(result.events).toEqual([
+            { name: "char", char: "c", mods: { ...noMods(), ctrl: true }, kind: "press" },
+        ]);
+        expect(result.carry).toBe("");
+    });
+
+    test("an ordinary invalid CSI still reports a real Escape press", () => {
+        // Only a `CSI <` run is known to be report parameters. Anything else
+        // keeps the recovery that treats the ESC as a keypress.
+        const result = decodeLegacy("\x1b[1;5\x03", "");
+        expect(keysOf(result.events).map((e) => e.name)).toEqual([
+            "escape",
+            "char",
+            "char",
+            "char",
+            "char",
+            "char",
+        ]);
+    });
+
     test("a malformed SGR report is consumed without emitting keystrokes", () => {
         // The sequence is still a complete CSI, so it must not fall through to
         // the key branches or be left in the buffer.

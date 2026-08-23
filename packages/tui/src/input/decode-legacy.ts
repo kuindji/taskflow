@@ -102,6 +102,17 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
             const scan = scanCsi(buf, i);
             if (scan.kind === "incomplete") return { events, carry: buf.slice(i) };
             if (scan.kind === "invalid") {
+                // A `CSI <` run is the front of a mouse report whose tail was
+                // lost, and every byte of it is a parameter rather than a key.
+                // Falling through to the Escape recovery below would put the
+                // whole run on the keymap one character at a time: digits pick
+                // a session tab, and under session focus the run is forwarded
+                // to the agent as if it had been typed. Discard the run and
+                // resume on the byte that ruled it out, which is real input.
+                if (buf.startsWith(`${ESC}[<`, i)) {
+                    i += scan.length;
+                    continue;
+                }
                 // Nothing here can complete a CSI sequence, so the ESC was a
                 // real Escape press and the rest is separate input. Carrying it
                 // instead would wedge the decoder on every later read.
