@@ -27,7 +27,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | in-review round 6 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`; next is review round 7 |
+| 19.1 | Mouse — report decoding | in-review round 7 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`; next is review round 8 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
@@ -4630,22 +4630,81 @@ noted and left alone, neither with a reachable symptom: `decodeLegacy`'s SGR bra
 not reject intermediate bytes the way its X10 branch does, and SGR coordinates have no
 upper bound (only the button does). No terminal emits either shape.
 
-Next step: review round 7 for Task 19.1.
-Round 6 fixed two substantiated findings, so the task takes another round rather than
+- **Task 19.1, round 7** (gpt-5.5 via codex-review, Mode B over `e00cd13..468dea9`
+  restricted to `packages/tui`): two findings. One substantiated and fixed in `2911a80`;
+  one already settled by the mouse plan and reverted rather than fixed. Run the repro
+  with `bun test packages/tui/src/index.test.ts -t "faster than the idle timer"`.
+
+- **Substantiated and fixed — typing steadily kept a dead report alive after all.**
+  Round 6 gave a stranded report an absolute one-second deadline, but nothing reads that
+  deadline except the drop timer, and `feed` clears the timer on every read before it can
+  fire. Keys arriving closer together than `ESCAPE_IDLE_MS` (25ms) therefore cancel the
+  drop over and over, each one buying the dead run another 25ms, and each one is eaten as
+  a parameter byte. Round 6 bounded the wedge at one second of silence; it was never
+  bounded against sustained input.
+
+  Independently reproduced at `468dea9`: write `\x1b[<0;50;10` (an SGR click whose `M`
+  never arrives), then `1` every 8ms for 1100ms, then `Q`. The TUI never quits — every
+  digit and the `Q` join the held run instead of reaching the keymap. Under session focus
+  the same run is forwarded to the focused agent as typed input.
+
+  Fix: `feed` retires the report itself when a read arrives at or past
+  `mouseCarryDeadline`, before decoding, instead of leaving that to a timer the same read
+  just cancelled.
+
+  Regression test: `tui entry point > a dead SGR report cannot be kept alive by typing
+  faster than the idle timer` in `src/index.test.ts`. Red at `468dea9` on three
+  consecutive runs, green at `2911a80` on three.
+
+- **Not a finding — the folded X10 payload is a recorded plan decision.** Codex also
+  reported that bytes `1b 5b 4d 20 c2 a1` are a *plain* X10 report (column 163, row 130)
+  whose two coordinate bytes are valid UTF-8, so `chunk.toString("utf-8")` folds them
+  into one character, the payload reads a byte short, and the next key is taken as its
+  third byte. The mechanism is real and I reproduced it — but
+  `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md` (Task 19.1, "Known
+  limitation") already states exactly this case, byte-for-byte, and decides against a
+  decoder-side guard: it would turn a wrong click into a dropped click *and still lose
+  the keystroke*, and a later binary-stdin change would have to unwind it. I wrote the
+  fix and both tests, then reverted them on finding that. What Codex adds is the
+  observation that this is not the `?1005` extension — it is reachable in ordinary X10
+  mode — so the settled entry below is reworded to say so.
+
+## Decisions taken (Task 19.1, round 7)
+
+- **Check the deadline where the timer was cancelled, not somewhere new.** `feed` already
+  clears `carryTimer` as its first act; the deadline check belongs on the next line,
+  because that is precisely the moment the only mechanism that could retire the report
+  was taken away. Re-arming a drop timer instead would leave the same hole one read later.
+- **Reverted the X10 payload guard rather than arguing the plan is wrong.** The plan's
+  reasoning holds: the guard is a half-fix, and the real fix is byte-level stdin, which
+  is a change to the whole input pipeline and not a review-round patch. If X10 is ever
+  promoted from "keep a non-compliant terminal from injecting garbage" to a supported
+  encoding, that is the task that fixes it.
+
+Verification at `2911a80`: `bun run lint` clean, `bun run typecheck` clean across all
+five packages, `bun test packages/tui` → 370 pass, 0 fail (369 before, plus the new
+regression test).
+
+Next step: review round 8 for Task 19.1.
+Round 7 fixed one substantiated finding, so the task takes another round rather than
 closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
 (`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
-Settled, do not re-litigate: the X10 UTF-8 payload limitation (round 1, accepted in the
-plan), the extra-button release sentinel (round 1, fixed in `39299ff`), the idle-timer
-carry exception (round 2, fixed in `cbfde10`), the one-byte button bound (round 3, fixed
-in `436313f`), the stranded-report drop window (round 4, fixed in `3770749`), the SGR
-carry hold (round 5, fixed in `ee518be`), and the invalid-CSI discard plus the absolute
-drop deadline (round 6, fixed in `012049f`) — each only if the fix itself is shown wrong.
-Also settled: bare motion (`?1003h`) is never enabled on the outer terminal, so an X10
-`b = 35` decoding as a release is out of scope by plan decision; the `ESC [` two-byte
-split, per the round-4 decision; holding partial CSIs beyond `CSI <` and `CSI M`, per the
-round-5 decision; and refreshing the drop deadline on decoded events rather than on bytes
-arriving, per the round-6 decision above. Verify every new finding independently before
-fixing it; a finding without a repro is not a finding. Zero substantiated findings → 19.1
-is clear and 19.2 is next.
+Settled, do not re-litigate: the X10 UTF-8 payload limitation — **including a plain X10
+report whose high coordinate bytes fold and eat the next keystroke, which is not the
+`?1005` extension and is written up byte-for-byte in the mouse plan's "Known limitation"
+section** (round 1, re-accepted rounds 1 and 7); the extra-button release sentinel
+(round 1, fixed in `39299ff`); the idle-timer carry exception (round 2, fixed in
+`cbfde10`); the one-byte button bound (round 3, fixed in `436313f`); the stranded-report
+drop window (round 4, fixed in `3770749`); the SGR carry hold (round 5, fixed in
+`ee518be`); the invalid-CSI discard plus the absolute drop deadline (round 6, fixed in
+`012049f`); and the deadline check inside `feed` (round 7, fixed in `2911a80`) — each
+only if the fix itself is shown wrong. Also settled: bare motion (`?1003h`) is never
+enabled on the outer terminal, so an X10 `b = 35` decoding as a release is out of scope
+by plan decision; the `ESC [` two-byte split, per the round-4 decision; holding partial
+CSIs beyond `CSI <` and `CSI M`, per the round-5 decision; and refreshing the drop
+deadline on decoded events rather than on bytes arriving, per the round-6 decision.
+Verify every new finding independently before fixing it; a finding without a repro is not
+a finding, and check the mouse plan's own decisions before treating one as new. Zero
+substantiated findings → 19.1 is clear and 19.2 is next.
 After 19.1: 19.2 - 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
 touches `packages/backend` and `electron/`, not `packages/tui`).
