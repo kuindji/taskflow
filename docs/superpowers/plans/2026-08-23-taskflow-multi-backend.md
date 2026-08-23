@@ -3427,9 +3427,10 @@ async function updateBackend(
     if (!existing) return { ok: false, reason: "That backend is no longer in the list." };
     // Validated here, not only in the dialog. These three fields go straight
     // into an ssh command line — `buildTunnelArgs` emits `-p
-    // ${String(record.sshPort)}` and `${record.user}@${record.host}` — and a
+    // ${String(record.sshPort)}`, `-l ${record.user}` and `-- ${record.host}` —
+    // and a
     // spread of a raw patch will write whatever the renderer sent. Clearing the
-    // SSH user field to "go back to the default" gives ssh `@192.168.1.20`;
+    // SSH user field to "go back to the default" gives ssh an empty `-l`;
     // clearing the port field gives it `-p NaN`, which `JSON.stringify` then
     // writes to `backends.json` as `null`, so `normalizeRecord` silently heals
     // it to 22 on the next launch and the same row fails two different ways

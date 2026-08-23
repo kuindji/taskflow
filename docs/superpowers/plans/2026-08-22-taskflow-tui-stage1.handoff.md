@@ -4404,17 +4404,91 @@ hold added in round 2, which is rearmed on every read and cannot leak a timer.
 Verification at `436313f`: `bun run lint` clean, `bun run typecheck` clean across all
 five packages, `bun test packages/tui` → 362 pass, 0 fail.
 
-Next step: review round 4 for Task 19.1.
-Round 3 fixed a substantiated finding, so the task takes another round rather than
+## Task 19.1 — review round 4
+
+gpt-5.5 via the codex-review skill (Mode B, prompted) over `e00cd13..e39587d` restricted
+to `packages/tui`, with rounds 1-3's findings declared settled in the prompt.
+**One finding, substantiated and fixed in `3770749`.** Codex also confirmed there are no
+`as any`, no `eslint-disable` and no unused exports in the new code, and ran
+`bun test packages/tui`, `bun run typecheck` and `bun run lint`.
+
+- **Substantiated and fixed — a click whose tail was lost ate the next keys typed.** The
+  fix from round 2 held a partial X10 header (`ESC [ M` plus 0-2 payload characters)
+  instead of flushing it, but `flushHeldEscape` returned on `isPartialX10(carry)` without
+  clearing the carry or arming another timer. So the header was held *forever*. A report
+  whose payload never arrived — a dropped tail on a slow link — stayed live until the
+  next three characters were typed, and those became its payload: a fabricated press at
+  whatever cell they encode, with the keystrokes swallowed. Once 19.4 wires mouse events
+  through, that is a phantom click on the sidebar.
+
+  Independently reproduced. `bun repl`-equivalent trace against `decode-legacy.ts` at
+  `e39587d`:
+
+  ```
+  decodeLegacy("\x1b[M\x20", "")   → { events: [], carry: "\x1b[M " }
+  isPartialX10("\x1b[M ")          → true   (so flushHeldEscape returns, carry kept)
+  decodeLegacy("Q!", "\x1b[M ")     → press left at (48,0), carry ""
+  ```
+
+  Typed a minute later, `Q!` should be two key presses; instead they vanish into a click.
+
+  Fix: `MOUSE_PAYLOAD_IDLE_MS = 1000` in `index.ts`. `flushHeldEscape` now arms
+  `dropStrandedMousePayload` for a partial X10 carry rather than returning bare, and that
+  callback clears the carry without emitting anything — the header is not a key and its
+  payload is gone, so there is no event to make of it. The window restarts on every read
+  that leaves the carry still partial, so it measures idleness rather than age.
+
+  Regression test: `tui entry point > drops a click header whose payload never arrives` in
+  `packages/tui/src/index.test.ts` — sends `ESC [ M SP`, waits 1400 ms, then types `Q` and
+  asserts the TUI quits. Red at `e39587d` (`the TUI never quit on a key typed after a dead
+  click`), green at `3770749`. Run with `bun test packages/tui/src/index.test.ts`. The
+  round-2 test (`does not quit on the payload of a click split by the escape timeout`,
+  200 ms split) still passes, which is the point of the 1000 ms window.
+
+Reviewing the diff independently alongside Codex turned up nothing further. Checked and
+found sound: byte-at-a-time delivery of a whole X10 report (carry grows one character per
+read and the report lands on the sixth); an astral payload character (two code units, so
+the sliced payload starts with a lone surrogate whose value exceeds `MAX_BUTTON` and is
+rejected); a payload byte below 32 (a negative coordinate, rejected); `CSI SP M`, where
+the intermediate keeps `scanCsi` out of the X10 branch; and `decodeKitty` slicing a chunk
+around an X10 report, which cannot split the payload at an ESC because every payload byte
+is at least 32.
+
+## Decisions taken (Task 19.1, round 4)
+
+- **Discard the stranded header rather than replay it as keys.** `flushCarry` has no
+  event to make of `ESC [ M`, and synthesizing Escape / `[` / `M` presses would invent
+  three keystrokes the user never typed. Dropping loses a click that was already lost.
+- **1000 ms, not `ESCAPE_IDLE_MS`.** The payload is the rest of a write the terminal has
+  already begun, so at 25 ms it is usually still in flight; the round-2 test deliberately
+  splits it by 200 ms. A second, longer window keeps that case working and still bounds
+  how long a dead header can live.
+- **The two-byte `ESC [` boundary is left alone.** A read that ends at `ESC [` and then
+  idles is flushed as Alt+`[`, so a mouse report split *there* still leaks `M` and its
+  payload as keys. Not fixed: `ESC [` is genuinely also a chord, holding it would break
+  Alt+`[`, and the ambiguity is the ordinary ESC-timeout tradeoff rather than something
+  this task introduced.
+
+Verification at `3770749`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 363 pass, 0 fail.
+
+Note for later: `startBackend > does not accept a port that only appears after the
+deadline` in `packages/tui/src/backend/manager.test.ts` is deadline-sensitive and times
+out when the machine is loaded (it failed while a Codex review ran concurrently, and
+passes on its own and on an idle full run). Pre-existing, unrelated to 19.1.
+
+Next step: review round 5 for Task 19.1.
+Round 4 fixed a substantiated finding, so the task takes another round rather than
 closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
 (`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
 Settled, do not re-litigate: the X10 UTF-8 payload limitation (round 1, accepted in the
 plan), the extra-button release sentinel (round 1, fixed in `39299ff`), the idle-timer
-carry exception (round 2, fixed in `cbfde10`), and the one-byte button bound (round 3,
-fixed in `436313f`) — each only if the fix itself is shown wrong. Also settled: bare
-motion (`?1003h`) is never enabled on the outer terminal, so an X10 `b = 35` decoding as
-a release is out of scope by plan decision. Verify every new finding independently before
-fixing it; a finding without a repro is not a finding. Zero substantiated findings → 19.1
-is clear and 19.2 is next.
-After 19.1: 19.2 – 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
+carry exception (round 2, fixed in `cbfde10`), the one-byte button bound (round 3, fixed
+in `436313f`), and the stranded-header drop window (round 4, fixed in `3770749`) — each
+only if the fix itself is shown wrong. Also settled: bare motion (`?1003h`) is never
+enabled on the outer terminal, so an X10 `b = 35` decoding as a release is out of scope by
+plan decision; and the `ESC [` two-byte split, per the round-4 decision above. Verify
+every new finding independently before fixing it; a finding without a repro is not a
+finding. Zero substantiated findings → 19.1 is clear and 19.2 is next.
+After 19.1: 19.2 - 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
 touches `packages/backend` and `electron/`, not `packages/tui`).
