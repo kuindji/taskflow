@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { decodeLegacy, flushCarry, isPartialX10 } from "./decode-legacy";
+import { decodeLegacy, flushCarry, isPartialMouseReport } from "./decode-legacy";
 import { noMods } from "./keys";
 import type { InputEvent } from "./decode-legacy";
 import type { KeyEvent } from "./keys";
@@ -261,7 +261,7 @@ describe("decodeLegacy", () => {
         // typed characters: this one is `Q`, which quits, followed by `!`.
         const first = decodeLegacy("\x1b[M\x20", "");
         expect(first.carry).toBe("\x1b[M\x20");
-        expect(isPartialX10(first.carry)).toBe(true);
+        expect(isPartialMouseReport(first.carry)).toBe(true);
         expect(flushCarry(first.carry)).toEqual([]);
         expect(decodeLegacy("\x51\x21", first.carry).events).toEqual([
             { kind: "mouse", action: "press", button: "left", col: 48, row: 0, mods: noMods() },
@@ -270,14 +270,41 @@ describe("decodeLegacy", () => {
         expect(keysOf(decodeLegacy("\x51\x21", "").events).map((e) => e.char)).toEqual(["Q", "!"]);
     });
 
-    test("isPartialX10 is false for a header that already has its payload", () => {
+    test("a half-written SGR report is held rather than orphaned by the idle flush", () => {
+        // The SGR form is the one the TUI actually asks for; X10 is only the
+        // fallback. Split by the idle timer its carry is dropped — `flushCarry`
+        // has no key to make of it — and the tail arrives with no `ESC [ <` in
+        // front of it, so the parameter digits decode as typed characters: `1`
+        // through `9` switch session tabs, and under session focus the whole
+        // run is forwarded to the child as if the user had typed it.
+        const first = decodeLegacy("\x1b[<0;50;10", "");
+        expect(first.events).toEqual([]);
+        expect(first.carry).toBe("\x1b[<0;50;10");
+        expect(flushCarry(first.carry)).toEqual([]);
+        // What the tail decodes as once the carry has been thrown away.
+        expect(keysOf(decodeLegacy("M", "").events).map((e) => e.char)).toEqual(["M"]);
+        expect(keysOf(decodeLegacy("0;10M", "").events).map((e) => e.char)).toEqual([
+            "0",
+            ";",
+            "1",
+            "0",
+            "M",
+        ]);
+        // Held instead, the tail completes the click it belongs to.
+        expect(isPartialMouseReport(first.carry)).toBe(true);
+        expect(decodeLegacy("M", first.carry).events).toEqual([
+            { kind: "mouse", action: "press", button: "left", col: 49, row: 9, mods: noMods() },
+        ]);
+    });
+
+    test("isPartialMouseReport is false for a header that already has its payload", () => {
         // Only a header still owed bytes may be held; anything else has to stay
         // flushable or a stale carry would wedge the decoder.
-        expect(isPartialX10("\x1b[M\x20\x51\x21")).toBe(false);
-        expect(isPartialX10("\x1b")).toBe(false);
-        expect(isPartialX10("\x1b[1;5")).toBe(false);
-        expect(isPartialX10("\x1b[M")).toBe(true);
-        expect(isPartialX10("\x1b[M\x20\x51")).toBe(true);
+        expect(isPartialMouseReport("\x1b[M\x20\x51\x21")).toBe(false);
+        expect(isPartialMouseReport("\x1b")).toBe(false);
+        expect(isPartialMouseReport("\x1b[1;5")).toBe(false);
+        expect(isPartialMouseReport("\x1b[M")).toBe(true);
+        expect(isPartialMouseReport("\x1b[M\x20\x51")).toBe(true);
     });
 
     test("an out-of-range SGR button does not become a left click", () => {

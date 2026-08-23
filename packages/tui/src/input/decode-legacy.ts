@@ -177,18 +177,28 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
 }
 
 /**
- * True when `carry` is a complete `CSI M` still waiting for X10 payload bytes.
- * The idle timeout must not clear such a carry: `flushCarry` has no event to
- * make of it, so clearing would only strip the header and let the payload
- * arrive as bare printables — a click in column 49 sends `Q`, which quits.
- * Held instead, the payload completes the report on the next read, and a
- * header that never gets one swallows the next three characters, which is
- * already what the same bytes do when they arrive in a single read.
+ * True when `carry` is the first half of a mouse report and can be nothing
+ * else. The idle timeout must not clear such a carry: `flushCarry` has no
+ * event to make of it, so clearing only strips the front of the report and
+ * leaves its tail to decode as typed characters. Held instead, the tail
+ * completes the report on the next read.
+ *
+ * Two shapes qualify. A complete `CSI M` still owed X10 payload bytes — the
+ * payload is raw printables, so a click in column 49 sends `Q`, which quits.
+ * And an incomplete `CSI <` …, the SGR form, whose tail is parameter digits
+ * and a final: `1` through `9` select a session tab, and under session focus
+ * the whole run is forwarded to the child as if it had been typed. `CSI <` is
+ * a private-parameter prefix that no key sequence uses, so holding it cannot
+ * delay a keystroke; an ordinary partial CSI such as `CSI 1;5` stays
+ * flushable, because that one really can be the head of a chord.
  */
-function isPartialX10(carry: string): boolean {
-    const header = `${ESC}[M`;
-    if (!carry.startsWith(header)) return false;
-    return carry.length < header.length + X10_PAYLOAD_LENGTH;
+function isPartialMouseReport(carry: string): boolean {
+    const x10Header = `${ESC}[M`;
+    if (carry.startsWith(x10Header)) {
+        return carry.length < x10Header.length + X10_PAYLOAD_LENGTH;
+    }
+    if (!carry.startsWith(`${ESC}[<`)) return false;
+    return scanCsi(carry, 0).kind === "incomplete";
 }
 
 /**
@@ -214,5 +224,5 @@ function flushCarry(carry: string): KeyEvent[] {
     return [];
 }
 
-export { decodeLegacy, flushCarry, isPartialX10 };
+export { decodeLegacy, flushCarry, isPartialMouseReport };
 export type { DecodeResult, InputEvent };

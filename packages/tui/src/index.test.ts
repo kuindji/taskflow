@@ -419,6 +419,30 @@ describe("tui entry point", () => {
         expect(child.exitCode).toBeNull();
     }, 20_000);
 
+    test("drops a half-written SGR report whose tail never arrives", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+
+        // The front of an SGR click. The parameter list is complete but the
+        // `M` that ends it never arrives — a link that dropped the tail.
+        await child.stdin.write("\x1b[<0;50;10");
+        await child.stdin.flush();
+        // Longer than the window the report gets to wait for its tail.
+        await Bun.sleep(1400);
+
+        // Typed long after the click is dead. Held any longer, `Q` would land
+        // in the parameter list as the sequence's final byte and be consumed
+        // as part of it, so quit would never reach the keymap.
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+
+        expect(await waitForExit(child, "quit on a key typed after a dead SGR click")).toBe(0);
+    }, 20_000);
+
     test("drops a click header whose payload never arrives", async () => {
         const dir = await tempDir("tui-index-pid-");
         const pidFile = join(dir, "pid");
