@@ -22,7 +22,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | in-review round 1 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`; round 1 found three, all fixed |
+| 15 | Application shell and entry point | in-review round 2 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`; round 2 found two defects plus test hygiene, all fixed |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
@@ -3426,13 +3426,107 @@ defect fix. It is not a one-task change — a sketch of what it touches, for who
 Per the repo's own rule for new features, this gets a written plan reviewed by gpt-5.5 twice
 before any code, appended to the Stage 1 plan as new tasks.
 
-Next step: Task 15 review round 2 — gpt-5.5 via codex-review over `43df638..8045ed4`
-(Mode B, restricted to `packages/tui`). Round 1 found three and all three were fixed, so
-the task is not clear yet and another round is owed. The new `index.test.ts` spawns real
-processes, which is a shape nothing else in this package has — worth pointing the reviewer
-at its flake surface (fixed sleeps, pid files, the 20s per-test timeouts) specifically.
-After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then implement
-it, then Tasks 16-18.
+- **Task 15, round 2** (gpt-5.5 via codex-review, Mode B over `43df638..8045ed4`
+  restricted to `packages/tui`): five findings — two substantiated defects and two
+  test-harness problems, all fixed in `1873c41`; one resize finding deferred as
+  out of scope. Both defects were reproduced before a line was written.
+  - **Substantiated — a signal early in startup orphaned the backend.** The first
+    signal handler was installed by `armRawModeGuard`, which does not run until
+    after the backend is spawned and the socket is connected. Until then a
+    SIGTERM killed the TUI with the signal's default disposition, which runs no
+    `process.on("exit")` handler, so the `releaseOnExit` registrations never
+    fired — and during `startBackend`'s poll loop, the longest window in startup,
+    there was nothing registered to fire anyway. What you would see: quit the TUI
+    with a signal while it is still starting and the backend keeps running with
+    nothing holding a handle on it. Repro before any fix: a fake backend that
+    writes its pid at once and its port file five seconds later; SIGTERM the TUI
+    as soon as the pid appears; the backend is still alive. Regression test:
+    `tui entry point > stops the backend when a signal lands while the port is
+    still awaited` in `packages/tui/src/index.test.ts` — red on `8045ed4`, green
+    on `1873c41`. Run with `bun test packages/tui/src/index.test.ts`.
+  - **Substantiated — the sidebar lost its selection when rows vanished under it.**
+    `render()` rebuilds `sidebarRows` from the store every frame, but `selected`
+    was clamped only inside the `move` action. `drawSidebar` deliberately refuses
+    to highlight a row past the end of the list, so after a `PROJECT_REMOVED`
+    broadcast that dropped rows below the cursor the sidebar rendered with no
+    inverse-video row at all until the user pressed a movement key. Regression
+    test: `App > keeps a selection when the row list shrinks under it` in
+    `packages/tui/src/ui/app.test.ts` — red on `8045ed4` (`selectedRow` returned
+    `null` where 1 was expected), green on `1873c41`.
+  - **Substantiated (test hygiene) — `index.test.ts` leaked on failure.** Its
+    `afterEach` SIGKILLed the TUI, which runs none of the TUI's own cleanup, so a
+    red test left the fake backend running; the `mkdtemp` trees were never removed
+    on any path. The harness now tracks backend pids and temp dirs and clears both.
+  - **Substantiated (test hygiene) — the startup-key test aimed with a fixed sleep.**
+    `talkingBackend` wrote its pid before `exec bun server.ts`, so the 600ms sleep
+    was measured from a point before the server process even started. On a loaded
+    machine `Q` could land inside the 150ms kitty negotiation window and be
+    swallowed by `readOnce`, turning a real pass into a 20s timeout. The fake
+    server now writes a readiness marker as the first request arrives — which by
+    construction is after connect and negotiation and inside `app.init()` — and
+    the test waits for that marker instead of sleeping.
+  - **Deferred — no resize handling.** `cols`/`rows` are read once at startup and
+    no `SIGWINCH` handler exists, so resizing the terminal leaves the app drawing
+    at the old dimensions. Verified as accurate, but neither the plan nor the spec
+    (`docs/superpowers/specs/2026-08-22-taskflow-tui-client-design.md`) mentions
+    resize anywhere, and a fix reaches into `Screen.resize`, an `App.resize` path
+    and `SessionTerminal` sizing. Recorded as a known Stage 1 limitation rather
+    than folded into the shell task. See "Open limitations" below.
+  - Codex reported clean on: the arrow routing (up/down before the char map,
+    chorded arrows inert, Shift+Arrow live), session-pane focus routing, the
+    post-negotiation input buffering order, the render loop's inability to
+    overlap itself, the deliberately empty `App.sessions`, and the absence of
+    `as any` / `eslint-disable` anywhere in `packages/tui/src`.
+
+## Decisions taken (Task 15 round 2)
+
+- **Signals route through `process.exit` from the first line of `main`**, rather
+  than each resource growing its own signal handler. One handler installed before
+  anything exists makes the `exit` chain reachable from every signal, and the
+  chain already had the per-resource releases on it.
+- **The later signal handlers are now dead and that is deliberate.** `Tty` still
+  installs its own, but the earlier handler exits first so they never run. Nothing
+  is lost: `Tty` restores the terminal from its `exit` handler, which the
+  `process.exit` path does reach. `armRawModeGuard` was reduced to its `exit`
+  restore for the same reason.
+- **`startBackend` gained an `onSpawn` hook** rather than index.ts reaching for
+  the child. The invariant — the child must not outlive its parent — starts at the
+  spawn, not at the resolved handle, and the hook is the smallest change to Task 2
+  that expresses it. `releaseOnExit(backend.stop)` after the await was dropped:
+  it is the same closure, and registering it twice would only make it ambiguous
+  which registration is responsible.
+- **The clamp lives in a `setRows` helper** called from both `init()` and
+  `render()`, so the row list and the selection can never be updated apart. The
+  `move` action keeps its own clamp: it is the lower bound (`0`) that matters
+  there, and folding it in would not read more clearly.
+- **`activeSession` was not given the same treatment.** `sessions` is a `readonly`
+  array that nothing in Stage 1 ever pushes to, so there is no shrink to guard
+  against; it gets a clamp when session creation lands.
+
+## Open limitations (Stage 1)
+
+- **No terminal resize handling.** Dimensions are captured once in `index.ts` and
+  there is no `SIGWINCH` handler. Resizing while the TUI runs leaves it drawing at
+  the old size until restart. Not in the plan or the spec; raised by gpt-5.5 in
+  Task 15 round 2 and deliberately deferred.
+- **No sidebar scrolling.** `drawSidebar` draws `rows[0..height-1]` and `selected`
+  is clamped to the list length, not the visible window, so a list longer than the
+  pane cannot be reached past the fold. Also absent from the plan and the spec.
+
+Checks on `1873c41`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 324 pass / 0 fail, full `bun test` 1157 pass / 8 fail
+(the known `MarkdownPaneImpl` eight). `prettier --check` clean on the five touched files.
+The +2 over the `8045ed4` baseline of 1155 is exactly the two new regression tests.
+
+Next step: Task 15 review round 3 — gpt-5.5 via codex-review over `43df638..1873c41`
+(Mode B, restricted to `packages/tui`). Round 2 found four things worth fixing, so the
+task is not clear and another round is owed. Point the reviewer at the new signal
+ordering specifically: `installSignalExit` now shadows the signal handlers `Tty` and
+`armRawModeGuard` install, and the claim that nothing is lost because `Tty` also
+restores from `exit` is the part most worth a second opinion. The `onSpawn` hook
+touches Task 2, which was already clear — worth asking whether it broke anything there.
+After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then
+implement it, then Tasks 16-18.
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
@@ -3441,10 +3535,3 @@ reproduces the documented baseline exactly. It recurred in Task 14 round 1: a
 `bun test packages/tui` launched while codex was running its own `bun test` reported
 306 pass / 1 fail, and the same command re-run once codex was idle reported 307 / 0.
 
-Baseline as of `8045ed4`: `bun run lint` clean, `bun run typecheck` clean across all five
-packages, `bun test packages/tui` 322 pass / 0 fail, full `bun test` 1155 pass / 8 fail with
-the 8 being the known pre-existing `MarkdownPaneImpl` failures (three fragment-link tests and
-five checkbox-click tests). `prettier --check` clean on the three touched files. The +3 over
-the `584f615` baseline of 1152 is exactly the three new `index.test.ts` cases. Those eight
-`MarkdownPaneImpl` failures are flaky upward, not downward: one full run during Task 15
-reported 9 fail, and a clean re-run of the same tree reported 8 again.
