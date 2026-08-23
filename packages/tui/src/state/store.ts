@@ -15,37 +15,61 @@ class Store {
     private taskList: Task[] = [];
     private readonly listeners = new Set<() => void>();
     private readonly disposers: (() => void)[] = [];
+    /**
+     * Non-null while a `load()` is in flight. Events that land in that window
+     * describe changes the snapshot may predate, so they are held here and
+     * replayed on top of the snapshot instead of being overwritten by it.
+     */
+    private deferred: (() => void)[] | null = null;
 
     constructor(private readonly net: NetLike) {
         this.disposers.push(
             net.on(MSG.PROJECT_CREATED, (payload) => {
-                this.applyProject(payload);
+                this.apply(() => this.applyProject(payload));
             }),
             net.on(MSG.PROJECT_UPDATED, (payload) => {
-                this.applyProject(payload);
+                this.apply(() => this.applyProject(payload));
             }),
             net.on(MSG.PROJECT_REMOVED, (payload) => {
-                const { id } = payload as { id: string };
-                this.projectList = this.projectList.filter((p) => p.id !== id);
-                this.notify();
+                this.apply(() => {
+                    this.removeProject(payload);
+                });
             }),
             net.on(MSG.TASK_CREATED, (payload) => {
-                this.applyTask(payload);
+                this.apply(() => this.applyTask(payload));
             }),
             net.on(MSG.TASK_UPDATED, (payload) => {
-                this.applyTask(payload);
+                this.apply(() => this.applyTask(payload));
             }),
         );
     }
 
+    /** Run a mutation now, or defer it until the in-flight `load()` settles. */
+    private apply(mutation: () => void): void {
+        if (this.deferred) {
+            this.deferred.push(mutation);
+            return;
+        }
+        mutation();
+        this.notify();
+    }
+
     private applyProject(payload: unknown): void {
         this.projectList = upsert(this.projectList, payload as Project);
-        this.notify();
     }
 
     private applyTask(payload: unknown): void {
         this.taskList = upsert(this.taskList, payload as Task);
-        this.notify();
+    }
+
+    /**
+     * Removing a project cascades to its tasks on the backend, which emits no
+     * per-task event for them, so drop them here or they linger as orphans.
+     */
+    private removeProject(payload: unknown): void {
+        const { id } = payload as { id: string };
+        this.projectList = this.projectList.filter((p) => p.id !== id);
+        this.taskList = this.taskList.filter((t) => t.projectId !== id);
     }
 
     private notify(): void {
@@ -53,13 +77,20 @@ class Store {
     }
 
     async load(): Promise<void> {
-        const [projects, tasks] = await Promise.all([
-            this.net.request<ProjectListResponse>(MSG.PROJECT_LIST),
-            this.net.request<TaskListResponse>(MSG.TASK_LIST),
-        ]);
-        this.projectList = projects.projects;
-        this.taskList = tasks.tasks;
-        this.notify();
+        const deferred: (() => void)[] = [];
+        this.deferred = deferred;
+        try {
+            const [projects, tasks] = await Promise.all([
+                this.net.request<ProjectListResponse>(MSG.PROJECT_LIST),
+                this.net.request<TaskListResponse>(MSG.TASK_LIST),
+            ]);
+            this.projectList = projects.projects;
+            this.taskList = tasks.tasks;
+        } finally {
+            if (this.deferred === deferred) this.deferred = null;
+            for (const mutation of deferred) mutation();
+            this.notify();
+        }
     }
 
     get projects(): readonly Project[] {
