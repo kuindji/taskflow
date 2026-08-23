@@ -17,7 +17,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
-| 10 | Blit a terminal buffer into the screen | pending | — | |
+| 10 | Blit a terminal buffer into the screen | implemented | `ad82029` | commit `75f0f23`; review round 1 due |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
 | 13 | Sidebar rendering | pending | — | |
@@ -1685,7 +1685,31 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 Task 9 is clear after two gpt-5.5 rounds (6 and 8) with no findings and the
 round 7 fixes pinned by tests.
 
-Next step: implement Task 10 — "Blit a terminal buffer into the screen" (plan
-line 2639). Record HEAD as its base commit before touching anything, implement
-only that task, validate with `bun run lint && bun run typecheck && bun test`,
-and commit; then review round 1.
+## Task 10 — implementation
+
+Base commit `ad82029`. Implemented in `75f0f23` following the plan verbatim
+(plan line 2639): new `packages/tui/src/term/blit.ts` exporting `blitTerminal`,
+plus the plan's nine-test `packages/tui/src/term/blit.test.ts`.
+
+- TDD order held: the test file went in first and failed with
+  `Cannot find module './blit'`, then went green (9 pass) once `blit.ts` landed.
+- Palette colours are carried through as `{ kind: "palette", index }` rather
+  than resolved to RGB — the plan calls this out because resolving here would
+  break Omarchy theme switching, and it has its own test.
+- The cursor is reported in screen coordinates and suppressed (`null`) both when
+  DECTCEM has hidden it and when `cursorX`/`cursorY` sits outside the pane rect
+  — `IBuffer.cursorX` may equal `cols` after the last cell of a row, and parking
+  the real cursor there would bleed into the neighbouring pane.
+
+Validation at `75f0f23`: `bun run lint` exit 0, `bun run typecheck` exit 0
+across all five packages, `bun test` 1011 pass / 8 fail — 1002 + the 9 new
+tests, and the 8 are the recorded pre-existing `MarkdownPaneImpl` suite-ordering
+failures, verified unchanged by name. Working tree clean.
+
+Review needed: yes. It is new rendering code on the hot path with colour,
+width and cursor edge cases.
+
+Next step: review round 1 for Task 10 — one gpt-5.5 review via the codex-review
+skill over `ad82029..HEAD` restricted to `packages/tui/src/term/blit.ts` and
+`blit.test.ts`. Verify every finding independently, fix the substantiated ones,
+validate, commit.
