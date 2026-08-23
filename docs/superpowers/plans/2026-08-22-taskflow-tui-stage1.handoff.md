@@ -18,7 +18,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
-| 11 | State store | in-review round 2 | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`; round 2 found 1 defect, fixed; round 3 due |
+| 11 | State store | in-review round 3 | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`; round 3 found 3 defects, fixed; round 4 due |
 | 12 | Focus and key routing | pending | — | |
 | 13 | Sidebar rendering | pending | — | |
 | 14 | Session pane and tab strip | pending | — | |
@@ -2009,6 +2009,88 @@ width and cursor edge cases.
   unchanged by name, and 1027 = the previous 1025 plus this round's 2 new tests.
   Working tree clean.
 
-Next step: review round 3 for Task 11 — run one gpt-5.5 review via the codex-review
-skill over `9420a4b..cad685b`, verify the findings independently, fix the
+- **Task 11, round 3** (gpt-5.5 via codex-review, Mode B over `9420a4b..cad685b`
+  restricted to `packages/tui`, with rounds 1-2's three fixes called out as already
+  known): three findings, all three substantiated and fixed in `57ad359`. Run the
+  repros with `bun test packages/tui/src/state/store.test.ts`.
+
+  - **Substantiated — a stale project order after a reorder elsewhere.** The store
+    subscribed to `PROJECT_CREATED` / `UPDATED` / `REMOVED` but not
+    `MSG.PROJECT_REORDERED`. Observable symptom: drag a project to a new position in
+    the Electron window and the TUI sidebar keeps showing the old order until the
+    next `load()`. The backend does broadcast it, from
+    `api/routes/project-routes.ts:130` and `handlers/project.ts:119`, and the
+    Electron store consumes it at `packages/ui/src/stores/project-store.ts:139`.
+    Regression test: `Store > applies a project reorder broadcast` — red on `cad685b`
+    (`["p1","p2"]`), green on `57ad359`. Fix: subscribe and apply the shared
+    `orderProjectsByIds` helper, the same one the Electron store uses.
+
+  - **Substantiated — a parent archive left its subtasks listed as active.**
+    `applyTask` was a single-record upsert, but archiving a top-level task cascades
+    to its subtasks on the backend
+    (`api/routes/task-routes.ts:347` archives the children,
+    `:376` broadcasts the parent alone) — and unarchiving does the same at `:388`.
+    Observable symptom: archive a parent task in the Electron window and its
+    subtasks stay in the TUI sidebar as live rows whose parent is gone. Regression
+    test: `Store > archives a parent's subtasks when only the parent archive is
+    broadcast` — red on `cad685b` (`["child"]`), green on `57ad359`. Fix: a local
+    cascade in `applyTask`, mirroring the round-1 `PROJECT_REMOVED` precedent —
+    same situation, a silent backend cascade with no per-child event.
+    Guarded on an actual status transition against the previously held record, so a
+    rename or session change on the parent does not resurrect a child archived on
+    its own. Two coverage tests pin those boundaries, green both before and after:
+    `Store > restores a parent's subtasks when the parent is unarchived` and
+    `Store > leaves subtasks alone when a parent update does not change its status`.
+    The WS handler path (`handlers/task.ts:139`) broadcasts nothing at all for an
+    archive, so via that path even the parent lingers — a backend gap of the same
+    family as the missing `TASK_REMOVED`, recorded below, not fixable in the store.
+
+  - **Substantiated — a replayed event could put an older value back over a newer
+    snapshot.** Round 2's shared deferred queue was drained in full by whichever
+    load committed, including mutations queued before that load had even issued its
+    requests. Those are, by ordering, already reflected in its snapshot, so
+    replaying them reverts any change made in between. Observable symptom: after two
+    overlapping reloads (the double-reconnect path Task 17 owns), a task's title or
+    status reverts to a value the backend no longer holds, and stays wrong until the
+    next event or reload. Reproduced independently before the report landed, then
+    confirmed by Codex. Regression test: `Store > does not replay an event the newer
+    snapshot already covers` — red on `cad685b` (`"Old"`), green on `57ad359`
+    (`"New"`). Fix: each `load()` records the queue length at the moment it issues
+    its requests and replays only from that mark. The failure path is the exception —
+    a load that never committed a snapshot has superseded nothing, so it still
+    replays the whole queue; `Store > keeps a queued event when the load that would
+    cover it fails` pins that and was written after noticing the naive slice would
+    have dropped the event.
+
+  - **Round 2's decision reversed, deliberately.** The round-2 test `an event queued
+    during a superseded load survives into the newer snapshot` encoded the opposite
+    rule. Its premise does not occur: its staged net returns a snapshot that omits a
+    task whose creation was broadcast *before* that snapshot was requested, which a
+    single backend over a single socket cannot do. The test was rewritten as
+    `Store > an event that arrives after the newest load was issued survives its
+    snapshot`, which pins the part of the shared-queue behaviour that is real.
+
+  - **Codex's non-blocking observations, checked and left alone.** A failed `load()`
+    notifies listeners once even though no state changed — redraw noise, and the
+    store's contract does not promise change-only notifications. `dispose()` does not
+    stop an in-flight `load()` from committing afterwards; the listeners are already
+    cleared by then and the store is unreachable, so nothing observes it. Both
+    verified by probe, neither treated as a defect.
+
+  - **Independently probed, healthy.** A rejected `load()` does not wedge `deferred`
+    or `loadToken` for later loads; three overlapping loads leave the newest winner
+    regardless of settle order; an event arriving after the newest load commits is
+    applied immediately rather than lost.
+
+- Validation at `57ad359`: `bun run lint` exit 0, `bun run typecheck` exit 0 across
+  all five packages, `bun test` 1033 pass / 8 fail — the 8 being the recorded
+  pre-existing `MarkdownPaneImpl` suite-ordering failures in `packages/ui`, verified
+  unchanged by name, and 1033 = the previous 1027 plus this round's 6 new tests.
+  Working tree clean. One lint fix along the way: `expect(...).rejects.toThrow()` is
+  typed as non-thenable here, so the rejection assertion is a `try`/`catch` on the
+  message instead — no `eslint-disable`, and unlike the repo's unawaited
+  `expect(p).rejects` calls it actually waits for the assertion.
+
+Next step: review round 4 for Task 11 — run one gpt-5.5 review via the codex-review
+skill over `9420a4b..57ad359`, verify the findings independently, fix the
 substantiated ones, validate, and commit.
