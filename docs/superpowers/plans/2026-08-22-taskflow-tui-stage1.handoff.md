@@ -22,7 +22,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | in-review round 4 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`; round 4 found one defect, fixed |
+| 15 | Application shell and entry point | in-review round 5 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`; round 5 found one defect, fixed |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
@@ -3636,16 +3636,93 @@ packages, `bun test packages/tui` 331 pass / 0 fail, full `bun test` 1164 pass /
 --check` clean on the two touched files. The +1 over the `28ac654` baseline of 1163 is
 the one new regression test.
 
-Next step: Task 15 review round 5 — gpt-5.5 via codex-review over `43df638..bdbfe2b`
-(Mode B, restricted to `packages/tui`). Round 4 found a real defect, so the task is not
-clear and another round is owed. Point the reviewer at the new `flushHeldEscape` in
-`packages/tui/src/index.ts` and the ordering around it: the carry is now released
-synchronously between `feed(negotiated.rest)` and `process.stdin.resume()`, which is
-new surface. Ask specifically whether flushing there can emit an Escape the user never
-pressed, whether it interacts badly with the legacy double-Esc focus switcher, and
-whether the idle timer and the synchronous flush can both fire for one carry.
-Run the review twice, or read the report carefully rather than trusting its verdict
-line: round 4's first report said "clear" over a defect its second run found.
+- **Task 15, round 5** (gpt-5.5 via codex-review, Mode B over `43df638..bdbfe2b`
+  restricted to `packages/tui`): two independent codex runs over the same prompt,
+  launched in parallel — round 4's process lesson applied deliberately this time
+  rather than by accident. Both returned "Verdict: Changes required" and both
+  independently named the same defect; one of them raised a second finding that
+  did not survive verification.
+  - **Substantiated — a failed startup pops the outer terminal's keyboard stack.**
+    What you would see: launch the TUI from inside another program that speaks the
+    kitty keyboard protocol (another TUI, or a terminal that pushed its own entry),
+    have the backend fail its first snapshot, and after the TUI exits the *parent*
+    program's keys start arriving in the wrong encoding — its keyboard-protocol
+    entry is gone. Mechanism: `tty.enter()` writes one `CSI > 1 u` push, but a
+    rejection from `app.init()` reached `main().catch`, which wrote
+    `leaveSequence({ kitty: true })` unconditionally, and then `process.exit(1)`
+    ran `Tty`'s own `exit` handler, which wrote the leave sequence again — one push,
+    two pops, and `CSI < u` is stack-sensitive. Regression test: `tui entry point >
+    pops the kitty keyboard stack once for the push when startup fails` in
+    `packages/tui/src/index.test.ts` — it drives negotiation by writing the
+    `\x1b[?1u` reply into the pipe before the query goes out, points the TUI at a
+    fake backend that answers the first request with `error`, and counts the pushes
+    and pops on stdout. Red on `bdbfe2b` (`Expected: 1, Received: 2`), green on
+    `93f37a6`. Run with `bun test packages/tui/src/index.test.ts`.
+  - **Not reproducible — "stdin chunks are lost between `readOnce` calls".** One run
+    argued that `readOnce` removes its only `data` listener while the stream is still
+    flowing, so a chunk emitted before the next listener attaches is discarded, which
+    would defeat `negotiate.ts`'s split-reply handling. It backed this with a
+    synthetic `PassThrough` probe, which does not show that `process.stdin` behaves
+    that way. Checked directly against the real runtime: a harness replicating
+    `readOnce` plus the negotiate read loop, fed 256 KB / 1 MB / 4 MB through a pipe,
+    took 2 / 3 / 9 reads and accounted for **every byte** in all three, marker
+    included. Bun does not emit a second buffered chunk inside the same synchronous
+    flow after the listener is removed. Dropped.
+  - Both runs reported clean on: `app.ts`'s selection clamp, per-frame row rebuild
+    and cursor ownership; `routing.ts`'s kitty/legacy split, double-Esc hold and
+    chord handling; `negotiate.ts`'s shared deadline and reply excision;
+    `manager.ts`'s `onSpawn`; and the signal/exit-code chain.
+
+## Decisions taken (Task 15 round 5)
+
+- **Two codex runs per round, launched in parallel, from here on.** Round 4 learned
+  by accident that a single "clean" verdict is weak evidence; round 5 made it the
+  procedure. Both runs converging on the same finding is what gave it its weight,
+  and the disagreement is what flagged the second claim as worth checking rather
+  than believing.
+- **The catch restores through `Tty` rather than skipping the restore.** Simply not
+  writing in the catch would have fixed the double pop, but `console.error(err)`
+  would then print onto the alternate screen and be wiped by the leave that follows
+  — the user would be told nothing about why the TUI would not start. `Tty.leave()`
+  is idempotent, so routing through it restores exactly once, before the print.
+- **The `terminalOwner === null` branch pops nothing.** It writes
+  `leaveSequence({ kitty: false })`: nothing has been entered on that path, so there
+  is no push of ours to match, and a pop would come off a stack this process never
+  wrote to — the same defect in the other direction.
+
+## Open limitations (Stage 1) — added in round 5
+
+- **In kitty mode the 25 ms escape-idle timer destroys a sequence split across two
+  reads.** `feed()` arms the timer for any non-empty carry, and `flushHeldEscape`
+  releases it through `flushCarry`, which drops a partial CSI. Traced at the module
+  level: `decodeKitty("\x1b[81")` carries `\x1b[81`; the timer fires; `flushCarry`
+  returns `[]`; the late `"u"` then decodes as a plain `u` char — so a kitty-encoded
+  `Q` becomes a lost keypress plus a spurious character. The timer exists only to
+  disambiguate a bare ESC, which under flag 1 cannot reach the decoder as a keypress
+  at all, so it has no purpose in kitty mode. Deliberately not changed: the trigger
+  is a chunk boundary falling mid-sequence with a >25 ms gap, and a terminal writes a
+  7-byte sequence to the pty in one atomic write, so this could not be demonstrated
+  in the real runtime — only at the module level. Revisit if a split is ever observed,
+  or alongside the UTF-8 chunk-split fix that session creation already owes.
+
+Checks on `93f37a6`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 332 pass / 0 fail, full `bun test` 1165 pass / 8 fail
+(the known `MarkdownPaneImpl` eight). `prettier --check` clean on the two touched files.
+The +1 over the `bdbfe2b` baseline of 331 is the one new regression test.
+
+Next step: Task 15 review round 6 — gpt-5.5 via codex-review over `43df638..93f37a6`
+(Mode B, restricted to `packages/tui`). Round 5 found a real defect, so the task is not
+clear and another round is owed. New surface to point the reviewer at: `terminalOwner`
+in `packages/tui/src/index.ts` and the restore path in `main().catch`. Ask specifically
+whether the two branches of that catch cover every window (in particular a throw between
+`setRawMode(true)` and `tty.enter()`, where `terminalOwner` is still null but raw mode is
+on and only the `exit` guard takes it off — after the error has printed), whether
+`Tty.leave()` is genuinely idempotent against its own `exit` handler and its
+`uncaughtException` handler firing in the same shutdown, and whether the `enter()`-threw
+case still leaves exactly one leave sequence.
+Launch **two** codex runs in parallel over the same prompt and reconcile them, as round 5
+did — that is what surfaced round 5's defect with any confidence, and what showed the
+extra claim to be worth checking rather than believing.
 After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then
 implement it, then Tasks 16-18.
 
