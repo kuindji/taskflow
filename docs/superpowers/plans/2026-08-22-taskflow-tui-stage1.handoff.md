@@ -17,7 +17,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
-| 10 | Blit a terminal buffer into the screen | in-review round 1 | `ad82029` | commits `75f0f23`, `9d6e970`; round 1 findings fixed, round 2 due |
+| 10 | Blit a terminal buffer into the screen | in-review round 2 | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; round 2 findings fixed, round 3 due |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
 | 13 | Sidebar rendering | pending | — | |
@@ -1760,7 +1760,72 @@ width and cursor edge cases.
   tests, and the 8 are the recorded pre-existing `MarkdownPaneImpl`
   suite-ordering failures, verified unchanged by name. Working tree clean.
 
-Next step: review round 2 for Task 10 — one gpt-5.5 review via the codex-review
+- **Task 10, round 2** (gpt-5.5 via codex-review, Mode B over `ad82029..HEAD`
+  restricted to `packages/tui/src/term/blit.ts` and `blit.test.ts`): two
+  findings, both substantiated and fixed in `4ff75be`. Run the repros with
+  `bun test packages/tui/src/term/blit.test.ts`.
+  - **The round 1 cursor fix was confirmed correct, not reopened.** Codex read
+    the installed `@xterm/headless` 5.5.0 source (`cursorY` is buffer `y`,
+    `baseY` is `ybase`, `viewportY` is `ydisp`) and ran its own probes across
+    bottom, scrolled-up, scrolled-to-top, `baseY === 0` and the 5000-line
+    scrollback cap. Claude probed the same states independently and confirmed
+    the invariant that makes the translation safe: `viewportY` ranges over
+    `[0, baseY]`, so `baseY + cursorY - viewportY` is never negative. At the cap
+    it reported `baseY: 5000, viewportY: 0, cursorY: 4` → row `5004`, correctly
+    out of the viewport. The `cursorRow < 0` branch is therefore unreachable;
+    kept as a cheap statement of the bound rather than removed.
+  - **Substantiated — a wide glyph at the last copied column overflowed the
+    rect.** `toCell` emitted the leading width-2 cell whenever xterm reported
+    one, even when its width-0 continuation fell outside the rect. `screen.ts`
+    suppresses only `width === 0`, so the glyph was written and the real
+    terminal advanced two columns, painting over the first column of whatever
+    is drawn to the right — and because the front buffer still recorded the
+    neighbour's own cell as unchanged, the corruption would never be repainted.
+    Claude reproduced this independently before the report landed (blit a
+    10-col terminal holding `abcd你` through a 5-col rect: column 4 came back
+    `{ch: "你", width: 2}` while column 5 held an unrelated width-1 cell).
+    Regression test: `blitTerminal > clips a wide glyph that starts at the
+    rect's last column` — red on `9d6e970`, green on `4ff75be`.
+  - **Substantiated — the rect's `cols`/`rows` were treated as the source's own
+    dimensions.** Two symptoms from one cause. A rect wider than the terminal
+    let `cursorX === terminal.cols` — xterm's "after last cell of the row"
+    sentinel — pass the `cursorX >= cols` guard and be returned as a real
+    column (`{x: 5, y: 0}` for a 5-col terminal blitted through a 10-col rect).
+    A rect taller than the terminal kept calling `getLine(viewportY + row)` past
+    the child's own viewport, so the extra rows showed scrollback the child is
+    not displaying (a 5-row terminal scrolled to top, blitted through an 8-row
+    rect, returned `abcdefgh` down column 0 instead of `abcde` plus blanks) and
+    the cursor was placed on one of those scrollback rows (`{x: 1, y: 7}`).
+    Two regression tests, both red on `9d6e970` and green on `4ff75be`:
+    `blitTerminal > hides a cursor parked past the source terminal's last
+    column` and `blitTerminal > blanks the rect below the source terminal's own
+    viewport`.
+  - Fix rule chosen: clamp the source read with
+    `srcCols = min(cols, terminal.cols)` and `srcRows = min(rows, terminal.rows)`.
+    Cells outside that are blanked rather than left stale, the wide-glyph clip
+    triggers at `col === srcCols - 1` (which is the rect edge when the rect is
+    narrower and unreachable when it is not, since xterm wraps rather than
+    leaving a wide glyph in the last column), and the cursor bounds test against
+    `srcCols`/`srcRows`. The clipped stand-in keeps the cell's colours and
+    attributes so the pane edge does not tear. All 11 pre-existing tests still
+    pass unchanged — when the rect matches the terminal, `srcCols === cols` and
+    `srcRows === rows`, so behaviour is identical.
+  - Reachability: the mismatch is not hypothetical. `SessionTerminal.resize`
+    round-trips `TERMINAL_RESIZE` to the backend, so a pane that has been
+    relaid out is wider or taller than its child terminal for at least a frame.
+  - Codex also confirmed, and Claude agrees: `ScreenBuffer.set` already tolerates
+    out-of-range destination coordinates (it returns early), so `blitTerminal`
+    needs no clamp on the `x0`/`y0` side; `chars === ""` maps to a blank
+    sensibly; combining sequences survive as multi-code-point `ch`; the
+    `line === undefined` path fills blanks; and nothing handed to `buf.set` is
+    retained or mutated afterwards.
+
+- Validation at `4ff75be`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 1016 pass / 8 fail — 1013 + the 3 new
+  tests, and the 8 are the recorded pre-existing `MarkdownPaneImpl`
+  suite-ordering failures, verified unchanged by name. Working tree clean.
+
+Next step: review round 3 for Task 10 — one gpt-5.5 review via the codex-review
 skill over `ad82029..HEAD` restricted to `packages/tui/src/term/blit.ts` and
-`blit.test.ts`, covering the round 1 cursor-translation fix. Verify every
-finding independently, fix the substantiated ones, validate, commit.
+`blit.test.ts`, covering the round 2 source-size clamp and wide-glyph clip.
+Verify every finding independently, fix the substantiated ones, validate, commit.
