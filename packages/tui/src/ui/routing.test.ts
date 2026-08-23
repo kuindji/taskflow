@@ -1,6 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { route } from "./routing";
+import { route, routeMouse } from "./routing";
 import { noMods, type KeyEvent } from "../input/keys";
+import type { MouseReport } from "../input/mouse";
+import { computeLayout } from "./layout";
+import { tabSpans, type TabSpec } from "./session-pane";
 
 function key(patch: Partial<KeyEvent>): KeyEvent {
     return { name: "char", mods: noMods(), kind: "press", ...patch };
@@ -247,5 +250,183 @@ describe("route edge cases", () => {
             action: { kind: "none" },
             pendingEscape: false,
         });
+    });
+});
+
+describe("routeMouse", () => {
+    const layout = computeLayout(100, 30, false);
+
+    function at(patch: Partial<MouseReport>): MouseReport {
+        return {
+            kind: "mouse",
+            action: "press",
+            button: "left",
+            col: 0,
+            row: 0,
+            mods: noMods(),
+            ...patch,
+        };
+    }
+
+    function tabs(n: number): TabSpec[] {
+        return Array.from({ length: n }, (_, i) => ({
+            label: `session ${String(i + 1)}`,
+            active: i === 0,
+        }));
+    }
+
+    test("a click in the sidebar selects the row under it", () => {
+        expect(routeMouse(at({ col: 5, row: 7 }), layout, { rows: 20, tabs: tabs(0) })).toEqual({
+            kind: "select",
+            index: 7,
+        });
+    });
+
+    test("a click past the last row selects nothing", () => {
+        expect(routeMouse(at({ col: 5, row: 7 }), layout, { rows: 3, tabs: tabs(0) })).toEqual({
+            kind: "none",
+        });
+    });
+
+    test("a click on the sidebar's first row is a selection, not a tab", () => {
+        expect(routeMouse(at({ col: 5, row: 0 }), layout, { rows: 20, tabs: tabs(2) })).toEqual({
+            kind: "select",
+            index: 0,
+        });
+    });
+
+    test("a left drag in the sidebar keeps selecting", () => {
+        expect(
+            routeMouse(at({ col: 5, row: 2, action: "drag" }), layout, { rows: 20, tabs: tabs(0) }),
+        ).toEqual({ kind: "select", index: 2 });
+    });
+
+    test("a release in the sidebar does nothing", () => {
+        expect(
+            routeMouse(at({ col: 5, row: 2, action: "release" }), layout, {
+                rows: 20,
+                tabs: tabs(0),
+            }),
+        ).toEqual({ kind: "none" });
+    });
+
+    test("the wheel moves the sidebar selection one row", () => {
+        expect(
+            routeMouse(at({ col: 5, row: 2, button: "wheel-down" }), layout, {
+                rows: 20,
+                tabs: tabs(0),
+            }),
+        ).toEqual({ kind: "move", delta: 1 });
+        expect(
+            routeMouse(at({ col: 5, row: 2, button: "wheel-up" }), layout, {
+                rows: 20,
+                tabs: tabs(0),
+            }),
+        ).toEqual({ kind: "move", delta: -1 });
+    });
+
+    test("a horizontal wheel notch is unbound in the sidebar", () => {
+        expect(
+            routeMouse(at({ col: 5, row: 2, button: "wheel-left" }), layout, {
+                rows: 20,
+                tabs: tabs(0),
+            }),
+        ).toEqual({ kind: "none" });
+    });
+
+    test("the sidebar's columns belong to the pane while zoomed", () => {
+        const zoomed = computeLayout(100, 30, true);
+        expect(routeMouse(at({ col: 5, row: 7 }), zoomed, { rows: 20, tabs: tabs(1) })).toEqual({
+            kind: "focus",
+            target: "session",
+        });
+    });
+
+    test("a click on a tab opens it and focuses the session", () => {
+        expect(
+            routeMouse(at({ col: layout.paneX + 1, row: 0 }), layout, { rows: 20, tabs: tabs(2) }),
+        ).toEqual({ kind: "open-tab", index: 0 });
+    });
+
+    test("a click on the second tab opens the second tab, whatever the first one's width", () => {
+        // The point of taking TabSpec[] rather than a count: the boundary moves
+        // with the label. A uniform-width guess picks the wrong tab here.
+        const wide: TabSpec[] = [
+            { label: "a very long session name", active: true },
+            { label: "b", active: false },
+        ];
+        const spans = tabSpans(layout.paneWidth, wide);
+        const second = spans[1];
+        if (second === undefined) throw new Error("the second tab should fit in 70 columns");
+        expect(
+            routeMouse(at({ col: layout.paneX + second.start, row: 0 }), layout, {
+                rows: 20,
+                tabs: wide,
+            }),
+        ).toEqual({ kind: "open-tab", index: 1 });
+        expect(
+            routeMouse(at({ col: layout.paneX + second.end - 1, row: 0 }), layout, {
+                rows: 20,
+                tabs: wide,
+            }),
+        ).toEqual({ kind: "open-tab", index: 1 });
+    });
+
+    test("a click past the last tab does nothing", () => {
+        expect(
+            routeMouse(at({ col: layout.cols - 1, row: 0 }), layout, { rows: 20, tabs: tabs(1) }),
+        ).toEqual({ kind: "none" });
+    });
+
+    test("a drag across the tab strip does not open a tab", () => {
+        expect(
+            routeMouse(at({ col: layout.paneX + 1, row: 0, action: "drag" }), layout, {
+                rows: 20,
+                tabs: tabs(2),
+            }),
+        ).toEqual({ kind: "none" });
+    });
+
+    test("a click in the pane focuses the session", () => {
+        expect(
+            routeMouse(at({ col: layout.paneX + 3, row: 5 }), layout, { rows: 20, tabs: tabs(1) }),
+        ).toEqual({ kind: "focus", target: "session" });
+    });
+
+    test("the wheel in the pane scrolls it", () => {
+        expect(
+            routeMouse(at({ col: layout.paneX + 3, row: 5, button: "wheel-up" }), layout, {
+                rows: 20,
+                tabs: tabs(1),
+            }),
+        ).toEqual({ kind: "scroll", delta: -3 });
+        expect(
+            routeMouse(at({ col: layout.paneX + 3, row: 5, button: "wheel-down" }), layout, {
+                rows: 20,
+                tabs: tabs(1),
+            }),
+        ).toEqual({ kind: "scroll", delta: 3 });
+    });
+
+    test("a report below the last pane row is unbound", () => {
+        expect(
+            routeMouse(at({ col: layout.paneX + 3, row: layout.rows }), layout, {
+                rows: 20,
+                tabs: tabs(1),
+            }),
+        ).toEqual({ kind: "none" });
+    });
+
+    test("a middle click is unbound everywhere", () => {
+        expect(routeMouse(at({ col: 2, row: 2, button: "middle" }), layout, {
+            rows: 20,
+            tabs: tabs(0),
+        })).toEqual({ kind: "none" });
+        expect(
+            routeMouse(at({ col: layout.paneX + 3, row: 5, button: "middle" }), layout, {
+                rows: 20,
+                tabs: tabs(1),
+            }),
+        ).toEqual({ kind: "none" });
     });
 });

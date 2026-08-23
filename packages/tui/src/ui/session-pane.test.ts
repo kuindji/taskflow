@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { MSG } from "@taskflow/shared";
 import { ScreenBuffer, ATTR_INVERSE } from "../render/cells";
 import { SessionTerminal } from "../term/session-terminal";
-import { drawTabs, drawSessionPane } from "./session-pane";
+import { drawTabs, drawSessionPane, tabSpans } from "./session-pane";
 import type { NetLike } from "../net/client";
 
 function stubNet(): NetLike {
@@ -144,5 +144,64 @@ describe("drawSessionPane", () => {
         expect(buf.get(15, 2).ch).toBe("R");
         expect(buf.get(5, 1).ch).toBe("U");
         expect(buf.get(5, 5).ch).toBe("D");
+    });
+});
+
+describe("tabSpans", () => {
+    test("matches the columns drawTabs actually paints", () => {
+        const tabs = [
+            { label: "one", active: true },
+            { label: "two", active: false },
+        ];
+        const spans = tabSpans(40, tabs);
+        const buf = new ScreenBuffer(40, 1);
+        drawTabs(buf, 0, 0, 40, tabs);
+        // The active tab is the inverse-video run, and it is span 0.
+        const inverse = [...Array(40).keys()].filter((x) => (buf.get(x, 0).attrs & ATTR_INVERSE) !== 0);
+        expect(inverse[0]).toBe(spans[0]?.start);
+        expect(inverse[inverse.length - 1]).toBe((spans[0]?.end ?? 0) - 1);
+    });
+
+    test("a span ends exactly where the next one starts", () => {
+        const spans = tabSpans(40, [
+            { label: "one", active: false },
+            { label: "a longer one", active: true },
+        ]);
+        expect(spans).toEqual([
+            { start: 0, end: 5 },
+            { start: 5, end: 19 },
+        ]);
+    });
+
+    test("the second tab is where drawTabs paints its highlight, whatever the first is called", () => {
+        // The boundary moves with the first label, so a uniform-width guess
+        // would land a click on the wrong tab.
+        const tabs = [
+            { label: "a very long session name", active: false },
+            { label: "b", active: true },
+        ];
+        const spans = tabSpans(40, tabs);
+        const buf = new ScreenBuffer(40, 1);
+        drawTabs(buf, 0, 0, 40, tabs);
+        const inverse = [...Array(40).keys()].filter((x) => (buf.get(x, 0).attrs & ATTR_INVERSE) !== 0);
+        expect(inverse[0]).toBe(spans[1]?.start);
+        expect(inverse[inverse.length - 1]).toBe((spans[1]?.end ?? 0) - 1);
+    });
+
+    test("a tab that does not fit gets no span", () => {
+        expect(
+            tabSpans(4, [
+                { label: "one", active: true },
+                { label: "two", active: false },
+            ]),
+        ).toHaveLength(1);
+    });
+
+    test("no span reaches past the strip", () => {
+        const spans = tabSpans(9, [
+            { label: "one", active: true },
+            { label: "two", active: false },
+        ]);
+        for (const span of spans) expect(span.end).toBeLessThanOrEqual(9);
     });
 });

@@ -21,6 +21,47 @@ interface Rect {
  */
 const PADDING_COLS = 2;
 
+interface TabSpan {
+    /** Pane-relative, so a caller in outer coordinates adds `paneX` itself. */
+    start: number;
+    /** Exclusive. */
+    end: number;
+}
+
+/**
+ * Where each tab that fits in `width` lands, with the label the strip will
+ * actually paint there.
+ *
+ * A tab is as wide as its own label renders plus its padding, so the boundary
+ * between two of them moves with the text. Hit testing a click therefore
+ * cannot guess a uniform width; it has to ask the same function that placed
+ * them, which is why `drawTabs` consumes this rather than recomputing it.
+ */
+function layoutTabs(width: number, tabs: TabSpec[]): Array<TabSpan & TabSpec> {
+    const spans: Array<TabSpan & TabSpec> = [];
+    let cursor = 0;
+    for (const tab of tabs) {
+        const room = width - cursor;
+        if (room <= 0) break;
+        const label = fitToWidth(tab.label, room - PADDING_COLS);
+        // A tab takes its own columns and not the rest of the strip: padding to
+        // `room` would stretch this tab's attributes over every column after it.
+        const cols = Math.min(room, PADDING_COLS + textWidth(label));
+        spans.push({ start: cursor, end: cursor + cols, label, active: tab.active });
+        cursor += cols;
+    }
+    return spans;
+}
+
+/**
+ * The public half of `layoutTabs`: positions only, for hit testing. The label
+ * is dropped rather than typed away, so a caller cannot come to depend on a
+ * field this function does not promise.
+ */
+function tabSpans(width: number, tabs: TabSpec[]): TabSpan[] {
+    return layoutTabs(width, tabs).map(({ start, end }) => ({ start, end }));
+}
+
 /**
  * Draw the tab strip into row `y0`, columns `x0` to `x0 + width`.
  *
@@ -43,17 +84,11 @@ function drawTabs(
 ): void {
     for (let x = 0; x < width; x++) buf.set(x0 + x, y0, blankCell());
 
-    let cursor = 0;
-    for (const tab of tabs) {
-        const room = width - cursor;
-        if (room <= 0) return;
-        const attrs = tab.active ? ATTR_INVERSE : 0;
-        const label = fitToWidth(tab.label, room - PADDING_COLS);
-        // `layoutText` pads to the width it is given, so it is given the tab's
-        // own columns and not the rest of the strip — padding to `room` would
-        // stretch this tab's attributes over every column after it.
-        const cols = Math.min(room, PADDING_COLS + textWidth(label));
-        for (const cell of layoutText(` ${label} `, cols, attrs)) {
+    for (const span of layoutTabs(width, tabs)) {
+        const attrs = span.active ? ATTR_INVERSE : 0;
+        let cursor = span.start;
+        // `layoutText` pads to the width it is given, which is this tab's span.
+        for (const cell of layoutText(` ${span.label} `, span.end - span.start, attrs)) {
             buf.set(x0 + cursor, y0, cell);
             cursor++;
         }
@@ -78,5 +113,5 @@ function drawSessionPane(
     return blitTerminal(session, buf, rect.x, rect.y, rect.width, rect.height);
 }
 
-export { drawTabs, drawSessionPane };
+export { drawTabs, drawSessionPane, tabSpans };
 export type { TabSpec };

@@ -1,4 +1,7 @@
 import { noMods, type KeyEvent, type KeyName } from "../input/keys";
+import type { MouseReport } from "../input/mouse";
+import type { Layout } from "./layout";
+import { tabSpans, type TabSpec } from "./session-pane";
 
 type Focus = "sidebar" | "session";
 
@@ -7,7 +10,11 @@ type Action =
     | { kind: "toggle-focus" }
     | { kind: "move"; delta: -1 | 1 }
     | { kind: "open" }
+    | { kind: "select"; index: number }
     | { kind: "select-tab"; index: number }
+    | { kind: "open-tab"; index: number }
+    | { kind: "scroll"; delta: number }
+    | { kind: "focus"; target: Focus }
     | { kind: "zoom" }
     | { kind: "new-task" }
     | { kind: "new-session" }
@@ -130,5 +137,58 @@ function route(
     return { action: { kind: "none" }, pendingEscape: false };
 }
 
-export { route };
+/** How far one wheel notch moves a scrollback view. */
+const WHEEL_LINES = 3;
+
+/**
+ * What a mouse report means to the UI, and nothing more: whether it should
+ * instead go to a child depends on that child's modes, which live in `App`.
+ *
+ * Pure, and given the layout the frame was drawn with rather than reading any
+ * geometry itself, so the strip that was painted and the strip that is clicked
+ * are the same numbers.
+ */
+function routeMouse(
+    report: MouseReport,
+    layout: Layout,
+    ctx: { rows: number; tabs: TabSpec[] },
+): Action {
+    const { col, row, button } = report;
+    const pressed = report.action === "press" || report.action === "drag";
+
+    // The sidebar is tested first: `drawSidebar` paints its first list row on
+    // row 0, so a click there selects that row rather than falling into the
+    // tab strip, which only ever writes from `paneX` rightwards.
+    if (layout.sidebarWidth > 0 && col < layout.sidebarWidth) {
+        if (button === "wheel-down") return { kind: "move", delta: 1 };
+        if (button === "wheel-up") return { kind: "move", delta: -1 };
+        if (button === "left" && pressed && row < ctx.rows) return { kind: "select", index: row };
+        return { kind: "none" };
+    }
+
+    if (row === layout.tabRow) {
+        if (button !== "left" || report.action !== "press") return { kind: "none" };
+        const x = col - layout.paneX;
+        const index = tabSpans(layout.paneWidth, ctx.tabs).findIndex(
+            (span) => x >= span.start && x < span.end,
+        );
+        return index === -1 ? { kind: "none" } : { kind: "open-tab", index };
+    }
+
+    const inPane =
+        col >= layout.paneX &&
+        col < layout.paneX + layout.paneWidth &&
+        row >= layout.paneY &&
+        row < layout.paneY + layout.paneHeight;
+    if (inPane) {
+        if (button === "wheel-up") return { kind: "scroll", delta: -WHEEL_LINES };
+        if (button === "wheel-down") return { kind: "scroll", delta: WHEEL_LINES };
+        if (button === "left" && report.action === "press") {
+            return { kind: "focus", target: "session" };
+        }
+    }
+    return { kind: "none" };
+}
+
+export { route, routeMouse };
 export type { Action, Focus };

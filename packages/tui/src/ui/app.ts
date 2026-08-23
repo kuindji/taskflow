@@ -8,6 +8,7 @@ import type { SessionTerminal } from "../term/session-terminal";
 import { buildRows, drawSidebar, type SidebarRow } from "./sidebar";
 import { drawTabs, drawSessionPane, type TabSpec } from "./session-pane";
 import { route, type Focus } from "./routing";
+import { computeLayout } from "./layout";
 
 interface AppDeps {
     net: NetLike;
@@ -22,8 +23,6 @@ interface OpenSession {
     id: string;
     term: SessionTerminal;
 }
-
-const SIDEBAR_WIDTH = 30;
 
 class App {
     private selected = 0;
@@ -118,25 +117,23 @@ class App {
         // rows are cheap enough that tracking dirtiness would cost more than it saves.
         this.setRows(buildRows(this.deps.store));
 
-        const sidebarWidth = this.zoomed ? 0 : Math.min(SIDEBAR_WIDTH, Math.floor(cols / 3));
-        if (sidebarWidth > 0) {
-            drawSidebar(screen.back, this.sidebarRows, this.selected, sidebarWidth, rows);
+        const layout = computeLayout(cols, rows, this.zoomed);
+        if (layout.sidebarWidth > 0) {
+            drawSidebar(screen.back, this.sidebarRows, this.selected, layout.sidebarWidth, rows);
         }
 
-        const paneX = sidebarWidth;
-        const paneWidth = cols - sidebarWidth;
         const tabs: TabSpec[] = this.sessions.map((_, i) => ({
             label: `session ${String(i + 1)}`,
             active: i === this.activeSession,
         }));
-        drawTabs(screen.back, paneX, 0, paneWidth, tabs);
+        drawTabs(screen.back, layout.paneX, layout.tabRow, layout.paneWidth, tabs);
 
         const active = this.sessions[this.activeSession];
         const cursor = drawSessionPane(screen.back, active?.term ?? null, {
-            x: paneX,
-            y: 1,
-            width: paneWidth,
-            height: rows - 1,
+            x: layout.paneX,
+            y: layout.paneY,
+            width: layout.paneWidth,
+            height: layout.paneHeight,
         });
 
         // The real cursor belongs to the child, so it is only shown while the
