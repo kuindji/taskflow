@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | pending | — | |
+| 13 | Sidebar rendering | implemented | `e64f1f0` | commit `85871fc`; review round 1 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -2415,10 +2415,25 @@ width and cursor edge cases.
   suite-ordering failures, verified unchanged by name against the round-2 list. Working
   tree clean.
 
-Next step: Task 13 — Sidebar rendering. Record HEAD as the base commit, then implement
-`packages/tui/src/ui/sidebar.ts` with `packages/tui/src/ui/sidebar.test.ts` per plan
-Task 13 (plan line 3357): `SidebarRow`, `buildRows(store)` and
-`drawSidebar(buf, rows, selected, width, height)`, splitting tree construction from
-drawing. Consumes `ScreenBuffer`/`blankCell`/`ATTR_INVERSE`/`ATTR_BOLD` from Task 3 and
-`Store` from Task 11. Validate with `bun run lint && bun run typecheck && bun test`,
-commit, then review round 1.
+## Task 13 — Sidebar rendering
+
+- Base commit: `e64f1f0`. Implementation commit: `85871fc`.
+- Implemented exactly as plan Task 13 specifies: `packages/tui/src/ui/sidebar.ts` with
+  `SidebarRow`, `buildRows(store)` (projects from `store.projects`, each followed by
+  `store.tasksFor(project.id)`) and `drawSidebar(buf, rows, selected, width, height)`
+  (row index maps 1:1 to `y`, `ATTR_INVERSE` on the selected row, `ATTR_BOLD` on project
+  rows, two-space indent on task rows, a ` N` session-count badge, label truncated to the
+  space the prefix and badge leave, every column written so stale cells are cleared).
+- Tests: `packages/tui/src/ui/sidebar.test.ts`, 6 tests, from the plan verbatim.
+  Red before the implementation (`Cannot find module './sidebar'`), green after.
+  Run with `bun test packages/tui/src/ui/sidebar.test.ts`.
+- Validation at `85871fc`: `bun run lint` exit 0, `bun run typecheck` exit 0 across all
+  five packages, `bun test` 1066 pass / 8 fail (1074 across 103 files, 57s) — the 8 being
+  the same pre-existing `MarkdownPaneImpl` suite-ordering failures, verified unchanged by
+  name against the Task 12 list. Working tree clean.
+- Review: needed. New rendering code with index arithmetic and truncation.
+
+Next step: Task 13 review round 1 — one gpt-5.5 review via the codex-review skill over
+`e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts` and `sidebar.test.ts`. Verify
+each finding independently, fix the substantiated ones, validate with
+`bun run lint && bun run typecheck && bun test`, and commit.
