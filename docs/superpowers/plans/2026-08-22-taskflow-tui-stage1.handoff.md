@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | in-review round 11 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; round 11 found 2 real defects, fixed; round 12 due |
+| 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -3101,6 +3101,46 @@ width and cursor edge cases.
     ink at one width drew none at the next width up. Before the fix that last probe found 1180
     violations, all of the two shapes above.
 
+- **Task 13, round 12** (gpt-5.5 via codex-review, Mode B over `e64f1f0..HEAD` restricted to
+  `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`, `packages/tui/src/render/text.ts` and
+  `text.test.ts`, with rounds 1-11 listed as fixed and the round 11 diff `8f92af6..HEAD`
+  called out separately): **no findings**. Task 13 is clear. No code changed this round.
+  - The brief pressed on exactly what round 11 rewrote: the now-sticky `dropped` flag in
+    `fitToWidth` and the `INVISIBLE` predicate behind `shows()` in `drawSidebar`. Codex
+    answered each of the posed questions and reported no reproducible defect:
+    the `dropped && out !== ""` guard is right for leading dropped clusters (with nothing
+    admitted yet there is no rejoin to re-measure); `used` does go stale once the layout path
+    takes over but is never read again while it is stale; the layout path cannot return text
+    wider than `cols` because it measures the exact string that will be laid out; `break`
+    rather than `continue` is still what "longest prefix" means; and it found no
+    invisible-but-plausible label character the predicate misses, agreeing that a space
+    carrying U+0301 is correctly treated as visible.
+  - Codex's one substantive note was cost: the post-drop path re-segments and re-measures the
+    growing `out` on every admission. Not treated as a defect, for the reason already recorded
+    under round 10 — `out` never exceeds `cols` columns, so it holds at most `cols` clusters,
+    each `textWidth` call is O(cols), and the loop stops at the first cluster that does not
+    fit. The whole fit is O(cols^2) plus O(n) for the clusters it drops, not O(n^2).
+  - Independent probing, run before the report landed and again after it. 150,000 random
+    labels of 1-6 clusters drawn from an alphabet of wide, astral, combining, format,
+    control, regional-indicator, braille-blank, Hangul-filler and blank clusters, each row
+    rendered at every width 0..14 as both a project and a task and with a session count of
+    0 or 1-120. Four properties, all held with zero violations:
+    the assembled `indent + label + badge` never needs more columns than the pane
+    (`fitToWidth(text, width) === text`); the label never loses more than one column when the
+    pane grows by one, badge-appearance transitions excluded; a row that shows ink at one
+    width still shows ink at the next width up; and a badge shown at one width is still shown
+    at the next.
+  - One probe hit needed running down and turned out not to be a defect. The label
+    `U+2800 U+0020 U+0020 U+0301 U+0041` on a task row draws `A` at width 4 and does not at
+    width 5, where the indent comes back and the accent alone keeps `shows()` true. Plain
+    ASCII does the same thing: a task titled `ABCDEF` draws `AB` at width 2 and `  A` at
+    width 3. It is the one-column indent-transition trade this task already accepted, not a
+    new regression, so nothing was changed for it.
+  - Validation: `bun run lint` clean, `bun run typecheck` clean across all five packages,
+    `bun test packages/tui` 296 pass / 0 fail, full `bun test` 1129 pass / 8 fail with the 8
+    being the known pre-existing `MarkdownPaneImpl` failures (the three fragment-link tests
+    and the five checkbox-click tests). Run with nothing else running, per the note below.
+
 ## Decisions taken (Task 13 round 11)
 
 - The re-measure is made sticky rather than unconditional. Once a drop has happened every
@@ -3143,31 +3183,17 @@ none of the four files under review, so the scoping still holds. More docs-only 
 that same plan landed during round 10, most recently `028aa1e` (a renumbering of its steps).
 Same reasoning, same conclusion: the scoping and the base commit both still hold. No
 further unrelated commits landed during round 11: `8f92af6` was this flow's own round 10
-record, and `382b33f` sits directly on it.
+record, and `382b33f` sits directly on it. None landed during round 12 either: `e524484`,
+this flow's own round 11 record, was still HEAD when the round started and no code changed.
 
-Next step: Task 13 review round 12 — one gpt-5.5 review via the codex-review skill over
-`e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
-`packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-11 listed as already fixed.
-Point it at what round 11 changed: the now-sticky `dropped` flag in `fitToWidth` (whether the
-`dropped && out !== ""` guard is still right when the very first clusters are all dropped,
-whether `used` can be stale in a way that matters, whether making every post-drop admission a
-layout measure can now admit or reject the wrong cluster, and the real worst-case cost on a
-long label full of dropped clusters) and the `INVISIBLE` predicate behind `shows()` in
-`drawSidebar` (whether `\p{Cf}` plus `\p{Default_Ignorable_Code_Point}` plus U+2800 is the
-right set, whether stripping them can now make `shows` false for a cluster that *does* draw —
-combining marks are the case to press on — and whether the `shows(withIndent) ||
-!shows(withoutIndent)` pair still holds at width 0/1/2 and around `badge.length`). Give it the
-settled width rules as before: width comes from `baseCodePoint`, the first code point in the
-cluster that is not `Mn`/`Me`/`Mc`/`Cf`, and a cluster with no such code point is dropped;
-`WIDE_RANGES` is Unicode 16.0 EAW `W`/`F`, verified sorted and complete; `graphemeWidth` widens
-any cluster containing U+FE0F or based on a regional indicator; badge > label > indent. Steer
-it away from the width tables. Tell it the one-column loss at the indent transition is an
-accepted trade, not a finding, and that a wider pane replacing a label with a badge is the
-badge-outranks-label rule working, not a defect. Verify each finding independently and probe
-*around* it — rounds 9, 10 and 11 all turned up their real defects that way, and round 11's
-first finding was in the exact code round 10 had just rewritten. Fix the substantiated ones,
-validate with `bun run lint && bun run typecheck && bun test`, and commit. If the round comes
-back clean, mark Task 13 clear and move to Task 14 (session pane and tab strip).
+Next step: Task 14 — session pane and tab strip. Plan section "### Task 14: Session pane and
+tab strip" (`docs/superpowers/plans/2026-08-22-taskflow-tui-stage1.md`, around line 3592).
+Create `packages/tui/src/ui/session-pane.ts` and `session-pane.test.ts`. It consumes
+`ScreenBuffer`, `blankCell` and `ATTR_INVERSE` (Task 3), `SessionTerminal` (Task 9) and
+`blitTerminal` (Task 10), and produces `TabSpec`, `drawTabs` and `drawSessionPane`. Write the
+plan's failing test first, record HEAD as Task 14's base commit in the table before touching
+code, implement, validate with `bun run lint && bun run typecheck && bun test`, and commit.
+Then review round 1.
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
