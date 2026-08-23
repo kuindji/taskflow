@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | in-review round 2 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`; round 2 found 1 real defect, fixed; round 3 due |
+| 13 | Sidebar rendering | in-review round 3 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`; round 3 found 1 real defect, fixed; round 4 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -2537,9 +2537,59 @@ width and cursor edge cases.
   the chrome disagree with the panes would trade one shear for another. Revisit only
   if the TUI adopts a full grapheme-width service for both paths.
 
-Next step: Task 13 review round 3 — one gpt-5.5 review via the codex-review skill over
+- **Task 13, round 3** (gpt-5.5 via codex-review, Mode B over `e64f1f0..HEAD`
+  scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
+  `packages/tui/src/render/text.ts` and `text.test.ts`, diff inlined in the prompt):
+  two findings, one substantiated and fixed in `66b4357`, one refuted. Run the repro
+  with `bun test packages/tui/src/render/text.test.ts`.
+
+  - **Substantiated — an unpaired surrogate was drawn as mojibake.** `layoutText`
+    blanked only `\p{Cc}`, so a lone high or low surrogate in a label passed the
+    printable branch and was stored as a width-1 cell holding half a pair.
+    `Screen.flush` (`packages/tui/src/render/screen.ts:68`) writes `cell.ch` for
+    every cell whose width is not zero, and UTF-8 encoding a half pair on the way
+    to the stream yields `ef bf bd` — U+FFFD — so the frame shows a replacement
+    glyph where a blank belongs. Verified before the fix by calling the function
+    directly: `layoutText("a\uD83Db", 4, 0)` gave cells `"a" "\ud83d" "b" " "`, and
+    `Buffer.from("\uD83D", "utf8").toString("hex")` gave `efbfbd`. This is the same
+    class round 1 fixed for split astral glyphs; the split is gone, but a label that
+    already contains a lone surrogate (JSON can carry one through a `\ud83d` escape)
+    still reached a cell. Fix: `CONTROL` became `UNPRINTABLE = /[\p{Cc}\p{Cs}]/u`.
+    Under the `u` flag `\p{Cs}` matches only unpaired surrogates — a well-formed
+    pair is a single astral code point and does not match — verified directly
+    against `"\ud83d"`, `"\ude80"`, `"🚀"`, `"你"`, `"❤️"` and `"\r\n"`. Regression
+    tests: `layoutText > blanks an unpaired surrogate` (red on `7b68091`, green on
+    `66b4357`) and `layoutText > keeps a well-formed surrogate pair as one wide
+    glyph`, which pins that the new rule does not over-blank.
+  - **Refuted — project rows get a session badge.** Codex reported that the badge
+    condition ignores `row.kind`, so a project with sessions renders `"Alpha 2"`.
+    Reproduced (`drawSidebar` with a project row and `sessionCount: 2` gives
+    `"Alpha 2     "`), but this is the specified behaviour, not a defect: the plan's
+    own reference implementation at line 3562 is
+    `const badge = row && row.sessionCount > 0 ? ...`, kind-agnostic, and `buildRows`
+    deliberately fills `sessionCount` from `project.sessions.length` for project
+    rows. Projects carry their own sessions in the Taskflow model, so the badge is
+    meaningful there. Codex flagged it only because the review prompt paraphrased
+    the behaviour as "a task row with sessions gets a badge" — that paraphrase was
+    wrong, the code is right. No change.
+  - Codex independently ran `bun test packages/tui/src/render/text.test.ts
+    packages/tui/src/ui/sidebar.test.ts` (29 pass at `7b68091`).
+
+- Validation at `66b4357`: `bun run lint` exit 0, `bun run typecheck` exit 0 across
+  all five packages, `bun test` 1091 pass / 8 fail (1099 across 104 files, 59s) —
+  the 8 being the same pre-existing `MarkdownPaneImpl` failures, verified unchanged
+  by name against the round-2 list. Working tree clean.
+
+## Decisions taken (Task 13 round 3)
+
+- The review prompt for round 4 must describe the badge rule as the plan states it
+  (any row with `sessionCount > 0`), not "task rows only". The wrong paraphrase in
+  the round-3 prompt manufactured a finding.
+
+Next step: Task 13 review round 4 — one gpt-5.5 review via the codex-review skill over
 `e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
-`packages/tui/src/render/text.ts` and `text.test.ts`, diff inlined in the prompt.
-Verify each finding independently, fix the substantiated ones, validate with
+`packages/tui/src/render/text.ts` and `text.test.ts`, diff inlined in the prompt, with
+the badge rule described correctly and rounds 1-3 listed as already fixed. Verify each
+finding independently, fix the substantiated ones, validate with
 `bun run lint && bun run typecheck && bun test`, and commit. If the round comes back
 clean, mark Task 13 clear and move to Task 14 (session pane and tab strip).
