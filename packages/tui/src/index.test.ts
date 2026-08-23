@@ -166,8 +166,13 @@ function countOf(haystack: string, needle: string): number {
 }
 
 function runTui(binary: string, env: Record<string, string> = {}): TuiProcess {
+    // The entry point reads TASKFLOW_TUI_NO_MOUSE from its own environment, so an
+    // ambient one would decide the mouse cases instead of the case deciding them:
+    // a developer or CI job that has it set would see "mouse on by default" fail
+    // against correct code. Only what a case passes explicitly gets through.
+    const { TASKFLOW_TUI_NO_MOUSE: _ambientMouseOptOut, ...inherited } = process.env;
     const child = Bun.spawn(["bun", ENTRY], {
-        env: { ...process.env, TASKFLOW_BACKEND_BIN: binary, ...env },
+        env: { ...inherited, TASKFLOW_BACKEND_BIN: binary, ...env },
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",

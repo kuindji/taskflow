@@ -239,9 +239,9 @@ async function main(): Promise<void> {
         const result = decode(text, carry);
         carry = result.carry;
         for (const ev of result.events) {
-            // 19.2 is what turns tracking on, so no report can reach here yet;
-            // between 19.2 and 19.4 a click is silently ignored rather than
-            // leaking its payload bytes as keystrokes.
+            // 19.2 turned tracking on, so reports do arrive here now. Until
+            // 19.4 routes them, a click is silently ignored rather than leaking
+            // its payload bytes as keystrokes.
             if (ev.kind === "mouse") continue; // wired up in 19.4
             app.handleKey(ev);
         }
