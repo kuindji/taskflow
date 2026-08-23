@@ -16,7 +16,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
-| 9 | Session terminal — attach, resync and mode tracking | in-review round 7 (fixed, awaiting round 8) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; round 7 found two, both substantiated and fixed |
+| 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
@@ -1646,6 +1646,46 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   verified by name; the pass count rose from 999 by the three new tests. Working
   tree clean.
 
-Next step: Task 9 review round 8 — one gpt-5.5 review via the codex-review skill
-over `--base 4572b1f`, leaving the working tree untouched until the report
-lands. Zero substantiated findings means Task 9 is clear and Task 10 is next.
+- **Task 9, round 8** (gpt-5.5 via codex-review, Mode A over `--base 4572b1f`;
+  the working tree was left untouched for the whole run, which was backgrounded
+  with the harness's own `run_in_background`): **gpt-5.5 reported zero
+  findings** — "No material defects were identified in the changed code." The
+  log's last lines show a completed turn ("Completed Level 1 review; no blocking
+  findings identified in the changed code.") and the report file is non-empty,
+  so this is a real clean pass, not a failed run. Codex ran the three touched
+  test files and the workspace typecheck itself and attributed the full-suite
+  failures to code outside the diff, which matches the recorded baseline.
+
+  Claude read the whole diff independently while the run was in flight — the
+  round 7 fixes in particular, since round 6 was also a clean gpt-5.5 pass that
+  Claude found a real defect behind. Nothing substantiated came out of it:
+  - The backend's `restorePending` / `parsedSequence` / `kitty` state is all
+    updated from `headless.write` callbacks, which xterm runs in write order, so
+    a restored session's `markParsed(startSequence)` can never land after a live
+    batch's `markParsed(sequence)`. Each is also mirrored onto `sessionEntry`
+    the same way, so it is correct whichever side of the `Session` construction
+    the callback falls on.
+  - `getSnapshot` reports `snapshot`, `cursorHidden`, `kittyStack` and
+    `lastSequence` all off the parsed state, so the four are mutually
+    consistent; `getHistory` still reports the issued `lastSequence` and its
+    `scrollback` is appended synchronously with it, so the history path cannot
+    duplicate a chunk the client also holds in `recent`.
+  - `kittyEvents` cannot be moved by live output between `attach()`'s sample and
+    the history replay: while `historyLoaded` is false every `TERMINAL_OUTPUT`
+    goes to `pending` rather than through the parser. On a first-ever attach
+    `savedKitty` is empty, so `recoverKittyStack` is a no-op there.
+  - `attach()`'s `historyLoaded = false` and `this.pending = this.takeRecent()`
+    have no await between them, so no event can slip in and be discarded.
+
+- Validation at `e557135` (no source change this round): `bun run lint` exit 0,
+  `bun run typecheck` exit 0 across all five packages, `bun test` 1002 pass /
+  8 fail — the 8 are the recorded pre-existing `MarkdownPaneImpl` suite-ordering
+  failures, unchanged and verified by name. Working tree clean.
+
+Task 9 is clear after two gpt-5.5 rounds (6 and 8) with no findings and the
+round 7 fixes pinned by tests.
+
+Next step: implement Task 10 — "Blit a terminal buffer into the screen" (plan
+line 2639). Record HEAD as its base commit before touching anything, implement
+only that task, validate with `bun run lint && bun run typecheck && bun test`,
+and commit; then review round 1.
