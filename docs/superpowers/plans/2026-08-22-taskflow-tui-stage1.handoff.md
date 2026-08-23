@@ -22,7 +22,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | in-review round 5 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`; round 5 found one defect, fixed |
+| 15 | Application shell and entry point | in-review round 6 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`; round 6 found two defects, fixed |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
@@ -3710,19 +3710,105 @@ packages, `bun test packages/tui` 332 pass / 0 fail, full `bun test` 1165 pass /
 (the known `MarkdownPaneImpl` eight). `prettier --check` clean on the two touched files.
 The +1 over the `bdbfe2b` baseline of 331 is the one new regression test.
 
-Next step: Task 15 review round 6 — gpt-5.5 via codex-review over `43df638..93f37a6`
-(Mode B, restricted to `packages/tui`). Round 5 found a real defect, so the task is not
-clear and another round is owed. New surface to point the reviewer at: `terminalOwner`
-in `packages/tui/src/index.ts` and the restore path in `main().catch`. Ask specifically
-whether the two branches of that catch cover every window (in particular a throw between
-`setRawMode(true)` and `tty.enter()`, where `terminalOwner` is still null but raw mode is
-on and only the `exit` guard takes it off — after the error has printed), whether
-`Tty.leave()` is genuinely idempotent against its own `exit` handler and its
-`uncaughtException` handler firing in the same shutdown, and whether the `enter()`-threw
-case still leaves exactly one leave sequence.
-Launch **two** codex runs in parallel over the same prompt and reconcile them, as round 5
-did — that is what surfaced round 5's defect with any confidence, and what showed the
-extra claim to be worth checking rather than believing.
+- **Task 15, round 6** (gpt-5.5 via codex-review, Mode B over `43df638..93f37a6`
+  restricted to `packages/tui`): two independent codex runs over the same prompt,
+  launched in parallel, as round 5 decided. Both returned "Verdict: Changes required".
+  Both independently named the same defect (the `onSpawn` leak); each raised one
+  further finding of its own, one of which survived verification and one of which
+  did not. Both fixes are in `98d3d0c`.
+  - **Substantiated — a startup failure before entry writes a full leave sequence.**
+    What you would see: start the TUI with the backend unreachable, from a program
+    that had mouse tracking on or had saved a cursor position, and that program's
+    modes come back wrong after the error prints — its mouse reporting is off and
+    its cursor has jumped. Mechanism: nothing has been entered on that path, but
+    `main().catch`'s `terminalOwner === null` branch wrote
+    `leaveSequence({ kitty: false })` anyway — `CSI ? 1049 l` restores the *outer*
+    program's saved cursor, and `CSI ? 1000/1002/1003/1006 l` turns its tracking
+    off. Exactly the round-5 kitty-pop defect in the other direction: undoing state
+    this process never set. Regression test: `tui entry point > writes no leave
+    sequence when startup fails before the terminal is entered` in
+    `packages/tui/src/index.test.ts` — points the TUI at a backend that never
+    accepts a socket and counts the mode-undoing bytes on stdout. Red on `93f37a6`
+    (`Expected: 0, Received: 1`), green on `98d3d0c`. Run with
+    `bun test packages/tui/src/index.test.ts`.
+  - **Substantiated — a throwing `onSpawn` hook leaks the backend.** What you would
+    see: nothing, from the TUI — it reports the hook's error and exits — but the
+    backend process it spawned keeps running, holding the port, with no handle left
+    that can stop it. Mechanism: `opts.onSpawn?.(stop)` sat outside every guard in
+    `manager.ts`, so a throw there was the one exit from `startBackend` that ran
+    neither `terminate()` nor `removePortFile()`. Regression test: `startBackend >
+    kills the backend when the onSpawn hook throws` in
+    `packages/tui/src/backend/manager.test.ts`. Red on `93f37a6`
+    (`Expected: true, Received: false` after a 3s poll), green on `98d3d0c`.
+    Run with `bun test packages/tui/src/backend/manager.test.ts`.
+    Not reachable from `index.ts` today — the hook there is `releaseOnExit`, which
+    only calls `process.on`. Fixed anyway because it is cheap, it is a documented
+    contract of `startBackend` ("cleans up after its own failures"), and it is the
+    exact leak the hook exists to prevent.
+  - **Not reproducible — "`readOnce` drops the kitty reply between reads".** One run
+    argued that two separately-written stdin chunks (a keystroke, then the terminal's
+    `CSI ? 1 u` reply) can be split such that the second is emitted while `readOnce`
+    has removed its listener, downgrading a kitty-capable terminal to legacy. This is
+    round 5's dropped claim in a new form: round 5 disproved the *buffered* case, this
+    one asserts a *separately-arriving* chunk. Checked directly with a harness
+    replicating `readOnce` plus the negotiate loop, driven by a parent that wrote `Q`,
+    flushed, waited, then wrote the reply — at gaps of 0, 1, 5, 20, 50 and 100 ms. All
+    six runs recovered `"Q\x1b[?1u"` intact. The window cannot open: the re-attach
+    happens in the microtask that the resolved `waitForData` promise schedules, which
+    drains before the event loop can reach a poll phase and read the fd again.
+    Dropped.
+  - Both runs reported clean on: the round-5 `terminalOwner` fix for the
+    post-`enter()` case; `Tty.leave()`'s idempotence across catch→exit,
+    uncaughtException→exit, signal→exit and the normal quit; the `enter()`-threw case
+    leaving exactly one leave sequence; `negotiate.ts`'s shared deadline, reply
+    excision and `rest` ordering; and `app.ts`'s selection clamp, per-frame row
+    rebuild, cursor ownership and routing split.
+
+## Decisions taken (Task 15 round 6)
+
+- **The pre-entry branch writes nothing at all**, rather than a narrower subset of the
+  leave sequence. The only terminal state this process changes before `tty.enter()` is
+  raw mode; the kitty query is a query and sets nothing. So there is exactly one thing
+  owed back, and `setRawMode(false)` is all of it.
+- **`leaveSequence` stays exported.** `index.ts` no longer imports it, but `tty.test.ts`
+  does, and it was already exported for that in a cleared task.
+- **The `onSpawn` call moved below `terminate()`'s definition** so the catch can reach
+  it. Everything between the spawn and the hook is synchronous, so the hook still gets
+  the terminator before any await — the "handed it the moment it is spawned" contract
+  is unchanged.
+- **Process-identity in the leak test comes from the temp directory, not a pid file.**
+  The first version polled a pid file and went green on broken code: the child needs
+  ~500 ms to write it, so the first poll read "already gone". Matching `pgrep -f` on a
+  directory that contains both the script path and the `tail -f` target identifies the
+  child continuously from `spawn()` onward, across the `exec` that rewrites its command
+  line — so an absent match genuinely means dead.
+
+## Process note (round 6)
+
+The first cut of the `onSpawn` test passed on unfixed code. It was a real false green,
+not a mis-assertion: the assertion was right and the *observable* was not yet observable
+when it ran. Worth repeating on any test whose red state is "something is absent" —
+confirm the thing is present before the fix makes it absent, or the test proves nothing.
+
+Checks on `98d3d0c`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 334 pass / 0 fail, full `bun test` 1167 pass / 8 fail
+(the known `MarkdownPaneImpl` eight), run with nothing else on the machine — another
+session's two codex runs were waited out first. `prettier --check` clean on the four
+touched files. The +2 over the `93f37a6` baseline of 332 is the two new regression tests.
+
+Next step: Task 15 review round 7 — gpt-5.5 via codex-review over `43df638..98d3d0c`
+(Mode B, restricted to `packages/tui`). Round 6 found two real defects, so the task is
+not clear and another round is owed. New surface to point the reviewer at: the now-empty
+`terminalOwner === null` branch in `packages/tui/src/index.ts` (ask whether writing
+*nothing* there leaves any mode stranded — in particular whether the kitty query itself,
+or anything `startBackend`/`WsClient` emit on failure, needs undoing), and the
+`try/catch` around `opts.onSpawn` in `packages/tui/src/backend/manager.ts` (ask whether
+`terminate()` there can race the poll loop's own `terminate()`, and whether the hook's
+error should be wrapped rather than rethrown bare).
+Launch **two** codex runs in parallel over the same prompt and reconcile them, as rounds
+5 and 6 did. Carry the round-6 "known and deliberately accepted" list into the prompt and
+add the two claims dropped so far (`readOnce` chunk loss, in both its forms) so a third
+round does not spend its budget re-raising them.
 After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then
 implement it, then Tasks 16-18.
 
@@ -3732,4 +3818,5 @@ tests, and once a `probe > union member access` that exists nowhere in the repo)
 reproduces the documented baseline exactly. It recurred in Task 14 round 1: a
 `bun test packages/tui` launched while codex was running its own `bun test` reported
 306 pass / 1 fail, and the same command re-run once codex was idle reported 307 / 0.
-
+Other Taskflow sessions run codex on this same machine — check with
+`ps -ax -o command | grep "[c]odex exec"` and wait it out before validating.
