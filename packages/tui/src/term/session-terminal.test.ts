@@ -292,9 +292,12 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
-    test("re-attaching clears output that was still queued when the drop happened", async () => {
+    test("re-attaching clears output the snapshot already accounts for", async () => {
+        // lastSequence 1 means the backend's mirror has parsed that batch, so it
+        // is already in the serialized screen. Replaying it over the snapshot
+        // would draw it twice.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 1, cursorHidden: false, kittyStack: [] },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
         await term.attach();
@@ -302,6 +305,62 @@ describe("SessionTerminal", () => {
         net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "OLDOLDOLD", sequence: 1 });
         await term.attach();
         expect([0, 1, 2].map((y) => readRow(term, y)).join("")).toBe("PROMPT>");
+        term.dispose();
+    });
+
+    test("re-attaching replays live output the snapshot does not cover yet", async () => {
+        // The backend reports the sequence its headless terminal has finished
+        // parsing, which trails the sequence it has already sent us. A snapshot
+        // taken in that window legitimately excludes a batch this client has
+        // already received, so the batch has to survive the reset and be
+        // replayed on top of the snapshot rather than being dropped with the
+        // old grid.
+        const responses: Record<string, unknown> = {
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 4,
+                cursorHidden: false,
+                kittyStack: [],
+            },
+        };
+        const net = fakeNet(responses);
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "LIVE", sequence: 5 });
+        await settle();
+
+        responses[MSG.SESSION_SNAPSHOT] = {
+            snapshot: "PROMPT>",
+            lastSequence: 4,
+            cursorHidden: false,
+            kittyStack: [],
+        };
+        await term.attach();
+        await settle();
+        expect([0, 1, 2].map((y) => readRow(term, y)).join("")).toBe("PROMPT>LIVE");
+        term.dispose();
+    });
+
+    test("bounds the output it holds back for a re-attach", async () => {
+        // The hold-back buffer covers the backend's parse lag, not the whole
+        // session, so it drops the oldest rather than growing without bound.
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "PROMPT>",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "A".repeat(200 * 1024), sequence: 1 });
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "BBB", sequence: 2 });
+        await settle();
+
+        await term.attach();
+        await settle();
+        expect([0, 1, 2].map((y) => readRow(term, y)).join("")).toBe("PROMPT>BBB");
         term.dispose();
     });
 

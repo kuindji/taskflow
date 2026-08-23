@@ -31,11 +31,25 @@ interface PendingChunk {
 
 const SCROLLBACK = 5000;
 
+/**
+ * How much already-written output to keep for a possible re-attach. The backend
+ * reports the sequence its headless mirror has finished parsing, which trails
+ * the sequence it has already sent us, so a snapshot can legitimately exclude a
+ * batch this client has already drawn. Those bytes are gone once `reset()`
+ * clears the grid, so they are held here until a snapshot claims to cover them.
+ * The window is the backend's parse lag, not the session's lifetime, so a small
+ * cap is enough; anything older is covered many times over.
+ */
+const RECENT_LIMIT = 128 * 1024;
+
 class SessionTerminal {
     public readonly terminal: Terminal;
 
     private historyLoaded = false;
     private pending: PendingChunk[] = [];
+    /** Written to the grid already, but not yet known to be in any snapshot. */
+    private recent: PendingChunk[] = [];
+    private recentBytes = 0;
     private readonly kitty = new KittyKeyboardStack();
     private hiddenCursor = false;
     private readonly disposers: Array<() => void> = [];
@@ -56,8 +70,11 @@ class SessionTerminal {
             deps.net.on(MSG.TERMINAL_OUTPUT, (payload) => {
                 const event = payload as TerminalOutputEvent;
                 if (event.sessionId !== deps.sessionId) return;
-                if (this.historyLoaded) void this.enqueue(event.data);
-                else this.pending.push({ data: event.data, sequence: event.sequence });
+                const chunk: PendingChunk = { data: event.data, sequence: event.sequence };
+                if (this.historyLoaded) {
+                    this.remember(chunk);
+                    void this.enqueue(event.data);
+                } else this.pending.push(chunk);
             }),
         );
 
@@ -69,8 +86,11 @@ class SessionTerminal {
                 // snapshot must not have its marker drawn ahead of the output
                 // it belongs after, so it queues with the rest.
                 const marker = `\r\n\x1b[90m[Process exited with code ${String(event.exitCode)}]\x1b[0m\r\n`;
-                if (this.historyLoaded) void this.enqueue(marker);
-                else this.pending.push({ data: marker, sequence: null });
+                const chunk: PendingChunk = { data: marker, sequence: null };
+                if (this.historyLoaded) {
+                    this.remember(chunk);
+                    void this.enqueue(marker);
+                } else this.pending.push(chunk);
             }),
         );
     }
@@ -127,6 +147,26 @@ class SessionTerminal {
         return this.writeQueue;
     }
 
+    /**
+     * Holds a chunk that has been written to the grid in case a re-attach has
+     * to replay it, dropping the oldest once the buffer is over its cap.
+     */
+    private remember(chunk: PendingChunk): void {
+        this.recent.push(chunk);
+        this.recentBytes += chunk.data.length;
+        while (this.recentBytes > RECENT_LIMIT && this.recent.length > 1) {
+            const dropped = this.recent.shift();
+            if (dropped) this.recentBytes -= dropped.data.length;
+        }
+    }
+
+    private takeRecent(): PendingChunk[] {
+        const taken = this.recent;
+        this.recent = [];
+        this.recentBytes = 0;
+        return taken;
+    }
+
     /** Runs `action` in write order, once the parser has caught up. */
     private enqueueAction(action: () => void): Promise<void> {
         this.writeQueue = this.writeQueue.then(action);
@@ -155,7 +195,10 @@ class SessionTerminal {
         let savedKitty: (number | null)[] = [];
         if (this.historyLoaded) {
             this.historyLoaded = false;
-            this.pending = [];
+            // reset() is about to wipe the grid, so output that is already on it
+            // but may not be in the coming snapshot has to go back in the replay
+            // queue. finishLoad drops whatever the snapshot turns out to cover.
+            this.pending = this.takeRecent();
             // The reset goes through the write queue: output that was still
             // queued when the socket dropped has to be parsed before the clear,
             // or it lands on the fresh grid and the modes it carries are lost.
