@@ -279,6 +279,12 @@ class SessionTerminal {
         this.pending = [];
         for (const chunk of replay) {
             if (chunk.sequence === null || chunk.sequence > lastSequence) {
+                // A replayed chunk is on the grid but still outside every
+                // snapshot taken so far, exactly like a live one, so it has to
+                // be held back for the next re-attach too. Forgetting it here
+                // would lose it if the connection dropped again before the
+                // backend finished parsing the batch.
+                this.remember(chunk);
                 void this.enqueue(chunk.data);
             }
         }

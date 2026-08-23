@@ -341,6 +341,65 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
+    test("keeps replayed output available for a further re-attach", async () => {
+        // The backend's parse lag can outlast a single reconnect: if the second
+        // drop happens before it has parsed the batch, the next snapshot still
+        // excludes it, so the replay has to be held back again rather than
+        // written to the grid and forgotten.
+        const responses: Record<string, unknown> = {
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 4,
+                cursorHidden: false,
+                kittyStack: [],
+            },
+        };
+        const net = fakeNet(responses);
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "LIVE", sequence: 5 });
+        await settle();
+
+        responses[MSG.SESSION_SNAPSHOT] = {
+            snapshot: "PROMPT>",
+            lastSequence: 4,
+            cursorHidden: false,
+            kittyStack: [],
+        };
+        await term.attach();
+        await settle();
+        await term.attach();
+        await settle();
+        expect([0, 1, 2].map((y) => readRow(term, y)).join("")).toBe("PROMPT>LIVE");
+        term.dispose();
+    });
+
+    test("keeps the exit marker across repeated re-attaches", async () => {
+        // The marker is this client's own, so no snapshot ever contains it and
+        // nothing but the hold-back buffer can bring it back after a reset.
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "PROMPT>",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
+        await term.attach();
+        net.emit(MSG.SESSION_EXITED, { sessionId: "s1", exitCode: 0 });
+        await settle();
+
+        await term.attach();
+        await settle();
+        await term.attach();
+        await settle();
+        expect([0, 1, 2].map((y) => readRow(term, y)).join("")).toContain(
+            "[Process exited with code 0]",
+        );
+        term.dispose();
+    });
+
     test("bounds the output it holds back for a re-attach", async () => {
         // The hold-back buffer covers the backend's parse lag, not the whole
         // session, so it drops the oldest rather than growing without bound.
