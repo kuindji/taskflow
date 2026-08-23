@@ -31,7 +31,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 19.2 | Mouse — outer tracking on/off | clear | `3829f83` | commit `5345824`; round 1 fixed in `a7af6dd`; round 2 found nothing — clear after two rounds |
 | 19.3 | Mouse — layout hoist and hit testing | clear | `db844f4` | commit `ec39171`; round 1 found only test gaps, fixed in `10e7b0f`; round 2 found nothing — clear after two rounds |
 | 19.4 | Mouse — app wiring | clear | `4e89f26` | commit `adf7c5a`; round 1 found nothing — clear after round 1 |
-| 19.5 | Mouse — forward to the child | in-review round 1 | `1288c64` | commits `f377413`, `1a9179f`; round 1 found one substantiated defect, fixed — next step is review round 2 |
+| 19.5 | Mouse — forward to the child | in-review round 2 | `1288c64` | commits `f377413`, `1a9179f`, `08b23d8`; rounds 1 and 2 each found one substantiated defect, both fixed — next step is review round 3 |
 | 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
 | 21 | Bound the incomplete-CSI carry | pending | — | **added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
@@ -5608,14 +5608,78 @@ Verification at `1a9179f`: `bun run lint` clean, `bun run typecheck` clean acros
 packages, `bun test packages/tui` → 450 pass, 0 fail (449 → 450: one new test, one renamed
 and narrowed in place).
 
-Next step: review Task 19.5, round 2.
-One standard gpt-5.5 review via the codex-review skill over `1288c64..1a9179f`, restricted to
-`packages/tui`. Carry the same brief as round 1 — the seven deliberate decisions, the
-outbound X10 cap at zero-based 94, `?1003h` bare motion never being generated, extra buttons
-8-11 decoding as `"none"`, `?1016` being tracked only so reports can be dropped, a mouse
-report not draining `pendingEscape`, and the `sessions` element-access seam — and add round
-1's own two: the mouse encoding now deliberately survives `terminal.reset()` because nothing
-on either re-attach path can restore it, and the inert-pane consequence of a `?1016` child is
-known and accepted.
+## Task 19.5 — review round 2
+
+Base `1288c64` → HEAD `fead00e`, restricted to `packages/tui`. One standard gpt-5.5 review via
+the codex-review skill (Mode B — the brief carried round 1's seven deliberate decisions plus
+round 1's own two). Codex returned **one** finding, substantiated. Verified independently
+before fixing.
+
+### Substantiated — a child's full reset stranded the modes xterm does not expose
+
+**What a user would see.** Two symptoms, both after a child issues `ESC c` — which is what
+`reset` and `tput reset` send, and what some TUIs send on their way out.
+
+1. Run something that turns on the mouse (vim, htop, claude), quit it, run `reset`, then run an
+   older mouse app that asks for tracking without asking for SGR (`mc`, `less -X`, anything on
+   `?1000h` alone). Every click now types visible junk into it — `[<0;12;5M` — instead of
+   clicking.
+2. Run anything that hides the cursor, then `reset`. The cursor is back on the child's own
+   screen but stays invisible in the pane for the rest of the session.
+
+**Evidence.** Two regression tests in `packages/tui/src/term/session-terminal.test.ts`:
+`a child's full reset puts the mouse encoding back to legacy` (red on `fead00e`:
+`Expected: "x10" / Received: "sgr"`) and `a child's full reset shows the cursor again`
+(red on `fead00e`: `Expected: false / Received: true`). Both green on `08b23d8`. Run with
+`bun test packages/tui/src/term/session-terminal.test.ts`.
+
+**Mechanism.** `SessionTerminal` hand-tracks exactly two modes xterm.js does not expose —
+`mouseEncoding` (`IModes` has no member for `?1005`/`?1006`/`?1015`/`?1016`) and `hiddenCursor`
+(`IBuffer` has none for DECTCEM). Both were only ever written from the `CSI ? … h` / `CSI ? … l`
+handlers. RIS is neither, so xterm reset its own state — verified directly: after
+`\x1b[?1002h\x1b[?1006h\x1b[?25l\x1bc`, `terminal.modes.mouseTrackingMode` is `none`,
+`applicationCursorKeysMode` and `bracketedPasteMode` are `false`, and the grid's cursor is
+visible — while our two copies still read `sgr` and `hidden`.
+
+**Fix.** A `parser.registerEscHandler({ final: "c" })` that puts both back to their power-on
+values and returns `false`, so xterm still runs RIS itself. Deliberately an *RIS* hook and not
+a `terminal.reset()` hook: `attach()` calls that API directly, and round 1 established that the
+encoding must survive that one, because neither re-attach path can restore it. The two resets
+are different events and now behave differently on purpose.
+
+**Mutation-checked.** Dropping `this.mouseEncoding = "x10"` reddens the first test; dropping
+`this.hiddenCursor = false` reddens the second; returning `true` instead of `false` reddens the
+first test's `mouseTracking` assertions, which is why that test writes the RIS and the
+re-enable as two separate emissions rather than one string.
+
+**DECSTR checked and cleared.** `CSI ! p` leaves `mouseTrackingMode` at `drag` in xterm.js and
+does not touch the encoding — which matches DEC's soft reset, whose scope is DECCKM, DECOM,
+DECAWM and friends, not mouse tracking. No handler needed, and adding one would diverge from
+real terminals.
+
+**Codex found nothing else** — it explicitly cleared the outbound button/modifier/drag/wheel
+arithmetic, the SGR `M`/`m` split, the X10 transport cap, the `?1000`/`?1002`/`?1003` gating,
+the pane-local coordinate conversion, the sidebar/pane edge ownership, the child-grid bounds
+drop, and round 1's attach/reset encoding fix.
+
+**Independently checked and cleared, not raised.**
+- `?1016l` dropping the encoding to `x10` rather than back to a still-set `?1006` is what xterm
+  itself does: `set_mouse_extension()` keeps one `extend_coords` value and its disable path is
+  `if (extend_coords == mode) extend_coords = 0`.
+- A scrolled-back viewport does not shift the forwarded row. Confirmed against
+  `@xterm/headless` that `viewportY` stays behind `baseY` across new output, so a click in a
+  scrolled-back pane reaches the child as a viewport-relative row. That is also what xterm
+  does — `EditorButton` never adds `ydisp` — so the client is faithful, not wrong. Alt-screen
+  apps are unaffected anyway (`ybase` and `ydisp` are both 0 there).
+
+Verification at `08b23d8`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 452 pass, 0 fail (450 → 452: two new tests).
+
+Next step: review Task 19.5, round 3.
+One standard gpt-5.5 review via the codex-review skill over `1288c64..HEAD`, restricted to
+`packages/tui`. Carry the same brief as rounds 1 and 2 — the seven deliberate decisions, plus
+round 1's two (the encoding survives `terminal.reset()`; a `?1016` child's pane is inert) —
+and add round 2's: RIS resets the encoding and DECTCEM while `terminal.reset()` deliberately
+does not, and DECSTR deliberately touches neither.
 After 19.5 is clear: 19.6 (**user gate — manual smoke test**), then Tasks 16-18, then Tasks 20
 and 21 (each needs its own plan).
