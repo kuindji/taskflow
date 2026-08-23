@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | in-review round 8 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`; round 8 found 1 real defect, fixed; round 9 due |
+| 13 | Sidebar rendering | in-review round 9 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`; round 9 found 3 real defects + 2 test gaps, fixed; round 10 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -2926,25 +2926,108 @@ width and cursor edge cases.
   the prepend's width would under-reserve and let the row spill, the exact failure mode
   rounds 5-7 were about.
 
+- **Task 13, round 9** (gpt-5.5 via codex-review, Mode B over `e64f1f0..HEAD` scoped to the
+  four files, with rounds 1-8's settled rules given as do-not-relitigate and the round steered
+  at `sidebar.ts`/`buildRows`/test strength): codex reported **no blocking code findings** and
+  two non-blocking test weaknesses. Verifying the first of those uncovered a real defect in
+  `drawSidebar`, which then uncovered a second in `fitToWidth`. All fixed in `39d9e43`.
+  Run the repros with `bun test packages/tui/src/ui/sidebar.test.ts packages/tui/src/render/text.test.ts`.
+  - **Substantiated (found while verifying) — the indent starved the label.** `indent` was
+    kept whenever `prefix.length + badgeCols <= width`, which let it take every column the
+    label had left. Observable symptom: a task row showed *less* as the pane grew — traced
+    with a task labelled `A` and 12 sessions, width 4 drew `A 12` and width 5 drew `   12`;
+    a task labelled `Ab` with no badge drew `A` at width 1 and a blank row at width 2. Fixed
+    by ranking the indent below the label and dropping it whenever keeping it would leave the
+    label nothing to show. Regression tests: `drawSidebar > never spends the last column on
+    indentation instead of the label`, `> keeps a task label rather than a bare indent in a
+    two-column pane`.
+  - **Substantiated — the first fix was partial.** `prefix.length + badgeCols < width` still
+    starved a wide first glyph: one column survived the indent and `漢字` needs two, so width 3
+    drew `   ` where width 2 drew `漢`. Fixed by deciding the indent on whether the label
+    actually fits, not on a column count. Regression test: `drawSidebar > drops the indent when
+    the column it leaves cannot hold a wide glyph`.
+  - **Substantiated — `fitToWidth` spent a column on a cluster that renders blank.**
+    `layoutText` draws an unprintable cluster as a space, but `fitToWidth` counted it as a
+    column, so a non-empty fit result was not a promise that anything would show. A task
+    labelled `"\r\nA"` with one session drew `    1` at width 5 — the `A` displaced by the
+    blanked CRLF — while width 4 drew ` A 1`. Fixed by dropping unprintable clusters at fit
+    time, exactly as baseless ones already are. Regression tests: `fitToWidth > drops an
+    unprintable cluster instead of spending a column on it`, `drawSidebar > does not spend the
+    label's columns on a control character`.
+  - **Substantiated (codex, test-strength) — a dropped badge was asserted only as an absence.**
+    `drawSidebar > drops a badge that cannot fit` asserted `not.toContain("1")`, which a
+    mutation blanking the whole row also passes. Verified by applying that mutation: 21 pass /
+    0 fail. Strengthened to assert the row whole.
+  - **Substantiated (codex, test-strength) — project session counts were untested.** Mutating
+    `buildRows` to set project `sessionCount: 0` kept the suite green (21 pass / 0 fail), so
+    project rows could have lost their badge silently. Added `buildRows > carries the session
+    count on project rows too` and `drawSidebar > draws the session count badge on a project row`.
+  - The old round-4 test `drawSidebar > does not let a leading combining mark ride on the task
+    indentation` was written around width 4, where the indent plus badge left the label a
+    zero budget — a coincidence the fix removes. Rewritten at width 6 to assert the indent
+    cell directly, the same shape as its `Mc` sibling, so it now guards the invariant rather
+    than the arithmetic that happened to expose it.
+  - Probed independently here and found nothing further: no spill past `width` and every row
+    measuring exactly `width`, over 22 hostile labels x project/task x session counts
+    0/1/9/10/100/1000 x `width` 0..14 (0 failures); badge truthfulness over the same grid;
+    and "a label is never blanked while the pane has room for it" over 22 labels x 2 kinds x
+    4 counts x `width` 0..20, which is what caught the wide-glyph and control-character cases
+    above and is clean after the fix.
+  - Mutation-tested both suites before the fixes: 6 mutations of `sidebar.ts` (badge never
+    dropped, indent always kept, badge always shown, padding rows selectable, no task indent,
+    no bold) and 8 of `text.ts` (ignore U+FE0F, flags narrow, pre-round-8 first-code-point
+    base, baseless cluster kept, no unprintable blanking, `Mc`/`Cf` out of `NO_BASE`, wide
+    glyph allowed to straddle) — all 14 caught. The only gaps were the two codex named.
+
+- Validation at `39d9e43`: `bun run lint` exit 0, `bun run typecheck` exit 0 across all five
+  packages, `bun test` 1121 pass / 8 fail (1129 across 104 files, 72s). The eight are the same
+  pre-existing `MarkdownPaneImpl` cross-file isolation failures as every prior round, by name;
+  the pass count is up by exactly the seven new tests. Working tree clean apart from an
+  unrelated edit to `docs/superpowers/plans/2026-08-23-taskflow-multi-backend.md` that predates
+  this session.
+
+## Decisions taken (Task 13 round 9)
+
+- Precedence inside a sidebar row is badge > label > indent. The badge was already first
+  (round 6: a clipped count lies). The label now outranks the indent because the indent is
+  decoration and the label is the content — without that ordering a wider pane could show
+  less, which is the defect this round fixed.
+- The indent is decided by whether the label actually fits beside it, not by a column count.
+  `drawSidebar` fits the label both ways and keeps the indent only when the indented fit is
+  non-empty, or when the label would be empty either way. Two extra `fitToWidth` calls per row
+  is cheap next to a rule that cannot predict a wide first glyph.
+- `fitToWidth` now drops unprintable clusters; `layoutText` still blanks them. That is not a
+  contradiction: dropping at fit time keeps the fit result an honest promise of what will
+  show, and `layoutText`'s blanking stays as the safety net for callers that do not pre-fit,
+  which is what preserves its exactly-`cols` contract for arbitrary input.
+- A test-only weakness with no matching code defect would not by itself have justified a
+  round 10. It did not come to that: verifying the first weakness turned up real defects, so
+  round 10 is due on the ordinary rule that findings were fixed.
+
 ## Note on unrelated commits
 
 `9d89b0f` and `40da7b0` (a multi-backend implementation plan and a docs tweak) landed on
 `main` from outside this flow while round 8 was running. Both are docs-only and touch none
 of the four files under review, so the `e64f1f0..HEAD` scoping is unaffected. Task 13's base
-commit is still `e64f1f0`.
+commit is still `e64f1f0`. `bdc2bd0` (a revision of that same multi-backend plan) landed the
+same way during round 9 and sits under this round's two commits; it is docs-only and touches
+none of the four files under review, so the scoping still holds.
 
-Next step: Task 13 review round 9 — one gpt-5.5 review via the codex-review skill over
+Next step: Task 13 review round 10 — one gpt-5.5 review via the codex-review skill over
 `e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
-`packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-8 listed as already
-fixed. Give the reviewer the settled rules explicitly, now including round 8: width comes
-from `baseCodePoint`, the first code point in the cluster that is not `Mn`/`Me`/`Mc`/`Cf`,
-and a cluster with no such code point is dropped; `WIDE_RANGES` is Unicode 16.0 EAW `W`/`F`,
-verified sorted and complete; `graphemeWidth` widens any cluster containing U+FE0F or based
-on a regional indicator. A further width finding needs to name a cluster shape none of those
-rules cover. Steer the round away from `text.ts` width tables, which eight rounds have now
-worked over, and towards `sidebar.ts` itself, `buildRows`, and the strength of the two test
-files. Verify each finding independently — read codex's run log, not just its report; round
-7 showed the summary verdict can contradict the log, and round 8's real finding was visible
-in the log before the report existed. Fix the substantiated ones, validate with
-`bun run lint && bun run typecheck && bun test`, and commit. If the round comes back clean,
-mark Task 13 clear and move to Task 14 (session pane and tab strip).
+`packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-9 listed as already fixed.
+Round 9 changed the two things a reviewer should look hardest at, so point it there: the new
+indent decision in `drawSidebar` (`roomWithout`/`roomWith`/`fitsIndent`/`keepIndent`, and
+whether any input can still make the row spill past `width` or draw a clipped badge) and
+`fitToWidth` now dropping unprintable clusters (whether any caller depended on those columns
+existing — `layoutText` still blanks them, and nothing else in `packages/tui` calls
+`fitToWidth`; confirm that). Give the reviewer the settled width rules as before: width comes
+from `baseCodePoint`, the first code point in the cluster that is not `Mn`/`Me`/`Mc`/`Cf`, and
+a cluster with no such code point is dropped; `WIDE_RANGES` is Unicode 16.0 EAW `W`/`F`,
+verified sorted and complete; `graphemeWidth` widens any cluster containing U+FE0F or based on
+a regional indicator. Steer it away from the width tables, which nine rounds have worked over.
+Verify each finding independently — round 9's real defects came out of verifying a finding
+codex had filed as non-blocking test hygiene, so probe around a finding, not just at it. Fix
+the substantiated ones, validate with `bun run lint && bun run typecheck && bun test`, and
+commit. If the round comes back clean, mark Task 13 clear and move to Task 14 (session pane
+and tab strip).
