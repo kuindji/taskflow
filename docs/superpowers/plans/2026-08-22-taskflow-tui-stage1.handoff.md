@@ -28,7 +28,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
-| 19.2 | Mouse — outer tracking on/off | in-review round 1 | `3829f83` | commit `5345824`; round 1 found one substantiated issue, fixed in `a7af6dd`; review round 2 due |
+| 19.2 | Mouse — outer tracking on/off | clear | `3829f83` | commit `5345824`; round 1 fixed in `a7af6dd`; round 2 found nothing — clear after two rounds |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
 | 19.5 | Mouse — forward to the child | pending | — | `ChildModes.mouseTracking`/`mouseEncoding`, `encodeMouseForChild` |
@@ -5101,13 +5101,42 @@ Verification at `a7af6dd`: `bun run lint` clean, `bun run typecheck` clean acros
 packages, `bun test packages/tui` → 383 pass, 0 fail. Codex independently ran the same three
 and reported them clean.
 
-Next step: Task 19.2 review round 2.
-Findings were fixed this round, so 19.2 gets another round. Run one gpt-5.5 review via the
-codex-review skill over `3829f83..HEAD` restricted to `packages/tui`, verify every finding
-independently, fix the substantiated ones, validate with `bun run lint`, `bun run typecheck`
-and `bun test packages/tui`, and commit. Zero substantiated findings → 19.2 is clear and Task
-19.3 (`ui/layout.ts`, `tabSpans`, `routeMouse`) is next. Mention in the review prompt that the
-four Task 19.2 decisions are settled, that `leaveSequence` emitting `MOUSE_OFF` when `mouse`
-is false is deliberate, and that round 1's env-inheritance finding is already fixed.
-After 19.2: 19.3 - 19.6, then Tasks 16-18, then Tasks 20 and 21 (each needs its own plan;
+
+## Task 19.2, round 2
+
+**gpt-5.5 via codex-review, Mode B over `3829f83..HEAD`** (`packages/tui` only), with the four
+Task 19.2 decisions and round 1's env-inheritance fix called out as settled. Codex returned
+**zero findings** — verdict "Clear". It checked the mode numbers against xterm `ctlseqs`
+(`1000`, `1002`, `1003`, `1006` set/reset entries and button-event tracking), confirmed the
+enable set is covered by the disable set, and traced the legacy and kitty decoder paths to
+confirm that neither a complete nor a partial report can become a key event. It ran no tests
+(read-only sandbox), so all validation below is local.
+
+**Task 19.2 is clear.** No code changed this round; nothing to commit but this record.
+
+Independent verification done here rather than taken on trust:
+
+- **Both new negative assertions are red-able**, so neither passes vacuously.
+  - Making `MOUSE_ON` unconditional in `enterSequence` failed `mouse: false enables no tracking
+    at all` with `Expected to not contain: "ESC[?100"`, received
+    `ESC[?1049h ESC[?25l ESC[?1000h ESC[?1002h ESC[?1006h`.
+  - Dropping the `?1002l` reset from `MOUSE_OFF` failed the invariant test `everything the
+    enter sequence enables, the leave sequence disables` with
+    `Expected to contain: "ESC[?1002l"`.
+  - Command for both: `bun test packages/tui/src/term/tty.test.ts`. Tree restored after each.
+- **No construction site can drift.** `grep` for `new Tty(`, `enterSequence(`, `leaveSequence(`
+  across `packages/tui/src` finds one production site (`index.ts:151`) and the test literals,
+  every one passing `mouse` explicitly — the required-field decision holds with no hole.
+- **Re-read the carry path for leaks.** `isPartialMouseReport` recognizes both the `CSI M`
+  X10 header and the `CSI <` SGR head, and `flushCarry` drops a partial CSI rather than
+  emitting it, so a half-arrived report cannot reach the keymap by either route.
+
+Verification at `16d9aeb` (code unchanged since `a7af6dd`): `bun run lint` clean, `bun run
+typecheck` clean across all five packages, `bun test packages/tui` → 383 pass, 0 fail.
+
+Next step: Task 19.3.
+Task 19.2 is clear after two review rounds. Implement Task 19.3 as the plan specifies —
+`ui/layout.ts`, `tabSpans`, and `routeMouse` — recording current HEAD as its base commit in
+this handoff before starting. Then review round 1 for 19.3.
+After 19.3: 19.4 - 19.6, then Tasks 16-18, then Tasks 20 and 21 (each needs its own plan;
 20 touches `packages/backend` and `electron/`, 21 touches `packages/tui/src/input`).
