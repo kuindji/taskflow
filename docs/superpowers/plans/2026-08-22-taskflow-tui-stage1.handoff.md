@@ -16,7 +16,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
-| 9 | Session terminal — attach, resync and mode tracking | in-review round 3 (fixed, awaiting round 4) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`; round 3's two findings fixed |
+| 9 | Session terminal — attach, resync and mode tracking | in-review round 4 (fixed, awaiting round 5) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`; round 4's single finding fixed |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
@@ -1459,7 +1459,42 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   and verified by name; the pass count rose from 990 by the 3 new backend tests
   and 1 new TUI test. Working tree clean.
 
-Next step: Task 9 review round 4 — one gpt-5.5 review via the codex-review skill
+- **Task 9, round 4** (gpt-5.5 via codex-review, Mode A over `--base 4572b1f`;
+  the working tree was left untouched until the report landed, and the codex run
+  was backgrounded with the harness's own `run_in_background`): one finding,
+  substantiated, reproduced red and fixed in `e3c7c91`.
+
+  - **Substantiated — re-attach without a snapshot stacked a second copy of the
+    child's kitty push.** `packages/tui/src/term/session-terminal.ts`, the reset
+    branch of `attach()`. `terminal.reset()` clears xterm's own modes, but the
+    kitty stack is this client's own state and survived it. On the history
+    fallback path the raw scrollback still carries the child's original
+    `CSI > flags u`, so replaying it pushed a second copy on top of the
+    surviving stack: one child push, two client entries. The child's next
+    `CSI < u` then popped to the duplicate instead of leaving the protocol, and
+    the Task 8 encoder kept sending kitty-encoded keys to a child back on
+    legacy. Red repro (`Expected: null / Received: 5`):
+    `bun test ./packages/tui/src/term/session-terminal.test.ts -t "rebuilds the kitty stack from history"`.
+  - Fix: `savedKitty = this.kitty.toArray()` is captured in the reset action and
+    the stack is cleared alongside the reset, so the replay rebuilds it from the
+    child's own sequences. A new `recoverKittyStack(saved)` runs on the history
+    path only, after the history data has been parsed: if the stack came back
+    empty the saved one stands in. That keeps the round 3 rule intact — the
+    snapshot path is authoritative and nothing is replayed over it — while still
+    honouring the reason the DEC modes are replayed on the history path, that
+    trimmed scrollback may have lost the sequences that set them. History that
+    *does* carry the pushes rebuilds the stack itself and the saved copy is
+    never used.
+  - Note the DEC modes needed no such care: `\x1b[?1h` is idempotent, so
+    replaying it over history that also sets it is harmless. A kitty push is
+    not — that asymmetry is what the round 3 fix did not account for.
+
+- Validation at `e3c7c91`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 995 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged
+  and verified by name; the pass count rose from 994 by the one new TUI test.
+  Working tree clean.
+
+Next step: Task 9 review round 5 — one gpt-5.5 review via the codex-review skill
 over `--base 4572b1f`, leaving the working tree untouched until the report
-lands (see the round 2 process note). Zero substantiated findings means Task 9
-is clear and Task 10 is next.
+lands. Zero substantiated findings means Task 9 is clear and Task 10 is next.
