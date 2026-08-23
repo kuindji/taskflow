@@ -27,7 +27,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | implemented | `e00cd13` | commit `18ad1e9`; next is review round 1 |
+| 19.1 | Mouse — report decoding | in-review round 1 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`; next is review round 2 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
@@ -4256,11 +4256,50 @@ Base commit `e00cd13`, implemented in `18ad1e9`.
 Verification at `18ad1e9`: `bun test packages/tui` → 356 pass, 0 fail;
 `bun run lint` and `bun run typecheck` both clean across the workspace.
 
-Next step: review round 1 for Task 19.1.
-Run one gpt-5.5 review via the codex-review skill over `e00cd13..18ad1e9`
-(`packages/tui` only — the working tree also carries an unrelated uncommitted edit to
-`docs/superpowers/plans/2026-08-23-taskflow-multi-backend.md` that is not part of this
-task). Verify every finding independently before fixing it; a finding without a repro is
-not a finding. Zero substantiated findings → 19.1 is clear and 19.2 is next.
+## Task 19.1 — review round 1
+
+gpt-5.5 via the codex-review skill (Mode B, prompted) over `e00cd13..18ad1e9` restricted
+to `packages/tui`. Two findings, both reproduced independently. One fixed in `39299ff`,
+one verified but re-accepted as an already-recorded plan decision.
+
+- **Substantiated and fixed — an X10 extra button decoded as a release.** xterm encodes
+  mouse buttons 8-11 as `128 + (n - 8)`, so button 11 is `b = 131`, whose low two bits
+  are the X10 release value by coincidence. `parseX10Mouse` tested only
+  `(b & 3) === 3 && (b & 64) === 0`, so a *press* of that button reported
+  `action: "release"`. `buttonOf` already tested bit 128 before the low bits for exactly
+  this reason; the release test did not.
+  Regression test: `parseX10Mouse > an extra button is a press, not the release sentinel`
+  in `packages/tui/src/input/mouse.test.ts` — red on `18ad1e9`
+  (`Expected: "press" / Received: "release"`), green on `39299ff`.
+  Run with `bun test packages/tui/src/input/mouse.test.ts`.
+
+- **Verified but not a defect — X10 payload bytes are parsed after UTF-8 decoding.**
+  Real, and reproduced both ways: `1b 5b 4d 20 c8 21` yields one report at
+  `col: 65500` (U+FFFD's code unit minus the 32 bias), and `1b 5b 4d 20 c2 a0 71`
+  yields a report at `col: 127, row: 80` with the trailing `q` keystroke eaten as the
+  third payload byte. This is the limitation the mouse plan already records and accepts
+  under "Known limitation" in Task 19.1's Step 2; the fix Codex proposed — carrying raw
+  bytes through the CSI scan — is a change to the whole input pipeline and is what the
+  plan explicitly declined. No code change. The plan's paragraph was extended with both
+  measured outputs and with why a partial `charCodeAt <= 127` guard is worse than
+  nothing, so round 2 does not derive this a third time.
+
+Verification at `39299ff`: `bun run lint` clean, `bun run typecheck` clean across all
+five packages, `bun test packages/tui` → 357 pass, 0 fail.
+
+## Decisions taken (Task 19.1, round 1)
+
+- **`parseX10Mouse` stays a faithful X10 decoder.** No payload-byte guard was added for
+  the UTF-8 problem. A guard would drop the garbage coordinate but still lose the
+  swallowed keystroke, and 19.5 needs the same bit semantics for the outbound direction,
+  so a transport-shaped restriction does not belong in the parser.
+
+Next step: review round 2 for Task 19.1.
+Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD` (`packages/tui`
+only; `docs/` in that range is plan bookkeeping and is out of scope). Round 1's two
+findings are settled — do not re-litigate the UTF-8 one, it is recorded as accepted in
+both the plan and above. Verify every new finding independently before fixing it; a
+finding without a repro is not a finding. Zero substantiated findings → 19.1 is clear
+and 19.2 is next.
 After 19.1: 19.2 – 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
 touches `packages/backend` and `electron/`, not `packages/tui`).
