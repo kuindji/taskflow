@@ -2233,8 +2233,21 @@ function scanHostKey(record: BackendRecord): Promise<string> {
  * rotated keys between the two gets its new key pinned under the fingerprint
  * the user read. Keeping the material in main also keeps it off the IPC
  * channel, so the renderer never handles key bytes and the bridge is unchanged.
+ *
+ * The endpoint is stored beside the material, not just the id. An id is not a
+ * stable address: for a discovered record `host` follows the beacon, so DHCP
+ * moving the machine between the fingerprint and the approval would have
+ * `trustHostKey` write the key it scanned from the old address under the new
+ * address's `known_hosts` line. `forgetScannedHostKey` covers the edit and
+ * remove paths (see `updateBackend`) but discovery does not go through them.
  */
-const scannedHostKeys = new Map<string, string>();
+interface ScannedHostKey {
+    material: string;
+    host: string;
+    sshPort: number;
+}
+
+const scannedHostKeys = new Map<string, ScannedHostKey>();
 
 /** Called by the registry when a record is edited or removed. See `updateBackend`. */
 function forgetScannedHostKey(id: string): void {
@@ -2250,7 +2263,11 @@ async function fetchHostKeyFingerprint(record: BackendRecord): Promise<string> {
         const child = execFile("ssh-keygen", ["-lf", "-"], (_e, stdout) => resolve(stdout));
         child.stdin?.end(keyMaterial);
     });
-    scannedHostKeys.set(record.id, keyMaterial);
+    scannedHostKeys.set(record.id, {
+        material: keyMaterial,
+        host: record.host,
+        sshPort: record.sshPort,
+    });
     return fingerprint.trim();
 }
 
@@ -2265,10 +2282,18 @@ async function fetchHostKeyFingerprint(record: BackendRecord): Promise<string> {
  * entitled to pin.
  */
 async function trustHostKey(record: BackendRecord): Promise<void> {
-    const keyMaterial = scannedHostKeys.get(record.id);
-    if (keyMaterial === undefined) {
+    const scanned = scannedHostKeys.get(record.id);
+    if (scanned === undefined) {
         throw new Error("Re-check this host's fingerprint before trusting it.");
     }
+    // The record moved under the dialog. Pinning now would write the key
+    // scanned from the old endpoint against the new one, which is the one thing
+    // trust-on-first-use must never do. Make them look again.
+    if (scanned.host !== record.host || scanned.sshPort !== record.sshPort) {
+        scannedHostKeys.delete(record.id);
+        throw new Error("That backend's address changed. Re-check its fingerprint before trusting it.");
+    }
+    const keyMaterial = scanned.material;
     scannedHostKeys.delete(record.id);
 
     const sshDir = join(homedir(), ".ssh");
@@ -2326,7 +2351,7 @@ git commit -m "feat(electron): supervise ssh tunnels with a backend readiness pr
 
 **Interfaces:**
 - Consumes: Tasks 4, 5, 6.
-- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<void>`, `removeBackend(id): Promise<{ ok: boolean; reason?: string }>`, `trustBackendHost(id): Promise<void>` (rejects unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void`.
+- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<void>`, `removeBackend(id): Promise<{ ok: boolean; reason?: string }>`, `revertActiveBackend(): Promise<void>`, `trustBackendHost(id): Promise<void>` (rejects unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void`.
 
 - [ ] **Step 1: Write the registry**
 
@@ -2373,6 +2398,8 @@ let activeOrigin: string | null = null;
 let lastUsedId = LOCAL_ID;
 /** The backend being switched away from, retired once the renderer promotes. */
 let previousId = LOCAL_ID;
+/** Its origin, kept so `revertActiveBackend` can put main back exactly. */
+let previousOrigin: string | null = null;
 /**
  * The id `activateBackend` most recently opened a tunnel for and that nothing
  * has promoted or cancelled yet. `cancelActivation` keys off this rather than
@@ -2584,9 +2611,38 @@ async function setActive(id: string, origin: string): Promise<void> {
     // to kill the tunnel the renderer is about to promote.
     pendingActivationId = null;
     previousId = activeId;
+    previousOrigin = activeOrigin;
     activeId = id;
     lastUsedId = id;
     activeOrigin = id === LOCAL_ID ? null : origin;
+    await persist();
+    deps.onChanged();
+}
+
+/**
+ * Undoes `setActive` when the renderer could not promote after all — the
+ * pending socket died between the handshake and `promoteConnection`. Main
+ * commits before the renderer promotes on purpose (see `setActive`), so this is
+ * the other half of that bargain: without it main reports a backend the
+ * renderer is not talking to, and `retirePreviousTunnel` would close the tunnel
+ * that is still carrying traffic.
+ *
+ * Closing the reverted-from tunnel is part of the revert, not a separate step:
+ * `pendingActivationId` was cleared by `setActive`, so `cancelActivation` can
+ * no longer reach it and it would otherwise live until the app quits.
+ */
+async function revertActiveBackend(): Promise<void> {
+    const abandoned = activeId;
+    activeId = previousId;
+    activeOrigin = previousOrigin;
+    lastUsedId = previousId;
+    if (abandoned !== LOCAL_ID && abandoned !== previousId) {
+        try {
+            closeTunnel(abandoned);
+        } catch (error) {
+            console.error("Failed to close a reverted activation's tunnel:", error);
+        }
+    }
     await persist();
     deps.onChanged();
 }
@@ -2762,6 +2818,7 @@ export {
     initBackendRegistry,
     markTunnelDropped,
     retirePreviousTunnel,
+    revertActiveBackend,
     setActive,
     isLocalActive,
     listBackends,
@@ -2798,6 +2855,8 @@ In `electron/src/ipc-handlers.ts`, add near the existing `get-backend-port` hand
     ipcMain.handle("backend-retire-previous", () => {
         retirePreviousTunnel();
     });
+
+    ipcMain.handle("backend-revert-active", () => revertActiveBackend());
 
     ipcMain.handle("backend-cancel-activation", (_event, id: string) => {
         cancelActivation(id);
@@ -2856,6 +2915,7 @@ In `electron/src/preload.ts`, inside `contextBridge.exposeInMainWorld("taskflow"
     setActiveBackend: (id: string, origin: string) =>
         ipcRenderer.invoke("backend-set-active", id, origin),
     retirePreviousTunnel: () => ipcRenderer.invoke("backend-retire-previous"),
+    revertActiveBackend: () => ipcRenderer.invoke("backend-revert-active"),
     cancelActivation: (id: string) => ipcRenderer.invoke("backend-cancel-activation", id),
     addBackend: (input: { host: string; user?: string; sshPort?: number; port?: number }) =>
         ipcRenderer.invoke("backend-add", input),
@@ -2895,6 +2955,7 @@ In `packages/ui/src/env.d.ts`, add to `interface TaskflowBridge`:
     ): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>;
     setActiveBackend(id: string, origin: string): Promise<void>;
     retirePreviousTunnel(): Promise<void>;
+    revertActiveBackend(): Promise<void>;
     cancelActivation(id: string): Promise<void>;
     addBackend(input: {
         host: string;
@@ -3014,7 +3075,7 @@ The module today is a set of globals with one socket. Opening the new socket bef
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `connectTo(origin: string): Promise<void>` (opens a *pending* socket, does not promote), `promoteConnection(): void`, `abortPending(): void`, `getBackendOrigin(): string | null`, `BACKEND_SWITCHED` error message constant. The reconnect backoff defers while a socket is pending, so it never cancels a switch. `sendRequest`, `sendFireAndForget`, `onEvent`, `onStatusChange` keep their signatures.
+- Produces: `connectTo(origin: string): Promise<void>` (opens a *pending* socket, does not promote), `promoteConnection(): boolean` (false when there is no open pending socket — the caller must treat that as a failed switch), `abortPending(): void`, `getBackendOrigin(): string | null`, `BACKEND_SWITCHED` error message constant. The reconnect backoff defers while a socket is pending, so it never cancels a switch. `sendRequest`, `sendFireAndForget`, `onEvent`, `onStatusChange` keep their signatures.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3277,6 +3338,46 @@ describe("switching connections", () => {
         expect(getBackendOrigin()).toBe(b.origin);
     });
 
+    test("promotion refuses a pending socket that died after the handshake", async () => {
+        // The window between the compatibility handshake and `promoteConnection`
+        // holds two awaits in `switchTo`, and ssh can exit inside it. A `void`
+        // promote returned silently here and the caller carried on resetting
+        // state for a backend it was not connected to.
+        const a = track(startServer());
+        const b = track(startServer());
+
+        await connectTo(a.origin);
+        expect(promoteConnection()).toBe(true);
+
+        await connectTo(b.origin);
+        await expect(sendRequest("system:info", {}, { usePending: true })).resolves.toBeDefined();
+        b.stop();
+        await Bun.sleep(100);
+
+        expect(promoteConnection()).toBe(false);
+        // And the live connection is untouched: the caller can report a failed
+        // switch and leave the user where they were.
+        expect(getBackendOrigin()).toBe(a.origin);
+    });
+
+    test("an error on the live socket does not reject a switch in flight", async () => {
+        // `pendingSettle` is a module global. Without an identity guard in
+        // `onerror`, the old backend dropping mid-switch settles the *new*
+        // socket's `connectTo` promise, and a switch to a backend that was
+        // answering fine fails with "WebSocket connection error".
+        const a = track(startServer());
+        const b = track(startServer());
+
+        await connectTo(a.origin);
+        promoteConnection();
+
+        const connecting = connectTo(b.origin);
+        a.stop(); // the live backend dies while B's socket is still opening
+        await expect(connecting).resolves.toBeUndefined();
+        expect(promoteConnection()).toBe(true);
+        expect(getBackendOrigin()).toBe(b.origin);
+    });
+
     test("a superseded socket closing does not report the app as disconnected", async () => {
         const a = track(startServer());
         const b = track(startServer());
@@ -3383,7 +3484,13 @@ function scheduleReconnect(): void {
             return;
         }
         void connectTo(origin)
-            .then(() => promoteConnection())
+            .then(() => {
+                // The socket can open and then die before this line. Promotion
+                // returns false there, and treating that as success would leave
+                // `current` on the dead connection with no timer armed — the
+                // backoff would have fired exactly once and stopped.
+                if (!promoteConnection()) scheduleReconnect();
+            })
             .catch(() => {
                 // A failed reconnect must schedule the next one. Without this the
                 // backoff fires exactly once and the app never recovers on its own.
@@ -3469,11 +3576,16 @@ function attachHandlers(connection: Connection): void {
  * connection until the caller promotes this one.
  */
 function connectTo(origin: string): Promise<void> {
+    // `abortPending` first, *then* clear the timer. `abortPending` re-arms the
+    // reconnect when the live connection is down, and this call is exactly the
+    // case where that re-arm is not wanted — we are connecting right now. Doing
+    // it the other way round leaves a stray timer that fires mid-connect and,
+    // finding `pending` set, just reschedules itself forever.
+    abortPending();
     if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
     }
-    abortPending();
 
     return new Promise((resolve, reject) => {
         const connection: Connection = {
@@ -3489,27 +3601,51 @@ function connectTo(origin: string): Promise<void> {
             resolve();
         };
         connection.socket.onerror = () => {
-            // Only meaningful before the socket opens, which is why it is gated
-            // on `pendingSettle` rather than on `pending` alone. A browser fires
-            // `error` then `close` on an abnormal close, so an error *after*
-            // open — ssh dying mid-handshake is the case that matters — would
-            // otherwise clear `pending` here and leave the `close` handler
-            // below unable to recognise the socket as either current or
-            // pending. It would return without rejecting anything, and the
-            // handshake request sitting on that socket would hang for the full
+            // Two guards, and both are load-bearing.
+            //
+            // `pending !== connection` is identity: `pendingSettle` is a module
+            // global, so an error on some *other* socket would otherwise settle
+            // and clear the slot belonging to this one. The reachable case is
+            // the live backend dropping while a switch is mid-flight — A's
+            // socket errors, A's `onerror` closure sees a non-null
+            // `pendingSettle` that belongs to B, and rejects B's `connectTo`.
+            // The switch fails with "WebSocket connection error" against a
+            // backend that was answering fine.
+            //
+            // `pendingSettle === null` is phase: an error *after* open — ssh
+            // dying mid-handshake — must fall through to `onclose`, which
+            // rejects the generation immediately. Clearing `pending` here
+            // instead would leave `onclose` unable to recognise the socket as
+            // either current or pending; it would return without rejecting
+            // anything, and the handshake request would hang for the full
             // 30-second `sendRequest` timeout with `switching` still set.
-            // Leaving it to `onclose` rejects the generation immediately.
-            if (pendingSettle === null) return;
-            if (pending === connection) pending = null;
+            if (pending !== connection || pendingSettle === null) return;
+            pending = null;
             pendingSettle = null;
             reject(new Error("WebSocket connection error"));
         };
     });
 }
 
-/** Installs the pending socket and retires the previous one. */
-function promoteConnection(): void {
-    if (!pending) return;
+/**
+ * Installs the pending socket and retires the previous one. Returns false when
+ * there is nothing promotable, which the caller **must** treat as a failed
+ * switch.
+ *
+ * The return value is the whole point. A pending socket can die between the
+ * compatibility handshake and this call — `switchTo` awaits `unwatchAll` and an
+ * IPC round trip in between, and ssh exiting is the realistic cause. `onclose`
+ * clears `pending` when that happens, and nothing is awaiting it, so a `void`
+ * version of this function returned silently and the caller carried on:
+ * `resetAllState`, the generation bump, main already told that B is active —
+ * with `current` still pointing at A. Every request would keep going to A while
+ * the app said B, and `retirePreviousTunnel` would then close A's tunnel, the
+ * one actually in use. The `readyState` check is part of it: `onclose` fires a
+ * task later than the socket entering CLOSING, so `pending` being non-null is
+ * not proof it is usable.
+ */
+function promoteConnection(): boolean {
+    if (!pending || pending.socket.readyState !== WebSocket.OPEN) return false;
     // A reconnect may have been armed while the handshake ran: the old backend
     // can drop mid-switch. Left alone, that timer would later reconnect to the
     // backend we just left and silently promote it, putting the renderer on one
@@ -3527,6 +3663,11 @@ function promoteConnection(): void {
         rejectGeneration(previous.generation, BACKEND_SWITCHED);
         previous.socket.onclose = null;
         previous.socket.onmessage = null;
+        // `onerror` too, not just the other two. A close often fires `error`
+        // first, and the retired socket's `onerror` closure reads the
+        // *module-level* `pendingSettle` — which by then belongs to whatever
+        // `connectTo` is running next. See the identity guard in `connectTo`.
+        previous.socket.onerror = null;
         previous.socket.close();
     }
 
@@ -3534,6 +3675,7 @@ function promoteConnection(): void {
     connected = true;
     reconnecting = false;
     notifyStatus();
+    return true;
 }
 
 /**
@@ -3555,6 +3697,17 @@ function abortPending(): void {
     socket.close();
     rejectGeneration(generation, BACKEND_SWITCHED);
     settle?.reject(new Error(BACKEND_SWITCHED));
+
+    // `connectTo` cancelled the reconnect backoff on its way in, and if the
+    // attempt it cancelled it for is now being thrown away, nothing else will
+    // ever arm it again. The reachable path: a remote backend's tunnel drops,
+    // `onclose` arms the backoff, the user presses **Reconnect**, the handshake
+    // fails — and from then on the app sits at "Reconnecting…" with no timer
+    // pending and no automatic recovery, because `reconnecting` was left true
+    // by the arm that got cancelled. Only re-arm when the live connection is
+    // actually down; after a failed *switch* away from a healthy backend there
+    // is nothing to reconnect to.
+    if (current && current.socket.readyState !== WebSocket.OPEN) scheduleReconnect();
 }
 ```
 
@@ -3656,7 +3809,9 @@ In `packages/ui/src/providers/WebSocketProvider.tsx`, replace the body of `conne
                     origin = `ws://localhost:${parseInt(rawPort, 10)}`;
                 }
                 await connectTo(origin);
-                promoteConnection();
+                if (!promoteConnection()) {
+                    throw new Error("The backend closed the connection before it was ready");
+                }
                 initConnectivity();
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Connection failed");
@@ -3668,12 +3823,39 @@ Update its imports to `connectTo, promoteConnection, onStatusChange`.
 
 - [ ] **Step 5: Fix the three test files that stub `getBackendPort`**
 
-`packages/ui/src/stores/wiki-store.test.ts:21`, `packages/ui/src/components/panes/MarkdownPaneImpl.anchors.test.tsx:33` and `MarkdownPaneImpl.checkbox.test.tsx:55` stub `getBackendPort: () => 7100`. Change each to `getBackendOrigin: () => "ws://localhost:7100"`.
+`packages/ui/src/stores/wiki-store.test.ts:21`, `packages/ui/src/components/panes/MarkdownPaneImpl.anchors.test.tsx:33` and `MarkdownPaneImpl.checkbox.test.tsx:55` stub `getBackendPort: () => 7100`. Change each to `getBackendOrigin: () => "ws://localhost:7100"`, and drop the now-dead `connectWebSocket` stub next to it (`wiki-store.test.ts:23`, `:37`, `:59`).
+
+Add `BACKEND_SWITCHED: "Backend switched"` to all three while you are there.
+These are `mock.module("@/hooks/useWebSocket", …)` calls, which replace the
+module **wholesale** — a key the factory does not return is `undefined` in the
+importer, not a build error. Task 9's Step 5c has `wiki-store.ts` compare
+`err.message === BACKEND_SWITCHED`, so with the current factory that comparison
+is `=== undefined`: it is always false, the guard never fires, and it fails
+silently. The regression Step 5c exists to prevent would be reintroducible
+without a single test going red.
+
+Duplicating the literal is deliberate — importing the real constant into a file
+that mocks the module it comes from is the circularity these factories exist to
+avoid. If the two ever drift, the `wiki-store` test for the guard is what
+catches it, so write that test:
+
+```ts
+test("a request cancelled by a backend switch does not write an error", async () => {
+    // Same shape as production: `promoteConnection` rejects the old
+    // generation with this exact message, and the reset has already run.
+    response = Promise.reject(new Error("Backend switched"));
+    await useWikiStore.getState().loadIndex("/w");
+    expect(useWikiStore.getState().errorByRoot["/w"]).toBeUndefined();
+});
+```
+
+Adjust it to however that file drives `sendRequest` — the assertion is the
+point, not the plumbing.
 
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `bun test packages/ui`
-Expected: PASS, including the nine new connection tests.
+Expected: PASS, including the twelve new connection tests.
 
 - [ ] **Step 7: Commit**
 
@@ -4470,7 +4652,23 @@ const useBackendStore = create<BackendStore>((set, get) => ({
             // by aborting the pending socket, and nothing after promotion is.
             await bridge.setActiveBackend(id, activation.origin);
 
-            promoteConnection();
+            if (!promoteConnection()) {
+                // The pending socket died between the handshake and here — ssh
+                // exiting is the realistic cause, and there are two awaits in
+                // that window. Nothing was waiting on it, so this is the only
+                // place that can notice. Falling through would reset the stores
+                // and bump the generation with `current` still pointing at the
+                // *old* backend: the app would say it was on the new one, every
+                // request would go to the old one, and `retirePreviousTunnel`
+                // would then kill the tunnel actually in use.
+                //
+                // Main was told first, so main has to be put back. `revert`
+                // restores the previous id and origin and closes the tunnel it
+                // is reverting from — the ordering comment above is about what
+                // is rollback-able, and this is the rollback.
+                await bridge.revertActiveBackend().catch(() => {});
+                throw new Error("That backend's connection dropped before the switch completed.");
+            }
             resetAllState();
             // Bumping the generation in the SAME synchronous block as the reset
             // is not cosmetic. Every `await` between them yields to the event
@@ -5295,7 +5493,9 @@ Everything that assumes the backend's filesystem is this machine's.
 - Modify: `packages/ui/src/components/settings/SettingsModal.tsx:150`
 - Modify: `packages/ui/src/components/appearance/ImportTab.tsx:28`
 - Modify: `packages/ui/src/components/flows/FlowInputDialog.tsx:34`
-- Modify: `packages/ui/src/components/panels/FileContextMenu.tsx:107`
+- Modify: `packages/ui/src/components/panels/FileContextMenu.tsx:107,138-192`
+- Modify: `packages/ui/src/components/panels/WikiPanel.tsx:113,118`
+- Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx:278-285`
 - Modify: `packages/ui/src/components/panes/terminal/terminal-links.ts:64-72`
 - Modify: `packages/ui/src/components/panes/terminal/terminal-link-provider.ts:243-245`
 - Modify: `packages/ui/src/components/panes/TerminalPane.tsx:457-486`
@@ -5359,13 +5559,41 @@ Expected: PASS
 
 - [ ] **Step 5: Gate the picker sites**
 
-In each of `NewProjectDialog.tsx`, `MissingLocationDialog.tsx`, `SettingsModal.tsx`, `ImportTab.tsx` and `FlowInputDialog.tsx`, add `const isLocal = useBackendIsLocal();` and set `disabled={!isLocal}` plus `tooltip={isLocal ? undefined : "Only available on the machine running this backend"}` on the browse button. In `NewProjectDialog.tsx:24`, change the existing capability check:
+In each of `MissingLocationDialog.tsx`, `SettingsModal.tsx`, `ImportTab.tsx` and `FlowInputDialog.tsx`, add `const isLocal = useBackendIsLocal();` and set `disabled={!isLocal}` plus `tooltip={isLocal ? undefined : "Only available on the machine running this backend"}` on the browse button.
+
+`NewProjectDialog.tsx` needs more than that, and folding it into
+`hasElectronPicker` would make things **worse**. `hasElectronPicker` is a
+branch, not a gate (`NewProjectDialog.tsx:70`): when it is false the dialog
+renders a plain `<Input>` for a hand-typed path (`:81`), and Submit is only
+`disabled={!canSubmit}`, where `canSubmit` is `path.trim() !== ""` (`:38,99`).
+So making `hasElectronPicker` false on a remote backend *removes the browse
+button and reveals the manual text field* — the user types a path, presses
+Create, and a project is created on the remote backend. Task 14's Step 5
+explicitly expects "Add project is disabled".
+
+Gate the dialog itself, and leave `hasElectronPicker` alone:
 
 ```ts
     const isLocal = useBackendIsLocal();
-    const hasElectronPicker =
-        isLocal && typeof window.taskflow?.selectProjectDirectory === "function";
+    const canSubmit = isLocal && path.trim() !== "";
 ```
+
+and render the reason in place of the form when `!isLocal`, so the button is
+not just inert:
+
+```tsx
+    {!isLocal && (
+        <p className="text-muted-foreground text-xs">
+            Projects can only be added on the machine running this backend.
+        </p>
+    )}
+```
+
+Gate the entry point too, so the dialog is not reachable at all:
+`TaskSidebar.tsx:278-285` renders the "New project" `Button` that calls
+`handleOpenProjectDialog`. Add `disabled={!isLocal}` and the same tooltip. Both,
+not one: the sidebar button is what Task 14 checks, and the dialog guard is what
+holds if any other caller opens it.
 
 - [ ] **Step 6: Gate the reveal sites — and only those**
 
@@ -5416,6 +5644,32 @@ and the same `disabled={!isLocal}` on the "Reveal in Finder" item.
 
 "Open in Terminal" is deliberately not gated: it creates a session on the
 backend, like `runInShell` below, and works fine remotely.
+
+`packages/ui/src/components/panels/WikiPanel.tsx` has the same two affordances
+under a different menu, and it is the one the file-tree sweep misses because it
+does not go through `useFileStore.openExternal`. Its wiki-root dropdown offers:
+
+- **Open in Obsidian** (`:113`) → `openInObsidian(root)`
+  (`packages/ui/src/lib/wiki/open-in-obsidian.ts:10`), which fires an
+  `obsidian://open?path=…` URL at *this* machine's Obsidian with the backend's
+  absolute path. Against a remote backend that either opens nothing or opens a
+  same-named local vault — the wrong notes, silently.
+- **Reveal in Finder** (`:118`) → `useFileStore.getState().revealInFinder(root)`,
+  the same client-side reveal `FileContextMenu` gates.
+
+Gate both on `useBackendIsLocal()`. This one is Radix-only — `WikiPanel` has no
+`supportsNativeMenus` branch — so a single `disabled` on each item is the whole
+fix:
+
+```tsx
+    const isLocal = useBackendIsLocal();
+// ...
+    <DropdownMenuItem
+        disabled={!isLocal || obsidian.vault !== "registered"}
+        title={isLocal ? undefined : "Only available on the machine running this backend"}
+```
+
+"New page" stays enabled: it writes through the backend.
 
 **Do not gate `runInShell`.** `packages/ui/src/lib/run-in-shell.ts:27-45` asks the
 active backend for its shells over the WebSocket and creates a backend session;
@@ -5760,6 +6014,14 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
 - Open the backend menu and click somewhere else in the app. Expected: it
   closes. A menu that stays open means it was hand-rolled as a `<div>` instead
   of going through the two branches Step 1 asks for.
+- On a remote backend, open the wiki root's menu. Expected: "Open in Obsidian"
+  and "Reveal in Finder" are greyed out, "New page" is not.
+- Connect to machine B, then start a switch and kill B's `ssh` child from a
+  terminal (`pkill -f "ssh -N -L"`) while the switch is running. Expected: an
+  error banner, and the app is still on the backend it started from —
+  `pgrep -fl "ssh -N -L"` shows no child for B. If the app claims it is on B
+  while showing the previous backend's projects, `promoteConnection`'s return
+  value is being ignored.
 - Quit, add `"hostSource"` and `"manualPort"` by hand to a record in
   `backends.json`, delete both again, and relaunch. Expected: the backend still
   connects. `Bad local forwarding specification` in the failure banner means
