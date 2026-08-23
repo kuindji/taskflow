@@ -438,6 +438,15 @@ export interface BackendRecord {
     /** SSH login user. Defaults to the local username at add time. */
     user: string;
     sshPort: number;
+    /**
+     * A backend port the user typed into the connect dialog. Authoritative and
+     * never overwritten — the spec makes leaving the field blank the trigger
+     * for port-file resolution, so a filled-in field means "do not resolve"
+     * (`specs/2026-08-23-taskflow-multi-backend-design.md:534-536`). Kept apart
+     * from `lastKnownPort` because the two have opposite trust levels and
+     * merging them makes an override indistinguishable from a stale cache.
+     */
+    manualPort: number | null;
     /** The backend's own port, refreshed from the beacon. Null until first resolved. */
     lastKnownPort: number | null;
     addedAt: string;
@@ -1250,6 +1259,7 @@ const saved: BackendRecord = {
     displayName: "desktop",
     user: "kuindji",
     sshPort: 22,
+    manualPort: null,
     lastKnownPort: 54892,
     addedAt: "2026-08-23T00:00:00.000Z",
 };
@@ -1340,6 +1350,17 @@ describe("mergeForMenu", () => {
         expect(entries.map((e) => e.kind)).toEqual(["local", "unseen"]);
     });
 
+    test("a manual port survives the beacon refreshing the record", () => {
+        // `manualPort` is an instruction, not a cache. The menu refresh rewrites
+        // `lastKnownPort` from every announce, and a spread that dropped
+        // `manualPort` on the way through would silently turn the user's
+        // override back into port-file resolution on the next connect.
+        const pinned = { ...saved, manualPort: 51000, lastKnownPort: null };
+        const entries = mergeForMenu([pinned], [discovered], 1_500, [], "kuindji");
+        expect(recordAt(entries, 1).manualPort).toBe(51000);
+        expect(recordAt(entries, 1).lastKnownPort).toBe(54892);
+    });
+
     test("this machine's own beacon is not listed as a remote backend", () => {
         // Every backend hears its own multicast, so without the address filter
         // the local backend shows up twice.
@@ -1376,6 +1397,8 @@ function recordFromDiscovered(
         displayName: discovered.displayName,
         user,
         sshPort: 22,
+        // Discovery is the opposite of a manual entry: nothing was typed.
+        manualPort: null,
         lastKnownPort: discovered.port,
         addedAt,
     };
@@ -1479,7 +1502,7 @@ export { matchesDiscovered, mergeForMenu, recordFromDiscovered, removeRecord, up
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `bun test electron/src/backend-records.test.ts`
-Expected: PASS, 13 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -1526,6 +1549,7 @@ const record: BackendRecord = {
     displayName: "desktop",
     user: "kuindji",
     sshPort: 22,
+    manualPort: null,
     lastKnownPort: 54892,
     addedAt: "2026-08-23T00:00:00.000Z",
 };
@@ -2177,6 +2201,13 @@ let activeOrigin: string | null = null;
 let lastUsedId = LOCAL_ID;
 /** The backend being switched away from, retired once the renderer promotes. */
 let previousId = LOCAL_ID;
+/**
+ * The id `activateBackend` most recently opened a tunnel for and that nothing
+ * has promoted or cancelled yet. `cancelActivation` keys off this rather than
+ * off "is it the active one", because those two came apart the moment a dropped
+ * backend could be re-activated under its own id.
+ */
+let pendingActivationId: string | null = null;
 
 function storePath(): string {
     return join(app.getPath("userData"), "backends.json");
@@ -2288,17 +2319,22 @@ function findRecord(id: string): BackendRecord | null {
  * backend, whose port file lives under %APPDATA% where `readRemotePort` cannot
  * reach it, and against a host with no usable ssh for a plain `cat`.
  *
- * One thing this ordering assumes: the "Backend port" a user can type into the
- * connect dialog also lands in `lastKnownPort`, and is now outranked by the
- * port file. That is safe *only* because the dialog cannot set `instanceId`, so
- * a typed port and `${instanceId}.port` always describe the same instance and
- * the file is the fresher of the two. If the connect dialog ever grows an
- * instance field, a typed port stops being a cache and becomes an override, and
- * it needs its own field on `BackendRecord` that is consulted before the beacon.
+ * `manualPort` sits in front of all three and short-circuits them. The spec
+ * makes leaving the dialog's port field blank the trigger for port-file
+ * resolution (`specs/2026-08-23-taskflow-multi-backend-design.md:534-536`), so
+ * a filled-in field is an instruction not to resolve. It is also the field a
+ * user reaches for precisely when resolution does not work for them — a Windows
+ * backend whose port file is under %APPDATA%, an ssh account with a restricted
+ * shell, a host that left a stale port file behind after a crash — and in every
+ * one of those cases consulting the port file first costs a 15-second `runSsh`
+ * timeout on each connect, or silently prefers a wrong answer to their right
+ * one.
  */
 async function resolveBackendPort(
     record: BackendRecord,
 ): Promise<{ port: number } | { failure: TunnelFailure }> {
+    if (record.manualPort !== null) return { port: record.manualPort };
+
     // `matchesDiscovered`, not an id comparison: a record added by host string
     // and its own beacon carry different ids for the same machine, and matching
     // on id alone sends a perfectly discoverable backend down the ssh fallback.
@@ -2348,6 +2384,7 @@ async function activateBackend(
     const result = await openTunnel(record, backendPort);
     if (!result.ok) return result;
 
+    pendingActivationId = id;
     records = upsertRecord(records, { ...record, lastKnownPort: backendPort });
     await persist();
     return { ok: true, origin: `http://127.0.0.1:${result.localPort}` };
@@ -2363,6 +2400,9 @@ async function activateBackend(
  * talking through it until it promotes.
  */
 async function setActive(id: string, origin: string): Promise<void> {
+    // The activation is spoken for; `cancelActivation` must not still be able
+    // to kill the tunnel the renderer is about to promote.
+    pendingActivationId = null;
     previousId = activeId;
     activeId = id;
     lastUsedId = id;
@@ -2379,7 +2419,15 @@ async function setActive(id: string, origin: string): Promise<void> {
  * closes the backend that *was* active.
  */
 function cancelActivation(id: string): void {
-    if (id === LOCAL_ID || id === activeId) return;
+    // Keyed on the activation, not on `id !== activeId`. Reconnecting to a
+    // backend whose tunnel dropped activates it under the id that is *still*
+    // recorded as active, so an `id !== activeId` guard would decline to close
+    // the fresh ssh child and leak one on every failed reconnect — the exact
+    // leak Task 14's incompatible-protocol check looks for, arrived at from a
+    // different direction. `pendingActivationId` is cleared by `setActive`, so
+    // this can never reach a tunnel the renderer has promoted.
+    if (id === LOCAL_ID || id !== pendingActivationId) return;
+    pendingActivationId = null;
     try {
         closeTunnel(id);
     } catch (error) {
@@ -2440,7 +2488,8 @@ async function addBackend(input: {
         displayName: input.displayName ?? input.host,
         user: input.user && input.user.length > 0 ? input.user : userInfo().username,
         sshPort: input.sshPort ?? 22,
-        lastKnownPort: input.port ?? null,
+        manualPort: input.port ?? null,
+        lastKnownPort: null,
         addedAt: new Date().toISOString(),
     };
     records = upsertRecord(records, record);
@@ -2464,7 +2513,11 @@ async function rememberDiscovered(id: string): Promise<void> {
 }
 
 /**
- * The three fields the Manage dialog owns. Identity is not one of them:
+ * The three fields the Manage dialog owns. `manualPort` is deliberately not one
+ * of them — the spec scopes that dialog to rename, user, ssh port and remove
+ * (`specs/2026-08-23-taskflow-multi-backend-design.md:536-537`), so a typed
+ * port is changed by removing the record and adding it again. Identity is not
+ * one of them either:
  * `addBackend` recomputes the id from `host`, so reusing it to edit a
  * discovered record — id `desktop:main`, host `192.168.1.20` — would write a
  * second record keyed `192.168.1.20:main` and leave the original behind.
@@ -3448,6 +3501,8 @@ A successful switch never goes through a disconnect, which is the whole point �
 - Modify: `packages/ui/src/components/settings/CodexModelSelect.tsx:16-17`
 - Modify: `packages/ui/src/components/panes/editor-dirty-state.ts`
 - Modify: `packages/ui/src/components/panes/terminal/terminal-link-provider.ts:76-77`
+- Modify: `packages/ui/src/stores/session-store.ts:36,106,142`
+- Modify: `packages/ui/src/stores/wiki-store.ts:29-30`, `packages/ui/src/stores/search-store.ts:153,174,199`
 - Create: `packages/ui/src/components/panes/markdown-toggle-queue.ts`
 - Create: `packages/ui/src/components/panes/markdown-toggle-queue.test.ts`
 - Modify: `packages/ui/src/components/panes/MarkdownPaneImpl.tsx:82-90`
@@ -3626,6 +3681,12 @@ registerReset("editors", () => {
 ```ts
 registerReset("tsconfig-cache", () => {
     dirTsconfigCache.clear();
+    // All three, not two. `tsconfigOptionsCache` (`monaco-import-navigation.ts:15`)
+    // is keyed by tsconfig path, and two machines routinely hold the same
+    // repository at the same path with different compiler options — a monorepo
+    // mid-migration on one and not the other. Leaving it would apply A's
+    // `paths` aliases to B's editor.
+    tsconfigOptionsCache.clear();
     activeTsconfigPath = undefined;
 });
 ```
@@ -3667,6 +3728,67 @@ registerReset("session-helpers", () => {
     // the backend.
 });
 ```
+
+`packages/ui/src/stores/session-store.ts` has module state the `setState` cannot
+reach and a leak that predates this plan. `createSession` adds an owner key to
+`pendingSessionCreates` (`session-store.ts:36,106`), awaits `sendRequest`, and
+deletes the key only on the success path (`:142`). Any rejection strands it —
+and a backend switch guarantees one, because `promoteConnection` rejects every
+request in flight on the old socket as `Backend switched`. A stranded key makes
+`syncOwnerTabs` refuse to auto-place sessions for that owner
+(`session-sync.ts:110`, `session-store.ts:559`) for the rest of the renderer's
+life. `"master"` is the easy repeat offender: it is a single fixed key, so one
+interrupted master session create silences master auto-placement permanently.
+
+Fix both ends. In `createSession`, move the delete into a `finally` so the key
+cannot outlive the call:
+
+```ts
+        } finally {
+            if (pendingKey) pendingSessionCreates.delete(pendingKey);
+        }
+```
+
+and clear the set in the reset, because a key added by an in-flight create that
+has not settled yet still refers to the old backend's owner:
+
+```ts
+registerReset("session-store", () => {
+    pendingSessionCreates.clear();
+    useSessionStore.setState({ /* the initial state from create(...) */ });
+});
+```
+
+- [ ] **Step 5c: Do not let a rejected request write into the reset stores**
+
+`promoteConnection` rejects the old generation, `resetAllState` runs, and only
+*then* do those rejections reach their `catch` blocks — a promise rejection is a
+microtask, so it lands after the synchronous block that emptied the stores. A
+catch that writes user-visible state therefore writes it into the new backend's
+clean store. `wiki-store.ts:29-30` is the clearest case: switch backends with a
+wiki index in flight and the new backend's wiki pane opens showing the error
+`Backend switched` for a root it never asked about.
+
+`BACKEND_SWITCHED` is already exported from `@/hooks/useWebSocket` (Task 8);
+import it and skip the write:
+
+```ts
+        } catch (err: unknown) {
+            // The request was cancelled by a backend switch, not refused by a
+            // backend. The store it would write to has already been reset for
+            // the machine we are now talking to.
+            if (err instanceof Error && err.message === BACKEND_SWITCHED) return;
+            const message = err instanceof Error ? err.message : "Failed to read the wiki";
+            set((s) => ({ errorByRoot: { ...s.errorByRoot, [root]: message } }));
+        } finally {
+```
+
+Apply the same guard to every `catch` in `packages/ui/src/stores/` that writes a
+message a user reads. Auditing them all: `wiki-store.ts:30` and
+`search-store.ts:153`, `:174`, `:199` write error strings and need it;
+`project-store.ts:52`, `task-store.ts:60`, `theme-store.ts:130` and
+`search-store.ts:133` only clear a `loading`/`scanning`/`searching` flag, which
+is what the reset sets anyway, so they are left alone rather than churned.
 
 `session-subscriptions.ts` stays excluded. Its only module state is
 `lastTrayState` (`session-subscriptions.ts:57`), and the reset of the session
@@ -4050,7 +4172,13 @@ const useBackendStore = create<BackendStore>((set, get) => ({
             return;
         }
 
-        set({ switching: id, error: null });
+        // `pendingTrust` is cleared here, not only in the branches that set it.
+        // It names a *record*, and the trust dialog's buttons act on that name.
+        // Only the activation-failure branch below rewrites it; the protocol and
+        // catch branches set `error` alone, so trust state raised by an earlier
+        // switch to A would still be armed while the banner shows B's failure,
+        // and "Trust and connect" would silently act on A.
+        set({ switching: id, error: null, pendingTrust: null });
         try {
             const activation = await bridge.activateBackend(id);
             if (!activation.ok) {
@@ -4430,7 +4558,25 @@ function ConnectBackendDialog({ open, onOpenChange }: ConnectBackendDialogProps)
     async function handleShowFingerprint(): Promise<void> {
         const bridge = window.taskflow;
         if (!bridge || !pendingTrust) return;
-        setFingerprint(await bridge.getHostFingerprint(pendingTrust.id));
+        setBusy(true);
+        try {
+            // `fetchHostKeyFingerprint` throws when `ssh-keyscan` comes back
+            // empty, which a host that is down, firewalled on the ssh port, or
+            // just slow produces routinely. Called through `void` with no catch
+            // this is an unhandled renderer rejection and the button appears to
+            // do nothing at all.
+            setFingerprint(await bridge.getHostFingerprint(pendingTrust.id));
+        } catch (scanError) {
+            setFingerprint(null);
+            useBackendStore.setState({
+                error:
+                    scanError instanceof Error
+                        ? scanError.message
+                        : "Could not read that host's key.",
+            });
+        } finally {
+            setBusy(false);
+        }
     }
 
     async function handleTrust(): Promise<void> {
@@ -4494,7 +4640,7 @@ function ConnectBackendDialog({ open, onOpenChange }: ConnectBackendDialogProps)
             {pendingTrust?.kind === "unknown-host-key" && (
                 <div>
                     {fingerprint === null ? (
-                        <Button onClick={() => void handleShowFingerprint()}>
+                        <Button disabled={busy} onClick={() => void handleShowFingerprint()}>
                             Show host key fingerprint
                         </Button>
                     ) : (
@@ -4830,7 +4976,7 @@ import type { FlowArtifact, FlowRun } from "@taskflow/shared";
 
 /**
  * `FlowRun` requires `startedAt` and every `FlowArtifact` requires `createdAt`
- * (`packages/shared/src/types/flow.ts:82,105`). Spelling them out in each of
+ * (`packages/shared/src/types/flow.ts:106` and `:82`). Spelling them out in each of
  * the four runs below is four chances to forget one and fail typecheck before
  * the route is ever exercised, and none of these tests care what the stamps
  * are.
