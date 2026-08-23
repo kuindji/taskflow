@@ -19,7 +19,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
-| 12 | Focus and key routing | implemented | `b44a56f` | commits `cc41d6f`, `ebe33ab`; round 1 found and fixed defects, awaiting round 2 |
+| 12 | Focus and key routing | implemented | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; rounds 1-2 found and fixed defects, awaiting round 3 |
 | 13 | Sidebar rendering | pending | — | |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
@@ -834,6 +834,13 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   packages, `bun test` 882 pass / 8 fail (the recorded pre-existing
   `MarkdownPaneImpl` suite-ordering failures, unchanged). No code change was
   needed, so this round produced no commit.
+
+- **Task 12: `Action` and `Focus` stay exported even though nothing imports them yet.**
+  The plan's Task 12 interface names both as the module's produced surface and Tasks
+  13-15 consume them; `route` is in the same position, imported only by its own test.
+  Un-exporting to satisfy the "no unused exports" rule would make `routing.ts` dead
+  code and force a re-export two tasks later. Raised by Codex in round 2, resolved as
+  a decision rather than a fix.
 
 ## Task 7 implementation
 
@@ -2337,7 +2344,53 @@ width and cursor edge cases.
   unchanged by name against the round-5 list. `bun test packages/tui` alone: 225 pass
   / 0 fail across 14 files. Working tree clean.
 
-Next step: Task 12 review round 2 — one gpt-5.5 review via codex-review over
-`b44a56f..ebe33ab`, restricted to `packages/tui/src/ui`. Verify findings, fix the
-substantiated ones, validate, commit. Give the reviewer the flag-1 fact up front so
-round 2 does not re-report the three unreachable findings.
+- **Task 12 — review round 2** (`b44a56f..ebe33ab`, scoped to `packages/tui/src/ui`,
+  Mode B prompted review so the flag-1 facts from round 1 could be stated up front).
+  Codex raised two findings; one substantiated, one a judgement call resolved as a
+  decision. Fix commit `4c819f4`.
+
+  - **Substantiated — `Ctrl+Alt+Escape` was swallowed as the focus switch.** What you
+    would see: in kitty mode, pressing `Ctrl+Alt+Escape` inside an attached agent
+    session flipped focus to the sidebar instead of reaching the program in the
+    session, and the same chord in the sidebar toggled focus rather than doing
+    nothing. `isSwitcher` tested only `ev.mods.ctrl`, so every `Ctrl+<anything>+
+    Escape` chord matched. Reachable end to end: the outer terminal sends
+    `CSI 27;7u`, and running that through the real decoder plus `route` on `ebe33ab`
+    printed `decoded: {"name":"escape","mods":{"shift":false,"alt":true,"ctrl":true,
+    "super":false},"kind":"press"}` then `route session:
+    {"action":{"kind":"toggle-focus"}, ...}`. Fix: the switcher is now exactly
+    `Ctrl+Escape` — `ctrl && !alt && !super && !shift`. Regression test: `route edge
+    cases > ctrl+escape with an extra modifier is not the switcher` (covers `alt`,
+    `super` and `shift`, from both focuses) — red on `ebe33ab`, green on `4c819f4`.
+
+  - **Hardening, not a reachable bug — a modified Escape started a legacy double-Esc.**
+    The legacy branch gated on `!ctrl && !alt` only, so a `Super+Escape` or
+    `Shift+Escape` would have been held as the first half of the double-Esc instead of
+    going to the child. Not reachable today: `decodeLegacy` builds every Escape with
+    `noMods()`, so a modified Escape cannot exist in legacy mode. Taken anyway so the
+    two mode branches state the same rule — extracted as `isBareEscape`, mirroring
+    `isSwitcher`. Shift counts as a modifier on Escape (unlike on a printable, where
+    `isChorded` ignores it) because Escape has no shifted character to arrive as.
+    Regression test: `route edge cases > a modified escape does not start a legacy
+    double-esc` — red on `ebe33ab` for `super` and `shift`, green on `4c819f4`.
+
+  - **Not a defect — "unused exported type symbols."** Codex noted that `Action` and
+    `Focus` are exported but nothing imports them, against the project rule banning
+    unused exports. True today and expected: the plan's Task 12 interface specifies
+    both as the module's produced surface, and Tasks 13-15 consume them. `route`
+    itself is in the same position (only the test imports it). Un-exporting would make
+    the whole module dead code and force a re-export two tasks later. See "Decisions
+    taken". No change.
+
+- Validation at `4c819f4`: `bun run lint` exit 0, `bun run typecheck` exit 0 across all
+  five packages, `bun test` 1060 pass / 8 fail (1068 across 102 files, 59s) — the 8
+  being the same pre-existing `MarkdownPaneImpl` suite-ordering failures, verified
+  unchanged by name against the round-1 list. `bun test packages/tui/src/ui/routing.test.ts`:
+  24 pass / 0 fail. Working tree clean.
+
+Next step: Task 12 review round 3 — one gpt-5.5 review via codex-review over
+`b44a56f..HEAD`, restricted to `packages/tui/src/ui`. Verify findings, fix the
+substantiated ones, validate, commit. Carry the same round-1 preamble (kitty flag 1
+only: no releases, no alternate keys; single-code-point `char`) plus the round-2
+decision that `Action`/`Focus` stay exported for Tasks 13-15, so none of those are
+re-reported.
