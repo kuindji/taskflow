@@ -2041,6 +2041,11 @@ function scanHostKey(record: BackendRecord): Promise<string> {
  */
 const scannedHostKeys = new Map<string, string>();
 
+/** Called by the registry when a record is edited or removed. See `updateBackend`. */
+function forgetScannedHostKey(id: string): void {
+    scannedHostKeys.delete(id);
+}
+
 async function fetchHostKeyFingerprint(record: BackendRecord): Promise<string> {
     const keyMaterial = await scanHostKey(record);
     if (keyMaterial.trim().length === 0) {
@@ -2090,6 +2095,7 @@ export {
     closeAllTunnels,
     closeTunnel,
     fetchHostKeyFingerprint,
+    forgetScannedHostKey,
     onTunnelExit,
     openTunnel,
     readRemotePort,
@@ -2125,7 +2131,7 @@ git commit -m "feat(electron): supervise ssh tunnels with a backend readiness pr
 
 **Interfaces:**
 - Consumes: Tasks 4, 5, 6.
-- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<void>`, `removeBackend(id): Promise<void>`, `trustBackendHost(id): Promise<void>` (rejects unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (failure: TunnelFailure) => void): () => void`.
+- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<void>`, `removeBackend(id): Promise<void>`, `trustBackendHost(id): Promise<void>` (rejects unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void`.
 
 - [ ] **Step 1: Write the registry**
 
@@ -2151,7 +2157,7 @@ import {
     removeRecord,
     upsertRecord,
 } from "./backend-records";
-import { closeTunnel, openTunnel, readRemotePort } from "./tunnel-manager";
+import { closeTunnel, forgetScannedHostKey, openTunnel, readRemotePort } from "./tunnel-manager";
 
 interface BackendRegistryDeps {
     /** The port of the backend Electron spawned for this window. */
@@ -2470,12 +2476,17 @@ async function updateBackend(
     const existing = records.find((record) => record.id === id);
     if (!existing) return;
     records = upsertRecord(records, { ...existing, ...patch });
+    // `sshPort` is half of the `known_hosts` key (`knownHostsKey`, Task 5), so
+    // a key scanned before this edit describes a different endpoint than the
+    // one the user would now be trusting. Drop it and make them look again.
+    forgetScannedHostKey(id);
     await persist();
     deps.onChanged();
 }
 
 async function removeBackend(id: string): Promise<void> {
     records = removeRecord(records, id);
+    forgetScannedHostKey(id);
     await persist();
     deps.onChanged();
 }
@@ -2607,8 +2618,9 @@ In `electron/src/preload.ts`, inside `contextBridge.exposeInMainWorld("taskflow"
             ipcRenderer.removeListener("backends-changed", listener);
         };
     },
-    onBackendDropped: (callback: (failure: TunnelFailure) => void) => {
-        const listener = (_e: unknown, failure: TunnelFailure) => callback(failure);
+    onBackendDropped: (callback: (id: string, failure: TunnelFailure) => void) => {
+        const listener = (_e: unknown, id: string, failure: TunnelFailure) =>
+            callback(id, failure);
         ipcRenderer.on("backend-dropped", listener);
         return () => {
             ipcRenderer.removeListener("backend-dropped", listener);
@@ -2645,7 +2657,7 @@ In `packages/ui/src/env.d.ts`, add to `interface TaskflowBridge`:
     getHostFingerprint(id: string): Promise<string>;
     trustBackendHost(id: string): Promise<void>;
     onBackendsChanged(callback: () => void): () => void;
-    onBackendDropped(callback: (failure: TunnelFailure) => void): () => void;
+    onBackendDropped(callback: (id: string, failure: TunnelFailure) => void): () => void;
 ```
 
 Add at the top of the file: `import type { BackendRecord, MenuEntry, TunnelFailure } from "@taskflow/shared";`
@@ -2666,7 +2678,13 @@ onTunnelExit((id, failure) => {
     // they keep issuing a request per tick until the user reconnects, each one
     // running to its AbortSignal timeout.
     markTunnelDropped(id);
-    getMainWindow()?.webContents.send("backend-dropped", failure);
+    // The id travels with the failure. A tunnel can exit on its own in the
+    // moment between the renderer promoting the next backend and
+    // `retirePreviousTunnel` removing its `close` listener, so this event can
+    // arrive describing a backend that is no longer active. Without the id the
+    // renderer cannot tell that apart from its current backend dropping, and
+    // would flag a healthy connection as dropped.
+    getMainWindow()?.webContents.send("backend-dropped", id, failure);
 });
 
 app.on("will-quit", () => {
@@ -2944,6 +2962,28 @@ describe("switching connections", () => {
         await expect(inFlight).rejects.toThrow(BACKEND_SWITCHED);
     });
 
+    test("a pending socket dying mid-handshake rejects its in-flight request", async () => {
+        // The switch sends the compatibility handshake over the pending socket
+        // and awaits it. If the socket dies there — ssh exiting is the realistic
+        // cause — that await has to fail now, not in thirty seconds when
+        // `sendRequest` times out, because `switching` stays set until it does
+        // and the whole menu is frozen behind it.
+        const a = track(startServer());
+        const b = track(startServer());
+
+        await connectTo(a.origin);
+        promoteConnection();
+
+        await connectTo(b.origin);
+        // `project:list` is one of the types the fake server never answers.
+        const inFlight = sendRequest("project:list", {}, { usePending: true });
+        b.stop();
+
+        await expect(inFlight).rejects.toThrow();
+        // And the live connection is untouched by its death.
+        expect(getBackendOrigin()).toBe(a.origin);
+    });
+
     test("a failed reconnect schedules another attempt", async () => {
         const a = track(startServer());
         await connectTo(a.origin);
@@ -3196,10 +3236,19 @@ function connectTo(origin: string): Promise<void> {
             resolve();
         };
         connection.socket.onerror = () => {
-            if (pending === connection) {
-                pending = null;
-                pendingSettle = null;
-            }
+            // Only meaningful before the socket opens, which is why it is gated
+            // on `pendingSettle` rather than on `pending` alone. A browser fires
+            // `error` then `close` on an abnormal close, so an error *after*
+            // open — ssh dying mid-handshake is the case that matters — would
+            // otherwise clear `pending` here and leave the `close` handler
+            // below unable to recognise the socket as either current or
+            // pending. It would return without rejecting anything, and the
+            // handshake request sitting on that socket would hang for the full
+            // 30-second `sendRequest` timeout with `switching` still set.
+            // Leaving it to `onclose` rejects the generation immediately.
+            if (pendingSettle === null) return;
+            if (pending === connection) pending = null;
+            pendingSettle = null;
             reject(new Error("WebSocket connection error"));
         };
     });
@@ -4495,7 +4544,10 @@ generation subscription:
 
 ```tsx
 useEffect(() => {
-    return window.taskflow?.onBackendDropped((failure) => {
+    return window.taskflow?.onBackendDropped((id, failure) => {
+        // Read through `getState`, not a captured value: this effect runs once
+        // and the active backend changes underneath it.
+        if (id !== useBackendStore.getState().activeId) return;
         useBackendStore.setState({ dropped: true, error: failure.message });
     });
 }, []);
@@ -4514,10 +4566,23 @@ affordance for it rather than leaving the user to guess that clicking the
 already-ticked row does anything:
 
 ```tsx
+const dropped = useBackendStore((s) => s.dropped);
+const activeId = useBackendStore((s) => s.activeId);
+const switching = useBackendStore((s) => s.switching);
+const switchTo = useBackendStore((s) => s.switchTo);
+
+// ...in the banner:
 {dropped && (
-    <Button onClick={() => void switchTo(activeId)}>Reconnect</Button>
+    <Button disabled={switching !== null} onClick={() => void switchTo(activeId)}>
+        Reconnect
+    </Button>
 )}
 ```
+
+Three separate selectors rather than one object selector: this store is a plain
+zustand `create`, so a selector returning a fresh object re-renders `AppShell`
+on every unrelated `set` — the same trap the rest of the codebase already
+avoids.
 
 The reconnect goes through the full switch — handshake, reset, remount — not a
 socket-level retry. The backend on the other side has not necessarily restarted,

@@ -3268,10 +3268,55 @@ the three new files.
 - `SessionTerminal` is imported as a type: `App.sessions` is empty in this task and the class
   is only referenced in a type position, so a value import would be an unused runtime import.
 
-Next step: AWAITING USER — plan Task 15 Step 6 is a manual smoke test in a kitty-protocol
-terminal, which cannot be run from this session. Commands and checks are in the plan at
-`### Task 15` Step 6. After the smoke test, the next recorded step is Task 15 review round 1
-(gpt-5.5 via codex-review over `43df638..8c01132`).
+## Task 15 — smoke test, round 1
+
+User ran plan Step 6 and reported: the app started, the sidebar showed projects and tasks,
+but "I couldn't navigate anything. Neither keyboard nor mouse worked."
+
+Investigated by driving the real `packages/tui/src/index.ts` inside a `Bun.spawn`
+`terminal:` PTY and injecting keystrokes, capturing the bytes the app wrote back. Two runs,
+one per input mode — the host either ignores the `CSI ? u` query (legacy path) or answers
+`CSI ? 1 u` (kitty path, what Ghostty/Kitty do). Scripts are scratch, not committed.
+
+Result, identical in both modes:
+
+| key sent | bytes written back | verdict |
+|---|---|---|
+| `j` | 84 — highlight moves from row 0 to row 1 | works |
+| `k` | 84 — highlight moves back | works |
+| `Q` | 50-54 — full leave sequence, exit code 0 | works |
+| `CSI B` (down arrow) | **0** | does nothing |
+
+The kitty run was confirmed to be on the kitty path: the host saw `\x1b[?u` go out, replied
+`\x1b[?1u`, and the app's next write contained `\x1b[>1u`.
+
+So the keyboard is not broken. Two things the user tried are unbound, both by design:
+
+- **Arrow keys.** `route()` reaches its sidebar branch, checks `ev.name === "enter"`, then
+  `const char = ev.char` at `packages/tui/src/ui/routing.ts:104`. An arrow event carries no
+  `char`, so the guard on line 105 fails and line 116 returns `{kind: "none"}`. `SIDEBAR_CHARS`
+  holds `j k z n s q Q ?` and nothing else. This matches the spec's keymap
+  (`docs/superpowers/specs/2026-08-22-taskflow-tui-client-design.md`, "Keymap"), which is
+  deliberately vim-style and lists no arrow keys.
+- **Mouse.** Nothing in `packages/tui/src` ever enables mouse tracking — no `?1000h`/`?1002h`/
+  `?1006h` anywhere. `MOUSE_OFF` appears only inside `leaveSequence`. The spec mentions mouse
+  once, as a child mode to forward (`mouseTrackingMode`), and once as something to switch off
+  on exit. There is no UI mouse support in Stage 1 at all.
+
+**Plan/spec contradiction found.** Plan Task 15 Step 6 check 4 says "pressing an arrow key
+still moves the selection". The spec's keymap does not bind arrows and `route()` (Task 12,
+clear since round 3) never did. The plan's smoke-test wording is wrong, not the code — but
+whether that should be resolved by fixing the wording or by binding the arrows is a scope
+call, not a defect fix.
+
+Next step: AWAITING USER — two questions, both scope calls that change what gets built:
+(1) Did `j` / `k` / `Q` work in your terminal? The PTY runs say they should. If they did not,
+there is a second, environment-specific bug and this investigation is not finished.
+(2) Should arrow keys alias `j`/`k` in the sidebar, and should the UI take mouse input at all?
+Arrow aliases are a few lines in `route()` plus a routing test. Mouse is a subsystem — enable
+tracking, decode SGR reports, hit-test the sidebar, forward to the child per the child's own
+`mouseTrackingMode` — and is not in the Stage 1 plan anywhere.
+After that: Task 15 review round 1 (gpt-5.5 via codex-review over `43df638..8c01132`).
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
