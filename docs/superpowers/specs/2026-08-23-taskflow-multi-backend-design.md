@@ -164,9 +164,6 @@ machine's hostname unless overridden in settings.
 
 Announce every 5 seconds, and immediately in reply to a probe datagram
 (`{ v: 1, probe: true }`) so a client that just opened the menu does not wait.
-Announce once more on shutdown with `{ bye: true }` so the entry disappears
-promptly; a missed `bye` costs nothing because entries also expire.
-
 A new settings field `network.discoverable`, default `true`, gates the advertise
 loop. Disabling it stops the beacon; it does not change the bind address, which
 is loopback either way.
@@ -228,7 +225,8 @@ BackendRecord {
   instanceId
   displayName
   user          // defaults to the local $USER at add time
-  lastKnownPort
+  sshPort       // defaults to 22; only set when the host runs sshd elsewhere
+  lastKnownPort // the *backend's* port, refreshed from the beacon
   addedAt
 }
 ```
@@ -249,7 +247,7 @@ Main allocates a free loopback port (`net.createServer().listen(0)`, read the
 port, close), then spawns:
 
 ```
-ssh -N -L <local>:127.0.0.1:<remote> <user>@<host>
+ssh -N -L <local>:127.0.0.1:<remote> -p <sshPort> <user>@<host>
     -o BatchMode=yes
     -o ExitOnForwardFailure=yes
     -o ServerAliveInterval=15
@@ -265,7 +263,7 @@ Readiness is **not** a TCP connect to the local end. `ssh -L` accepts
 connections as soon as it is up, whether or not anything is listening on the
 remote side, so a TCP connect proves only that ssh is running. Readiness is an
 HTTP `GET /` through the forward, which the backend answers with
-`Taskflow backend` and a 200 (`packages/backend/src/ws/server.ts:48`), polled for
+`Taskflow backend` and a 200 (`packages/backend/src/ws/server.ts:49`), polled for
 up to 10 seconds. That proves the remote backend is actually there, and is what
 separates "the machine is up but Taskflow is not running" from every other
 failure.
@@ -305,14 +303,15 @@ details area — a misclassified failure must still be diagnosable.
 
 ### Host key trust
 
-On `Host key verification failed`, main first runs `ssh-keygen -F <host>` to
+On `Host key verification failed`, main first runs `ssh-keygen -F <host>` (or `[host]:port`) to
 find out which case it is:
 
-- **No entry.** First contact. Run `ssh-keyscan -T 5 -p <port> <host>`, show the
+- **No entry.** First contact. Run `ssh-keyscan -T 5 -p <sshPort> <host>`, show the
   host, key type and SHA256 fingerprint, and on approval append the scanned lines
   to `~/.ssh/known_hosts` with a leading newline guard, creating `~/.ssh` as 0700
-  and `known_hosts` as 0600 if absent. Non-default ports are written in
-  `[host]:port` form, which is what `ssh-keyscan -p` emits. Then retry once.
+  and `known_hosts` as 0600 if absent. A non-default `sshPort` is written in
+  `[host]:port` form, which is what `ssh-keyscan -p` emits, and `ssh-keygen -F`
+  is queried in the same form. Then retry once.
 - **An entry exists and does not match.** The key changed. This is never
   auto-fixed and no fingerprint dialog is offered — it is exactly what an
   interception looks like. The user gets ssh's own message and the offending
@@ -338,14 +337,28 @@ The switch is ordered so a failure is never destructive:
    port from the live beacon, else `lastKnownPort`, else the port file over ssh.
 3. Main returns the origin. Any failure up to here ends the switch with the
    current backend untouched and an error surfaced.
-4. Renderer opens a **new** socket to that origin. Only on `open` does it close
-   the old socket, call `resetAllStores()`, and bump the `key` on `AppShell`,
-   which unmounts and remounts the whole tree — disposing every xterm, Monaco
-   model and pane.
-5. Main kills the previous tunnel, if there was one, and persists the new active
+4. Renderer opens a **new** socket to that origin and, on `open`, performs the
+   compatibility handshake described under Version compatibility. A WebSocket
+   `open` proves a server is listening, not that it is a compatible Taskflow —
+   an incompatible backend must be refused before anything is torn down, or a
+   mistyped host destroys the current view.
+5. Only after the handshake passes does the renderer promote the new socket:
+   it sends `FILE_UNWATCH` on the **old, still-open** socket for whatever path
+   is being watched (`packages/ui/src/stores/file-store.ts:206`), closes it,
+   calls `resetAllStores()` and `rebootstrap()`, and bumps the `key` on
+   `AppShell`, which unmounts and remounts the whole tree — disposing every
+   xterm, Monaco model and pane.
+
+   The unwatch has to happen while the socket is still open. `FileWatcher` keeps
+   a `Map` of chokidar watchers keyed by path
+   (`packages/backend/src/services/file-watcher.ts:34`) and only drops one on an
+   explicit `FILE_UNWATCH` (`packages/backend/src/handlers/file.ts:72`), so
+   closing first strands a recursive watcher on the machine you just left, for
+   as long as its backend runs.
+6. Main kills the previous tunnel, if there was one, and persists the new active
    backend id.
 
-An overlay covers steps 1–4 with the target's name and a cancel action.
+An overlay covers steps 1 to 5 with the target's name and a cancel action.
 
 Because the socket is opened before the old one closes, two sockets exist for
 the duration of a handshake. The backend already permits concurrent clients, and
@@ -361,13 +374,23 @@ handler firing (`useWebSocket.ts:56-66`). Opening the new socket first, as the
 switch requires, means two sockets exist at once, and every one of those globals
 would be written by both.
 
-The change is contained but it is not free. The module gains a generation
+The change is contained but it is not free. The new socket is held in a separate
+`pendingSocket` binding, not in `ws`, so `sendRequest` and `sendFireAndForget`
+keep addressing the old, still-open socket during the handshake instead of
+failing against a `CONNECTING` one. `ws` is reassigned only when the new socket
+opens. The module also gains a generation
 counter. Each socket captures its generation on creation, and `onmessage`,
 `onclose` and `onerror` return immediately if their generation is not the
-current one. Only the current socket may reject `pendingRequests`, flip
-`connected`, or call `scheduleReconnect`. In-flight requests belonging to the
-outgoing socket reject with a distinct `BackendSwitched` error so callers can
-tell a switch apart from a dropped connection. `connectWebSocket(port)` becomes
+current one. Only the current socket may flip `connected` or call
+`scheduleReconnect`.
+
+`pendingRequests` is one global map (`useWebSocket.ts:16`), so entries are
+tagged with the generation that sent them. At promotion the outgoing
+generation's entries are rejected explicitly with a distinct `BackendSwitched`
+error, so callers can tell a switch apart from a dropped connection. Without
+that explicit sweep the old socket's `close` is ignored by design and its
+requests sit there until the 30-second timeout fires — a switch would look like
+it worked, then throw `Request timeout` half a minute later. `connectWebSocket(port)` becomes
 `connectTo(origin)`, taking a full origin rather than a port, because a tunnel
 port is not `localhost` in any meaningful sense and `backend-url.ts` needs the
 origin anyway.
@@ -390,14 +413,28 @@ module-scope initialization:
   (`packages/ui/src/hooks/useConnectivity.ts:31`), so its one-shot
   `CONNECTIVITY_STATUS` request would never be re-issued against the new
   backend and connectivity state would silently describe the previous one.
+- `cachedAgents` in `packages/ui/src/hooks/useAgentAvailability.ts:8` clears
+  itself only when the connection status goes to `!connected`
+  (`useAgentAvailability.ts:16`). A successful switch never goes disconnected —
+  that is the whole point of promoting on `open` — so the new backend would be
+  offered the *previous* machine's installed agents. This is the design's own
+  seamlessness turning into a bug, and it is the pattern to watch for.
+- `cachedHomedir` in `packages/ui/src/hooks/useActiveWorkspace.ts:19` is
+  prefetched once at module load, so master workspace would keep the old
+  machine's home directory.
+
+The general rule, which the implementer should apply rather than work from this
+list: any module-level value derived from backend data must register a reset.
+Stores are the obvious ones; the hooks above are not, and they are the ones that
+will actually bite.
 
 So the switch is two distinct operations, not one:
 
-1. `resetAllStores()` clears record state. Every store registers its own reset
-   via `stores/store-reset.ts`.
-2. `rebootstrap()` re-runs the one-shot fetches that populated state at startup —
-   connectivity status among them. `initConnectivity` gains a reset for its
-   guard rather than a second listener registration.
+1. `resetAllStores()` clears record state and module-level caches. Every store
+   and every caching hook registers its own reset via `stores/store-reset.ts`.
+2. `rebootstrap()` re-runs the one-shot fetches that populated state at startup:
+   connectivity status, the agent list, homedir. `initConnectivity` gains a reset
+   for its guard rather than a second listener registration.
 
 Event subscriptions are left alone in both. A test asserts that switching twice
 registers each `MSG` listener exactly once, because a leak here is invisible
@@ -468,13 +505,16 @@ tooltip naming the reason:
 | `openExternalFile` (external editor) | `terminal/terminal-links.ts:64`, `file-store.ts:301`, `FileContextMenu.tsx:107` |
 | `showItemInFolder` | `FileContextMenu.tsx` |
 | `runInShell` | `Workspace.tsx:251,391` |
-| Native file drop into a terminal | `TerminalPane.tsx:457-470` |
+| Native file drop into a terminal | `TerminalPane.tsx:457-470` and `:474-486` |
 
-Native file drop needs explaining: dropping a file from Finder resolves a
-**client-machine** path with `webUtils.getPathForFile()` and types it into a
-session running on the backend. On a remote backend that path names a file that
-is not there. Dropping from Taskflow's own file explorer is unaffected — those
-are already backend paths (`TerminalPane.tsx:451-456`).
+Native file drop needs explaining, and it has two code paths, not one.
+Dropping a file from Finder resolves a **client-machine** path with
+`webUtils.getPathForFile()` (`TerminalPane.tsx:457-470`) and types it into a
+session running on the backend; the same handler also falls back to decoding
+`text/uri-list` `file://` URLs, which macOS Finder sometimes sends instead
+(`TerminalPane.tsx:474-486`). Both resolve client paths and both are gated.
+Dropping from Taskflow's own file explorer is unaffected — those are already
+backend paths (`TerminalPane.tsx:451-456`).
 
 Artifact download is the one place where disabling is the wrong answer, and it
 is fixed rather than gated. `saveArtifact` currently `copyFile`s a
@@ -482,10 +522,25 @@ backend-supplied absolute path using the client's filesystem
 (`electron/src/ipc-handlers.ts:115`, triggered from
 `packages/ui/src/components/flows/FlowPanel.tsx:298`) — with a remote backend
 that either fails or, worse, copies an unrelated local file that happens to share
-the path. It moves to fetching the bytes from the active backend's
-`/api/file/raw` endpoint, which already exists and rides the tunnel. The save
-dialog stays local, because that is where the file is going. This makes the local
-case go through the same path as the remote one, so there is no untested branch.
+the path.
+
+It cannot simply move to `/api/file/raw`: that endpoint is a security boundary
+that requires the resolved path to sit inside a known project or worktree root
+(`packages/backend/src/api/routes/file-routes.ts:33`,
+`packages/backend/src/utils/path-validation.ts:50`), while a flow artifact's
+`path` is an arbitrary string an agent handed to the CLI
+(`packages/shared/src/types/flow.ts:73`,
+`packages/backend/src/services/taskflow-cli-bin.ts:565`, unvalidated at
+`packages/backend/src/api/routes/flow-routes.ts:130`). An artifact written to
+`/tmp` would start returning 403 — a regression for local use.
+
+So artifact download gets its own endpoint,
+`GET /api/flow/artifact?runId=&actionEntryId=&type=`, which looks the artifact up
+in the run record and serves the path **it** recorded. The authorisation is
+"this path was registered as an artifact of this run", not "this path is inside a
+workspace", which is the right question for this case. Local and remote take the
+same path, so there is no branch that only runs on one of them. The save dialog
+stays on the client, because that is where the file is going.
 
 `openExternalUrl` stays enabled — it opens URLs, not paths. Monaco's raw-file
 fetch stays enabled; it is an HTTP request to the active backend and rides the
@@ -506,13 +561,13 @@ bumped only when a change is not backward compatible. It rides in the beacon, so
 the menu can label an incompatible backend before you connect, and it is checked
 again on connect, since a backend reached manually never announced anything.
 
-- Equal: connect.
-- Backend older or newer, one step apart: connect, with a persistent banner
-  naming which side is behind and what to update.
-- More than one step apart: refuse, and say which version each side is running.
+Equal connects; anything else refuses and names the version each side is
+running. A tolerance band would be self-contradictory: the constant bumps *only*
+on an incompatible change, so a mismatch is by definition incompatible.
 
-Two entries with the same `PROTOCOL_VERSION` but different app versions are not
-flagged. That is the common case after a routine release and it works.
+Two backends with the same `PROTOCOL_VERSION` but different app versions are not
+flagged. That is the common case after a routine release and it works, which is
+what keeps the strict rule from being painful.
 
 The app's own auto-updater is unaffected: it updates this machine's app, which
 carries this machine's backend binary. Updating the app does not update a remote
@@ -575,8 +630,27 @@ The WS client's generation handling gets direct tests: a superseded socket's
 connection status, and must not schedule a reconnect. This is the failure that
 would present as a mysterious disconnect seconds after a successful switch.
 
-Protocol version comparison — equal, one step, more than one step, missing on an
-old backend — is a pure function and is tested as one.
+Protocol version comparison, including a backend old enough to answer the
+handshake with nothing at all, is a pure function and is tested as one. A
+separate test asserts an incompatible backend is refused **before** any teardown
+runs: the original connection must still be live and its records intact.
+
+Three switch-specific leaks get their own tests, because each one produces a
+plausible-looking app that is quietly wrong:
+
+- After a switch, `AGENTS_LIST` and `SYSTEM_INFO` must have been re-requested —
+  the caches in `useAgentAvailability.ts` and `useActiveWorkspace.ts` never see a
+  disconnect and so never clear themselves.
+- Requests in flight across a switch must reject with `BackendSwitched`, not
+  hang to their timeout.
+- A `FILE_UNWATCH` for the watched path must be sent on the old socket before it
+  closes.
+
+Terminal drop gating is tested for both the `getPathForFile` and the
+`text/uri-list` path, since only one of them is obvious.
+
+The flow-artifact endpoint is tested with an artifact path outside any workspace
+root — the exact case `/api/file/raw` would have rejected.
 
 ## Assumptions
 
