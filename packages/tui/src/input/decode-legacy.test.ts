@@ -280,6 +280,14 @@ describe("decodeLegacy", () => {
         expect(isPartialX10("\x1b[M\x20\x51")).toBe(true);
     });
 
+    test("an out-of-range SGR button does not become a left click", () => {
+        // 256 truncates to button 0 under ToInt32. Reaching routing that is a
+        // real click at the reported cell, invented out of a corrupt frame.
+        const result = decodeLegacy("\x1b[<256;1;1M", "");
+        expect(result.events).toEqual([]);
+        expect(result.carry).toBe("");
+    });
+
     test("a malformed SGR report is consumed without emitting keystrokes", () => {
         // The sequence is still a complete CSI, so it must not fall through to
         // the key branches or be left in the buffer.

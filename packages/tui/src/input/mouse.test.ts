@@ -52,6 +52,17 @@ describe("parseSgrMouse", () => {
         expect(parseSgrMouse("<0;0;1", "M")).toBeUndefined(); // 1-based, so 0 is invalid
     });
 
+    test("a button value outside one byte is dropped, not truncated", () => {
+        // JS bitwise operators coerce through ToInt32, so 256 reads as button 0
+        // and 2**32 reads as 0 again: a corrupt frame would decode as a real
+        // left click at the reported cell. The wire button field is one byte.
+        expect(parseSgrMouse("<256;1;1", "M")).toBeUndefined();
+        expect(parseSgrMouse("<4294967296;12;5", "M")).toBeUndefined();
+        expect(parseSgrMouse("<1000000000000000000000;12;5", "M")).toBeUndefined();
+        // The whole one-byte range stays valid; 255 is the last of it.
+        expect(parseSgrMouse("<255;1;1", "M")?.button).toBe("none");
+    });
+
     test("parameters that are not an SGR report are dropped", () => {
         // `CSI 0;12;5 M` without the `<` is not the SGR mouse form at all.
         expect(parseSgrMouse("0;12;5", "M")).toBeUndefined();

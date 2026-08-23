@@ -39,11 +39,18 @@ function buttonOf(b: number): MouseButton {
     return PLAIN_BUTTONS[b & 3] ?? "none";
 }
 
+/** The wire button field is one byte in every encoding this decoder reads. */
+const MAX_BUTTON = 0xff;
+
 function build(b: number, x: number, y: number, released: boolean): MouseReport | undefined {
     // Coordinates are one-based on the wire. A zero means the report is
     // malformed, and treating it as a click on the origin would move the
     // sidebar selection on a corrupt frame.
-    if (!Number.isInteger(b) || b < 0) return undefined;
+    //
+    // The upper bound on `b` is load-bearing for the same reason: `&` coerces
+    // through ToInt32, so an SGR button of 256 — or of 2**32 — would truncate
+    // to 0 and invent a left click at whatever cell the frame named.
+    if (!Number.isInteger(b) || b < 0 || b > MAX_BUTTON) return undefined;
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 1 || y < 1) return undefined;
     const motion = (b & 32) !== 0;
     return {
