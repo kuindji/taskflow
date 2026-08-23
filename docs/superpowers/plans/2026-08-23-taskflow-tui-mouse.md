@@ -105,12 +105,33 @@ terminal specs call these sequences and it will not read as a browser type later
 ### Why the union is discriminated on `kind`
 
 `KeyEvent.kind` is already `"press" | "repeat" | "release"`. Giving `MouseReport`
-`kind: "mouse"` makes `InputEvent` a discriminated union for free, and — the reason
-that matters — leaves every existing assertion in `decode-legacy.test.ts` and
-`decode-kitty.test.ts` compiling and green untouched. The alternative, wrapping both
-in `{ type: "key" | "mouse", event }`, rewrites ~300 lines of passing tests to say
-the same thing. `MouseReport` carries its own press/release/drag distinction in a
-separate `action` field.
+`kind: "mouse"` makes `InputEvent` a discriminated union for free. The alternative,
+wrapping both in `{ type: "key" | "mouse", event }`, rewrites ~300 lines of passing
+tests to say the same thing. `MouseReport` carries its own press/release/drag
+distinction in a separate `action` field.
+
+**It does not, however, leave the existing tests untouched — an earlier draft of this
+plan claimed it did, and that claim was wrong.** Widening `DecodeResult.events` to a
+union breaks every unnarrowed property read on an element of it, discriminant or no
+discriminant. Measured at `98d801c` by widening the type and running `bun run typecheck`:
+**23 errors** — 12 in `decode-legacy.test.ts`, 9 in `decode-kitty.test.ts`, one in
+`decode-kitty.ts` (`events.push(...legacy.events)` into a `KeyEvent[]`) and one in
+`index.ts` (`app.handleKey(ev)`). `toEqual({ … })` assertions are unaffected; what
+breaks is `result.events[0]?.name` and `?.char`, of which there are 21.
+
+The fix is a narrowing helper per decoder test file rather than a rewrite:
+
+```ts
+/** The event at `index`, asserted to be a key. Mouse reports have no `name`. */
+function keyAt(events: InputEvent[], index: number): KeyEvent {
+    const ev = events[index];
+    if (ev === undefined || ev.kind === "mouse") throw new Error(`not a key at ${String(index)}`);
+    return ev;
+}
+```
+
+`result.events[0]?.name` becomes `keyAt(result.events, 0).name`. That is a mechanical
+edit at 21 sites and it belongs to Task 19.1, which is where the type widens.
 
 ## File Structure
 
@@ -121,9 +142,11 @@ packages/tui/src/
     mouse.test.ts        NEW
     keys.ts              unchanged
     decode-legacy.ts     CHANGED — mouse branch, DecodeResult.events: InputEvent[]
+    decode-legacy.test.ts CHANGED — new cases, plus `keyAt` narrowing at existing sites
     decode-kitty.ts      CHANGED — events array type only
+    decode-kitty.test.ts CHANGED — new case, plus `keyAt` narrowing at existing sites
     encode.ts            CHANGED — ChildModes gains mouse fields; encodeMouseForChild
-    encode.test.ts       CHANGED — new cases appended
+    encode.test.ts       CHANGED — new cases, plus the `legacy` fixture gains 2 fields
   term/
     tty.ts               CHANGED — enterSequence turns tracking on; TtyOptions.mouse
     session-terminal.ts  CHANGED — track mouse encoding mode; expose it; scroll()
@@ -131,9 +154,9 @@ packages/tui/src/
     layout.ts            NEW — Layout, computeLayout
     layout.test.ts       NEW
     session-pane.ts      CHANGED — tabSpans extracted and exported
-    routing.ts           CHANGED — Action gains 3 members; routeMouse added
+    routing.ts           CHANGED — Action gains 4 members; routeMouse added
     app.ts               CHANGED — handleMouse, layout via computeLayout
-  index.ts               CHANGED — feed loop dispatches on event kind; mouse opt-out
+  index.ts               CHANGED — feed loop dispatches on event kind (19.1); mouse opt-out (19.2)
 ```
 
 ## Shared interfaces
@@ -174,7 +197,7 @@ interface ChildModes {
     bracketedPaste: boolean;
     kittyFlags: number | null;
     mouseTracking: "none" | "x10" | "vt200" | "drag" | "any";
-    mouseEncoding: "x10" | "utf8" | "sgr" | "urxvt";
+    mouseEncoding: "x10" | "utf8" | "sgr" | "urxvt" | "sgr-pixels";
 }
 
 // ui/layout.ts
@@ -192,8 +215,13 @@ interface Layout {
 ```
 
 `mouseTracking` reuses the union `IModes.mouseTrackingMode` already has
-(`xterm-headless.d.ts`), so no new vocabulary is invented for it. `mouseEncoding`
+(`xterm-headless.d.ts:1323`), so no new vocabulary is invented for it. `mouseEncoding`
 has no `IModes` member at all — see Task 19.5.
+
+`"none"` is the button of a report whose button cannot be named: an X10 release, which
+does not say which button was let go, and an extra button (bit 128, mouse buttons 8-11
+— thumb, back, forward). No UI binding fires on it and 19.5 drops a press or drag
+carrying it, because there is no button number to put on the wire.
 
 ---
 
@@ -202,8 +230,16 @@ has no `IModes` member at all — see Task 19.5.
 **Files:**
 - Create: `packages/tui/src/input/mouse.ts`
 - Test: `packages/tui/src/input/mouse.test.ts`
-- Modify: `packages/tui/src/input/decode-legacy.ts`, `packages/tui/src/input/decode-kitty.ts`
-- Test: `packages/tui/src/input/decode-legacy.test.ts` (append)
+- Modify: `packages/tui/src/input/decode-legacy.ts`, `packages/tui/src/input/decode-kitty.ts`,
+  `packages/tui/src/index.ts`
+- Test: `packages/tui/src/input/decode-legacy.test.ts`,
+  `packages/tui/src/input/decode-kitty.test.ts` — new cases **and** the `keyAt`
+  narrowing described under "Why the union is discriminated on `kind`"
+
+**This task widens `DecodeResult.events` to a union, so it owns every site that breaks
+on it.** Left to a later task the tree is red at `bun run typecheck` for three commits.
+The full list, measured at `98d801c`: 21 `?.name`/`?.char` reads across the two decoder
+test files, `decode-kitty.ts`'s local `events` array, and `index.ts`'s feed loop.
 
 **Interfaces:**
 - Produces: `MouseReport`, `MouseButton`, `InputEvent`,
@@ -237,10 +273,20 @@ lines.
 | `b & 16` | ctrl |
 | `b & 32` | motion (a drag, since a button is held) |
 | `b & 64` | wheel: `b & 3` is then 0 up, 1 down, 2 left, 3 right |
+| `b & 128` | an extra button (8-11: thumb, back, forward). Named `"none"` — see below |
 
 In SGR the final byte carries press-versus-release and `b & 3` keeps naming the real
 button; in X10 there is no release final, so `b & 3 == 3` is the release and the
 button that was let go is unknowable — it decodes as `"none"`.
+
+**Bit 128 must be tested before bit 64 and before `b & 3`.** xterm encodes mouse
+buttons 8-11 — the thumb/back/forward buttons on an ordinary five-button mouse — as
+`128 + (n - 8)`, so `CSI < 128 ; 6 ; 8 M` is a press of button 8. A `buttonOf` that
+checks only bit 64 falls through to `PLAIN_BUTTONS[128 & 3]` and reports it as
+**`"left"`** — 129 as `"middle"`, 130 as `"right"`. A back-button click in the sidebar
+would then move the selection, and a back-button click in the pane would reach the
+child as a left click. These buttons have no binding and are not worth naming
+individually, so they all decode as `"none"`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -277,6 +323,14 @@ describe("parseSgrMouse", () => {
     test("bit 64 is the wheel", () => {
         expect(parseSgrMouse("<64;1;1", "M")?.button).toBe("wheel-up");
         expect(parseSgrMouse("<65;1;1", "M")?.button).toBe("wheel-down");
+    });
+
+    test("bit 128 is an extra button and is not mistaken for a left click", () => {
+        // xterm encodes buttons 8-11 as 128 + (n - 8). Without a bit-128 check
+        // these fall through to PLAIN_BUTTONS[b & 3] and read as left/middle/right.
+        expect(parseSgrMouse("<128;6;8", "M")?.button).toBe("none");
+        expect(parseSgrMouse("<129;6;8", "M")?.button).toBe("none");
+        expect(parseSgrMouse("<130;6;8", "M")?.button).toBe("none");
     });
 
     test("modifier bits are read", () => {
@@ -388,6 +442,9 @@ function modsFromButton(b: number): KeyMods {
 }
 
 function buttonOf(b: number): MouseButton {
+    // Bit 128 first: an extra button (8-11) has no bit-64 set and its low two
+    // bits would otherwise read as left/middle/right.
+    if ((b & 128) !== 0) return "none";
     if ((b & 64) !== 0) return WHEEL_BUTTONS[b & 3] ?? "none";
     return PLAIN_BUTTONS[b & 3] ?? "none";
 }
@@ -417,8 +474,14 @@ exactly three numeric fields, and passes `final === "m"` as `released`.
 value only exists when the report is not a wheel notch. `build` then reports the
 button as `"none"`, which `PLAIN_BUTTONS[3]` already gives it.
 
-In `decode-legacy.ts`, inside the `buf[i + 1] === "["` branch, **before** the
-existing `isNumericParams` filter:
+In `decode-legacy.ts`, inside the `buf[i + 1] === "["` branch, immediately after the
+`scan.kind === "invalid"` branch and **before the existing `i += scan.length` on line
+107** — not merely before the `isNumericParams` filter on line 111, which sits after
+that increment. Placed between the two, `i` is advanced twice: for
+`\x1b[M\x20\x51\x21` the payload is sliced from past its own end, comes up short and
+is returned as carry with no report emitted, and for `a\x1b[<0;1;1Mb` the trailing `b`
+is swallowed. Both of the plan's own tests below catch it, but the placement is stated
+precisely so it is not written twice.
 
 ```ts
 if (scan.final === "M" && scan.params === "" && scan.intermediates === "") {
@@ -442,6 +505,21 @@ if (scan.params.startsWith("<") && (scan.final === "M" || scan.final === "m")) {
 `DecodeResult.events` becomes `InputEvent[]`; `decode-kitty.ts` changes only the
 type of its local `events` array.
 
+`index.ts`'s feed loop cannot keep calling `app.handleKey(ev)` on a union. It gains the
+kind check here, dropping mouse reports until 19.4 gives them somewhere to go:
+
+```ts
+for (const ev of result.events) {
+    if (ev.kind === "mouse") continue; // wired up in 19.4
+    app.handleKey(ev);
+}
+```
+
+Dropping is the right intermediate behaviour, not a placeholder to remember: 19.2 is
+what turns tracking on, so between 19.1 and 19.2 no report can arrive at all, and
+between 19.2 and 19.4 a click is silently ignored rather than leaking its payload
+bytes as keystrokes — which is the whole point of decoding X10.
+
 **No payload byte can be ESC**, because every one of them is `32 + value`. So
 `decodeKitty`'s `nextKittyStart` scan cannot find a false kitty sequence inside an
 X10 payload, and the chunk-splitting it does around kitty sequences stays correct.
@@ -457,9 +535,13 @@ not to be a first-class encoding.
 - [ ] **Step 3: Verify**
 
 ```bash
-bun test packages/tui/src/input
+bun test packages/tui
 bun run lint && bun run typecheck
 ```
+
+The whole package, not just `src/input`: this task edits `index.ts` and both decoder
+test files, and `bun run typecheck` is the check that would have caught the widening
+fallout. Typecheck must be clean — 23 errors is what "later task" looks like here.
 
 - [ ] **Step 4: Commit**
 
@@ -474,10 +556,19 @@ git commit -m "feat(tui): decode SGR and X10 mouse reports"
 
 **Files:**
 - Modify: `packages/tui/src/term/tty.ts`, `packages/tui/src/index.ts`
-- Test: `packages/tui/src/term/tty.test.ts` (append), `packages/tui/src/index.test.ts` (append)
+- Test: `packages/tui/src/term/tty.test.ts` — new cases, **and** the ten existing
+  `TtyOptions` literals updated; `packages/tui/src/index.test.ts` (append)
 
 **Interfaces:**
-- `TtyOptions` gains `mouse: boolean`.
+- `TtyOptions` gains `mouse: boolean`, required rather than optional.
+
+**A required field breaks the ten existing call sites, and this task fixes them.**
+`tty.test.ts` calls `enterSequence({ kitty })`, `leaveSequence({ kitty })` and
+`new Tty(sink, { kitty })` at lines 43, 49, 50, 56, 64, 71, 84, 94, 116 and 143, and
+`index.ts:140` constructs the real one. Each gains an explicit `mouse` — `false` in
+the existing cases, so what those tests already pin does not move. Optional-with-a-
+default was the alternative and is rejected: a mode that the leave sequence must undo
+should never be enabled by a field someone forgot to pass.
 
 `leaveSequence` already turns all four modes off, so only the enter side is missing.
 `enterSequence` gains `?1000h` (press and release) `?1002h` (motion while a button is
@@ -581,9 +672,24 @@ git commit -m "feat(tui): enable mouse tracking on the outer terminal"
 **Interfaces:**
 - Produces: `Layout`, `computeLayout(cols, rows, zoomed): Layout`,
   `tabSpans(width: number, tabs: TabSpec[]): Array<{ start: number; end: number }>`,
-  `routeMouse(report: MouseReport, layout: Layout, counts: { rows: number; tabs: number }): Action`.
+  `routeMouse(report: MouseReport, layout: Layout, ctx: { rows: number; tabs: TabSpec[] }): Action`.
 - `Action` gains `{ kind: "select"; index: number }`, `{ kind: "open-tab"; index: number }`,
   `{ kind: "scroll"; delta: number }`, `{ kind: "focus"; target: Focus }`.
+
+**`routeMouse` takes the tab specs, not a tab count.** A count cannot be hit-tested:
+`drawTabs` sizes each tab from its own label through `fitToWidth`/`textWidth` plus two
+padding columns (`session-pane.ts:46-60`), so the boundary between tab 1 and tab 2
+depends on how wide tab 1's label rendered. With `{ tabs: number }` the only way to
+answer "which tab is column 34 in" is to guess a uniform width, and the guess is wrong
+the moment two labels differ in length or one holds a wide glyph — which is exactly the
+"the drawn strip and the clicked strip disagree" bug this task exists to prevent.
+`routeMouse` calls `tabSpans(layout.paneWidth, ctx.tabs)` itself and compares against
+`report.col - layout.paneX`. It stays pure: `TabSpec` is a label and a boolean, and
+`routing.ts` importing it from `session-pane.ts` introduces no cycle — `session-pane.ts`
+imports only from `render/` and `term/`.
+
+**`tabSpans` returns pane-relative columns**, the same `cursor` values `drawTabs` uses
+before adding `x0`. Callers add `layout.paneX` themselves.
 
 **`computeLayout` is the geometry `App.render` computes inline today** — the
 `SIDEBAR_WIDTH` clamp, `paneX`, `paneWidth`, and the tab strip owning row 0 with the
@@ -665,56 +771,73 @@ const layout = computeLayout(100, 30, false);
 function at(patch: Partial<MouseReport>): MouseReport {
     return { kind: "mouse", action: "press", button: "left", col: 0, row: 0, mods: noMods(), ...patch };
 }
+function tabs(n: number): TabSpec[] {
+    return Array.from({ length: n }, (_, i) => ({ label: `session ${String(i + 1)}`, active: i === 0 }));
+}
 
 test("a click in the sidebar selects the row under it", () => {
-    expect(routeMouse(at({ col: 5, row: 7 }), layout, { rows: 20, tabs: 0 }))
+    expect(routeMouse(at({ col: 5, row: 7 }), layout, { rows: 20, tabs: tabs(0) }))
         .toEqual({ kind: "select", index: 7 });
 });
 
 test("a click past the last row selects nothing", () => {
-    expect(routeMouse(at({ col: 5, row: 7 }), layout, { rows: 3, tabs: 0 }))
+    expect(routeMouse(at({ col: 5, row: 7 }), layout, { rows: 3, tabs: tabs(0) }))
         .toEqual({ kind: "none" });
 });
 
 test("a left drag in the sidebar keeps selecting", () => {
-    expect(routeMouse(at({ col: 5, row: 2, action: "drag" }), layout, { rows: 20, tabs: 0 }))
+    expect(routeMouse(at({ col: 5, row: 2, action: "drag" }), layout, { rows: 20, tabs: tabs(0) }))
         .toEqual({ kind: "select", index: 2 });
 });
 
 test("a release in the sidebar does nothing", () => {
-    expect(routeMouse(at({ col: 5, row: 2, action: "release" }), layout, { rows: 20, tabs: 0 }))
+    expect(routeMouse(at({ col: 5, row: 2, action: "release" }), layout, { rows: 20, tabs: tabs(0) }))
         .toEqual({ kind: "none" });
 });
 
 test("the wheel moves the sidebar selection one row", () => {
-    expect(routeMouse(at({ col: 5, row: 2, button: "wheel-down" }), layout, { rows: 20, tabs: 0 }))
+    expect(routeMouse(at({ col: 5, row: 2, button: "wheel-down" }), layout, { rows: 20, tabs: tabs(0) }))
         .toEqual({ kind: "move", delta: 1 });
-    expect(routeMouse(at({ col: 5, row: 2, button: "wheel-up" }), layout, { rows: 20, tabs: 0 }))
+    expect(routeMouse(at({ col: 5, row: 2, button: "wheel-up" }), layout, { rows: 20, tabs: tabs(0) }))
         .toEqual({ kind: "move", delta: -1 });
 });
 
 test("a click on a tab opens it and focuses the session", () => {
-    expect(routeMouse(at({ col: layout.paneX + 1, row: 0 }), layout, { rows: 20, tabs: 2 }))
+    expect(routeMouse(at({ col: layout.paneX + 1, row: 0 }), layout, { rows: 20, tabs: tabs(2) }))
         .toEqual({ kind: "open-tab", index: 0 });
 });
 
+test("a click on the second tab opens the second tab, whatever the first one's width", () => {
+    // The point of taking TabSpec[] rather than a count: the boundary moves with
+    // the label. A uniform-width guess picks the wrong tab here.
+    const wide: TabSpec[] = [
+        { label: "a very long session name", active: true },
+        { label: "b", active: false },
+    ];
+    const spans = tabSpans(layout.paneWidth, wide);
+    const second = spans[1];
+    if (second === undefined) throw new Error("the second tab should fit in 70 columns");
+    expect(routeMouse(at({ col: layout.paneX + second.start, row: 0 }), layout, { rows: 20, tabs: wide }))
+        .toEqual({ kind: "open-tab", index: 1 });
+});
+
 test("a click past the last tab does nothing", () => {
-    expect(routeMouse(at({ col: layout.cols - 1, row: 0 }), layout, { rows: 20, tabs: 1 }))
+    expect(routeMouse(at({ col: layout.cols - 1, row: 0 }), layout, { rows: 20, tabs: tabs(1) }))
         .toEqual({ kind: "none" });
 });
 
 test("a click in the pane focuses the session", () => {
-    expect(routeMouse(at({ col: layout.paneX + 3, row: 5 }), layout, { rows: 20, tabs: 1 }))
+    expect(routeMouse(at({ col: layout.paneX + 3, row: 5 }), layout, { rows: 20, tabs: tabs(1) }))
         .toEqual({ kind: "focus", target: "session" });
 });
 
 test("the wheel in the pane scrolls it", () => {
-    expect(routeMouse(at({ col: layout.paneX + 3, row: 5, button: "wheel-up" }), layout, { rows: 20, tabs: 1 }))
+    expect(routeMouse(at({ col: layout.paneX + 3, row: 5, button: "wheel-up" }), layout, { rows: 20, tabs: tabs(1) }))
         .toEqual({ kind: "scroll", delta: -3 });
 });
 
 test("a middle click is unbound everywhere", () => {
-    expect(routeMouse(at({ col: 2, row: 2, button: "middle" }), layout, { rows: 20, tabs: 0 }))
+    expect(routeMouse(at({ col: 2, row: 2, button: "middle" }), layout, { rows: 20, tabs: tabs(0) }))
         .toEqual({ kind: "none" });
 });
 ```
@@ -729,14 +852,19 @@ returning `{start, end}` per tab that fits; `drawTabs` then iterates the spans.
 
 ```
 sidebarWidth > 0 && col < sidebarWidth   → wheel: move ±1
-                                          → left press/drag: select row, if row < counts.rows
+                                          → left press/drag: select row, if row < ctx.rows
                                           → otherwise: none
-row === layout.tabRow                     → left press on span i, i < counts.tabs: open-tab i
+row === layout.tabRow                     → left press inside tabSpans(paneWidth, ctx.tabs)[i]:
+                                            open-tab i
                                           → otherwise: none
 inside the pane rect                      → wheel: scroll ∓3
                                           → left press: focus session
                                           → otherwise: none
 ```
+
+The sidebar region is tested first, so a click on row 0 in the sidebar's columns
+selects list row 0 rather than falling into the tab strip — `drawSidebar` does paint
+its first list row on row 0, and `drawTabs` only ever writes from `paneX` rightwards.
 
 Wheel-left and wheel-right are unbound; they fall to `none`.
 
@@ -773,6 +901,24 @@ It becomes a dispatch on `ev.kind === "mouse"`, in both `feed` and `flushHeldEsc
 `App.handleMouse` computes the layout, asks `routeMouse`, and applies the action.
 `select` sets `this.selected` and focus; `open-tab` sets `this.activeSession` and
 focus; `focus` sets the focus target; `scroll` calls `SessionTerminal.scroll`.
+
+**The child gets first refusal on anything inside the pane, ahead of `routeMouse`.**
+19.5 adds that branch; the ordering is stated here because it is what makes the
+interaction-model table above true, and because a `scroll` action applied to a pane
+whose child is tracking the mouse would scroll the client's scrollback *and* forward a
+wheel notch, moving the view twice for one notch. The shape:
+
+```
+handleMouse(report):
+    layout = computeLayout(...)
+    if the report is inside the pane rect and the active session's
+       modes.mouseTracking !== "none":
+           focus = "session"; forward (19.5); return
+    apply routeMouse(report, layout, { rows, tabs })
+```
+
+Until 19.5 lands the guard is absent and every pane report goes through `routeMouse`,
+which is the Stage 1 behaviour anyway: `App.sessions` is empty until Stage 2.
 
 **`scroll` is a method on `SessionTerminal`, not `app.sessions[i].term.terminal.scrollLines`.**
 `terminal` is public, but reaching through it from the UI layer puts xterm's API in
@@ -857,19 +1003,48 @@ git commit -m "feat(tui): bind mouse clicks and the wheel to the UI"
 
 **Files:**
 - Modify: `packages/tui/src/input/encode.ts`, `packages/tui/src/term/session-terminal.ts`, `packages/tui/src/ui/app.ts`
-- Test: `packages/tui/src/input/encode.test.ts` (append), `packages/tui/src/term/session-terminal.test.ts` (append), `packages/tui/src/ui/app.test.ts` (append)
+- Test: `packages/tui/src/input/encode.test.ts` — new cases, **and** the `legacy`
+  fixture updated; `packages/tui/src/term/session-terminal.test.ts` (append),
+  `packages/tui/src/ui/app.test.ts` (append)
 
 **Interfaces:**
-- `ChildModes` gains `mouseTracking` and `mouseEncoding`.
+- `ChildModes` gains `mouseTracking` and `mouseEncoding`, both required.
 - Produces: `encodeMouseForChild(report: MouseReport, modes: ChildModes): string`.
+
+Two required fields mean `encode.test.ts:5`'s `legacy: ChildModes` fixture and
+`SessionTerminal.modes` (`session-terminal.ts:180`) both stop compiling until they are
+filled in — `{ mouseTracking: "none", mouseEncoding: "x10" }` in the fixture, and the
+real values in the getter. This task fixes both; `encode.test.ts` is not append-only.
 
 **The encoding mode has to be tracked by hand.** `IModes` exposes
 `mouseTrackingMode` but has no member for the *encoding* — `?1005` (UTF-8),
-`?1006` (SGR) and `?1015` (urxvt). `SessionTerminal` already registers
-`{ prefix: "?", final: "h" }` and `{ prefix: "?", final: "l" }` handlers to track
-DECTCEM; the same two handlers read 1005/1006/1015 and keep a
-`mouseEncoding` field. Reset in `attach()` alongside `hiddenCursor`, for the same
-reason: `terminal.reset()` clears the child's modes and the tracking must follow it.
+`?1006` (SGR), `?1015` (urxvt) and `?1016` (SGR with pixel coordinates).
+`SessionTerminal` already registers `{ prefix: "?", final: "h" }` and
+`{ prefix: "?", final: "l" }` handlers to track DECTCEM; the same two handlers read
+1005/1006/1015/1016 and keep a `mouseEncoding` field. Last enable wins; an `l` for
+whichever mode is currently active drops back to `"x10"`, the default. Reset in
+`attach()` alongside `hiddenCursor`, for the same reason: `terminal.reset()` clears the
+child's modes and the tracking must follow it.
+
+**`?1016` is tracked in order to be refused.** SGR-Pixels sends the same `CSI < … M`
+shape but with pixel coordinates, and this client has no pixel geometry — it knows
+cells and nothing else. Untracked, a child that wrote `?1002h ?1016h` would be handed
+`CSI <0;12;5M` for a click on cell (11, 4) and would read 12 and 5 as pixels, landing
+the click in its top-left cell. So `mouseEncoding: "sgr-pixels"` makes
+`encodeMouseForChild` return `""`. Dropping the report is the honest answer; guessing
+a cell size is not.
+
+**A re-attach that falls back to history has to put the mouse modes back.** `attach()`
+already saves `applicationCursorKeys` and `bracketedPaste` across `terminal.reset()`
+and replays them as `?1h`/`?2004h` on the history path, precisely because trimmed
+scrollback may no longer contain the sequences that set them
+(`session-terminal.ts:198-224`, `:248-254`). Mouse tracking and encoding need the same
+treatment or a child that had `?1002h ?1006h` on comes back as
+`mouseTracking: "none"`, and every click after the reconnect is silently dropped. Add
+to the saved `restore` string: tracking `x10`→`?9h`, `vt200`→`?1000h`, `drag`→`?1002h`,
+`any`→`?1003h`; encoding `utf8`→`?1005h`, `sgr`→`?1006h`, `urxvt`→`?1015h`,
+`sgr-pixels`→`?1016h`. As with the two existing modes, replayed history that carries a
+later change overrides them because it is parsed after.
 
 **Tracking gates which events; encoding decides the bytes.** They are orthogonal on
 the wire and a child can legally combine any pair.
@@ -890,6 +1065,13 @@ Wheel notches are presses and are forwarded wherever a press is.
 | `urxvt` | `CSI (b+32) ; x ; y M` |
 | `utf8` | `CSI M` then `b+32`, `x+32`, `y+32` as code points |
 | `x10` | the same, but a coordinate above 223 makes the report undeliverable, so it is dropped |
+| `sgr-pixels` | nothing — the report is dropped, see above |
+
+**A report whose button is `"none"` is dropped unless it is a release.** `"none"` means
+"no button number to send": an extra button (8-11), or an X10 release that did not say
+what was let go. A release still has a wire value under the non-SGR encodings — button
+3 — so it is sent; under `sgr`, where the button field must name the real button, a
+`"none"` release is dropped too.
 
 `b` is rebuilt from the report: button base (left 0, middle 1, right 2, wheel
 `64 + index`), plus 32 for a drag, plus the modifier bits — except under `x10`
@@ -963,6 +1145,25 @@ test("the wheel is a press", () => {
     expect(encodeMouseForChild({ ...press, button: "wheel-up" },
         modes({ mouseTracking: "vt200", mouseEncoding: "sgr" }))).toBe("\x1b[<64;12;5M");
 });
+
+test("a button that cannot be named is not sent as a left click", () => {
+    // An extra button (8-11) decodes as "none": there is no button number for it.
+    expect(encodeMouseForChild({ ...press, button: "none" },
+        modes({ mouseTracking: "vt200", mouseEncoding: "sgr" }))).toBe("");
+});
+
+test("an unnamed release is button 3 everywhere except SGR", () => {
+    const release = { ...press, action: "release" as const, button: "none" as const };
+    expect(encodeMouseForChild(release, modes({ mouseTracking: "vt200", mouseEncoding: "x10" })))
+        .toBe("\x1b[M\x23\x2c\x25");
+    expect(encodeMouseForChild(release, modes({ mouseTracking: "vt200", mouseEncoding: "sgr" })))
+        .toBe("");
+});
+
+test("pixel mouse mode is refused rather than answered in cells", () => {
+    expect(encodeMouseForChild(press, modes({ mouseTracking: "drag", mouseEncoding: "sgr-pixels" })))
+        .toBe("");
+});
 ```
 
 `session-terminal.test.ts`:
@@ -977,7 +1178,19 @@ test("the child's mouse modes are read off its own output", async () => {
     expect(term.modes.mouseEncoding).toBe("x10");
 });
 
+test("pixel mouse mode is tracked as its own encoding", async () => {
+    const term = /* SessionTerminal */;
+    await write(term, "\x1b[?1002h\x1b[?1016h");
+    expect(term.modes.mouseEncoding).toBe("sgr-pixels");
+});
+
 test("a re-attach does not carry the old encoding onto a fresh grid", async () => { /* ... */ });
+
+test("a re-attach that falls back to history puts the mouse modes back", async () => {
+    // ?1002h ?1006h, then a snapshot failure and a history reply that carries
+    // neither. The replayed `restore` string has to re-enable both, or every
+    // click after the reconnect is dropped.
+});
 ```
 
 `app.test.ts`:
@@ -998,6 +1211,32 @@ test("a click past the child's own width is dropped", () => { /* ... */ });
 `encodeMouseForChild` is one gating function and one switch over the encoding.
 `App.sendToChild` widens from `KeyEvent[]` to `InputEvent[]` and picks
 `encodeForChild` or `encodeMouseForChild` per element.
+
+**`App.handleMouse` gains the branch that actually calls it** — without it nothing in
+the app ever hands a `MouseReport` to `sendToChild`, `encodeMouseForChild` is dead
+code, and the `app.test.ts` cases below fail. It goes ahead of `routeMouse`, as
+19.4 set out:
+
+```ts
+const layout = computeLayout(cols, rows, this.zoomed);
+const session = this.sessions[this.activeSession];
+if (session !== undefined && insidePane(report, layout) && session.term.modes.mouseTracking !== "none") {
+    this.focusTarget = "session";
+    const col = report.col - layout.paneX;
+    const row = report.row - layout.paneY;
+    // Past the child's own grid is not a click on its last cell — the pane can
+    // outrun the child for a frame after a resize, which blitTerminal guards
+    // against the same way.
+    const term = session.term.terminal;
+    if (col < term.cols && row < term.rows) {
+        this.sendToChild([{ ...report, col, row }]);
+    }
+    return;
+}
+```
+
+`col`/`row` are non-negative already, because `insidePane` is what put the report
+inside the rect.
 
 - [ ] **Step 3: Verify**
 
@@ -1061,6 +1300,10 @@ these three, which are decisions rather than defects:
 - **The X10 decode path is capped near column 95** by stdin's UTF-8 decoding. It
   exists to stop garbage keystrokes on a terminal that ignored `?1006h`, not to be a
   supported encoding.
+- **Extra mouse buttons (8-11) are decoded as `"none"` and never forwarded.** They
+  have no binding, and naming them would put four dead members in `MouseButton`.
+- **`?1016` SGR-Pixels is tracked only so reports can be dropped.** The client has
+  cell geometry and no pixel geometry; guessing a cell size is worse than silence.
 - **A mouse report does not drain a held Escape** in legacy mode, so a click inside
   the 25ms window is delivered before the Escape it followed.
 
