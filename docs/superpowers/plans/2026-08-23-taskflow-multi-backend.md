@@ -846,6 +846,22 @@ function localIPv4Addresses(): string[] {
 }
 
 /**
+ * What has to change to bring a set of joined addresses in line with the
+ * addresses the machine currently has. Pure, and exported for the test — the
+ * bookkeeping is the part of this that has been wrong twice, and it is the part
+ * a real socket makes untestable.
+ */
+function membershipDelta(
+    joined: ReadonlySet<string>,
+    addresses: readonly string[],
+): { add: string[]; drop: string[] } {
+    return {
+        add: addresses.filter((address) => !joined.has(address)),
+        drop: [...joined].filter((address) => !addresses.includes(address)),
+    };
+}
+
+/**
  * Keeps `socket`'s multicast memberships in step with the machine's interfaces,
  * and returns the timer that goes on doing so.
  *
@@ -869,22 +885,6 @@ function localIPv4Addresses(): string[] {
  * this and sets the interval: recompute when `os.networkInterfaces()` changes,
  * polled every 30 seconds rather than watching link state per platform.
  */
-/**
- * What has to change to bring a set of joined addresses in line with the
- * addresses the machine currently has. Pure, and exported for the test — the
- * bookkeeping is the part of this that has been wrong twice, and it is the part
- * a real socket makes untestable.
- */
-function membershipDelta(
-    joined: ReadonlySet<string>,
-    addresses: readonly string[],
-): { add: string[]; drop: string[] } {
-    return {
-        add: addresses.filter((address) => !joined.has(address)),
-        drop: [...joined].filter((address) => !addresses.includes(address)),
-    };
-}
-
 function keepMembershipsCurrent(socket: dgram.Socket): ReturnType<typeof setInterval> {
     // The addresses we have successfully joined. Not "the addresses that
     // existed last time we looked" — a join that throws must be retried on the
@@ -1099,6 +1099,9 @@ function createListener(opts: {
     onChange: (entries: DiscoveredBackend[]) => void;
 }): DiscoveryListener {
     const seen = new Map<string, DiscoveredBackend>();
+    /** Ids we have already complained about below. One line per collision, not
+     *  one every five seconds. */
+    const warnedDuplicates = new Set<string>();
     let socket: dgram.Socket | null = null;
     let sweepTimer: ReturnType<typeof setInterval> | null = null;
     let membershipTimer: ReturnType<typeof setInterval> | null = null;
@@ -1163,6 +1166,30 @@ function createListener(opts: {
                         existing.address !== address &&
                         Date.now() - existing.lastSeenAt < ANNOUNCE_INTERVAL_MS * 2
                     ) {
+                        // The incumbent keeps the row and the newcomer gets
+                        // none. That is the right call — one stable entry beats
+                        // an address that flips every five seconds — but it is
+                        // not a rare case and it must not be a silent one.
+                        // `instanceId` is `"main"` on every production backend
+                        // (`config.ts:67`), so the id is the announced hostname
+                        // and nothing else, and two stock `MacBook-Pro`s, two
+                        // `raspberrypi`s, or two machines off one corporate
+                        // image are ordinary. To the user on the losing side
+                        // this looks exactly like the multicast faults
+                        // `keepMembershipsCurrent` exists to prevent: a machine
+                        // that is running Taskflow and simply never appears.
+                        // One log line separates the two, and names both ways
+                        // out — neither of which is guessable.
+                        if (!warnedDuplicates.has(id)) {
+                            warnedDuplicates.add(id);
+                            console.warn(
+                                `[discovery] Two machines are announcing as "${id}" ` +
+                                    `(${existing.address} and ${address}). Only ` +
+                                    `${existing.address} will appear in the backend menu. ` +
+                                    `Rename one machine, or add the other by address with ` +
+                                    `"Connect to a backend".`,
+                            );
+                        }
                         return;
                     }
                     seen.set(id, { ...message, address, lastSeenAt: Date.now() });
@@ -1180,6 +1207,7 @@ function createListener(opts: {
                             // The menu must not keep offering machines this
                             // listener can no longer hear from.
                             seen.clear();
+                            warnedDuplicates.clear();
                             opts.onChange(live());
                         },
                         settle,
@@ -1212,6 +1240,7 @@ function createListener(opts: {
             }
             socket = null;
             seen.clear();
+            warnedDuplicates.clear();
             pendingSettle?.();
             pendingSettle = null;
         },
@@ -1923,9 +1952,22 @@ function mergeForMenu(
 function normalizeRecords(input: unknown): BackendRecord[] {
     if (!Array.isArray(input)) return [];
     const records: BackendRecord[] = [];
+    const ids = new Set<string>();
     for (const candidate of input) {
         const record = normalizeRecord(candidate);
-        if (record) records.push(record);
+        if (!record) continue;
+        // First row wins, later ones are dropped. An id is the app's only
+        // handle on a backend — `activeId`, `previousId`, `findRecord`,
+        // `closeTunnel` and half of the `known_hosts` key are all just an id —
+        // and `findRecord` returns the *first* match. Two rows sharing one id
+        // are therefore two menu entries where clicking the second activates
+        // the first one's machine: a different host, a different set of
+        // projects, and nothing on screen to explain it. `upsertRecord` cannot
+        // produce that (it replaces by id), but a hand-edited file can, and
+        // repairing a hand-edited file is why this function exists.
+        if (ids.has(record.id)) continue;
+        ids.add(record.id);
+        records.push(record);
     }
     return records;
 }
@@ -2477,11 +2519,31 @@ function spawnTunnel(record: BackendRecord, localPort: number, backendPort: numb
     };
 }
 
+/**
+ * Set by `closeAllTunnels` and never cleared: its only caller is `will-quit`
+ * (Task 7), and nothing after that expects to open a tunnel.
+ *
+ * `closeAllTunnels` kills what is *in* `tunnels`, and an activation still in
+ * flight is not in it yet. There are two windows where the map is empty and an
+ * `ssh` child is nevertheless on its way: inside `attemptTunnel`, between
+ * `await allocateLocalPort()` and `spawnTunnel`; and inside `openTunnel`,
+ * between one awaited attempt and the next. Quit during either and the sweep is
+ * a no-op, the pending microtask resolves anyway, `spawn` runs, and the child
+ * outlives the app — a port forward into another machine held open by a process
+ * with no parent left to close it. Nothing in the app will ever kill it, and
+ * the user has no reason to look for it.
+ */
+let closing = false;
+
 async function attemptTunnel(
     record: BackendRecord,
     backendPort: number,
 ): Promise<TunnelResult> {
+    if (closing) return abandonedResult();
     const localPort = await allocateLocalPort();
+    // Checked again on the far side of the await, which is the point: this is
+    // where the map is empty and the child does not exist yet.
+    if (closing) return abandonedResult();
     const { child, readStderr } = spawnTunnel(record, localPort, backendPort);
     // Registered before the readiness probe runs, not after it succeeds, so
     // `closeAllTunnels` on quit can see it. See the comment on `tunnels`.
@@ -2538,7 +2600,18 @@ async function attemptTunnel(
     return { ok: false, failure: outcome };
 }
 
+/** The shape every `closing` check returns. Nobody renders it — the window is
+ *  closed and the app is going away — but the promise must still settle, or
+ *  `activateBackend` hangs on the way out. */
+function abandonedResult(): TunnelResult {
+    return {
+        ok: false,
+        failure: { kind: "unknown", message: "Taskflow is quitting.", stderr: "" },
+    };
+}
+
 async function openTunnel(record: BackendRecord, backendPort: number): Promise<TunnelResult> {
+    if (closing) return abandonedResult();
     closeTunnel(record.id);
     let last: TunnelResult = {
         ok: false,
@@ -2549,6 +2622,9 @@ async function openTunnel(record: BackendRecord, backendPort: number): Promise<T
         if (last.ok) return last;
         // Only a lost local port is worth retrying; everything else is terminal.
         if (last.failure.kind !== "local-bind-failed") return last;
+        // A retry is a fresh spawn, so it needs the same guard the first
+        // attempt got — this loop is the second of the two empty-map windows.
+        if (closing) return abandonedResult();
     }
     return last;
 }
@@ -2568,6 +2644,9 @@ function closeTunnel(id: string): void {
 }
 
 function closeAllTunnels(): void {
+    // Before the sweep, not after: the point is to stop the children that are
+    // not in the map yet, and they are racing this call.
+    closing = true;
     for (const id of [...tunnels.keys()]) closeTunnel(id);
 }
 
@@ -2613,12 +2692,35 @@ function forgetScannedHostKey(id: string): void {
 }
 
 async function fetchHostKeyFingerprint(record: BackendRecord): Promise<string> {
+    // A new scan invalidates the old one whatever happens next. Without this, a
+    // second scan that fails would leave the *first* scan's material stashed,
+    // and `trustHostKey` would happily pin it against a fingerprint the dialog
+    // never managed to show.
+    forgetScannedHostKey(record.id);
     const keyMaterial = await scanHostKey(record);
     if (keyMaterial.trim().length === 0) {
         throw new Error(`No host key returned by ${record.host}`);
     }
-    const fingerprint = await new Promise<string>((resolve) => {
-        const child = execFile("ssh-keygen", ["-lf", "-"], (_e, stdout) => resolve(stdout));
+    const fingerprint = await new Promise<string>((resolve, reject) => {
+        const child = execFile("ssh-keygen", ["-lf", "-"], (error, stdout) => {
+            // Both of these were previously an ignored `_e` and an unchecked
+            // `stdout`, and the two together are the one failure this dialog
+            // must not have. `ssh-keygen` failing — missing binary, a key type
+            // it will not parse — resolved the promise with `""`, which is not
+            // `null`, which is the only thing `TrustHostKeyDialog` tests before
+            // it renders `<pre>{fingerprint}</pre>` and a **Trust and connect**
+            // button. The user is shown an empty box and asked to approve it,
+            // and `trustHostKey` then finds the stash below and pins bytes
+            // nobody ever looked at. Trust-on-first-use is only worth anything
+            // if the thing the user approved is the thing that gets written.
+            if (error) {
+                return reject(new Error(`Could not read the host key from ${record.host}.`));
+            }
+            if (stdout.trim().length === 0) {
+                return reject(new Error(`Could not read the host key from ${record.host}.`));
+            }
+            resolve(stdout);
+        });
         child.stdin?.end(keyMaterial);
     });
     scannedHostKeys.set(record.id, {
@@ -2710,7 +2812,7 @@ git commit -m "feat(electron): supervise ssh tunnels with a backend readiness pr
 
 **Interfaces:**
 - Consumes: Tasks 4, 5, 6.
-- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<{ ok: boolean; reason?: string }>`, `removeBackend(id): Promise<{ ok: boolean; reason?: string }>`, `revertActiveBackend(): Promise<void>`, `trustBackendHost(id): Promise<void>` (rejects unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void`.
+- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<{ ok: boolean; reason?: string }>`, `removeBackend(id): Promise<{ ok: boolean; reason?: string }>`, `revertActiveBackend(): Promise<void>`, `trustBackendHost(id): Promise<{ ok: boolean; reason?: string }>` (refuses unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<{ ok: true; fingerprint: string } | { ok: false; reason: string }>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void`.
 
 - [ ] **Step 1: Write the registry**
 
@@ -3373,15 +3475,42 @@ In `electron/src/ipc-handlers.ts`, add near the existing `get-backend-port` hand
 
     ipcMain.handle("backend-fingerprint", async (_event, id: string) => {
         const record = findRecord(id);
-        if (!record) throw new Error("Unknown backend");
-        return fetchHostKeyFingerprint(record);
+        if (!record) return { ok: false as const, reason: "That backend is no longer in the list." };
+        try {
+            return { ok: true as const, fingerprint: await fetchHostKeyFingerprint(record) };
+        } catch (error) {
+            return { ok: false as const, reason: reasonFrom(error) };
+        }
     });
 
     ipcMain.handle("backend-trust-host", async (_event, id: string) => {
         const record = findRecord(id);
-        if (!record) throw new Error("Unknown backend");
-        await trustHostKey(record);
+        if (!record) return { ok: false, reason: "That backend is no longer in the list." };
+        try {
+            await trustHostKey(record);
+            return { ok: true };
+        } catch (error) {
+            return { ok: false, reason: reasonFrom(error) };
+        }
     });
+```
+
+**These two return `{ ok, reason }` for the same reason `updateBackend` does.**
+Every message these paths produce is written to be read by a person — "No host
+key returned by 192.168.1.20", "Re-check this host's fingerprint before trusting
+it." — and every one of them lands in `TrustHostKeyDialog`'s `<p>{error}</p>`.
+A rejected `ipcMain.handle` does not arrive as its message: Electron prefixes it
+with `Error invoking remote method 'backend-fingerprint': `, so the sentence the
+user needs starts a line and a half in. `save-artifact` (`{ success, error }`),
+`removeBackend` and `updateBackend` all already return instead of throwing;
+these were the last two handlers in the plan that did not.
+
+Add the shared unwrapper next to them, since both want it:
+
+```ts
+function reasonFrom(error: unknown): string {
+    return error instanceof Error ? error.message : "Something went wrong.";
+}
 ```
 
 `activeBackendId()` does not exist yet — add it to `backend-registry.ts` next to `isLocalActive`:
@@ -3393,6 +3522,14 @@ function activeBackendId(): string {
 ```
 
 and export it. Import the registry and tunnel functions at the top of `ipc-handlers.ts`.
+
+**This step invalidates every `ipc-handlers.ts:NNN` line number later in the
+plan.** The twelve handlers above go in beside `get-backend-port` (`:71`), which
+sits ahead of everything Tasks 12 and 13 cite in that file — the `openExternalUrl`
+scheme guard at `:74` and the whole `save-artifact` handler at `:99-135` — so
+those move down by roughly the length of the block you just pasted. The line
+numbers in this document are all measured against the file as it is *before* this
+task. From here on, find those two by symbol, not by number.
 
 - [ ] **Step 3: Bridge them in preload**
 
@@ -3458,8 +3595,10 @@ In `packages/ui/src/env.d.ts`, add to `interface TaskflowBridge`:
         patch: { displayName?: string; user?: string; sshPort?: number },
     ): Promise<{ ok: boolean; reason?: string }>;
     removeBackend(id: string): Promise<{ ok: boolean; reason?: string }>;
-    getHostFingerprint(id: string): Promise<string>;
-    trustBackendHost(id: string): Promise<void>;
+    getHostFingerprint(
+        id: string,
+    ): Promise<{ ok: true; fingerprint: string } | { ok: false; reason: string }>;
+    trustBackendHost(id: string): Promise<{ ok: boolean; reason?: string }>;
     onBackendsChanged(callback: () => void): () => void;
     onBackendDropped(callback: (id: string, failure: TunnelFailure) => void): () => void;
 ```
@@ -5973,12 +6112,24 @@ function TrustHostKeyDialog({ trust, label }: TrustHostKeyDialogProps) {
         if (!bridge) return;
         setBusy(true);
         try {
-            // `fetchHostKeyFingerprint` throws when `ssh-keyscan` comes back
-            // empty, which a host that is down, firewalled on the ssh port, or
-            // just slow produces routinely. Called through `void` with no catch
-            // this is an unhandled renderer rejection and the button appears to
-            // do nothing at all.
-            setFingerprint(await bridge.getHostFingerprint(trust.id));
+            // Refusal is routine here, not exceptional: a host that is down,
+            // firewalled on the ssh port or merely slow gives `ssh-keyscan`
+            // nothing, and `ssh-keygen` can fail on the material it does get.
+            // Both come back as `{ ok: false, reason }` — see the handler — so
+            // the sentence reaches `<p>{error}</p>` as written rather than
+            // wearing Electron's `Error invoking remote method` prefix.
+            //
+            // `setFingerprint` stays null on refusal, which is what keeps
+            // **Trust and connect** off the screen. It must never be handed an
+            // empty string: the button renders on `fingerprint !== null`, so an
+            // empty `<pre>` would be an approval of bytes nobody was shown.
+            const result = await bridge.getHostFingerprint(trust.id);
+            if (!result.ok) {
+                setFingerprint(null);
+                useBackendStore.setState({ error: result.reason });
+                return;
+            }
+            setFingerprint(result.fingerprint);
         } catch (scanError) {
             setFingerprint(null);
             useBackendStore.setState({
@@ -5998,12 +6149,19 @@ function TrustHostKeyDialog({ trust, label }: TrustHostKeyDialogProps) {
         setBusy(true);
         try {
             // `trustBackendHost` pins the key whose fingerprint this dialog
-            // showed, and rejects if main has none stashed for this id. The
+            // showed, and refuses if main has none stashed for this id. The
             // "Trust and connect" button only renders once `fingerprint` is
-            // set, so that rejection is a backstop — but it must be surfaced
-            // rather than left as an unhandled rejection, because it means the
-            // approval and the key have come apart.
-            await bridge.trustBackendHost(trust.id);
+            // set, so a refusal here is a backstop — but it must be surfaced
+            // and must stop the switch, because it means the approval and the
+            // key have come apart.
+            const trusted = await bridge.trustBackendHost(trust.id);
+            if (!trusted.ok) {
+                setFingerprint(null);
+                useBackendStore.setState({
+                    error: trusted.reason ?? "Could not trust that host key.",
+                });
+                return;
+            }
             // `switchTo` clears `pendingTrust`, which unmounts this component.
             // Nothing after the await may assume it is still mounted.
             await switchTo(trust.id);
@@ -6447,7 +6605,8 @@ Everything that assumes the backend's filesystem is this machine's.
 - Create: `packages/ui/src/hooks/useBackendIsLocal.test.tsx`
 - Modify: `packages/ui/src/components/sidebar/NewProjectDialog.tsx:24,46`
 - Modify: `packages/ui/src/components/sidebar/MissingLocationDialog.tsx:40`
-- Modify: `packages/ui/src/components/settings/sections/GeneralSection.tsx:59-65` (the data-folder button; `SettingsModal.tsx:149,460` only holds the handler)
+- Modify: `packages/ui/src/components/settings/SettingsModal.tsx:454-464` (holds the hook, passes `canChangeDataDir` down)
+- Modify: `packages/ui/src/components/settings/sections/GeneralSection.tsx:59-65` (the data-folder button itself)
 - Modify: `packages/ui/src/components/appearance/ImportTab.tsx:28`
 - Modify: `packages/ui/src/components/flows/FlowInputDialog.tsx:34`
 - Modify: `packages/ui/src/components/panels/FileContextMenu.tsx:107,138-192`
@@ -6545,19 +6704,36 @@ The reason string is the same at every site:
 **The data-folder button is not in `SettingsModal.tsx`.** That file holds
 `handleChangeDataDir` (`:149`) and passes it down as a prop (`:460`); the
 `Button` the user clicks is in `GeneralSection.tsx:59-65`, behind
-`onChangeDataDir`. Adding the hook to `SettingsModal` and looking for a button
-there finds nothing, and the visible control stays live. Read the hook in
-`GeneralSection` itself — it is a leaf component and already imports from
-`@taskflow/shared`, so no new prop is needed:
+`onChangeDataDir`. Adding the hook to `SettingsModal` and then looking for a
+button there finds nothing, and the visible control ships live.
+
+This one is a two-file change, and **the hook goes in `SettingsModal`, not in
+`GeneralSection`.** `GeneralSection` is purely presentational — every value it
+renders arrives as a prop, it calls no hooks at all today, and Task 3's Step 9c
+adds its two network rows the same way ("Add the props to `GeneralSectionProps`
+and pass them from `SettingsModal.tsx:454-464` the way `confirmBeforeExit` is
+passed"). Reading a store inside it would put two conventions in one file, nine
+tasks apart. So, in `SettingsModal.tsx`:
 
 ```tsx
     const isLocal = useBackendIsLocal();
-// ...
+// ...and at the GeneralSection element (`:454-464`):
+                                canChangeDataDir={isLocal}
+```
+
+and in `GeneralSection.tsx`, `canChangeDataDir: boolean` on
+`GeneralSectionProps` alongside `migrating`, then:
+
+```tsx
     <Button
         variant="outline"
         size="sm"
-        disabled={!isLocal || migrating}
-        tooltip={isLocal ? undefined : "Only available on the machine running this backend"}
+        disabled={!canChangeDataDir || migrating}
+        tooltip={
+            canChangeDataDir
+                ? undefined
+                : "Only available on the machine running this backend"
+        }
         onClick={onChangeDataDir}>
 ```
 
@@ -6683,8 +6859,19 @@ Radix branch (`:254-264`), for the browser dev server where
 
 and the same `disabled={!isLocal}` on the "Reveal in Finder" item.
 
-"Open in Terminal" is deliberately not gated: it creates a session on the
-backend, like `runInShell` below, and works fine remotely.
+Two of the four items in that menu are deliberately **not** gated, and both sit
+directly between the two that are, so say which is which before touching either
+branch:
+
+- **"Open in Terminal"** creates a session on the backend, like `runInShell`
+  below, and works fine remotely.
+- **"Open in Editor"** (`:171` native, `:249-254` Radix, `isMarkdown` only) is
+  not the same thing as "Open in External Editor" one line below it, despite the
+  name. `handleOpenInEditor` (`:72-90`) opens a markdown tab in Taskflow's own
+  editor, which reads the file through the backend; nothing on the client's
+  filesystem is touched. Gating it would break markdown editing on every remote
+  backend, and the two labels are one word apart, so check the handler rather
+  than the label before you disable anything here.
 
 `packages/ui/src/components/panels/WikiPanel.tsx` has the same two affordances
 under a different menu, and it is the one the file-tree sweep misses because it
@@ -6814,8 +7001,7 @@ The last place that reads a backend path with the client's filesystem.
 
 **Files:**
 - Modify: `packages/backend/src/api/routes/flow-routes.ts:168`
-- Modify: `electron/src/ipc-handlers.ts:99-135`
-- Modify: `electron/src/main.ts` (pass `getActiveOrigin` into `IpcHandlerDeps`)
+- Modify: `electron/src/ipc-handlers.ts` — the `save-artifact` handler (`:99-135` before Task 7 pushed it down; find it by name)
 - Modify: `electron/src/preload.ts:218`
 - Modify: `packages/ui/src/env.d.ts:62-66`
 - Modify: `packages/ui/src/components/flows/FlowPanel.tsx:298`
@@ -6960,7 +7146,7 @@ In `electron/src/ipc-handlers.ts`, replace the `copyFile` branch of the `save-ar
 
 ```ts
                 if (typeof opts.url === "string") {
-                    const origin = deps.getActiveOrigin();
+                    const origin = getActiveOrigin();
                     if (!origin) throw new Error("No backend is connected");
                     const response = await fetch(`${origin}${opts.url}`);
                     if (!response.ok) {
@@ -6972,8 +7158,9 @@ In `electron/src/ipc-handlers.ts`, replace the `copyFile` branch of the `save-ar
 
 **`throw`, not `return { success: false, error }`, and the difference is whether
 the user is told anything at all.** This handler has two ways to report a
-failure and only one of them is visible. The `catch` at
-`ipc-handlers.ts:125-133` shows a native "Download failed" message box; every
+failure and only one of them is visible. The `catch` that closes the
+`save-artifact` handler's `try` (`ipc-handlers.ts:125-133` before Task 7 moved
+it) shows a native "Download failed" message box; every
 `return { success: false, error }` above it is silent, because the sole caller
 is `FlowPanel.tsx:308`, which fires `void window.taskflow?.saveArtifact(...)`
 and never looks at the result. Today that is harmless — the only early returns
@@ -6988,7 +7175,7 @@ Add one more guard, above `showSaveDialog` rather than below it, so a dropped
 tunnel does not make the user choose a filename first:
 
 ```ts
-            if (typeof opts.url === "string" && !deps.getActiveOrigin()) {
+            if (typeof opts.url === "string" && !getActiveOrigin()) {
                 await dialog.showMessageBox({
                     type: "error",
                     title: "Download failed",
@@ -6998,7 +7185,19 @@ tunnel does not make the user choose a filename first:
             }
 ```
 
-Delete the `opts.path` branch and its `startsWith("/")` check — the path never crosses the process boundary now. Add `getActiveOrigin` to `IpcHandlerDeps` and pass it from `main.ts`. Update the preload signature and `env.d.ts` to `saveArtifact(opts: { url?: string; text?: string; defaultName?: string })`.
+Delete the `opts.path` branch and its `startsWith("/")` check — the path never
+crosses the process boundary now. Update the preload signature (`preload.ts:218`)
+and `env.d.ts` (`:62-66`) to
+`saveArtifact(opts: { url?: string; text?: string; defaultName?: string })`.
+
+**`getActiveOrigin` is already in scope here; do not thread it through the deps
+object.** Task 7's Step 2 ends with "Import the registry and tunnel functions at
+the top of `ipc-handlers.ts`", and its `backend-active` handler calls
+`getActiveOrigin()` as a plain module import a few handlers above this one.
+Adding a deps field would give one file two routes to the same function and
+would need a `main.ts` edit for nothing. (The deps interface is
+`IpcHandlersDeps`, `ipc-handlers.ts:8` — plural — if you go looking for it
+anyway.)
 
 - [ ] **Step 6: Point the UI at the new endpoint**
 
@@ -7164,6 +7363,28 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
   still names the address, so the rejoin is skipped and B is deaf until it is
   restarted. Same one-sided symptom, so distinguish them by which machine went
   offline.
+- Give two machines on the LAN the same hostname (System Settings → General →
+  Sharing on macOS) and run a backend on both, then watch the third machine's
+  backend menu and its console. Expected: one row, stably pointing at whichever
+  machine was heard first, and one `[discovery] Two machines are announcing as`
+  line naming both addresses. Two rows, or one row whose address changes every
+  five seconds, means the incumbent guard is not firing. No log line at all
+  means the losing machine is invisible with nothing to explain it, which is
+  indistinguishable from the multicast faults above. The documented way out —
+  rename one, or add the other through **Connect to a backend** — should work.
+- Start connecting to a remote backend and quit Taskflow (⌘Q) while the spinner
+  is still up, then run `pgrep -fl "ssh -N -L"`. Expected: nothing. A surviving
+  `ssh` means the `closing` flag is not being checked on the far side of
+  `allocateLocalPort`, and that process is holding a forwarded port into another
+  machine with nothing left to close it.
+- Add a second row to `backends.json` with the same `id` as an existing one but
+  a different `host`, relaunch, and open the menu. Expected: one row. Two rows
+  means `normalizeRecords` is not de-duplicating, and clicking the second one
+  connects to the first one's machine.
+- If the host-key dialog ever shows an empty box above **Trust and connect**,
+  stop: `ssh-keygen` failed and its error was swallowed, and pressing that
+  button pins a key nobody has seen. The dialog must show the refusal instead,
+  as a plain sentence with no `Error invoking remote method` in front of it.
 - With a remote backend active, open Settings → General. Expected: the data
   folder's **Change...** button is disabled and says why on hover; **Reset**
   stays live. If Change... is clickable, stop — picking a folder here moves the
@@ -7172,10 +7393,16 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
   empty state. Expected: "Add Project" is disabled, not just the toolbar button
   above it. This is the first screen a newly connected backend shows.
 - With a remote backend active, kill the ssh child from a terminal
-  (`pkill -f "ssh -N -L"`), then click **Download** on a flow artifact.
-  Expected: a "Download failed" dialog. A save dialog that closes leaving no
-  file and no message means the handler is returning `{ success: false }`
-  instead of throwing — `FlowPanel` does not read the result.
+  (`pkill -f "ssh -N -L 127.0.0.1:"`), then click **Download** on a flow
+  artifact. Expected: a "Download failed" dialog **immediately, with no save
+  dialog before it** — the origin is null by then, and the guard added ahead of
+  `showSaveDialog` is what stops the user naming a file for a download that
+  cannot happen. A save dialog that appears and then closes leaving no file and
+  no message is the failure: it means the handler returned `{ success: false }`
+  from inside the `try` instead of throwing, and `FlowPanel` does not read the
+  result. Then the other half, which does go through the save dialog: delete the
+  artifact file on the remote machine and download it again. Expected: the save
+  dialog, then "Download failed" with the backend's 404 in it.
 - In Settings → General, paste a 200-character name into "Name on the network".
   Expected: the field stops accepting input at 64. If it takes the whole string,
   this backend will vanish from every other machine's menu the moment it
