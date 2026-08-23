@@ -574,6 +574,48 @@ describe("tui entry point", () => {
         expect(child.exitCode).toBeNull();
     }, 20_000);
 
+    test("an X10 report that starts while a dead header is held gets its own window", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+        // The ready marker is written from inside `app.init()`, before stdin is
+        // resumed, so an unsettled start would move the deadline this test aims
+        // between.
+        await Bun.sleep(500);
+
+        // An X10 header whose payload never arrives. Held, and given a second.
+        await child.stdin.write("\x1b[M");
+        await child.stdin.flush();
+        await Bun.sleep(900);
+
+        // A second click arrives, split: header plus one payload character.
+        // The dead header is discarded (its ESC cannot be payload) and this
+        // report takes its place in the carry — a different report, whose own
+        // tail is only just in flight, so it is owed the full window. But its
+        // carry still starts with `CSI M`, exactly as the dead one did, so the
+        // prefix-containment test cannot tell them apart.
+        await child.stdin.write("\x1b[M\x20");
+        await child.stdin.flush();
+        await Bun.sleep(400);
+
+        // Past the first header's deadline, well inside the second's. Held
+        // correctly, these two characters complete the second report and are
+        // consumed as its payload. If it inherited the dead header's deadline
+        // it was already dropped, and `\x51` decodes as `Q`, the quit binding.
+        await child.stdin.write("\x51\x21");
+        await child.stdin.flush();
+        await Bun.sleep(400);
+        expect(child.exitCode).toBe(null);
+
+        // Still alive and still reading.
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+        expect(await waitForExit(child, "quit after the second click completed")).toBe(0);
+    }, 20_000);
+
     test("drops a click header whose payload never arrives", async () => {
         const dir = await tempDir("tui-index-pid-");
         const pidFile = join(dir, "pid");

@@ -226,10 +226,12 @@ async function main(): Promise<void> {
         if (mouseCarryDeadline !== null && Date.now() >= mouseCarryDeadline) {
             dropStrandedMouseReport();
         }
-        // What was being held before this read, so that a carry which is a
-        // different report — rather than the same one grown by a few bytes —
-        // can be told apart below.
-        const held = carry;
+        // How long the carry was before this read. Both decoders return a
+        // suffix of `carry + text`, so a carry exactly this much longer is the
+        // same run with the new bytes appended and nothing consumed; any other
+        // length means the decoder moved past the start of what was held, and
+        // whatever it is holding now is a different run.
+        const heldLength = carry.length;
         const decode = kittyAvailable ? decodeKitty : decodeLegacy;
         const result = decode(text, carry);
         carry = result.carry;
@@ -246,16 +248,18 @@ async function main(): Promise<void> {
         } else if (
             mouseCarryDeadline === null ||
             result.events.length > 0 ||
-            !carry.startsWith(held)
+            carry.length !== heldLength + text.length
         ) {
             // Either this is a newly held report, or the read that carried it
             // also decoded something and so was a report arriving rather than a
             // dead one being padded, or the carry is no longer the run that was
             // being held at all. The last case is a second click landing while
-            // the first is still stranded: the dead prefix is discarded as an
-            // invalid CSI and this report takes its place, so it is as new as
-            // one held from an empty carry and owed the same window. Only a
-            // carry the previous one is a prefix of is the same report grown.
+            // the first is still stranded: the dead one is discarded and this
+            // report takes its place, so it is as new as one held from an empty
+            // carry and owed the same window. Testing that by prefix would miss
+            // it for X10, where the dead header and the fresh one are both
+            // `CSI M`; testing that the read consumed nothing catches every
+            // shape, because padding a dead run never consumes anything.
             mouseCarryDeadline = Date.now() + MOUSE_REPORT_IDLE_MS;
         }
 
