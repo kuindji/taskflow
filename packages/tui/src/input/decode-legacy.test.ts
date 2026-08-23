@@ -362,6 +362,33 @@ describe("decodeLegacy", () => {
         expect(result.carry).toBe("");
     });
 
+    test("a stranded X10 header does not eat the report that follows it", () => {
+        // The payload of the first click is lost and the next click arrives
+        // before the drop window expires. An X10 payload byte is `32 + value`,
+        // so an ESC can never be one — but the branch sliced three code units
+        // blindly, so the dead header swallowed the fresh report's `CSI M` as
+        // its own payload and left the fresh payload to decode as characters.
+        // The 49th column encodes as `Q`, the quit binding.
+        const first = decodeLegacy("\x1b[M", "");
+        expect(first.carry).toBe("\x1b[M");
+        const second = decodeLegacy("\x1b[M\x20\x51\x21", first.carry);
+        expect(second.events).toEqual([
+            { kind: "mouse", action: "press", button: "left", col: 48, row: 0, mods: noMods() },
+        ]);
+        expect(second.carry).toBe("");
+    });
+
+    test("a stranded X10 header does not swallow the key that follows it", () => {
+        // The same rule for a key rather than a report: Ctrl+C is below the 32
+        // bias, so it cannot be payload, and the dead header must be discarded
+        // rather than consume it.
+        const result = decodeLegacy("\x03", "\x1b[M\x20");
+        expect(result.events).toEqual([
+            { name: "char", char: "c", mods: { ...noMods(), ctrl: true }, kind: "press" },
+        ]);
+        expect(result.carry).toBe("");
+    });
+
     test("a CSI carrying intermediate bytes is not read as an SGR mouse report", () => {
         // `CSI <0;1;1 M` — an intermediate byte (0x20) sits between the
         // parameters and the final, so this is not the SGR mouse form however

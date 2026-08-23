@@ -5,6 +5,21 @@ import { parseSgrMouse, parseX10Mouse, type MouseReport } from "./mouse";
 const ESC = "\x1b";
 /** `CSI M` is followed by exactly three raw payload characters. */
 const X10_PAYLOAD_LENGTH = 3;
+/** Every X10 payload character is `32 + value`, so nothing below this is one. */
+const X10_BIAS = 32;
+
+/**
+ * Index of the first character of an X10 payload that cannot be one, or -1.
+ * The case that matters is ESC, which opens the next report or a real key: a
+ * header whose payload was lost would otherwise take those bytes as its own and
+ * leave the sequence they started to decode as typed characters.
+ */
+function impossibleX10Byte(payload: string): number {
+    for (let n = 0; n < payload.length; n++) {
+        if (payload.charCodeAt(n) < X10_BIAS) return n;
+    }
+    return -1;
+}
 
 const FINAL_TO_NAME: Record<string, KeyName | undefined> = {
     A: "up",
@@ -124,8 +139,18 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
                 // The X10 form: three raw payload bytes follow the sequence and
                 // are not part of it. Left unconsumed they decode as ordinary
                 // characters — a click in column 49 sends `Q`, the quit binding.
-                const end = i + scan.length + X10_PAYLOAD_LENGTH;
-                const payload = buf.slice(i + scan.length, end);
+                const payloadStart = i + scan.length;
+                const end = payloadStart + X10_PAYLOAD_LENGTH;
+                const payload = buf.slice(payloadStart, end);
+                // A byte below the bias is proof this report is never
+                // completing, so the header is dropped and the byte is left to
+                // decode as whatever it really is. Waiting for the payload
+                // instead would swallow the click or keypress it belongs to.
+                const impossible = impossibleX10Byte(payload);
+                if (impossible !== -1) {
+                    i = payloadStart + impossible;
+                    continue;
+                }
                 if (payload.length < X10_PAYLOAD_LENGTH) return { events, carry: buf.slice(i) };
                 i = end;
                 const report = parseX10Mouse(payload);

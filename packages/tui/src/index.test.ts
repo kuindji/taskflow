@@ -549,6 +549,31 @@ describe("tui entry point", () => {
         expect(await waitForExit(child, "quit once the held report had expired")).toBe(0);
     }, 20_000);
 
+    test("a click that lands while an X10 header is stranded is not eaten by it", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+
+        // An X10 header whose three payload characters are lost outright.
+        await child.stdin.write("\x1b[M");
+        await child.stdin.flush();
+        // Well inside the second the header is given to find its payload.
+        await Bun.sleep(200);
+
+        // A second, complete click in column 49. An X10 payload byte is
+        // `32 + value`, so the ESC starting this report can never be payload —
+        // but read as one it fills the dead header, and this report's own
+        // payload is left to decode as characters. `\x51` is `Q`, which quits.
+        await child.stdin.write("\x1b[M\x20\x51\x21");
+        await child.stdin.flush();
+
+        await Bun.sleep(600);
+        expect(child.exitCode).toBeNull();
+    }, 20_000);
+
     test("drops a click header whose payload never arrives", async () => {
         const dir = await tempDir("tui-index-pid-");
         const pidFile = join(dir, "pid");
