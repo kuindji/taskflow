@@ -564,7 +564,7 @@ git commit -m "feat(tui): decode SGR and X10 mouse reports"
 
 **A required field breaks the ten existing call sites, and this task fixes them.**
 `tty.test.ts` calls `enterSequence({ kitty })`, `leaveSequence({ kitty })` and
-`new Tty(sink, { kitty })` at lines 43, 49, 50, 56, 64, 71, 84, 94, 116 and 143, and
+`new Tty(sink, { kitty })` at lines 43, 49, 50, 56, 64, 71, 84, 100, 122 and 143, and
 `index.ts:140` constructs the real one. Each gains an explicit `mouse` — `false` in
 the existing cases, so what those tests already pin does not move. Optional-with-a-
 default was the alternative and is rejected: a mode that the leave sequence must undo
@@ -895,8 +895,17 @@ git commit -m "feat(tui): hoist the frame layout and hit-test mouse reports"
 - `SessionTerminal` gains `scroll(lines: number): void`.
 
 `index.ts`'s feed loop currently calls `app.handleKey(ev)` for every decoded event.
-It becomes a dispatch on `ev.kind === "mouse"`, in both `feed` and `flushHeldEscape`
-(`flushCarry` returns keys only, but its return type widens with `DecodeResult`).
+The `continue` that 19.1 put there becomes `app.handleMouse(ev)`.
+
+**Only the `feed` loop changes. `flushHeldEscape` is left exactly as it is.**
+`flushCarry` is declared `flushCarry(carry: string): KeyEvent[]`
+(`decode-legacy.ts:161`) — it has its own return type and does not widen with
+`DecodeResult`. So its `ev` is a `KeyEvent`, whose `kind` is
+`"press" | "repeat" | "release"`, and writing `ev.kind === "mouse"` there is
+`error TS2367: This comparison appears to be unintentional because the types
+'"repeat" | "press" | "release"' and '"mouse"' have no overlap` — a hard
+`bun run typecheck` failure, reproduced by patching `index.ts:166` at HEAD and running
+the check. `flushHeldEscape` keeps calling `app.handleKey(ev)` unguarded.
 
 `App.handleMouse` computes the layout, asks `routeMouse`, and applies the action.
 `select` sets `this.selected` and focus; `open-tab` sets `this.activeSession` and
@@ -1064,8 +1073,37 @@ Wheel notches are presses and are forwarded wherever a press is.
 | `sgr` | `CSI < b ; x ; y M`, or `… m` for a release, with `b` naming the real button |
 | `urxvt` | `CSI (b+32) ; x ; y M` |
 | `utf8` | `CSI M` then `b+32`, `x+32`, `y+32` as code points |
-| `x10` | the same, but a coordinate above 223 makes the report undeliverable, so it is dropped |
+| `x10` | the same, but a byte above 127 cannot survive this transport, so the report is dropped — see below |
 | `sgr-pixels` | nothing — the report is dropped, see above |
+
+**The outbound X10 cap is 127, not 223 — the transport, not the protocol, sets it.**
+X10 wants three raw bytes, but `SESSION_INPUT` carries a JavaScript string:
+`App.sendToChild` builds `data` as a string (`app.ts:105`), the backend takes it as a
+string (`packages/backend/src/handlers/session.ts:62`) and hands it to
+`session.pty.write(data)` (`packages/backend/src/services/pty-manager.ts:344`), which
+UTF-8-encodes it. So any code unit at or above 128 is delivered as two bytes:
+
+```
+bun -e 'const s = "\x1b[M\x20" + String.fromCharCode(128) + String.fromCharCode(33);
+        console.log([...Buffer.from(s, "utf-8")])'
+→ [ 27, 91, 77, 32, 194, 128, 33 ]
+```
+
+A child reading that gets `ESC [ M` then payload `32, 194, 128` — column 162, row 96 —
+and the third real byte, `33`, leaks out of the report as an `!` keystroke. One notch
+past the boundary is not a coordinate that is merely large; it is a wrong click *plus*
+a spurious keypress.
+
+The boundary is a zero-based coordinate of 95: one-based 96, plus the 32 offset, is
+exactly 128. So `encodeMouseForChild` drops an `x10` report when **any** byte it would
+emit — the button byte included — is above 127, which for coordinates means a
+zero-based `col` or `row` above 94. This is the outbound mirror of the inbound
+limitation already recorded in 19.1, and it lands on the same column for the same
+reason.
+
+`utf8` (`?1005`) is unaffected and stays as written: that mode asks for the
+coordinates *as UTF-8*, so the encoding `pty.write` performs is the one the child is
+waiting for. `sgr` and `urxvt` are decimal ASCII and never reach 128 at all.
 
 **A report whose button is `"none"` is dropped unless it is a release.** `"none"` means
 "no button number to send": an extra button (8-11), or an X10 release that did not say
@@ -1110,9 +1148,15 @@ test("X10 encoding offsets by 32 and spells a release as button 3", () => {
         modes({ mouseTracking: "vt200", mouseEncoding: "x10" }))).toBe("\x1b[M\x23\x2c\x25");
 });
 
-test("X10 encoding drops a report it cannot express", () => {
-    expect(encodeMouseForChild({ ...press, col: 300 },
-        modes({ mouseTracking: "vt200", mouseEncoding: "x10" }))).toBe("");
+test("X10 encoding drops a report whose bytes would not survive the transport", () => {
+    const x10 = modes({ mouseTracking: "vt200", mouseEncoding: "x10" });
+    // Zero-based 94 is one-based 95 is byte 127 — the last one that stays a
+    // single byte through pty.write's UTF-8 encoding.
+    expect(encodeMouseForChild({ ...press, col: 94 }, x10)).not.toBe("");
+    // 95 is byte 128, which arrives as two bytes and desyncs the child's parser.
+    expect(encodeMouseForChild({ ...press, col: 95 }, x10)).toBe("");
+    expect(encodeMouseForChild({ ...press, row: 95 }, x10)).toBe("");
+    expect(encodeMouseForChild({ ...press, col: 300 }, x10)).toBe("");
 });
 
 test("urxvt encoding is decimal with the offset applied to the button", () => {
@@ -1193,15 +1237,36 @@ test("a re-attach that falls back to history puts the mouse modes back", async (
 });
 ```
 
-`app.test.ts`:
+`app.test.ts`. **Two of these three need an open session, and Stage 1 has no way to
+make one** — `App.sessions` is `private readonly sessions: OpenSession[] = []`
+(`app.ts:35`) with no constructor input and no method that appends to it, and no
+existing test in `app.test.ts` has ever needed one. So the seam has to be named here
+rather than left to the implementer:
+
+**The test reaches the array by element access — `app["sessions"].push({ id, term })`
+— and nothing is added to `App`'s production surface.** TypeScript permits element
+access to a private member, and this was checked rather than assumed: a probe file
+doing exactly this passes both `bun run typecheck` and `bun run lint` at HEAD, clean.
+The alternative, an `initialSessions` field on `AppDeps`, would put a constructor
+parameter in the shipped API whose only caller is a test, which the package's own rule
+against unused surface forbids. Stage 2's `SESSION_CREATE` replaces the seam with a
+real path, and these tests move onto it then.
+
+`term` is a real `SessionTerminal` built the way `session-terminal.test.ts` already
+builds one; its `modes.mouseTracking` comes from writing `\x1b[?1000h` (vt200) into it,
+not from a stub, so the test exercises the same mode-tracking path 19.5 adds.
 
 ```ts
 test("a click in the pane reaches a child that asked for the mouse", () => {
-    // fake session with mouseTracking: "vt200"; assert the SESSION_INPUT payload
-    // is the pane-relative report, not the screen-absolute one.
+    // session whose child wrote ?1000h, so modes.mouseTracking === "vt200";
+    // assert the SESSION_INPUT payload is the pane-relative report, not the
+    // screen-absolute one.
 });
 
-test("a click in the pane never reaches a child that did not", () => { /* payload count 0 */ });
+test("a click in the pane never reaches a child that did not", () => {
+    // No seam needed: with `sessions` empty the guard falls through to routeMouse
+    // and no SESSION_INPUT is sent at all. Payload count 0.
+});
 
 test("a click past the child's own width is dropped", () => { /* ... */ });
 ```
@@ -1306,6 +1371,14 @@ these three, which are decisions rather than defects:
   cell geometry and no pixel geometry; guessing a cell size is worse than silence.
 - **A mouse report does not drain a held Escape** in legacy mode, so a click inside
   the 25ms window is delivered before the Escape it followed.
+- **Outbound X10 reports are capped at a zero-based coordinate of 94**, because
+  `SESSION_INPUT` is a JavaScript string that `pty.write` UTF-8-encodes. Making X10
+  carry the full 223 columns would mean a binary `SESSION_INPUT` path across the
+  backend, for an encoding the TUI never asks for. Deliberate (see Task 19.5).
+- **The 19.5 app-forwarding tests install their session by element access into
+  `App`'s private `sessions` array.** Verified to pass typecheck and lint. Adding a
+  constructor parameter whose only caller is a test was the alternative and is
+  rejected; Stage 2's real `SESSION_CREATE` path replaces the seam.
 
 ## What this does not do
 
