@@ -130,7 +130,7 @@ change; whichever lands first, the other inherits it.
 
 **A stable port file.** Today `config.portFile` is a temp path supplied by
 Electron via `TASKFLOW_PORT_FILE` (`packages/backend/src/config.ts:74`), written
-after `server.start()` (`packages/backend/src/index.ts:469`) and never removed by
+after `server.start()` (`packages/backend/src/index.ts:470`) and never removed by
 the backend — Electron cleans up its own artifact instead
 (`electron/src/backend-manager.ts:101`). A new `config.instancePortFile` at
 `<BASE_DIR>/<instanceId>.port` is written alongside it and, unlike the existing
@@ -419,7 +419,7 @@ module-scope initialization:
   (`packages/ui/src/stores/session-store.ts:612`) and only tears down under HMR
   (`packages/ui/src/stores/session-subscriptions.ts:262`).
 - `initConnectivity()` is guarded by an `initialized` flag and never runs twice
-  (`packages/ui/src/hooks/useConnectivity.ts:31`), so its one-shot
+  (`packages/ui/src/hooks/useConnectivity.ts:32-34`), so its one-shot
   `CONNECTIVITY_STATUS` request would never be re-issued against the new
   backend and connectivity state would silently describe the previous one.
 - `cachedAgents` in `packages/ui/src/hooks/useAgentAvailability.ts:8` clears
@@ -435,6 +435,12 @@ module-scope initialization:
   editors of whichever machine answered `SYSTEM_INFO` first, and refetches only
   when the list is empty, so the external-editor menu would offer the wrong
   machine's editors.
+- `dirTsconfigCache` and `activeTsconfigPath` in
+  `packages/ui/src/lib/monaco-import-navigation.ts:9-12` map directories to
+  tsconfig paths resolved by the backend.
+- `cachedModels` in
+  `packages/ui/src/components/settings/CodexModelSelect.tsx:16` holds the model
+  list the other machine's Codex CLI reported.
 
 The general rule, which the implementer should apply rather than work from this
 list: any module-level value derived from backend data must register a reset.
@@ -452,6 +458,29 @@ So the switch is two distinct operations, not one:
 Event subscriptions are left alone in both. A test asserts that switching twice
 registers each `MSG` listener exactly once, because a leak here is invisible
 until it duplicates every terminal chunk.
+
+### Unsaved editor content blocks the switch
+
+The remount does not dispose every Monaco model, and this is the one place where
+a switch can lose or corrupt work rather than merely confuse the UI.
+`EditorPaneImpl` deliberately keeps a **dirty** model alive across unmount
+(`packages/ui/src/components/panes/EditorPaneImpl.tsx:194`) and, on the next
+mount, skips the disk read and shows the retained buffer
+(`EditorPaneImpl.tsx:150`). Both maps are keyed by absolute path alone
+(`packages/ui/src/components/panes/editor-dirty-state.ts:3-7`).
+
+Two machines running Taskflow very often hold the same repository at the same
+absolute path. Switch with unsaved edits open, land on a file with a matching
+path, and the editor shows the *other* machine's unsaved buffer as if it were
+this file — and saving writes it there. That is silent data loss on a file the
+user never edited on this machine.
+
+So the switch refuses while any editor is dirty. The menu shows the count and
+the switch is blocked until the user saves or discards, which is a decision only
+they can make. `dirtyModels`, `viewStates` and any retained models are also
+cleared by `resetAllState()` regardless, so a path that somehow reaches the
+switch with a dirty model still cannot carry content across it. The prompt is the
+user-facing behaviour; the clear is the guarantee.
 
 ### Electron main's own consumers
 
@@ -550,9 +579,13 @@ that requires the resolved path to sit inside a known project or worktree root
 `packages/backend/src/api/routes/flow-routes.ts:130`). An artifact written to
 `/tmp` would start returning 403 — a regression for local use.
 
-So artifact download gets its own endpoint,
-`GET /api/flow/artifact?runId=&actionEntryId=&type=`, which looks the artifact up
-in the run record and serves the path **it** recorded. The authorisation is
+So artifact download gets its own endpoint. A flow run has no id of its own —
+it is identified by owner plus `flowId` (`packages/shared/src/types/flow.ts:93`)
+and the existing artifact routes are already shaped that way
+(`packages/backend/src/api/routes/flow-routes.ts:162,168`) — so the new route
+follows them: `GET /api/flow/artifact/:ownerId/:flowId/:type/raw`, which looks
+the artifact up in the run record and serves the bytes at the path **it**
+recorded. The authorisation is
 "this path was registered as an artifact of this run", not "this path is inside a
 workspace", which is the right question for this case. Local and remote take the
 same path, so there is no branch that only runs on one of them. The save dialog
@@ -665,9 +698,10 @@ runs: the original connection must still be live and its records intact.
 Three switch-specific leaks get their own tests, because each one produces a
 plausible-looking app that is quietly wrong:
 
-- After a switch, `AGENTS_LIST` and `SYSTEM_INFO` must have been re-requested —
-  the caches in `useAgentAvailability.ts` and `useActiveWorkspace.ts` never see a
-  disconnect and so never clear themselves.
+- After a switch, every cached backend-derived list must have been dropped:
+  `AGENTS_LIST`, `SYSTEM_INFO`, the editor list, the tsconfig map and the Codex
+  model list. None of these caches sees a disconnect on a successful switch, so
+  none of them clears itself.
 - Requests in flight across a switch must reject with `BackendSwitched`, not
   hang to their timeout.
 - A `FILE_UNWATCH` for the watched path must be sent on the old socket before it
@@ -678,6 +712,11 @@ Terminal drop gating is tested for both the `getPathForFile` and the
 
 The flow-artifact endpoint is tested with an artifact path outside any workspace
 root — the exact case `/api/file/raw` would have rejected.
+
+Dirty-editor blocking gets a test in both directions: a switch attempted with a
+dirty model must be refused with the file listed, and `resetAllState()` must
+leave `dirtyModels` and `viewStates` empty. The second one is what protects
+against the first being bypassed by a path nobody thought of.
 
 ## Assumptions
 
