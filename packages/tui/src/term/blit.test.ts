@@ -102,6 +102,28 @@ describe("blitTerminal", () => {
         term.dispose();
     });
 
+    test("hides the cursor when scrollback has pushed it below the viewport", async () => {
+        // xterm reports cursorY relative to baseY, while the copied rows start
+        // at viewportY. Scrolled back, the cursor's absolute row can sit below
+        // the viewport entirely and must not be drawn inside the pane.
+        const term = await terminalWith("a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh", 10, 5);
+        term.terminal.scrollLines(-1);
+        const buf = new ScreenBuffer(10, 5);
+        expect(blitTerminal(term, buf, 0, 0, 10, 5)).toBeNull();
+        term.dispose();
+    });
+
+    test("keeps the cursor on its own row when a scrolled viewport still shows it", async () => {
+        const term = await terminalWith("a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh\x1b[2A", 10, 5);
+        term.terminal.scrollLines(-1);
+        const buf = new ScreenBuffer(10, 5);
+        const cursor = blitTerminal(term, buf, 0, 0, 10, 5);
+        // Viewport shows c,d,e,f,g; the cursor is parked on f, row 3.
+        expect(buf.get(0, 3).ch).toBe("f");
+        expect(cursor).toEqual({ x: 1, y: 3 });
+        term.dispose();
+    });
+
     test("returns null for a hidden cursor", async () => {
         const term = await terminalWith("\x1b[?25labc");
         const buf = new ScreenBuffer(20, 5);

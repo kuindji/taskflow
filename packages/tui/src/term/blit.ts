@@ -79,10 +79,15 @@ function blitTerminal(
     }
 
     if (source.cursorHidden) return null;
+    // cursorY counts from baseY while the rows copied above start at viewportY,
+    // so a scrolled-back viewport needs the cursor translated into the same
+    // frame before it can be tested against the rect — otherwise it lands on
+    // whichever scrollback line happens to share its index.
+    const cursorRow = active.baseY + active.cursorY - active.viewportY;
     // cursorX may equal cols ("after last cell of the row"), which is outside
     // the rect; parking the real cursor there would bleed into the next pane.
-    if (active.cursorX >= cols || active.cursorY >= rows) return null;
-    return { x: x0 + active.cursorX, y: y0 + active.cursorY };
+    if (active.cursorX >= cols || cursorRow < 0 || cursorRow >= rows) return null;
+    return { x: x0 + active.cursorX, y: y0 + cursorRow };
 }
 
 export { blitTerminal };
