@@ -26,7 +26,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
-| 19 | Mouse support | plan in-review round 1 done, findings fixed | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`. Splits into 19.1–19.6 below |
+| 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | pending | — | `input/mouse.ts`, X10 + SGR, into `decodeLegacy`'s CSI branch |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
@@ -4128,16 +4128,106 @@ session-pane test is redundant but not a lint error —
   intermediate behaviour, not a placeholder: tracking is not enabled until 19.2, and a
   dropped click beats an X10 payload leaking through as keystrokes.
 
-Next step: mouse-plan review round 2 — one gpt-5.5 review via the `codex-review` skill
-over the revised plan at `47d9c29`. Same Mode B shape as round 1 (a plan has no diff);
-reuse the round-1 prompt but point it at the revised document, tell it round 1's eight
-findings are already fixed and list them so it does not re-report them, and add the
-three new decisions to the do-not-restate list: extra buttons decode as `"none"`,
-`"sgr-pixels"` is tracked only in order to drop reports, and `routeMouse` takes
-`TabSpec[]`. Round 2 is required — round 1 found eight things, so one round was not
-enough. If round 2 is clean, start implementing 19.1.
-After 19.1-19.6: Tasks 16-18, then Task 20 (which needs its own plan too, and touches
-`packages/backend` and `electron/`, not `packages/tui`).
+## Task 19 mouse plan — review round 2
+
+**gpt-5.5 via codex-review, Mode B** over the revised plan at `47d9c29`
+(a plan has no diff). Prompt at
+`.../scratchpad/mouse-r2/prompt.md`; it listed round 1's eight findings and the
+nine standing decisions as do-not-restate. Three findings, all reproduced
+independently. Fixed in `fd307a3`.
+
+1. **Substantiated, significant — the outbound X10 cap was wrong, and wrong in the
+   direction that corrupts input.** The plan said an X10 report is dropped above
+   coordinate 223. But `SESSION_INPUT` carries a JavaScript *string*: `App.sendToChild`
+   builds it (`ui/app.ts:105`), `packages/backend/src/handlers/session.ts:62` takes it
+   as a string, and `packages/backend/src/services/pty-manager.ts:344` hands it to
+   `session.pty.write(data)`, which UTF-8-encodes. Repro (a plan has no test to fail,
+   so this is the trace):
+
+   ```
+   bun -e 'const s = "\x1b[M\x20" + String.fromCharCode(128) + String.fromCharCode(33);
+           console.log([...Buffer.from(s, "utf-8")])'
+   → [ 27, 91, 77, 32, 194, 128, 33 ]
+   ```
+
+   Byte 128 arrives as `194, 128`. The child reads payload `32, 194, 128` — column 162,
+   row 96 instead of column 95, row 0 — and the third real byte, `33`, falls out of the
+   report as an `!` keystroke. So a click anywhere past column 94 is a wrong click *plus*
+   a spurious keypress, and the plan's only test used `col: 300`, which would have passed
+   over the whole broken range. Fix: the cap is a zero-based coordinate of 94 (one-based
+   95, plus the 32 offset, is 127 — the last single byte), the rule is stated as "any
+   emitted byte above 127, button byte included", and the test now pins 94 as deliverable
+   and 95 as dropped on both axes. `utf8` (`?1005`) is untouched and correct: that mode
+   asks for UTF-8, so `pty.write`'s encoding is what the child wants. `sgr` and `urxvt`
+   are decimal ASCII.
+
+2. **Substantiated, significant — 19.4 told the implementer to write code that does not
+   compile.** It said the mouse dispatch goes "in both `feed` and `flushHeldEscape`
+   (`flushCarry` returns keys only, but its return type widens with `DecodeResult`)".
+   `flushCarry` has its own declared return type, `KeyEvent[]`
+   (`input/decode-legacy.ts:161`), and does not widen. Reproduced by patching
+   `index.ts:166` at HEAD to add the guard and running the real check:
+
+   ```
+   $ bun run typecheck
+   @taskflow/tui typecheck: src/index.ts(167,17): error TS2367: This comparison appears
+   to be unintentional because the types '"repeat" | "press" | "release"' and '"mouse"'
+   have no overlap.
+   @taskflow/tui typecheck: Exited with code 2
+   ```
+
+   Fix: the plan now says only the `feed` loop changes, quotes the exact error, and states
+   that `flushHeldEscape` keeps calling `app.handleKey(ev)` unguarded.
+
+3. **Substantiated but downgraded to minor — 19.5's app tests had no stated way to install
+   an open session.** `App.sessions` is `private readonly sessions: OpenSession[] = []`
+   (`ui/app.ts:35`) with no constructor input and no adder, and no existing `app.test.ts`
+   case has ever needed one. Codex called the tests unwritable; that part did not hold.
+   Probed it: a test file doing `app["sessions"]` passes `bun run typecheck` and
+   `bun run lint` clean at HEAD — TypeScript permits element access to a private member
+   and no lint rule here objects. What survives is that the plan left the choice open
+   between three different seams. Fix: the plan now names one — element access, no
+   production surface added — records why (`AppDeps.initialSessions` would ship a
+   constructor parameter whose only caller is a test), and notes that the third case
+   ("never reaches a child that did not") needs no seam at all.
+
+**Found by Claude, not by Codex, while verifying:** the plan cited `tty.test.ts` literals
+at "lines 43, 49, 50, 56, 64, 71, 84, 94, 116 and 143". Two are wrong — the real lines are
+100 and 122, at HEAD and at `98d801c` alike (`git show 98d801c:packages/tui/src/term/tty.test.ts | grep -n "kitty:"`).
+The count of ten is right. Corrected in the plan.
+
+Codex's non-findings, spot-checked and agreed: the `decode-legacy.ts` insertion point at
+line 107 is right for the current loop; the `ChildModes` blast radius is complete
+(`encode.test.ts:5` fixture and `session-terminal.ts:180`); `computeLayout`'s arithmetic
+matches `App.render()` (`app.ts:121-139`) including the `Math.min(30, floor(cols/3))`
+clamp and `rows - 1`; `xterm-headless.d.ts:1323` really is `mouseTrackingMode`; and
+`drawSidebar` maps list index to screen row one-to-one (`ui/sidebar.ts:58-59`), so a
+click's row *is* the list index.
+
+## Decisions taken (Task 19 mouse plan, round 2)
+
+- **Outbound X10 is capped at zero-based coordinate 94**, not made to work. Carrying the
+  full 223 columns would mean a binary `SESSION_INPUT` path across the whole backend, for
+  an encoding the TUI never requests. It is the outbound mirror of the inbound cap already
+  accepted in 19.1.
+- **The 19.5 app-forwarding tests install their session by element access into `App`'s
+  private `sessions` array**, rather than by adding an `AppDeps.initialSessions`
+  parameter. Verified clean under typecheck and lint. Stage 2's `SESSION_CREATE` replaces
+  the seam.
+
+Next step: implement Task 19.1 — mouse report decoding.
+Two review rounds are done and round 2's three findings are fixed in `fd307a3`, so the
+plan is clear and no third round is owed. Base commit for 19.1 is `fd307a3`. Follow
+`docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md` Task 19.1 exactly: create
+`input/mouse.ts` and `input/mouse.test.ts`, add the two branches to `decode-legacy.ts`
+immediately after the `scan.kind === "invalid"` branch and **before** the `i += scan.length`
+on line 107, widen `DecodeResult.events` to `InputEvent[]`, and fix the whole widening
+blast radius in the same commit — the 21 `?.name`/`?.char` reads in the two decoder test
+files, `decode-kitty.ts`'s local `events` array, and `index.ts`'s feed loop (which drops
+mouse events with a `continue` until 19.4). `bun run typecheck` must be clean before the
+commit. Then review round 1 for 19.1 in the next session.
+After 19.1: 19.2 – 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
+touches `packages/backend` and `electron/`, not `packages/tui`).
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
