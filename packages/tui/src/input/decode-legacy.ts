@@ -71,6 +71,17 @@ function decodeControl(code: number): KeyEvent {
     return press("char", { ...noMods(), ctrl: true }, letter);
 }
 
+/**
+ * True when every character is a CSI parameter byte (ECMA-48 0x30-0x3f), which
+ * is all a half-written SGR mouse report can be made of after its `CSI <`.
+ */
+function isParamBytes(run: string): boolean {
+    for (let i = 0; i < run.length; i++) {
+        if (!inRange(run.charCodeAt(i), 0x30, 0x3f)) return false;
+    }
+    return true;
+}
+
 /** True for the plain numeric parameter list this decoder knows how to read. */
 function isNumericParams(params: string): boolean {
     for (let i = 0; i < params.length; i++) {
@@ -235,6 +246,15 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
  * a private-parameter prefix that no key sequence uses, so holding it cannot
  * delay a keystroke; an ordinary partial CSI such as `CSI 1;5` stays
  * flushable, because that one really can be the head of a chord.
+ *
+ * The SGR test is that everything after the `CSI` is still a parameter byte.
+ * An intermediate byte (0x20-0x2f, and a typed space is one) proves the run is
+ * not a report however it continues, because `M` and `m` follow the parameters
+ * directly — so from there it has no claim on the report window and goes back
+ * to the ordinary idle flush. Held anyway it would keep absorbing input for a
+ * second, and the next printable key would land on it as the sequence's final
+ * byte and be consumed. This is the half-written twin of the intermediate guard
+ * `decodeLegacy` applies to a sequence that has completed.
  */
 function isPartialMouseReport(carry: string): boolean {
     const x10Header = `${ESC}[M`;
@@ -242,7 +262,9 @@ function isPartialMouseReport(carry: string): boolean {
         return carry.length < x10Header.length + X10_PAYLOAD_LENGTH;
     }
     if (!carry.startsWith(`${ESC}[<`)) return false;
-    return scanCsi(carry, 0).kind === "incomplete";
+    // A run of nothing but parameter bytes is always an incomplete scan, so
+    // this subsumes the `scanCsi` check it replaced rather than relaxing it.
+    return isParamBytes(carry.slice(2));
 }
 
 /**

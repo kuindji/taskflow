@@ -616,6 +616,41 @@ describe("tui entry point", () => {
         expect(await waitForExit(child, "quit after the second click completed")).toBe(0);
     }, 20_000);
 
+    test("a space typed into a dead SGR report ends its hold instead of extending it", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+        // The ready marker is written from inside `app.init()`, before stdin is
+        // resumed, so an unsettled start would move the deadline this test aims
+        // between.
+        await Bun.sleep(500);
+
+        // The front of an SGR click whose `M` never arrives.
+        await child.stdin.write("\x1b[<0;50;10");
+        await child.stdin.flush();
+
+        // A space typed into it. Space is an intermediate byte, and an SGR
+        // report has none — its finals come straight after the parameters — so
+        // the run can never become a click and has no claim on the second-long
+        // window a real half-written report gets. Dropped by the ordinary idle
+        // flush instead, it stops taking what follows.
+        await Bun.sleep(200);
+        await child.stdin.write(" ");
+        await child.stdin.flush();
+
+        // Well past the idle flush and well inside the mouse window. Still held
+        // as a mouse report, this `Q` is consumed as the sequence's final byte
+        // and quit never reaches the keymap.
+        await Bun.sleep(300);
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+
+        expect(await waitForExit(child, "quit on a key typed after a spaced dead click")).toBe(0);
+    }, 20_000);
+
     test("drops a click header whose payload never arrives", async () => {
         const dir = await tempDir("tui-index-pid-");
         const pidFile = join(dir, "pid");

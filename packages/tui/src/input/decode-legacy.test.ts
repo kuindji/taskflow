@@ -297,6 +297,27 @@ describe("decodeLegacy", () => {
         ]);
     });
 
+    test("an intermediate byte ends the SGR hold, so the next key is not swallowed", () => {
+        // Only parameter bytes can follow `CSI <` in a mouse report: the finals
+        // `M` and `m` come straight after them. An intermediate byte (0x20-0x2f,
+        // and a typed space is one) proves the run will never be a report, so it
+        // must stop counting as one — held anyway it keeps the second-long mouse
+        // drop window open instead of the 25ms idle flush, and the next
+        // printable key lands on it as a CSI final byte and disappears.
+        const stranded = decodeLegacy("\x1b[<0;5;5", "");
+        expect(isPartialMouseReport(stranded.carry)).toBe(true);
+        const spaced = decodeLegacy(" ", stranded.carry);
+        expect(spaced.events).toEqual([]);
+        expect(spaced.carry).toBe("\x1b[<0;5;5 ");
+        expect(isPartialMouseReport(spaced.carry)).toBe(false);
+        // Nothing is fabricated from it either: the flush drops the dead run.
+        expect(flushCarry(spaced.carry)).toEqual([]);
+        // Which is what saves the key: from an empty carry `Q` is a keypress,
+        // whereas appended to the held run it is eaten as the sequence's final.
+        expect(decodeLegacy("\x51", spaced.carry).events).toEqual([]);
+        expect(keysOf(decodeLegacy("\x51", "").events).map((e) => e.char)).toEqual(["Q"]);
+    });
+
     test("isPartialMouseReport is false for a header that already has its payload", () => {
         // Only a header still owed bytes may be held; anything else has to stay
         // flushable or a stale carry would wedge the decoder.
