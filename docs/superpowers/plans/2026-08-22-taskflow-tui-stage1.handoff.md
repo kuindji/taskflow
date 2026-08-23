@@ -31,7 +31,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 19.2 | Mouse — outer tracking on/off | clear | `3829f83` | commit `5345824`; round 1 fixed in `a7af6dd`; round 2 found nothing — clear after two rounds |
 | 19.3 | Mouse — layout hoist and hit testing | clear | `db844f4` | commit `ec39171`; round 1 found only test gaps, fixed in `10e7b0f`; round 2 found nothing — clear after two rounds |
 | 19.4 | Mouse — app wiring | clear | `4e89f26` | commit `adf7c5a`; round 1 found nothing — clear after round 1 |
-| 19.5 | Mouse — forward to the child | in-review round 2 | `1288c64` | commits `f377413`, `1a9179f`, `08b23d8`; rounds 1 and 2 each found one substantiated defect, both fixed — next step is review round 3 |
+| 19.5 | Mouse — forward to the child | clear | `1288c64` | commits `f377413`, `1a9179f`, `08b23d8`; rounds 1 and 2 each found one substantiated defect, both fixed; round 3 found nothing — clear after round 3 |
 | 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
 | 21 | Bound the incomplete-CSI carry | pending | — | **added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
@@ -5675,11 +5675,61 @@ drop, and round 1's attach/reset encoding fix.
 Verification at `08b23d8`: `bun run lint` clean, `bun run typecheck` clean across all five
 packages, `bun test packages/tui` → 452 pass, 0 fail (450 → 452: two new tests).
 
-Next step: review Task 19.5, round 3.
-One standard gpt-5.5 review via the codex-review skill over `1288c64..HEAD`, restricted to
-`packages/tui`. Carry the same brief as rounds 1 and 2 — the seven deliberate decisions, plus
-round 1's two (the encoding survives `terminal.reset()`; a `?1016` child's pane is inert) —
-and add round 2's: RIS resets the encoding and DECTCEM while `terminal.reset()` deliberately
-does not, and DECSTR deliberately touches neither.
-After 19.5 is clear: 19.6 (**user gate — manual smoke test**), then Tasks 16-18, then Tasks 20
-and 21 (each needs its own plan).
+## Task 19.5 — review round 3
+
+Base `1288c64` → HEAD `3e0030c`, restricted to `packages/tui`. One standard gpt-5.5 review via
+the codex-review skill (Mode B — the brief carried all thirteen deliberate decisions: the
+plan's seven, round 1's two, and round 2's four). **Codex returned no findings.** No commit
+was needed this round; HEAD is unchanged at `3e0030c`.
+
+**What Codex reported clearing.** The full touched files rather than the diff alone
+(`encode.ts`, `encode.test.ts`, `mouse.ts`, `session-terminal.ts`, `session-terminal.test.ts`,
+`app.ts`, `app.test.ts`, `layout.ts`, `routing.ts`); the cross-references for `ChildModes`,
+`mouseTracking`, `mouseEncoding`, `SESSION_INPUT`, the decode paths and the tty mouse setup;
+and a re-derivation of the forwarding gates, the pane-relative one-based coordinates, the
+child-grid bounds drop, the non-SGR release handling, the SGR release final, the X10 transport
+cap and the mode reset / re-attach behaviour.
+
+**The one new edge it raised, checked independently.** Codex stopped to verify grouped DECSET
+— real apps emit `CSI ? 1002 ; 1006 h` as one control sequence, and a handler that read only
+the first parameter would track the tracking mode and silently miss the encoding. Confirmed by
+hand against the installed `@xterm/headless`, not from the report:
+
+```
+cd packages/tui && bun -e 'import { Terminal } from "@xterm/headless";
+  const t = new Terminal({allowProposedApi:true});
+  t.parser.registerCsiHandler({prefix:"?", final:"h"}, (p)=>{ console.log("params", JSON.stringify(p)); return false; });
+  t.write("\x1b[?1002;1006h", ()=>{ console.log("tracking", t.modes.mouseTrackingMode); });'
+→ params [1002,1006]
+→ tracking drag
+```
+
+Both parameters reach a registered handler and xterm's own built-in handler applies both, so
+`decPrivateMode`'s `for (const param of params)` loop is right and the grouped form is not a
+defect. Recorded so a later round does not re-derive it.
+
+**Independently re-read this round, beyond the report.** `BUTTON_VALUES` (wheel at 64-67, the
+partial map that makes `none` `undefined` rather than a left click); `tracks()` against the
+plan's gating table; `buttonValue`'s x10-tracking early return that drops the modifier bits
+while keeping the drag bit; the x10 cap arithmetic re-derived from the one-based field
+(`x + 32 > 127` ⇒ `x >= 96` ⇒ zero-based col >= 95, so zero-based 94 is the last one kept —
+which is what the plan derived); the `sgr-pixels` refusal ahead of `buttonValue`; the RIS
+handler and the deliberately-different `attach()` reset; and `App.handleMouse`'s guard,
+including that it claims focus and returns even for the reports it then drops (decisions 4 and
+9, both intentional).
+
+Verification at `3e0030c`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 452 pass, 0 fail. Codex ran the same suite and saw the
+same 452/0.
+
+**Task 19.5 is clear.** With it, Task 19 (mouse support) is fully implemented and reviewed:
+19.1–19.5 all clear, only the manual smoke test 19.6 remains.
+
+Next step: AWAITING USER — Task 19.6 is the plan's own **user gate**: a manual smoke test that
+needs a human at a real terminal (`cd packages/tui && bun run dev`) and explicitly must not be
+run autonomously. It cannot be done from this session. See the seven checks in
+`docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md` under "Task 19.6".
+Question for the user: run the smoke test now and report the results, or defer it and let the
+loop continue with Task 16 (backend — bind to loopback and report connected clients) while
+19.6 stays open?
+After 19.6: Tasks 16-18, then Tasks 20 and 21 (each needs its own plan).
