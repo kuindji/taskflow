@@ -18,7 +18,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
-| 11 | State store | in-review round 3 | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`; round 3 found 3 defects, fixed; round 4 due |
+| 11 | State store | in-review round 4 | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; round 4 found 2 defects, fixed; round 5 due |
 | 12 | Focus and key routing | pending | — | |
 | 13 | Sidebar rendering | pending | — | |
 | 14 | Session pane and tab strip | pending | — | |
@@ -476,6 +476,26 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
 
 ## Decisions taken
+
+- **The task comparator moved to `@taskflow/shared` and all three clients now
+  share it.** Round 4's ordering fix needed the backend's sort in the TUI. That
+  comparator already existed twice — `packages/backend/src/services/
+  task-store-helpers.ts` and `packages/ui/src/stores/task-store.ts`, byte-identical
+  in logic — and copying it a third time is how round 1 of Task 9 got two mirrors
+  of the same bug. `sortTasksByCreatedAtDesc` in
+  `packages/shared/src/utils/task-order.ts` is now the only implementation, sitting
+  beside the `orderProjectsByIds` this store already imports for the same reason.
+  The mechanical rewiring of `backend` and `ui` is beyond the plan's
+  "every file is under `packages/tui/`" scope; it is covered by typecheck and the
+  full suite, and the alternative was leaving three copies behind.
+
+- **The store may issue its own `load()`.** Round 4's unarchive finding is not
+  mirrorable: the restored subtasks are records `TASK_LIST` never served, so no
+  amount of local cascade logic can produce them. A background reload is the only
+  correct response, so `Store` now calls its own `load()` from an event handler.
+  This widens Task 11's contract slightly beyond the plan's `load()`-on-demand
+  shape, but stays inside the class, and the round-2 `loadToken` work already makes
+  a self-triggered load safe against overlapping ones.
 
 - **A defect Claude finds during a clean review round still counts as that
   round's finding.** Round 6 came back clean from gpt-5.5, but Claude found a
@@ -2091,6 +2111,80 @@ width and cursor edge cases.
   message instead — no `eslint-disable`, and unlike the repo's unawaited
   `expect(p).rejects` calls it actually waits for the assertion.
 
-Next step: review round 4 for Task 11 — run one gpt-5.5 review via the codex-review
-skill over `9420a4b..57ad359`, verify the findings independently, fix the
+- **Task 11, round 4** (gpt-5.5 via codex-review, Mode B over `9420a4b..57ad359`
+  restricted to `packages/tui`, with rounds 1-3's fixes called out as already known):
+  two findings, both substantiated and fixed in `32d6267`. Run the repros with
+  `bun test packages/tui/src/state/store.test.ts`.
+
+  - **Substantiated — new and newly pinned tasks landed in the wrong sidebar slot.**
+    `applyTask` upserted in place and appended unknown ids, but the backend serves
+    tasks pinned-first then newest-first then by id
+    (`services/task-store.ts:397` via `readTasksFromDir`), and the Electron store
+    re-sorts on every broadcast (`packages/ui/src/stores/task-store.ts`, both
+    `applyTaskUpdate` and the `TASK_CREATED` handler). Observable symptom: create a
+    task in the Electron window and it appears at the *bottom* of the TUI's list for
+    that project instead of the top, then jumps to the top on the next reload; pin a
+    task and it does not move at all. Regression tests: `Store > orders a newly
+    created task by creation time, not arrival` (red on `57ad359` with
+    `["t-old","t-new"]`) and `Store > floats a task to the top when it is pinned`
+    (red with `["t1","t2"]`); both green on `32d6267`. Claude found this
+    independently from the backend comparator before the report landed.
+    Fix: sort on every task upsert. The comparator existed three times over
+    (backend `task-store-helpers.ts`, Electron `task-store.ts`, and now the TUI), so
+    it moved to `@taskflow/shared` as `sortTasksByCreatedAtDesc` — the sibling of the
+    existing `orderProjectsByIds` — and all three consumers now call it. The
+    backend's private `compareTasksByCreatedAtDesc` and its `getCreatedAtTimestamp`
+    helper were deleted with it; `getCreatedAtTimestamp` was an export nothing outside
+    that file imported.
+
+  - **Substantiated — unarchiving a parent left its subtasks missing.**
+    The round-3 cascade mirror only touched children already in `taskList`, but
+    `TASK_LIST` serves active tasks only (`readTasksFromDir` reads `tasksDir`;
+    archived records live under `archivePath`), so a client that loaded while a
+    family was archived holds none of it. The backend unarchives every archived
+    subtask (`api/routes/task-routes.ts:389-393`) and broadcasts the parent alone
+    (`:400`). Observable symptom: unarchive a task in the Electron window and it
+    appears in the TUI sidebar with all of its subtasks missing until the next
+    reload — and the same for a subtask archived on its own and restored with its
+    parent. Regression test: `Store > refetches subtasks the backend restores with an
+    unarchived parent` — red on `57ad359` (`["parent"]`), green on `32d6267`.
+    Fix: no local mirror is possible, since the records were never held, so a
+    top-level task transitioning to `active` (including one arriving with no previous
+    record, which means it was archived) triggers a background `load()`. The
+    `loadToken` machinery from round 2 already makes a self-triggered reload safe
+    against overlaps, and the refresh is fired only from the `TASK_UPDATED` path, so
+    an ordinary `TASK_CREATED` does not cause one. A failed refresh is swallowed:
+    the store has no error channel and reconnect is the app's job.
+
+  - **Two round-3 tests changed expectations, not behaviour.** `restores a parent's
+    subtasks when the parent is unarchived` and `leaves subtasks alone when a parent
+    update does not change its status` asserted `["parent","child"]`; with the sort
+    in place a subtask created after its parent now sorts above it. Their fixtures
+    grew explicit `createdAt` values so the expected order is derivable from the
+    fixture rather than from id-tiebreak accident.
+
+  - **Codex's clean areas, and Claude's own probes, no action.** Codex found no new
+    defect in the `loadToken` / shared-queue arithmetic, and independent probing of
+    three-way overlaps, a rejecting newest load, a never-settling load (bounded by
+    `WsClient`'s per-request timeout and its reject-on-close, `net/client.ts:80`),
+    and `dispose()` racing a load agreed. `parentId?: string` in `@taskflow/shared`
+    confirms `undefined` is the right absent-parent test. `TASK_LIST` and the
+    `TASK_CREATED`/`TASK_UPDATED` broadcasts both pass through
+    `filterTaskSessions`, so session fields cannot flicker between snapshot and
+    event. Project order needs no equivalent sort: the Electron store appends on
+    `PROJECT_CREATED` too, and explicit order arrives via `PROJECT_REORDERED`.
+
+  - **Not reported, out of scope.** Unchanged backend gaps: no `TASK_REMOVED`
+    broadcast, and the WS `handlers/task.ts` archive path broadcasts nothing. The
+    archive cascade also clears subtask `sessions` on the backend, which the local
+    mirror does not copy — invisible while archived rows are not rendered.
+
+- Validation at `32d6267`: `bun run lint` exit 0, `bun run typecheck` exit 0 across
+  all five packages, `bun test` 1036 pass / 8 fail — the 8 being the recorded
+  pre-existing `MarkdownPaneImpl` suite-ordering failures in `packages/ui`, verified
+  unchanged by name, and 1036 = the previous 1033 plus this round's 3 new tests.
+  Working tree clean.
+
+Next step: review round 5 for Task 11 — run one gpt-5.5 review via the codex-review
+skill over `9420a4b..32d6267`, verify the findings independently, fix the
 substantiated ones, validate, and commit.
