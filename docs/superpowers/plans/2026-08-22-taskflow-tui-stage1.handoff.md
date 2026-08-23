@@ -22,11 +22,12 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | in-review round 8 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; round 8 found one real defect, NOT fixed — user gate on scope |
+| 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support (UI) | pending | — | **added after the Task 15 smoke test — not in the original plan.** Needs its own plan first |
+| 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
 
 ## Review rounds
 
@@ -3942,26 +3943,33 @@ Checks: no code changed this round, so `3bc5ee8`'s recorded checks stand — `bu
 clean, `bun run typecheck` clean across all five packages, `bun test packages/tui` 336 pass
 / 0 fail. Run A re-ran the tui suite itself and reported the same 336.
 
-Next step: AWAITING USER — the SIGKILL backend leak is real and reproduced, but fixing it
-is a plan-scope decision. Which of these?
-  (a) **Accept for Stage 1.** Record it as known-and-accepted (parity with the shipping
-      Electron app, which leaks the same way), add it to the exclusion list, and mark
-      Task 15 clear. Cheapest; leaves a real leak behind a `kill -9`.
-  (b) **TUI-side guardian.** Arm one detached `sh` at spawn time that polls the TUI's
-      pid and, once the TUI is gone, does SIGTERM → grace → SIGKILL on the backend.
-      This subsumes round 7's `armReaper`, so `stop()`'s arming would be removed and
-      round 7's `manager.test.ts` reaper test reworked — real regression risk in a task
-      already eight rounds deep, and it leaves one extra `sh` visible in `ps` for the
-      whole session.
-  (c) **Backend-side orphan shutdown** — what both reviewers actually recommended.
-      Pass the parent pid to `taskflow-backend` and have it shut itself down when
-      orphaned. Fixes the Electron app at the same time. Outside `packages/tui`, so it
-      wants its own task rather than being smuggled into Task 15 round 8.
-  Recommendation: (a) now to clear Task 15, plus (c) as its own follow-up task, since
-  (c) is the only option that also fixes the shipping Electron path and it is the wrong
-  shape to land inside a review round.
-After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then implement
-it, then Tasks 16-18.
+## User decision (Task 15 round 8)
+
+Asked which of (a) accept for Stage 1, (b) TUI-side guardian, (c) backend-side orphan
+shutdown. **User chose (a) + (c)**, the recommendation: accept the leak for Stage 1 so
+Task 15 can close, and do the backend-side fix as its own task rather than smuggling it
+into a review round. Task 15 is therefore **clear** after round 8, and Task 20 is the
+new pending follow-up. (b) is dropped — it carried regression risk in an eight-round
+task and would not have fixed the Electron path.
+
+## Known and accepted — carry into every later round's exclusion list
+
+- *`kill -9` on the TUI leaks the backend.* Every route that releases the backend hangs
+  off `process.on("exit")`, and SIGKILL runs no JS at all, so neither `child.kill()` nor
+  `armReaper()` runs. Reproduced, not disputed — accepted for Stage 1 as parity with the
+  shipping Electron app, which leaks the same way and worse. The real fix is Task 20,
+  backend-side. Do not re-raise it against `packages/tui`.
+- *`reapGraceSeconds` is unvalidated.* A fractional, zero or negative value makes
+  `[ $i -lt 0.5 ]` fail with `integer expression expected`, the loop falls through and
+  `kill -9` fires immediately. Only `manager.test.ts:454` passes the option, with `1`;
+  no production path can reach it. Latent trap, deliberately not fixed.
+
+Next step: write the Task 19 mouse plan — a new plan document for mouse support in the
+TUI, reviewed by gpt-5.5 via the `codex-review` skill twice (plain `codex exec` path, no
+diff exists for a plan). Task 19 was added after the Task 15 smoke test and is not in the
+original plan, so it needs its own plan document before any code.
+After that: implement Task 19, then Tasks 16-18, then Task 20 (which needs its own plan
+too, and touches `packages/backend` and `electron/`, not `packages/tui`).
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
