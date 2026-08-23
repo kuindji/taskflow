@@ -56,7 +56,7 @@
 | `packages/backend/src/index.ts` | Write/remove the instance port file; `protocolVersion` on `SYSTEM_INFO`; start the advertiser |
 | `packages/shared/src/constants.ts` | `PROTOCOL_VERSION`, discovery constants |
 | `packages/ui/src/components/settings/sections/GeneralSection.tsx` | Discoverable switch and network name |
-| `packages/shared/src/types/system.ts` | `protocolVersion` on `SystemInfo` |
+| `packages/shared/src/types/system.ts` | `hostname` and `protocolVersion` on `SystemInfo` |
 | `packages/shared/src/types/settings.ts` | `NetworkSettings` |
 | `packages/backend/src/services/settings-store.ts` | `network` defaults, merge, and an update notification so the beacon follows the setting |
 | `packages/shared/package.json` | `exports` map with `.` and `./discovery` |
@@ -230,7 +230,7 @@ const instanceId = devBranch ? toSafeLabel(`dev-${devBranch}`) : "main";
 
 `main` is unchanged, so no production instance moves. A *dev* instance whose
 branch name contained something outside the set gets a new `instanceId`, and
-`buildDataPaths(initialDataDir, instanceId)` (`config.ts:74`) therefore points it
+`buildDataPaths(initialDataDir, instanceId)` (`config.ts:78`) therefore points it
 at a new data directory. That is a dev sandbox moving, not user data — but say
 so in the commit message.
 
@@ -841,6 +841,11 @@ function createListener(opts: {
 
     return {
         start() {
+            // Same guard as the advertiser, for the same reason: `start` is
+            // documented as idempotent, and without this a second call would
+            // overwrite `socket` and leak the first one, still joined to the
+            // group and still delivering into a map nothing reads.
+            if (socket) return Promise.resolve();
             return new Promise((resolve) => {
                 const bound = bindDiscoverySocket((bytes, address) => {
                     const message = parseDatagram(bytes);
@@ -886,7 +891,14 @@ function createListener(opts: {
         stop() {
             if (sweepTimer) clearInterval(sweepTimer);
             sweepTimer = null;
-            socket?.close();
+            try {
+                socket?.close();
+            } catch {
+                // As in the advertiser: `close` before the bind completes throws
+                // ERR_SOCKET_DGRAM_NOT_RUNNING. `stopBackendRegistry` runs from
+                // Electron's `will-quit`, where a throw is not worth taking the
+                // quit down for.
+            }
             socket = null;
             seen.clear();
         },
@@ -1073,7 +1085,7 @@ import appPackage from "../../../electron/package.json";
 const APP_VERSION: string = appPackage.version;
 ```
 
-`resolveJsonModule` is already on in `tsconfig.base.json:9`.
+`resolveJsonModule` is already on in `tsconfig.base.json:10`.
 
 In the `shutdown` handler, before the port file removal:
 
@@ -1732,6 +1744,11 @@ The process side: spawn ssh, prove the *backend* is there rather than just ssh, 
 - Consumes: everything from Task 5.
 - Produces: `openTunnel(record: BackendRecord, backendPort: number): Promise<TunnelResult>` where `TunnelResult = { ok: true; localPort: number } | { ok: false; failure: TunnelFailure }`; `closeTunnel(id: string): void`; `closeAllTunnels(): void`; `trustHostKey(record: BackendRecord): Promise<void>`; `fetchHostKeyFingerprint(record: BackendRecord): Promise<string>`; `readRemotePort(record: BackendRecord): Promise<{ port: number } | { failure: TunnelFailure }>`; `onTunnelExit(handler: (id: string, failure: TunnelFailure) => void): void`.
 
+`trustHostKey` is ordered, not standalone: it pins the key material that the
+most recent `fetchHostKeyFingerprint` for that same record scanned, and rejects
+when there is none. Calling it on its own is a programming error, not a
+fallback.
+
 - [ ] **Step 1: Write the module**
 
 There is no test in this task: every branch is a real `ssh` process, and the parts that can be tested without one were extracted into Task 5. Task 5's tests are this module's tests.
@@ -2108,7 +2125,7 @@ git commit -m "feat(electron): supervise ssh tunnels with a backend readiness pr
 
 **Interfaces:**
 - Consumes: Tasks 4, 5, 6.
-- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<void>`, `removeBackend(id): Promise<void>`, `trustBackendHost(id): Promise<void>`, `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (failure: TunnelFailure) => void): () => void`.
+- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<void>`, `removeBackend(id): Promise<void>`, `trustBackendHost(id): Promise<void>` (rejects unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (failure: TunnelFailure) => void): () => void`.
 
 - [ ] **Step 1: Write the registry**
 
@@ -2243,6 +2260,36 @@ function findRecord(id: string): BackendRecord | null {
     return entry && entry.kind !== "local" ? entry.record : null;
 }
 
+/**
+ * Order matters, and it is not the obvious one. `lastKnownPort` is a *cache of
+ * a value that changes on every backend restart* — the backend serves on
+ * `port: 0` (`packages/backend/src/config.ts:75`) and picks a fresh ephemeral
+ * port each start — so it is the least trustworthy of the three sources, not
+ * the cheapest-and-good-enough one.
+ *
+ * Putting it ahead of `readRemotePort` bricks a backend permanently: connect to
+ * `desktop` once and the port is cached; `desktop` restarts; multicast does not
+ * reach you (VPN, another subnet, a denied macOS local-network prompt) so there
+ * is no beacon; every subsequent attempt forwards to the dead cached port,
+ * times out after READINESS_TIMEOUT_MS as "Taskflow is not running on desktop",
+ * and — because `activateBackend` only writes `lastKnownPort` on success —
+ * never invalidates it. The instance port file that Task 1 exists to write is
+ * sitting there with the right answer and is never consulted. Removing and
+ * re-adding the backend is the user's only way out.
+ *
+ * So: beacon, then the port file over ssh, then the cache. The cache still
+ * earns its place last — it is the only source that works against a Windows
+ * backend, whose port file lives under %APPDATA% where `readRemotePort` cannot
+ * reach it, and against a host with no usable ssh for a plain `cat`.
+ *
+ * One thing this ordering assumes: the "Backend port" a user can type into the
+ * connect dialog also lands in `lastKnownPort`, and is now outranked by the
+ * port file. That is safe *only* because the dialog cannot set `instanceId`, so
+ * a typed port and `${instanceId}.port` always describe the same instance and
+ * the file is the fresher of the two. If the connect dialog ever grows an
+ * instance field, a typed port stops being a cache and becomes an override, and
+ * it needs its own field on `BackendRecord` that is consulted before the beacon.
+ */
 async function resolveBackendPort(
     record: BackendRecord,
 ): Promise<{ port: number } | { failure: TunnelFailure }> {
@@ -2251,8 +2298,15 @@ async function resolveBackendPort(
     // on id alone sends a perfectly discoverable backend down the ssh fallback.
     const live = discovered.find((entry) => matchesDiscovered(record, entry));
     if (live) return { port: live.port };
+
+    const remote = await readRemotePort(record);
+    if ("port" in remote) return remote;
+    // The ssh read failed. A cached port is a worse answer than a fresh one but
+    // a better answer than none, so try it — and if it is stale too, report the
+    // ssh failure rather than the readiness timeout, because that is the one
+    // that says *why* the port could not be resolved.
     if (record.lastKnownPort !== null) return { port: record.lastKnownPort };
-    return readRemotePort(record);
+    return remote;
 }
 
 async function activateBackend(
@@ -2340,6 +2394,22 @@ function retirePreviousTunnel(): void {
     previousId = LOCAL_ID;
 }
 
+/**
+ * The active backend's ssh child exited on its own. `activeId` is left alone —
+ * the renderer still names this backend as active and offers a reconnect for it
+ * — but the origin is dropped, so `getActiveOrigin` stops handing main's
+ * pollers an address that no longer forwards anywhere.
+ *
+ * A drop reported for a backend that is no longer active is ignored: that is a
+ * tunnel already retired by a completed switch, and clearing the current
+ * origin for it would take down a healthy connection.
+ */
+function markTunnelDropped(id: string): void {
+    if (id !== activeId) return;
+    activeOrigin = null;
+    deps.onChanged();
+}
+
 /** The backend that was active when the app last quit. Menu ordering only. */
 function getLastUsedId(): string {
     return lastUsedId;
@@ -2424,6 +2494,7 @@ export {
     getActiveOrigin,
     getLastUsedId,
     initBackendRegistry,
+    markTunnelDropped,
     retirePreviousTunnel,
     setActive,
     isLocalActive,
@@ -2589,7 +2660,12 @@ void initBackendRegistry({
     onChanged: () => getMainWindow()?.webContents.send("backends-changed"),
 });
 
-onTunnelExit((_id, failure) => {
+onTunnelExit((id, failure) => {
+    // Before the renderer is told, so the notification and tray pollers stop
+    // fetching a forwarded port that no longer forwards anywhere. Without it
+    // they keep issuing a request per tick until the user reconnects, each one
+    // running to its AbortSignal timeout.
+    markTunnelDropped(id);
     getMainWindow()?.webContents.send("backend-dropped", failure);
 });
 
@@ -3322,6 +3398,7 @@ A successful switch never goes through a disconnect, which is the whole point �
 - Modify: `packages/ui/src/lib/monaco-import-navigation.ts:9-12`
 - Modify: `packages/ui/src/components/settings/CodexModelSelect.tsx:16-17`
 - Modify: `packages/ui/src/components/panes/editor-dirty-state.ts`
+- Modify: `packages/ui/src/components/panes/terminal/terminal-link-provider.ts:76-77`
 - Create: `packages/ui/src/components/panes/markdown-toggle-queue.ts`
 - Create: `packages/ui/src/components/panes/markdown-toggle-queue.test.ts`
 - Modify: `packages/ui/src/components/panes/MarkdownPaneImpl.tsx:82-90`
@@ -3547,6 +3624,31 @@ registerReset("session-helpers", () => {
 store fires the tray subscription, which recomputes and sends the new backend's
 aggregate. Say so in the exclusion comment so the next reader does not have to
 re-derive it.
+
+- [ ] **Step 5a: Clear the terminal's file-stat cache**
+
+The coverage test only walks `packages/ui/src/stores/`, so this one has to be
+found by hand. `packages/ui/src/components/panes/terminal/terminal-link-provider.ts:76`
+keeps `fileStatCache`, a `Map` keyed by absolute path alone with a 10-second TTL
+(`:77`), holding `FILE_STAT` answers from the backend. It decides whether a bare
+filename in terminal output is drawn as a clickable link.
+
+Switch backends within that 10-second window and a bare name that resolved on
+machine A stays clickable on machine B, where it opens a path that is not there;
+the inverse — a path cached as missing — leaves a real file unclickable. Bounded
+and cosmetic next to the write in Step 5b, but the fix is two lines and Task 12
+already edits this file.
+
+At the bottom of `terminal-link-provider.ts`:
+
+```ts
+registerReset("terminal-file-stat-cache", () => {
+    fileStatCache.clear();
+});
+```
+
+Only the cache: `taskId` and the workspace root come from arguments, not module
+state, so there is nothing else in the file to clear.
 
 - [ ] **Step 5b: Stop a queued markdown write from landing on the next backend**
 
@@ -3848,6 +3950,9 @@ interface BackendStore {
     /** Set when the last failure was a host-key problem, so the connect dialog
      *  can offer to trust it. Consumed in Task 11. */
     pendingTrust: { id: string; kind: "unknown-host-key" | "changed-host-key" } | null;
+    /** The active backend's ssh child exited on its own. `activeId` still names
+     *  it, but nothing is reachable through it. See `switchTo`'s guard. */
+    dropped: boolean;
     refresh: () => Promise<void>;
     switchTo: (id: string) => Promise<void>;
     dismissError: () => void;
@@ -3861,6 +3966,7 @@ const useBackendStore = create<BackendStore>((set, get) => ({
     switching: null,
     error: null,
     pendingTrust: null,
+    dropped: false,
 
     async refresh() {
         const bridge = window.taskflow;
@@ -3874,7 +3980,15 @@ const useBackendStore = create<BackendStore>((set, get) => ({
 
     async switchTo(id: string) {
         const bridge = window.taskflow;
-        if (!bridge || get().switching !== null || id === get().activeId) return;
+        if (!bridge || get().switching !== null) return;
+        // Re-selecting the active backend is normally a no-op. It is not when
+        // that backend's tunnel has dropped: `activeId` still names it, but the
+        // ssh child is gone and the forwarded port is dead, so this is the only
+        // way to ask for a new tunnel to the same machine. Without the `dropped`
+        // exception the user's only route back is to select "This machine" and
+        // then re-select the remote, and until they do it, main's pollers keep
+        // fetching a dead origin every tick.
+        if (id === get().activeId && !get().dropped) return;
 
         // Dirty models are keyed by absolute path alone and survive an unmount,
         // so carrying them across a switch can show — and then save — one
@@ -3942,6 +4056,11 @@ const useBackendStore = create<BackendStore>((set, get) => ({
                 switching: null,
                 activeId: id,
                 isLocal: id === LOCAL_ID,
+                // A completed switch is what clears `dropped`, including a
+                // forced retry of the same id — that is the whole point of the
+                // flag, and leaving it set would make every later re-selection
+                // of this backend tear down a working connection and rebuild it.
+                dropped: false,
                 generation: state.generation + 1,
             }));
             await rebootstrap();
@@ -3963,13 +4082,19 @@ const useBackendStore = create<BackendStore>((set, get) => ({
     },
 
     dismissError() {
+        // `dropped` deliberately survives: dismissing the banner hides the
+        // message, it does not restore the tunnel. Only a completed switch
+        // clears it.
         set({ error: null, pendingTrust: null });
     },
 }));
 
 registerReset("backend-store", () => {
     // The backend list itself must survive a switch — it is what you switched
-    // with. Only the transient fields reset.
+    // with. Only the transient fields reset. `dropped` is not listed because
+    // the switch that runs this reset clears it a few lines later, in the same
+    // synchronous block as the generation bump; setting it here as well would
+    // be a second writer to one flag.
     useBackendStore.setState({ switching: null, error: null, pendingTrust: null });
 });
 
@@ -4248,9 +4373,23 @@ function ConnectBackendDialog({ open, onOpenChange }: ConnectBackendDialogProps)
         if (!bridge || pendingTrust?.kind !== "unknown-host-key") return;
         setBusy(true);
         try {
+            // `trustBackendHost` pins the key whose fingerprint this dialog
+            // showed, and rejects if main has none stashed for this id. The
+            // "Trust and connect" button only renders once `fingerprint` is
+            // set, so that rejection is a backstop — but it must be surfaced
+            // rather than left as an unhandled rejection, because it means the
+            // approval and the key have come apart.
             await bridge.trustBackendHost(pendingTrust.id);
             await switchTo(pendingTrust.id);
             if (useBackendStore.getState().error === null) onOpenChange(false);
+        } catch (trustError) {
+            setFingerprint(null);
+            useBackendStore.setState({
+                error:
+                    trustError instanceof Error
+                        ? trustError.message
+                        : "Could not trust that host key.",
+            });
         } finally {
             setBusy(false);
         }
@@ -4357,7 +4496,7 @@ generation subscription:
 ```tsx
 useEffect(() => {
     return window.taskflow?.onBackendDropped((failure) => {
-        useBackendStore.setState({ error: failure.message });
+        useBackendStore.setState({ dropped: true, error: failure.message });
     });
 }, []);
 ```
@@ -4366,6 +4505,24 @@ Render `useBackendStore(s => s.error)` as a dismissible banner above the
 workspace, wired to `dismissError()`. The same banner carries switch failures
 and the unsaved-files refusal from Task 10, so there is one place errors about
 backends appear rather than three.
+
+`dropped` is what makes the connection recoverable. Task 10's `switchTo` treats
+re-selecting the active backend as a no-op *unless* `dropped` is set, so with
+the flag the user gets back by clicking the same row in the menu, and the
+`activateBackend` behind it opens a fresh ssh child. Give the banner an explicit
+affordance for it rather than leaving the user to guess that clicking the
+already-ticked row does anything:
+
+```tsx
+{dropped && (
+    <Button onClick={() => void switchTo(activeId)}>Reconnect</Button>
+)}
+```
+
+The reconnect goes through the full switch — handshake, reset, remount — not a
+socket-level retry. The backend on the other side has not necessarily restarted,
+but this client cannot tell the difference between an ssh process that died and
+a machine that rebooted, and re-running the switch is correct for both.
 
 - [ ] **Step 6: Explain an empty list on macOS**
 
@@ -4588,6 +4745,30 @@ import { describe, expect, it } from "bun:test";
 import { mkdtemp, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import type { FlowArtifact, FlowRun } from "@taskflow/shared";
+
+/**
+ * `FlowRun` requires `startedAt` and every `FlowArtifact` requires `createdAt`
+ * (`packages/shared/src/types/flow.ts:82,105`). Spelling them out in each of
+ * the four runs below is four chances to forget one and fail typecheck before
+ * the route is ever exercised, and none of these tests care what the stamps
+ * are.
+ */
+function run(artifacts: FlowArtifact[]): FlowRun {
+    return {
+        projectId: "p1",
+        flowId: "f1",
+        status: "completed",
+        currentActionIndex: 0,
+        actions: [],
+        artifacts,
+        startedAt: "2026-08-23T00:00:00.000Z",
+    };
+}
+
+function artifact(fields: Omit<FlowArtifact, "actionEntryId" | "createdAt">): FlowArtifact {
+    return { ...fields, actionEntryId: "a1", createdAt: "2026-08-23T00:00:00.000Z" };
+}
 
 describe("GET /api/flow/artifact/:ownerId/:flowId/:type/raw", () => {
     it("serves an artifact stored outside any workspace root", async () => {
@@ -4600,14 +4781,7 @@ describe("GET /api/flow/artifact/:ownerId/:flowId/:type/raw", () => {
         await writeFile(artifactPath, "hello");
 
         const { router, flowStore } = await buildTestRouter();
-        await flowStore.saveFlowRun({
-            projectId: "p1",
-            flowId: "f1",
-            status: "completed",
-            currentActionIndex: 0,
-            actions: [],
-            artifacts: [{ type: "report", path: artifactPath, actionEntryId: "a1" }],
-        });
+        await flowStore.saveFlowRun(run([artifact({ type: "report", path: artifactPath })]));
 
         const response = await router.handle(
             new Request("http://x/api/flow/artifact/p1/f1/report/raw"),
@@ -4622,14 +4796,7 @@ describe("GET /api/flow/artifact/:ownerId/:flowId/:type/raw", () => {
         await writeFile(artifactPath, "spaced");
 
         const { router, flowStore } = await buildTestRouter();
-        await flowStore.saveFlowRun({
-            projectId: "p1",
-            flowId: "f1",
-            status: "completed",
-            currentActionIndex: 0,
-            actions: [],
-            artifacts: [{ type: "review notes", path: artifactPath, actionEntryId: "a1" }],
-        });
+        await flowStore.saveFlowRun(run([artifact({ type: "review notes", path: artifactPath })]));
 
         const response = await router.handle(
             new Request(`http://x/api/flow/artifact/p1/f1/${encodeURIComponent("review notes")}/raw`),
@@ -4643,14 +4810,7 @@ describe("GET /api/flow/artifact/:ownerId/:flowId/:type/raw", () => {
         // asserts the route's behaviour for the case, so a later change that
         // routes them here fails loudly instead of silently 404ing a download.
         const { router, flowStore } = await buildTestRouter();
-        await flowStore.saveFlowRun({
-            projectId: "p1",
-            flowId: "f1",
-            status: "completed",
-            currentActionIndex: 0,
-            actions: [],
-            artifacts: [{ type: "report", text: "inline", actionEntryId: "a1" }],
-        });
+        await flowStore.saveFlowRun(run([artifact({ type: "report", text: "inline" })]));
         const response = await router.handle(
             new Request("http://x/api/flow/artifact/p1/f1/report/raw"),
         );
@@ -4659,14 +4819,7 @@ describe("GET /api/flow/artifact/:ownerId/:flowId/:type/raw", () => {
 
     it("404s for a type the run never produced", async () => {
         const { router, flowStore } = await buildTestRouter();
-        await flowStore.saveFlowRun({
-            projectId: "p1",
-            flowId: "f1",
-            status: "completed",
-            currentActionIndex: 0,
-            actions: [],
-            artifacts: [],
-        });
+        await flowStore.saveFlowRun(run([]));
         const response = await router.handle(
             new Request("http://x/api/flow/artifact/p1/f1/report/raw"),
         );
@@ -4746,13 +4899,19 @@ In `packages/ui/src/components/flows/FlowPanel.tsx`, at the download click handl
 ```
 
 **Keep the text branch.** `FlowArtifact` is `{ path?: string; text?: string }`
-(`packages/shared/src/types/flow.ts:71-73`) and the current call already passes
+(`packages/shared/src/types/flow.ts:74-75`) and the current call already passes
 both (`FlowPanel.tsx:308-312`). An artifact recorded as inline text has no path,
 so routing it through the raw endpoint would hit `artifacts[0]?.path` being
 undefined and 404 — a download that works today would stop working. Only a path
 artifact needs the backend round trip; text is already in the renderer.
 
-`ownerId` is whichever of `taskId`, `projectId` or `"master"` the run carries — the component already has the run in scope; derive it the same way the existing `/api/flow/artifact/:ownerId/:flowId` calls in this file do.
+`ownerId` is the run's owner id — do not spell it out. `FlowPanel` already has
+an `ownerId` prop; use it, exactly as the existing
+`/api/flow/artifact/:ownerId/:flowId` calls in this file do. It is emphatically
+not the literal `"master"` for a master flow: the shared constant is
+`MASTER_OWNER_ID = "__master__"` (`packages/shared/src/types/flow.ts:85`), and
+`getFlowRunOwnerId` (`:125-129`) is what derives it. A hand-built `"master"` URL
+404s on every master flow artifact.
 
 - [ ] **Step 7: Verify**
 
@@ -4820,10 +4979,32 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
 - Switch to a host that is up but not running Taskflow → "Taskflow is not running on …".
 - Switch to a host whose key is not in `known_hosts` → fingerprint dialog; approving connects.
 - Open a file, type into it without saving, then try to switch → refused, naming the unsaved file.
-- Pull the network while a remote backend is active → disconnected banner; restoring the network reconnects.
+- Pull the network while a remote backend is active → disconnected banner. ssh
+  gives up after `ServerAliveInterval` × `ServerAliveCountMax`, roughly 45
+  seconds, and its exit turns the banner into the dropped-tunnel one with a
+  **Reconnect** button. Restore the network and press it: the app switches to
+  the same backend again — a fresh tunnel, handshake, reset and remount — rather
+  than resuming the old socket. Confirm `pgrep -fl "ssh -N -L"` shows exactly
+  one child afterwards, not two.
 - Switch to a backend running an incompatible `PROTOCOL_VERSION` → refused with both
   numbers named, and `pgrep -fl "ssh -N -L"` shows no ssh child left behind. The
   leak this checks for is invisible from the UI, so check the process list.
+
+- [ ] **Step 6a: Confirm the two silent leaks are closed**
+
+Neither of these is visible from the UI, and both were live in earlier drafts of
+this plan, so they are checked from the process list and the filesystem.
+
+- Start a switch to a host that is reachable over ssh but has no Taskflow
+  running, and quit the app *during* the ten-second readiness wait. Then
+  `pgrep -fl "ssh -N -L"`. Expected: nothing. A surviving child means the tunnel
+  is being registered on success rather than on spawn.
+- Connect to machine B, then restart Taskflow on B while A stays connected.
+  A's tunnel drops; press **Reconnect**. Expected: it connects, because the port
+  is re-read from B's `~/.config/taskflow/main.port` rather than from A's cached
+  copy of B's previous port. To be sure the port file is what did it, run this
+  with B's beacon off (Settings → General → "Discoverable on this network"), so
+  discovery cannot supply the answer.
 
 - [ ] **Step 6b: Confirm what still works remotely**
 
