@@ -27,7 +27,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | in-review round 8 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`; next is review round 9 |
+| 19.1 | Mouse — report decoding | in-review round 9 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`; next is review round 10 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
@@ -4755,8 +4755,64 @@ Verification at `176d5af`: `bun run lint` clean, `bun run typecheck` clean acros
 five packages, `bun test packages/tui` → 372 pass, 0 fail (370 before, plus the two new
 regression tests).
 
-Next step: review round 9 for Task 19.1.
-Round 8 fixed two substantiated findings, so the task takes another round rather than
+- **Task 19.1, round 9** (gpt-5.5 via codex-review, Mode B over `e00cd13..04c5327`
+  restricted to `packages/tui`): one finding, substantiated and fixed in `f828057`. Run
+  the repros with `bun test packages/tui/src/input/decode-legacy.test.ts -t "stranded X10
+  header"` and `bun test packages/tui/src/index.test.ts -t "stranded is not eaten"`.
+
+- **Substantiated and fixed — a dead X10 header ate the click that arrived next.** The
+  X10 branch sliced the three characters after `CSI M` as payload without looking at
+  them. An X10 payload character is `32 + value`, so nothing below 32 can be one — and
+  ESC is exactly what opens the next report. A header whose payload was lost is held for
+  a second; a second click landing inside that second had its own `CSI M` swallowed as
+  the dead header's payload (which then failed to parse and was dropped), leaving the
+  fresh report's three payload characters to decode as typed characters. A click in the
+  49th column sends `Q`, the quit binding.
+
+  This is the X10 twin of the round-8 SGR finding, and the SGR side already had its
+  guard: an ESC makes a held `CSI <` run an invalid CSI, which round 6 taught the decoder
+  to discard. `CSI M` is a *complete* sequence, so it never reaches that path.
+
+  Independently reproduced at `04c5327`, both at decoder level and end to end.
+  Decoder: `decodeLegacy("\x1b[M", "")` then `decodeLegacy("\x1b[M\x20\x51\x21", carry)`
+  returns three char events (space, `Q`, `!`) and no mouse event, instead of one left
+  press at col 48. End to end: write `\x1b[M`, wait 200ms, write `\x1b[M\x20\x51\x21` —
+  the TUI exits 0 rather than staying up. A key rather than a report shows it too:
+  `decodeLegacy("\x03", "\x1b[M\x20")` returned nothing, swallowing Ctrl+C.
+
+  Fix: `impossibleX10Byte` scans the collected payload for a character below the 32 bias.
+  One found means the report is never completing, so the header is discarded and decoding
+  resumes on the offending byte rather than consuming it.
+
+  Regression tests: `decodeLegacy > a stranded X10 header does not eat the report that
+  follows it` and `> a stranded X10 header does not swallow the key that follows it` in
+  `src/input/decode-legacy.test.ts`, plus `tui entry point > a click that lands while an
+  X10 header is stranded is not eaten by it` in `src/index.test.ts`. All red at `04c5327`,
+  green at `f828057`; the integration test was run three times on each side.
+
+## Decisions taken (Task 19.1, round 9)
+
+- **Validate the payload, not the carry.** The check goes where the bytes are first
+  claimed, so a bad byte is never consumed and never reaches the carry. Teaching
+  `isPartialMouseReport` to reject such a carry instead would be a second place holding
+  the same rule, and would still leave the same-read case (both reports in one chunk)
+  wrong.
+- **Discard the valid payload bytes ahead of the bad one too.** They belong to a report
+  that provably cannot complete, so they are not keys and emitting them would be the leak
+  this fix exists to close. Only the byte that ruled the report out is real input.
+- **The whole payload is checked, not just the first byte.** A header can be stranded with
+  one or two payload characters already in the carry, and the ESC then lands at index 1 or
+  2; checking only index 0 would leave those two cases open.
+- **`parseX10Mouse`'s own below-bias rejection is kept.** It is now unreachable from
+  `decodeLegacy`, but it is a unit-tested standalone parser and 19.5 reuses this module;
+  a parser that trusts its caller is a worse parser.
+
+Verification at `f828057`: `bun run lint` clean, `bun run typecheck` clean across all
+five packages, `bun test packages/tui` → 375 pass, 0 fail (372 before, plus the three new
+regression tests).
+
+Next step: review round 10 for Task 19.1.
+Round 9 fixed a substantiated finding, so the task takes another round rather than
 closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
 (`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
 Settled, do not re-litigate: the X10 UTF-8 payload limitation — **including a plain X10
@@ -4767,14 +4823,16 @@ section** (round 1, re-accepted rounds 1 and 7); the extra-button release sentin
 `cbfde10`); the one-byte button bound (round 3, fixed in `436313f`); the stranded-report
 drop window (round 4, fixed in `3770749`); the SGR carry hold (round 5, fixed in
 `ee518be`); the invalid-CSI discard plus the absolute drop deadline (round 6, fixed in
-`012049f`); the deadline check inside `feed` (round 7, fixed in `2911a80`); and the
-fresh-report deadline plus the SGR intermediate-byte guard (round 8, fixed in `176d5af`)
-— each only if the fix itself is shown wrong. Also settled: bare motion (`?1003h`) is
-never enabled on the outer terminal, so an X10 `b = 35` decoding as a release is out of
-scope by plan decision; the `ESC [` two-byte split, per the round-4 decision; holding
-partial CSIs beyond `CSI <` and `CSI M`, per the round-5 decision; refreshing the drop
-deadline on decoded events rather than on bytes arriving, per the round-6 decision; and
-prefix containment as the test for "the same held report", per the round-8 decision.
+`012049f`); the deadline check inside `feed` (round 7, fixed in `2911a80`); the
+fresh-report deadline plus the SGR intermediate-byte guard (round 8, fixed in `176d5af`);
+and the X10 below-bias payload guard (round 9, fixed in `f828057`) — each only if the fix
+itself is shown wrong. Also settled: bare motion (`?1003h`) is never enabled on the outer
+terminal, so an X10 `b = 35` decoding as a release is out of scope by plan decision; the
+`ESC [` two-byte split, per the round-4 decision; holding partial CSIs beyond `CSI <` and
+`CSI M`, per the round-5 decision; refreshing the drop deadline on decoded events rather
+than on bytes arriving, per the round-6 decision; prefix containment as the test for "the
+same held report", per the round-8 decision; and discarding a stranded X10 header's
+already-collected payload bytes along with it, per the round-9 decision.
 Verify every new finding independently before fixing it; a finding without a repro is not
 a finding, and check the mouse plan's own decisions before treating one as new. Zero
 substantiated findings → 19.1 is clear and 19.2 is next.
