@@ -52,7 +52,7 @@
 | Path | Change |
 |---|---|
 | `packages/backend/src/ws/server.ts` | Bind `127.0.0.1` |
-| `packages/backend/src/config.ts` | Add `instancePortFile` |
+| `packages/backend/src/config.ts` | Add `instancePortFile`; reduce `instanceId` to one safe label |
 | `packages/backend/src/index.ts` | Write/remove the instance port file; `protocolVersion` on `SYSTEM_INFO`; start the advertiser |
 | `packages/shared/src/constants.ts` | `PROTOCOL_VERSION`, discovery constants |
 | `packages/backend/src/handlers/settings.ts` | Notify on settings update, so the beacon follows the setting |
@@ -187,7 +187,47 @@ In `packages/backend/src/index.ts`, change the `SYSTEM_INFO` registration at lin
 
 Add `PROTOCOL_VERSION` to the existing `@taskflow/shared` import in that file.
 
-- [ ] **Step 7: Add the stable instance port file**
+- [ ] **Step 7: Constrain the instance id at its source**
+
+`instanceId` is about to become three things at once: a filename, a value
+announced on the network, and part of a command run over ssh on another machine.
+Task 2's codec refuses a label outside `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`, and
+today's derivation can produce one that fails it — `TASKFLOW_DEV_BRANCH` is
+taken verbatim (`config.ts:45-47`) and the git fallback only replaces `/`
+(`config.ts:55-56`), so `dev-feature/x`, `dev-JIRA-9@thing` or an 80-character
+branch all get through. A backend whose id the codec rejects is silently
+undiscoverable: it announces, every listener drops the datagram, and nothing
+logs anything.
+
+Constrain it once, here, rather than sanitising differently in each consumer —
+the port file name, the beacon and the ssh path have to agree exactly or the
+manual-connect fallback reads a file that does not exist.
+
+In `packages/backend/src/config.ts`, above `const instanceId`:
+
+```ts
+/**
+ * The instance id names a file, is announced on the LAN, and is interpolated
+ * into a remote command, so it is reduced to one safe label at the point it is
+ * derived. Must stay in step with `isSafeLabel` in the beacon codec.
+ */
+function toSafeLabel(value: string): string {
+    const cleaned = value.replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[^A-Za-z0-9]+/, "");
+    return cleaned.slice(0, 64) || "unknown";
+}
+```
+
+```ts
+const instanceId = devBranch ? toSafeLabel(`dev-${devBranch}`) : "main";
+```
+
+`main` is unchanged, so no production instance moves. A *dev* instance whose
+branch name contained something outside the set gets a new `instanceId`, and
+`buildDataPaths(initialDataDir, instanceId)` (`config.ts:74`) therefore points it
+at a new data directory. That is a dev sandbox moving, not user data — but say
+so in the commit message.
+
+- [ ] **Step 8: Add the stable instance port file**
 
 In `packages/backend/src/config.ts`, inside the `config` object next to `portFile`:
 
@@ -213,16 +253,21 @@ In the `shutdown` handler (line 499), before the process exits, add:
 
 Import `rm` from `fs/promises` alongside the existing `writeFile` import.
 
-- [ ] **Step 8: Verify the whole suite and typecheck**
+- [ ] **Step 9: Verify the whole suite and typecheck**
 
 Run: `bun test && bun run typecheck`
 Expected: PASS, no type errors.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add packages/backend/src/ws/server.ts packages/backend/src/config.ts packages/backend/src/index.ts packages/shared/src/constants.ts packages/shared/src/types/system.ts packages/backend/tests/ws/server-bind.test.ts
-git commit -m "feat(backend): bind loopback, report protocol version, write a stable port file"
+git commit -m "feat(backend): bind loopback, report protocol version, write a stable port file
+
+The instance id is now reduced to [A-Za-z0-9._-], capped at 64 characters, so it
+is safe as a filename, as a beacon field and inside a command run over ssh. A dev
+instance whose branch name contained anything outside that set moves to a new
+data directory.""
 ```
 
 ---
@@ -1763,7 +1808,11 @@ async function readRemotePort(
             },
         };
     }
-    const remotePath = `$HOME/.config/taskflow/${record.instanceId}.port`;
+    // Single-quoted so the remote shell treats it as one literal word, and
+    // `~` rather than `$HOME` so expansion still happens outside the quotes.
+    // `isSafeLabel` above already excludes a quote character; this is the second
+    // lock on the same door.
+    const remotePath = `~/.config/taskflow/'${record.instanceId}.port'`;
     const { stdout, stderr, code } = await runSsh([
         "-p",
         String(record.sshPort),
@@ -2493,7 +2542,7 @@ The module today is a set of globals with one socket. Opening the new socket bef
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `connectTo(origin: string): Promise<void>` (opens a *pending* socket, does not promote), `promoteConnection(): void`, `abortPending(): void`, `getBackendOrigin(): string | null`, `BACKEND_SWITCHED` error message constant. `sendRequest`, `sendFireAndForget`, `onEvent`, `onStatusChange` keep their signatures.
+- Produces: `connectTo(origin: string): Promise<void>` (opens a *pending* socket, does not promote), `promoteConnection(): void`, `abortPending(): void`, `getBackendOrigin(): string | null`, `BACKEND_SWITCHED` error message constant. The reconnect backoff defers while a socket is pending, so it never cancels a switch. `sendRequest`, `sendFireAndForget`, `onEvent`, `onStatusChange` keep their signatures.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2706,6 +2755,29 @@ describe("switching connections", () => {
         expect(statuses.filter((s) => s.reconnecting).length).toBeGreaterThan(1);
     });
 
+    test("a reconnect waits rather than killing a switch in flight", async () => {
+        // The old backend dropping mid-handshake is exactly when this matters:
+        // the reconnect backoff and the switch both want the pending slot.
+        const a = track(startServer());
+        const b = track(startServer());
+
+        await connectTo(a.origin);
+        promoteConnection();
+
+        await connectTo(b.origin); // pending, not promoted — the handshake would run here
+        a.stop(); // the old backend goes away while the handshake is in flight
+        await Bun.sleep(1_500); // long enough for the first backoff to fire
+
+        // The pending socket survived: a request over it still works, so the
+        // switch can still complete.
+        await expect(
+            sendRequest("system:info", {}, { usePending: true }),
+        ).resolves.toBeDefined();
+
+        promoteConnection();
+        expect(getBackendOrigin()).toBe(b.origin);
+    });
+
     test("a superseded socket closing does not report the app as disconnected", async () => {
         const a = track(startServer());
         const b = track(startServer());
@@ -2801,6 +2873,16 @@ function scheduleReconnect(): void {
     reconnectAttempt++;
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
+        // A switch may be mid-handshake on the pending socket. `connectTo`
+        // begins by aborting whatever is pending, so reconnecting now would
+        // kill a switch that was about to succeed and surface it as
+        // "Backend switched". Defer instead: `promoteConnection` clears this
+        // timer if the switch lands, and `abortPending` leaves the next tick
+        // free to run.
+        if (pending) {
+            scheduleReconnect();
+            return;
+        }
         void connectTo(origin)
             .then(() => promoteConnection())
             .catch(() => {
@@ -3083,7 +3165,7 @@ Update its imports to `connectTo, promoteConnection, onStatusChange`.
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `bun test packages/ui`
-Expected: PASS, including the eight new connection tests.
+Expected: PASS, including the nine new connection tests.
 
 - [ ] **Step 7: Commit**
 
@@ -3542,15 +3624,21 @@ const useBackendStore = create<BackendStore>((set, get) => ({
 
             promoteConnection();
             resetAllState();
-            await rebootstrap();
-            // The old tunnel is only safe to kill now that nothing is using it.
-            await bridge.retirePreviousTunnel();
+            // Bumping the generation in the SAME synchronous block as the reset
+            // is not cosmetic. Every `await` between them yields to the event
+            // loop, React renders, and the still-mounted old tree paints itself
+            // against stores that were just emptied — a workspace whose task no
+            // longer exists, a terminal whose session is gone. Remount first,
+            // then do the slow parts.
             set((state) => ({
                 switching: null,
                 activeId: id,
                 isLocal: id === LOCAL_ID,
                 generation: state.generation + 1,
             }));
+            await rebootstrap();
+            // The old tunnel is only safe to kill now that nothing is using it.
+            await bridge.retirePreviousTunnel();
             await get().refresh();
         } catch (error) {
             abortPending();
