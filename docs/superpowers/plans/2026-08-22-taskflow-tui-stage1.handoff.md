@@ -27,7 +27,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | in-review round 9 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`; next is review round 10 |
+| 19.1 | Mouse — report decoding | in-review round 10 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`; next is review round 11 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
@@ -4811,8 +4811,62 @@ Verification at `f828057`: `bun run lint` clean, `bun run typecheck` clean acros
 five packages, `bun test packages/tui` → 375 pass, 0 fail (372 before, plus the three new
 regression tests).
 
-Next step: review round 10 for Task 19.1.
-Round 9 fixed a substantiated finding, so the task takes another round rather than
+- **Task 19.1, round 10** (gpt-5.5 via codex-review, Mode B over `e00cd13..HEAD`
+  restricted to `packages/tui`): Codex reported **no substantive findings**. One finding
+  was raised independently by me while reading the code, substantiated and fixed in
+  `4554556`. Run the repro with
+  `bun test packages/tui/src/index.test.ts -t "an X10 report that starts"`.
+
+- **Substantiated and fixed — a fresh X10 report inherited a dead header's deadline.**
+  Round 8 gave a report that starts while another is stranded its own one-second window,
+  and tested "is this the same run grown?" by prefix containment: a carry the previous
+  one is a prefix of is the same report with more bytes appended. That is exact for SGR,
+  where a dead run carries its own parameter digits, so a different run cannot start with
+  it. It is wrong for X10, where the dead header and the fresh one are both exactly
+  `CSI M`: the fresh report's carry `CSI M` + one payload character starts with the dead
+  header, so it was read as the dead one grown by a byte and kept its deadline. It was
+  then retired early and its own payload characters decoded as typed input. An X10
+  payload character is `32 + value`, so a click in column 49 sends `Q`, the quit binding.
+
+  This is the X10 twin of the round-8 SGR finding, the way round 9 was the twin of
+  round 8's other one. Independently reproduced at `c7310b7`: write `\x1b[M` (header,
+  payload lost), wait 900ms, write `\x1b[M\x20` (a second click, split), wait 400ms,
+  then write `\x51\x21`. Held correctly those two characters complete the second report
+  and are consumed; on the old code it had already been dropped at the first header's
+  deadline and the TUI quit.
+
+  Fix: the "same run grown" test is now that the read consumed nothing —
+  `carry.length === heldLength + text.length`. Both decoders return a suffix of
+  `carry + text`, so a carry exactly `text.length` longer is the held run with the new
+  bytes appended and the decoder still sitting on its first byte; any other length means
+  it moved past the start of what was held, and what it holds now is a different run.
+
+  Regression test: `tui entry point > an X10 report that starts while a dead header is
+  held gets its own window` in `src/index.test.ts`. Red at `c7310b7` on three consecutive
+  runs, green at `4554556` on three. It sleeps 500ms after the ready marker for the same
+  reason the round-8 test does — the marker is written while stdin is still paused.
+
+## Decisions taken (Task 19.1, round 10)
+
+- **"Consumed nothing" replaces prefix containment rather than joining it.** It is
+  strictly stronger: a read that consumed nothing always leaves the old carry as a
+  prefix, so every case containment caught is still caught, and the X10 case it could not
+  express is caught too. Keeping both would be one rule stated twice.
+- **The test stays in `feed`, not in the decoders.** `carry.length - heldLength ===
+  text.length` is exactly "the decoder returned `buf.slice(0)`", and both decoders
+  already guarantee the carry is a suffix of `carry + input`. Adding an offset field to
+  `DecodeResult` would put the same fact on the wire for one caller to read.
+- **The round-6 rule is untouched.** Padding a dead run appends parameter or payload
+  bytes and consumes nothing, so it still fails the refresh test exactly as before.
+
+Verification at `4554556`: `bun run lint` clean, `bun run typecheck` clean across all
+five packages, `bun test packages/tui` → 376 pass, 0 fail (375 before, plus the new
+regression test). Codex independently ran `bun test packages/tui/src/input` (105),
+`bun test packages/tui/src/index.test.ts` (18), typecheck and eslint, all clean — note it
+read the working tree, which already carried this fix and its test.
+
+Next step: review round 11 for Task 19.1.
+Round 10 fixed a substantiated finding, so the task takes another round rather than
 closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
 (`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
 Settled, do not re-litigate: the X10 UTF-8 payload limitation — **including a plain X10
@@ -4825,14 +4879,18 @@ drop window (round 4, fixed in `3770749`); the SGR carry hold (round 5, fixed in
 `ee518be`); the invalid-CSI discard plus the absolute drop deadline (round 6, fixed in
 `012049f`); the deadline check inside `feed` (round 7, fixed in `2911a80`); the
 fresh-report deadline plus the SGR intermediate-byte guard (round 8, fixed in `176d5af`);
-and the X10 below-bias payload guard (round 9, fixed in `f828057`) — each only if the fix
+the X10 below-bias payload guard (round 9, fixed in `f828057`); and the consumed-nothing
+test for a fresh report's deadline (round 10, fixed in `4554556`) — each only if the fix
 itself is shown wrong. Also settled: bare motion (`?1003h`) is never enabled on the outer
 terminal, so an X10 `b = 35` decoding as a release is out of scope by plan decision; the
 `ESC [` two-byte split, per the round-4 decision; holding partial CSIs beyond `CSI <` and
 `CSI M`, per the round-5 decision; refreshing the drop deadline on decoded events rather
-than on bytes arriving, per the round-6 decision; prefix containment as the test for "the
-same held report", per the round-8 decision; and discarding a stranded X10 header's
-already-collected payload bytes along with it, per the round-9 decision.
+than on bytes arriving, per the round-6 decision; and keeping the "same held report" test
+in `feed` rather than in `DecodeResult`, per the round-10 decision.
+Note for round 11: Codex has now returned a clean verdict once while the round's own fix
+was already in the tree, so its report is weaker evidence than it looks. Read the code
+independently as well as prompting Codex; rounds 6, 9 and 10 all turned on defects found
+by reading rather than by the report.
 Verify every new finding independently before fixing it; a finding without a repro is not
 a finding, and check the mouse plan's own decisions before treating one as new. Zero
 substantiated findings → 19.1 is clear and 19.2 is next.
