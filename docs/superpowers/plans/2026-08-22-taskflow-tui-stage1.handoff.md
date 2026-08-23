@@ -27,7 +27,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | in-review round 7 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`; next is review round 8 |
+| 19.1 | Mouse — report decoding | in-review round 8 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`; next is review round 9 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
@@ -4685,8 +4685,78 @@ Verification at `2911a80`: `bun run lint` clean, `bun run typecheck` clean acros
 five packages, `bun test packages/tui` → 370 pass, 0 fail (369 before, plus the new
 regression test).
 
-Next step: review round 8 for Task 19.1.
-Round 7 fixed one substantiated finding, so the task takes another round rather than
+- **Task 19.1, round 8** (gpt-5.5 via codex-review, Mode B over `e00cd13..c49a5bf`
+  restricted to `packages/tui`): two findings, both substantiated and both fixed in
+  `176d5af`. Run the repros with `bun test packages/tui/src/index.test.ts -t "gets its
+  own window"` and `bun test packages/tui/src/input/decode-legacy.test.ts -t
+  "intermediate bytes is not read"`.
+
+- **A second click landing while the first is stranded inherited the dead one's
+  deadline.** A report whose tail never arrives is held for a second. If another click
+  starts inside that second and is itself split across a read, the dead prefix is
+  discarded as an invalid CSI and the fresh report takes its place in the carry — but
+  that read decoded no events, so the round-6 rule left the deadline where the dead
+  report had put it. The fresh report was retired early, and its tail then decoded as
+  typed characters: digits pick a session tab, and under session focus the whole run is
+  forwarded to the agent as if typed.
+
+  Independently reproduced at `c49a5bf`: write `\x1b[<0;50;10`, wait 900ms, write
+  `\x1b[<0;1`, wait 400ms, then write `Q`. Correctly held, that `Q` lands inside a live
+  report and is eaten as a parameter byte; on the old code the fresh report had already
+  been dropped at the first one's deadline and the TUI quit.
+
+  Fix: `feed` remembers the carry it held going in and refreshes the deadline when the
+  new carry is not an extension of it. Only a carry the previous one is a prefix of is
+  the same report grown by a few bytes; anything else is a different report, as new as
+  one held from an empty carry.
+
+  Regression test: `tui entry point > a mouse report that starts while a dead one is
+  held gets its own window` in `src/index.test.ts`. Red at `c49a5bf` on three
+  consecutive runs, green at `176d5af` on three. The test sleeps 500ms after the ready
+  marker before its first write, because the marker is written from inside `app.init()`
+  while stdin is still paused, and an unsettled start would move the deadline the test
+  aims between.
+
+- **A CSI with an intermediate byte decoded as an SGR mouse report.** The SGR branch
+  matched on `params.startsWith("<")` and a final of `M`/`m` and nothing else, so
+  `CSI <0;1;1 M` — parameters, an intermediate `0x20`, then `M` — came out as a left
+  click on the origin. The X10 branch two lines above already refuses a sequence with
+  intermediates. Round 6 noticed this asymmetry and left it alone as having no reachable
+  symptom, which was true only because `feed` still discards every mouse event; at 19.4
+  it becomes a fabricated click that moves the sidebar selection.
+
+  Reproduced at `c49a5bf` at decoder level: `decodeLegacy("\x1b[<0;1;1\x20M", "")`
+  returns a `press`/`left`/`col 0`/`row 0` mouse event instead of nothing.
+
+  Fix: `scan.intermediates === ""` added to the SGR branch condition.
+
+  Regression test: `decodeLegacy > a CSI carrying intermediate bytes is not read as an
+  SGR mouse report` in `src/input/decode-legacy.test.ts`.
+
+## Decisions taken (Task 19.1, round 8)
+
+- **Prefix containment, not a report counter or a carry generation.** The question the
+  deadline logic needs answered is "is this the same run I was already holding?", and
+  string containment answers it exactly: a partial CSI only ever grows by appending, so
+  a carry that does not start with the previous one is necessarily a different sequence.
+  A counter bumped in the decoder would put the same fact in two places and have to be
+  kept in step with every path that clears the carry.
+- **The round-6 rule is narrowed, not reversed.** Refreshing on decoded events is still
+  what separates a live drag from a dead run being padded; this adds one more way a read
+  can prove it is not padding. Padding a dead run appends parameter bytes to it, which
+  always leaves the old carry as a prefix, so the padding case is untouched.
+- **Fixed the intermediate-byte asymmetry despite round 6 filing it as cosmetic.** The
+  round-6 note was right that nothing observes it today and wrong that this makes it
+  safe: `feed`'s mouse-event discard is scaffolding with a removal date on it (19.4), and
+  the fix is one condition that makes the two branches agree. Cheaper to close now than
+  to rediscover as a phantom click later.
+
+Verification at `176d5af`: `bun run lint` clean, `bun run typecheck` clean across all
+five packages, `bun test packages/tui` → 372 pass, 0 fail (370 before, plus the two new
+regression tests).
+
+Next step: review round 9 for Task 19.1.
+Round 8 fixed two substantiated findings, so the task takes another round rather than
 closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
 (`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
 Settled, do not re-litigate: the X10 UTF-8 payload limitation — **including a plain X10
@@ -4697,12 +4767,14 @@ section** (round 1, re-accepted rounds 1 and 7); the extra-button release sentin
 `cbfde10`); the one-byte button bound (round 3, fixed in `436313f`); the stranded-report
 drop window (round 4, fixed in `3770749`); the SGR carry hold (round 5, fixed in
 `ee518be`); the invalid-CSI discard plus the absolute drop deadline (round 6, fixed in
-`012049f`); and the deadline check inside `feed` (round 7, fixed in `2911a80`) — each
-only if the fix itself is shown wrong. Also settled: bare motion (`?1003h`) is never
-enabled on the outer terminal, so an X10 `b = 35` decoding as a release is out of scope
-by plan decision; the `ESC [` two-byte split, per the round-4 decision; holding partial
-CSIs beyond `CSI <` and `CSI M`, per the round-5 decision; and refreshing the drop
-deadline on decoded events rather than on bytes arriving, per the round-6 decision.
+`012049f`); the deadline check inside `feed` (round 7, fixed in `2911a80`); and the
+fresh-report deadline plus the SGR intermediate-byte guard (round 8, fixed in `176d5af`)
+— each only if the fix itself is shown wrong. Also settled: bare motion (`?1003h`) is
+never enabled on the outer terminal, so an X10 `b = 35` decoding as a release is out of
+scope by plan decision; the `ESC [` two-byte split, per the round-4 decision; holding
+partial CSIs beyond `CSI <` and `CSI M`, per the round-5 decision; refreshing the drop
+deadline on decoded events rather than on bytes arriving, per the round-6 decision; and
+prefix containment as the test for "the same held report", per the round-8 decision.
 Verify every new finding independently before fixing it; a finding without a repro is not
 a finding, and check the mouse plan's own decisions before treating one as new. Zero
 substantiated findings → 19.1 is clear and 19.2 is next.
