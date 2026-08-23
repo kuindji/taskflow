@@ -1,4 +1,5 @@
-import { ScreenBuffer, blankCell, ATTR_BOLD, ATTR_INVERSE, type Cell } from "../render/cells";
+import { ScreenBuffer, ATTR_BOLD, ATTR_INVERSE } from "../render/cells";
+import { fitToWidth, layoutText } from "../render/text";
 import type { Store } from "../state/store";
 
 interface SidebarRow {
@@ -29,10 +30,6 @@ function buildRows(store: Store): SidebarRow[] {
     return rows;
 }
 
-function styled(ch: string, attrs: number): Cell {
-    return { ...blankCell(), ch, attrs };
-}
-
 function drawSidebar(
     buf: ScreenBuffer,
     rows: SidebarRow[],
@@ -42,17 +39,25 @@ function drawSidebar(
 ): void {
     for (let y = 0; y < height; y++) {
         const row = rows[y];
+        // A row past the end of the list is padding, never the selection, even
+        // when `selected` still points at where a row used to be.
         const attrs =
-            (y === selected ? ATTR_INVERSE : 0) | (row?.kind === "project" ? ATTR_BOLD : 0);
+            row === undefined
+                ? 0
+                : (y === selected ? ATTR_INVERSE : 0) | (row.kind === "project" ? ATTR_BOLD : 0);
 
-        const badge = row && row.sessionCount > 0 ? ` ${String(row.sessionCount)}` : "";
-        const prefix = row === undefined ? "" : row.kind === "project" ? "" : "  ";
-        const available = Math.max(0, width - prefix.length - badge.length);
-        const label = (row?.label ?? "").slice(0, available);
-        const text = row === undefined ? "" : `${prefix}${label}${badge}`;
+        let text = "";
+        if (row !== undefined) {
+            const badge = row.sessionCount > 0 ? ` ${String(row.sessionCount)}` : "";
+            const prefix = row.kind === "project" ? "" : "  ";
+            const available = width - prefix.length - badge.length;
+            text = `${prefix}${fitToWidth(row.label, available)}${badge}`;
+        }
 
+        const cells = layoutText(text, width, attrs);
         for (let x = 0; x < width; x++) {
-            buf.set(x, y, styled(text[x] ?? " ", attrs));
+            const cell = cells[x];
+            if (cell !== undefined) buf.set(x, y, cell);
         }
     }
 }
