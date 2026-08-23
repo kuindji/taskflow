@@ -21,7 +21,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
-| 14 | Session pane and tab strip | implemented | `beeecf8` | commit `b825ded`; review round 1 due |
+| 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
@@ -3179,6 +3179,29 @@ width and cursor edge cases.
 - Combining marks are deliberately not stripped in `shows()`. A space carrying an acute accent
   draws ink, so the cluster counts as visible even though `trim` would leave only the mark.
 
+- **Task 14, round 1** (gpt-5.5 via codex-review, Mode A over `--commit b825ded`):
+  zero findings. Codex reported "I did not find a concrete regression or material
+  defect introduced by this commit", having read the diff, run
+  `bun test packages/tui/src/ui/session-pane.test.ts` (11 pass) and the package
+  typecheck itself. No code changed this round.
+  - Independent verification: I read `drawTabs`, `drawSessionPane` and the
+    `textWidth` export against `render/text.ts`, `render/cells.ts` and
+    `term/blit.ts`, then probed the two invariants a strip can break — writing
+    past `x0 + width`, and leaving a width-2 cell without its width-0
+    continuation (or a continuation without its base) inside the strip. The
+    probe swept every strip width 0..9 against twelve labels: empty, a lone
+    space, ASCII, CJK, a flag pair, a Prepend-`Cf` label (`U+0600` + `a`), a
+    precomposed accent, an emoji-presentation sequence and a baseless combining
+    mark, each followed by a second tab so the overflow path ran too. All 232
+    assertions held. The probe was a scratch file, deleted after the run; it
+    found nothing, so there is no regression test to keep.
+  - Reasoning behind the invariants: `cursor` advances one column per cell and
+    `layoutText` returns exactly `cols` cells with `cols = Math.min(room, ...)`,
+    so a write past the strip would require `layoutText` to over-produce. The
+    narrow-strip case is the one worth probing because `room - PADDING_COLS`
+    goes negative at `room === 1`, and `fitToWidth` is never called with a
+    negative budget anywhere else in the package.
+
 ## Decisions taken (Task 13 round 10)
 
 - "The label shows something" is decided by `label.trim() !== ""`, not by emptiness. Whitespace
@@ -3208,18 +3231,21 @@ further unrelated commits landed during round 11: `8f92af6` was this flow's own 
 record, and `382b33f` sits directly on it. None landed during round 12 either: `e524484`,
 this flow's own round 11 record, was still HEAD when the round started and no code changed.
 
-Next step: Task 14 review round 1. Run one gpt-5.5 review via the codex-review skill over
-`beeecf8..b825ded` — the diff is `packages/tui/src/ui/session-pane.ts`,
-`packages/tui/src/ui/session-pane.test.ts` and the one-line export change in
-`packages/tui/src/render/text.ts`. Verify every finding independently before acting on it,
-fix the substantiated ones, revalidate with `bun run lint && bun run typecheck && bun test`,
-and commit. Zero substantiated findings means Task 14 is clear and Task 15 is next — note
-that Task 15's plan Step 6 is a manual smoke test and is a user gate.
+Next step: Task 15 — Application shell and entry point (plan `### Task 15`, line 3767).
+Record HEAD as the base commit, then work Steps 1-5: write `packages/tui/src/ui/app.test.ts`,
+confirm it fails, write `packages/tui/src/ui/app.ts`, confirm it passes, and write
+`packages/tui/src/index.ts`. Step 6 is a manual smoke test that has to be run by hand in a
+kitty-protocol terminal (Ghostty, Kitty, foot or Alacritty) against a built backend — that is
+a user gate. Stop there: write `Next step: AWAITING USER` with the exact commands and the six
+things to check, ask in the session, and leave the flow action open rather than committing a
+task the plan says must be smoke-tested first.
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
 tests, and once a `probe > union member access` that exists nowhere in the repo); a clean run
-reproduces the documented baseline exactly.
+reproduces the documented baseline exactly. It recurred in Task 14 round 1: a
+`bun test packages/tui` launched while codex was running its own `bun test` reported
+306 pass / 1 fail, and the same command re-run once codex was idle reported 307 / 0.
 
 Baseline as of `b825ded`: `bun run lint` clean, `bun run typecheck` clean across all five
 packages, `bun test packages/tui` 307 pass / 0 fail, full `bun test` 1140 pass / 8 fail with
