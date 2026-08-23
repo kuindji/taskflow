@@ -845,11 +845,19 @@ function createListener(opts: {
                 const bound = bindDiscoverySocket((bytes, address) => {
                     const message = parseDatagram(bytes);
                     if (!message || "probe" in message) return;
-                    seen.set(backendIdFor(message.hostname, message.instanceId), {
-                        ...message,
-                        address,
-                        lastSeenAt: Date.now(),
-                    });
+                    const id = backendIdFor(message.hostname, message.instanceId);
+                    const existing = seen.get(id);
+                    // Two machines can answer to one hostname and instance. The
+                    // id is hostname-based on purpose — it has to survive a DHCP
+                    // lease change — so the two are indistinguishable here.
+                    // First one seen holds the id: letting the last datagram win
+                    // makes the entry's address flap every five seconds, and the
+                    // tunnel would then target whichever machine announced most
+                    // recently. Ignoring the other machine's datagrams also lets
+                    // the entry go stale normally if the first one goes away,
+                    // after which the second claims the id on its next announce.
+                    if (existing && existing.address !== address) return;
+                    seen.set(id, { ...message, address, lastSeenAt: Date.now() });
                     opts.onChange(live());
                 });
                 socket = bound;
@@ -1080,13 +1088,16 @@ class:
     }
 ```
 
-and at the end of `update()`, after the write and before the return:
+and at the end of `update()`. Note that `update()` currently ends
+`return this.get()` (`settings-store.ts:357-360`) — it re-reads so deleted keys
+fall back to defaults. Listeners must get *that* object, not the pre-defaults
+`current`:
 
 ```ts
+        const settings = await this.get();
         for (const listener of this.updateListeners) listener(settings);
-```
-
-using whatever the freshly written settings object is already called there. In
+        return settings;
+``` In
 `index.ts`, next to the advertiser:
 
 ```ts
@@ -1160,7 +1171,7 @@ Pure list operations, separated from persistence so they can be tested without E
 
 **Interfaces:**
 - Consumes: `BackendRecord`, `DiscoveredBackend`, `backendIdFor` from `@taskflow/shared`.
-- Produces: `upsertRecord`, `removeRecord`, `renameRecord`, `recordFromDiscovered`, `matchesDiscovered`, `mergeForMenu`, and the `MenuEntry` type. `sameHost` stays module-private.
+- Produces: `upsertRecord`, `removeRecord`, `recordFromDiscovered`, `matchesDiscovered`, `mergeForMenu`, and the `MenuEntry` type. `sameHost` stays module-private. There is deliberately no `renameRecord`: the Manage dialog edits three fields, and `upsertRecord` covers all of them at once without a second way to write a record.
 
 - [ ] **Step 1: Depend on the shared package**
 
@@ -1181,13 +1192,7 @@ Create `electron/src/backend-records.test.ts`:
 ```ts
 import { describe, expect, test } from "bun:test";
 import type { BackendRecord, DiscoveredBackend, MenuEntry } from "@taskflow/shared";
-import {
-    mergeForMenu,
-    recordFromDiscovered,
-    removeRecord,
-    renameRecord,
-    upsertRecord,
-} from "./backend-records";
+import { mergeForMenu, recordFromDiscovered, removeRecord, upsertRecord } from "./backend-records";
 
 /** Narrows a menu entry to one that carries a record, so the assertions below
  *  do not have to cast their way past the `local` member of the union. */
@@ -1245,13 +1250,7 @@ describe("upsertRecord", () => {
     });
 });
 
-describe("renameRecord and removeRecord", () => {
-    test("rename changes only the display name of the matching record", () => {
-        const updated = renameRecord([saved], "desktop:main", "Big Machine");
-        expect(updated[0].displayName).toBe("Big Machine");
-        expect(updated[0].host).toBe(saved.host);
-    });
-
+describe("removeRecord", () => {
     test("remove drops the matching record", () => {
         expect(removeRecord([saved], "desktop:main")).toHaveLength(0);
     });
@@ -1368,10 +1367,6 @@ function removeRecord(records: BackendRecord[], id: string): BackendRecord[] {
     return records.filter((record) => record.id !== id);
 }
 
-function renameRecord(records: BackendRecord[], id: string, displayName: string): BackendRecord[] {
-    return records.map((record) => (record.id === id ? { ...record, displayName } : record));
-}
-
 /**
  * Whether a saved record and a live beacon are the same backend. Two ids
  * describe one machine: `addBackend` keys by the host string the user typed,
@@ -1452,20 +1447,13 @@ function mergeForMenu(
     return entries;
 }
 
-export {
-    matchesDiscovered,
-    mergeForMenu,
-    recordFromDiscovered,
-    removeRecord,
-    renameRecord,
-    upsertRecord,
-};
+export { matchesDiscovered, mergeForMenu, recordFromDiscovered, removeRecord, upsertRecord };
 ```
 
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `bun test electron/src/backend-records.test.ts`
-Expected: PASS, 14 tests.
+Expected: PASS, 13 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -2043,7 +2031,7 @@ git commit -m "feat(electron): supervise ssh tunnels with a backend readiness pr
 
 **Interfaces:**
 - Consumes: Tasks 4, 5, 6.
-- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `renameBackend(id, displayName): Promise<void>`, `removeBackend(id): Promise<void>`, `trustBackendHost(id): Promise<void>`, `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (failure: TunnelFailure) => void): () => void`.
+- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<void>`, `removeBackend(id): Promise<void>`, `trustBackendHost(id): Promise<void>`, `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (failure: TunnelFailure) => void): () => void`.
 
 - [ ] **Step 1: Write the registry**
 
@@ -2067,7 +2055,6 @@ import {
     mergeForMenu,
     recordFromDiscovered,
     removeRecord,
-    renameRecord,
     upsertRecord,
 } from "./backend-records";
 import { closeTunnel, openTunnel, readRemotePort } from "./tunnel-manager";
@@ -2323,8 +2310,19 @@ async function rememberDiscovered(id: string): Promise<void> {
     await persist();
 }
 
-async function renameBackend(id: string, displayName: string): Promise<void> {
-    records = renameRecord(records, id, displayName);
+/**
+ * The three fields the Manage dialog owns. Identity is not one of them:
+ * `addBackend` recomputes the id from `host`, so reusing it to edit a
+ * discovered record — id `desktop:main`, host `192.168.1.20` — would write a
+ * second record keyed `192.168.1.20:main` and leave the original behind.
+ */
+async function updateBackend(
+    id: string,
+    patch: { displayName?: string; user?: string; sshPort?: number },
+): Promise<void> {
+    const existing = records.find((record) => record.id === id);
+    if (!existing) return;
+    records = upsertRecord(records, { ...existing, ...patch });
     await persist();
     deps.onChanged();
 }
@@ -2355,8 +2353,8 @@ export {
     listBackends,
     rememberDiscovered,
     removeBackend,
-    renameBackend,
     stopBackendRegistry,
+    updateBackend,
 };
 ```
 
@@ -2397,9 +2395,16 @@ In `electron/src/ipc-handlers.ts`, add near the existing `get-backend-port` hand
             addBackend(input),
     );
 
-    ipcMain.handle("backend-rename", async (_event, id: string, displayName: string) => {
-        await renameBackend(id, displayName);
-    });
+    ipcMain.handle(
+        "backend-update",
+        async (
+            _event,
+            id: string,
+            patch: { displayName?: string; user?: string; sshPort?: number },
+        ) => {
+            await updateBackend(id, patch);
+        },
+    );
 
     ipcMain.handle("backend-remove", async (_event, id: string) => {
         await removeBackend(id);
@@ -2442,8 +2447,8 @@ In `electron/src/preload.ts`, inside `contextBridge.exposeInMainWorld("taskflow"
     cancelActivation: (id: string) => ipcRenderer.invoke("backend-cancel-activation", id),
     addBackend: (input: { host: string; user?: string; sshPort?: number; port?: number }) =>
         ipcRenderer.invoke("backend-add", input),
-    renameBackend: (id: string, displayName: string) =>
-        ipcRenderer.invoke("backend-rename", id, displayName),
+    updateBackend: (id: string, patch: { displayName?: string; user?: string; sshPort?: number }) =>
+        ipcRenderer.invoke("backend-update", id, patch),
     removeBackend: (id: string) => ipcRenderer.invoke("backend-remove", id),
     getHostFingerprint: (id: string) => ipcRenderer.invoke("backend-fingerprint", id),
     trustBackendHost: (id: string) => ipcRenderer.invoke("backend-trust-host", id),
@@ -2484,7 +2489,10 @@ In `packages/ui/src/env.d.ts`, add to `interface TaskflowBridge`:
         sshPort?: number;
         port?: number;
     }): Promise<BackendRecord>;
-    renameBackend(id: string, displayName: string): Promise<void>;
+    updateBackend(
+        id: string,
+        patch: { displayName?: string; user?: string; sshPort?: number },
+    ): Promise<void>;
     removeBackend(id: string): Promise<void>;
     getHostFingerprint(id: string): Promise<string>;
     trustBackendHost(id: string): Promise<void>;
@@ -3235,11 +3243,14 @@ A successful switch never goes through a disconnect, which is the whole point �
 - Modify: `packages/ui/src/lib/monaco-import-navigation.ts:9-12`
 - Modify: `packages/ui/src/components/settings/CodexModelSelect.tsx:16-17`
 - Modify: `packages/ui/src/components/panes/editor-dirty-state.ts`
+- Create: `packages/ui/src/components/panes/markdown-toggle-queue.ts`
+- Create: `packages/ui/src/components/panes/markdown-toggle-queue.test.ts`
+- Modify: `packages/ui/src/components/panes/MarkdownPaneImpl.tsx:82-90`
 - Modify: every store module in `packages/ui/src/stores/`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `registerReset(name: string, reset: () => void): void`, `resetAllState(): void`, `rebootstrap(): Promise<void>`, `registeredResetNames(): string[]`, and `clearAllEditorState(): void` from `editor-dirty-state.ts`.
+- Produces: `registerReset(name: string, reset: () => void): void`, `resetAllState(): void`, `rebootstrap(): Promise<void>`, `registeredResetNames(): string[]`, `clearAllEditorState(): void` from `editor-dirty-state.ts`, and `queueToggle` / `clearToggleQueues` from `markdown-toggle-queue.ts`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3419,6 +3430,102 @@ registerReset("tsconfig-cache", () => {
 registerReset("codex-models", () => {
     cachedModels = null;
     pendingModels = null;
+});
+```
+
+- [ ] **Step 5b: Stop a queued markdown write from landing on the next backend**
+
+This is the only place in the app where switching backends can *modify* a file
+rather than merely read a stale one, so it gets its own step.
+
+`packages/ui/src/components/panes/MarkdownPaneImpl.tsx:82-90` keeps
+`toggleChains` — a module-level `Map<filePath, Promise>` — and each queued
+closure calls `readFile(path)` then `writeFile(path, next)`
+(`MarkdownPaneImpl.tsx:355, :375`). Those go over whatever socket is live when
+they run. Tick two checkboxes in `~/notes.md` and switch backends while the
+second is still queued, and the second write reads and rewrites `~/notes.md` on
+the *other machine*. Task 10's unsaved-file guard does not cover this: a
+checkbox toggle is not a dirty Monaco model.
+
+Clearing the map is not enough — the chained promises already exist and hold
+their own references. The queue needs an epoch the closures check before they
+touch the backend.
+
+Move the queue out of the component into a plain module,
+`packages/ui/src/components/panes/markdown-toggle-queue.ts`, next to
+`editor-dirty-state.ts` (a `.tsx` cannot export non-components without tripping
+`react-refresh/only-export-components`, and this plan does not disable eslint
+rules):
+
+```ts
+/** Bumped on a backend switch. A toggle queued against the old backend is
+ *  dropped rather than replayed: the same absolute path on another machine is a
+ *  different file, and the click's snapshot describes bytes that are not there. */
+let epoch = 0;
+const toggleChains = new Map<string, Promise<void>>();
+
+function queueToggle(filePath: string, run: () => Promise<void>): void {
+    const queuedAt = epoch;
+    const guarded = () => (queuedAt === epoch ? run() : Promise.resolve());
+    const previous = toggleChains.get(filePath) ?? Promise.resolve();
+    // `then(guarded, guarded)` — a rejected predecessor must not wedge the queue.
+    const chain = previous.then(guarded, guarded).finally(() => {
+        if (toggleChains.get(filePath) === chain) toggleChains.delete(filePath);
+    });
+    toggleChains.set(filePath, chain);
+}
+
+function clearToggleQueues(): void {
+    epoch++;
+    toggleChains.clear();
+}
+
+export { clearToggleQueues, queueToggle };
+```
+
+`MarkdownPaneImpl.tsx` imports `queueToggle` instead of declaring it; the
+`toggleTaskLine` body is unchanged. Register the reset from `file-store.ts`
+alongside `editor-state`:
+
+```ts
+registerReset("markdown-toggles", clearToggleQueues);
+```
+
+Add `packages/ui/src/components/panes/markdown-toggle-queue.test.ts`:
+
+```ts
+import { describe, expect, test } from "bun:test";
+import { clearToggleQueues, queueToggle } from "./markdown-toggle-queue";
+
+describe("queueToggle", () => {
+    test("runs queued work in order for one file", async () => {
+        const order: number[] = [];
+        queueToggle("/a.md", async () => {
+            await Bun.sleep(10);
+            order.push(1);
+        });
+        queueToggle("/a.md", async () => {
+            order.push(2);
+        });
+        await Bun.sleep(50);
+        expect(order).toEqual([1, 2]);
+    });
+
+    test("work queued before a backend switch never runs after it", async () => {
+        const ran: string[] = [];
+        queueToggle("/a.md", async () => {
+            await Bun.sleep(20);
+            ran.push("first");
+        });
+        queueToggle("/a.md", async () => {
+            ran.push("second");
+        });
+        clearToggleQueues();
+        await Bun.sleep(60);
+        // "first" was already in flight; "second" had not started, and its
+        // snapshot describes a file on a machine we are no longer talking to.
+        expect(ran).not.toContain("second");
+    });
 });
 ```
 
@@ -4064,7 +4171,12 @@ logic above is the part that matters; the chrome must match the rest of the app.
 
 - [ ] **Step 3: Build the manage dialog**
 
-Create `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`: a list of saved records with an editable display name, an editable user, an editable ssh port, and a remove button per row, calling `renameBackend` / `addBackend` / `removeBackend` on the bridge and `refresh()` after each.
+Create `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`: a list of saved records with an editable display name, an editable user, an editable ssh port, and a remove button per row, calling `updateBackend(record.id, patch)` and `removeBackend(record.id)` on the bridge and `refresh()` after each.
+
+Not `addBackend`: it derives the record id from `host`, so using it to edit a
+row would leave the original record in place and add a second one under a
+different id — visible immediately for any backend that arrived by beacon, whose
+id is keyed on the announced hostname rather than the address.
 
 - [ ] **Step 4: Replace the Monitor button**
 
@@ -4347,6 +4459,28 @@ describe("GET /api/flow/artifact/:ownerId/:flowId/:type/raw", () => {
         expect(await response?.text()).toBe("hello");
     });
 
+    it("serves an artifact whose type needed url encoding", async () => {
+        const dir = await mkdtemp(join(tmpdir(), "artifact-"));
+        const artifactPath = join(dir, "notes.md");
+        await writeFile(artifactPath, "spaced");
+
+        const { router, flowStore } = await buildTestRouter();
+        await flowStore.saveFlowRun({
+            projectId: "p1",
+            flowId: "f1",
+            status: "completed",
+            currentActionIndex: 0,
+            actions: [],
+            artifacts: [{ type: "review notes", path: artifactPath, actionEntryId: "a1" }],
+        });
+
+        const response = await router.handle(
+            new Request(`http://x/api/flow/artifact/p1/f1/${encodeURIComponent("review notes")}/raw`),
+        );
+        expect(response?.status).toBe(200);
+        expect(await response?.text()).toBe("spaced");
+    });
+
     it("404s for an artifact the run recorded as inline text", async () => {
         // The UI keeps sending these through `saveArtifact({ text })`; this
         // asserts the route's behaviour for the case, so a later change that
@@ -4402,7 +4536,11 @@ In `packages/backend/src/api/routes/flow-routes.ts`, after the existing `/:owner
         async (_req, params) => {
             const run = await flowStore.getFlowRun(params.ownerId, params.flowId);
             if (!run) return errorResponse("Flow run not found", 404);
-            const artifacts = flowRunner.getArtifacts(run, params.type);
+            // `ApiRouter` hands back the raw regex capture with no decoding
+            // (`packages/backend/src/api/router.ts:36-39`), and an artifact type
+            // is any string an agent passed to the CLI — `review notes` is
+            // legal. Without this the comparison is against "review%20notes".
+            const artifacts = flowRunner.getArtifacts(run, decodeURIComponent(params.type));
             const path = artifacts[0]?.path;
             if (!path) return errorResponse("Artifact not found", 404);
             const file = Bun.file(path);
@@ -4569,4 +4707,7 @@ git commit -m "fix: address multi-backend end-to-end findings"
 
 ## Deferred
 
-Out of scope for this plan, recorded so nobody adds them on the way past: showing several backends' records in one view; keeping non-active backends connected for notifications; per-client session viewports; creating or repairing projects on a remote host; the TUI adopting the discovery listener.
+Out of scope for this plan, recorded so nobody adds them on the way past:
+telling apart two machines that answer to the same hostname *and* the same
+instance id — the listener keeps the first and ignores the second (Task 3), and
+the menu therefore shows one row; showing several backends' records in one view; keeping non-active backends connected for notifications; per-client session viewports; creating or repairing projects on a remote host; the TUI adopting the discovery listener.
