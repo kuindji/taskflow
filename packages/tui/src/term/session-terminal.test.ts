@@ -577,4 +577,123 @@ describe("SessionTerminal", () => {
         expect(term.terminal.buffer.active.viewportY).toBe(base);
         term.dispose();
     });
+
+    test("the child's mouse modes are read off its own output", async () => {
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        expect(term.modes.mouseTracking).toBe("none");
+        expect(term.modes.mouseEncoding).toBe("x10");
+
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h\x1b[?1006h", sequence: 1 });
+        await settle();
+        expect(term.modes.mouseTracking).toBe("drag");
+        expect(term.modes.mouseEncoding).toBe("sgr");
+
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1006l", sequence: 2 });
+        await settle();
+        expect(term.modes.mouseEncoding).toBe("x10");
+        expect(term.modes.mouseTracking).toBe("drag");
+        term.dispose();
+    });
+
+    test("disabling an encoding the child is not in leaves the active one alone", async () => {
+        // A child that turned SGR on and then reset urxvt is still in SGR; the
+        // last enable wins and only its own disable clears it.
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1006h\x1b[?1015l", sequence: 1 });
+        await settle();
+        expect(term.modes.mouseEncoding).toBe("sgr");
+        term.dispose();
+    });
+
+    test("pixel mouse mode is tracked as its own encoding", async () => {
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h\x1b[?1016h", sequence: 1 });
+        await settle();
+        expect(term.modes.mouseEncoding).toBe("sgr-pixels");
+        term.dispose();
+    });
+
+    test("a re-attach does not carry the old encoding onto a fresh grid", async () => {
+        // The snapshot is the whole screen and carries the child's modes with
+        // it, so a mouse mode the child dropped while we were away must not be
+        // put back by the pre-drop state — the same rule the DEC modes follow.
+        const responses: Record<string, unknown> = {
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "\x1b[?1002h\x1b[?1006h",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
+        };
+        const net = fakeNet(responses);
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        expect(term.modes.mouseTracking).toBe("drag");
+        expect(term.modes.mouseEncoding).toBe("sgr");
+
+        // The child left both behind while we were away.
+        responses[MSG.SESSION_SNAPSHOT] = {
+            snapshot: "",
+            lastSequence: 0,
+            cursorHidden: false,
+            kittyStack: [],
+        };
+        await term.attach();
+        expect(term.modes.mouseTracking).toBe("none");
+        expect(term.modes.mouseEncoding).toBe("x10");
+        term.dispose();
+    });
+
+    test("a re-attach that falls back to history puts the mouse modes back", async () => {
+        // Trimmed scrollback may no longer contain the sequences that set them,
+        // and a child that comes back as mouseTracking "none" has every click
+        // after the reconnect silently dropped.
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            // lastSequence 1 covers the chunk below, so it is dropped rather
+            // than replayed — without that the held-back output would set the
+            // modes again and the `restore` string would never be exercised.
+            [MSG.SESSION_HISTORY]: { data: "", lastSequence: 1 },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h\x1b[?1006h", sequence: 1 });
+        await settle();
+
+        await term.attach();
+        expect(term.modes.mouseTracking).toBe("drag");
+        expect(term.modes.mouseEncoding).toBe("sgr");
+        term.dispose();
+    });
+
+    test("history that carries a later mouse mode overrides the replayed one", async () => {
+        // `restore` is written before the history, so a child that changed
+        // encoding just before the drop still wins — the same ordering the
+        // existing DEC-mode replay relies on.
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_HISTORY]: { data: "\x1b[?1015h", lastSequence: 1 },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1000h\x1b[?1006h", sequence: 1 });
+        await settle();
+
+        await term.attach();
+        expect(term.modes.mouseEncoding).toBe("urxvt");
+        expect(term.modes.mouseTracking).toBe("vt200");
+        term.dispose();
+    });
 });

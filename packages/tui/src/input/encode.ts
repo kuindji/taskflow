@@ -1,9 +1,21 @@
 import type { KeyEvent, KeyMods, KeyName } from "./keys";
+import type { MouseButton, MouseReport } from "./mouse";
 
 interface ChildModes {
     applicationCursorKeys: boolean;
     bracketedPaste: boolean;
     kittyFlags: number | null;
+    /**
+     * Which mouse events the child asked to see. The names are xterm's own, as
+     * `IModes.mouseTrackingMode` reports them.
+     */
+    mouseTracking: "none" | "x10" | "vt200" | "drag" | "any";
+    /**
+     * How it asked for them to be spelled: `?1005`, `?1006`, `?1015`, `?1016`,
+     * or the unnumbered original. `IModes` has no member for this one, so
+     * `SessionTerminal` tracks it by hand.
+     */
+    mouseEncoding: "x10" | "utf8" | "sgr" | "urxvt" | "sgr-pixels";
 }
 
 const ARROW_FINALS: Partial<Record<KeyName, string>> = {
@@ -206,5 +218,121 @@ function encodePaste(text: string, modes: ChildModes): string {
     return modes.bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text;
 }
 
-export { encodeForChild, encodePaste };
+/**
+ * The wire value of each button, before the drag and modifier bits. Wheel
+ * notches live above bit 64; an unnamed button has no value at all, which is
+ * why the map is partial rather than defaulting to a left click.
+ */
+const BUTTON_VALUES: Record<MouseButton, number | undefined> = {
+    left: 0,
+    middle: 1,
+    right: 2,
+    "wheel-up": 64,
+    "wheel-down": 65,
+    "wheel-left": 66,
+    "wheel-right": 67,
+    none: undefined,
+};
+
+/** The button value a non-SGR encoding uses for "something was let go". */
+const RELEASE_VALUE = 3;
+
+const MOUSE_DRAG_BIT = 32;
+
+/** Every encoding but SGR offsets its fields by this, to keep them printable. */
+const MOUSE_OFFSET = 32;
+
+/**
+ * The highest code unit `SESSION_INPUT` can carry as a single byte. `data` is a
+ * JavaScript string that the backend hands to `pty.write`, which UTF-8-encodes
+ * it, so 128 arrives as two bytes: the child reads a wrong coordinate and the
+ * byte that followed leaks out of the report as a keystroke.
+ */
+const MAX_TRANSPORT_BYTE = 127;
+
+/**
+ * Whether the child's tracking mode asked to see this event at all. `x10` is
+ * press-only, `vt200` adds release, and `drag`/`any` add motion with a button
+ * held — bare motion is never generated, so the last two are the same here.
+ */
+function tracks(action: MouseReport["action"], tracking: ChildModes["mouseTracking"]): boolean {
+    switch (tracking) {
+        case "none":
+            return false;
+        case "x10":
+            return action === "press";
+        case "vt200":
+            return action !== "drag";
+        default:
+            return true;
+    }
+}
+
+/**
+ * The button field, or undefined for a report with nothing to put in it. A
+ * release has a value under every encoding but SGR, where the field must name
+ * the button that was let go and an unnamed one cannot be spelled.
+ */
+function buttonValue(report: MouseReport, modes: ChildModes): number | undefined {
+    const base =
+        report.action === "release" && modes.mouseEncoding !== "sgr"
+            ? RELEASE_VALUE
+            : BUTTON_VALUES[report.button];
+    if (base === undefined) return undefined;
+
+    const drag = report.action === "drag" ? MOUSE_DRAG_BIT : 0;
+    // X10 tracking predates the modifier bits, so a child in it reads them as
+    // part of the button number.
+    if (modes.mouseTracking === "x10") return base + drag;
+
+    const { mods } = report;
+    return (
+        base + drag + (mods.shift ? 4 : 0) + (mods.alt ? 8 : 0) + (mods.ctrl ? 16 : 0)
+    );
+}
+
+/**
+ * A decoded mouse report as the focused child would have received it from a
+ * real terminal, or `""` for one it never asked for and one it could not read.
+ *
+ * `col`/`row` are zero-based and relative to the child's own grid; the caller
+ * translates out of screen coordinates, and every wire encoding is one-based.
+ */
+function encodeMouseForChild(report: MouseReport, modes: ChildModes): string {
+    if (!tracks(report.action, modes.mouseTracking)) return "";
+    // SGR-Pixels sends the same shape with pixel coordinates, and this client
+    // has cell geometry and no pixel geometry. Guessing a cell size would put
+    // every click in the child's top-left corner; silence is the honest answer.
+    if (modes.mouseEncoding === "sgr-pixels") return "";
+
+    const button = buttonValue(report, modes);
+    if (button === undefined) return "";
+
+    const x = report.col + 1;
+    const y = report.row + 1;
+
+    switch (modes.mouseEncoding) {
+        case "sgr": {
+            const final = report.action === "release" ? "m" : "M";
+            return `\x1b[<${String(button)};${String(x)};${String(y)}${final}`;
+        }
+        case "urxvt":
+            return `\x1b[${String(button + MOUSE_OFFSET)};${String(x)};${String(y)}M`;
+        case "utf8":
+            // ?1005 asks for the fields as UTF-8, which is exactly the encoding
+            // pty.write applies to the string — so there is nothing to cap.
+            return `\x1b[M${offsetChars([button, x, y])}`;
+        default: {
+            const fields = [button, x, y];
+            if (fields.some((value) => value + MOUSE_OFFSET > MAX_TRANSPORT_BYTE)) return "";
+            return `\x1b[M${offsetChars(fields)}`;
+        }
+    }
+}
+
+function offsetChars(fields: number[]): string {
+    return fields.map((value) => String.fromCharCode(value + MOUSE_OFFSET)).join("");
+}
+
+export { encodeForChild, encodeMouseForChild, encodePaste };
 export type { ChildModes };

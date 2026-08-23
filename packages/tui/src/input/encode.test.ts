@@ -1,11 +1,14 @@
 import { describe, test, expect } from "bun:test";
-import { encodeForChild, encodePaste, type ChildModes } from "./encode";
+import { encodeForChild, encodeMouseForChild, encodePaste, type ChildModes } from "./encode";
 import { noMods, type KeyEvent } from "./keys";
+import type { MouseReport } from "./mouse";
 
 const legacy: ChildModes = {
     applicationCursorKeys: false,
     bracketedPaste: false,
     kittyFlags: null,
+    mouseTracking: "none",
+    mouseEncoding: "x10",
 };
 
 function key(patch: Partial<KeyEvent>): KeyEvent {
@@ -192,5 +195,192 @@ describe("encodePaste", () => {
 
     test("sends the text bare when bracketed paste is disabled", () => {
         expect(encodePaste("hi", legacy)).toBe("hi");
+    });
+});
+
+const press: MouseReport = {
+    kind: "mouse",
+    action: "press",
+    button: "left",
+    col: 11,
+    row: 4,
+    mods: noMods(),
+};
+
+function modes(patch: Partial<ChildModes>): ChildModes {
+    return { ...legacy, ...patch };
+}
+
+describe("encodeMouseForChild", () => {
+    test("a child that never asked for the mouse receives nothing", () => {
+        expect(encodeMouseForChild(press, modes({ mouseTracking: "none" }))).toBe("");
+    });
+
+    test("SGR encoding is one-based and keeps the button on release", () => {
+        expect(
+            encodeMouseForChild(press, modes({ mouseTracking: "vt200", mouseEncoding: "sgr" })),
+        ).toBe("\x1b[<0;12;5M");
+        expect(
+            encodeMouseForChild(
+                { ...press, action: "release", button: "right" },
+                modes({ mouseTracking: "vt200", mouseEncoding: "sgr" }),
+            ),
+        ).toBe("\x1b[<2;12;5m");
+    });
+
+    test("X10 encoding offsets by 32 and spells a release as button 3", () => {
+        expect(
+            encodeMouseForChild(press, modes({ mouseTracking: "vt200", mouseEncoding: "x10" })),
+        ).toBe("\x1b[M\x20\x2c\x25");
+        expect(
+            encodeMouseForChild(
+                { ...press, action: "release" },
+                modes({ mouseTracking: "vt200", mouseEncoding: "x10" }),
+            ),
+        ).toBe("\x1b[M\x23\x2c\x25");
+    });
+
+    test("X10 encoding drops a report whose bytes would not survive the transport", () => {
+        const x10 = modes({ mouseTracking: "vt200", mouseEncoding: "x10" });
+        // Zero-based 94 is one-based 95 is byte 127 — the last one that stays a
+        // single byte through pty.write's UTF-8 encoding.
+        expect(encodeMouseForChild({ ...press, col: 94 }, x10)).not.toBe("");
+        // 95 is byte 128, which arrives as two bytes and desyncs the child's parser.
+        expect(encodeMouseForChild({ ...press, col: 95 }, x10)).toBe("");
+        expect(encodeMouseForChild({ ...press, row: 95 }, x10)).toBe("");
+        expect(encodeMouseForChild({ ...press, col: 300 }, x10)).toBe("");
+    });
+
+    test("X10 encoding drops a report whose button byte alone is over the cap", () => {
+        // wheel-right (67) + drag (32) + shift/alt/ctrl (28) is 127, and 127 + 32
+        // is 159 — a button field that would arrive as two bytes even though both
+        // coordinates are tiny.
+        const wide: MouseReport = {
+            ...press,
+            action: "drag",
+            button: "wheel-right",
+            col: 0,
+            row: 0,
+            mods: { shift: true, alt: true, ctrl: true, super: false },
+        };
+        expect(encodeMouseForChild(wide, modes({ mouseTracking: "drag", mouseEncoding: "x10" }))).toBe(
+            "",
+        );
+    });
+
+    test("UTF-8 encoding is not capped, because the transport is the encoding", () => {
+        // ?1005 asks for the coordinates as UTF-8, which is exactly what
+        // pty.write does to the string — so a wide column survives intact.
+        expect(
+            encodeMouseForChild(
+                { ...press, col: 200 },
+                modes({ mouseTracking: "vt200", mouseEncoding: "utf8" }),
+            ),
+        ).toBe(`\x1b[M\x20${String.fromCharCode(233)}\x25`);
+    });
+
+    test("urxvt encoding is decimal with the offset applied to the button", () => {
+        expect(
+            encodeMouseForChild(press, modes({ mouseTracking: "vt200", mouseEncoding: "urxvt" })),
+        ).toBe("\x1b[32;12;5M");
+    });
+
+    test("vt200 tracking drops a drag but keeps press and release", () => {
+        expect(encodeMouseForChild({ ...press, action: "drag" }, modes({ mouseTracking: "vt200" }))).toBe(
+            "",
+        );
+        expect(
+            encodeMouseForChild({ ...press, action: "release" }, modes({ mouseTracking: "vt200" })),
+        ).not.toBe("");
+    });
+
+    test("drag tracking forwards all three actions", () => {
+        const m = modes({ mouseTracking: "drag", mouseEncoding: "sgr" });
+        expect(encodeMouseForChild({ ...press, action: "drag" }, m)).toBe("\x1b[<32;12;5M");
+        expect(encodeMouseForChild({ ...press, action: "release" }, m)).toBe("\x1b[<0;12;5m");
+        expect(encodeMouseForChild(press, m)).toBe("\x1b[<0;12;5M");
+    });
+
+    test("any tracking behaves the same as drag", () => {
+        const m = modes({ mouseTracking: "any", mouseEncoding: "sgr" });
+        expect(encodeMouseForChild({ ...press, action: "drag" }, m)).toBe("\x1b[<32;12;5M");
+        expect(encodeMouseForChild({ ...press, action: "release" }, m)).toBe("\x1b[<0;12;5m");
+    });
+
+    test("x10 tracking drops release and drag, and reports no modifiers", () => {
+        const m = modes({ mouseTracking: "x10", mouseEncoding: "sgr" });
+        expect(encodeMouseForChild({ ...press, action: "release" }, m)).toBe("");
+        expect(encodeMouseForChild({ ...press, action: "drag" }, m)).toBe("");
+        expect(encodeMouseForChild({ ...press, mods: { ...noMods(), ctrl: true } }, m)).toBe(
+            "\x1b[<0;12;5M",
+        );
+    });
+
+    test("modifier bits ride the button under vt200", () => {
+        expect(
+            encodeMouseForChild(
+                { ...press, mods: { ...noMods(), ctrl: true } },
+                modes({ mouseTracking: "vt200", mouseEncoding: "sgr" }),
+            ),
+        ).toBe("\x1b[<16;12;5M");
+        expect(
+            encodeMouseForChild(
+                { ...press, mods: { shift: true, alt: true, ctrl: false, super: false } },
+                modes({ mouseTracking: "vt200", mouseEncoding: "sgr" }),
+            ),
+        ).toBe("\x1b[<12;12;5M");
+    });
+
+    test("a drag sets bit 32", () => {
+        expect(
+            encodeMouseForChild(
+                { ...press, action: "drag" },
+                modes({ mouseTracking: "drag", mouseEncoding: "sgr" }),
+            ),
+        ).toBe("\x1b[<32;12;5M");
+    });
+
+    test("the wheel is a press", () => {
+        expect(
+            encodeMouseForChild(
+                { ...press, button: "wheel-up" },
+                modes({ mouseTracking: "vt200", mouseEncoding: "sgr" }),
+            ),
+        ).toBe("\x1b[<64;12;5M");
+        expect(
+            encodeMouseForChild(
+                { ...press, button: "wheel-down" },
+                modes({ mouseTracking: "vt200", mouseEncoding: "sgr" }),
+            ),
+        ).toBe("\x1b[<65;12;5M");
+    });
+
+    test("a button that cannot be named is not sent as a left click", () => {
+        // An extra button (8-11) decodes as "none": there is no button number for it.
+        expect(
+            encodeMouseForChild(
+                { ...press, button: "none" },
+                modes({ mouseTracking: "vt200", mouseEncoding: "sgr" }),
+            ),
+        ).toBe("");
+    });
+
+    test("an unnamed release is button 3 everywhere except SGR", () => {
+        const release = { ...press, action: "release" as const, button: "none" as const };
+        expect(
+            encodeMouseForChild(release, modes({ mouseTracking: "vt200", mouseEncoding: "x10" })),
+        ).toBe("\x1b[M\x23\x2c\x25");
+        expect(
+            encodeMouseForChild(release, modes({ mouseTracking: "vt200", mouseEncoding: "urxvt" })),
+        ).toBe("\x1b[35;12;5M");
+        expect(
+            encodeMouseForChild(release, modes({ mouseTracking: "vt200", mouseEncoding: "sgr" })),
+        ).toBe("");
+    });
+
+    test("pixel mouse mode is refused rather than answered in cells", () => {
+        expect(
+            encodeMouseForChild(press, modes({ mouseTracking: "drag", mouseEncoding: "sgr-pixels" })),
+        ).toBe("");
     });
 });

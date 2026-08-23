@@ -42,5 +42,20 @@ function computeLayout(cols: number, rows: number, zoomed: boolean): Layout {
     };
 }
 
-export { computeLayout };
+/**
+ * Whether a zero-based screen cell falls inside the session pane. Shared by the
+ * hit-test in `routeMouse` and the child-forwarding guard in `App`, for the
+ * same reason the layout itself is computed in one place: two copies of the
+ * rectangle could disagree about which one owns a report.
+ */
+function insidePane(col: number, row: number, layout: Layout): boolean {
+    return (
+        col >= layout.paneX &&
+        col < layout.paneX + layout.paneWidth &&
+        row >= layout.paneY &&
+        row < layout.paneY + layout.paneHeight
+    );
+}
+
+export { computeLayout, insidePane };
 export type { Layout };

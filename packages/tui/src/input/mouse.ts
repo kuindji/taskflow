@@ -98,7 +98,7 @@ function parseX10Mouse(payload: string): MouseReport | undefined {
 }
 
 export { parseSgrMouse, parseX10Mouse };
-// `MouseButton` stays local: nothing imports the name yet, and `MouseReport`
-// carries the type structurally. 19.5 exports it when `encodeMouseForChild`
-// needs to name it.
-export type { MouseReport };
+// `MouseButton` is exported for `encodeMouseForChild`'s button table, which has
+// to be exhaustive over it — a partial map would silently spell a new button as
+// a left click.
+export type { MouseButton, MouseReport };

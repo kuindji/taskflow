@@ -1,6 +1,6 @@
 import { noMods, type KeyEvent, type KeyName } from "../input/keys";
 import type { MouseReport } from "../input/mouse";
-import type { Layout } from "./layout";
+import { insidePane, type Layout } from "./layout";
 import { tabSpans, type TabSpec } from "./session-pane";
 
 type Focus = "sidebar" | "session";
@@ -175,12 +175,7 @@ function routeMouse(
         return index === -1 ? { kind: "none" } : { kind: "open-tab", index };
     }
 
-    const inPane =
-        col >= layout.paneX &&
-        col < layout.paneX + layout.paneWidth &&
-        row >= layout.paneY &&
-        row < layout.paneY + layout.paneHeight;
-    if (inPane) {
+    if (insidePane(col, row, layout)) {
         if (button === "wheel-up") return { kind: "scroll", delta: -WHEEL_LINES };
         if (button === "wheel-down") return { kind: "scroll", delta: WHEEL_LINES };
         if (button === "left" && report.action === "press") {

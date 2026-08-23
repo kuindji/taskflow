@@ -42,6 +42,36 @@ const SCROLLBACK = 5000;
  */
 const RECENT_LIMIT = 128 * 1024;
 
+/**
+ * The DEC private modes that choose how mouse reports are spelled. `IModes`
+ * reports the tracking mode but has no member for the encoding, so these are
+ * read off the child's own output stream.
+ */
+const MOUSE_ENCODING_MODES: Record<number, ChildModes["mouseEncoding"] | undefined> = {
+    1005: "utf8",
+    1006: "sgr",
+    1015: "urxvt",
+    1016: "sgr-pixels",
+};
+
+/** The sequence that puts each tracking mode back after a `reset()`. */
+const MOUSE_TRACKING_SET: Record<ChildModes["mouseTracking"], string> = {
+    none: "",
+    x10: "\x1b[?9h",
+    vt200: "\x1b[?1000h",
+    drag: "\x1b[?1002h",
+    any: "\x1b[?1003h",
+};
+
+/** The same for each encoding; `x10` is the default and needs no sequence. */
+const MOUSE_ENCODING_SET: Record<ChildModes["mouseEncoding"], string> = {
+    x10: "",
+    utf8: "\x1b[?1005h",
+    sgr: "\x1b[?1006h",
+    urxvt: "\x1b[?1015h",
+    "sgr-pixels": "\x1b[?1016h",
+};
+
 class SessionTerminal {
     public readonly terminal: Terminal;
 
@@ -54,6 +84,8 @@ class SessionTerminal {
     /** Counts kitty push/pop sequences parsed, so a replay can be told whether it carried any. */
     private kittyEvents = 0;
     private hiddenCursor = false;
+    /** `?1005`/`?1006`/`?1015`/`?1016`; xterm's `IModes` does not expose it. */
+    private mouseEncoding: ChildModes["mouseEncoding"] = "x10";
     private readonly disposers: Array<() => void> = [];
     /** Serializes writes so `attach()` can await the parser actually finishing. */
     private writeQueue: Promise<void> = Promise.resolve();
@@ -125,15 +157,27 @@ class SessionTerminal {
             }),
         );
 
-        // DECTCEM — cursor visibility, which IBuffer does not expose.
-        const setCursorVisible =
-            (visible: boolean) =>
+        // The DEC private modes xterm either does not expose or does not
+        // parse: DECTCEM, which IBuffer has no member for, and the four mouse
+        // encoding modes, which IModes has no member for either.
+        const decPrivateMode =
+            (set: boolean) =>
             (params: (number | number[])[]): boolean => {
-                if (params.some((p) => p === 25)) this.hiddenCursor = !visible;
+                for (const param of params) {
+                    if (typeof param !== "number") continue;
+                    if (param === 25) this.hiddenCursor = !set;
+                    const encoding = MOUSE_ENCODING_MODES[param];
+                    if (encoding === undefined) continue;
+                    // Last enable wins. A disable only clears the encoding that
+                    // is actually on, so a child in SGR that resets urxvt stays
+                    // in SGR rather than dropping to the default.
+                    if (set) this.mouseEncoding = encoding;
+                    else if (this.mouseEncoding === encoding) this.mouseEncoding = "x10";
+                }
                 return false;
             };
-        track(parser.registerCsiHandler({ prefix: "?", final: "h" }, setCursorVisible(true)));
-        track(parser.registerCsiHandler({ prefix: "?", final: "l" }, setCursorVisible(false)));
+        track(parser.registerCsiHandler({ prefix: "?", final: "h" }, decPrivateMode(true)));
+        track(parser.registerCsiHandler({ prefix: "?", final: "l" }, decPrivateMode(false)));
     }
 
     /**
@@ -182,6 +226,8 @@ class SessionTerminal {
             applicationCursorKeys: this.terminal.modes.applicationCursorKeysMode,
             bracketedPaste: this.terminal.modes.bracketedPasteMode,
             kittyFlags: this.kitty.flags,
+            mouseTracking: this.terminal.modes.mouseTrackingMode,
+            mouseEncoding: this.mouseEncoding,
         };
     }
 
@@ -212,6 +258,9 @@ class SessionTerminal {
                 this.terminal.reset();
                 // reset() restores DECTCEM to visible; our tracking has to follow it.
                 this.hiddenCursor = false;
+                // Likewise for the mouse encoding: reset() clears the child's
+                // mouse modes, so the hand-tracked half must go with them.
+                this.mouseEncoding = "x10";
                 // The kitty stack is ours, not xterm's, so reset() leaves it
                 // alone — but everything that built it is about to be replayed.
                 // Keeping it would stack a second copy of the child's push on
@@ -220,6 +269,10 @@ class SessionTerminal {
                 this.kitty.restore([]);
                 if (previous.applicationCursorKeys) restore += "\x1b[?1h";
                 if (previous.bracketedPaste) restore += "\x1b[?2004h";
+                // Tracking and encoding are orthogonal on the wire and a child
+                // can hold any pair, so both are replayed.
+                restore += MOUSE_TRACKING_SET[previous.mouseTracking];
+                restore += MOUSE_ENCODING_SET[previous.mouseEncoding];
             });
         }
 

@@ -8,6 +8,7 @@ import { App } from "./app";
 import { noMods, type KeyEvent } from "../input/keys";
 import type { MouseReport } from "../input/mouse";
 import type { NetLike } from "../net/client";
+import { SessionTerminal } from "../term/session-terminal";
 
 function project(id: string, name: string): Project {
     return { id, name, path: `/tmp/${id}`, sessions: [], attributes: [], createdAt: "" };
@@ -33,14 +34,21 @@ function task(id: string, projectId: string, title: string): Task {
 /** A net whose broadcast handlers can be fired, so the store can be mutated mid-test. */
 interface FakeNet extends NetLike {
     emit(type: string, payload: unknown): void;
+    /** Every SESSION_INPUT payload the app has sent, in order. */
+    sent: string[];
 }
 
 function stubNet(projects: Project[], tasks: Task[]): FakeNet {
     const handlers = new Map<string, ((payload: unknown) => void)[]>();
     return {
-        request<T>(type: string): Promise<T> {
+        sent: [],
+        request<T>(type: string, payload?: unknown): Promise<T> {
             if (type === MSG.PROJECT_LIST) return Promise.resolve({ projects } as T);
             if (type === MSG.TASK_LIST) return Promise.resolve({ tasks } as T);
+            if (type === MSG.SESSION_INPUT) {
+                const data = (payload as { data?: unknown }).data;
+                this.sent.push(typeof data === "string" ? data : "");
+            }
             return Promise.resolve({} as T);
         },
         on(type: string, handler: (payload: unknown) => void) {
@@ -285,5 +293,120 @@ describe("App", () => {
         sink.output = "";
         app.render();
         expect(sink.output).toBe("");
+    });
+
+    /**
+     * A child terminal in a mouse mode, installed into `App`'s private
+     * `sessions` array by element access. Stage 1 has no `SESSION_CREATE` and
+     * no other way to open a session; adding a constructor parameter whose only
+     * caller is a test would put dead surface in the shipped API. Stage 2's
+     * real path replaces this seam and these tests move onto it.
+     *
+     * `enable` is the child's own output, so the modes come from the same
+     * mode-tracking path production uses rather than from a stub.
+     */
+    async function openSession(
+        app: App,
+        enable: string,
+        size: { cols: number; rows: number } = { cols: 34, rows: 9 },
+    ): Promise<SessionTerminal> {
+        const net: NetLike = {
+            request: <T,>() => Promise.resolve({} as T),
+            on: () => () => undefined,
+            onStatusChange: () => () => undefined,
+        };
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, ...size });
+        await new Promise<void>((resolve) => {
+            term.terminal.write(enable, resolve);
+        });
+        app["sessions"].push({ id: "s1", term });
+        return term;
+    }
+
+    test("a click in the pane reaches a child that asked for the mouse", async () => {
+        const { app, net } = await fourRows();
+        // ?1000h is vt200 tracking; ?1006h is SGR encoding.
+        const term = await openSession(app, "\x1b[?1000h\x1b[?1006h");
+        expect(term.modes.mouseTracking).toBe("vt200");
+
+        // 60x10, sidebar 20 wide, pane at (20, 1). Screen (26, 4) is the
+        // child's own (6, 3), which is (7, 4) one-based on the wire.
+        app.handleMouse(mouse({ col: 26, row: 4 }));
+        expect(net.sent).toEqual(["\x1b[<0;7;4M"]);
+        expect(app.focus).toBe("session");
+        term.dispose();
+    });
+
+    test("a click in the pane never reaches a child that did not", async () => {
+        const { app, net } = await fourRows();
+        // No seam needed: with `sessions` empty the guard falls through to
+        // routeMouse, which only moves focus.
+        app.handleMouse(mouse({ col: 26, row: 4 }));
+        expect(net.sent).toEqual([]);
+        expect(app.focus).toBe("session");
+    });
+
+    test("a child that tracks nothing leaves the pane's own bindings alone", async () => {
+        const { app, net } = await fourRows();
+        // Twenty lines into a nine-row pane, so there is scrollback to move.
+        const term = await openSession(app, "L1\r\n".repeat(20));
+        expect(term.modes.mouseTracking).toBe("none");
+
+        // The wheel is the discriminator: a report the child does not want must
+        // reach routeMouse, which scrolls the pane and leaves focus where it is.
+        // Swallowing it in the forwarding branch would do neither.
+        const base = term.terminal.buffer.active.baseY;
+        app.handleMouse(mouse({ col: 26, row: 4, button: "wheel-up" }));
+        expect(net.sent).toEqual([]);
+        expect(term.terminal.buffer.active.viewportY).toBe(base - 3);
+        expect(app.focus).toBe("sidebar");
+
+        // A click still focuses the pane — that is routeMouse's doing, not the
+        // forwarding branch's.
+        app.handleMouse(mouse({ col: 26, row: 4 }));
+        expect(net.sent).toEqual([]);
+        expect(app.focus).toBe("session");
+        term.dispose();
+    });
+
+    test("a click past the child's own width is dropped", async () => {
+        const { app, net } = await fourRows();
+        // The child is 4x2 while the pane is 40x9 — the gap a resize opens for
+        // a frame. Screen (24, 2) is the child's (4, 1), one past its last column.
+        const term = await openSession(app, "\x1b[?1000h\x1b[?1006h", { cols: 4, rows: 2 });
+        app.handleMouse(mouse({ col: 24, row: 2 }));
+        expect(net.sent).toEqual([]);
+        // And one past its last row.
+        app.handleMouse(mouse({ col: 20, row: 3 }));
+        expect(net.sent).toEqual([]);
+        // The cell just inside both still arrives.
+        app.handleMouse(mouse({ col: 23, row: 2 }));
+        expect(net.sent).toEqual(["\x1b[<0;4;2M"]);
+        term.dispose();
+    });
+
+    test("the wheel over a pane whose child wants the mouse goes to the child", async () => {
+        const { app, net, screen } = await fourRows();
+        const term = await openSession(app, "\x1b[?1000h\x1b[?1006h");
+        app.handleMouse(mouse({ col: 26, row: 4, button: "wheel-up" }));
+        // Button 64 is a wheel-up press, not a scrollback move the UI kept.
+        expect(net.sent).toEqual(["\x1b[<64;7;4M"]);
+        app.render();
+        expect(selectedRow(screen)).toBe(0);
+        term.dispose();
+    });
+
+    test("the sidebar keeps its last column from a child that wants the mouse", async () => {
+        const { app, net, screen } = await fourRows();
+        const term = await openSession(app, "\x1b[?1000h\x1b[?1006h");
+        // Column 19 is the sidebar's last at 60 columns; the pane starts at 20.
+        // The forwarding guard runs before routeMouse, so a pane rect one column
+        // too wide would hand this click to the child and the row would not move.
+        app.handleMouse(mouse({ col: 19, row: 2 }));
+        expect(net.sent).toEqual([]);
+        app.render();
+        expect(selectedRow(screen)).toBe(2);
+        expect(app.focus).toBe("sidebar");
+        term.dispose();
     });
 });

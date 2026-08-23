@@ -4,12 +4,13 @@ import type { Store } from "../state/store";
 import type { NetLike } from "../net/client";
 import type { KeyEvent } from "../input/keys";
 import type { MouseReport } from "../input/mouse";
-import { encodeForChild } from "../input/encode";
+import type { InputEvent } from "../input/decode-legacy";
+import { encodeForChild, encodeMouseForChild } from "../input/encode";
 import type { SessionTerminal } from "../term/session-terminal";
 import { buildRows, drawSidebar, type SidebarRow } from "./sidebar";
 import { drawTabs, drawSessionPane, type TabSpec } from "./session-pane";
 import { route, routeMouse, type Focus } from "./routing";
-import { computeLayout } from "./layout";
+import { computeLayout, insidePane } from "./layout";
 
 /**
  * Pull `index` inside a list of `length`, and onto 0 when the list is empty —
@@ -150,6 +151,31 @@ class App {
     handleMouse(report: MouseReport): void {
         const { cols, rows } = this.deps;
         const layout = computeLayout(cols, rows, this.zoomed);
+
+        // Ahead of routeMouse: a child that asked for the mouse owns every
+        // report inside its own pane, so the UI's wheel and click bindings must
+        // not shadow the ones it is waiting for.
+        const session = this.sessions[this.activeSession];
+        if (
+            session !== undefined &&
+            insidePane(report.col, report.row, layout) &&
+            session.term.modes.mouseTracking !== "none"
+        ) {
+            this.focusTarget = "session";
+            // insidePane put the report inside the rect, so both are already
+            // non-negative.
+            const col = report.col - layout.paneX;
+            const row = report.row - layout.paneY;
+            const { terminal } = session.term;
+            // Past the child's own grid is not a click on its last cell: the
+            // pane can outrun the child for a frame after a resize, which
+            // blitTerminal guards against the same way.
+            if (col < terminal.cols && row < terminal.rows) {
+                this.sendToChild([{ ...report, col, row }]);
+            }
+            return;
+        }
+
         const action = routeMouse(report, layout, {
             rows: this.sidebarRows.length,
             tabs: this.tabSpecs(),
@@ -180,15 +206,22 @@ class App {
     }
 
     /**
-     * Keys bound for the focused child are encoded against that child's own
-     * terminal modes, so an arrow key reaches an application-cursor-keys child
-     * as `SS3 A` and everything else as `CSI A`.
+     * Input bound for the focused child, encoded against that child's own
+     * terminal modes — so an arrow key reaches an application-cursor-keys child
+     * as `SS3 A` and everything else as `CSI A`, and a mouse report is spelled
+     * in whichever tracking and encoding modes the child actually asked for.
      */
-    private sendToChild(events: KeyEvent[]): void {
+    private sendToChild(events: InputEvent[]): void {
         const session = this.sessions[this.activeSession];
         if (!session) return;
+        const { modes } = session.term;
         let data = "";
-        for (const event of events) data += encodeForChild(event, session.term.modes);
+        for (const event of events) {
+            data +=
+                event.kind === "mouse"
+                    ? encodeMouseForChild(event, modes)
+                    : encodeForChild(event, modes);
+        }
         if (data === "") return;
         // A dropped keystroke is not worth tearing the app down for, and the
         // socket reports the disconnect on its own status channel.
