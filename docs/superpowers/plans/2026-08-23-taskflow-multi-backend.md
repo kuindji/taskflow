@@ -55,11 +55,10 @@
 | `packages/backend/src/config.ts` | Add `instancePortFile`; reduce `instanceId` to one safe label |
 | `packages/backend/src/index.ts` | Write/remove the instance port file; `protocolVersion` on `SYSTEM_INFO`; start the advertiser |
 | `packages/shared/src/constants.ts` | `PROTOCOL_VERSION`, discovery constants |
-| `packages/backend/src/handlers/settings.ts` | Notify on settings update, so the beacon follows the setting |
 | `packages/ui/src/components/settings/sections/GeneralSection.tsx` | Discoverable switch and network name |
 | `packages/shared/src/types/system.ts` | `protocolVersion` on `SystemInfo` |
 | `packages/shared/src/types/settings.ts` | `NetworkSettings` |
-| `packages/backend/src/services/settings-store.ts` | `network` defaults and merge |
+| `packages/backend/src/services/settings-store.ts` | `network` defaults, merge, and an update notification so the beacon follows the setting |
 | `packages/shared/package.json` | `exports` map with `.` and `./discovery` |
 | `electron/package.json` | Depend on `@taskflow/shared` |
 | `electron/src/main.ts` | Wire registry and tunnel manager |
@@ -170,6 +169,9 @@ In `packages/shared/src/types/system.ts`, extend the interface:
 export interface SystemInfo {
     editors: EditorInfo[];
     homedir: string;
+    /** The backend machine's hostname. What the network name setting falls back
+     *  to, and the only way the renderer can name the machine it is talking to. */
+    hostname: string;
     /** Absent on a backend older than the multi-backend feature. Treat as incompatible. */
     protocolVersion?: number;
 }
@@ -181,11 +183,16 @@ In `packages/backend/src/index.ts`, change the `SYSTEM_INFO` registration at lin
         router.register(MSG.SYSTEM_INFO, async () => ({
             editors,
             homedir: homedir(),
+            hostname: hostname(),
             protocolVersion: PROTOCOL_VERSION,
         }));
 ```
 
-Add `PROTOCOL_VERSION` to the existing `@taskflow/shared` import in that file.
+Add `PROTOCOL_VERSION` to the existing `@taskflow/shared` import in that file, and `hostname` to the existing `os` import (the file already imports `homedir` from it).
+
+`hostname` is required rather than optional: an older backend fails the protocol
+check before anything reads it, so there is no version of the app that has to
+cope with it missing.
 
 - [ ] **Step 7: Constrain the instance id at its source**
 
@@ -587,8 +594,7 @@ The socket layer is where multicast's platform quirks live: one membership per i
 - Create: `packages/shared/src/discovery/socket.test.ts`
 - Modify: `packages/shared/package.json`
 - Modify: `packages/shared/src/types/settings.ts`
-- Modify: `packages/backend/src/services/settings-store.ts:95` and `:118` and `:278`
-- Modify: `packages/backend/src/handlers/settings.ts:16-19,36-39`
+- Modify: `packages/backend/src/services/settings-store.ts:95`, `:118`, `:278`, and the `SettingsStore` class (an update notification, used by both the WS handler and `PATCH /api/settings`)
 - Modify: `packages/backend/src/index.ts`
 - Modify: `packages/ui/src/components/settings/sections/GeneralSection.tsx`
 - Modify: `packages/ui/src/components/settings/SettingsModal.tsx:454-464`
@@ -1056,29 +1062,36 @@ In the `shutdown` handler, before the port file removal:
 - [ ] **Step 9b: Let the setting actually reach the advertiser**
 
 `applyNetworkSettings` is useless without something calling it on a settings
-update. In `packages/backend/src/handlers/settings.ts`, add an optional callback
-to `SettingsHandlerDeps` and fire it after a successful update:
+update. The hook goes on the store, not on a handler: settings are written from
+two places — `MSG.SETTINGS_UPDATE`
+(`packages/backend/src/handlers/settings.ts:36-39`) and `PATCH /api/settings`
+(`packages/backend/src/api/routes/settings-routes.ts:59-67`) — and both call
+`settingsStore.update`. Patching only the WebSocket handler leaves the beacon
+running after the REST route turns `discoverable` off.
+
+In `packages/backend/src/services/settings-store.ts`, inside the `SettingsStore`
+class:
 
 ```ts
-interface SettingsHandlerDeps {
-    router: Router;
-    settingsStore: SettingsStore;
-    taskStore: TaskStore;
-    onSettingsUpdated?: (settings: AppSettings) => void;
-}
+    private updateListeners = new Set<(settings: AppSettings) => void>();
+
+    onUpdated(listener: (settings: AppSettings) => void): void {
+        this.updateListeners.add(listener);
+    }
 ```
+
+and at the end of `update()`, after the write and before the return:
 
 ```ts
-    router.register(MSG.SETTINGS_UPDATE, async (payload) => {
-        const update = payload as SettingsUpdatePayload;
-        const settings = await settingsStore.update(update);
-        deps.onSettingsUpdated?.(settings);
-        return settings;
-    });
+        for (const listener of this.updateListeners) listener(settings);
 ```
 
-In `index.ts`, pass `onSettingsUpdated: (settings) => void applyNetworkSettings(settings.network)`
-where `registerSettingsHandlers` is already called.
+using whatever the freshly written settings object is already called there. In
+`index.ts`, next to the advertiser:
+
+```ts
+        settingsStore.onUpdated((settings) => void applyNetworkSettings(settings.network));
+```
 
 - [ ] **Step 9c: Expose both fields in Settings**
 
@@ -1147,7 +1160,7 @@ Pure list operations, separated from persistence so they can be tested without E
 
 **Interfaces:**
 - Consumes: `BackendRecord`, `DiscoveredBackend`, `backendIdFor` from `@taskflow/shared`.
-- Produces: `upsertRecord`, `removeRecord`, `renameRecord`, `recordFromDiscovered`, `matchesDiscovered`, `mergeForMenu`, and the `MenuEntry` type.
+- Produces: `upsertRecord`, `removeRecord`, `renameRecord`, `recordFromDiscovered`, `matchesDiscovered`, `mergeForMenu`, and the `MenuEntry` type. `sameHost` stays module-private.
 
 - [ ] **Step 1: Depend on the shared package**
 
@@ -1283,6 +1296,20 @@ describe("mergeForMenu", () => {
         expect(recordAt(entries, 1).lastKnownPort).toBe(54892);
     });
 
+    test("a record added by name, with or without .local, is that same machine too", () => {
+        for (const host of ["desktop", "desktop.local", "DESKTOP"]) {
+            const byName: BackendRecord = { ...saved, id: `${host}:main`, host };
+            const entries = mergeForMenu([byName], [discovered], 1_500, [], "kuindji");
+            expect(entries.map((e) => e.kind)).toEqual(["local", "live"]);
+        }
+    });
+
+    test("a different machine on the same subnet is not folded in", () => {
+        const other: BackendRecord = { ...saved, id: "laptop:main", host: "laptop" };
+        const entries = mergeForMenu([other], [discovered], 1_500, [], "kuindji");
+        expect(entries.map((e) => e.kind)).toEqual(["local", "live", "unseen"]);
+    });
+
     test("a stale beacon does not count as live", () => {
         const entries = mergeForMenu([saved], [discovered], 30_000, [], "kuindji");
         expect(entries.map((e) => e.kind)).toEqual(["local", "unseen"]);
@@ -1353,10 +1380,23 @@ function renameRecord(records: BackendRecord[], id: string, displayName: string)
  * row never picks up the port from the beacon.
  */
 function matchesDiscovered(record: BackendRecord, entry: DiscoveredBackend): boolean {
-    return (
-        record.id === backendIdFor(entry.hostname, entry.instanceId) ||
-        (record.host === entry.address && record.instanceId === entry.instanceId)
-    );
+    if (record.id === backendIdFor(entry.hostname, entry.instanceId)) return true;
+    if (record.instanceId !== entry.instanceId) return false;
+    return sameHost(record.host, entry);
+}
+
+/**
+ * A record's host is whatever the user typed or the beacon's source address:
+ * `192.168.1.20`, `desktop`, or `desktop.local`. A beacon carries both the
+ * address it came from and the machine's own short hostname. Compare against
+ * both, and treat the mDNS suffix as noise — otherwise a host added as
+ * `desktop.local` sits in the menu as permanently unseen next to its own live
+ * beacon.
+ */
+function sameHost(host: string, entry: DiscoveredBackend): boolean {
+    if (host === entry.address) return true;
+    const strip = (value: string) => value.toLowerCase().replace(/\.local\.?$/, "");
+    return strip(host) === strip(entry.hostname);
 }
 
 /**
@@ -1425,7 +1465,7 @@ export {
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `bun test electron/src/backend-records.test.ts`
-Expected: PASS, 12 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -4113,6 +4153,7 @@ Everything that assumes the backend's filesystem is this machine's.
 - Modify: `packages/ui/src/components/flows/FlowInputDialog.tsx:34`
 - Modify: `packages/ui/src/components/panels/FileContextMenu.tsx:107`
 - Modify: `packages/ui/src/components/panes/terminal/terminal-links.ts:64-72`
+- Modify: `packages/ui/src/components/panes/terminal/terminal-link-provider.ts:243-245`
 - Modify: `packages/ui/src/components/panes/TerminalPane.tsx:457-486`
 
 **Interfaces:**
@@ -4211,6 +4252,21 @@ function openExternalFile(filePath: string, opts?: { line?: number; col?: number
 
 `openExternalUrl` in the same file stays as it is — it opens URLs, not paths.
 
+The same file is not the only reveal site. `packages/ui/src/components/panes/terminal/terminal-link-provider.ts:243-245`
+calls `window.taskflow?.showItemInFolder(resolved)` when a *directory* link is
+Cmd/Ctrl-clicked, which hands a backend path to the client's Finder. It needs the
+same guard:
+
+```ts
+    if (stat.isDirectory) {
+        if (isExternal) {
+            if (!backendIsLocal()) return;
+            window.taskflow?.showItemInFolder(resolved);
+```
+
+The non-external branch below it (`expandToPathAndLoad`) stays: that opens the
+path in Taskflow's own explorer, which reads it through the backend.
+
 - [ ] **Step 7: Gate both terminal drop paths**
 
 In `packages/ui/src/components/panes/TerminalPane.tsx`, inside the drop handler, immediately before the native-file branch at line 457:
@@ -4287,6 +4343,25 @@ describe("GET /api/flow/artifact/:ownerId/:flowId/:type/raw", () => {
         expect(await response?.text()).toBe("hello");
     });
 
+    it("404s for an artifact the run recorded as inline text", async () => {
+        // The UI keeps sending these through `saveArtifact({ text })`; this
+        // asserts the route's behaviour for the case, so a later change that
+        // routes them here fails loudly instead of silently 404ing a download.
+        const { router, flowStore } = await buildTestRouter();
+        await flowStore.saveFlowRun({
+            projectId: "p1",
+            flowId: "f1",
+            status: "completed",
+            currentActionIndex: 0,
+            actions: [],
+            artifacts: [{ type: "report", text: "inline", actionEntryId: "a1" }],
+        });
+        const response = await router.handle(
+            new Request("http://x/api/flow/artifact/p1/f1/report/raw"),
+        );
+        expect(response?.status).toBe(404);
+    });
+
     it("404s for a type the run never produced", async () => {
         const { router, flowStore } = await buildTestRouter();
         await flowStore.saveFlowRun({
@@ -4361,11 +4436,22 @@ Delete the `opts.path` branch and its `startsWith("/")` check — the path never
 In `packages/ui/src/components/flows/FlowPanel.tsx`, at the download click handler (line 298 onward), build the URL from the run's owner and flow rather than passing a path:
 
 ```tsx
-                                        void window.taskflow?.saveArtifact({
-                                            url: `/api/flow/artifact/${ownerId}/${run.flowId}/${encodeURIComponent(a.type)}/raw`,
-                                            defaultName,
-                                        });
+                                        void window.taskflow?.saveArtifact(
+                                            a.path
+                                                ? {
+                                                      url: `/api/flow/artifact/${ownerId}/${run.flowId}/${encodeURIComponent(a.type)}/raw`,
+                                                      defaultName,
+                                                  }
+                                                : { text: a.text, defaultName },
+                                        );
 ```
+
+**Keep the text branch.** `FlowArtifact` is `{ path?: string; text?: string }`
+(`packages/shared/src/types/flow.ts:71-73`) and the current call already passes
+both (`FlowPanel.tsx:308-312`). An artifact recorded as inline text has no path,
+so routing it through the raw endpoint would hit `artifacts[0]?.path` being
+undefined and 404 — a download that works today would stop working. Only a path
+artifact needs the backend round trip; text is already in the renderer.
 
 `ownerId` is whichever of `taskId`, `projectId` or `"master"` the run carries — the component already has the run in scope; derive it the same way the existing `/api/flow/artifact/:ownerId/:flowId` calls in this file do.
 
