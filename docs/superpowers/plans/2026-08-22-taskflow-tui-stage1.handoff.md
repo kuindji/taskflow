@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | implemented | `e64f1f0` | commit `85871fc`; review round 1 due |
+| 13 | Sidebar rendering | in-review round 1 | `e64f1f0` | commits `85871fc`, `33fbe44`; round 1 found 3 real defects, fixed; round 2 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -2433,7 +2433,64 @@ width and cursor edge cases.
   name against the Task 12 list. Working tree clean.
 - Review: needed. New rendering code with index arithmetic and truncation.
 
-Next step: Task 13 review round 1 — one gpt-5.5 review via the codex-review skill over
-`e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts` and `sidebar.test.ts`. Verify
-each finding independently, fix the substantiated ones, validate with
-`bun run lint && bun run typecheck && bun test`, and commit.
+- **Task 13, round 1** (gpt-5.5 via codex-review, Mode B over `e64f1f0..85871fc`
+  scoped to `packages/tui/src/ui/sidebar.ts` and `sidebar.test.ts`, diff inlined in the
+  prompt so the earlier relative-path problem could not recur): four findings, three
+  substantiated and fixed in `33fbe44`, one refuted. Run the repros with
+  `bun test packages/tui/src/ui/sidebar.test.ts packages/tui/src/render/text.test.ts`.
+
+  - **Substantiated — wide and astral glyphs corrupted the row.** `drawSidebar` wrote
+    one cell per UTF-16 code unit with `blankCell()`'s `width: 1`. A CJK label put `你`
+    in a width-1 cell, so `Screen.flush` emitted a glyph the terminal draws two columns
+    wide and everything after it sheared past the sidebar edge; an emoji was split into
+    two cells holding the lone surrogates `\ud83d` and `\ude80`, which render as
+    mojibake. Verified by running `drawSidebar` directly before the fix: `你A` produced
+    `"你"/w1 "A"/w1`, and `🚀x` produced cells `"\ud83d" "\ude80" "x"`. Regression
+    tests: `drawSidebar > keeps a wide label glyph in one cell with a width-zero
+    continuation`, `> does not split an astral glyph across two cells`, and
+    `> truncates by display width so the badge always fits` (that last one showed
+    `"  你你你 4"` — ten display columns written into an eight-column pane — before the
+    fix).
+  - **Substantiated — a selection past the end of the list highlighted a blank row.**
+    `drawSidebar(buf, [], 0, 4, 2)` set `ATTR_INVERSE` (16) on row 0 even though no row
+    exists there. Attributes are now computed only when a row exists. Regression test:
+    `drawSidebar > does not select a row past the end of the list`.
+  - **Substantiated — the tests did not pin the specified rendering.** The plan's tests
+    used `toContain` and a length bound, so an implementation with no task indentation,
+    a misplaced badge, or no stale-cell clearing passed. Added exact-text, per-cell
+    attribute, and prefilled-buffer clearing tests: `> indents task rows and puts the
+    badge after the label`, `> bolds project rows and leaves task rows unbolded`,
+    `> carries the selection attribute across the whole row, padding included`, and
+    `> clears every cell left over from a previous frame`.
+  - **Refuted — `export type { SidebarRow }` has no importer.** Codex read the
+    no-unused-exports constraint as violated. Plan Task 15 (application shell) imports
+    it explicitly: `import { buildRows, drawSidebar, type SidebarRow } from "./sidebar"`
+    at plan line 3923. Export kept; removing and re-adding it two tasks later is churn.
+
+- Fix commit `33fbe44`. New module `packages/tui/src/render/text.ts` exports
+  `fitToWidth(text, cols)` (longest grapheme prefix fitting `cols` display columns) and
+  `layoutText(text, cols, attrs)` (exactly `cols` cells: width-2 glyph plus width-0
+  continuation, control characters blanked, a wide glyph straddling the last column
+  clipped to a space, remainder padded). Both are imported by `sidebar.ts`; nothing else
+  is exported. Tests: `packages/tui/src/render/text.test.ts`, 16 tests.
+- Validation at `33fbe44`: `bun run lint` exit 0, `bun run typecheck` exit 0 across all
+  five packages, `bun test` 1088 pass / 8 fail (1096 across 104 files, 60s) — the 8 being
+  the same pre-existing `MarkdownPaneImpl` failures, verified unchanged by name against
+  the Task 12 list. Working tree clean.
+
+## Decisions taken (Task 13 round 1)
+
+- Wide-character support is implemented with a local range table in `render/text.ts`
+  rather than xterm's unicode service, which `@xterm/headless` does not expose publicly.
+  Session panes keep taking their widths from xterm via `term/blit.ts`; the table only
+  covers chrome the TUI draws itself.
+- Grapheme segmentation uses `Intl.Segmenter`, which Bun provides. Combining marks ride
+  in their base character's cell; a leading lone mark is dropped.
+- Control characters in a label are drawn as a blank. Not a review finding, but the same
+  frame-corruption class the fix addresses, and one branch in `layoutText`.
+
+Next step: Task 13 review round 2 — one gpt-5.5 review via the codex-review skill over
+`e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
+`packages/tui/src/render/text.ts` and `text.test.ts` (the round-1 fix added a new module,
+so it needs a look). Verify each finding independently, fix the substantiated ones,
+validate with `bun run lint && bun run typecheck && bun test`, and commit.
