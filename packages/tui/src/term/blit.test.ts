@@ -124,6 +124,40 @@ describe("blitTerminal", () => {
         term.dispose();
     });
 
+    test("clips a wide glyph that starts at the rect's last column", async () => {
+        // Screen.flush emits any cell whose width is not 0, and the real
+        // terminal advances two columns for a wide glyph. With the
+        // continuation cell outside the rect, that second column belongs to
+        // whatever is drawn to the right of this pane.
+        const term = await terminalWith("abcd\u4f60Z", 10, 2);
+        const buf = new ScreenBuffer(6, 1);
+        blitTerminal(term, buf, 0, 0, 5, 1);
+        expect(buf.get(4, 0)).toMatchObject({ ch: " ", width: 1 });
+        term.dispose();
+    });
+
+    test("hides a cursor parked past the source terminal's last column", async () => {
+        // The rect is wider than the terminal, so `cursorX === terminal.cols`
+        // is still the "after last cell" sentinel even though it is inside the
+        // rect.
+        const term = await terminalWith("abcde", 5, 2);
+        const buf = new ScreenBuffer(10, 2);
+        expect(blitTerminal(term, buf, 0, 0, 10, 2)).toBeNull();
+        term.dispose();
+    });
+
+    test("blanks the rect below the source terminal's own viewport", async () => {
+        // A rect taller than the terminal must not keep reading lines past the
+        // viewport: those are scrollback the child is not currently showing.
+        const term = await terminalWith("a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh", 10, 5);
+        term.terminal.scrollToTop();
+        const buf = new ScreenBuffer(10, 8);
+        const cursor = blitTerminal(term, buf, 0, 0, 10, 8);
+        expect(Array.from({ length: 8 }, (_, y) => buf.get(0, y).ch).join("")).toBe("abcde   ");
+        expect(cursor).toBeNull();
+        term.dispose();
+    });
+
     test("returns null for a hidden cursor", async () => {
         const term = await terminalWith("\x1b[?25labc");
         const buf = new ScreenBuffer(20, 5);

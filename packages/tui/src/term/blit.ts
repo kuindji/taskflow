@@ -1,6 +1,7 @@
 import type { IBufferCell } from "@xterm/headless";
 import {
     ScreenBuffer,
+    blankCell,
     DEFAULT_COLOR,
     ATTR_BOLD,
     ATTR_DIM,
@@ -38,16 +39,21 @@ function attributes(cell: IBufferCell): number {
     );
 }
 
-function toCell(cell: IBufferCell): Cell {
+/**
+ * `clipWide` marks the last column being copied: a wide glyph there has its
+ * continuation cell outside the copied region, so it cannot be drawn as a wide
+ * glyph. `Screen.flush` suppresses only width 0, so it would emit the character
+ * and the real terminal would advance two columns — painting over the first
+ * column of whatever sits to the right of this rect.
+ */
+function toCell(cell: IBufferCell, clipWide: boolean): Cell {
     const width = cell.getWidth();
+    const style = { fg: foreground(cell), bg: background(cell), attrs: attributes(cell) };
+    if (width === 0) return { ch: "", width: 0, ...style };
+    // Colours are kept on the clipped stand-in so the pane edge does not tear.
+    if (width === 2) return clipWide ? { ch: " ", width: 1, ...style } : { ch: cell.getChars(), width: 2, ...style };
     const chars = cell.getChars();
-    return {
-        ch: width === 0 ? "" : chars === "" ? " " : chars,
-        width: width === 0 ? 0 : width === 2 ? 2 : 1,
-        fg: foreground(cell),
-        bg: background(cell),
-        attrs: attributes(cell),
-    };
+    return { ch: chars === "" ? " " : chars, width: 1, ...style };
 }
 
 /**
@@ -63,17 +69,23 @@ function blitTerminal(
     rows: number,
 ): { x: number; y: number } | null {
     const active = source.terminal.buffer.active;
+    // The rect is the pane, which is not necessarily the size the child
+    // terminal has been resized to — a resize round-trips to the backend, so
+    // the two are out of step for at least a frame. Read only cells the source
+    // actually shows: past its own width a wide glyph would be mis-paired, and
+    // past its own height `getLine` keeps returning scrollback the child is not
+    // displaying. The rest of the rect is blanked rather than left stale.
+    const srcCols = Math.min(cols, source.terminal.cols);
+    const srcRows = Math.min(rows, source.terminal.rows);
 
     for (let row = 0; row < rows; row++) {
-        const line = active.getLine(active.viewportY + row);
+        const line = row < srcRows ? active.getLine(active.viewportY + row) : undefined;
         for (let col = 0; col < cols; col++) {
-            const cell = line?.getCell(col);
+            const cell = col < srcCols ? line?.getCell(col) : undefined;
             buf.set(
                 x0 + col,
                 y0 + row,
-                cell === undefined
-                    ? { ch: " ", width: 1, fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, attrs: 0 }
-                    : toCell(cell),
+                cell === undefined ? blankCell() : toCell(cell, col === srcCols - 1),
             );
         }
     }
@@ -84,9 +96,10 @@ function blitTerminal(
     // frame before it can be tested against the rect — otherwise it lands on
     // whichever scrollback line happens to share its index.
     const cursorRow = active.baseY + active.cursorY - active.viewportY;
-    // cursorX may equal cols ("after last cell of the row"), which is outside
-    // the rect; parking the real cursor there would bleed into the next pane.
-    if (active.cursorX >= cols || cursorRow < 0 || cursorRow >= rows) return null;
+    // cursorX may equal the source terminal's width ("after last cell of the
+    // row"), a column this rect never copied; parking the real cursor there
+    // would bleed into whatever is drawn to the right.
+    if (active.cursorX >= srcCols || cursorRow < 0 || cursorRow >= srcRows) return null;
     return { x: x0 + active.cursorX, y: y0 + cursorRow };
 }
 
