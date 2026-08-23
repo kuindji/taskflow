@@ -18,7 +18,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
-| 11 | State store | in-review round 1 | `9420a4b` | commits `21040e4`, `3cb8118`; round 1 found 2 defects, both fixed; round 2 due |
+| 11 | State store | in-review round 2 | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`; round 2 found 1 defect, fixed; round 3 due |
 | 12 | Focus and key routing | pending | — | |
 | 13 | Sidebar rendering | pending | — | |
 | 14 | Session pane and tab strip | pending | — | |
@@ -1962,6 +1962,53 @@ width and cursor edge cases.
   name, and 1025 = the previous 1021 plus this round's 4 new tests. Working tree
   clean.
 
-Next step: review round 2 for Task 11 — run one gpt-5.5 review via the codex-review
-skill over `9420a4b..3cb8118`, verify the findings independently, fix the
+- **Task 11, round 2** (gpt-5.5 via codex-review, Mode B over `9420a4b..3cb8118`
+  restricted to `packages/tui`, with round 1's two fixes called out as already
+  known): one finding, substantiated and fixed in `cad685b`. Run the repro with
+  `bun test packages/tui/src/state/store.test.ts`.
+
+  - **Substantiated — a superseded `load()` could overwrite a newer snapshot.**
+    `load()` kept one `deferred` queue pointer but no notion of which load was
+    newest, so two overlapping `load()` calls both committed their snapshots in
+    whatever order they settled. Observable symptom: after two `load()` calls
+    overlap (the reconnect path in Task 17 is the realistic source — a drop and
+    an immediate re-drop each trigger a reload), tasks and projects that exist on
+    the backend vanish from the sidebar and stay missing until the next event or
+    reload, because the older request's answer landed last and won. Regression
+    test: `Store > a superseded load() does not overwrite the newer snapshot` —
+    red on `3cb8118` (`[]` where `["t2"]` was expected), green on `cad685b`.
+    Claude reached the same finding independently before the report landed.
+    Fix: a monotonic `loadToken` per `load()`; a load whose token is no longer
+    the newest returns without committing, and the deferred-mutation queue became
+    a single shared queue drained by whichever load does commit — so events that
+    arrived during a superseded load are not lost with it. Codex's suggested
+    single-flight (return the in-flight promise to a second caller) was rejected:
+    a reload after a reconnect must fetch fresh data, not hand back the
+    pre-reconnect snapshot.
+
+  - **Coverage added in the same commit.** `Store > an event queued during a
+    superseded load survives into the newer snapshot` is green both before and
+    after, so it is coverage rather than a repro; it exists to pin the shared-queue
+    behaviour the fix introduces, which a narrower fix would have broken.
+
+  - **Codex's clean areas, spot-checked, no action.** Backend payload shapes match
+    the `as Project` / `as Task` / `as { id: string }` casts (re-verified in round 1
+    across every broadcast site); the round-1 `PROJECT_REMOVED` cascade fix is
+    correct; the listener-set copy in `notify()` makes add/remove during a
+    notification safe. Snapshot responses are trusted rather than runtime-validated,
+    and both backend handlers do return `{ projects }` / `{ tasks }` — not treated
+    as a defect at this layer.
+
+  - **Not reported, out of scope.** There is still no `TASK_REMOVED` broadcast in
+    the backend protocol, so a deleted task lingers until the next `load()`. This
+    is the recorded backend gap, unchanged by this task.
+
+- Validation at `cad685b`: `bun run lint` exit 0, `bun run typecheck` exit 0 across
+  all five packages, `bun test` 1027 pass / 8 fail — the 8 being the recorded
+  pre-existing `MarkdownPaneImpl` suite-ordering failures in `packages/ui`, verified
+  unchanged by name, and 1027 = the previous 1025 plus this round's 2 new tests.
+  Working tree clean.
+
+Next step: review round 3 for Task 11 — run one gpt-5.5 review via the codex-review
+skill over `9420a4b..cad685b`, verify the findings independently, fix the
 substantiated ones, validate, and commit.
