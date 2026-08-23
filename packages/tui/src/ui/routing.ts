@@ -1,4 +1,4 @@
-import { noMods, type KeyEvent } from "../input/keys";
+import { noMods, type KeyEvent, type KeyName } from "../input/keys";
 
 type Focus = "sidebar" | "session";
 
@@ -20,6 +20,17 @@ interface RouteResult {
     action: Action;
     pendingEscape: boolean;
 }
+
+/**
+ * Arrows alias `j`/`k`, which is what a hand reaches for before it learns the
+ * vim keys. Left and right are deliberately absent: the spec gives `h`/`l` the
+ * job of moving between the sidebar and the main area, and neither exists yet,
+ * so binding the arrows to it would be binding them to nothing.
+ */
+const SIDEBAR_KEYS: Partial<Record<KeyName, Action>> = {
+    down: { kind: "move", delta: 1 },
+    up: { kind: "move", delta: -1 },
+};
 
 const SIDEBAR_CHARS: Record<string, Action | undefined> = {
     j: { kind: "move", delta: 1 },
@@ -47,11 +58,7 @@ function isSwitcher(ev: KeyEvent): boolean {
  */
 function isBareEscape(ev: KeyEvent): boolean {
     return (
-        ev.name === "escape" &&
-        !ev.mods.ctrl &&
-        !ev.mods.alt &&
-        !ev.mods.super &&
-        !ev.mods.shift
+        ev.name === "escape" && !ev.mods.ctrl && !ev.mods.alt && !ev.mods.super && !ev.mods.shift
     );
 }
 
@@ -99,6 +106,13 @@ function route(
 
     if (ev.name === "enter" && !isChorded(ev)) {
         return { action: { kind: "open" }, pendingEscape: false };
+    }
+
+    if (!isChorded(ev)) {
+        // Keyed by name, so it is reached before the char map: an arrow carries
+        // no `char` at all and would otherwise fall through to "none".
+        const named = SIDEBAR_KEYS[ev.name];
+        if (named) return { action: named, pendingEscape: false };
     }
 
     const char = ev.char;

@@ -69,6 +69,45 @@ describe("route with the kitty protocol available", () => {
     test("an unbound sidebar key does nothing", () => {
         expect(route("sidebar", key({ char: "@" }), true, false).action).toEqual({ kind: "none" });
     });
+
+    test("up and down arrows move the sidebar selection", () => {
+        expect(route("sidebar", key({ name: "down" }), true, false).action).toEqual({
+            kind: "move",
+            delta: 1,
+        });
+        expect(route("sidebar", key({ name: "up" }), true, false).action).toEqual({
+            kind: "move",
+            delta: -1,
+        });
+    });
+
+    test("an arrow repeat drives the sidebar like a press", () => {
+        expect(route("sidebar", key({ name: "down", kind: "repeat" }), true, false).action).toEqual(
+            { kind: "move", delta: 1 },
+        );
+    });
+
+    test("a chorded arrow is not a sidebar move", () => {
+        const ev = key({ name: "down", mods: { ...noMods(), ctrl: true } });
+        expect(route("sidebar", ev, true, false).action).toEqual({ kind: "none" });
+    });
+
+    test("left and right arrows are still unbound", () => {
+        expect(route("sidebar", key({ name: "left" }), true, false).action).toEqual({
+            kind: "none",
+        });
+        expect(route("sidebar", key({ name: "right" }), true, false).action).toEqual({
+            kind: "none",
+        });
+    });
+
+    test("an arrow reaches the child when the session has focus", () => {
+        const ev = key({ name: "down" });
+        expect(route("session", ev, true, false).action).toEqual({
+            kind: "to-child",
+            events: [ev],
+        });
+    });
 });
 
 describe("route in legacy mode", () => {

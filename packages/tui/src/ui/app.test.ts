@@ -104,6 +104,20 @@ describe("App", () => {
         expect(sink.output).not.toBe("");
     });
 
+    test("arrow keys move the sidebar selection like j and k", async () => {
+        const { app, sink } = await makeApp();
+        app.render();
+        sink.output = "";
+        app.handleKey(key({ name: "down" }));
+        app.render();
+        const moved = sink.output;
+        expect(moved).not.toBe("");
+        sink.output = "";
+        app.handleKey(key({ name: "up" }));
+        app.render();
+        expect(sink.output).not.toBe("");
+    });
+
     test("Q stops the app", async () => {
         const { app } = await makeApp();
         expect(app.running).toBe(true);
