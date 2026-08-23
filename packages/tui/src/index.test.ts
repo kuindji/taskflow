@@ -233,6 +233,29 @@ describe("tui entry point", () => {
         expect(await child.exited).toBe(0);
     }, 20_000);
 
+    test("does not merge an escape from the negotiation window with a later key", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        // The snapshot is held back so the two keys land seconds apart.
+        const child = runTui(await talkingBackend(pidFile, 2000, readyFile));
+
+        // An Escape pressed into the negotiation window. It comes back as the
+        // leftover, and a lone ESC is held as a carry rather than decoded.
+        await child.stdin.write("\x1b");
+        await child.stdin.flush();
+        await waitForPid(pidFile);
+
+        // Pressed much later, while the first snapshot is still loading, so the
+        // paused stream is holding it. Released next to the carried ESC it
+        // decodes as Alt+Q, which is bound to nothing, and the TUI never quits.
+        await waitForFile(readyFile, "ready marker");
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+
+        expect(await child.exited).toBe(0);
+    }, 20_000);
+
     test("does not lose a key typed while the first snapshot is still loading", async () => {
         const dir = await tempDir("tui-index-pid-");
         const pidFile = join(dir, "pid");

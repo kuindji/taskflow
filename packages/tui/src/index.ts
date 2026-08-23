@@ -144,6 +144,18 @@ async function main(): Promise<void> {
     let carry = "";
     let carryTimer: ReturnType<typeof setTimeout> | null = null;
 
+    /** Release a held ESC as a real Escape press, rather than waiting it out. */
+    const flushHeldEscape = (): void => {
+        if (carryTimer !== null) {
+            clearTimeout(carryTimer);
+            carryTimer = null;
+        }
+        if (carry === "") return;
+        const stranded = carry;
+        carry = "";
+        for (const ev of flushCarry(stranded)) app.handleKey(ev);
+    };
+
     const feed = (text: string): void => {
         if (carryTimer !== null) {
             clearTimeout(carryTimer);
@@ -155,14 +167,7 @@ async function main(): Promise<void> {
         for (const ev of result.events) app.handleKey(ev);
 
         // A held ESC is only a real Escape press if nothing follows it.
-        if (carry !== "") {
-            carryTimer = setTimeout(() => {
-                carryTimer = null;
-                const stranded = carry;
-                carry = "";
-                for (const ev of flushCarry(stranded)) app.handleKey(ev);
-            }, ESCAPE_IDLE_MS);
-        }
+        if (carry !== "") carryTimer = setTimeout(flushHeldEscape, ESCAPE_IDLE_MS);
     };
 
     process.stdin.on("data", (chunk: Buffer) => {
@@ -171,7 +176,17 @@ async function main(): Promise<void> {
     // Whatever the user typed into the negotiation window was consumed by
     // `readOnce` and is not coming again, so it goes through the decoder here
     // or it is dropped. It precedes anything the stream is about to deliver.
-    if (negotiated.rest !== "") feed(negotiated.rest);
+    if (negotiated.rest !== "") {
+        feed(negotiated.rest);
+        // The negotiation window has already closed, so a trailing ESC cannot be
+        // the head of a chord whose tail is only now being let through: the two
+        // can be seconds apart, because the stream stayed paused across the whole
+        // of `init()`. Left on the idle timer, `resume()` below would release the
+        // next key inside it and the pair would decode as one Alt chord — an
+        // Escape at startup followed by `Q` would come out as Alt+Q, which is
+        // bound to nothing, and the quit would simply be lost.
+        flushHeldEscape();
+    }
     process.stdin.resume();
 
     const timer = setInterval(() => {
