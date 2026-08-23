@@ -13,6 +13,14 @@ import { App } from "./ui/app";
 const FRAME_INTERVAL_MS = 16;
 /** How long a held ESC waits for a continuation before counting as a real Escape. */
 const ESCAPE_IDLE_MS = 25;
+/**
+ * How long a partial X10 mouse header waits for its payload before it is
+ * discarded. Far longer than `ESCAPE_IDLE_MS` because the payload is the rest
+ * of a write the terminal has already started, so it is coming unless the link
+ * dropped it; short enough that a header that truly lost its payload cannot
+ * outlive the click and claim characters typed afterwards.
+ */
+const MOUSE_PAYLOAD_IDLE_MS = 1000;
 
 const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
@@ -154,6 +162,18 @@ async function main(): Promise<void> {
     let carry = "";
     let carryTimer: ReturnType<typeof setTimeout> | null = null;
 
+    /**
+     * Discard an X10 mouse header whose payload never arrived. Nothing is
+     * emitted: the header is not a key and its payload is lost, so there is no
+     * event to make of it. Held any longer it would stay live indefinitely and
+     * swallow the next three characters typed as its payload, fabricating a
+     * click at whatever cell they happen to encode.
+     */
+    const dropStrandedMousePayload = (): void => {
+        carryTimer = null;
+        if (isPartialX10(carry)) carry = "";
+    };
+
     /** Release a held ESC as a real Escape press, rather than waiting it out. */
     const flushHeldEscape = (): void => {
         if (carryTimer !== null) {
@@ -163,8 +183,12 @@ async function main(): Promise<void> {
         if (carry === "") return;
         // An X10 mouse header owes three payload characters. Waiting cannot
         // turn it into a key, so releasing it would clear the header and let
-        // the payload land on the keymap as typed characters.
-        if (isPartialX10(carry)) return;
+        // the payload land on the keymap as typed characters. Give it a window
+        // of its own instead, and drop it if that expires too.
+        if (isPartialX10(carry)) {
+            carryTimer = setTimeout(dropStrandedMousePayload, MOUSE_PAYLOAD_IDLE_MS);
+            return;
+        }
         const stranded = carry;
         carry = "";
         for (const ev of flushCarry(stranded)) app.handleKey(ev);

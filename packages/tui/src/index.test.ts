@@ -197,6 +197,19 @@ async function waitForFile(path: string, what: string): Promise<string> {
     throw new Error(`fake backend never wrote its ${what}`);
 }
 
+/**
+ * Bounded wait for the TUI to exit. Awaiting `child.exited` instead would let a
+ * process that never quits hang until the whole test times out, which reports
+ * as a timeout rather than as the assertion that actually failed.
+ */
+async function waitForExit(child: TuiProcess, what: string): Promise<number | null> {
+    for (let i = 0; i < 120; i++) {
+        if (child.exitCode !== null) return child.exitCode;
+        await Bun.sleep(25);
+    }
+    throw new Error(`the TUI never ${what}`);
+}
+
 async function waitForPid(pidFile: string): Promise<number> {
     const pid = Number.parseInt(await waitForFile(pidFile, "pid"), 10);
     if (!Number.isInteger(pid) || pid <= 0) throw new Error("fake backend wrote a bad pid");
@@ -404,5 +417,29 @@ describe("tui entry point", () => {
 
         await Bun.sleep(300);
         expect(child.exitCode).toBeNull();
+    }, 20_000);
+
+    test("drops a click header whose payload never arrives", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+
+        // An X10 mouse header and one payload character. The remaining two
+        // never arrive — a link that dropped the tail of the report.
+        await child.stdin.write("\x1b[M\x20");
+        await child.stdin.flush();
+        // Longer than the window the header gets to wait for its payload.
+        await Bun.sleep(1400);
+
+        // Typed long after the click is dead. Held any longer, the header would
+        // take `Q` as its second payload character instead, so quit would never
+        // reach the keymap and the keystroke would become part of a click.
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+
+        expect(await waitForExit(child, "quit on a key typed after a dead click")).toBe(0);
     }, 20_000);
 });

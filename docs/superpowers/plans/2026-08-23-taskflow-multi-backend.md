@@ -244,10 +244,23 @@ const instanceId = devBranch ? toSafeLabel(`dev-${devBranch}`) : "main";
 ```
 
 `main` is unchanged, so no production instance moves. A *dev* instance whose
-branch name contained something outside the set gets a new `instanceId`, and
-`buildDataPaths(initialDataDir, instanceId)` (`config.ts:78`) therefore points it
-at a new data directory. That is a dev sandbox moving, not user data — but say
-so in the commit message.
+branch name contained something outside the set gets a new `instanceId`. Be
+precise about what that moves, because it is **not** the data directory:
+`buildDataPaths` (`config.ts:25-40`) interpolates `instanceId` into exactly two
+paths, `masterSessionsFile` (`<dataDir>/sessions/<id>/master.json`) and
+`sessionLogsDir` (`<dataDir>/session-logs/<id>`). `dataDir`, `projectsFile`,
+`tasksDir`, `flowsDir` and the rest are not instance-scoped and stay where they
+are.
+
+The consequence is therefore sessions, not projects: a session row inside a
+*shared* task file carries `instance: config.instanceId`
+(`services/session-lifecycle.ts:565`), and every read filters on it
+(`filterSessions`, `services/instance-filter.ts:4`). Rows written under the old
+id are still in `tasks/*.json` after the rename but are invisible to the filter,
+are skipped by `reconcileInterruptedSessions` (`task-store.ts:201-221`), and
+survive `clearAllSessions`, which keeps anything whose `instance` is not the
+current one (`task-store.ts:88-99`). They are stranded, not deleted. Dev-only —
+`main` never changes — but say it accurately in the commit message.
 
 - [ ] **Step 8: Add the stable instance port file**
 
@@ -287,9 +300,13 @@ git add packages/backend/src/ws/server.ts packages/backend/src/config.ts package
 git commit -m "feat(backend): bind loopback, report protocol version, write a stable port file
 
 The instance id is now reduced to [A-Za-z0-9._-], capped at 64 characters, so it
-is safe as a filename, as a beacon field and inside a command run over ssh. A dev
-instance whose branch name contained anything outside that set moves to a new
-data directory."
+is safe as a filename, as a beacon field and inside a command run over ssh.
+
+Only dev instances are affected; 'main' is unchanged. A dev instance whose branch
+name contained anything outside that set gets a new sessions directory and
+session-log directory. Its projects, tasks and flows do not move — those paths
+are not instance-scoped — but session rows already recorded under the old id stay
+in the shared task files where the instance filter can no longer see them."
 ```
 
 ---
@@ -525,6 +542,8 @@ export type TunnelFailureKind =
     | "local-bind-failed"
     | "no-backend"
     | "no-ssh-binary"
+    /** ssh refused the user or host string itself. See `classifyTunnelFailure`. */
+    | "bad-destination"
     | "unknown";
 
 export interface TunnelFailure {
@@ -1119,6 +1138,15 @@ function createListener(opts: {
         for (const [id, entry] of seen) {
             if (isStale(entry.lastSeenAt, now)) {
                 seen.delete(id);
+                // The warning is about a collision between an incumbent and a
+                // newcomer, so it has to die with the incumbent. Left behind,
+                // it suppresses the *next* collision on the same id: A and B
+                // both announce as `MacBook-Pro`, one line is logged, A is
+                // kept; A leaves and is swept; B becomes the incumbent; A comes
+                // back and loses — silently this time, because the id is still
+                // in the set. That is the exact symptom the warning exists to
+                // tell apart from a multicast fault.
+                warnedDuplicates.delete(id);
                 removed = true;
             }
         }
@@ -1566,7 +1594,7 @@ Pure list operations, separated from persistence so they can be tested without E
 - Modify: `electron/package.json`
 
 **Interfaces:**
-- Consumes: `BackendRecord`, `DiscoveredBackend`, `backendIdFor` from `@taskflow/shared`.
+- Consumes: `BackendRecord` and `DiscoveredBackend` from `@taskflow/shared`; `backendIdFor` and `isStale` from `@taskflow/shared/**discovery**` — Task 2 Step 6 deliberately keeps the discovery functions out of the barrel, so importing them from `@taskflow/shared` does not compile.
 - Produces: `upsertRecord`, `removeRecord`, `recordFromDiscovered`, `matchesDiscovered`, `mergeForMenu`, `normalizeRecords`, and the `MenuEntry` type. `sameHost` stays module-private. There is deliberately no `renameRecord`: the Manage dialog edits three fields, and `upsertRecord` covers all of them at once without a second way to write a record.
 
 - [ ] **Step 1: Depend on the shared package**
@@ -2028,7 +2056,8 @@ export {
 };
 ```
 
-`backendIdFor` comes from `@taskflow/shared` (Task 2) and `userInfo` from
+`backendIdFor` comes from `@taskflow/shared/discovery` (Task 2 — not the
+barrel, which does not re-export it) and `userInfo` from
 `node:os`. `node:os` is the one impurity in this otherwise I/O-free module, and
 it is worth it: the alternative is a record with a blank ssh user, which is the
 failure the discovered-backend flow already had once.
@@ -2104,12 +2133,17 @@ describe("buildTunnelArgs", () => {
             "-o",
             "BatchMode=yes",
             "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
             "ExitOnForwardFailure=yes",
             "-o",
             "ServerAliveInterval=15",
             "-o",
             "ServerAliveCountMax=3",
-            "kuindji@192.168.1.20",
+            "-l",
+            "kuindji",
+            "--",
+            "192.168.1.20",
         ]);
     });
 
@@ -2117,12 +2151,25 @@ describe("buildTunnelArgs", () => {
         const args = buildTunnelArgs({ ...record, sshPort: 2222 }, 7777, 54892);
         expect(args).toContain("2222");
     });
+
+    // The whole trust-on-first-use design rests on ssh *refusing* an unknown
+    // key, and `~/.ssh/config` can turn that refusal off for every host. This
+    // assertion is the one that stops a future edit from dropping the flag.
+    test("does not let the user's ssh config decide the host-key policy", () => {
+        expect(buildTunnelArgs(record, 7777, 54892)).toContain("StrictHostKeyChecking=yes");
+    });
+
+    // `-bad@host` is an option cluster to getopt, not a destination.
+    test("a user or host beginning with a dash is not read as options", () => {
+        const args = buildTunnelArgs({ ...record, user: "-bad", host: "-worse" }, 7777, 54892);
+        expect(args.slice(-4)).toEqual(["-l", "-bad", "--", "-worse"]);
+    });
 });
 
 describe("known hosts helpers", () => {
     test("a default port is queried bare", () => {
         expect(knownHostsKey(record)).toBe("192.168.1.20");
-        expect(buildKeyscanArgs(record)).toEqual(["-T", "5", "-p", "22", "192.168.1.20"]);
+        expect(buildKeyscanArgs(record)).toEqual(["-T", "5", "-p", "22", "--", "192.168.1.20"]);
     });
 
     test("a non-default port uses bracket form, which is what keyscan emits", () => {
@@ -2174,6 +2221,15 @@ describe("classifyTunnelFailure", () => {
         expect(classifyTunnelFailure("spawn ssh ENOENT", null).kind).toBe("no-ssh-binary");
     });
 
+    test("a rejected user or host names the field rather than dumping usage", () => {
+        expect(classifyTunnelFailure("remote username contains invalid characters", 255).kind).toBe(
+            "bad-destination",
+        );
+        expect(classifyTunnelFailure("hostname contains invalid characters", 255).kind).toBe(
+            "bad-destination",
+        );
+    });
+
     test("an unrecognised failure keeps the raw stderr", () => {
         const failure = classifyTunnelFailure("something nobody predicted", 1);
         expect(failure.kind).toBe("unknown");
@@ -2203,6 +2259,38 @@ import type { BackendRecord, TunnelFailure } from "@taskflow/shared";
  * BatchMode keeps ssh from ever blocking on a prompt — it exits and we read
  * stderr instead. ExitOnForwardFailure turns a failed local bind into an exit
  * rather than a tunnel that is up but useless.
+ *
+ * **`StrictHostKeyChecking=yes` is not optional and is not a duplicate of
+ * BatchMode.** Everything this feature does about host keys — the fingerprint
+ * dialog, `trustHostKey`, the `unknown-host-key` classification — is downstream
+ * of ssh *refusing* to connect to a host it has no key for, and `~/.ssh/config`
+ * can switch that refusal off for every host at once. `Host *` with
+ * `StrictHostKeyChecking accept-new` is a common dotfile line, and `no` is
+ * common in corporate configs. Verified against OpenSSH 10.3p1 with a throwaway
+ * sshd: with an `accept-new` config and no override in the argv, ssh printed
+ * `Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known
+ * hosts.` and went straight on to authentication — no
+ * `Host key verification failed`, so `classifyTunnelFailure` never returns
+ * `unknown-host-key` and the dialog never opens. Adding this one option to the
+ * same command made it `Host key verification failed.` with nothing written.
+ * The spec calls the host key check "the one security decision the app makes
+ * for the user" and rests the whole beacon threat model on it
+ * (`specs/2026-08-23-taskflow-multi-backend-design.md:331-338`): anyone on the
+ * LAN can advertise an entry pointing at a machine they control.
+ *
+ * Only the host-key policy is forced. The user's config is otherwise left in
+ * charge — `ProxyJump`, `IdentityFile` and per-host `User` are legitimate and a
+ * blanket `-F /dev/null` would break them.
+ *
+ * `-l user -- host` rather than `user@host`, because `user@host` is one string
+ * and getopt reads a leading `-` in it as options: a record with user `-bad`
+ * makes ssh dump its usage and exit, which `classifyTunnelFailure` can only
+ * report as "unknown". With `-l` and `--`, the same input gives
+ * `remote username contains invalid characters` — a sentence naming the field
+ * (both verified against OpenSSH 10.3p1). Neither `addBackend` nor
+ * `updateBackend` screens these two fields for a leading dash, and `host` on a
+ * discovered record is a beacon source address, so this is the layer that has
+ * to be safe.
  */
 function buildTunnelArgs(
     record: BackendRecord,
@@ -2218,12 +2306,17 @@ function buildTunnelArgs(
         "-o",
         "BatchMode=yes",
         "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
         "ExitOnForwardFailure=yes",
         "-o",
         "ServerAliveInterval=15",
         "-o",
         "ServerAliveCountMax=3",
-        `${record.user}@${record.host}`,
+        "-l",
+        record.user,
+        "--",
+        record.host,
     ];
 }
 
@@ -2232,8 +2325,10 @@ function knownHostsKey(record: BackendRecord): string {
     return record.sshPort === 22 ? record.host : `[${record.host}]:${record.sshPort}`;
 }
 
+/** `--` for the same reason as `buildTunnelArgs`: `ssh-keyscan -p 22 -bad`
+ *  answers `ssh-keyscan: illegal option -- b` and prints its usage. */
 function buildKeyscanArgs(record: BackendRecord): string[] {
-    return ["-T", "5", "-p", String(record.sshPort), record.host];
+    return ["-T", "5", "-p", String(record.sshPort), "--", record.host];
 }
 
 function classifyTunnelFailure(stderr: string, exitCode: number | null): TunnelFailure {
@@ -2264,6 +2359,17 @@ function classifyTunnelFailure(stderr: string, exitCode: number | null): TunnelF
             "SSH refused the connection. Run `ssh <host>` once in a terminal to check your key.",
         );
     }
+    // What `-l user -- host` turns a leading dash into. Without those two
+    // separators ssh prints its usage instead, which matches nothing here and
+    // reaches the user as "SSH exited with code 255."
+    if (stderr.includes("contains invalid characters")) {
+        return failure(
+            "bad-destination",
+            stderr.includes("username")
+                ? "That SSH user name is not valid. Edit it in Manage backends."
+                : "That host name is not valid. Edit it in Manage backends.",
+        );
+    }
     if (
         stderr.includes("Could not resolve") ||
         stderr.includes("Connection refused") ||
@@ -2281,7 +2387,7 @@ export { buildKeyscanArgs, buildTunnelArgs, classifyTunnelFailure, knownHostsKey
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun test electron/src/tunnel-args.test.ts`
-Expected: PASS, 11 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2467,12 +2573,23 @@ async function readRemotePort(
     // `isSafeLabel` above already excludes a quote character; this is the second
     // lock on the same door.
     const remotePath = `~/.config/taskflow/'${record.instanceId}.port'`;
+    // Same three additions as `buildTunnelArgs`, and they matter more here:
+    // this is the *first* ssh call a manual connect makes, so it is the one
+    // that produces the host-key failure the trust dialog reacts to. Left to
+    // the user's `~/.ssh/config`, an `accept-new` policy pins the key here,
+    // silently, before a tunnel is ever attempted — and every later call finds
+    // a host that is already trusted.
     const { stdout, stderr, code } = await runSsh([
         "-p",
         String(record.sshPort),
         "-o",
         "BatchMode=yes",
-        `${record.user}@${record.host}`,
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-l",
+        record.user,
+        "--",
+        record.host,
         `cat ${remotePath}`,
     ]);
     const port = Number.parseInt(stdout.trim(), 10);
@@ -3727,6 +3844,7 @@ The module today is a set of globals with one socket. Opening the new socket bef
 - Modify: `packages/ui/src/lib/backend-url.ts`
 - Modify: `packages/ui/src/providers/WebSocketProvider.tsx:20-40`
 - Create: `packages/ui/src/hooks/useWebSocket.test.ts`
+- Modify: `packages/ui/src/stores/wiki-store.test.ts:21,23,37,59`, `packages/ui/src/components/panes/MarkdownPaneImpl.anchors.test.tsx:33`, `packages/ui/src/components/panes/MarkdownPaneImpl.checkbox.test.tsx:55` (the three `mock.module` factories — see Step 5)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -5289,6 +5407,8 @@ git commit -m "feat(ui): add a client state reset registry and re-bootstrap"
 - Create: `packages/ui/src/stores/backend-store.ts`
 - Create: `packages/ui/src/stores/backend-store.test.ts`
 - Modify: `packages/ui/src/components/AppShell.tsx`
+- Modify: `packages/ui/src/stores/file-store.ts` (adds `unwatchAll` — see Step 4)
+- Modify: `packages/ui/src/hooks/useWebSocket.ts`
 
 **Interfaces:**
 - Consumes: Tasks 7, 8, 9.
@@ -7298,6 +7418,19 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
   The menu path is the one that was broken: the trust UI used to live inside
   the connect dialog, which that path never opens.
 - With that prompt up, press Cancel → it closes and the app stays where it was.
+- **Then the same thing again with a permissive ssh config, because this is the
+  check that the app's one security decision is actually the app's.** Add
+  `Host *` / `StrictHostKeyChecking accept-new` to `~/.ssh/config`, remove that
+  host's line from `~/.ssh/known_hosts`, and connect from the menu. Expected:
+  the fingerprint dialog still appears, and `~/.ssh/known_hosts` gains nothing
+  until you press **Trust and connect**. If it connects straight through, the
+  `-o StrictHostKeyChecking=yes` in `buildTunnelArgs` and `readRemotePort` has
+  been dropped and every discovered backend is now trusted on sight — which is
+  what the beacon threat model in the spec exists to prevent. Two ways to see it
+  without a second machine: `ssh -G <the planned argv> host | grep -i
+  stricthostkey` must print `yes`, and the failure the app reports must be
+  "This host has not been trusted yet.", never "SSH refused the connection".
+  Remove the config line afterwards.
 - Add a backend by typing its short hostname (`desktop`, not its IP) while its
   beacon is visible, connect, quit, and reopen `backends.json` under
   `userData`. Expected: `host` is still `desktop`. An IP there means
