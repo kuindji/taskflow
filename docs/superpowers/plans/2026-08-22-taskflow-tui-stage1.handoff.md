@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | in-review round 5 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`; round 5 found 2 real defects, both fixed; round 6 due |
+| 13 | Sidebar rendering | in-review round 6 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`; round 6 found 2 real defects, both fixed; round 7 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -2720,14 +2720,94 @@ width and cursor edge cases.
   U+4E00..U+9FFF, U+F900..U+FAFF, U+20000..U+2FFFD, U+30000..U+3FFFD — are still covered
   whole. Nothing renders at an unassigned code point, so this is not observable.
 
-Next step: Task 13 review round 6 — one gpt-5.5 review via the codex-review skill over
+## Task 13 — review round 6
+
+- Reviewer: gpt-5.5 via the codex-review skill (Mode B, prompted), current files at
+  `d1ab541` — `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
+  `packages/tui/src/render/text.ts` and `text.test.ts` — with the cumulative diff
+  `e64f1f0..d1ab541` available and rounds 1-5 listed as already fixed, including that
+  `WIDE_RANGES` is generated from Unicode 16.0 East Asian Width `W`/`F`. Two findings,
+  both substantiated and fixed in `b9461ff`.
+
+- **Substantiated — a cluster wider than its base measured one column.**
+  `graphemeWidth` took the whole grapheme's width from `codePointAt(0)`, so three shapes
+  that a terminal advances two columns for measured one: an emoji presentation sequence
+  (U+26A0 U+FE0F and friends, whose base is East Asian Neutral until U+FE0F promotes it),
+  a keycap (U+0031 U+FE0F U+20E3), and a flag (a pair of regional indicators, neither of
+  which is `W`/`F` on its own). The sidebar drew a width-1 cell, every glyph after it
+  landed a column left of where the layout thought it was, and the row ran one column past
+  the pane into the session area — the same symptom as round 5, by a different mechanism.
+  Verified before the fix: `layoutText("\u{1F1FA}\u{1F1F8}", 1, 0)` returned
+  `[{ ch: "🇺🇸", width: 1 }]` instead of clipping to a blank, and `layoutText("\u26a0\ufe0fx", 3, 0)`
+  returned `["⚠️", "x", " "]` at width 1 each instead of a width-2 cell plus a
+  continuation.
+- **Substantiated — a clipped badge showed a smaller session count than the row had.**
+  `drawSidebar` computed `available = width - prefix.length - badge.length`, built
+  `prefix + fitToWidth(label) + badge`, and handed the result to `layoutText`, which clips
+  from the right. So the badge — the thing the arithmetic had just reserved room for — was
+  the first thing lost whenever `prefix.length + badge.length` exceeded `width`.
+  Verified before the fix at `width` 3..6 for a task labelled `"A"` with `sessionCount`
+  12: width 3 drew `"   "` (badge gone), width 4 drew `"   1"` — a row that reads as **one**
+  session for a task with twelve — width 5 drew `"   12"`, width 6 drew `"  A 12"`.
+  The truncated-count case is worse than codex's framing of a hidden badge: the row is not
+  merely incomplete, it is wrong.
+- Fixes: `graphemeWidth` now returns 2 for a cluster containing U+FE0F or based on a
+  regional indicator, after the `ZERO_WIDTH` and `isWide` tests so a lone U+FE0F still
+  measures zero; the doc comment records that an ambiguous cluster errs wide because
+  guessing narrow is what spills. `drawSidebar` gives the badge its columns before the row
+  indent (`badgeCols` first, then `indent` only if it still fits) and drops the badge whole
+  when even that leaves no room, so a rendered count is always the real one.
+- Regression tests, all red on `d1ab541` and green on `b9461ff` — run with
+  `bun test packages/tui/src/ui/sidebar.test.ts packages/tui/src/render/text.test.ts`:
+  `fitToWidth > counts an emoji presentation sequence as two columns` (which also pins the
+  bare U+26A0 narrow), `> counts a flag as two columns`, `> counts a keycap sequence as two
+  columns`, `layoutText > gives an emoji presentation sequence a width-2 cell`,
+  `> clips a flag that would straddle the last column`, `drawSidebar > never draws a
+  session count clipped to a smaller number`, `> drops a badge that cannot fit rather than
+  drawing a wrong count`, and `> reserves two cells for an emoji presentation sequence in a
+  label`.
+- Independent cross-check of the new width rule against `string-width@7.2.0` (the reference
+  implementation behind ora/boxen, installed in a scratch dir, never added to the repo) over
+  27 samples — ASCII, CJK, fullwidth, ideographic space, astral emoji, ZWJ family, skin-tone
+  modifier, tag-sequence flag 🏴󠁧󠁢󠁳󠁣󠁴󠁿, RI flag, keycap, VS16 sequences, combining marks,
+  East Asian Ambiguous. Three divergences, all the same class and all deliberate: bare
+  U+26A0, U+2764 and U+2611 with no variation selector, which `string-width` widens via
+  `emoji-regex` regardless of presentation but Unicode 16 gives East Asian Width Neutral.
+  This table is EAW-based by the round-5 decision, so those stay narrow. Everything else
+  agrees.
+- Codex also reported checking negative and out-of-range `selected`, `height > rows.length`,
+  padding redraw, `width <= 0`, wide-glyph clipping at the last column and stale width-0
+  continuations, and found no defects there.
+
+- Validation at `b9461ff`: `bun run lint` exit 0, `bun run typecheck` exit 0 across all five
+  packages, `bun test` 1104 pass / 8 fail (1112 across 104 files, 59s). Baseline established
+  by stashing the change and running the full suite at `d1ab541`: 1096 pass / 8 fail with
+  the *same eight* failing test names, so the pass count is up by exactly the eight new
+  tests and nothing regressed. The eight are the pre-existing `MarkdownPaneImpl` failures —
+  confirmed to be a cross-file isolation problem, not a real defect in that code: running
+  `bun test packages/ui/src/components/panes/` alone gives 8 pass / 0 fail. Working tree
+  clean.
+
+## Decisions taken (Task 13 round 6)
+
+- An emoji cluster whose true width is uncertain is counted **wide**. Over-reserving costs
+  a blank column inside the pane; under-reserving lets the row spill into the session pane,
+  which is the failure the last two rounds have both been about.
+- The badge outranks the row indent for columns, and is all-or-nothing. A task title
+  truncated at a narrow width is expected; a session count truncated at a narrow width is a
+  lie, and there is no width at which showing part of a number is better than showing none.
+- The three bare default-text-presentation emoji where `string-width` disagrees are left
+  narrow rather than chasing parity with `emoji-regex`. The table's contract, set in round 5,
+  is Unicode 16 East Asian Width; adopting emoji-presentation-by-default would reopen it.
+
+Next step: Task 13 review round 7 — one gpt-5.5 review via the codex-review skill over
 `e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
-`packages/tui/src/render/text.ts` and `text.test.ts`, diff inlined in the prompt, with
-the badge rule described as the plan states it (any row with `sessionCount > 0`) and
-rounds 1-5 listed as already fixed — including that `WIDE_RANGES` is now generated from
-Unicode 16.0 East Asian Width `W`/`F` and verified complete, so a further "this code
-point is missing" finding needs to show the table disagrees with Unicode 16, not with an
-older or emoji-presentation-based width table. Verify each finding independently, fix the
+`packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-6 listed as already
+fixed. Tell the reviewer that `WIDE_RANGES` is generated from Unicode 16.0 East Asian Width
+`W`/`F` and verified complete, and that `graphemeWidth` now additionally widens any cluster
+containing U+FE0F or based on a regional indicator and has been cross-checked against
+`string-width@7.2.0` — so a further width finding needs to name a cluster shape neither rule
+covers, not restate emoji-presentation-vs-EAW. Verify each finding independently, fix the
 substantiated ones, validate with `bun run lint && bun run typecheck && bun test`, and
-commit. If the round comes back clean, mark Task 13 clear and move to Task 14 (session
-pane and tab strip).
+commit. If the round comes back clean, mark Task 13 clear and move to Task 14 (session pane
+and tab strip).
