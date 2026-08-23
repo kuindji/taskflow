@@ -39,7 +39,19 @@ class App {
 
     async init(): Promise<void> {
         await this.deps.store.load();
-        this.sidebarRows = buildRows(this.deps.store);
+        this.setRows(buildRows(this.deps.store));
+    }
+
+    /**
+     * Adopt a freshly built row list, pulling the selection back inside it. The
+     * list shrinks under the cursor whenever a broadcast removes or archives a
+     * record, and `drawSidebar` will not highlight a row that is no longer
+     * there — so without this the sidebar simply loses its selection until the
+     * next movement key.
+     */
+    private setRows(rows: SidebarRow[]): void {
+        this.sidebarRows = rows;
+        this.selected = Math.max(0, Math.min(this.selected, rows.length - 1));
     }
 
     get focus(): Focus {
@@ -104,7 +116,7 @@ class App {
         const { screen, cols, rows } = this.deps;
         // Rebuilt every frame: the store mutates in place on broadcasts, and the
         // rows are cheap enough that tracking dirtiness would cost more than it saves.
-        this.sidebarRows = buildRows(this.deps.store);
+        this.setRows(buildRows(this.deps.store));
 
         const sidebarWidth = this.zoomed ? 0 : Math.min(SIDEBAR_WIDTH, Math.floor(cols / 3));
         if (sidebarWidth > 0) {

@@ -19,6 +19,25 @@ function setRawMode(enabled: boolean): void {
 }
 
 /**
+ * Route every terminating signal through `process.exit` so that the `exit`
+ * handlers below are reached at all. A signal's default disposition kills the
+ * process outright and runs none of them, which would strand whatever had been
+ * registered — so this is installed before the first resource exists rather
+ * than alongside the first one that needs it.
+ *
+ * Handlers registered later for the same signals never run, because this one
+ * exits first. That is deliberate and costs nothing: `Tty` restores the
+ * terminal from its own `exit` handler, which this path does reach.
+ */
+function installSignalExit(): void {
+    for (const signal of SIGNALS) {
+        process.on(signal, () => {
+            process.exit(signal === "SIGINT" ? 130 : 143);
+        });
+    }
+}
+
+/**
  * Undo raw mode if the process ends between entering it and `Tty` taking over.
  * `Tty.installExitHandlers` cannot cover this window: every handler it installs
  * calls `leave()`, which returns immediately until `enter()` has run, so nothing
@@ -29,15 +48,9 @@ function armRawModeGuard(): () => void {
     const restore = (): void => {
         setRawMode(false);
     };
-    const onSignal = (signal: NodeJS.Signals): void => {
-        restore();
-        process.exit(signal === "SIGINT" ? 130 : 143);
-    };
     process.on("exit", restore);
-    for (const signal of SIGNALS) process.on(signal, onSignal);
     return () => {
         process.off("exit", restore);
-        for (const signal of SIGNALS) process.off(signal, onSignal);
     };
 }
 
@@ -75,10 +88,14 @@ function readOnce(timeoutMs: number): Promise<string> {
 }
 
 async function main(): Promise<void> {
+    installSignalExit();
+
     const devBranch = process.env.TASKFLOW_DEV_BRANCH ?? null;
     const binary = process.env.TASKFLOW_BACKEND_BIN ?? "taskflow-backend";
-    const backend = await startBackend({ binary, args: [], devBranch });
-    releaseOnExit(backend.stop);
+    // Registered from inside the spawn rather than from the resolved handle:
+    // awaiting the port file is the longest window in startup, and a signal
+    // during it must still take the backend down.
+    const backend = await startBackend({ binary, args: [], devBranch, onSpawn: releaseOnExit });
 
     const net = new WsClient(backend.port);
     // Registered before the connect so a socket that fails midway through

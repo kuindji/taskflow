@@ -29,19 +29,29 @@ function task(id: string, projectId: string, title: string): Task {
     };
 }
 
-function stubNet(): NetLike {
+/** A net whose broadcast handlers can be fired, so the store can be mutated mid-test. */
+interface FakeNet extends NetLike {
+    emit(type: string, payload: unknown): void;
+}
+
+function stubNet(projects: Project[], tasks: Task[]): FakeNet {
+    const handlers = new Map<string, ((payload: unknown) => void)[]>();
     return {
         request<T>(type: string): Promise<T> {
-            if (type === MSG.PROJECT_LIST) {
-                return Promise.resolve({ projects: [project("p1", "Alpha")] } as T);
-            }
-            if (type === MSG.TASK_LIST) {
-                return Promise.resolve({ tasks: [task("t1", "p1", "Build the TUI")] } as T);
-            }
+            if (type === MSG.PROJECT_LIST) return Promise.resolve({ projects } as T);
+            if (type === MSG.TASK_LIST) return Promise.resolve({ tasks } as T);
             return Promise.resolve({} as T);
         },
-        on: () => () => undefined,
+        on(type: string, handler: (payload: unknown) => void) {
+            const list = handlers.get(type) ?? [];
+            list.push(handler);
+            handlers.set(type, list);
+            return () => undefined;
+        },
         onStatusChange: () => () => undefined,
+        emit(type: string, payload: unknown) {
+            for (const handler of handlers.get(type) ?? []) handler(payload);
+        },
     };
 }
 
@@ -58,12 +68,16 @@ function key(patch: Partial<KeyEvent>): KeyEvent {
     return { name: "char", mods: noMods(), kind: "press", ...patch };
 }
 
-async function makeApp(): Promise<{
+async function makeApp(
+    projects: Project[] = [project("p1", "Alpha")],
+    tasks: Task[] = [task("t1", "p1", "Build the TUI")],
+): Promise<{
     app: App;
     sink: Sink & { output: string };
     screen: Screen;
+    net: FakeNet;
 }> {
-    const net = stubNet();
+    const net = stubNet(projects, tasks);
     const store = new Store(net);
     const sink = collectingSink();
     const screen = new Screen(sink, 60, 10);
@@ -76,7 +90,7 @@ async function makeApp(): Promise<{
         kittyAvailable: true,
     });
     await app.init();
-    return { app, sink, screen };
+    return { app, sink, screen, net };
 }
 
 /**
@@ -136,6 +150,22 @@ describe("App", () => {
         app.handleKey(key({ name: "up" }));
         app.render();
         expect(selectedRow(screen)).toBe(0);
+    });
+
+    test("keeps a selection when the row list shrinks under it", async () => {
+        const { app, screen, net } = await makeApp(
+            [project("p1", "Alpha"), project("p2", "Beta")],
+            [task("t1", "p1", "One"), task("t2", "p2", "Two")],
+        );
+        // Alpha, One, Beta, Two — move down onto the last row.
+        for (let i = 0; i < 3; i++) app.handleKey(key({ char: "j" }));
+        app.render();
+        expect(selectedRow(screen)).toBe(3);
+
+        // Beta is removed on the backend, taking rows 2 and 3 with it.
+        net.emit(MSG.PROJECT_REMOVED, { id: "p2" });
+        app.render();
+        expect(selectedRow(screen)).toBe(1);
     });
 
     test("Q stops the app", async () => {

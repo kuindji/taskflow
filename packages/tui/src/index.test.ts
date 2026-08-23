@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { mkdtemp, writeFile, chmod, readFile } from "fs/promises";
+import { mkdtemp, writeFile, chmod, readFile, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import type { Subprocess } from "bun";
@@ -15,13 +15,40 @@ const ENTRY = join(import.meta.dir, "index.ts");
 type TuiProcess = Subprocess<"pipe", "pipe", "pipe">;
 
 const spawned: TuiProcess[] = [];
+/**
+ * Everything the harness itself created. A failing assertion skips the rest of
+ * its test, and SIGKILLing the TUI runs none of its cleanup, so a test that
+ * goes red would otherwise leave both a fake backend and a temp tree behind.
+ */
+const backendPids: number[] = [];
+const tempDirs: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
     while (spawned.length > 0) spawned.pop()?.kill("SIGKILL");
+    while (backendPids.length > 0) {
+        const pid = backendPids.pop();
+        if (pid === undefined) continue;
+        try {
+            process.kill(pid, "SIGKILL");
+        } catch {
+            // Already gone, which is the outcome most of these tests assert.
+        }
+    }
+    while (tempDirs.length > 0) {
+        const dir = tempDirs.pop();
+        if (dir === undefined) continue;
+        await rm(dir, { recursive: true, force: true });
+    }
 });
 
+async function tempDir(prefix: string): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), prefix));
+    tempDirs.push(dir);
+    return dir;
+}
+
 async function fakeBackend(body: string): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), "tui-index-test-"));
+    const dir = await tempDir("tui-index-test-");
     const path = join(dir, "fake-backend.sh");
     await writeFile(path, `#!/bin/sh\n${body}\n`);
     await chmod(path, 0o755);
@@ -36,11 +63,29 @@ async function deafBackend(pidFile: string): Promise<string> {
 }
 
 /**
- * A backend that speaks just enough of the protocol for the TUI to finish
- * starting: it answers every request with empty lists, after `delayMs`.
+ * A backend that publishes its pid at once but takes its time over the port
+ * file, so the TUI is still inside `startBackend` when the test acts on it.
  */
-async function talkingBackend(pidFile: string, delayMs: number): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), "tui-index-server-"));
+async function slowBackend(pidFile: string, delaySeconds: number): Promise<string> {
+    return fakeBackend(
+        `echo $$ > "${pidFile}"\nsleep ${String(delaySeconds)}\n` +
+            `echo 1 > "$TASKFLOW_PORT_FILE"\nexec sleep 60`,
+    );
+}
+
+/**
+ * A backend that speaks just enough of the protocol for the TUI to finish
+ * starting: it answers every request with empty lists, after `delayMs`. It
+ * touches `readyFile` as the first request arrives — which the TUI only sends
+ * once it is inside `app.init()`, past connect and past kitty negotiation — so
+ * a test can aim at that window without guessing at a sleep.
+ */
+async function talkingBackend(
+    pidFile: string,
+    delayMs: number,
+    readyFile: string,
+): Promise<string> {
+    const dir = await tempDir("tui-index-server-");
     const server = join(dir, "server.ts");
     await writeFile(
         server,
@@ -49,6 +94,7 @@ async function talkingBackend(pidFile: string, delayMs: number): Promise<string>
     fetch: (req, s) => (s.upgrade(req) ? undefined : new Response("no")),
     websocket: {
         message(ws, raw) {
+            void Bun.write(${JSON.stringify(readyFile)}, "1");
             const req = JSON.parse(String(raw));
             setTimeout(() => {
                 ws.send(
@@ -88,21 +134,28 @@ function alive(pid: number): boolean {
     }
 }
 
-async function waitForPid(pidFile: string): Promise<number> {
-    for (let i = 0; i < 200; i++) {
+async function waitForFile(path: string, what: string): Promise<string> {
+    for (let i = 0; i < 400; i++) {
         try {
-            const pid = Number.parseInt((await readFile(pidFile, "utf-8")).trim(), 10);
-            if (Number.isInteger(pid) && pid > 0) return pid;
+            const raw = (await readFile(path, "utf-8")).trim();
+            if (raw !== "") return raw;
         } catch {
-            // The backend has not written its pid yet.
+            // Not written yet.
         }
         await Bun.sleep(25);
     }
-    throw new Error("fake backend never wrote its pid");
+    throw new Error(`fake backend never wrote its ${what}`);
+}
+
+async function waitForPid(pidFile: string): Promise<number> {
+    const pid = Number.parseInt(await waitForFile(pidFile, "pid"), 10);
+    if (!Number.isInteger(pid) || pid <= 0) throw new Error("fake backend wrote a bad pid");
+    backendPids.push(pid);
+    return pid;
 }
 
 async function waitUntilDead(pid: number): Promise<boolean> {
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 120; i++) {
         if (!alive(pid)) return true;
         await Bun.sleep(25);
     }
@@ -111,7 +164,7 @@ async function waitUntilDead(pid: number): Promise<boolean> {
 
 describe("tui entry point", () => {
     test("stops the backend when startup fails after it was spawned", async () => {
-        const pidFile = join(await mkdtemp(join(tmpdir(), "tui-index-pid-")), "pid");
+        const pidFile = join(await tempDir("tui-index-pid-"), "pid");
         const child = runTui(await deafBackend(pidFile));
         const backendPid = await waitForPid(pidFile);
 
@@ -121,12 +174,30 @@ describe("tui entry point", () => {
         expect(await waitUntilDead(backendPid)).toBe(true);
     }, 20_000);
 
-    test("stops the backend when the TUI is terminated by a signal", async () => {
-        const pidFile = join(await mkdtemp(join(tmpdir(), "tui-index-pid-")), "pid");
-        const child = runTui(await talkingBackend(pidFile, 0));
+    test("stops the backend when a signal lands while the port is still awaited", async () => {
+        const pidFile = join(await tempDir("tui-index-pid-"), "pid");
+        const child = runTui(await slowBackend(pidFile, 5));
         const backendPid = await waitForPid(pidFile);
-        // Let it get past connect, init and into the render loop.
-        await Bun.sleep(1500);
+
+        // The TUI is parked in `startBackend`'s poll loop: the child exists but
+        // has not published a port, so the handle that owns `stop` does not
+        // exist yet either.
+        child.kill("SIGTERM");
+        await child.exited;
+        expect(await waitUntilDead(backendPid)).toBe(true);
+    }, 20_000);
+
+    test("stops the backend when the TUI is terminated by a signal", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        const backendPid = await waitForPid(pidFile);
+        // The first request means connect and negotiation are done and the TUI
+        // is inside `init()`; the snapshot is served at once, so the render loop
+        // follows immediately.
+        await waitForFile(readyFile, "ready marker");
+        await Bun.sleep(200);
         expect(alive(backendPid)).toBe(true);
 
         child.kill("SIGTERM");
@@ -135,14 +206,17 @@ describe("tui entry point", () => {
     }, 20_000);
 
     test("does not lose a key typed while the first snapshot is still loading", async () => {
-        const pidFile = join(await mkdtemp(join(tmpdir(), "tui-index-pid-")), "pid");
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
         // The snapshot is held back so `Q` lands squarely inside `app.init()`.
-        const child = runTui(await talkingBackend(pidFile, 1200));
+        const child = runTui(await talkingBackend(pidFile, 2000, readyFile));
         await waitForPid(pidFile);
 
-        // After the 150ms kitty negotiation window, whose reply-shaped read would
-        // otherwise swallow it, and before the snapshot arrives.
-        await Bun.sleep(600);
+        // The marker is written when the first request arrives, which is after
+        // the kitty negotiation window whose reply-shaped read would otherwise
+        // swallow the keystroke, and before the snapshot answers it.
+        await waitForFile(readyFile, "ready marker");
         await child.stdin.write("Q");
         await child.stdin.flush();
 

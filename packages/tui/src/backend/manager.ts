@@ -10,6 +10,14 @@ interface StartBackendOptions {
     args: string[];
     devBranch: string | null;
     timeoutMs?: number;
+    /**
+     * Handed the child's terminator the moment it is spawned, long before startup
+     * has succeeded or failed. `startBackend` cleans up after its own failures,
+     * but it cannot see the calling process ending underneath it: a signal that
+     * lands while the port file is still being awaited would otherwise leave the
+     * backend running with nothing left holding a handle on it.
+     */
+    onSpawn?: (stop: () => void) => void;
 }
 
 interface BackendHandle {
@@ -109,6 +117,7 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
         child.kill();
         removePortFile(portFile);
     };
+    opts.onSpawn?.(stop);
 
     // The startup paths can wait, so they escalate: SIGTERM gives the backend its
     // shutdown handler, and a child that ignores it or has wedged is SIGKILLed
