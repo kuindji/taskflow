@@ -19,8 +19,11 @@ class Store {
      * Non-null while a `load()` is in flight. Events that land in that window
      * describe changes the snapshot may predate, so they are held here and
      * replayed on top of the snapshot instead of being overwritten by it.
+     * One shared queue across overlapping loads: whichever load commits drains it.
      */
     private deferred: (() => void)[] | null = null;
+    /** Incremented per `load()`; only the newest load may commit its snapshot. */
+    private loadToken = 0;
 
     constructor(private readonly net: NetLike) {
         this.disposers.push(
@@ -77,19 +80,25 @@ class Store {
     }
 
     async load(): Promise<void> {
-        const deferred: (() => void)[] = [];
-        this.deferred = deferred;
+        const token = ++this.loadToken;
+        this.deferred ??= [];
         try {
             const [projects, tasks] = await Promise.all([
                 this.net.request<ProjectListResponse>(MSG.PROJECT_LIST),
                 this.net.request<TaskListResponse>(MSG.TASK_LIST),
             ]);
+            // A later load() already owns the state; this snapshot is stale by
+            // definition, so committing it would undo the newer one.
+            if (this.loadToken !== token) return;
             this.projectList = projects.projects;
             this.taskList = tasks.tasks;
         } finally {
-            if (this.deferred === deferred) this.deferred = null;
-            for (const mutation of deferred) mutation();
-            this.notify();
+            if (this.loadToken === token) {
+                const deferred = this.deferred ?? [];
+                this.deferred = null;
+                for (const mutation of deferred) mutation();
+                this.notify();
+            }
         }
     }
 

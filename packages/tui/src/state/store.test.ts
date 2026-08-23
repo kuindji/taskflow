@@ -81,6 +81,44 @@ function slowNet(projects: Project[], tasks: Task[]): FakeNet & { resolveProject
     };
 }
 
+/**
+ * A net that serves one snapshot pair per `load()` call, each behind its own
+ * gate, so a test can resolve a later load before an earlier one.
+ */
+function stagedNet(rounds: { projects: Project[]; tasks: Task[] }[]): FakeNet & { release(round: number): void } {
+    const base = fakeNet([], []);
+    const gates = rounds.map((round) => {
+        let release = (): void => undefined;
+        const opened = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        return { round, opened, release };
+    });
+    let projectCall = 0;
+    let taskCall = 0;
+    return {
+        ...base,
+        request<T>(type: string): Promise<T> {
+            if (type === MSG.PROJECT_LIST) {
+                const gate = gates[projectCall++];
+                if (!gate) throw new Error("stagedNet: no snapshot left for PROJECT_LIST");
+                return gate.opened.then(() => ({ projects: gate.round.projects }) as T);
+            }
+            if (type === MSG.TASK_LIST) {
+                const gate = gates[taskCall++];
+                if (!gate) throw new Error("stagedNet: no snapshot left for TASK_LIST");
+                return gate.opened.then(() => ({ tasks: gate.round.tasks }) as T);
+            }
+            return base.request<T>(type);
+        },
+        release(round) {
+            const gate = gates[round];
+            if (!gate) throw new Error(`stagedNet: no gate ${String(round)}`);
+            gate.release();
+        },
+    };
+}
+
 describe("Store", () => {
     test("loads projects and tasks", async () => {
         const store = new Store(fakeNet([project("p1", "One")], [task("t1", "p1", "Task")]));
@@ -173,5 +211,40 @@ describe("Store", () => {
         expect(net.listenerCount(MSG.TASK_CREATED)).toBe(0);
         net.emit(MSG.TASK_CREATED, task("t8", "p1", "After dispose"));
         expect(store.tasksFor("p1")).toHaveLength(0);
+    });
+    test("a superseded load() does not overwrite the newer snapshot", async () => {
+        const net = stagedNet([
+            { projects: [project("p1", "One")], tasks: [] },
+            { projects: [project("p1", "One")], tasks: [task("t2", "p1", "New")] },
+        ]);
+        const store = new Store(net);
+        const first = store.load();
+        const second = store.load();
+        // The second load settles first and commits the newer snapshot.
+        net.release(1);
+        await second;
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["t2"]);
+        // The first load settles late; its snapshot is older and must be dropped.
+        net.release(0);
+        await first;
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["t2"]);
+        store.dispose();
+    });
+    test("an event queued during a superseded load survives into the newer snapshot", async () => {
+        const net = stagedNet([
+            { projects: [project("p1", "One")], tasks: [] },
+            { projects: [project("p1", "One")], tasks: [] },
+        ]);
+        const store = new Store(net);
+        const first = store.load();
+        // Lands while the first load is still in flight, before the second starts.
+        net.emit(MSG.TASK_CREATED, task("t5", "p1", "Queued"));
+        const second = store.load();
+        net.release(1);
+        await second;
+        net.release(0);
+        await first;
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["t5"]);
+        store.dispose();
     });
 });
