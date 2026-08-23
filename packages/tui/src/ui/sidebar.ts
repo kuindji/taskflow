@@ -50,8 +50,15 @@ function drawSidebar(
         if (row !== undefined) {
             const badge = row.sessionCount > 0 ? ` ${String(row.sessionCount)}` : "";
             const prefix = row.kind === "project" ? "" : "  ";
-            const available = width - prefix.length - badge.length;
-            text = `${prefix}${fitToWidth(row.label, available)}${badge}`;
+            // `layoutText` clips from the right, so whatever is appended after
+            // the label is the first thing lost — and a badge cut short reads as
+            // a smaller session count than the row has. Give the badge its
+            // columns before the indent, and drop it whole rather than render a
+            // count that lies. The badge is ASCII, so its length is its width.
+            const badgeCols = badge.length <= width ? badge.length : 0;
+            const indent = prefix.length + badgeCols <= width ? prefix : "";
+            const available = width - indent.length - badgeCols;
+            text = `${indent}${fitToWidth(row.label, available)}${badgeCols > 0 ? badge : ""}`;
         }
 
         const cells = layoutText(text, width, attrs);

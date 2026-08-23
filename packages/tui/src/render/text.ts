@@ -144,6 +144,19 @@ const WIDE_RANGES: readonly (readonly [number, number])[] = [
 const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}]$/u;
 
 /**
+ * VARIATION SELECTOR-16. It asks for the emoji presentation of the character
+ * before it, which a terminal draws in two columns even when that character's
+ * East Asian Width is Neutral — U+26A0 U+FE0F and the keycap sequences are the
+ * common cases in a task title.
+ */
+const EMOJI_PRESENTATION = "\ufe0f";
+
+/** A pair of these is one flag, drawn as a single two-column glyph. */
+function isRegionalIndicator(cp: number): boolean {
+    return cp >= 0x1f1e6 && cp <= 0x1f1ff;
+}
+
+/**
  * Clusters that must never reach the terminal, blanked instead of drawn.
  * Unanchored: `Intl.Segmenter` keeps CRLF as one grapheme, so a cluster can
  * carry such a code point alongside another character.
@@ -171,15 +184,22 @@ function graphemes(text: string): string[] {
 }
 
 /**
- * Columns `grapheme` occupies. The base character decides: any combining marks
- * the segmenter folded into the same grapheme ride along in the same cell.
+ * Columns `grapheme` occupies. The base character usually decides, and any
+ * combining marks the segmenter folded into the same grapheme ride along in the
+ * same cell — but two cluster shapes are wider than their base and have to be
+ * read whole: an emoji presentation sequence and a flag.
+ *
+ * Guessing too wide costs a blank column; guessing too narrow lets the row run
+ * past the pane it was laid out for, so an ambiguous cluster is counted wide.
  */
 function graphemeWidth(grapheme: string): 0 | 1 | 2 {
     const cp = grapheme.codePointAt(0);
     if (cp === undefined) return 0;
     const base = String.fromCodePoint(cp);
     if (ZERO_WIDTH.test(base)) return 0;
-    return isWide(cp) ? 2 : 1;
+    if (isWide(cp)) return 2;
+    if (grapheme.includes(EMOJI_PRESENTATION)) return 2;
+    return isRegionalIndicator(cp) ? 2 : 1;
 }
 
 function cell(ch: string, width: 0 | 1 | 2, attrs: number): Cell {

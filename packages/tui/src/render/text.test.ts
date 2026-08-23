@@ -56,6 +56,24 @@ describe("fitToWidth", () => {
         expect(fitToWidth("\u3248x", 2)).toBe("\u3248x");
     });
 
+    test("counts an emoji presentation sequence as two columns", () => {
+        // U+26A0 alone is East Asian Neutral and stays narrow, but U+FE0F
+        // promotes the cluster to emoji presentation and the terminal advances
+        // two columns for it.
+        expect(fitToWidth("\u26a0\ufe0fx", 2)).toBe("\u26a0\ufe0f");
+        expect(fitToWidth("\u26a0x", 2)).toBe("\u26a0x");
+    });
+
+    test("counts a flag as two columns", () => {
+        // A pair of regional indicators is one two-column glyph, and neither
+        // half is East Asian Wide on its own.
+        expect(fitToWidth("\u{1f1fa}\u{1f1f8}x", 2)).toBe("\u{1f1fa}\u{1f1f8}");
+    });
+
+    test("counts a keycap sequence as two columns", () => {
+        expect(fitToWidth("1\ufe0f\u20e3x", 2)).toBe("1\ufe0f\u20e3");
+    });
+
     test("drops a standalone zero-width cluster with no base to ride on", () => {
         // A leading combining mark has nothing to attach to inside the label.
         // Kept, it would attach to whatever the caller concatenates in front of
@@ -142,6 +160,18 @@ describe("layoutText", () => {
         const cells = layoutText("\u{1F680}", 3, 0);
         expect(cells.map((c) => c.ch)).toEqual(["\u{1F680}", "", " "]);
         expect(cells.map((c) => c.width)).toEqual([2, 0, 1]);
+    });
+
+    test("gives an emoji presentation sequence a width-2 cell", () => {
+        const cells = layoutText("\u26a0\ufe0fx", 3, 0);
+        expect(cells.map((c) => c.ch)).toEqual(["\u26a0\ufe0f", "", "x"]);
+        expect(cells.map((c) => c.width)).toEqual([2, 0, 1]);
+    });
+
+    test("clips a flag that would straddle the last column", () => {
+        const cells = layoutText("\u{1f1fa}\u{1f1f8}", 1, 0);
+        expect(cells.map((c) => c.ch)).toEqual([" "]);
+        expect(cells.map((c) => c.width)).toEqual([1]);
     });
 
     test("returns a distinct cell object per column", () => {

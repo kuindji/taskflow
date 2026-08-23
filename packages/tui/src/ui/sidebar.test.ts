@@ -127,6 +127,37 @@ describe("drawSidebar", () => {
         expect(rowText(buf, 0, 20)).toContain("3");
     });
 
+    test("never draws a session count clipped to a smaller number", () => {
+        // `layoutText` clips from the right, so a badge appended after the label
+        // is the first thing lost. Cut short, " 12" reads as one session when
+        // the task has twelve.
+        const buf = new ScreenBuffer(4, 1);
+        drawSidebar(buf, [{ kind: "task", id: "t1", label: "A", sessionCount: 12 }], 0, 4, 1);
+        expect(rowText(buf, 0, 4)).toBe("A 12");
+    });
+
+    test("drops a badge that cannot fit rather than drawing a wrong count", () => {
+        const buf = new ScreenBuffer(2, 1);
+        drawSidebar(buf, [{ kind: "task", id: "t1", label: "A", sessionCount: 12 }], 0, 2, 1);
+        expect(rowText(buf, 0, 2)).not.toContain("1");
+    });
+
+    test("reserves two cells for an emoji presentation sequence in a label", () => {
+        // U+26A0 U+FE0F advances two columns in the terminal; measured as one,
+        // every glyph after it lands a column left of its cell and the row runs
+        // past the pane.
+        const buf = new ScreenBuffer(6, 1);
+        drawSidebar(
+            buf,
+            [{ kind: "project", id: "p1", label: "\u26a0\ufe0fA", sessionCount: 0 }],
+            0,
+            6,
+            1,
+        );
+        expect(buf.get(0, 0).width).toBe(2);
+        expect(buf.get(2, 0).ch).toBe("A");
+    });
+
     test("indents task rows and puts the badge after the label", () => {
         const buf = new ScreenBuffer(20, 3);
         drawSidebar(
