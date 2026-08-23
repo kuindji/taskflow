@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | in-review round 7 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`; round 7 found 1 real defect, fixed; round 8 due |
+| 13 | Sidebar rendering | in-review round 8 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`; round 8 found 1 real defect, fixed; round 9 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -2862,16 +2862,89 @@ width and cursor edge cases.
 - Codex's `Clear` verdict was overridden on the strength of an independent repro. The round
   counts as findings-fixed, so another round is due.
 
-Next step: Task 13 review round 8 — one gpt-5.5 review via the codex-review skill over
+- **Task 13, round 8** (gpt-5.5 via codex-review, Mode B over the four scoped files at
+  `c8a8158`, with rounds 1-7 listed as already-settled rules the reviewer was told not to
+  re-report): one finding, substantiated and fixed in `3f1511d`. Found here independently
+  from codex's run log before its report landed, and reproduced before reading the write-up;
+  codex's final report names the same defect and nothing else.
+- **Substantiated — a title beginning with a forward-binding format character lost its
+  text.** `graphemeWidth` read only `grapheme.codePointAt(0)` and dropped the whole cluster
+  when that code point matched `NO_BASE`. The round-4/7 justification for that — "a mark
+  reaches this test exactly when the segmenter had no base to attach it to" — is false for
+  `Cf` characters whose grapheme-cluster break is `Prepend`: U+0600..U+0605, U+06DD, U+070F,
+  U+0890..U+0891, U+08E2, U+110BD, U+110CD and the rest bind to what *follows* them, so the
+  segmenter hands them back leading a cluster whose real base sits behind them.
+  Verified before the fix, at `c8a8158`: a task titled `"\u0600\u0661\u0662\u0663"`
+  (Arabic number sign + ١٢٣) drew the row `"  \u0662\u0663"` — the first digit gone;
+  `"\u0600A"` drew an entirely blank row; `fitToWidth("\u0600A", 6)` returned `""`, and
+  `layoutText("\u0600A", 6, 0)` returned six blanks. Same for U+06DD and U+070F.
+- Fix: a new `baseCodePoint` helper scans the cluster for the first code point that is not
+  `NO_BASE` and returns it; `graphemeWidth` drops the cluster only when there is none.
+  The baseless rule is untouched — `Mn`/`Me`/`Mc` bind backwards, so a mark can only lead a
+  cluster the segmenter had nothing to attach it to, and such a cluster has no non-`NO_BASE`
+  code point for the scan to find. Confirmed by segmenting the round-7 cases: `"\u093eA"`
+  is still two clusters, and `"  \u0600A"` still segments as `[" ", " ", "\u0600A"]`, so the
+  kept prepend cannot bleed onto a caller's padding either.
+- Regression tests, all red on `c8a8158` and green on `3f1511d` — run with
+  `bun test packages/tui/src/render/text.test.ts packages/tui/src/ui/sidebar.test.ts`:
+  `fitToWidth > keeps the printable base behind a format character that binds forwards`,
+  `layoutText > gives the base behind a forward-binding format character its own cell`,
+  `> measures a forward-binding format character by the base behind it` (pins that the base,
+  not the prepend, decides the width — `"\u0600\u6f22"` still costs two columns), and
+  `drawSidebar > draws a title that begins with a format character binding forwards`.
+  A fifth test, `fitToWidth > still drops a cluster that is only marks and format
+  characters`, is green both before and after: it pins the baseless rule the fix must not
+  reopen.
+- Probed independently here and found nothing: `layoutText`'s exactly-`cols` invariant and
+  its width-sum invariant over 26 hostile cluster shapes at `cols` 0..8 (0 failures);
+  `drawSidebar` spilling past `width` into a sentinel-filled pane, over every combination of
+  those 26 labels x session counts 0/1/9/10/100/1000 x project/task x `width` 0..12 (0
+  spills, 0 truncated badges); `available` going negative (it cannot — `indent` is only kept
+  when `indent.length + badgeCols <= width`, and `badgeCols` is 0 or `<= width`); indent
+  bleed from `fitToWidth`'s result being concatenated behind two spaces (0 cases).
+- Codex also probed and found nothing in: badge/indent arithmetic at widths 0-2, multi-digit
+  counts, out-of-range `selected`, padding-row attributes, the `cells[x] !== undefined`
+  guard, and the two test files' assertion strength. It ran the two scoped test files itself
+  (49 pass / 0 fail at `c8a8158`).
+
+- Validation at `3f1511d`: `bun run lint` exit 0, `bun run typecheck` exit 0 across all five
+  packages, `bun test` 1114 pass / 8 fail (1122 across 104 files, 59s). The eight are the
+  same pre-existing `MarkdownPaneImpl` cross-file isolation failures as every prior round,
+  by name; the pass count is up by exactly the five new tests. Working tree clean.
+
+## Decisions taken (Task 13 round 8)
+
+- A cluster is dropped for having no base, not for *starting* with a mark. `NO_BASE` keeps
+  its name and its member set; what changed is that it is now applied to every code point in
+  the cluster until one fails to match, rather than to the first alone. That is the smallest
+  change that fixes `Prepend` without touching any round-4/7 behaviour.
+- A kept prepend stays in the cell with its base (`ch` is `"\u0600A"`, width 1) rather than
+  being stripped. It is invisible, the terminal ignores it, and keeping the label's bytes
+  intact means a copy out of the frame still round-trips.
+- The width is taken from the base behind the prepend, not from the prepend. Prepend `Cf`
+  characters are all East Asian Neutral, so this only matters for a wide base — where taking
+  the prepend's width would under-reserve and let the row spill, the exact failure mode
+  rounds 5-7 were about.
+
+## Note on unrelated commits
+
+`9d89b0f` and `40da7b0` (a multi-backend implementation plan and a docs tweak) landed on
+`main` from outside this flow while round 8 was running. Both are docs-only and touch none
+of the four files under review, so the `e64f1f0..HEAD` scoping is unaffected. Task 13's base
+commit is still `e64f1f0`.
+
+Next step: Task 13 review round 9 — one gpt-5.5 review via the codex-review skill over
 `e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
-`packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-7 listed as already
-fixed. Give the reviewer the round-7 rules explicitly: `NO_BASE` now drops any cluster
-whose first code point is `Mn`/`Me`/`Mc`/`Cf`, including the four wide `Mc` code points;
-`WIDE_RANGES` is Unicode 16.0 EAW `W`/`F`, verified sorted and complete; `graphemeWidth`
-widens any cluster containing U+FE0F or based on a regional indicator, cross-checked
-against `string-width@7.2.0`. A further width finding needs to name a cluster shape none of
-those rules cover. Verify each finding independently — round 7 is a reminder that codex's
-summary verdict can contradict its own run log, so read the log, not just the report. Fix
-the substantiated ones, validate with `bun run lint && bun run typecheck && bun test`, and
-commit. If the round comes back clean, mark Task 13 clear and move to Task 14 (session pane
-and tab strip).
+`packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-8 listed as already
+fixed. Give the reviewer the settled rules explicitly, now including round 8: width comes
+from `baseCodePoint`, the first code point in the cluster that is not `Mn`/`Me`/`Mc`/`Cf`,
+and a cluster with no such code point is dropped; `WIDE_RANGES` is Unicode 16.0 EAW `W`/`F`,
+verified sorted and complete; `graphemeWidth` widens any cluster containing U+FE0F or based
+on a regional indicator. A further width finding needs to name a cluster shape none of those
+rules cover. Steer the round away from `text.ts` width tables, which eight rounds have now
+worked over, and towards `sidebar.ts` itself, `buildRows`, and the strength of the two test
+files. Verify each finding independently — read codex's run log, not just its report; round
+7 showed the summary verdict can contradict the log, and round 8's real finding was visible
+in the log before the report existed. Fix the substantiated ones, validate with
+`bun run lint && bun run typecheck && bun test`, and commit. If the round comes back clean,
+mark Task 13 clear and move to Task 14 (session pane and tab strip).
