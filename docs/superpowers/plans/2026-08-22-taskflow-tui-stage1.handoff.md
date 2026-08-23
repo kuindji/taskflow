@@ -477,6 +477,16 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 
 ## Decisions taken
 
+- **A defect Claude finds during a clean review round still counts as that
+  round's finding.** Round 6 came back clean from gpt-5.5, but Claude found a
+  real gap in round 5's own fix while reading the diff. Recording the round as
+  "clear" and moving to Task 10 would have shipped a known, reproducible defect
+  in exactly the code the round was meant to check. The round is therefore
+  logged as "one finding, fixed", which keeps the loop's own rule intact —
+  findings fixed means another review round — and gets the fix re-reviewed. The
+  finding's source is attributed explicitly so the rounds still show what
+  gpt-5.5 did and did not catch.
+
 - **The kitty tracking lives in `@taskflow/shared`, not twice.** Round 2's fix
   needed the same stack logic on both sides, and round 1 had already shown what
   duplicating it costs: the backend mirror was written by copying the TUI's
