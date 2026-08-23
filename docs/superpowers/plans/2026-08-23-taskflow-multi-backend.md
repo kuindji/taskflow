@@ -55,6 +55,8 @@
 | `packages/backend/src/config.ts` | Add `instancePortFile` |
 | `packages/backend/src/index.ts` | Write/remove the instance port file; `protocolVersion` on `SYSTEM_INFO`; start the advertiser |
 | `packages/shared/src/constants.ts` | `PROTOCOL_VERSION`, discovery constants |
+| `packages/backend/src/handlers/settings.ts` | Notify on settings update, so the beacon follows the setting |
+| `packages/ui/src/components/settings/sections/GeneralSection.tsx` | Discoverable switch and network name |
 | `packages/shared/src/types/system.ts` | `protocolVersion` on `SystemInfo` |
 | `packages/shared/src/types/settings.ts` | `NetworkSettings` |
 | `packages/backend/src/services/settings-store.ts` | `network` defaults and merge |
@@ -238,7 +240,7 @@ The codec is pure so it can be tested without a network, and so a malformed data
 
 **Interfaces:**
 - Consumes: `PROTOCOL_VERSION` from Task 1.
-- Produces: `encodeAnnounce(a: BeaconAnnounce): Uint8Array`, `encodeProbe(): Uint8Array`, `parseDatagram(bytes: Uint8Array): BeaconAnnounce | BeaconProbe | null`, `isStale(lastSeenAt: number, now: number): boolean`, `backendIdFor(hostname: string, instanceId: string): string`, and the types in `types/backend.ts`.
+- Produces: `encodeAnnounce(a: BeaconAnnounce): Uint8Array`, `encodeProbe(): Uint8Array`, `parseDatagram(bytes: Uint8Array): BeaconAnnounce | BeaconProbe | null`, `isStale(lastSeenAt: number, now: number): boolean`, `isSafeLabel(value: string): boolean`, `backendIdFor(hostname: string, instanceId: string): string`, and the types in `types/backend.ts`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -282,6 +284,23 @@ describe("parseDatagram", () => {
 
     test("returns null when a required field has the wrong type", () => {
         const bytes = new TextEncoder().encode(JSON.stringify({ ...announce, port: "54892" }));
+        expect(parseDatagram(bytes)).toBeNull();
+    });
+
+    test("returns null for an instanceId that is not a plain identifier", () => {
+        // `instanceId` reaches a remote shell in Task 6's port lookup and is
+        // part of the persisted record id. Anyone on the LAN can send one, so
+        // the codec is where the character set is decided.
+        for (const instanceId of ["main; rm -rf ~", "a b", "../../etc", "$(id)", ""]) {
+            const bytes = new TextEncoder().encode(JSON.stringify({ ...announce, instanceId }));
+            expect(parseDatagram(bytes)).toBeNull();
+        }
+    });
+
+    test("returns null for a hostname that is not a plain hostname", () => {
+        const bytes = new TextEncoder().encode(
+            JSON.stringify({ ...announce, hostname: "desk top;rm" }),
+        );
         expect(parseDatagram(bytes)).toBeNull();
     });
 
@@ -430,6 +449,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * `instanceId` and `hostname` are the two announced strings that leave the
+ * codec: they form the record id, and `instanceId` is interpolated into a
+ * command run over ssh on the remote machine (Task 6). Anything outside this
+ * character set is refused here rather than quoted later, because there is one
+ * parser and many consumers.
+ */
+const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+function isSafeLabel(value: string): boolean {
+    return SAFE_LABEL.test(value);
+}
+
+/**
  * Anything on the LAN can send us bytes, so every field is checked and any
  * surprise returns null rather than throwing.
  */
@@ -448,8 +480,8 @@ function parseDatagram(bytes: Uint8Array): BeaconAnnounce | BeaconProbe | null {
 
     const { protocolVersion, instanceId, hostname, displayName, port, appVersion, os } = parsed;
     if (typeof protocolVersion !== "number") return null;
-    if (typeof instanceId !== "string" || instanceId.length === 0) return null;
-    if (typeof hostname !== "string" || hostname.length === 0) return null;
+    if (typeof instanceId !== "string" || !SAFE_LABEL.test(instanceId)) return null;
+    if (typeof hostname !== "string" || !SAFE_LABEL.test(hostname)) return null;
     if (typeof displayName !== "string" || displayName.length === 0) return null;
     if (typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) {
         return null;
@@ -473,7 +505,7 @@ function isStale(lastSeenAt: number, now: number): boolean {
     return now - lastSeenAt > DISCOVERY_STALE_AFTER_MS;
 }
 
-export { backendIdFor, encodeAnnounce, encodeProbe, isStale, parseDatagram };
+export { backendIdFor, encodeAnnounce, encodeProbe, isSafeLabel, isStale, parseDatagram };
 ```
 
 - [ ] **Step 6: Export the types from the barrel**
@@ -489,7 +521,7 @@ Do **not** export anything from `./discovery` here. `beacon.ts` is pure and woul
 - [ ] **Step 7: Run test to verify it passes**
 
 Run: `bun test packages/shared/src/discovery/beacon.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 8: Commit**
 
@@ -511,11 +543,14 @@ The socket layer is where multicast's platform quirks live: one membership per i
 - Modify: `packages/shared/package.json`
 - Modify: `packages/shared/src/types/settings.ts`
 - Modify: `packages/backend/src/services/settings-store.ts:95` and `:118` and `:278`
+- Modify: `packages/backend/src/handlers/settings.ts:16-19,36-39`
 - Modify: `packages/backend/src/index.ts`
+- Modify: `packages/ui/src/components/settings/sections/GeneralSection.tsx`
+- Modify: `packages/ui/src/components/settings/SettingsModal.tsx:454-464`
 
 **Interfaces:**
 - Consumes: the codec from Task 2.
-- Produces: `createAdvertiser(opts: { payload: () => BeaconAnnounce }): DiscoveryHandle`, `createListener(opts: { onChange: (entries: DiscoveredBackend[]) => void }): DiscoveryListener`, where `DiscoveryHandle = { start(): Promise<void>; stop(): void }` and `DiscoveryListener = DiscoveryHandle & { probe(): void; entries(): DiscoveredBackend[] }`. Also `AppSettings.network: NetworkSettings` with `discoverable: boolean`.
+- Produces: `createAdvertiser(opts: { payload: () => BeaconAnnounce }): DiscoveryHandle`, `createListener(opts: { onChange: (entries: DiscoveredBackend[]) => void }): DiscoveryListener`, where `DiscoveryHandle = { start(): Promise<void>; stop(): void }` (both idempotent) and `DiscoveryListener = DiscoveryHandle & { probe(): void; entries(): DiscoveredBackend[] }`. Also `AppSettings.network: NetworkSettings` with `discoverable: boolean` and `displayName: string`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -698,6 +733,9 @@ function createAdvertiser(opts: { payload: () => BeaconAnnounce }): DiscoveryHan
 
     return {
         start() {
+            // Idempotent: the discoverable setting can be toggled at runtime and
+            // the caller should not have to track whether it already started.
+            if (socket) return Promise.resolve();
             return new Promise((resolve) => {
                 const bound = bindDiscoverySocket((bytes) => {
                     const message = parseDatagram(bytes);
@@ -716,7 +754,12 @@ function createAdvertiser(opts: { payload: () => BeaconAnnounce }): DiscoveryHan
         stop() {
             if (timer) clearInterval(timer);
             timer = null;
-            socket?.close();
+            try {
+                socket?.close();
+            } catch {
+                // `close` on a socket that never finished binding throws
+                // ERR_SOCKET_DGRAM_NOT_RUNNING. Stopping is still the answer.
+            }
             socket = null;
         },
     };
@@ -866,6 +909,8 @@ In `packages/shared/src/types/settings.ts`, add the interface next to `Appearanc
 export interface NetworkSettings {
     /** Advertise this backend on the local network so other clients can find it. */
     discoverable: boolean;
+    /** What other machines call this backend. Empty means use the hostname. */
+    displayName: string;
 }
 ```
 
@@ -890,6 +935,7 @@ In `packages/backend/src/services/settings-store.ts`, add to `DEFAULTS` (next to
 ```ts
     network: {
         discoverable: true,
+        displayName: "",
     },
 ```
 
@@ -910,39 +956,128 @@ Add to the merge at line 278:
 In `packages/backend/src/index.ts`, after the port files are written, add:
 
 ```ts
+        let network = (await settingsStore.get()).network;
+
         const advertiser = createAdvertiser({
             payload: () => ({
                 v: 1 as const,
                 protocolVersion: PROTOCOL_VERSION,
                 instanceId: config.instanceId,
                 hostname: hostname(),
-                displayName: hostname(),
+                displayName: network.displayName.trim() || hostname(),
                 port: startedServer.port,
                 appVersion: APP_VERSION,
                 os: process.platform,
             }),
         });
-        if ((await settingsStore.get()).network.discoverable) {
-            await advertiser.start();
+
+        // The setting is a switch, not a boot flag: toggling it in Settings has
+        // to start or stop the beacon without a restart, and the next announce
+        // has to pick up a renamed backend. `payload` is called per announce,
+        // so keeping `network` current is all the rename needs.
+        async function applyNetworkSettings(next: NetworkSettings): Promise<void> {
+            network = next;
+            if (next.discoverable) await advertiser.start();
+            else advertiser.stop();
         }
+
+        await applyNetworkSettings(network);
 ```
 
 `settingsStore` is whatever the settings store instance is already called in the
 enclosing scope of `index.ts` — read the surrounding lines and use that name
 rather than constructing a second one.
 
-Import `createAdvertiser` from `@taskflow/shared/discovery` and `hostname` from `os` (the file already imports `homedir` from `os`). `APP_VERSION` does not exist yet — add it next to `PROTOCOL_VERSION` in `packages/shared/src/constants.ts`, reading the version the build already knows:
+Import `createAdvertiser` from `@taskflow/shared/discovery`, the `NetworkSettings` type from `@taskflow/shared`, and `hostname` from `os` (the file already imports `homedir` from `os`). `APP_VERSION` does not exist yet. Define it in `packages/backend/src/index.ts`, not in `packages/shared/src/constants.ts` — the shared barrel is bundled into the browser, and this reads a file the renderer has no business importing:
 
 ```ts
-/** Informational only. Compatibility is decided by PROTOCOL_VERSION. */
-export const APP_VERSION = "0.14.0";
+import appPackage from "../../../electron/package.json";
+
+/** Informational only; compatibility is decided by PROTOCOL_VERSION. Read from
+ *  the file electron-builder ships, because that is the only version bumped per
+ *  release — a literal here silently drifts. Verified: `bun build --compile`
+ *  inlines a JSON import, so this survives into the packaged binary. */
+const APP_VERSION: string = appPackage.version;
 ```
+
+`resolveJsonModule` is already on in `tsconfig.base.json:9`.
 
 In the `shutdown` handler, before the port file removal:
 
 ```ts
             advertiser.stop();
 ```
+
+- [ ] **Step 9b: Let the setting actually reach the advertiser**
+
+`applyNetworkSettings` is useless without something calling it on a settings
+update. In `packages/backend/src/handlers/settings.ts`, add an optional callback
+to `SettingsHandlerDeps` and fire it after a successful update:
+
+```ts
+interface SettingsHandlerDeps {
+    router: Router;
+    settingsStore: SettingsStore;
+    taskStore: TaskStore;
+    onSettingsUpdated?: (settings: AppSettings) => void;
+}
+```
+
+```ts
+    router.register(MSG.SETTINGS_UPDATE, async (payload) => {
+        const update = payload as SettingsUpdatePayload;
+        const settings = await settingsStore.update(update);
+        deps.onSettingsUpdated?.(settings);
+        return settings;
+    });
+```
+
+In `index.ts`, pass `onSettingsUpdated: (settings) => void applyNetworkSettings(settings.network)`
+where `registerSettingsHandlers` is already called.
+
+- [ ] **Step 9c: Expose both fields in Settings**
+
+Without this the two fields are reachable only by hand-editing
+`~/.config/taskflow/settings.json`, and the spec describes `discoverable` as
+something a user turns off (`specs/2026-08-23-taskflow-multi-backend-design.md:167-169`)
+and `displayName` as something they override (`:162`).
+
+Add two rows to `packages/ui/src/components/settings/sections/GeneralSection.tsx`,
+following the `Ask before exit` row already there (`GeneralSection.tsx:84-95`):
+
+```tsx
+            <SettingRow
+                label="Discoverable on this network"
+                hint="Let other machines running Taskflow find this backend."
+                className="px-3 py-2">
+                <Switch
+                    id="network-discoverable"
+                    checked={discoverable}
+                    onCheckedChange={onDiscoverableChange}
+                />
+            </SettingRow>
+
+            <SettingRow
+                label="Name on the network"
+                hint="How this machine appears in other clients' backend menu. Blank uses the hostname."
+                className="px-3 py-2">
+                <Input
+                    id="network-display-name"
+                    value={displayName}
+                    placeholder={hostname}
+                    onChange={(event) => onDisplayNameChange(event.target.value)}
+                />
+            </SettingRow>
+```
+
+Add the props to `GeneralSectionProps` and pass them from
+`SettingsModal.tsx:454-464` the way `confirmBeforeExit` is passed, calling
+`updateSettings({ network: { … } })`. `hostname` comes from the `SYSTEM_INFO`
+the renderer already fetches — reuse it rather than adding a request.
+
+Two rows in General rather than a new nav section: one switch and one text field
+do not carry a section of their own, and `SectionKey` is a closed union that
+would have to grow for it.
 
 - [ ] **Step 10: Verify and commit**
 
@@ -967,7 +1102,7 @@ Pure list operations, separated from persistence so they can be tested without E
 
 **Interfaces:**
 - Consumes: `BackendRecord`, `DiscoveredBackend`, `backendIdFor` from `@taskflow/shared`.
-- Produces: `upsertRecord`, `removeRecord`, `renameRecord`, `recordFromDiscovered`, `mergeForMenu`, and the `MenuEntry` type.
+- Produces: `upsertRecord`, `removeRecord`, `renameRecord`, `recordFromDiscovered`, `matchesDiscovered`, `mergeForMenu`, and the `MenuEntry` type.
 
 - [ ] **Step 1: Depend on the shared package**
 
@@ -987,8 +1122,24 @@ Create `electron/src/backend-records.test.ts`:
 
 ```ts
 import { describe, expect, test } from "bun:test";
-import type { BackendRecord, DiscoveredBackend } from "@taskflow/shared";
-import { mergeForMenu, recordFromDiscovered, removeRecord, renameRecord, upsertRecord } from "./backend-records";
+import type { BackendRecord, DiscoveredBackend, MenuEntry } from "@taskflow/shared";
+import {
+    mergeForMenu,
+    recordFromDiscovered,
+    removeRecord,
+    renameRecord,
+    upsertRecord,
+} from "./backend-records";
+
+/** Narrows a menu entry to one that carries a record, so the assertions below
+ *  do not have to cast their way past the `local` member of the union. */
+function recordAt(entries: MenuEntry[], index: number): BackendRecord {
+    const entry = entries[index];
+    if (entry === undefined || entry.kind === "local") {
+        throw new Error(`Expected a backend record at index ${index}`);
+    }
+    return entry.record;
+}
 
 const discovered: DiscoveredBackend = {
     v: 1,
@@ -1050,33 +1201,52 @@ describe("renameRecord and removeRecord", () => {
 
 describe("mergeForMenu", () => {
     test("orders local first, then live entries, then saved-but-unseen", () => {
-        const unseen = { ...saved, id: "laptop:main", displayName: "laptop" };
-        const entries = mergeForMenu([saved, unseen], [discovered], 1_500, []);
+        const unseen = { ...saved, id: "laptop:main", host: "192.168.1.30", displayName: "laptop" };
+        const entries = mergeForMenu([saved, unseen], [discovered], 1_500, [], "kuindji");
         expect(entries.map((e) => e.kind)).toEqual(["local", "live", "unseen"]);
-        expect(entries[1].record.id).toBe("desktop:main");
-        expect(entries[2].record.id).toBe("laptop:main");
+        expect(recordAt(entries, 1).id).toBe("desktop:main");
+        expect(recordAt(entries, 2).id).toBe("laptop:main");
     });
 
     test("refreshes a saved record's port from the live beacon", () => {
         const stale = { ...saved, lastKnownPort: 1 };
-        const entries = mergeForMenu([stale], [discovered], 1_500, []);
-        expect(entries[1].record.lastKnownPort).toBe(54892);
+        const entries = mergeForMenu([stale], [discovered], 1_500, [], "kuindji");
+        expect(recordAt(entries, 1).lastKnownPort).toBe(54892);
     });
 
     test("a discovered backend that is not saved still appears", () => {
-        const entries = mergeForMenu([], [discovered], 1_500, []);
+        const entries = mergeForMenu([], [discovered], 1_500, [], "kuindji");
         expect(entries.map((e) => e.kind)).toEqual(["local", "live"]);
     });
 
+    test("an unsaved live entry carries an ssh user, because it is about to be sshed to", () => {
+        // Without this the first connect to a discovered backend builds
+        // `@192.168.1.20` as the ssh destination, and ssh answers with its
+        // usage banner and exit 255 — which classifies as "unknown".
+        const entries = mergeForMenu([], [discovered], 1_500, [], "kuindji");
+        expect(recordAt(entries, 1).user).toBe("kuindji");
+    });
+
+    test("a record added by host string is the same machine as its own beacon", () => {
+        // `addBackend` keys by the host the user typed; a beacon keys by the
+        // hostname the machine announces. Matching on id alone lists one
+        // machine twice and leaves the saved row's port stale forever.
+        const byHost: BackendRecord = { ...saved, id: "192.168.1.20:main", displayName: "desktop" };
+        const entries = mergeForMenu([byHost], [discovered], 1_500, [], "kuindji");
+        expect(entries.map((e) => e.kind)).toEqual(["local", "live"]);
+        expect(recordAt(entries, 1).id).toBe("192.168.1.20:main");
+        expect(recordAt(entries, 1).lastKnownPort).toBe(54892);
+    });
+
     test("a stale beacon does not count as live", () => {
-        const entries = mergeForMenu([saved], [discovered], 30_000, []);
+        const entries = mergeForMenu([saved], [discovered], 30_000, [], "kuindji");
         expect(entries.map((e) => e.kind)).toEqual(["local", "unseen"]);
     });
 
     test("this machine's own beacon is not listed as a remote backend", () => {
         // Every backend hears its own multicast, so without the address filter
         // the local backend shows up twice.
-        const entries = mergeForMenu([], [discovered], 1_500, ["192.168.1.20"]);
+        const entries = mergeForMenu([], [discovered], 1_500, ["192.168.1.20"], "kuindji");
         expect(entries.map((e) => e.kind)).toEqual(["local"]);
     });
 });
@@ -1131,15 +1301,35 @@ function renameRecord(records: BackendRecord[], id: string, displayName: string)
 }
 
 /**
+ * Whether a saved record and a live beacon are the same backend. Two ids
+ * describe one machine: `addBackend` keys by the host string the user typed,
+ * a beacon keys by the hostname the machine announces. Matching on the record
+ * id alone shows that machine twice — once live, once unseen — and the saved
+ * row never picks up the port from the beacon.
+ */
+function matchesDiscovered(record: BackendRecord, entry: DiscoveredBackend): boolean {
+    return (
+        record.id === backendIdFor(entry.hostname, entry.instanceId) ||
+        (record.host === entry.address && record.instanceId === entry.instanceId)
+    );
+}
+
+/**
  * The menu list: this machine, then backends currently announcing, then saved
  * backends that are not. A saved record's port is refreshed from the beacon,
  * because the backend picks a new port every start.
+ *
+ * `defaultUser` is the ssh login for a backend that has been discovered but
+ * never saved. It cannot be blank: this record goes straight to `openTunnel`
+ * the moment the user clicks the entry, and ssh rejects a bare `@host` with a
+ * usage banner and exit 255.
  */
 function mergeForMenu(
     records: BackendRecord[],
     discovered: DiscoveredBackend[],
     now: number,
     localAddresses: string[],
+    defaultUser: string,
 ): MenuEntry[] {
     // This machine's own backend hears its own multicast — verified: two
     // sockets on one host in one group both receive every datagram, including
@@ -1149,34 +1339,48 @@ function mergeForMenu(
     const live = discovered.filter(
         (entry) => !isStale(entry.lastSeenAt, now) && !local.has(entry.address),
     );
-    const liveById = new Map(live.map((entry) => [backendIdFor(entry.hostname, entry.instanceId), entry]));
-    const savedById = new Map(records.map((record) => [record.id, record]));
+    // The listener already keys by host and instance, but dedupe again rather
+    // than trust it: one duplicate here is one duplicate row in the menu.
+    const liveById = new Map(
+        live.map((entry) => [backendIdFor(entry.hostname, entry.instanceId), entry]),
+    );
 
+    const matched = new Set<string>();
     const entries: MenuEntry[] = [{ kind: "local" }];
 
-    for (const [id, entry] of liveById) {
-        const saved = savedById.get(id);
+    for (const entry of liveById.values()) {
+        const saved = records.find((record) => matchesDiscovered(record, entry));
+        if (saved) matched.add(saved.id);
+        // A matched record keeps its own id. That id is what is persisted, what
+        // the menu marks as active, and what `activateBackend` looks up.
         const record = saved
             ? { ...saved, host: entry.address, lastKnownPort: entry.port }
-            : recordFromDiscovered(entry, "", new Date(entry.lastSeenAt).toISOString());
+            : recordFromDiscovered(entry, defaultUser, new Date(entry.lastSeenAt).toISOString());
         entries.push({ kind: "live", record, protocolVersion: entry.protocolVersion });
     }
 
     for (const record of records) {
-        if (liveById.has(record.id)) continue;
+        if (matched.has(record.id)) continue;
         entries.push({ kind: "unseen", record });
     }
 
     return entries;
 }
 
-export { mergeForMenu, recordFromDiscovered, removeRecord, renameRecord, upsertRecord };
+export {
+    matchesDiscovered,
+    mergeForMenu,
+    recordFromDiscovered,
+    removeRecord,
+    renameRecord,
+    upsertRecord,
+};
 ```
 
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `bun test electron/src/backend-records.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 12 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -1232,7 +1436,11 @@ describe("buildTunnelArgs", () => {
         expect(buildTunnelArgs(record, 7777, 54892)).toEqual([
             "-N",
             "-L",
-            "7777:127.0.0.1:54892",
+            // The bind address is explicit. `man ssh`: "By default, the local
+            // port is bound in accordance with the GatewayPorts setting" — a
+            // user with `GatewayPorts yes` in ~/.ssh/config would otherwise
+            // republish the remote backend to their own LAN.
+            "127.0.0.1:7777:127.0.0.1:54892",
             "-p",
             "22",
             "-o",
@@ -1330,9 +1538,13 @@ import type { BackendRecord, TunnelFailure } from "@taskflow/shared";
 
 /**
  * `-L` forwards a local port to loopback on the remote host, which is the only
- * address the backend binds. BatchMode keeps ssh from ever blocking on a prompt
- * — it exits and we read stderr instead. ExitOnForwardFailure turns a failed
- * local bind into an exit rather than a tunnel that is up but useless.
+ * address the backend binds. The *local* bind address is spelled out too:
+ * without it ssh follows GatewayPorts, so a user who set `GatewayPorts yes`
+ * would expose the remote backend on their own LAN through this client, which
+ * is exactly what Task 1 closed on the backend side.
+ * BatchMode keeps ssh from ever blocking on a prompt — it exits and we read
+ * stderr instead. ExitOnForwardFailure turns a failed local bind into an exit
+ * rather than a tunnel that is up but useless.
  */
 function buildTunnelArgs(
     record: BackendRecord,
@@ -1342,7 +1554,7 @@ function buildTunnelArgs(
     return [
         "-N",
         "-L",
-        `${localPort}:127.0.0.1:${backendPort}`,
+        `127.0.0.1:${localPort}:127.0.0.1:${backendPort}`,
         "-p",
         String(record.sshPort),
         "-o",
@@ -1411,7 +1623,7 @@ export { buildKeyscanArgs, buildTunnelArgs, classifyTunnelFailure, knownHostsKey
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun test electron/src/tunnel-args.test.ts`
-Expected: PASS, 10 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1431,7 +1643,7 @@ The process side: spawn ssh, prove the *backend* is there rather than just ssh, 
 
 **Interfaces:**
 - Consumes: everything from Task 5.
-- Produces: `openTunnel(record: BackendRecord, backendPort: number): Promise<TunnelResult>` where `TunnelResult = { ok: true; localPort: number } | { ok: false; failure: TunnelFailure }`; `closeTunnel(id: string): void`; `closeAllTunnels(): void`; `trustHostKey(record: BackendRecord): Promise<void>`; `fetchHostKeyFingerprint(record: BackendRecord): Promise<string>`; `readRemotePort(record: BackendRecord): Promise<number | null>`; `onTunnelExit(handler: (id: string, failure: TunnelFailure) => void): void`.
+- Produces: `openTunnel(record: BackendRecord, backendPort: number): Promise<TunnelResult>` where `TunnelResult = { ok: true; localPort: number } | { ok: false; failure: TunnelFailure }`; `closeTunnel(id: string): void`; `closeAllTunnels(): void`; `trustHostKey(record: BackendRecord): Promise<void>`; `fetchHostKeyFingerprint(record: BackendRecord): Promise<string>`; `readRemotePort(record: BackendRecord): Promise<{ port: number } | { failure: TunnelFailure }>`; `onTunnelExit(handler: (id: string, failure: TunnelFailure) => void): void`.
 
 - [ ] **Step 1: Write the module**
 
@@ -1446,6 +1658,7 @@ import { createServer } from "net";
 import { appendFile, chmod, mkdir, readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+import { isSafeLabel } from "@taskflow/shared/discovery";
 import type { BackendRecord, TunnelFailure } from "@taskflow/shared";
 import { buildKeyscanArgs, buildTunnelArgs, classifyTunnelFailure } from "./tunnel-args";
 
@@ -1529,11 +1742,28 @@ function runSsh(args: string[]): Promise<{ stdout: string; stderr: string; code:
  * The manual-connect fallback for hosts multicast cannot reach. Returns the
  * classified failure rather than a bare null: a missing ssh binary reported as
  * "could not work out which port" sends the user looking at the wrong machine.
+ *
+ * The path mirrors `config.instancePortFile` from Task 1, which is
+ * `join(getConfigBaseDir(), `${instanceId}.port`)` — on macOS and Linux that is
+ * `~/.config/taskflow`, NOT `~/.taskflow` (`packages/backend/src/services/platform.ts:12-18`).
+ * A Windows backend keeps it under %APPDATA% and cannot be read this way; that
+ * host needs discovery or an explicit port in the connect dialog.
  */
 async function readRemotePort(
     record: BackendRecord,
 ): Promise<{ port: number } | { failure: TunnelFailure }> {
-    const remotePath = `$HOME/.taskflow/${record.instanceId}.port`;
+    // The record can come from the connect dialog rather than the beacon codec,
+    // so the one value that reaches a remote shell is re-checked here.
+    if (!isSafeLabel(record.instanceId)) {
+        return {
+            failure: {
+                kind: "unknown",
+                message: `"${record.instanceId}" is not a valid instance name.`,
+                stderr: "",
+            },
+        };
+    }
+    const remotePath = `$HOME/.config/taskflow/${record.instanceId}.port`;
     const { stdout, stderr, code } = await runSsh([
         "-p",
         String(record.sshPort),
@@ -1724,7 +1954,7 @@ git commit -m "feat(electron): supervise ssh tunnels with a backend readiness pr
 
 **Interfaces:**
 - Consumes: Tasks 4, 5, 6.
-- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `renameBackend(id, displayName): Promise<void>`, `removeBackend(id): Promise<void>`, `trustBackendHost(id): Promise<void>`, `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (failure: TunnelFailure) => void): () => void`.
+- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `renameBackend(id, displayName): Promise<void>`, `removeBackend(id): Promise<void>`, `trustBackendHost(id): Promise<void>`, `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (failure: TunnelFailure) => void): () => void`.
 
 - [ ] **Step 1: Write the registry**
 
@@ -1735,7 +1965,7 @@ import { app } from "electron";
 import { readFile, writeFile } from "fs/promises";
 import { networkInterfaces, userInfo } from "os";
 import { join } from "path";
-import { backendIdFor } from "@taskflow/shared/discovery";
+import { backendIdFor, isSafeLabel } from "@taskflow/shared/discovery";
 import { createListener, type DiscoveryListener } from "@taskflow/shared/discovery";
 import type {
     BackendRecord,
@@ -1744,6 +1974,7 @@ import type {
     TunnelFailure,
 } from "@taskflow/shared";
 import {
+    matchesDiscovered,
     mergeForMenu,
     recordFromDiscovered,
     removeRecord,
@@ -1837,13 +2068,23 @@ function localAddresses(): string[] {
         .map((entry) => entry.address);
 }
 
+/** The ssh login a backend gets when it was discovered rather than added by
+ *  hand. Blank is not an option: it reaches `buildTunnelArgs` unchanged. */
+function defaultSshUser(): string {
+    return userInfo().username;
+}
+
+function menu(): MenuEntry[] {
+    return mergeForMenu(records, discovered, Date.now(), localAddresses(), defaultSshUser());
+}
+
 function listBackends(): MenuEntry[] {
     listener?.probe();
-    return mergeForMenu(records, discovered, Date.now(), localAddresses());
+    return menu();
 }
 
 function findRecord(id: string): BackendRecord | null {
-    const entry = mergeForMenu(records, discovered, Date.now(), localAddresses()).find(
+    const entry = menu().find(
         (candidate) => candidate.kind !== "local" && candidate.record.id === id,
     );
     return entry && entry.kind !== "local" ? entry.record : null;
@@ -1852,9 +2093,10 @@ function findRecord(id: string): BackendRecord | null {
 async function resolveBackendPort(
     record: BackendRecord,
 ): Promise<{ port: number } | { failure: TunnelFailure }> {
-    const live = discovered.find(
-        (entry) => backendIdFor(entry.hostname, entry.instanceId) === record.id,
-    );
+    // `matchesDiscovered`, not an id comparison: a record added by host string
+    // and its own beacon carry different ids for the same machine, and matching
+    // on id alone sends a perfectly discoverable backend down the ssh fallback.
+    const live = discovered.find((entry) => matchesDiscovered(record, entry));
     if (live) return { port: live.port };
     if (record.lastKnownPort !== null) return { port: record.lastKnownPort };
     return readRemotePort(record);
@@ -1916,6 +2158,22 @@ async function setActive(id: string, origin: string): Promise<void> {
     deps.onChanged();
 }
 
+/**
+ * Undoes an activation the renderer decided not to promote — an incompatible
+ * protocol version, or a throw anywhere between `activateBackend` and
+ * `setActiveBackend`. Without it the ssh child opened for the rejected backend
+ * stays alive until the app quits, because `retirePreviousTunnel` only ever
+ * closes the backend that *was* active.
+ */
+function cancelActivation(id: string): void {
+    if (id === LOCAL_ID || id === activeId) return;
+    try {
+        closeTunnel(id);
+    } catch (error) {
+        console.error("Failed to close a cancelled activation's tunnel:", error);
+    }
+}
+
 /** Failure here leaks one ssh process. It is logged, never surfaced: the
  *  switch has already succeeded and there is nothing for the user to do. */
 function retirePreviousTunnel(): void {
@@ -1943,6 +2201,9 @@ async function addBackend(input: {
     displayName?: string;
 }): Promise<BackendRecord> {
     const instanceId = input.instanceId ?? "main";
+    // The same character set the beacon codec enforces. This value ends up in
+    // the record id and, on the manual-connect path, in a command run over ssh.
+    if (!isSafeLabel(instanceId)) throw new Error(`"${instanceId}" is not a valid instance name.`);
     const record: BackendRecord = {
         id: backendIdFor(input.host, instanceId),
         host: input.host,
@@ -1994,6 +2255,7 @@ export {
     LOCAL_ID,
     activateBackend,
     addBackend,
+    cancelActivation,
     findRecord,
     getActiveOrigin,
     getLastUsedId,
@@ -2034,6 +2296,10 @@ In `electron/src/ipc-handlers.ts`, add near the existing `get-backend-port` hand
 
     ipcMain.handle("backend-retire-previous", () => {
         retirePreviousTunnel();
+    });
+
+    ipcMain.handle("backend-cancel-activation", (_event, id: string) => {
+        cancelActivation(id);
     });
 
     ipcMain.handle(
@@ -2084,6 +2350,7 @@ In `electron/src/preload.ts`, inside `contextBridge.exposeInMainWorld("taskflow"
     setActiveBackend: (id: string, origin: string) =>
         ipcRenderer.invoke("backend-set-active", id, origin),
     retirePreviousTunnel: () => ipcRenderer.invoke("backend-retire-previous"),
+    cancelActivation: (id: string) => ipcRenderer.invoke("backend-cancel-activation", id),
     addBackend: (input: { host: string; user?: string; sshPort?: number; port?: number }) =>
         ipcRenderer.invoke("backend-add", input),
     renameBackend: (id: string, displayName: string) =>
@@ -2121,6 +2388,7 @@ In `packages/ui/src/env.d.ts`, add to `interface TaskflowBridge`:
     ): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>;
     setActiveBackend(id: string, origin: string): Promise<void>;
     retirePreviousTunnel(): Promise<void>;
+    cancelActivation(id: string): Promise<void>;
     addBackend(input: {
         host: string;
         user?: string;
@@ -2951,6 +3219,30 @@ registerReset("project-store", () => {
 
 Import `registerReset` from `./store-reset` at the top of each. The initial state is already written at the `create(...)` call in each file — copy those values rather than inventing new ones.
 
+**`setState` is not the whole store.** Several store modules also keep state at
+module scope, which `setState` cannot touch and which the coverage test cannot
+see. Walk each file for `let`/`const` declared outside `create(...)` and clear
+those in the same callback. `file-store.ts:90-95` is the one that bites:
+
+```ts
+registerReset("file-store", () => {
+    // A FILE_CHANGED event from the old backend can arm this 150 ms debounce
+    // (file-store.ts:193) just before the switch. The callback closes over the
+    // old machine's `watchedPath` and would run `fetchGitStatus` on it against
+    // the new backend.
+    if (fileChangeRefreshTimer) clearTimeout(fileChangeRefreshTimer);
+    fileChangeRefreshTimer = null;
+    pendingChangedDirs.clear();
+    diffStoreUnsubscribe?.();
+    diffStoreUnsubscribe = null;
+    // `fileChangeSubscriptionReady` deliberately stays true: the FILE_CHANGED
+    // handler is registered with `onEvent`, which survives a switch by design
+    // (Task 8). Resetting it would register a second handler and double every
+    // refresh.
+    useFileStore.setState({ /* the initial state from create(...) */ });
+});
+```
+
 - [ ] **Step 5: Make the module-level caches resettable**
 
 `packages/ui/src/hooks/useConnectivity.ts` — replace the guard reset:
@@ -3230,6 +3522,11 @@ const useBackendStore = create<BackendStore>((set, get) => ({
             const compatible = checkProtocol(info);
             if (!compatible.ok) {
                 abortPending();
+                // `activateBackend` already opened an ssh tunnel for this id.
+                // Nothing is going to promote it, and `retirePreviousTunnel`
+                // only ever closes the backend that *was* active, so without
+                // this the ssh child lives until the app quits.
+                await bridge.cancelActivation(id);
                 set({ switching: null, error: compatible.reason ?? "Incompatible backend" });
                 return;
             }
@@ -3257,6 +3554,11 @@ const useBackendStore = create<BackendStore>((set, get) => ({
             await get().refresh();
         } catch (error) {
             abortPending();
+            // Same reasoning as the incompatible-protocol branch: everything
+            // that can throw between `activateBackend` and `promoteConnection`
+            // leaves a tunnel nobody owns. Swallow a failure to close it — the
+            // switch already failed and there is nothing else to report.
+            await bridge.cancelActivation(id).catch(() => {});
             set({
                 switching: null,
                 error: error instanceof Error ? error.message : "Could not switch backend",
@@ -3374,13 +3676,13 @@ function BackendMenu({ masterWorkspaceActive, onMasterWorkspace }: BackendMenuPr
         return window.taskflow?.onBackendsChanged(() => void refresh());
     }, [refresh]);
 
+    const activeEntry = entries.find(
+        (entry) => entry.kind !== "local" && entry.record.id === activeId,
+    );
     const activeLabel =
-        entries.find((entry) => entry.kind !== "local" && entry.record.id === activeId)?.kind ===
-        undefined
+        activeEntry === undefined || activeEntry.kind === "local"
             ? "This machine"
-            : (entries.find((e) => e.kind !== "local" && e.record.id === activeId) as {
-                  record: { displayName: string };
-              }).record.displayName;
+            : activeEntry.record.displayName;
 
     return (
         <>
@@ -3723,7 +4025,6 @@ Everything that assumes the backend's filesystem is this machine's.
 - Modify: `packages/ui/src/components/flows/FlowInputDialog.tsx:34`
 - Modify: `packages/ui/src/components/panels/FileContextMenu.tsx:107`
 - Modify: `packages/ui/src/components/panes/terminal/terminal-links.ts:64-72`
-- Modify: `packages/ui/src/components/workspace/Workspace.tsx:251,391`
 - Modify: `packages/ui/src/components/panes/TerminalPane.tsx:457-486`
 
 **Interfaces:**
@@ -3793,13 +4094,19 @@ In each of `NewProjectDialog.tsx`, `MissingLocationDialog.tsx`, `SettingsModal.t
         isLocal && typeof window.taskflow?.selectProjectDirectory === "function";
 ```
 
-- [ ] **Step 6: Gate the reveal and shell sites**
+- [ ] **Step 6: Gate the reveal sites — and only those**
 
-In `packages/ui/src/components/panels/FileContextMenu.tsx`, disable the "Open with…" and "Reveal in Finder" items when `!useBackendIsLocal()`. In `packages/ui/src/components/workspace/Workspace.tsx`, guard both `runInShell` call sites:
+In `packages/ui/src/components/panels/FileContextMenu.tsx`, disable the "Open with…" and "Reveal in Finder" items when `!useBackendIsLocal()`. Both hand a path to *this* machine's file manager or editor.
 
-```ts
-        if (!backendIsLocal()) return;
-```
+**Do not gate `runInShell`.** `packages/ui/src/lib/run-in-shell.ts:27-45` asks the
+active backend for its shells over the WebSocket and creates a backend session;
+it resolves nothing on the client. Guarding its two call sites in
+`Workspace.tsx` (`:250`, `:391`) would make shell actions and package scripts do
+nothing at all on a remote backend — silently, since an early return has no UI.
+The tell is that `handleRunAction`'s other branch (`Workspace.tsx:261`, plain
+`createSession`) needs no guard either: same owner, same backend, same
+filesystem. The rule for this whole task is narrower than "anything to do with
+files": gate only what resolves or reveals a path on the *client* machine.
 
 `packages/ui/src/components/panes/terminal/terminal-links.ts:64` is the same
 problem in a place with no UI to disable: clicking a file path in terminal
@@ -4041,6 +4348,33 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
 - Switch to a host whose key is not in `known_hosts` → fingerprint dialog; approving connects.
 - Open a file, type into it without saving, then try to switch → refused, naming the unsaved file.
 - Pull the network while a remote backend is active → disconnected banner; restoring the network reconnects.
+- Switch to a backend running an incompatible `PROTOCOL_VERSION` → refused with both
+  numbers named, and `pgrep -fl "ssh -N -L"` shows no ssh child left behind. The
+  leak this checks for is invisible from the UI, so check the process list.
+
+- [ ] **Step 6b: Confirm what still works remotely**
+
+The gating in Task 12 is deliberately narrow, and the failure mode of getting it
+wrong is silence rather than an error. On a remote backend:
+
+- Run a shell action and a package.json script from the workspace → both open a
+  session on the *remote* machine. If either does nothing, a `runInShell` guard
+  was added back.
+- Click a file path in terminal output → nothing happens (correct: that path is
+  the other machine's).
+- Drag a Finder file onto a terminal → nothing happens.
+
+- [ ] **Step 6c: Confirm discovery follows its setting**
+
+- With machine B visible in A's menu, turn off Settings → General → "Discoverable
+  on this network" on B. Within 15 seconds B's entry in A's menu goes grey
+  (saved-but-unseen), with no restart of either side.
+- Turn it back on → B goes green again within five seconds of A opening the menu.
+- Set B's "Name on the network" to something else → A's menu shows the new name
+  on the next announce.
+- Connect to a backend discovered on the LAN that has never been saved before →
+  it connects. A blank ssh user here is what makes ssh print its usage banner and
+  exit 255, which the classifier can only report as "SSH exited with code 255".
 
 - [ ] **Step 7: Confirm the caches actually cleared**
 
