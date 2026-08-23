@@ -240,9 +240,43 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
-    test("re-attaching preserves modes the child set before the drop", async () => {
+    test("re-attaching takes its modes from the snapshot, not the pre-drop state", async () => {
+        // SerializeAddon emits an enable sequence for a mode that is on and
+        // nothing at all for one that is off, so a mode the child switched off
+        // while we were disconnected cannot be turned back off by the snapshot.
+        // Re-applying the pre-drop modes over it would strand the client
+        // encoding arrows the child stopped asking for.
+        const responses: Record<string, unknown> = {
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "\x1b[?1h",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
+        };
+        const net = fakeNet(responses);
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        expect(term.modes.applicationCursorKeys).toBe(true);
+
+        // The child left application cursor keys behind while we were away.
+        responses[MSG.SESSION_SNAPSHOT] = {
+            snapshot: "",
+            lastSequence: 0,
+            cursorHidden: false,
+            kittyStack: [],
+        };
+        await term.attach();
+        expect(term.modes.applicationCursorKeys).toBe(false);
+        term.dispose();
+    });
+
+    test("re-attaching preserves modes the child set before the drop when there is no snapshot", async () => {
+        // History is raw scrollback and may have been trimmed past the
+        // sequences that set these modes, so the pre-drop state stands in.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_HISTORY]: { data: "", lastSequence: 0 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -273,7 +307,8 @@ describe("SessionTerminal", () => {
 
     test("re-attach reads modes from output that was still queued", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_HISTORY]: { data: "", lastSequence: 0 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();

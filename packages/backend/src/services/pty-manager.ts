@@ -107,6 +107,12 @@ interface Session {
     pty: PtyHandle;
     scrollback: string[];
     lastSequence: number;
+    /**
+     * The highest sequence the headless terminal has finished parsing.
+     * `headless.write` parses on a later tick, so this trails `lastSequence`
+     * and is what a snapshot of the terminal's state actually covers.
+     */
+    parsedSequence: number;
     headless: HeadlessTerminal;
     serializer: SerializeAddon;
     /** Kitty keyboard protocol state the child pushed; SerializeAddon does not carry it. */
@@ -132,7 +138,14 @@ export class PtyManager {
         const scrollback: string[] = [];
         let scrollbackLen = 0;
         let lastSequence = options.startSequence ?? 0;
+        const startSequence = lastSequence;
+        let parsedSequence = lastSequence;
         let sessionEntry: Session | null = null;
+
+        const markParsed = (sequence: number) => {
+            parsedSequence = sequence;
+            if (sessionEntry) sessionEntry.parsedSequence = sequence;
+        };
 
         const headless = new HeadlessTerminal({
             cols,
@@ -163,7 +176,12 @@ export class PtyManager {
             const retained = options.initialOutput.slice(-MAX_SCROLLBACK);
             scrollback.push(retained);
             scrollbackLen = retained.length;
-            headless.write(retained);
+            // Nothing of the restored log is on the grid until this completes,
+            // so the session starts out covering no sequence at all.
+            parsedSequence = 0;
+            headless.write(retained, () => {
+                markParsed(startSequence);
+            });
         }
 
         const initialInput = options.initialInput;
@@ -207,8 +225,11 @@ export class PtyManager {
                 const removed = scrollback.shift();
                 if (removed) scrollbackLen -= removed.length;
             }
-            headless.write(batchedData);
-            options.onData(batchedData, lastSequence);
+            const sequence = lastSequence;
+            headless.write(batchedData, () => {
+                markParsed(sequence);
+            });
+            options.onData(batchedData, sequence);
         });
 
         const env: Record<string, string> = {
@@ -287,6 +308,7 @@ export class PtyManager {
             pty,
             scrollback,
             lastSequence,
+            parsedSequence,
             headless,
             serializer,
             kitty,
@@ -349,7 +371,11 @@ export class PtyManager {
         const cursorHidden = core?.coreService?.isCursorHidden ?? false;
         return {
             snapshot: session.serializer.serialize(),
-            lastSequence: session.lastSequence,
+            // Everything below is read off the headless terminal, so the
+            // sequence reported has to be the one it has caught up to. Claiming
+            // the issued sequence would make a client discard the replay of a
+            // batch this state does not include yet.
+            lastSequence: session.parsedSequence,
             cursorHidden,
             kittyStack: session.kitty.toArray(),
         };

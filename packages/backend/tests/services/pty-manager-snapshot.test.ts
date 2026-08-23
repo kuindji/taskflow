@@ -80,6 +80,77 @@ describe("PtyManager.getSnapshot", () => {
         manager.close(sessionId);
     });
 
+    it("does not claim a sequence the restored log has not been parsed into yet", () => {
+        const sessionId = manager.spawn({
+            command: testShell,
+            args: [],
+            cwd: testCwd,
+            startSequence: 7,
+            initialOutput: "\x1b[>5u",
+            onData: () => {},
+            onExit: () => {},
+        });
+
+        // No sleep on purpose: the headless terminal always parses on a later
+        // tick, so right here the reported state cannot cover sequence 7. A
+        // client that trusts lastSequence drops the replay carrying the push
+        // and falls back to legacy key encoding for good.
+        const immediate = manager.getSnapshot(sessionId);
+        expect({
+            parsed: immediate.kittyStack.length > 0,
+            claimsRestoredSequence: immediate.lastSequence >= 7,
+        }).toEqual({ parsed: false, claimsRestoredSequence: false });
+
+        manager.close(sessionId);
+    });
+
+    it("reports the restored sequence once the log has been parsed", async () => {
+        const sessionId = manager.spawn({
+            command: testShell,
+            args: [],
+            cwd: testCwd,
+            startSequence: 7,
+            initialOutput: "\x1b[>5u",
+            onData: () => {},
+            onExit: () => {},
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const settled = manager.getSnapshot(sessionId);
+        expect(settled.kittyStack).toEqual([null, 5]);
+        expect(settled.lastSequence).toBe(7);
+
+        manager.close(sessionId);
+    });
+
+    it("does not claim a live batch the headless terminal has not parsed", async () => {
+        let sessionId = "";
+        const seen: Array<{ sequence: number; reported: number }> = [];
+        sessionId = manager.spawn({
+            command: testShell,
+            args: [],
+            cwd: testCwd,
+            onData: (_data, sequence) => {
+                // Skipped only for output that beats spawn() returning.
+                if (sessionId === "") return;
+                seen.push({ sequence, reported: manager.getSnapshot(sessionId).lastSequence });
+            },
+            onExit: () => {},
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        manager.write(sessionId, isWindows ? "echo live\r\n" : "live\n");
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        expect(seen.length).toBeGreaterThan(0);
+        // At the instant a batch is handed to subscribers it has only been
+        // queued into the headless terminal, so the snapshot must report the
+        // sequence it has actually caught up to, not the one just issued.
+        for (const entry of seen) expect(entry.reported).toBeLessThan(entry.sequence);
+
+        manager.close(sessionId);
+    });
+
     it("returns null snapshot after session exits", async () => {
         let exited = false;
         const command = isWindows ? testShell : "echo";

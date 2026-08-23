@@ -149,11 +149,12 @@ class SessionTerminal {
         // A second attach means the connection dropped and came back. The
         // snapshot is the entire screen, so the old grid must go first or it
         // renders twice. terminal.reset() also clears DEC modes, which the
-        // child set long ago and will not send again, so they are restored.
+        // child set long ago and will not send again, so they are held here
+        // for the fallback path below.
+        let restore = "";
         if (this.historyLoaded) {
             this.historyLoaded = false;
             this.pending = [];
-            let restore = "";
             // The reset goes through the write queue: output that was still
             // queued when the socket dropped has to be parsed before the clear,
             // or it lands on the fresh grid and the modes it carries are lost.
@@ -165,7 +166,6 @@ class SessionTerminal {
                 if (previous.applicationCursorKeys) restore += "\x1b[?1h";
                 if (previous.bracketedPaste) restore += "\x1b[?2004h";
             });
-            if (restore !== "") await this.enqueue(restore);
         }
 
         try {
@@ -189,6 +189,14 @@ class SessionTerminal {
         } catch {
             // Fall through to history.
         }
+
+        // Only the history path needs the pre-drop modes back. SerializeAddon
+        // writes an enable sequence for a mode that is on and nothing for one
+        // that is off, so replaying them over a snapshot would switch back on
+        // whatever the child turned off while we were disconnected. History is
+        // raw scrollback and may have been trimmed past the sequences that set
+        // them, so there the saved state is the best we have.
+        if (restore !== "") void this.enqueue(restore);
 
         try {
             const history = await this.deps.net.request<SessionHistoryResponse>(
