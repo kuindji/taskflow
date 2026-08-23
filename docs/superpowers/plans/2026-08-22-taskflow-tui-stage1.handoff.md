@@ -16,7 +16,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
-| 9 | Session terminal — attach, resync and mode tracking | in-review round 4 (fixed, awaiting round 5) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`; round 4's single finding fixed |
+| 9 | Session terminal — attach, resync and mode tracking | in-review round 5 (fixed, awaiting round 6) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`; round 5's single finding fixed |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
@@ -1495,6 +1495,48 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   and verified by name; the pass count rose from 994 by the one new TUI test.
   Working tree clean.
 
-Next step: Task 9 review round 5 — one gpt-5.5 review via the codex-review skill
+- **Task 9, round 5** (gpt-5.5 via codex-review, Mode A over `--base 4572b1f`;
+  the working tree was left untouched until the report landed, and the codex run
+  was backgrounded — the run took ~45 minutes at the default `high` effort):
+  one finding, substantiated, reproduced red and fixed in `60ee4f2`.
+
+  - **Substantiated — re-attach dropped live output the snapshot did not cover.**
+    `packages/tui/src/term/session-terminal.ts`, the `TERMINAL_OUTPUT` handler.
+    While attached, an arriving chunk was written straight to the grid and its
+    sequence thrown away; only chunks that arrived *while detached* were kept in
+    `pending`. Round 3 made `getSnapshot` report `parsedSequence`, which trails
+    the sequence the backend has already sent, so a snapshot can legitimately
+    exclude a batch this client has already drawn. On re-attach `terminal.reset()`
+    wiped that batch off the grid and `finishLoad` had nothing to replay it from,
+    so the output was lost outright. This is the gap in round 3's own argument
+    that "reporting a lower sequence cannot duplicate output, the client replays
+    chunks with sequence > reported" — the client only had those chunks if they
+    arrived while it was detached. Red repro (`Expected: "PROMPT>LIVE" /
+    Received: "PROMPT>"`):
+    `bun test ./packages/tui/src/term/session-terminal.test.ts -t "replays live output the snapshot does not cover"`.
+  - Fix: a bounded `recent` buffer holds every chunk written to the grid along
+    with its sequence, and `attach()`'s reset branch seeds `pending` from it
+    instead of clearing, so `finishLoad` applies the usual `sequence > covered`
+    filter and drops exactly what the snapshot turns out to include. The buffer
+    covers the backend's parse lag, not the session's lifetime, so it is capped
+    at 128 KB and drops the oldest — `bun test ./packages/tui/src/term/session-terminal.test.ts -t "bounds the output"`
+    was confirmed to go red (screen full of `A`s) with the cap raised to 64 MB.
+    The exit marker rides the same path; its `sequence: null` still means
+    "always replay".
+  - The existing test `re-attaching clears output that was still queued when the
+    drop happened` was the thing masking this: it stubbed the snapshot at
+    `lastSequence: 0` while the chunk carried sequence 1, so it asserted that
+    output the snapshot did *not* cover must be discarded. Renamed to
+    `re-attaching clears output the snapshot already accounts for` and rescoped
+    to `lastSequence: 1`, which is what "the snapshot already contains it" means;
+    it now genuinely tests staleness-based dropping.
+
+- Validation at `60ee4f2`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 997 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged
+  and verified by name; the pass count rose from 995 by the two new TUI tests.
+  Working tree clean.
+
+Next step: Task 9 review round 6 — one gpt-5.5 review via the codex-review skill
 over `--base 4572b1f`, leaving the working tree untouched until the report
 lands. Zero substantiated findings means Task 9 is clear and Task 10 is next.
