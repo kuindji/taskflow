@@ -8,7 +8,12 @@ import type {
     TaskLogEntryType,
     TaskWorktree,
 } from "@taskflow/shared";
-import { ARCHIVE_EXPIRY_DAYS, isAgentType, orderProjectsByIds } from "@taskflow/shared";
+import {
+    ARCHIVE_EXPIRY_DAYS,
+    isAgentType,
+    orderProjectsByIds,
+    sortTasksByCreatedAtDesc,
+} from "@taskflow/shared";
 import {
     appendFile,
     readFile,
@@ -22,11 +27,7 @@ import {
 } from "fs/promises";
 import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
-import {
-    isMissingFileError,
-    isJsonParseError,
-    compareTasksByCreatedAtDesc,
-} from "./task-store-helpers";
+import { isMissingFileError, isJsonParseError } from "./task-store-helpers";
 import { addAttribute, editAttribute, removeAttribute } from "./attribute-mutations";
 import { NotFoundError } from "./errors";
 import { acquireFileMutationLock } from "./file-mutation-lock";
@@ -393,7 +394,7 @@ export class TaskStore {
             }
         }
 
-        return tasks.sort(compareTasksByCreatedAtDesc);
+        return sortTasksByCreatedAtDesc(tasks);
     }
 
     async addProject(input: {

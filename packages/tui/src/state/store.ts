@@ -1,4 +1,4 @@
-import { MSG, orderProjectsByIds } from "@taskflow/shared";
+import { MSG, orderProjectsByIds, sortTasksByCreatedAtDesc } from "@taskflow/shared";
 import type { Project, Task, ProjectListResponse, TaskListResponse } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 
@@ -48,7 +48,7 @@ class Store {
                 this.apply(() => this.applyTask(payload));
             }),
             net.on(MSG.TASK_UPDATED, (payload) => {
-                this.apply(() => this.applyTask(payload));
+                this.apply(() => this.updateTask(payload));
             }),
         );
     }
@@ -67,22 +67,47 @@ class Store {
         this.projectList = upsert(this.projectList, payload as Project);
     }
 
+    /**
+     * Snapshots arrive in the backend's own order, and the sidebar shows that
+     * order, so a record folded in from a broadcast has to be re-sorted into it.
+     * Appending instead would leave a new or newly pinned task in a slot the
+     * next snapshot moves it out of.
+     */
     private applyTask(payload: unknown): void {
+        this.taskList = sortTasksByCreatedAtDesc(upsert(this.taskList, payload as Task));
+    }
+
+    private updateTask(payload: unknown): void {
         const next = payload as Task;
         const previous = this.taskList.find((t) => t.id === next.id);
-        this.taskList = upsert(this.taskList, next);
+        this.applyTask(payload);
+        if (next.parentId !== undefined) return;
         // Archiving or unarchiving a top-level task cascades to its subtasks on
         // the backend, which broadcasts the parent alone
         // (`api/routes/task-routes.ts` archive and unarchive), so mirror the
         // cascade or the children keep the status they had before.
         // Only a status transition cascades: an ordinary parent update — a
         // rename, a session change — must leave the children as they are.
-        if (next.parentId === undefined && previous !== undefined && previous.status !== next.status) {
+        if (previous !== undefined && previous.status !== next.status) {
             const { status, archivedAt } = next;
             this.taskList = this.taskList.map((t) =>
                 t.parentId === next.id ? { ...t, status, archivedAt } : t,
             );
         }
+        // Unarchiving restores every archived subtask, including ones archived
+        // on their own. `TASK_LIST` serves active tasks only, so those are
+        // records this cache has never held and cannot reconstruct — the parent
+        // coming back is the signal to go and fetch them.
+        if (next.status === "active" && previous?.status !== "active") this.refresh();
+    }
+
+    /**
+     * A background reload for a cascade this cache cannot mirror locally.
+     * A failure leaves the stale rows in place until the next load; the store
+     * has no error channel of its own and reconnect is the app's job.
+     */
+    private refresh(): void {
+        this.load().catch(() => undefined);
     }
 
     /**

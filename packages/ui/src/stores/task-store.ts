@@ -6,7 +6,7 @@ import type {
     TaskListResponse,
     TaskLogListResponse,
 } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import { MSG, sortTasksByCreatedAtDesc } from "@taskflow/shared";
 import { sendRequest, onEvent } from "../hooks/useWebSocket";
 
 interface TaskStore {
@@ -35,29 +35,6 @@ interface TaskStore {
     setActiveTask(id: string | null): void;
     fetchTaskLog(taskId: string): Promise<void>;
     appendLogEntry(taskId: string, entry: TaskLogEntry): void;
-}
-
-function getCreatedAtTimestamp(value: string): number {
-    const timestamp = Date.parse(value);
-    return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function sortTasksByCreatedAtDesc(tasks: Task[]): Task[] {
-    return [...tasks].sort((a, b) => {
-        const aPinned = a.pinned ? 1 : 0;
-        const bPinned = b.pinned ? 1 : 0;
-        if (aPinned !== bPinned) {
-            return bPinned - aPinned;
-        }
-
-        const createdAtDiff =
-            getCreatedAtTimestamp(b.createdAt) - getCreatedAtTimestamp(a.createdAt);
-        if (createdAtDiff !== 0) {
-            return createdAtDiff;
-        }
-
-        return a.id.localeCompare(b.id);
-    });
 }
 
 export const useTaskStore = create<TaskStore>((set) => ({

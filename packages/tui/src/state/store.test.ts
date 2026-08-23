@@ -128,6 +128,13 @@ function stagedNet(
     };
 }
 
+/** Let an internally started `load()` settle before asserting on the store. */
+async function flush(): Promise<void> {
+    await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+    });
+}
+
 describe("Store", () => {
     test("loads projects and tasks", async () => {
         const store = new Store(fakeNet([project("p1", "One")], [task("t1", "p1", "Task")]));
@@ -303,8 +310,12 @@ describe("Store", () => {
     });
 
     test("archives a parent's subtasks when only the parent archive is broadcast", async () => {
-        const parent = task("parent", "p1", "Parent");
-        const child: Task = { ...task("child", "p1", "Child"), parentId: "parent" };
+        const parent: Task = { ...task("parent", "p1", "Parent"), createdAt: "2026-01-01T00:00:00Z" };
+        const child: Task = {
+            ...task("child", "p1", "Child"),
+            parentId: "parent",
+            createdAt: "2026-02-01T00:00:00Z",
+        };
         const net = fakeNet([project("p1", "One")], [parent, child]);
         const store = new Store(net);
         await store.load();
@@ -314,23 +325,33 @@ describe("Store", () => {
     });
 
     test("restores a parent's subtasks when the parent is unarchived", async () => {
-        const parent = task("parent", "p1", "Parent");
-        const child: Task = { ...task("child", "p1", "Child"), parentId: "parent" };
+        const parent: Task = { ...task("parent", "p1", "Parent"), createdAt: "2026-01-01T00:00:00Z" };
+        const child: Task = {
+            ...task("child", "p1", "Child"),
+            parentId: "parent",
+            createdAt: "2026-02-01T00:00:00Z",
+        };
         const net = fakeNet([project("p1", "One")], [parent, child]);
         const store = new Store(net);
         await store.load();
         net.emit(MSG.TASK_UPDATED, { ...parent, status: "archived", archivedAt: "2026-08-23T00:00:00Z" });
         net.emit(MSG.TASK_UPDATED, { ...parent, status: "active", archivedAt: null });
-        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["parent", "child"]);
+        // Newest first, so the subtask sorts above the parent it was added to.
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["child", "parent"]);
         store.dispose();
     });
 
     test("leaves subtasks alone when a parent update does not change its status", async () => {
-        const parent = task("parent", "p1", "Parent");
-        const child: Task = { ...task("child", "p1", "Child"), parentId: "parent" };
+        const parent: Task = { ...task("parent", "p1", "Parent"), createdAt: "2026-01-01T00:00:00Z" };
+        const child: Task = {
+            ...task("child", "p1", "Child"),
+            parentId: "parent",
+            createdAt: "2026-02-01T00:00:00Z",
+        };
         const archivedChild: Task = {
             ...task("other", "p1", "Archived child"),
             parentId: "parent",
+            createdAt: "2026-03-01T00:00:00Z",
             status: "archived",
             archivedAt: "2026-08-23T00:00:00Z",
         };
@@ -338,7 +359,53 @@ describe("Store", () => {
         const store = new Store(net);
         await store.load();
         net.emit(MSG.TASK_UPDATED, { ...parent, title: "Renamed" });
-        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["parent", "child"]);
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["child", "parent"]);
+        store.dispose();
+    });
+
+    test("orders a newly created task by creation time, not arrival", async () => {
+        const older: Task = { ...task("t-old", "p1", "Older"), createdAt: "2026-01-01T00:00:00Z" };
+        const newer: Task = { ...task("t-new", "p1", "Newer"), createdAt: "2026-06-01T00:00:00Z" };
+        const net = fakeNet([project("p1", "One")], [older]);
+        const store = new Store(net);
+        await store.load();
+        net.emit(MSG.TASK_CREATED, newer);
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["t-new", "t-old"]);
+        store.dispose();
+    });
+
+    test("floats a task to the top when it is pinned", async () => {
+        const newer: Task = { ...task("t1", "p1", "Newer"), createdAt: "2026-06-01T00:00:00Z" };
+        const older: Task = { ...task("t2", "p1", "Older"), createdAt: "2026-01-01T00:00:00Z" };
+        const net = fakeNet([project("p1", "One")], [newer, older]);
+        const store = new Store(net);
+        await store.load();
+        net.emit(MSG.TASK_UPDATED, { ...older, pinned: true });
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["t2", "t1"]);
+        store.dispose();
+    });
+
+    test("refetches subtasks the backend restores with an unarchived parent", async () => {
+        const parent: Task = { ...task("parent", "p1", "Parent"), createdAt: "2026-01-01T00:00:00Z" };
+        const child: Task = {
+            ...task("child", "p1", "Child"),
+            parentId: "parent",
+            createdAt: "2026-02-01T00:00:00Z",
+        };
+        // The first snapshot is taken while the whole family is archived, so
+        // TASK_LIST — which serves active tasks only — carries none of it.
+        const net = stagedNet([
+            { projects: [project("p1", "One")], tasks: [] },
+            { projects: [project("p1", "One")], tasks: [parent, child] },
+        ]);
+        const store = new Store(net);
+        const loading = store.load();
+        net.release(0);
+        await loading;
+        net.emit(MSG.TASK_UPDATED, parent);
+        net.release(1);
+        await flush();
+        expect([...store.tasksFor("p1")].map((t) => t.id).sort()).toEqual(["child", "parent"]);
         store.dispose();
     });
 });
