@@ -27,7 +27,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | in-review round 2 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`; next is review round 3 |
+| 19.1 | Mouse — report decoding | in-review round 3 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`; next is review round 4 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
@@ -4346,15 +4346,75 @@ Reading the diff independently turned up one defect Codex did not, now fixed in
 Verification at `cbfde10`: `bun run lint` clean, `bun run typecheck` clean across all
 five packages, `bun test packages/tui` → 360 pass, 0 fail.
 
-Next step: review round 3 for Task 19.1.
-Round 2 fixed a substantiated finding, so the task takes another round rather than
+## Task 19.1 — review round 3
+
+gpt-5.5 via the codex-review skill (Mode B, prompted) over `e00cd13..f48451a` restricted
+to `packages/tui`, with rounds 1 and 2's findings declared settled in the prompt.
+**One finding, substantiated and fixed in `436313f`.** Codex also confirmed there are no
+`as any`, no `eslint-disable` and no unused exports in the new code, and ran
+`bun test packages/tui`, `bun run typecheck` and `bun run lint`.
+
+- **Substantiated and fixed — an out-of-range SGR button became a left click.** JS
+  bitwise operators coerce through `ToInt32`, so `parseSgrMouse` reading a button
+  parameter of `256` computed `256 & 3 === 0` and reported a plain **left press** at the
+  cell the frame named. `build` already refused a negative button and zero coordinates
+  precisely so a corrupt frame could not invent a click on the sidebar; it had no upper
+  bound, so the guard was defeated by any value above 255.
+
+  Independently reproduced, and the hole is wider than the report said — the existing
+  `Number.isInteger` test does not catch large values either:
+
+  ```
+  decodeLegacy("\x1b[<256;1;1M", "")                  → press left at (0,0)
+  decodeLegacy("\x1b[<4294967296;12;5M", "")          → press left at (11,4)
+  decodeLegacy("\x1b[<1000000000000000000000;12;5M", "") → press left at (11,4)
+  ```
+
+  Fix: `MAX_BUTTON = 0xff` in `mouse.ts`; `build` rejects `b > MAX_BUTTON`. One byte is
+  what the button field is in every encoding this decoder reads, and X10 already tops out
+  at 223, so the X10 path is unaffected.
+
+  Regression tests: `parseSgrMouse > a button value outside one byte is dropped, not
+  truncated` in `packages/tui/src/input/mouse.test.ts` (covers 256, 2**32 and 1e21, and
+  pins 255 as still valid), and the behavioural `decodeLegacy > an out-of-range SGR button
+  does not become a left click` in `decode-legacy.test.ts`. Both red on `f48451a`
+  (`Received: [{ action: "press", button: "left", … }]`), green on `436313f`. Run with
+  `bun test packages/tui/src/input/mouse.test.ts packages/tui/src/input/decode-legacy.test.ts`.
+
+Reviewing the diff independently alongside Codex turned up nothing further. Checked and
+found sound: the X10 payload boundary against `scanCsi`'s `length`/`params`/
+`intermediates` contract (a payload byte of `0x20` cannot be mistaken for an intermediate
+because `scanCsi` stops at the `M` final before the payload begins); `decodeKitty`
+delegating a partial X10 carry to `flushCarry` when a kitty sequence follows in the same
+read (reachable only from a genuinely truncated report, and dropping is the safe outcome
+there); wheel and modifier bit extraction under bit 64 and bit 128; and the idle-timer
+hold added in round 2, which is rearmed on every read and cannot leak a timer.
+
+## Decisions taken (Task 19.1, round 3)
+
+- **The bound is one byte, not the set of defined button values.** The largest value any
+  encoding actually produces is 191 (`128 + 3 + 4 + 8 + 16 + 32`), but rejecting the
+  191–255 gap would encode a table of xterm's current button assignments into a parser
+  whose job is the wire format. `0xff` is the field width and does not go stale.
+- **Coordinates keep their lower bound only.** SGR names no maximum column, so an upper
+  bound there would be inventing a limit; an out-of-range coordinate simply hit-tests to
+  no pane in 19.3/19.4, whereas an out-of-range *button* changes the identity of the
+  event. Deliberately not widened.
+
+Verification at `436313f`: `bun run lint` clean, `bun run typecheck` clean across all
+five packages, `bun test packages/tui` → 362 pass, 0 fail.
+
+Next step: review round 4 for Task 19.1.
+Round 3 fixed a substantiated finding, so the task takes another round rather than
 closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
 (`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
 Settled, do not re-litigate: the X10 UTF-8 payload limitation (round 1, accepted in the
-plan), the extra-button release sentinel (round 1, fixed in `39299ff`), and the
-idle-timer carry exception (round 2, fixed in `cbfde10` — unless the fix itself is
-shown wrong). Verify every new finding independently before fixing it; a finding
-without a repro is not a finding. Zero substantiated findings → 19.1 is clear and 19.2
-is next.
+plan), the extra-button release sentinel (round 1, fixed in `39299ff`), the idle-timer
+carry exception (round 2, fixed in `cbfde10`), and the one-byte button bound (round 3,
+fixed in `436313f`) — each only if the fix itself is shown wrong. Also settled: bare
+motion (`?1003h`) is never enabled on the outer terminal, so an X10 `b = 35` decoding as
+a release is out of scope by plan decision. Verify every new finding independently before
+fixing it; a finding without a repro is not a finding. Zero substantiated findings → 19.1
+is clear and 19.2 is next.
 After 19.1: 19.2 – 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
 touches `packages/backend` and `electron/`, not `packages/tui`).
