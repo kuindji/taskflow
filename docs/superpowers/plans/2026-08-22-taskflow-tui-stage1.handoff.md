@@ -17,7 +17,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
-| 10 | Blit a terminal buffer into the screen | implemented | `ad82029` | commit `75f0f23`; review round 1 due |
+| 10 | Blit a terminal buffer into the screen | in-review round 1 | `ad82029` | commits `75f0f23`, `9d6e970`; round 1 findings fixed, round 2 due |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
 | 13 | Sidebar rendering | pending | — | |
@@ -1709,7 +1709,58 @@ failures, verified unchanged by name. Working tree clean.
 Review needed: yes. It is new rendering code on the hot path with colour,
 width and cursor edge cases.
 
-Next step: review round 1 for Task 10 — one gpt-5.5 review via the codex-review
+- **Task 10, round 1** (gpt-5.5 via codex-review, Mode B over `ad82029..64b4bdc`
+  restricted to `packages/tui/src/term/blit.ts` and `blit.test.ts`): one
+  finding, substantiated and fixed in `9d6e970`. Run the repros with
+  `bun test packages/tui/src/term/blit.test.ts`.
+  - **Substantiated — the cursor was reported in buffer coordinates.**
+    `blitTerminal` copies rows starting at `active.viewportY` but returned
+    `active.cursorY`, which xterm counts from `baseY`, not from the viewport.
+    Whenever the two differ — a scrolled-back viewport — the cursor was drawn on
+    whichever scrollback line happened to share that index, or shown at all when
+    it had scrolled out of sight entirely. Claude confirmed the xterm semantics
+    independently with a standalone probe before the report landed: after
+    `scrollLines(-2)` on a 10x3 terminal, `cursorY` stayed `2` while `viewportY`
+    dropped to `0` and `baseY` stayed `2`. The typings say so outright
+    (`@xterm/headless` 5.5 `IBuffer.cursorY`: "ranges between 0 (when the cursor
+    is at baseY) and Terminal.rows - 1").
+    Two regression tests, both red on `64b4bdc` and green on `9d6e970`:
+    `blitTerminal > hides the cursor when scrollback has pushed it below the
+    viewport` (returned `{x:1,y:4}` instead of `null`) and `blitTerminal > keeps
+    the cursor on its own row when a scrolled viewport still shows it`
+    (returned `y:2` instead of `y:3`). The second exists so the fix cannot be a
+    blanket "hide the cursor whenever scrolled".
+    Fix: `const cursorRow = active.baseY + active.cursorY - active.viewportY`,
+    then bound that against the rect.
+  - Reachability: nothing in the TUI calls `scrollLines` yet, so the defect was
+    latent. Fixed anyway — the function already reads its rows through
+    `viewportY`, so returning a cursor that ignores it is internally
+    inconsistent, and `SessionTerminal` is built with `scrollback: 5000`
+    precisely so a later stage can scroll.
+  - Claude also checked, and found nothing wrong with: the RGB unpacking
+    (`getFgColor()` is documented as `0xRRGGBB`, so the three shifts are right),
+    the palette/default/RGB predicate split, attribute coverage against the
+    `Cell` model (`blink`, `invisible` and `overline` have no representation in
+    the model, so dropping them is the model's choice, not a blit defect), the
+    width-0 continuation cell against `screen.ts`'s flush (it emits no character
+    for `width === 0`, so the wide glyph's own two columns stay in step), and
+    aliasing — `toCell` allocates a fresh `Cell` and fresh colours per cell, and
+    the shared `DEFAULT_COLOR` it reuses is frozen, so `ScreenBuffer.set`'s
+    take-ownership contract is not violated. Codex reached the same conclusion
+    on the colour and attribute questions from the installed 5.5.0 source.
+  - Noted, not treated as defects: `line.getCell(col)` allocates a new cell
+    object per call where xterm's own docs suggest passing a reusable
+    `getNullCell()`, which is a hot-path allocation question for Stage 2 rather
+    than a correctness one; and hiding the cursor when `cursorX === cols` is the
+    plan's explicit choice (its own test pins it) even though a real terminal
+    would show it parked on the last column.
+
+- Validation at `9d6e970`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 1013 pass / 8 fail — 1011 + the 2 new
+  tests, and the 8 are the recorded pre-existing `MarkdownPaneImpl`
+  suite-ordering failures, verified unchanged by name. Working tree clean.
+
+Next step: review round 2 for Task 10 — one gpt-5.5 review via the codex-review
 skill over `ad82029..HEAD` restricted to `packages/tui/src/term/blit.ts` and
-`blit.test.ts`. Verify every finding independently, fix the substantiated ones,
-validate, commit.
+`blit.test.ts`, covering the round 1 cursor-translation fix. Verify every
+finding independently, fix the substantiated ones, validate, commit.
