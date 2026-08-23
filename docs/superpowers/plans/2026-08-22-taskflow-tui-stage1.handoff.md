@@ -30,7 +30,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
 | 19.2 | Mouse — outer tracking on/off | clear | `3829f83` | commit `5345824`; round 1 fixed in `a7af6dd`; round 2 found nothing — clear after two rounds |
 | 19.3 | Mouse — layout hoist and hit testing | clear | `db844f4` | commit `ec39171`; round 1 found only test gaps, fixed in `10e7b0f`; round 2 found nothing — clear after two rounds |
-| 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
+| 19.4 | Mouse — app wiring | implemented | `4e89f26` | commit `adf7c5a`; next step is review round 1 |
 | 19.5 | Mouse — forward to the child | pending | — | `ChildModes.mouseTracking`/`mouseEncoding`, `encodeMouseForChild` |
 | 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
@@ -5299,16 +5299,80 @@ pass a zero today — it is the reason the zero-row test exists, not a defect.
 Verification at `130d365`: `bun run lint` clean, `bun run typecheck` clean across all five
 packages, `bun test packages/tui` → 411 pass, 0 fail (unchanged — no code moved this round).
 
-Next step: implement Task 19.4 (mouse — app wiring).
-Task 19.3 is clear after two rounds. 19.4 adds `App.handleMouse(report)` and
-`SessionTerminal.scroll(lines)`, and turns 19.1's `continue` in `index.ts`'s `feed` loop into
-`app.handleMouse(ev)`. Plan section: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`
-→ "Task 19.4: Wire the mouse into the app". Two constraints the plan is explicit about: only
-the `feed` loop changes — `flushHeldEscape` keeps calling `app.handleKey(ev)` unguarded,
-because `flushCarry` returns `KeyEvent[]` and a `ev.kind === "mouse"` test there is a hard
-`TS2367` typecheck failure; and `scroll` is a method on `SessionTerminal` rather than a reach
-through `term.terminal.scrollLines` from the UI layer. The child-first-refusal guard named in
-the plan's `handleMouse` shape belongs to 19.5, not here.
-After 19.4: 19.5, 19.6 (**user gate — manual smoke test**), then Tasks 16-18, then Tasks 20
-and 21 (each needs its own plan; 20 touches `packages/backend` and `electron/`, 21 touches
-`packages/tui/src/input`).
+## Task 19.4 — implementation
+
+Base commit `4e89f26`. Commit `adf7c5a` — "feat(tui): bind mouse clicks and the wheel to the UI".
+
+What landed, exactly as the plan scoped it:
+
+- **`App.handleMouse(report)`** (`packages/tui/src/ui/app.ts`). Recomputes the layout from
+  `deps.cols`/`deps.rows`/`zoomed`, asks `routeMouse` with `{ rows: this.sidebarRows.length,
+  tabs: this.tabSpecs() }`, and applies the action: `select` sets the row *and* pulls focus
+  back to the sidebar, `move` steps the selection, `open-tab` sets `activeSession` and focuses
+  the session (only when the tab exists), `focus` sets the target, `scroll` calls
+  `SessionTerminal.scroll` on the active session if there is one.
+- **Two clamps extracted, per the plan's Step 2.** `selectRow(index)` and `selectTab(index)`
+  are now the only ways the selection and the active tab move, and `handleKey` was rewritten
+  to go through them — so a click and a keypress cannot disagree about the bounds. `setRows`
+  shares the same `clampIndex` free function. `selectTab` returns a boolean so a click on a
+  strip with no such tab does not move focus into a pane that did not change.
+- **`tabSpecs()`** hoists the label list out of `render`, so the strip that is hit-tested is
+  the strip that was painted rather than a second guess at it.
+- **`SessionTerminal.scroll(lines)`** — `this.terminal.scrollLines(lines)`, a method rather
+  than a reach through the public `terminal` from the UI layer, as the plan requires.
+- **`index.ts`'s `feed` loop** — 19.1's `if (ev.kind === "mouse") continue;` became
+  `if (ev.kind === "mouse") app.handleMouse(ev); else app.handleKey(ev);`. `flushHeldEscape`
+  was left untouched, for the `TS2367` reason the plan records.
+
+Not done here, on purpose: the child-first-refusal guard ahead of `routeMouse` belongs to
+19.5, and `App.sessions` is empty for the whole of Stage 1 anyway.
+
+**Every new test was mutation-checked rather than merely written.** Each was run against a
+deliberately broken implementation and confirmed red, then the tree was restored from a
+scratchpad copy (`git checkout` is not safe here — it reverts to HEAD, which is the base
+commit, silently discarding uncommitted work; that happened once mid-task and the
+implementation had to be reapplied).
+
+| Mutation | Test that went red |
+|---|---|
+| `select` no longer sets `focusTarget` | `a click on a sidebar row also takes focus back from the session` |
+| `focus` action ignored | `a click in the pane focuses the session` |
+| `move` action ignored | `the wheel over the sidebar moves the selection`, `the wheel stops at the ends of the row list` |
+| `selectRow` drops its clamp | `the wheel stops at the ends of the row list` |
+| `?.` → `!` on the `scroll` branch | `the wheel over an empty pane is harmless` |
+| `scroll` made a no-op | `scroll moves the viewport back over the scrollback and returns to it` |
+| `feed` loop back to `continue` | `a click reaches the app rather than being dropped by the feed loop` |
+
+Two things that check produced, worth keeping:
+
+1. **The clamp test only bites without an intervening `render()`.** `render` calls `setRows`,
+   which re-clamps every frame, so eight wheel-downs followed by a render hide an unclamped
+   `selectRow` completely. The test now runs the overshoot and the notch back in one go and
+   renders after both — that is the only arrangement that distinguishes clamped-per-step from
+   clamped-at-frame. The comment in the test says so, so a later edit does not "tidy" the
+   render back in and quietly gut it.
+2. **The `index.ts` wiring is pinned end-to-end, not just by the unit tests.** `feed` has no
+   unit seam, so `a click reaches the app rather than being dropped by the feed loop` spawns
+   the real TUI, sends `CSI <0;41;6M` (column 40, row 5 — inside the pane at the 80x24 pipe
+   fallback, sidebar 26 wide), then sends `Q`. With the wiring in place focus is on the session
+   and `Q` goes to a child that does not exist, so the process stays up; with 19.1's `continue`
+   restored it quits. Confirmed red against the reverted loop.
+
+Coverage gap, recorded so a review round does not re-derive it: the `open-tab` and the
+non-empty `scroll` branches of `handleMouse` cannot be reached from a test today. `sessions`
+is private and nothing in Stage 1 fills it, which is the same position the pre-existing
+`select-tab` key path is already in. Both are covered at the `routeMouse` level in
+`routing.test.ts`; the `App` half waits for Stage 2.
+
+Verification at `adf7c5a`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 420 pass, 0 fail (411 → 420: eight new `App` tests, one
+new `SessionTerminal` test, one new entry-point test, and one pre-existing count unchanged).
+
+Next step: review Task 19.4, round 1.
+One standard gpt-5.5 review via the codex-review skill over `4e89f26..adf7c5a`, restricted to
+`packages/tui`. Points worth putting in the brief so the round is not spent re-deriving them:
+the child-first-refusal guard is 19.5's, not a gap here; `flushHeldEscape` is deliberately
+left calling `app.handleKey` unguarded (`TS2367`); mouse reports deliberately do not drain
+`pendingEscape`; and the `open-tab`/`scroll` coverage gap above is structural until Stage 2.
+After 19.4 is clear: 19.5, 19.6 (**user gate — manual smoke test**), then Tasks 16-18, then
+Tasks 20 and 21 (each needs its own plan).
