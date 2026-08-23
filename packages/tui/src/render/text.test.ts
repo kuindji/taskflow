@@ -91,6 +91,25 @@ describe("layoutText", () => {
         expect(cells.every((c) => c.width === 1)).toBe(true);
     });
 
+    test("blanks an unpaired surrogate", () => {
+        // A lone surrogate is not a printable character: `Screen.flush` writes
+        // `cell.ch` for every cell whose width is not zero, and encoding a half
+        // surrogate pair to the stream emits U+FFFD, so the frame shows
+        // mojibake where a blank belongs.
+        const high = layoutText("a\uD83Db", 4, 0);
+        expect(high.map((c) => c.ch)).toEqual(["a", " ", "b", " "]);
+        const low = layoutText("\uDE80", 1, 0);
+        expect(low.map((c) => c.ch)).toEqual([" "]);
+        expect(low.every((c) => c.width === 1)).toBe(true);
+    });
+
+    test("keeps a well-formed surrogate pair as one wide glyph", () => {
+        // The blanking rule must not catch a paired astral character.
+        const cells = layoutText("\u{1F680}", 3, 0);
+        expect(cells.map((c) => c.ch)).toEqual(["\u{1F680}", "", " "]);
+        expect(cells.map((c) => c.width)).toEqual([2, 0, 1]);
+    });
+
     test("returns a distinct cell object per column", () => {
         // ScreenBuffer.set takes ownership of the cell it is handed, so two
         // columns must never share one object.

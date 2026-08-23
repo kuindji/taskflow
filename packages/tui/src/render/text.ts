@@ -101,12 +101,17 @@ const WIDE_RANGES: readonly (readonly [number, number])[] = [
 const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}]$/u;
 
 /**
+ * Clusters that must never reach the terminal, blanked instead of drawn.
  * Unanchored: `Intl.Segmenter` keeps CRLF as one grapheme, so a cluster can
- * carry a control code point alongside another character. Any such cluster is
- * blanked — `Screen.flush` writes every cell whose width is not zero, and a raw
- * control byte would move the cursor in the middle of a frame.
+ * carry such a code point alongside another character.
+ *
+ * `Screen.flush` writes every cell whose width is not zero, so a raw control
+ * byte would move the cursor in the middle of a frame, and an unpaired
+ * surrogate (`\p{Cs}` matches only unpaired ones under `u`; a well-formed pair
+ * is a single astral code point) encodes to U+FFFD on the way out and draws as
+ * mojibake.
  */
-const CONTROL = /\p{Cc}/u;
+const UNPRINTABLE = /[\p{Cc}\p{Cs}]/u;
 
 function isWide(cp: number): boolean {
     for (const [lo, hi] of WIDE_RANGES) {
@@ -156,8 +161,8 @@ function fitToWidth(text: string, cols: number): string {
 
 /**
  * Exactly `cols` cells for `text`, all carrying `attrs`: a wide glyph takes a
- * width-2 cell plus a width-0 continuation, a control character is blanked so
- * it cannot move the cursor, a wide glyph that would straddle the last column
+ * width-2 cell plus a width-0 continuation, an unprintable cluster is blanked
+ * so it cannot corrupt the frame, a wide glyph that would straddle the last column
  * is clipped to a space, and the rest is padded with blanks so a caller that
  * writes the whole row leaves no stale cell behind.
  */
@@ -167,7 +172,7 @@ function layoutText(text: string, cols: number, attrs: number): Cell[] {
         if (cells.length >= cols) break;
         const width = graphemeWidth(grapheme);
         if (width === 0) continue;
-        if (CONTROL.test(grapheme)) {
+        if (UNPRINTABLE.test(grapheme)) {
             cells.push(cell(" ", 1, attrs));
         } else if (width === 2) {
             if (cells.length + 2 > cols) {
