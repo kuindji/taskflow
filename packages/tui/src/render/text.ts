@@ -140,8 +140,18 @@ const WIDE_RANGES: readonly (readonly [number, number])[] = [
     [0x30000, 0x3fffd],
 ];
 
-/** Combining marks and format characters occupy no column of their own. */
-const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}]$/u;
+/**
+ * Code points that cannot begin a visible cluster: combining marks and format
+ * characters. Tested against a cluster's *base*, so a mark only matches here
+ * when the segmenter had nothing to attach it to — inside a normal cluster the
+ * mark rides along in its base character's cell and never reaches this test.
+ *
+ * `Mc` spacing marks are included even though they are not zero-width. They
+ * bind to the cluster in front of them, so a baseless one handed back to a
+ * caller re-attaches to whatever that caller concatenates ahead of it and
+ * repaints a cell the text does not own.
+ */
+const NO_BASE = /^[\p{Mn}\p{Me}\p{Mc}\p{Cf}]$/u;
 
 /**
  * VARIATION SELECTOR-16. It asks for the emoji presentation of the character
@@ -191,12 +201,18 @@ function graphemes(text: string): string[] {
  *
  * Guessing too wide costs a blank column; guessing too narrow lets the row run
  * past the pane it was laid out for, so an ambiguous cluster is counted wide.
+ *
+ * Known limit: U+302E, U+302F, U+16FF0 and U+16FF1 are spacing marks that the
+ * width table calls wide, so a base carrying one can advance three columns
+ * where this returns 2. A cell holds at most two columns, so counting it
+ * honestly is not expressible here; the four are rare enough in a task title to
+ * leave. A baseless one is dropped by `NO_BASE` before this matters.
  */
 function graphemeWidth(grapheme: string): 0 | 1 | 2 {
     const cp = grapheme.codePointAt(0);
     if (cp === undefined) return 0;
     const base = String.fromCodePoint(cp);
-    if (ZERO_WIDTH.test(base)) return 0;
+    if (NO_BASE.test(base)) return 0;
     if (isWide(cp)) return 2;
     if (grapheme.includes(EMOJI_PRESENTATION)) return 2;
     return isRegionalIndicator(cp) ? 2 : 1;
@@ -210,12 +226,12 @@ function cell(ch: string, width: 0 | 1 | 2, attrs: number): Cell {
  * The longest prefix of `text` that fits in `cols` display columns without
  * splitting a grapheme. Use before appending anything that must stay visible.
  *
- * A standalone zero-width cluster — a combining mark with no base of its own,
- * which `Intl.Segmenter` yields only at the start of a string or after another
- * such cluster — is dropped rather than kept. `layoutText` drops it too, and a
+ * A baseless cluster — a combining mark with no base of its own, which
+ * `Intl.Segmenter` yields only at the start of a string or after another such
+ * cluster — is dropped rather than kept. `layoutText` drops it too, and a
  * caller that concatenates this result after a prefix would otherwise hand the
  * segmenter a mark that attaches to the prefix's last character and repaints a
- * cell the label does not own.
+ * cell the label does not own. See `NO_BASE`.
  */
 function fitToWidth(text: string, cols: number): string {
     let used = 0;

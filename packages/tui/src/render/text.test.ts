@@ -32,13 +32,14 @@ describe("fitToWidth", () => {
 
     test("counts every East Asian Wide character as two columns, not just the CJK blocks", () => {
         // One sample per wide range that lives outside the big ideograph blocks:
-        // trigrams, monograms, hexagrams, Vietnamese reading marks, Kana
-        // Extended-B, Tai Xuan Jing, counting rods, and the newer emoji.
+        // trigrams, monograms, hexagrams, Kana Extended-B, Tai Xuan Jing,
+        // counting rods, and the newer emoji. U+16FF0..U+16FF1 is the one wide
+        // range with no eligible sample \u2014 every member is a spacing mark, which
+        // the test below covers instead.
         const wide = [
             "\u2630",
             "\u268a",
             "\u4dc0",
-            "\u{16ff0}",
             "\u{1aff0}",
             "\u{1d300}",
             "\u{1d360}",
@@ -80,6 +81,26 @@ describe("fitToWidth", () => {
         // it, so `layoutText` drops it and `fitToWidth` must agree.
         expect(fitToWidth("\u0301A", 0)).toBe("");
         expect(fitToWidth("\u0301A", 1)).toBe("A");
+    });
+
+    test("drops a standalone spacing mark, which also has no base to ride on", () => {
+        // U+093E DEVANAGARI VOWEL SIGN AA is `Mc`, not `Mn`, so it is not
+        // zero-width, but the segmenter only ever hands it over alone when it
+        // has nothing to attach to, and `Mc` binds to the preceding cluster.
+        // Kept in the returned prefix, it would bind to the caller's own
+        // padding once concatenated.
+        expect(fitToWidth("\u093eA", 2)).toBe("A");
+        expect(fitToWidth("\u0915\u093eA", 2)).toBe("\u0915\u093eA");
+    });
+
+    test("drops a baseless spacing mark even where the width table calls it wide", () => {
+        // U+302E, U+302F, U+16FF0 and U+16FF1 are the only four East Asian Wide
+        // code points that are also spacing marks. Being wide does not make a
+        // baseless one safe to keep: it still binds to whatever the caller
+        // concatenates ahead of it, so it is dropped like any other.
+        for (const mark of ["\u302e", "\u302f", "\u{16ff0}", "\u{16ff1}"]) {
+            expect(fitToWidth(`${mark}A`, 2)).toBe("A");
+        }
     });
 });
 
@@ -172,6 +193,21 @@ describe("layoutText", () => {
         const cells = layoutText("\u{1f1fa}\u{1f1f8}", 1, 0);
         expect(cells.map((c) => c.ch)).toEqual([" "]);
         expect(cells.map((c) => c.width)).toEqual([1]);
+    });
+
+    test("drops a baseless spacing mark instead of giving it a cell", () => {
+        // A cell holding a lone `Mc` writes a mark with no base into the frame,
+        // and the terminal hangs it off whatever glyph the previous cell left
+        // on screen.
+        const cells = layoutText("\u093eA", 3, 0);
+        expect(cells.map((c) => c.ch)).toEqual(["A", " ", " "]);
+        expect(cells.map((c) => c.width)).toEqual([1, 1, 1]);
+    });
+
+    test("keeps a spacing mark in the cell of the base it belongs to", () => {
+        const cells = layoutText("\u0915\u093eb", 3, 0);
+        expect(cells.map((c) => c.ch)).toEqual(["\u0915\u093e", "b", " "]);
+        expect(cells.map((c) => c.width)).toEqual([1, 1, 1]);
     });
 
     test("returns a distinct cell object per column", () => {

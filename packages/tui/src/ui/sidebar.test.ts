@@ -291,4 +291,21 @@ describe("drawSidebar", () => {
         );
         expect(rowText(buf, 0, 4)).toBe("   1");
     });
+
+    test("does not let a leading spacing mark ride on the task indentation", () => {
+        // `Mc` marks bind to the cluster in front of them, so a label starting
+        // with one attaches to the second space of the indent once the row is
+        // concatenated, and the sidebar draws a mark into a cell the label does
+        // not own.
+        const buf = new ScreenBuffer(8, 1);
+        drawSidebar(
+            buf,
+            [{ kind: "task", id: "t1", label: "\u093eA", sessionCount: 0 }],
+            0,
+            8,
+            1,
+        );
+        expect(buf.get(1, 0).ch).toBe(" ");
+        expect(rowText(buf, 0, 8)).toBe("  A");
+    });
 });
