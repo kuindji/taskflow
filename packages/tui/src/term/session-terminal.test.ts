@@ -625,6 +625,53 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
+    test("a child's full reset puts the mouse encoding back to legacy", async () => {
+        // RIS is a power-on reset: xterm clears the tracking mode for us, but
+        // the encoding is ours to track, and a child that re-enables tracking
+        // afterwards without reselecting an extended encoding is parsing
+        // legacy bytes again.
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h\x1b[?1006h", sequence: 1 });
+        await settle();
+        expect(term.modes.mouseEncoding).toBe("sgr");
+
+        // Split from the re-enable so the reset's own effect is visible: the
+        // handler returns false, so xterm still runs RIS and clears tracking.
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1bc", sequence: 2 });
+        await settle();
+        expect(term.modes.mouseTracking).toBe("none");
+        expect(term.modes.mouseEncoding).toBe("x10");
+
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h", sequence: 3 });
+        await settle();
+        expect(term.modes.mouseTracking).toBe("drag");
+        expect(term.modes.mouseEncoding).toBe("x10");
+        term.dispose();
+    });
+
+    test("a child's full reset shows the cursor again", async () => {
+        // DECTCEM is the other mode xterm does not expose, so RIS leaves our
+        // copy stale the same way: the grid's cursor is back and ours says it
+        // is still hidden.
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?25l", sequence: 1 });
+        await settle();
+        expect(term.cursorHidden).toBe(true);
+
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1bc", sequence: 2 });
+        await settle();
+        expect(term.cursorHidden).toBe(false);
+        term.dispose();
+    });
+
     test("a re-attach does not carry the old tracking mode onto a fresh grid", async () => {
         // The snapshot carries the child's *tracking* mode, so tracking the
         // child dropped while we were away must not be put back by the pre-drop

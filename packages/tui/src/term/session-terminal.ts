@@ -169,6 +169,22 @@ class SessionTerminal {
             };
         track(parser.registerCsiHandler({ prefix: "?", final: "h" }, decPrivateMode(true)));
         track(parser.registerCsiHandler({ prefix: "?", final: "l" }, decPrivateMode(false)));
+
+        // RIS. xterm puts its own modes back to power-on defaults, but the two
+        // it does not expose are ours to reset: a child that re-enables
+        // tracking after a reset without reselecting an extended encoding is
+        // parsing legacy bytes, and the grid's cursor is visible again whatever
+        // the child hid before. This is deliberately narrower than a
+        // `terminal.reset()` hook — attach() calls that API directly, and the
+        // encoding has to survive *that* one, since nothing on either re-attach
+        // path can restore it.
+        track(
+            parser.registerEscHandler({ final: "c" }, (): boolean => {
+                this.mouseEncoding = "x10";
+                this.hiddenCursor = false;
+                return false;
+            }),
+        );
     }
 
     /**
