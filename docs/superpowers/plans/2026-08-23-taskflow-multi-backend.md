@@ -1515,16 +1515,26 @@ async function waitForBackend(localPort: number): Promise<boolean> {
 function runSsh(args: string[]): Promise<{ stdout: string; stderr: string; code: number | null }> {
     return new Promise((resolve) => {
         execFile("ssh", args, { timeout: 15_000 }, (error, stdout, stderr) => {
-            const code = error && "code" in error && typeof error.code === "number" ? error.code : 0;
+            // A non-numeric `code` means the spawn itself failed — ENOENT for a
+            // missing ssh binary — so it must not be flattened to 0, which reads
+            // as success.
+            const code =
+                error && "code" in error && typeof error.code === "number" ? error.code : null;
             resolve({ stdout, stderr: stderr + (error ? String(error.message) : ""), code });
         });
     });
 }
 
-/** The manual-connect fallback for hosts multicast cannot reach. */
-async function readRemotePort(record: BackendRecord): Promise<number | null> {
+/**
+ * The manual-connect fallback for hosts multicast cannot reach. Returns the
+ * classified failure rather than a bare null: a missing ssh binary reported as
+ * "could not work out which port" sends the user looking at the wrong machine.
+ */
+async function readRemotePort(
+    record: BackendRecord,
+): Promise<{ port: number } | { failure: TunnelFailure }> {
     const remotePath = `$HOME/.taskflow/${record.instanceId}.port`;
-    const { stdout } = await runSsh([
+    const { stdout, stderr, code } = await runSsh([
         "-p",
         String(record.sshPort),
         "-o",
@@ -1533,7 +1543,8 @@ async function readRemotePort(record: BackendRecord): Promise<number | null> {
         `cat ${remotePath}`,
     ]);
     const port = Number.parseInt(stdout.trim(), 10);
-    return Number.isInteger(port) && port > 0 ? port : null;
+    if (Number.isInteger(port) && port > 0) return { port };
+    return { failure: classifyTunnelFailure(stderr, code) };
 }
 
 function spawnTunnel(record: BackendRecord, localPort: number, backendPort: number) {
@@ -1564,19 +1575,28 @@ async function attemptTunnel(
     // `error` and `close` but never `exit`, so racing `exit` alone would let
     // ENOENT fall through to the readiness timeout and be reported as
     // "Taskflow is not running" ten seconds later.
+    // One listener for the child's whole life, not one per phase: before
+    // readiness it settles the race, after it notifies the renderer. Two
+    // listeners on one `close` would double-fire.
+    let established = false;
     const exited = new Promise<TunnelFailure>((resolve) => {
-        child.once("close", (code) => resolve(classifyTunnelFailure(readStderr(), code)));
+        child.once("close", (code) => {
+            const failure = classifyTunnelFailure(readStderr(), code);
+            if (established) {
+                tunnels.delete(record.id);
+                exitHandler?.(record.id, failure);
+                return;
+            }
+            resolve(failure);
+        });
     });
     const ready = waitForBackend(localPort).then((ok) => (ok ? null : "not-ready"));
 
     const outcome = await Promise.race([exited, ready]);
 
     if (outcome === null) {
+        established = true;
         tunnels.set(record.id, { child, localPort });
-        child.once("close", (code) => {
-            tunnels.delete(record.id);
-            exitHandler?.(record.id, classifyTunnelFailure(readStderr(), code));
-        });
         return { ok: true, localPort };
     }
 
@@ -1613,6 +1633,8 @@ function closeTunnel(id: string): void {
     const tunnel = tunnels.get(id);
     if (!tunnel) return;
     tunnels.delete(id);
+    // Drops the single lifetime listener, so a deliberate close is not reported
+    // to the renderer as a dropped tunnel.
     tunnel.child.removeAllListeners("close");
     tunnel.child.kill();
 }
@@ -1746,6 +1768,8 @@ let activeId = LOCAL_ID;
 let activeOrigin: string | null = null;
 /** Read back from disk for menu ordering. Never auto-connected to on startup. */
 let lastUsedId = LOCAL_ID;
+/** The backend being switched away from, retired once the renderer promotes. */
+let previousId = LOCAL_ID;
 
 function storePath(): string {
     return join(app.getPath("userData"), "backends.json");
@@ -1825,12 +1849,14 @@ function findRecord(id: string): BackendRecord | null {
     return entry && entry.kind !== "local" ? entry.record : null;
 }
 
-async function resolveBackendPort(record: BackendRecord): Promise<number | null> {
+async function resolveBackendPort(
+    record: BackendRecord,
+): Promise<{ port: number } | { failure: TunnelFailure }> {
     const live = discovered.find(
         (entry) => backendIdFor(entry.hostname, entry.instanceId) === record.id,
     );
-    if (live) return live.port;
-    if (record.lastKnownPort !== null) return record.lastKnownPort;
+    if (live) return { port: live.port };
+    if (record.lastKnownPort !== null) return { port: record.lastKnownPort };
     return readRemotePort(record);
 }
 
@@ -1860,17 +1886,9 @@ async function activateBackend(
         };
     }
 
-    const backendPort = await resolveBackendPort(record);
-    if (backendPort === null) {
-        return {
-            ok: false,
-            failure: {
-                kind: "no-backend",
-                message: `Could not work out which port Taskflow uses on ${record.displayName}.`,
-                stderr: "",
-            },
-        };
-    }
+    const resolved = await resolveBackendPort(record);
+    if ("failure" in resolved) return { ok: false, failure: resolved.failure };
+    const backendPort = resolved.port;
 
     const result = await openTunnel(record, backendPort);
     if (!result.ok) return result;
@@ -1881,16 +1899,34 @@ async function activateBackend(
 }
 
 /**
- * Called by the renderer only once its new socket is live, so a failed switch
- * never changes what main thinks is active.
+ * Split in two on purpose. Recording the new active backend has to happen
+ * BEFORE the renderer promotes its socket: if it happened after and the IPC or
+ * the write failed, the renderer would be on the new backend while main still
+ * polled and reported the old one, with no pending socket left to roll back.
+ *
+ * Retiring the old tunnel has to happen AFTER, because the renderer is still
+ * talking through it until it promotes.
  */
-async function commitActive(id: string, origin: string): Promise<void> {
-    if (activeId !== LOCAL_ID && activeId !== id) closeTunnel(activeId);
+async function setActive(id: string, origin: string): Promise<void> {
+    previousId = activeId;
     activeId = id;
     lastUsedId = id;
     activeOrigin = id === LOCAL_ID ? null : origin;
     await persist();
     deps.onChanged();
+}
+
+/** Failure here leaks one ssh process. It is logged, never surfaced: the
+ *  switch has already succeeded and there is nothing for the user to do. */
+function retirePreviousTunnel(): void {
+    if (previousId !== LOCAL_ID && previousId !== activeId) {
+        try {
+            closeTunnel(previousId);
+        } catch (error) {
+            console.error("Failed to close the previous tunnel:", error);
+        }
+    }
+    previousId = LOCAL_ID;
 }
 
 /** The backend that was active when the app last quit. Menu ordering only. */
@@ -1958,11 +1994,12 @@ export {
     LOCAL_ID,
     activateBackend,
     addBackend,
-    commitActive,
     findRecord,
     getActiveOrigin,
     getLastUsedId,
     initBackendRegistry,
+    retirePreviousTunnel,
+    setActive,
     isLocalActive,
     listBackends,
     rememberDiscovered,
@@ -1991,8 +2028,12 @@ In `electron/src/ipc-handlers.ts`, add near the existing `get-backend-port` hand
         return result;
     });
 
-    ipcMain.handle("backend-commit-active", async (_event, id: string, origin: string) => {
-        await commitActive(id, origin);
+    ipcMain.handle("backend-set-active", async (_event, id: string, origin: string) => {
+        await setActive(id, origin);
+    });
+
+    ipcMain.handle("backend-retire-previous", () => {
+        retirePreviousTunnel();
     });
 
     ipcMain.handle(
@@ -2040,8 +2081,9 @@ In `electron/src/preload.ts`, inside `contextBridge.exposeInMainWorld("taskflow"
     listBackends: () => ipcRenderer.invoke("backend-list"),
     getActiveBackend: () => ipcRenderer.invoke("backend-active"),
     activateBackend: (id: string) => ipcRenderer.invoke("backend-activate", id),
-    commitActiveBackend: (id: string, origin: string) =>
-        ipcRenderer.invoke("backend-commit-active", id, origin),
+    setActiveBackend: (id: string, origin: string) =>
+        ipcRenderer.invoke("backend-set-active", id, origin),
+    retirePreviousTunnel: () => ipcRenderer.invoke("backend-retire-previous"),
     addBackend: (input: { host: string; user?: string; sshPort?: number; port?: number }) =>
         ipcRenderer.invoke("backend-add", input),
     renameBackend: (id: string, displayName: string) =>
@@ -2077,7 +2119,8 @@ In `packages/ui/src/env.d.ts`, add to `interface TaskflowBridge`:
     activateBackend(
         id: string,
     ): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>;
-    commitActiveBackend(id: string, origin: string): Promise<void>;
+    setActiveBackend(id: string, origin: string): Promise<void>;
+    retirePreviousTunnel(): Promise<void>;
     addBackend(input: {
         host: string;
         user?: string;
@@ -2609,6 +2652,14 @@ function connectTo(origin: string): Promise<void> {
 /** Installs the pending socket and retires the previous one. */
 function promoteConnection(): void {
     if (!pending) return;
+    // A reconnect may have been armed while the handshake ran: the old backend
+    // can drop mid-switch. Left alone, that timer would later reconnect to the
+    // backend we just left and silently promote it, putting the renderer on one
+    // backend and Electron main on another.
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
     const previous = current;
     current = pending;
     pending = null;
@@ -3112,6 +3163,9 @@ interface BackendStore {
     generation: number;
     switching: string | null;
     error: string | null;
+    /** Set when the last failure was a host-key problem, so the connect dialog
+     *  can offer to trust it. Consumed in Task 11. */
+    pendingTrust: { id: string; kind: "unknown-host-key" | "changed-host-key" } | null;
     refresh: () => Promise<void>;
     switchTo: (id: string) => Promise<void>;
     dismissError: () => void;
@@ -3124,6 +3178,7 @@ const useBackendStore = create<BackendStore>((set, get) => ({
     generation: 0,
     switching: null,
     error: null,
+    pendingTrust: null,
 
     async refresh() {
         const bridge = window.taskflow;
@@ -3154,7 +3209,15 @@ const useBackendStore = create<BackendStore>((set, get) => ({
         try {
             const activation = await bridge.activateBackend(id);
             if (!activation.ok) {
-                set({ switching: null, error: activation.failure.message });
+                const { kind, message } = activation.failure;
+                set({
+                    switching: null,
+                    error: message,
+                    pendingTrust:
+                        kind === "unknown-host-key" || kind === "changed-host-key"
+                            ? { id, kind }
+                            : null,
+                });
                 return;
             }
 
@@ -3176,10 +3239,15 @@ const useBackendStore = create<BackendStore>((set, get) => ({
             // old socket is still open.
             await useFileStore.getState().unwatchAll();
 
+            // Main is told first: everything up to here is still rollback-able
+            // by aborting the pending socket, and nothing after promotion is.
+            await bridge.setActiveBackend(id, activation.origin);
+
             promoteConnection();
             resetAllState();
             await rebootstrap();
-            await bridge.commitActiveBackend(id, activation.origin);
+            // The old tunnel is only safe to kill now that nothing is using it.
+            await bridge.retirePreviousTunnel();
             set((state) => ({
                 switching: null,
                 activeId: id,
@@ -3197,7 +3265,7 @@ const useBackendStore = create<BackendStore>((set, get) => ({
     },
 
     dismissError() {
-        set({ error: null });
+        set({ error: null, pendingTrust: null });
     },
 }));
 
@@ -3419,38 +3487,10 @@ function BackendMenu({ masterWorkspaceActive, onMasterWorkspace }: BackendMenuPr
 export { BackendMenu };
 ```
 
-- [ ] **Step 2: Surface the host-key failure kind**
+- [ ] **Step 2: Build the connect dialog**
 
-The trust prompt needs to know *which* failure happened, and Task 10's store
-keeps only the message. Widen it. In `packages/ui/src/stores/backend-store.ts`,
-change the error field to carry the failure:
-
-```ts
-    error: string | null;
-    /** Set when the last failure was a host-key problem, so the UI can offer trust. */
-    pendingTrust: { id: string; kind: "unknown-host-key" | "changed-host-key" } | null;
-```
-
-and in `switchTo`, where activation fails:
-
-```ts
-            if (!activation.ok) {
-                const { kind, message } = activation.failure;
-                set({
-                    switching: null,
-                    error: message,
-                    pendingTrust:
-                        kind === "unknown-host-key" || kind === "changed-host-key"
-                            ? { id, kind }
-                            : null,
-                });
-                return;
-            }
-```
-
-Initialise `pendingTrust: null` and clear it in `dismissError()`.
-
-- [ ] **Step 3: Build the connect dialog**
+Task 10's store already sets `pendingTrust` when activation fails with a
+host-key problem. This dialog is its only consumer.
 
 Create `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx`. Read
 `packages/ui/src/components/sidebar/NewProjectDialog.tsx` first and reuse its
@@ -3588,11 +3628,11 @@ Replace the placeholder `className="..."` and the bare `label`/`input` elements
 with the dialog, `Label` and `Input` components `NewProjectDialog.tsx` uses. The
 logic above is the part that matters; the chrome must match the rest of the app.
 
-- [ ] **Step 4: Build the manage dialog**
+- [ ] **Step 3: Build the manage dialog**
 
 Create `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`: a list of saved records with an editable display name, an editable user, an editable ssh port, and a remove button per row, calling `renameBackend` / `addBackend` / `removeBackend` on the bridge and `refresh()` after each.
 
-- [ ] **Step 5: Replace the Monitor button**
+- [ ] **Step 4: Replace the Monitor button**
 
 In `packages/ui/src/components/sidebar/TaskSidebar.tsx`, delete the `Button` at lines 381-395 and render instead:
 
@@ -3605,7 +3645,7 @@ In `packages/ui/src/components/sidebar/TaskSidebar.tsx`, delete the `Button` at 
 
 Wrap the surrounding `<div className="flex items-center">` in `relative` so the menu positions against it. Remove the now-unused `Monitor` import.
 
-- [ ] **Step 6: Consume the dropped-tunnel signal**
+- [ ] **Step 5: Consume the dropped-tunnel signal**
 
 Task 7 sends `backend-dropped` from main when an ssh child exits on its own, and
 nothing reads it yet. In `packages/ui/src/components/AppShell.tsx`, next to the
@@ -3624,7 +3664,24 @@ workspace, wired to `dismissError()`. The same banner carries switch failures
 and the unsaved-files refusal from Task 10, so there is one place errors about
 backends appear rather than three.
 
-- [ ] **Step 7: Keep the non-Electron renderer working**
+- [ ] **Step 5b: Explain an empty list on macOS**
+
+A denied local-network permission is silent from inside the process: no error,
+no datagrams, an empty list — identical to a network with nothing on it. That
+makes it the one discovery failure a user cannot diagnose, so the menu says so.
+When `entries` holds only the local entry and the platform is macOS, render
+below the list:
+
+```tsx
+{entries.length === 1 && navigator.platform.startsWith("Mac") && (
+    <p className="text-muted-foreground px-2 py-1 text-[10px]">
+        No other backends found. If you expected one, check System Settings →
+        Privacy &amp; Security → Local Network.
+    </p>
+)}
+```
+
+- [ ] **Step 6: Keep the non-Electron renderer working**
 
 With no `window.taskflow`, `refresh()` returns early and `entries` stays
 `[{ kind: "local" }]`. Disable "Connect to backend…" and "Manage backends…" in
@@ -3638,15 +3695,15 @@ and put `disabled={!hasBridge}` on both. Verify with `bun run dev:ui` against a
 backend started by `bun run dev:backend`: the menu opens, shows one entry, and
 nothing throws.
 
-- [ ] **Step 8: Verify by hand**
+- [ ] **Step 7: Verify by hand**
 
 Run: `bun run dev:backend` in one terminal and `bun run dev:electron` in another.
 Expected: the bottom-left icon opens a menu listing Master Workspace and "This machine", both marked. A second machine on the LAN running Taskflow appears within five seconds of opening the menu.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add packages/ui/src/components/sidebar packages/ui/src/components/AppShell.tsx packages/ui/src/stores/backend-store.ts
+git add packages/ui/src/components/sidebar packages/ui/src/components/AppShell.tsx
 git commit -m "feat(ui): replace the master workspace button with a backend menu"
 ```
 
@@ -3944,6 +4001,28 @@ Expected: all pass.
 
 Run: `grep -rl "node:dgram\|child_process" packages/ui/dist/assets || echo "clean"`
 Expected: `clean`. A hit means the shared barrel is re-exporting the discovery socket module.
+
+- [ ] **Step 2b: Confirm multicast survives `bun build --compile`**
+
+`node:dgram` multicast is verified working under `bun run` on Bun 1.4.0, but the
+backend ships as a compiled single binary and Bun documents `node:dgram` as
+implemented without full Node test-suite coverage. This is the one unproven
+assumption in the discovery design.
+
+Run: `bun run build:backend:bin`
+Then start `packages/backend/dist/taskflow-backend` directly and, from a second
+terminal on the same machine, run the listener half:
+
+```bash
+bun -e 'import {createListener} from "@taskflow/shared/discovery";
+const l = createListener({onChange: (e) => console.log(e.map(x => x.hostname + ":" + x.port))});
+await l.start(); l.probe(); setTimeout(() => process.exit(0), 3000);'
+```
+
+Expected: the compiled backend appears within three seconds. If it does not, the
+fallback named in the spec is moving the advertise side to a probe response over
+the existing HTTP server — do not paper over it by shipping discovery that only
+works in development.
 
 - [ ] **Step 3: Confirm the backend is off the LAN**
 
