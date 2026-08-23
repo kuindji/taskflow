@@ -27,7 +27,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | in-review round 1 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`; next is review round 2 |
+| 19.1 | Mouse — report decoding | in-review round 2 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`; next is review round 3 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
@@ -4294,12 +4294,67 @@ five packages, `bun test packages/tui` → 357 pass, 0 fail.
   swallowed keystroke, and 19.5 needs the same bit semantics for the outbound direction,
   so a transport-shaped restriction does not belong in the parser.
 
-Next step: review round 2 for Task 19.1.
-Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD` (`packages/tui`
-only; `docs/` in that range is plan bookkeeping and is out of scope). Round 1's two
-findings are settled — do not re-litigate the UTF-8 one, it is recorded as accepted in
-both the plan and above. Verify every new finding independently before fixing it; a
-finding without a repro is not a finding. Zero substantiated findings → 19.1 is clear
-and 19.2 is next.
+## Task 19.1 — review round 2
+
+gpt-5.5 via the codex-review skill (Mode B, prompted) over `e00cd13..40a3701` restricted
+to `packages/tui`, with round 1's two findings declared settled in the prompt.
+**Codex returned "Clear" — zero findings.** It validated the bit decoding, coordinate
+handling, carry behaviour for split reads, the kitty delegation and the `InputEvent`
+guard in the feed loop, and ran the tui input tests, the tui typecheck and lint.
+
+Reading the diff independently turned up one defect Codex did not, now fixed in
+`cbfde10`.
+
+- **Substantiated and fixed — a click split by the escape idle timer quits the TUI.**
+  An X10 report is six characters. `decodeLegacy` correctly carries a `CSI M` header
+  whose three payload characters have not arrived yet, but `index.ts` arms a 25 ms
+  (`ESCAPE_IDLE_MS`) timer on any non-empty carry. When it fires, `flushHeldEscape`
+  hands the header to `flushCarry`, which has no event to make of it and returns `[]` —
+  and then **clears `carry` anyway**. The payload then arrives bare and decodes as
+  ordinary characters. Column 49 encodes as `\x51` = `Q`, which is
+  `{ kind: "quit" }` in `routing.ts` and sets `app.alive = false` with no confirmation.
+  So a single mouse click, on a terminal using the X10 fallback, whose bytes straddle a
+  read boundary, exits the application.
+
+  Fix: `isPartialX10(carry)` in `decode-legacy.ts`; `flushHeldEscape` returns early for
+  such a carry instead of clearing it. The payload then completes the report on the next
+  read. A header that never receives one swallows the next three characters, which is
+  already exactly what the same bytes do when they arrive in a single read — so the
+  fallback behaviour is now consistent across the read boundary rather than newly wrong.
+
+  Regression test (behavioural, end-to-end over the real entry point):
+  `does not quit on the payload of a click split by the escape timeout` in
+  `packages/tui/src/index.test.ts`. It starts the TUI against the fake talking backend,
+  writes `\x1b[M\x20`, sleeps 200 ms so the idle timer fires, writes `\x51\x21`, and
+  asserts the process is still running. Red on `40a3701`
+  (`expect(received).toBeNull() / Received: 0` — the TUI had quit), green on `cbfde10`.
+  Run with `bun test packages/tui/src/index.test.ts -t "does not quit on the payload"`.
+  Two unit tests in `decode-legacy.test.ts` cover `isPartialX10`'s boundaries and show
+  the stranded payload decoding as `["Q", "!"]`.
+
+## Decisions taken (Task 19.1, round 2)
+
+- **The stale-carry timer now has one exception, not a general redesign.** Dropping a
+  stale partial CSI is still right for every other shape (`\x1b[1;5` must not merge with
+  the next typed key). Only the X10 header is exempt, because it is the one carry whose
+  continuation is arbitrary printable characters rather than sequence bytes.
+- **No change to `flushCarry`'s signature.** Making it return a retained carry would
+  have forced `decode-kitty.ts`'s mid-buffer call site to ignore a value that is
+  meaningless there. A predicate at the one call site that owns the timer is smaller and
+  reads more plainly.
+
+Verification at `cbfde10`: `bun run lint` clean, `bun run typecheck` clean across all
+five packages, `bun test packages/tui` → 360 pass, 0 fail.
+
+Next step: review round 3 for Task 19.1.
+Round 2 fixed a substantiated finding, so the task takes another round rather than
+closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
+(`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
+Settled, do not re-litigate: the X10 UTF-8 payload limitation (round 1, accepted in the
+plan), the extra-button release sentinel (round 1, fixed in `39299ff`), and the
+idle-timer carry exception (round 2, fixed in `cbfde10` — unless the fix itself is
+shown wrong). Verify every new finding independently before fixing it; a finding
+without a repro is not a finding. Zero substantiated findings → 19.1 is clear and 19.2
+is next.
 After 19.1: 19.2 – 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
 touches `packages/backend` and `electron/`, not `packages/tui`).
