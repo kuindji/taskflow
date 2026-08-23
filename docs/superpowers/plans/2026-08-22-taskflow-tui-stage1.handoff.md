@@ -21,7 +21,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
-| 14 | Session pane and tab strip | pending | — | |
+| 14 | Session pane and tab strip | implemented | `beeecf8` | commit `b825ded`; review round 1 due |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
@@ -3141,6 +3141,28 @@ width and cursor edge cases.
     being the known pre-existing `MarkdownPaneImpl` failures (the three fragment-link tests
     and the five checkbox-click tests). Run with nothing else running, per the note below.
 
+## Decisions taken (Task 14 implementation)
+
+- The plan's `drawTabs` sketch wrote the label code point by code point with an implicit
+  width of 1. That is exactly the class of bug Task 13 spent twelve rounds removing from the
+  sidebar, so the implementation routes labels through `fitToWidth`/`layoutText` instead:
+  a wide glyph gets its width-0 continuation cell, a glyph that would straddle the strip's
+  last column is dropped whole rather than tearing into the cell to its right, and a control
+  character never reaches the frame. The signature the plan specifies is unchanged.
+- `textWidth` is now exported from `render/text.ts`. `layoutText` pads to the width it is
+  given, so each tab must be laid out at its own column count — padding to the rest of the
+  strip would stretch the active tab's inverse block over every column after it. Computing
+  that count needs the fitted label's real width, which only `textWidth` knows.
+- The strip is cleared before the tabs are drawn, attributes included. A frame with fewer
+  tabs than the last would otherwise leave a stale inverse block on the row.
+- A tab that has run out of room is truncated rather than dropped: `fitToWidth(label,
+  room - 2)` keeps the padding columns and gives the label what is left, so the strip shows
+  that another session exists even when its name does not fit. When `room` reaches zero the
+  loop stops, so nothing is written past `x0 + width`.
+- `drawSessionPane` is the plan's version unchanged. `blitTerminal` already blanks the part
+  of the rect the source terminal does not cover, so the null-session branch is the only
+  clearing this function does itself.
+
 ## Decisions taken (Task 13 round 11)
 
 - The re-measure is made sticky rather than unconditional. Once a drop has happened every
@@ -3186,16 +3208,20 @@ further unrelated commits landed during round 11: `8f92af6` was this flow's own 
 record, and `382b33f` sits directly on it. None landed during round 12 either: `e524484`,
 this flow's own round 11 record, was still HEAD when the round started and no code changed.
 
-Next step: Task 14 — session pane and tab strip. Plan section "### Task 14: Session pane and
-tab strip" (`docs/superpowers/plans/2026-08-22-taskflow-tui-stage1.md`, around line 3592).
-Create `packages/tui/src/ui/session-pane.ts` and `session-pane.test.ts`. It consumes
-`ScreenBuffer`, `blankCell` and `ATTR_INVERSE` (Task 3), `SessionTerminal` (Task 9) and
-`blitTerminal` (Task 10), and produces `TabSpec`, `drawTabs` and `drawSessionPane`. Write the
-plan's failing test first, record HEAD as Task 14's base commit in the table before touching
-code, implement, validate with `bun run lint && bun run typecheck && bun test`, and commit.
-Then review round 1.
+Next step: Task 14 review round 1. Run one gpt-5.5 review via the codex-review skill over
+`beeecf8..b825ded` — the diff is `packages/tui/src/ui/session-pane.ts`,
+`packages/tui/src/ui/session-pane.test.ts` and the one-line export change in
+`packages/tui/src/render/text.ts`. Verify every finding independently before acting on it,
+fix the substantiated ones, revalidate with `bun run lint && bun run typecheck && bun test`,
+and commit. Zero substantiated findings means Task 14 is clear and Task 15 is next — note
+that Task 15's plan Step 6 is a manual smoke test and is a user gate.
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
 tests, and once a `probe > union member access` that exists nowhere in the repo); a clean run
 reproduces the documented baseline exactly.
+
+Baseline as of `b825ded`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 307 pass / 0 fail, full `bun test` 1140 pass / 8 fail with
+the 8 being the known pre-existing `MarkdownPaneImpl` failures (three fragment-link tests and
+five checkbox-click tests).
