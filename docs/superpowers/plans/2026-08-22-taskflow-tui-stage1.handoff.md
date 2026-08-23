@@ -27,7 +27,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | pending | — | `input/mouse.ts`, X10 + SGR, into `decodeLegacy`'s CSI branch |
+| 19.1 | Mouse — report decoding | implemented | `e00cd13` | commit `18ad1e9`; next is review round 1 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
@@ -4215,25 +4215,52 @@ click's row *is* the list index.
   parameter. Verified clean under typecheck and lint. Stage 2's `SESSION_CREATE` replaces
   the seam.
 
-Next step: implement Task 19.1 — mouse report decoding.
-Two review rounds are done and round 2's three findings are fixed in `fd307a3`, so the
-plan is clear and no third round is owed. Base commit for 19.1 is `fd307a3`. Follow
-`docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md` Task 19.1 exactly: create
-`input/mouse.ts` and `input/mouse.test.ts`, add the two branches to `decode-legacy.ts`
-immediately after the `scan.kind === "invalid"` branch and **before** the `i += scan.length`
-on line 107, widen `DecodeResult.events` to `InputEvent[]`, and fix the whole widening
-blast radius in the same commit — the 21 `?.name`/`?.char` reads in the two decoder test
-files, `decode-kitty.ts`'s local `events` array, and `index.ts`'s feed loop (which drops
-mouse events with a `continue` until 19.4). `bun run typecheck` must be clean before the
-commit. Then review round 1 for 19.1 in the next session.
+## Decisions taken (Task 19.1)
+
+- **`MouseButton` is not exported from `input/mouse.ts` yet.** The plan's "Interfaces —
+  Produces" list names it, but the plan's own global constraint ("do not export a symbol
+  unless another module imports it") wins: nothing imports the name in 19.1, and
+  `MouseReport.button` carries the type structurally. 19.5 exports it when
+  `encodeMouseForChild` needs to name it in a signature.
+- **`build` rejects a negative button byte**, not just a zero coordinate. An X10 payload
+  byte below the 32 bias makes `b` negative, and JavaScript's bitwise operators on a
+  negative number would still produce a plausible-looking button and modifier set
+  (`-1 & 3 === 3`). Covered by `parseX10Mouse > a payload byte below the 32 bias is dropped`.
+- **The decoder test files gained `keysOf` alongside the plan's `keyAt`.** The plan
+  measured only `events[N]?.name` sites; six of the 21 are `events.map((e) => e.name)`
+  over the whole stream, which `keyAt` cannot narrow. `keysOf(events)` asserts every
+  element is a key and returns `KeyEvent[]`, so those assertions read unchanged.
+- **The widening blast radius measured 21 test sites + `index.ts` at `e00cd13`**, and
+  `decode-kitty.ts`'s local array — exactly the plan's count. `flushCarry` still returns
+  `KeyEvent[]`, so `decode-legacy.test.ts:58` needed no narrowing.
+
+## Task 19.1 — implementation notes
+
+Base commit `e00cd13`, implemented in `18ad1e9`.
+
+- `packages/tui/src/input/mouse.ts` (new): `MouseButton`, `MouseReport`, `parseSgrMouse`,
+  `parseX10Mouse`. Bit 128 is tested before bit 64 and before `b & 3`, so an extra button
+  (8-11) decodes as `"none"` rather than left/middle/right. `isDigits` is reused from
+  `csi.ts` for the SGR field check, which is what makes `CSI < ; ; M` fail rather than
+  decode as 0,0,0.
+- `decode-legacy.ts`: `InputEvent = KeyEvent | MouseReport`, `DecodeResult.events`
+  widened, and the two branches inserted after the `scan.kind === "invalid"` branch and
+  before the existing `i += scan.length` — the placement the plan called out.
+- `decode-kitty.ts`: local `events` array type only.
+- `index.ts`: the feed loop skips mouse reports with a `continue` until 19.4.
+- Tests added beyond the plan's list: `parseSgrMouse` rejects a parameter list with no
+  leading `<`; `parseX10Mouse` keeps a wheel direction on `b = 67` (where `b & 3 === 3`
+  would otherwise read as the release value); a malformed SGR report is consumed with no
+  keystrokes emitted and no carry left behind.
+
+Verification at `18ad1e9`: `bun test packages/tui` → 356 pass, 0 fail;
+`bun run lint` and `bun run typecheck` both clean across the workspace.
+
+Next step: review round 1 for Task 19.1.
+Run one gpt-5.5 review via the codex-review skill over `e00cd13..18ad1e9`
+(`packages/tui` only — the working tree also carries an unrelated uncommitted edit to
+`docs/superpowers/plans/2026-08-23-taskflow-multi-backend.md` that is not part of this
+task). Verify every finding independently before fixing it; a finding without a repro is
+not a finding. Zero substantiated findings → 19.1 is clear and 19.2 is next.
 After 19.1: 19.2 – 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
 touches `packages/backend` and `electron/`, not `packages/tui`).
-
-Validation note: run the full `bun test` with nothing else running. Two runs launched while
-other `bun test` processes were alive reported extra failures (three `startBackend` timing
-tests, and once a `probe > union member access` that exists nowhere in the repo); a clean run
-reproduces the documented baseline exactly. It recurred in Task 14 round 1: a
-`bun test packages/tui` launched while codex was running its own `bun test` reported
-306 pass / 1 fail, and the same command re-run once codex was idle reported 307 / 0.
-Other Taskflow sessions run codex on this same machine — check with
-`ps -ax -o command | grep "[c]odex exec"` and wait it out before validating.
