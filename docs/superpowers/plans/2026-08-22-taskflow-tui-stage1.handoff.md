@@ -16,7 +16,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
-| 9 | Session terminal — attach, resync and mode tracking | in-review round 5 (fixed, awaiting round 6) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`; round 5's single finding fixed |
+| 9 | Session terminal — attach, resync and mode tracking | in-review round 6 (fixed, awaiting round 7) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`; round 6 clean from gpt-5.5, one finding raised and fixed by Claude |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
@@ -1537,6 +1537,49 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   and verified by name; the pass count rose from 995 by the two new TUI tests.
   Working tree clean.
 
-Next step: Task 9 review round 6 — one gpt-5.5 review via the codex-review skill
+- **Task 9, round 6** (gpt-5.5 via codex-review, Mode A over `--base 4572b1f`;
+  the working tree was left untouched until the report landed, and the codex run
+  was backgrounded with the harness's own `run_in_background`): **gpt-5.5
+  reported zero findings** — "I found no Level 1 blocking defects in the
+  changes." The report file was non-empty and the log showed a completed turn,
+  so this is a real clean pass, not a failed run.
+
+  Reading the diff while that run was in flight, Claude found one defect of its
+  own that gpt-5.5 missed. It is a gap in round 5's own fix, so it is recorded
+  and fixed here rather than deferred; both repros were confirmed red at
+  `cf33974` before the source was touched.
+
+  - **Substantiated (Claude, not gpt-5.5) — replayed output survived exactly one
+    re-attach.** `packages/tui/src/term/session-terminal.ts`, `finishLoad()`.
+    Round 5 added the `recent` hold-back buffer and had `attach()` seed `pending`
+    from it, but `finishLoad` only ever `enqueue`d a replayed chunk — it never
+    `remember`ed it. So after a re-attach the buffer was empty again even though
+    the chunks it had just replayed were still outside every snapshot taken so
+    far. Two user-visible symptoms, one root cause:
+    - A second drop inside the backend's parse lag loses the batch outright —
+      the new snapshot still reports `parsedSequence` below it, and there is
+      nothing left to replay from. This is round 5's bug recurring one reconnect
+      later. Red repro (`Expected: "PROMPT>LIVE" / Received: "PROMPT>"`):
+      `bun test ./packages/tui/src/term/session-terminal.test.ts -t "keeps replayed output available"`.
+    - The `[Process exited with code N]` marker vanishes for good on the second
+      re-attach. This one needs no race at all: the marker is client-generated,
+      so no snapshot ever contains it and only the hold-back buffer can bring it
+      back. Red repro:
+      `bun test ./packages/tui/src/term/session-terminal.test.ts -t "keeps the exit marker"`.
+  - Fix in `7d943d9`: `finishLoad` calls `this.remember(chunk)` beside the
+    `enqueue`, mirroring the live `TERMINAL_OUTPUT` path exactly. A replayed
+    chunk is on the grid and outside every snapshot so far — the same state a
+    live chunk is in — so it belongs in the buffer on the same terms. The
+    `RECENT_LIMIT` cap still bounds it, and `sequence: null` markers still mean
+    "always replay". Both repros were re-confirmed red by removing just the one
+    `remember` line, then green with it back.
+
+- Validation at `7d943d9`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 999 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged
+  and verified by name; the pass count rose from 997 by the two new TUI tests.
+  Working tree clean.
+
+Next step: Task 9 review round 7 — one gpt-5.5 review via the codex-review skill
 over `--base 4572b1f`, leaving the working tree untouched until the report
 lands. Zero substantiated findings means Task 9 is clear and Task 10 is next.
