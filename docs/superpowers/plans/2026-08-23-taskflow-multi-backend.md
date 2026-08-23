@@ -686,7 +686,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { networkInterfaces } from "node:os";
 import { PROTOCOL_VERSION } from "../constants";
 import type { BeaconAnnounce } from "../types/backend";
-import { createAdvertiser, createListener } from "./socket";
+import { createAdvertiser, createListener, membershipDelta } from "./socket";
 
 const stops: Array<() => void> = [];
 
@@ -727,6 +727,42 @@ function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
         tick();
     });
 }
+
+// No socket and no LAN, so this one runs everywhere — which is the point. The
+// membership bookkeeping is what has been wrong twice: once as a one-shot join
+// at bind time, and once as an early return for the no-interface case that
+// skipped the drop pass and left `joined` claiming an address the machine no
+// longer had. Both had the same symptom, and neither was reachable from the
+// integration tests below, which need a real interface that never goes away
+// mid-test.
+describe("membershipDelta", () => {
+    test("an interface that disappears is dropped, so it is rejoined when it returns", () => {
+        const joined = new Set<string>();
+
+        // On Wi-Fi.
+        const first = membershipDelta(joined, ["192.168.1.20"]);
+        expect(first).toEqual({ add: ["192.168.1.20"], drop: [] });
+        first.add.forEach((address) => joined.add(address));
+
+        // Wi-Fi off, VPN torn down, cable out: nothing left to be joined to.
+        const second = membershipDelta(joined, []);
+        expect(second).toEqual({ add: [], drop: ["192.168.1.20"] });
+        second.drop.forEach((address) => joined.delete(address));
+
+        // Back, on the same DHCP lease. The membership went away with the
+        // interface, so this must ask for it again rather than trusting a set
+        // that was never emptied.
+        const third = membershipDelta(joined, ["192.168.1.20"]);
+        expect(third).toEqual({ add: ["192.168.1.20"], drop: [] });
+    });
+
+    test("an address that is already joined is not joined twice", () => {
+        expect(membershipDelta(new Set(["10.0.0.4"]), ["10.0.0.4", "10.0.0.9"])).toEqual({
+            add: ["10.0.0.9"],
+            drop: [],
+        });
+    });
+});
 
 describe("discovery over the loopback multicast group", () => {
     test.skipIf(!hasLan)("a listener sees an advertiser and can force an announcement with a probe", async () => {
@@ -833,6 +869,22 @@ function localIPv4Addresses(): string[] {
  * this and sets the interval: recompute when `os.networkInterfaces()` changes,
  * polled every 30 seconds rather than watching link state per platform.
  */
+/**
+ * What has to change to bring a set of joined addresses in line with the
+ * addresses the machine currently has. Pure, and exported for the test — the
+ * bookkeeping is the part of this that has been wrong twice, and it is the part
+ * a real socket makes untestable.
+ */
+function membershipDelta(
+    joined: ReadonlySet<string>,
+    addresses: readonly string[],
+): { add: string[]; drop: string[] } {
+    return {
+        add: addresses.filter((address) => !joined.has(address)),
+        drop: [...joined].filter((address) => !addresses.includes(address)),
+    };
+}
+
 function keepMembershipsCurrent(socket: dgram.Socket): ReturnType<typeof setInterval> {
     // The addresses we have successfully joined. Not "the addresses that
     // existed last time we looked" — a join that throws must be retried on the
@@ -842,10 +894,31 @@ function keepMembershipsCurrent(socket: dgram.Socket): ReturnType<typeof setInte
 
     function refresh(): void {
         const addresses = localIPv4Addresses();
+        const { add, drop } = membershipDelta(joined, addresses);
+        // Drop first, and from a delta rather than from a branch on
+        // `addresses.length`. That is not a style choice: an early return for
+        // the no-interface case skips the drop pass, and a `joined` entry for
+        // an address the machine no longer has is a rejoin that `add` will not
+        // contain when that address comes back. The kernel dropped the
+        // membership when the interface went away; we would not ask for it
+        // again. A VPN reconnecting, a lid opening, a cable going back in —
+        // all of them hand back the same DHCP lease more often than not, and
+        // the symptom is the one-directional deafness this whole function
+        // exists to prevent, arrived at from inside the fix for it.
+        for (const address of drop) {
+            joined.delete(address);
+            try {
+                socket.dropMembership(DISCOVERY_GROUP, address);
+            } catch {
+                // The interface is already gone; the kernel dropped the
+                // membership with it. Nothing to do, and nothing to report.
+            }
+        }
         if (addresses.length === 0) {
             // No usable interface. Join the OS-chosen one so a loopback-only
-            // machine still hears something, and leave `joined` empty so the
-            // real interfaces are picked up the moment they appear.
+            // machine still hears something. `joined` is empty by now — the
+            // drop pass above saw to that — so the real interfaces are picked
+            // up the moment they appear.
             try {
                 socket.addMembership(DISCOVERY_GROUP);
             } catch {
@@ -853,24 +926,14 @@ function keepMembershipsCurrent(socket: dgram.Socket): ReturnType<typeof setInte
             }
             return;
         }
-        for (const address of addresses) {
-            if (joined.has(address)) continue;
+        for (const address of add) {
             try {
                 socket.addMembership(DISCOVERY_GROUP, address);
                 joined.add(address);
             } catch {
                 // One interface refusing the join must not take down the
-                // others, and must not stop us retrying it next tick.
-            }
-        }
-        for (const address of [...joined]) {
-            if (addresses.includes(address)) continue;
-            joined.delete(address);
-            try {
-                socket.dropMembership(DISCOVERY_GROUP, address);
-            } catch {
-                // The interface is already gone; the kernel dropped the
-                // membership with it. Nothing to do, and nothing to report.
+                // others, and must not stop us retrying it next tick — which is
+                // why `joined` is written only on success.
             }
         }
     }
@@ -1161,7 +1224,7 @@ function createListener(opts: {
     };
 }
 
-export { createAdvertiser, createListener };
+export { createAdvertiser, createListener, membershipDelta };
 export type { DiscoveryHandle, DiscoveryListener };
 ```
 
@@ -1169,8 +1232,14 @@ Create `packages/shared/src/discovery/index.ts`:
 
 ```ts
 export * from "./beacon";
-export * from "./socket";
+export { createAdvertiser, createListener } from "./socket";
+export type { DiscoveryHandle, DiscoveryListener } from "./socket";
 ```
+
+Named, not `export *`: `membershipDelta` is exported from `socket.ts` for its
+test and has no caller outside that file, and the repo's rule is that nothing is
+exported until something outside needs it. `DiscoveryListener` does have one —
+`backend-registry.ts` annotates its module-level handle with it (Task 7).
 
 - [ ] **Step 3b: Note what the socket layer does not guarantee**
 
@@ -1208,9 +1277,10 @@ In `packages/shared/package.json`, replace the `"main"` / `"types"` pair with an
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `bun test packages/shared/src/discovery/socket.test.ts`
-Expected: PASS, or both tests reported as skipped on a machine with no
-non-internal IPv4 interface. A skip there is correct: there is no multicast to
-test. A *timeout* would mean `hasLan` is wrong.
+Expected: PASS. The two `membershipDelta` tests always run; the two multicast
+tests are reported as skipped on a machine with no non-internal IPv4 interface,
+which is correct — there is no multicast to test. A *timeout* would mean
+`hasLan` is wrong.
 
 - [ ] **Step 6: Verify the export map did not break any build**
 
@@ -3503,7 +3573,7 @@ Expected: all pass.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add electron/src packages/ui/src/env.d.ts packages/shared/src/types/backend.ts
+git add electron/src packages/ui/src/env.d.ts
 git commit -m "feat(electron): add the backend registry and its IPC surface"
 ```
 
@@ -4464,6 +4534,7 @@ A successful switch never goes through a disconnect, which is the whole point �
 **Files:**
 - Create: `packages/ui/src/stores/store-reset.ts`
 - Create: `packages/ui/src/stores/store-reset.test.ts`
+- Create: `packages/ui/src/stores/rebootstrap.ts`
 - Modify: `packages/ui/src/stores/session-activity.ts:12-15`
 - Modify: `packages/ui/src/stores/session-helpers.ts:83`
 - Modify: `packages/ui/src/hooks/useConnectivity.ts:8,31-45`
@@ -6376,13 +6447,13 @@ Everything that assumes the backend's filesystem is this machine's.
 - Create: `packages/ui/src/hooks/useBackendIsLocal.test.tsx`
 - Modify: `packages/ui/src/components/sidebar/NewProjectDialog.tsx:24,46`
 - Modify: `packages/ui/src/components/sidebar/MissingLocationDialog.tsx:40`
-- Modify: `packages/ui/src/components/settings/SettingsModal.tsx:150`
+- Modify: `packages/ui/src/components/settings/sections/GeneralSection.tsx:59-65` (the data-folder button; `SettingsModal.tsx:149,460` only holds the handler)
 - Modify: `packages/ui/src/components/appearance/ImportTab.tsx:28`
 - Modify: `packages/ui/src/components/flows/FlowInputDialog.tsx:34`
 - Modify: `packages/ui/src/components/panels/FileContextMenu.tsx:107,138-192`
 - Modify: `packages/ui/src/components/panels/WikiPanel.tsx:113,118`
 - Modify: `packages/ui/src/components/panes/MarkdownPane.tsx:50-53`
-- Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx:278-285`
+- Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx:278-293,302-308` (both "new project" buttons)
 - Modify: `packages/ui/src/components/panes/terminal/terminal-links.ts:64-72`
 - Modify: `packages/ui/src/components/panes/terminal/terminal-link-provider.ts:243-245`
 - Modify: `packages/ui/src/components/panes/TerminalPane.tsx:457-486`
@@ -6446,7 +6517,68 @@ Expected: PASS
 
 - [ ] **Step 5: Gate the picker sites**
 
-In each of `MissingLocationDialog.tsx`, `SettingsModal.tsx`, `ImportTab.tsx` and `FlowInputDialog.tsx`, add `const isLocal = useBackendIsLocal();` and set `disabled={!isLocal}` plus `tooltip={isLocal ? undefined : "Only available on the machine running this backend"}` on the browse button.
+Four sites open a native picker on *this* machine and hand the chosen path to
+the backend. Add `const isLocal = useBackendIsLocal();` and gate the button that
+opens the picker. Two rules apply everywhere below, and getting either wrong is
+the difference between a gate and a regression:
+
+- **`disabled` composes, it does not replace.** Two of these buttons already
+  have a `disabled` expression for a reason unrelated to backends; write
+  `disabled={!isLocal || <the existing one>}`, never `disabled={!isLocal}`.
+- **The tooltip is the `Button`'s `tooltip` prop, not `title`.** `Button`
+  wraps a disabled-with-tooltip button in a `<span>` that receives the mouse
+  events the button cannot (`components/ui/button.tsx:284-300`), so the reason
+  is actually readable. A `title` attribute on a `pointer-events: none` button
+  is not. Where a `tooltip` is already conditional, extend it rather than
+  overwrite it.
+
+The reason string is the same at every site:
+`"Only available on the machine running this backend"`.
+
+| File | Button to gate | Already has |
+|---|---|---|
+| `sidebar/MissingLocationDialog.tsx:80-85` | "Change Location" | — |
+| `settings/sections/GeneralSection.tsx:59-65` | Data folder "Change..." | `disabled={migrating}` |
+| `appearance/ImportTab.tsx:44-50` | "From File..." | `disabled={importing === "file"}` |
+| `flows/FlowInputDialog.tsx:70-76` | the `FolderOpen` browse button | `title="Browse..."` |
+
+**The data-folder button is not in `SettingsModal.tsx`.** That file holds
+`handleChangeDataDir` (`:149`) and passes it down as a prop (`:460`); the
+`Button` the user clicks is in `GeneralSection.tsx:59-65`, behind
+`onChangeDataDir`. Adding the hook to `SettingsModal` and looking for a button
+there finds nothing, and the visible control stays live. Read the hook in
+`GeneralSection` itself — it is a leaf component and already imports from
+`@taskflow/shared`, so no new prop is needed:
+
+```tsx
+    const isLocal = useBackendIsLocal();
+// ...
+    <Button
+        variant="outline"
+        size="sm"
+        disabled={!isLocal || migrating}
+        tooltip={isLocal ? undefined : "Only available on the machine running this backend"}
+        onClick={onChangeDataDir}>
+```
+
+This one matters more than the other three. `handleChangeDataDir`
+(`SettingsModal.tsx:149-159`) sends the path the *client's* picker returned to
+the *active backend* over the WebSocket — `updateDataDir` →
+`MSG.SETTINGS_UPDATE_DATA_DIR` (`stores/settings-store.ts:53`) →
+`handlers/settings.ts:50`. The remote backend then runs `validateTargetDir`,
+which **creates the directory if it does not exist**
+(`services/data-dir-migrator.ts:81-88`), and `migrateDataDir` moves that
+machine's entire Taskflow data — projects, tasks, session logs — into a path
+that only ever meant anything on the client, and `writeDataLocation` persists
+the move. Leave the "Reset" button beside it alone: it passes
+`dataDirInfo.baseDir`, which the backend told us about, and is the way back.
+
+The `FlowInputDialog` browse button sits next to a free-text `Input` (`:59-68`)
+that stays editable, and that is deliberate: a hand-typed path is the user
+saying something about the backend's filesystem, which is exactly what a
+`filepath` flow input is for. Only the picker is wrong, because only the picker
+returns a path from the wrong machine. (`NewProjectDialog` below is the
+exception, and the paragraph there says why.)
 
 `NewProjectDialog.tsx` needs more than that, and folding it into
 `hasElectronPicker` would make things **worse**. `hasElectronPicker` is a
@@ -6476,11 +6608,33 @@ not just inert:
     )}
 ```
 
-Gate the entry point too, so the dialog is not reachable at all:
-`TaskSidebar.tsx:278-285` renders the "New project" `Button` that calls
-`handleOpenProjectDialog`. Add `disabled={!isLocal}` and the same tooltip. Both,
-not one: the sidebar button is what Task 14 checks, and the dialog guard is what
-holds if any other caller opens it.
+Gate the entry points too, so the dialog is not reachable at all — **and there
+are two of them.** `TaskSidebar.tsx` calls `handleOpenProjectDialog` from the
+toolbar `Button` at `:278-293` *and* from an "Add Project" `Button` at
+`:302-308`, the one rendered under "No projects yet." when `projects.length ===
+0`. The second is the one that matters: a backend you have just connected to for
+the first time has no projects in this client's store, so the empty state is the
+first thing the sidebar shows and its button is the first thing to hand. Gating
+only the toolbar leaves the headline path open, and Task 14's Step 5 check ("Add
+project is disabled") passes while it is.
+
+Both get `disabled={!isLocal}` and the reason string. The toolbar button already
+carries a conditional tooltip for its icon-only mode
+(`tooltip={useIconOnlyActionButtons ? "New project" : undefined}`) — extend it,
+do not overwrite it:
+
+```tsx
+    tooltip={
+        !isLocal
+            ? "Only available on the machine running this backend"
+            : useIconOnlyActionButtons
+              ? "New project"
+              : undefined
+    }
+```
+
+Three gates, not one: the two sidebar buttons are what Task 14 checks, and the
+dialog guard is what holds if any other caller opens it.
 
 - [ ] **Step 6: Gate the reveal sites — and only those**
 
@@ -6661,6 +6815,9 @@ The last place that reads a backend path with the client's filesystem.
 **Files:**
 - Modify: `packages/backend/src/api/routes/flow-routes.ts:168`
 - Modify: `electron/src/ipc-handlers.ts:99-135`
+- Modify: `electron/src/main.ts` (pass `getActiveOrigin` into `IpcHandlerDeps`)
+- Modify: `electron/src/preload.ts:218`
+- Modify: `packages/ui/src/env.d.ts:62-66`
 - Modify: `packages/ui/src/components/flows/FlowPanel.tsx:298`
 - Create: `packages/backend/tests/api/flow-artifact-raw.test.ts`
 
@@ -6804,13 +6961,41 @@ In `electron/src/ipc-handlers.ts`, replace the `copyFile` branch of the `save-ar
 ```ts
                 if (typeof opts.url === "string") {
                     const origin = deps.getActiveOrigin();
-                    if (!origin) return { success: false, error: "No backend is connected" };
+                    if (!origin) throw new Error("No backend is connected");
                     const response = await fetch(`${origin}${opts.url}`);
                     if (!response.ok) {
-                        return { success: false, error: `Backend returned ${response.status}` };
+                        throw new Error(`The backend returned ${response.status}`);
                     }
                     await writeFile(result.filePath, Buffer.from(await response.arrayBuffer()));
                 } else if (typeof opts.text === "string") {
+```
+
+**`throw`, not `return { success: false, error }`, and the difference is whether
+the user is told anything at all.** This handler has two ways to report a
+failure and only one of them is visible. The `catch` at
+`ipc-handlers.ts:125-133` shows a native "Download failed" message box; every
+`return { success: false, error }` above it is silent, because the sole caller
+is `FlowPanel.tsx:308`, which fires `void window.taskflow?.saveArtifact(...)`
+and never looks at the result. Today that is harmless — the only early returns
+are "Invalid source path" and "No path or text provided", neither reachable from
+`FlowPanel` — but this task adds two failures that are *routine* on a remote
+backend: the tunnel dropped, and the artifact file is gone from the other
+machine. Written as early returns, the user picks a save location, presses Save,
+and then nothing happens: no file, no error, no log. Written as throws, they
+land in the existing `catch` and get the message box that already exists.
+
+Add one more guard, above `showSaveDialog` rather than below it, so a dropped
+tunnel does not make the user choose a filename first:
+
+```ts
+            if (typeof opts.url === "string" && !deps.getActiveOrigin()) {
+                await dialog.showMessageBox({
+                    type: "error",
+                    title: "Download failed",
+                    message: "No backend is connected.",
+                });
+                return { success: false, error: "No backend is connected" };
+            }
 ```
 
 Delete the `opts.path` branch and its `startsWith("/")` check — the path never crosses the process boundary now. Add `getActiveOrigin` to `IpcHandlerDeps` and pass it from `main.ts`. Update the preload signature and `env.d.ts` to `saveArtifact(opts: { url?: string; text?: string; defaultName?: string })`.
@@ -6970,6 +7155,27 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
   on its own, while a one-shot `addMembership` at bind time means *receiving*
   never does. If A sees B but B does not see A, B's `keepMembershipsCurrent`
   timer is not running.
+- Then the other order, which is a different bug in the same function: with both
+  machines already up and seeing each other, turn Wi-Fi **off** on B, wait a
+  minute, turn it back **on**, and wait another. Expected: B's menu lists A
+  again. The first check exercises a membership that was never taken; this one
+  exercises a membership that was taken and then lost with the interface, and
+  the failure is `membershipDelta` never being asked for the drop — B's `joined`
+  still names the address, so the rejoin is skipped and B is deaf until it is
+  restarted. Same one-sided symptom, so distinguish them by which machine went
+  offline.
+- With a remote backend active, open Settings → General. Expected: the data
+  folder's **Change...** button is disabled and says why on hover; **Reset**
+  stays live. If Change... is clickable, stop — picking a folder here moves the
+  *remote* machine's entire data directory to a path invented on this one.
+- With a remote backend active and no projects yet in the sidebar, look at the
+  empty state. Expected: "Add Project" is disabled, not just the toolbar button
+  above it. This is the first screen a newly connected backend shows.
+- With a remote backend active, kill the ssh child from a terminal
+  (`pkill -f "ssh -N -L"`), then click **Download** on a flow artifact.
+  Expected: a "Download failed" dialog. A save dialog that closes leaving no
+  file and no message means the handler is returning `{ success: false }`
+  instead of throwing — `FlowPanel` does not read the result.
 - In Settings → General, paste a 200-character name into "Name on the network".
   Expected: the field stops accepting input at 64. If it takes the whole string,
   this backend will vanish from every other machine's menu the moment it
