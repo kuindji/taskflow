@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | in-review round 6 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`; round 6 found 2 real defects, both fixed; round 7 due |
+| 13 | Sidebar rendering | in-review round 7 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`; round 7 found 1 real defect, fixed; round 8 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -2800,14 +2800,78 @@ width and cursor edge cases.
   narrow rather than chasing parity with `emoji-regex`. The table's contract, set in round 5,
   is Unicode 16 East Asian Width; adopting emoji-presentation-by-default would reopen it.
 
-Next step: Task 13 review round 7 — one gpt-5.5 review via the codex-review skill over
+- **Task 13, round 7** (gpt-5.5 via codex-review, Mode B over the four scoped files at
+  `6534c1b`, with rounds 1-6 listed as already fixed): codex's **final report said
+  `Clear`**, but its own run log shows it reproducing a real defect mid-run and then
+  dropping it from the write-up. Verified independently before reading the report at all;
+  one substantiated finding, fixed in `78fc4fd`.
+- **Substantiated — a label's leading spacing mark repainted the sidebar's indent.**
+  Round 4 taught `fitToWidth` and `layoutText` to drop a baseless combining mark, but the
+  `ZERO_WIDTH` regex only covered `Mn`, `Me` and `Cf`. `Mc` spacing marks — Devanagari,
+  Bengali, Oriya, Balinese vowel signs — are not zero-width, so they slipped through, and
+  `Mc` binds to the cluster *in front* of it. Verified before the fix: a task labelled
+  `"\u093eA"` at width 8 drew cells
+  `[" ", " \u093e", "A", " ", ...]` — cell **1**, the second space of the two-space task
+  indent, carried the label's vowel sign. The already-fixed `Mn` case at the same width
+  drew `[" ", " ", "A", ...]`, which is what this should have done.
+- Fix: `ZERO_WIDTH` renamed to `NO_BASE` (accurate: `Mc` is not zero-width) and widened to
+  `/^[\p{Mn}\p{Me}\p{Mc}\p{Cf}]$/u`. `graphemeWidth` only ever tests a cluster's first
+  code point, so a mark reaches that test exactly when the segmenter had no base to attach
+  it to; inside a normal cluster it still rides along in its base's cell, which
+  `layoutText > keeps a spacing mark in the cell of the base it belongs to` pins.
+- Fallout handled: exactly four East Asian Wide code points are also `Mc` — U+302E, U+302F,
+  U+16FF0, U+16FF1 — enumerated by scanning every code point in `WIDE_RANGES`. All four
+  re-attach to a preceding space, so all four are now dropped when baseless. That broke the
+  round-5 per-wide-range sample test, whose only sample for `0x16ff0..0x16ff1` was
+  baseless; `0x16ff0..0x16ff1` is the one wide range with no non-mark member, so the sample
+  list drops it and a dedicated test covers those four instead.
+- Regression tests, all red on `6534c1b` and green on `78fc4fd` — run with
+  `bun test packages/tui/src/render/text.test.ts packages/tui/src/ui/sidebar.test.ts`:
+  `fitToWidth > drops a standalone spacing mark, which also has no base to ride on`,
+  `> drops a baseless spacing mark even where the width table calls it wide`,
+  `layoutText > drops a baseless spacing mark instead of giving it a cell`,
+  `> keeps a spacing mark in the cell of the base it belongs to` (green both before and
+  after — it pins the behaviour the fix must not change), and
+  `drawSidebar > does not let a leading spacing mark ride on the task indentation`.
+- Known limit recorded in `graphemeWidth`'s doc rather than fixed: those same four wide
+  `Mc` code points, when they *do* have a base, make the cluster advance three columns
+  where `graphemeWidth` returns 2. A cell holds at most two columns, so counting it
+  honestly is not expressible in the current cell model. Left as-is deliberately.
+- Codex also probed and found nothing in: negative and tiny widths, badge/indent
+  allocation arithmetic, wide-glyph clipping, segmenter seams before the badge, the
+  `WIDE_RANGES` ordering assumption, and `layoutText`'s length invariant. Independently
+  confirmed here too — `WIDE_RANGES` is sorted and non-overlapping across all 122 entries,
+  and `layoutText` returns exactly `cols` cells for every sample tried at `cols` 0..6.
+
+- Validation at `78fc4fd`: `bun run lint` exit 0, `bun run typecheck` exit 0 across all
+  five packages, `bun test` 1109 pass / 8 fail (1117 across 104 files, 61s). The eight are
+  the same pre-existing `MarkdownPaneImpl` cross-file isolation failures as every prior
+  round, by name; the pass count is up by exactly the five new tests. Working tree clean.
+
+## Decisions taken (Task 13 round 7)
+
+- A baseless mark is dropped **regardless of its width**. The four wide `Mc` code points
+  are no exception: being wide does not stop them binding to the caller's padding, which is
+  the whole failure. Consistency with the round-4 rule beats preserving two columns for a
+  Vietnamese tone mark that had nothing to sit on.
+- `ZERO_WIDTH` renamed to `NO_BASE`. The regex is tested against a cluster's base, not the
+  cluster, so its real job was always "cannot begin a visible cluster"; keeping the old name
+  after adding `Mc` would have made it a lie.
+- A cluster whose *mark* is wide is left under-counted rather than restructuring the cell
+  model to hold three columns. Recorded as a known limit in the code, not silently ignored.
+- Codex's `Clear` verdict was overridden on the strength of an independent repro. The round
+  counts as findings-fixed, so another round is due.
+
+Next step: Task 13 review round 8 — one gpt-5.5 review via the codex-review skill over
 `e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
-`packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-6 listed as already
-fixed. Tell the reviewer that `WIDE_RANGES` is generated from Unicode 16.0 East Asian Width
-`W`/`F` and verified complete, and that `graphemeWidth` now additionally widens any cluster
-containing U+FE0F or based on a regional indicator and has been cross-checked against
-`string-width@7.2.0` — so a further width finding needs to name a cluster shape neither rule
-covers, not restate emoji-presentation-vs-EAW. Verify each finding independently, fix the
-substantiated ones, validate with `bun run lint && bun run typecheck && bun test`, and
+`packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-7 listed as already
+fixed. Give the reviewer the round-7 rules explicitly: `NO_BASE` now drops any cluster
+whose first code point is `Mn`/`Me`/`Mc`/`Cf`, including the four wide `Mc` code points;
+`WIDE_RANGES` is Unicode 16.0 EAW `W`/`F`, verified sorted and complete; `graphemeWidth`
+widens any cluster containing U+FE0F or based on a regional indicator, cross-checked
+against `string-width@7.2.0`. A further width finding needs to name a cluster shape none of
+those rules cover. Verify each finding independently — round 7 is a reminder that codex's
+summary verdict can contradict its own run log, so read the log, not just the report. Fix
+the substantiated ones, validate with `bun run lint && bun run typecheck && bun test`, and
 commit. If the round comes back clean, mark Task 13 clear and move to Task 14 (session pane
 and tab strip).
