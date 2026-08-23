@@ -19,7 +19,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
-| 12 | Focus and key routing | implemented | `b44a56f` | commit `cc41d6f`; awaiting review round 1 |
+| 12 | Focus and key routing | implemented | `b44a56f` | commits `cc41d6f`, `ebe33ab`; round 1 found and fixed defects, awaiting round 2 |
 | 13 | Sidebar rendering | pending | — | |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
@@ -2261,6 +2261,83 @@ width and cursor edge cases.
   whole-repo run both finished normally — so treat a silent `bun test` as worth retrying
   rather than as a broken environment. Working tree clean.
 
-Next step: Task 12 review round 1 — one gpt-5.5 review via codex-review over
-`b44a56f..cc41d6f`, restricted to `packages/tui/src/ui`. Verify findings, fix the
-substantiated ones, validate, commit.
+- **Task 12, round 1** (gpt-5.5 via codex-review, Mode B over `b44a56f..cc41d6f`
+  restricted to `packages/tui/src/ui`): five findings reported, two substantiated
+  and fixed in `ebe33ab`, plus one contract-hardening change taken alongside them.
+  Three findings were not reproducible. Run the repros with
+  `bun test packages/tui/src/ui/routing.test.ts`.
+
+  **The fact that decided most of this round.** `packages/tui/src/term/tty.ts:12`
+  pushes `\x1b[>1u` — kitty flag 1 (disambiguate escape codes) and nothing else.
+  Flag 1 does not report event types (that is flag 2) and does not report alternate
+  keys (that is flag 4). Under flag 1 a text-producing key held with Shift alone is
+  sent as its text, and `decodeKitty` delegates plain text to `decodeLegacy`. Three
+  of Codex's five findings assume shapes only flags 2 or 4 can produce, so they are
+  unreachable as the app negotiates today. Worth re-checking if the pushed flags
+  ever change.
+
+  - **Substantiated — a `super`-modified sidebar char ran the bare command.** The
+    sidebar gate excluded `ctrl` and `alt` but not `super`, so `Super+j` moved the
+    selection, `Super+Q` quit and `Super+3` selected a tab. Reachable: `super` is a
+    non-Shift modifier, so under flag 1 the terminal encodes it as `CSI 106;9u`, and
+    `modsFromParam` maps bit 8 to `super`. Contradicted the file's own intent — the
+    pre-existing test `a modified sidebar char is not a command` already pinned
+    `ctrl` and `alt`. Regression test: `route edge cases > a super-modified sidebar
+    char is not a command` — red on `cc41d6f`, green on `ebe33ab`.
+
+  - **Substantiated (same class, found by Claude, not Codex) — chorded `Enter`
+    opened.** The `enter` branch ran before the modifier gate and ignored modifiers
+    entirely, so `Ctrl+Enter`, `Alt+Enter` and `Super+Enter` in the sidebar all
+    produced `{kind:"open"}`. Reachable in kitty mode as `CSI 13;5u` and friends.
+    Regression test: `route edge cases > a chorded enter does not open` — red on
+    `cc41d6f`, green on `ebe33ab`. `Shift+Enter` deliberately still opens, which the
+    same test pins.
+
+  - **Hardening, not a reachable bug — a held Escape passed in under kitty.** The
+    doc comment claims `pendingEscape` is always false when the kitty protocol is
+    available, but the code did not enforce it: `route("session", ev, true, true)`
+    prepended a phantom Escape to the child's input, and a release returned the
+    stale `true` straight back. Not reachable today — `kittyAvailable` is fixed once
+    at startup by `negotiateKitty`, so no caller can cross a mode boundary holding
+    an Escape. Taken anyway because it makes the documented invariant self-enforcing
+    for Tasks 14 and 15, which are not written yet, and because in kitty mode
+    dropping a held Escape is unambiguously the right reading. Implemented as a
+    single `const held = kittyAvailable ? false : pendingEscape` at the top of
+    `route`, used everywhere `pendingEscape` was read. Tests: `route edge cases >
+    kitty mode never injects a held escape into the child` and `... clears a held
+    escape rather than carrying it` — both red on `cc41d6f`, green on `ebe33ab`.
+
+  - **Not reproducible — "session release events are dropped."** Codex wanted
+    `kind: "release"` forwarded to the child. Under flag 1 the outer terminal never
+    reports releases at all, so the input is unreachable; and the existing test `a
+    release is ignored and leaves a held escape held` pins the opposite deliberately
+    — a release must not consume a pending Escape. Codex's suggested fix would have
+    broken that. Rejected.
+
+  - **Not reproducible — "shifted kitty sidebar keys hit the wrong command."**
+    Codex's claim was that `Shift+Q` arrives as `{char:"q", shift:true}` and so maps
+    to `close-pane` instead of `quit`. That shape needs the alternate-key sub-field
+    (`CSI 97:65;2u`), which a terminal only sends under flag 4. `decode-kitty.test.ts`
+    exercises that shape, which is what Codex saw, but the app never asks for it.
+    Under flag 1, `Shift+Q` is the byte `Q` and reaches `SIDEBAR_CHARS["Q"]` → quit,
+    correctly. Same for `?` = `Shift+/`. Verified by reading the pushed sequence in
+    `tty.ts` and the text-delegation path in `decodeKitty`.
+
+  - **Not reproducible — "sidebar character lookup is prototype-unsafe."** Codex's
+    input was `char: "__proto__"`. Both decoders build `char` from exactly one code
+    point (`String.fromCodePoint` in `decode-kitty.ts:87`, `codePointAt` in
+    `decode-legacy.ts:85`), so a multi-character `char` is unreachable, and
+    `Object.prototype` has no single-code-point property names. The record is also
+    already typed `Record<string, Action | undefined>`, so the type is honest.
+    No change.
+
+- Validation at `ebe33ab`: `bun run lint` exit 0, `bun run typecheck` exit 0 across
+  all five packages, `bun test` 1058 pass / 8 fail (1066 across 102 files, 60s) — the
+  8 being the same pre-existing `MarkdownPaneImpl` suite-ordering failures, verified
+  unchanged by name against the round-5 list. `bun test packages/tui` alone: 225 pass
+  / 0 fail across 14 files. Working tree clean.
+
+Next step: Task 12 review round 2 — one gpt-5.5 review via codex-review over
+`b44a56f..ebe33ab`, restricted to `packages/tui/src/ui`. Verify findings, fix the
+substantiated ones, validate, commit. Give the reviewer the flag-1 fact up front so
+round 2 does not re-report the three unreachable findings.
