@@ -5445,3 +5445,98 @@ history path, `encodeMouseForChild` maps tracking→which events and encoding→
 (dropping `sgr-pixels` and any X10 byte above 127), and `App.handleMouse` finally gains the
 child-first-refusal guard ahead of `routeMouse`. After 19.5: 19.6 (**user gate — manual
 smoke test**), then Tasks 16-18, then Tasks 20 and 21 (each needs its own plan).
+
+## Task 19.5 — implementation
+
+Base `1288c64`, head `f377413`. Status: **implemented**.
+
+`ChildModes` gained required `mouseTracking` (xterm's own `IModes.mouseTrackingMode` union) and
+`mouseEncoding`; `encodeMouseForChild` gates on the first and spells the bytes per the second;
+`SessionTerminal` tracks the encoding by hand and replays both across `attach()`'s history path;
+`App.handleMouse` gained the child-first-refusal branch ahead of `routeMouse` and `sendToChild`
+widened from `KeyEvent[]` to `InputEvent[]`.
+
+**Decisions taken** (all safe and reversible, recorded rather than escalated):
+
+1. **`insidePane(col, row, layout)` was extracted into `layout.ts` and `routeMouse`'s inline
+   copy replaced with it.** The plan names `insidePane` in `App` but does not say where it
+   lives. Two copies of the pane rectangle is exactly what `layout.ts`'s own doc comment argues
+   against, and the extraction is character-identical to what `routeMouse` had. Mutation M15
+   below pins that the two really are one rectangle now.
+2. **`MouseTracking`/`MouseEncoding` are not exported as named aliases.** They are inline unions
+   inside `ChildModes`, and `SessionTerminal`'s private field is typed
+   `ChildModes["mouseEncoding"]`. A named export whose only consumer is one private field is the
+   unused-surface the package rule forbids.
+3. **The two `?h`/`?l` handlers were merged into one `decPrivateMode(set)` factory** rather than
+   registering a second pair. `registerCsiHandler` with the same id chains, so a second pair
+   would work — but DECTCEM and the mouse encodings are the same "modes xterm does not expose"
+   case and reading them in one loop is where a reader will look for them.
+4. **`MouseButton` is now exported from `mouse.ts`**, as the comment there anticipated
+   ("19.5 exports it when `encodeMouseForChild` needs to name it"). `BUTTON_VALUES` is
+   `Record<MouseButton, number | undefined>`, so a button added later fails to compile rather
+   than silently spelling itself as a left click.
+
+**Three plan-sketch tests were wrong as written and were corrected** — the sketches would have
+passed vacuously, or not at all, because of `SessionTerminal`'s recent-output replay:
+
+- `attach()` sets `this.pending = this.takeRecent()`, so output that arrived over
+  `TERMINAL_OUTPUT` before a drop is *replayed* on the next attach unless the reply's
+  `lastSequence` covers it. The plan's "a re-attach does not carry the old encoding onto a fresh
+  grid" would therefore have gone red against a correct implementation (the replay puts the
+  modes straight back), and "a re-attach that falls back to history puts the mouse modes back"
+  would have gone **green without any `restore` code at all** — the replay alone restores them.
+  The first now sets the modes through the snapshot's own content (mirroring the existing
+  "re-attaching takes its modes from the snapshot, not the pre-drop state"); the second and the
+  history-override case use `lastSequence: 1` so the held-back chunk is dropped and `restore`
+  is the only thing that can put the modes back. Mutation M9 confirms it.
+
+**Every new test was mutation-checked.** Files were restored from a scratchpad snapshot after
+each (`git checkout` reverts to HEAD, which was the base commit — it would have discarded the
+whole uncommitted task).
+
+| Mutation | Result |
+|---|---|
+| M1 X10 transport cap removed | 2 red |
+| M2 `sgr-pixels` answered in cells instead of refused | 1 red |
+| M3 tracking gate reduced to `=== "none"` | 2 red |
+| M4 `x10` tracking sends modifier bits | 1 red |
+| M5 SGR release forced to button 3 | 4 red |
+| M6 `?1005/6/15/16 h` no longer sets the encoding | 9 red |
+| M7 an `l` clears whichever encoding is active | 1 red |
+| M8 encoding survives `terminal.reset()` | 1 red |
+| M9 `restore` omits the mouse modes | 2 red |
+| M10 the child-forwarding branch is never taken | 3 red |
+| M11 the child-grid bounds check removed | 1 red |
+| M12 screen-absolute coordinates forwarded | 3 red |
+| M13 forwards even when the child tracks nothing | 1 red *(after fix)* |
+| M14 mouse events dropped inside `sendToChild` | 3 red |
+| M15 `insidePane` widened by one column | 1 red *(after fix)* |
+
+**M13 and M15 initially survived, and two tests were strengthened to catch them.**
+
+- **M13.** The plan's "a click in the pane never reaches a child that did not [ask]" cannot see
+  the guard: with `mouseTracking: "none"` the encoder returns `""` anyway, so `net.sent` is empty
+  either way. The guard's only observable effect is on the **wheel** — without it a notch over a
+  non-tracking child's pane is swallowed instead of scrolling its scrollback. The test now opens
+  a child with 20 lines of output, wheels over the pane, and asserts `viewportY` moved by three
+  lines and focus stayed on the sidebar.
+- **M15.** The boundary column is invisible through `routeMouse` (the sidebar branch returns
+  first) but *is* reachable in `App`, because the forwarding guard runs **before** `routeMouse`.
+  A pane rect one column too wide hands the sidebar's last column to the child. The test now
+  clicks column 19 at 60 columns (sidebar 20 wide) and asserts the row moved.
+
+Verification at `f377413`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 449 pass, 0 fail (420 → 449: 15 new `encodeMouseForChild`
+cases, 6 new `SessionTerminal` cases, 6 new `App` cases, and two pre-existing `App` cases
+rewritten in place).
+
+Next step: review Task 19.5, round 1.
+One standard gpt-5.5 review via the codex-review skill over `1288c64..f377413`, restricted to
+`packages/tui`. Worth putting in the brief so the round is not spent re-deriving them: the four
+decisions above; the outbound X10 cap at zero-based 94 is deliberate (the plan's "Known and
+accepted" list); `?1003h` bare motion is never generated; extra buttons 8-11 decode as `"none"`
+and are never forwarded; `?1016` is tracked only so reports can be dropped; a mouse report
+deliberately does not drain `pendingEscape`; and the `sessions` element-access seam in
+`app.test.ts` is the plan's own decision, replaced by Stage 2's `SESSION_CREATE`.
+After 19.5 is clear: 19.6 (**user gate — manual smoke test**), then Tasks 16-18, then Tasks 20
+and 21 (each needs its own plan).
