@@ -625,10 +625,13 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
-    test("a re-attach does not carry the old encoding onto a fresh grid", async () => {
-        // The snapshot is the whole screen and carries the child's modes with
-        // it, so a mouse mode the child dropped while we were away must not be
-        // put back by the pre-drop state — the same rule the DEC modes follow.
+    test("a re-attach does not carry the old tracking mode onto a fresh grid", async () => {
+        // The snapshot carries the child's *tracking* mode, so tracking the
+        // child dropped while we were away must not be put back by the pre-drop
+        // state — the same rule the DEC modes follow. The encoding is the one
+        // mode the snapshot cannot speak about, so it is carried over instead;
+        // that half is pinned by "a snapshot re-attach keeps the encoding the
+        // snapshot cannot carry" above.
         const responses: Record<string, unknown> = {
             [MSG.SESSION_SNAPSHOT]: {
                 snapshot: "\x1b[?1002h\x1b[?1006h",
@@ -643,7 +646,7 @@ describe("SessionTerminal", () => {
         expect(term.modes.mouseTracking).toBe("drag");
         expect(term.modes.mouseEncoding).toBe("sgr");
 
-        // The child left both behind while we were away.
+        // The child left tracking behind while we were away.
         responses[MSG.SESSION_SNAPSHOT] = {
             snapshot: "",
             lastSequence: 0,
@@ -652,7 +655,36 @@ describe("SessionTerminal", () => {
         };
         await term.attach();
         expect(term.modes.mouseTracking).toBe("none");
-        expect(term.modes.mouseEncoding).toBe("x10");
+        term.dispose();
+    });
+
+    test("a snapshot re-attach keeps the encoding the snapshot cannot carry", async () => {
+        // SerializeAddon emits the tracking mode (`?9`/`?1000`/`?1002`/`?1003`)
+        // and nothing at all for the encoding — `IModes` has no member for it,
+        // so the serializer has nothing to read. Resetting to `x10` on the
+        // snapshot path therefore strands an SGR child in legacy bytes after
+        // every reconnect. `lastSequence: 1` drops the held-back chunk, so the
+        // replay cannot put the encoding back and only the carry-over can.
+        const responses: Record<string, unknown> = {
+            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+        };
+        const net = fakeNet(responses);
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h\x1b[?1006h", sequence: 1 });
+        await settle();
+        expect(term.modes.mouseEncoding).toBe("sgr");
+
+        // Exactly what a real backend snapshot of that child looks like.
+        responses[MSG.SESSION_SNAPSHOT] = {
+            snapshot: "\x1b[?1002h",
+            lastSequence: 1,
+            cursorHidden: false,
+            kittyStack: [],
+        };
+        await term.attach();
+        expect(term.modes.mouseTracking).toBe("drag");
+        expect(term.modes.mouseEncoding).toBe("sgr");
         term.dispose();
     });
 

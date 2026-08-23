@@ -63,15 +63,6 @@ const MOUSE_TRACKING_SET: Record<ChildModes["mouseTracking"], string> = {
     any: "\x1b[?1003h",
 };
 
-/** The same for each encoding; `x10` is the default and needs no sequence. */
-const MOUSE_ENCODING_SET: Record<ChildModes["mouseEncoding"], string> = {
-    x10: "",
-    utf8: "\x1b[?1005h",
-    sgr: "\x1b[?1006h",
-    urxvt: "\x1b[?1015h",
-    "sgr-pixels": "\x1b[?1016h",
-};
-
 class SessionTerminal {
     public readonly terminal: Terminal;
 
@@ -258,9 +249,14 @@ class SessionTerminal {
                 this.terminal.reset();
                 // reset() restores DECTCEM to visible; our tracking has to follow it.
                 this.hiddenCursor = false;
-                // Likewise for the mouse encoding: reset() clears the child's
-                // mouse modes, so the hand-tracked half must go with them.
-                this.mouseEncoding = "x10";
+                // The mouse *encoding* deliberately survives the reset. Neither
+                // path can restore it: `IModes` has no member for it, so
+                // SerializeAddon writes nothing for it into the snapshot, and
+                // trimmed history may no longer hold the sequence that set it.
+                // The pre-drop value is the only thing that knows what the
+                // child is parsing, and output replayed below still overrides
+                // it. Clearing it here would spell every click after a
+                // reconnect in legacy bytes to a child waiting for SGR.
                 // The kitty stack is ours, not xterm's, so reset() leaves it
                 // alone — but everything that built it is about to be replayed.
                 // Keeping it would stack a second copy of the child's push on
@@ -269,10 +265,10 @@ class SessionTerminal {
                 this.kitty.restore([]);
                 if (previous.applicationCursorKeys) restore += "\x1b[?1h";
                 if (previous.bracketedPaste) restore += "\x1b[?2004h";
-                // Tracking and encoding are orthogonal on the wire and a child
-                // can hold any pair, so both are replayed.
+                // Tracking, unlike the encoding above, is xterm's own and the
+                // reset really did clear it, so the history path has to put it
+                // back or every click after the reconnect is dropped.
                 restore += MOUSE_TRACKING_SET[previous.mouseTracking];
-                restore += MOUSE_ENCODING_SET[previous.mouseEncoding];
             });
         }
 
