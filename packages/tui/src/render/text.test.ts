@@ -81,6 +81,16 @@ describe("layoutText", () => {
         expect(cells.every((c) => c.width === 1)).toBe(true);
     });
 
+    test("blanks a control sequence the segmenter kept as one grapheme", () => {
+        // `Intl.Segmenter` groups CRLF into a single grapheme, so a per-grapheme
+        // control test has to look inside the cluster: `Screen.flush` writes any
+        // cell whose width is not zero, and a raw "\r\n" would carry the cursor
+        // to the start of the next line in the middle of a frame.
+        const cells = layoutText("a\r\nb", 4, 0);
+        expect(cells.map((c) => c.ch)).toEqual(["a", " ", "b", " "]);
+        expect(cells.every((c) => c.width === 1)).toBe(true);
+    });
+
     test("returns a distinct cell object per column", () => {
         // ScreenBuffer.set takes ownership of the cell it is handed, so two
         // columns must never share one object.

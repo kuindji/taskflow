@@ -100,7 +100,13 @@ const WIDE_RANGES: readonly (readonly [number, number])[] = [
 /** Combining marks and format characters occupy no column of their own. */
 const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}]$/u;
 
-const CONTROL = /^[\p{Cc}]$/u;
+/**
+ * Unanchored: `Intl.Segmenter` keeps CRLF as one grapheme, so a cluster can
+ * carry a control code point alongside another character. Any such cluster is
+ * blanked — `Screen.flush` writes every cell whose width is not zero, and a raw
+ * control byte would move the cursor in the middle of a frame.
+ */
+const CONTROL = /\p{Cc}/u;
 
 function isWide(cp: number): boolean {
     for (const [lo, hi] of WIDE_RANGES) {
