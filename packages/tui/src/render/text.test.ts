@@ -121,6 +121,27 @@ describe("fitToWidth", () => {
         expect(fitToWidth("\r\nAB", 2)).toBe("AB");
         expect(fitToWidth("A", 1)).toBe("A");
         expect(fitToWidth("\ud800A", 1)).toBe("A");
+        // Not just a leading one: a control byte in the middle costs no
+        // column either, so the text behind it keeps its own.
+        expect(fitToWidth("A\u0007B", 2)).toBe("AB");
+    });
+
+    test("does not lose text when dropping a cluster joins the two around it", () => {
+        // The two halves of a flag are separate clusters while a control byte
+        // sits between them, and each measures two columns on its own.
+        // Dropping the byte leaves them adjacent and the segmenter reads the
+        // pair as one two-column flag, so counting them apart reserved four
+        // columns for two and hid the `AB` that fit in the rest.
+        const flag = "\u{1f1fa}\u{1f1f8}";
+        expect(fitToWidth("\u{1f1fa}\u0007\u{1f1f8}AB", 4)).toBe(`${flag}AB`);
+        // The joined pair is still held to the budget it does need.
+        expect(fitToWidth("\u{1f1fa}\u0007\u{1f1f8}", 1)).toBe("");
+        expect(fitToWidth("\u{1f1fa}\u0007\u{1f1f8}", 2)).toBe(flag);
+        // Re-measuring is a column count, not a cluster count: two wide
+        // characters left adjacent by a drop still cost four columns, and
+        // the second has to go rather than run past a three-column budget.
+        expect(fitToWidth("\u6f22\u0007\u6f22", 3)).toBe("\u6f22");
+        expect(fitToWidth("\u6f22\u0007\u6f22", 4)).toBe("\u6f22\u6f22");
     });
 
     test("still drops a cluster that is only marks and format characters", () => {

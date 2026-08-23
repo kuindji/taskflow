@@ -205,6 +205,40 @@ describe("drawSidebar", () => {
         expect(rowText(buf, 0, 2)).toBe("Ab");
     });
 
+    test("drops the indent when the label fits beside it as nothing but blanks", () => {
+        // A title that starts with a space fits as a space, which `fitToWidth`
+        // returns as a non-empty string but the row draws as nothing. Ranking
+        // the indent below that emptied the row: ` A` at width 2, blank at 3.
+        const row = { kind: "task" as const, id: "t1", label: " A", sessionCount: 0 };
+        const drawn = (width: number): string => {
+            const buf = new ScreenBuffer(width, 1);
+            drawSidebar(buf, [row], 0, width, 1);
+            return rowText(buf, 0, width);
+        };
+        expect(drawn(2)).toBe(" A");
+        expect(drawn(3)).toBe(" A");
+        expect(drawn(4)).toBe("   A");
+    });
+
+    test("keeps a blank-fitting label visible beside its badge too", () => {
+        const row = { kind: "task" as const, id: "t1", label: " A", sessionCount: 1 };
+        const drawn = (width: number): string => {
+            const buf = new ScreenBuffer(width, 1);
+            drawSidebar(buf, [row], 0, width, 1);
+            return rowText(buf, 0, width);
+        };
+        expect(drawn(4)).toBe(" A 1");
+        expect(drawn(5)).toBe(" A 1");
+    });
+
+    test("draws the whole badge when it exactly fills the pane", () => {
+        // `badge.length <= width` is the boundary: one column narrower and the
+        // count would have to go, one wider and the label joins it.
+        const buf = new ScreenBuffer(3, 1);
+        drawSidebar(buf, [{ kind: "task", id: "t1", label: "A", sessionCount: 12 }], 0, 3, 1);
+        expect(rowText(buf, 0, 3)).toBe(" 12");
+    });
+
     test("draws the session count badge on a project row", () => {
         const buf = new ScreenBuffer(20, 1);
         drawSidebar(buf, [{ kind: "project", id: "p1", label: "Alpha", sessionCount: 3 }], 0, 20, 1);

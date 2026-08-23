@@ -30,6 +30,11 @@ function buildRows(store: Store): SidebarRow[] {
     return rows;
 }
 
+/** Whether a fitted label puts anything visible on the row. */
+function shows(label: string): boolean {
+    return label.trim() !== "";
+}
+
 function drawSidebar(
     buf: ScreenBuffer,
     rows: SidebarRow[],
@@ -68,7 +73,12 @@ function drawSidebar(
             const fitsIndent = prefix.length + badgeCols <= width;
             const withIndent = fitsIndent ? fitToWidth(row.label, roomWith) : "";
             const withoutIndent = fitToWidth(row.label, roomWithout);
-            const keepIndent = fitsIndent && (withIndent !== "" || withoutIndent === "");
+            // What counts is what the label will *show*, not what `fitToWidth`
+            // hands back: a title that starts with a space fits as a space,
+            // which is a non-empty string that draws as nothing. Ranking the
+            // indent above that blanked the row — a task titled ` A` read as
+            // ` A` at width 2 and as an empty row at width 3.
+            const keepIndent = fitsIndent && (shows(withIndent) || !shows(withoutIndent));
             const label = keepIndent ? withIndent : withoutIndent;
             text = `${keepIndent ? prefix : ""}${label}${badgeCols > 0 ? badge : ""}`;
         }

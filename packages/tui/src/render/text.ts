@@ -243,6 +243,13 @@ function graphemeWidth(grapheme: string): 0 | 1 | 2 {
     return isRegionalIndicator(cp) ? 2 : 1;
 }
 
+/** Columns `text` occupies once its clusters are laid out side by side. */
+function textWidth(text: string): number {
+    let total = 0;
+    for (const grapheme of graphemes(text)) total += graphemeWidth(grapheme);
+    return total;
+}
+
 function cell(ch: string, width: 0 | 1 | 2, attrs: number): Cell {
     return { ...blankCell(), ch, width, attrs };
 }
@@ -267,12 +274,33 @@ function cell(ch: string, width: 0 | 1 | 2, attrs: number): Cell {
 function fitToWidth(text: string, cols: number): string {
     let used = 0;
     let out = "";
+    let joined = false;
     for (const grapheme of graphemes(text)) {
         const width = graphemeWidth(grapheme);
-        if (width === 0 || UNPRINTABLE.test(grapheme)) continue;
-        if (used + width > cols) break;
-        used += width;
-        out += grapheme;
+        if (width === 0 || UNPRINTABLE.test(grapheme)) {
+            joined = true;
+            continue;
+        }
+        if (joined && out !== "") {
+            // Dropping a cluster leaves the two around it adjacent, and the
+            // segmenter can read that pair as one: two regional indicators
+            // separated by a control byte are two two-column clusters, but
+            // side by side they are a single two-column flag. So once
+            // something has been dropped, the running total is taken from
+            // what the row will actually lay out rather than from the sum of
+            // the clusters read — counting them apart reserved four columns
+            // for two and hid the text behind them.
+            const next = out + grapheme;
+            const nextUsed = textWidth(next);
+            if (nextUsed > cols) break;
+            out = next;
+            used = nextUsed;
+        } else {
+            if (used + width > cols) break;
+            used += width;
+            out += grapheme;
+        }
+        joined = false;
     }
     return out;
 }
