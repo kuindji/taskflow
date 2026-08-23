@@ -29,6 +29,14 @@ describe("fitToWidth", () => {
         expect(fitToWidth("Alpha", 0)).toBe("");
         expect(fitToWidth("Alpha", -3)).toBe("");
     });
+
+    test("drops a standalone zero-width cluster with no base to ride on", () => {
+        // A leading combining mark has nothing to attach to inside the label.
+        // Kept, it would attach to whatever the caller concatenates in front of
+        // it, so `layoutText` drops it and `fitToWidth` must agree.
+        expect(fitToWidth("\u0301A", 0)).toBe("");
+        expect(fitToWidth("\u0301A", 1)).toBe("A");
+    });
 });
 
 describe("layoutText", () => {

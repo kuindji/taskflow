@@ -228,4 +228,18 @@ describe("drawSidebar", () => {
         );
         expect(rowText(buf, 0, 8)).toBe("  \u4f60\u4f60 4");
     });
+
+    test("does not let a leading combining mark ride on the task indentation", () => {
+        // Width 4 is fully spent by the two-space prefix and the " 1" badge, so
+        // the label has no display budget at all and must contribute nothing.
+        const buf = new ScreenBuffer(4, 1);
+        drawSidebar(
+            buf,
+            [{ kind: "task", id: "t1", label: "\u0301A", sessionCount: 1 }],
+            0,
+            4,
+            1,
+        );
+        expect(rowText(buf, 0, 4)).toBe("   1");
+    });
 });

@@ -146,12 +146,20 @@ function cell(ch: string, width: 0 | 1 | 2, attrs: number): Cell {
 /**
  * The longest prefix of `text` that fits in `cols` display columns without
  * splitting a grapheme. Use before appending anything that must stay visible.
+ *
+ * A standalone zero-width cluster — a combining mark with no base of its own,
+ * which `Intl.Segmenter` yields only at the start of a string or after another
+ * such cluster — is dropped rather than kept. `layoutText` drops it too, and a
+ * caller that concatenates this result after a prefix would otherwise hand the
+ * segmenter a mark that attaches to the prefix's last character and repaints a
+ * cell the label does not own.
  */
 function fitToWidth(text: string, cols: number): string {
     let used = 0;
     let out = "";
     for (const grapheme of graphemes(text)) {
         const width = graphemeWidth(grapheme);
+        if (width === 0) continue;
         if (used + width > cols) break;
         used += width;
         out += grapheme;
