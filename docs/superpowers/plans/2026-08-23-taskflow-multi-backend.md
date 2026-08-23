@@ -2728,6 +2728,27 @@ async function activateBackend(
  * talking through it until it promotes.
  */
 async function setActive(id: string, origin: string): Promise<void> {
+    // Snapshotted because a **failed** `setActive` has to be a no-op, and it is
+    // not one by default. Its rollback in `switchTo`'s catch is
+    // `cancelActivation`, which keys off `pendingActivationId` — and clearing
+    // that is the first thing this function does. So if `persist` then rejects
+    // (a full disk, an unwritable `userData`), the IPC rejects, the renderer
+    // reports a failed switch and stays on the old socket, and its
+    // `cancelActivation` finds nothing to cancel. Main is left believing the
+    // new backend is active: `getActiveOrigin` hands the pollers a tunnel the
+    // renderer never promoted, the menu ticks a row the app is not talking to,
+    // and that ssh child is now unreachable by every cleanup path there is —
+    // `cancelActivation` has lost it, `retirePreviousTunnel` only closes
+    // `previousId`, and `revertActiveBackend` is not called on this path.
+    // Restoring is what makes the rollback the caller already performs correct.
+    const snapshot = {
+        activeId,
+        activeOrigin,
+        previousId,
+        previousOrigin,
+        lastUsedId,
+        pendingActivationId,
+    };
     // The activation is spoken for; `cancelActivation` must not still be able
     // to kill the tunnel the renderer is about to promote.
     pendingActivationId = null;
@@ -2736,8 +2757,28 @@ async function setActive(id: string, origin: string): Promise<void> {
     activeId = id;
     lastUsedId = id;
     activeOrigin = id === LOCAL_ID ? null : origin;
-    await persist();
-    deps.onChanged();
+    try {
+        await persist();
+    } catch (error) {
+        ({
+            activeId,
+            activeOrigin,
+            previousId,
+            previousOrigin,
+            lastUsedId,
+            pendingActivationId,
+        } = snapshot);
+        throw error;
+    }
+    // A notification, not part of the commit, and therefore outside the
+    // rollback: `webContents.send` throws on a destroyed window, and a window
+    // closing mid-switch must not turn an activation that is already on disk
+    // into a reported failure — rolling back here would contradict the file.
+    try {
+        deps.onChanged();
+    } catch (error) {
+        console.error("Failed to announce a backend change to the renderer:", error);
+    }
 }
 
 /**
@@ -3183,6 +3224,32 @@ interface NotificationPollerDeps {
 ```
 
 Apply the same change in `electron/src/tray-manager.ts` — the deps interface at line 6-10, and both `deps.getBackendPort()` call sites (161, 186), using `${origin}/api/tray-state`.
+
+One thing that is **not** a mechanical translation, in
+`refreshBackgroundTrayState` (`tray-manager.ts:160-182`). Today's
+`if (!port) return` is a fine early exit because a missing local port means the
+app is broken anyway. A missing *origin* is routine here — every dropped tunnel
+produces one — and `backgroundTrayState` is module state that survives the early
+return, so the menu bar keeps showing the remote's last `working` or
+`attention` dot for a backend that is no longer connected, indefinitely, and
+most visibly with the window closed, which is the only time that dot is the
+user's sole signal. Clear it on the way out:
+
+```ts
+    const origin = deps.getActiveOrigin();
+    if (!origin) {
+        // No backend to poll: whatever the dot last said is now stale.
+        if (backgroundTrayState !== null) {
+            backgroundTrayState = null;
+            if (!deps.getMainWindow() || !rendererTrayStateSynced) updateTrayIcon();
+        }
+        return;
+    }
+```
+
+`startTrayStatePolling` (`:184-191`) needs only the mechanical swap: it is
+called once from `main.ts:154`, straight after the local backend starts, when
+`getActiveOrigin()` is the local origin and never null.
 
 - [ ] **Step 7: Verify**
 
@@ -4118,7 +4185,15 @@ describe("reset coverage", () => {
                 name !== "rebootstrap.ts" &&
                 // Only module state is `lastTrayState`, which the session-store
                 // reset recomputes through the tray subscription.
-                name !== "session-subscriptions.ts",
+                name !== "session-subscriptions.ts" &&
+                // A pure tab-reconciliation helper — three functions, one
+                // export, no module-level state of any kind
+                // (`session-sync.ts:1-148`). It lives in `stores/` by topic
+                // rather than by kind, so the directory walk picks it up and
+                // demands a reset it has nothing to register. Without this
+                // exclusion Step 6 below cannot pass: the test reports
+                // `missing: ["session-sync"]` on a correct implementation.
+                name !== "session-sync.ts",
         );
         for (const module of modules) {
             await import(join(dir, module));
@@ -4775,7 +4850,38 @@ const useBackendStore = create<BackendStore>((set, get) => ({
             bridge.listBackends(),
             bridge.getActiveBackend(),
         ]);
-        set({ entries, activeId: active.id, isLocal: active.isLocal });
+        // `dropped` is **derived** here, not only pushed by the event. The
+        // `backend-dropped` message goes to `getMainWindow()?.webContents` and
+        // is simply lost when there is no window — and on macOS the app
+        // outlives its window (`main.ts:171-177` keeps it alive,
+        // `window-manager.ts:168` nulls `mainWindow` on close). Close the
+        // window while on a remote backend, let the tunnel die, reopen: main
+        // has `activeOrigin === null` and nobody was there to be told. The new
+        // renderer starts from `dropped: false`, so the menu ticks the remote
+        // row and clicking it lands on `switchTo`'s
+        // `id === activeId && !dropped` early return — the single gesture that
+        // recovers the connection silently does nothing, and the only way back
+        // is to pick "This machine" first and then the remote again, which is
+        // exactly the dead end the `dropped` exception exists to remove.
+        //
+        // A null origin on a non-local backend means precisely that: main has
+        // an id it cannot reach. `markTunnelDropped` and `revertActiveBackend`
+        // are the two writers, and both mean "dropped".
+        const dropped = !active.isLocal && active.origin === null;
+        set((state) => ({
+            entries,
+            activeId: active.id,
+            isLocal: active.isLocal,
+            dropped,
+            // The **Reconnect** button renders inside the error banner, so
+            // deriving `dropped` without a message would put the one control
+            // that fixes this inside a banner that never appears. An existing
+            // message wins — it is more specific than this one.
+            error:
+                dropped && state.error === null
+                    ? "The connection to that backend was lost."
+                    : state.error,
+        }));
     },
 
     async switchTo(id: string) {
@@ -4808,6 +4914,10 @@ const useBackendStore = create<BackendStore>((set, get) => ({
         // switch to A would still be armed while the banner shows B's failure,
         // and "Trust and connect" would silently act on A.
         set({ switching: id, error: null, pendingTrust: null });
+        // Declared outside the `try` so the `catch` can undo the unwatch. Stays
+        // null on every failure that happens before the unwatch, which makes
+        // the restore below a no-op exactly when there is nothing to restore.
+        let rewatchPath: string | null = null;
         try {
             const activation = await bridge.activateBackend(id);
             if (!activation.ok) {
@@ -4840,6 +4950,17 @@ const useBackendStore = create<BackendStore>((set, get) => ({
                 set({ switching: null, error: compatible.reason ?? "Incompatible backend" });
                 return;
             }
+
+            // Read before the unwatch below, and used by the `catch` to put it
+            // back. Every failure from here on leaves the renderer on the *old*
+            // backend with its watcher already torn down, and nothing restores
+            // it: `rebootstrap` and `refresh` are on the success path, and
+            // `watchPath` is only called again when the user changes project.
+            // The app would sit on a working connection where the file tree
+            // stops updating and git status freezes — bad here in particular,
+            // because agent sessions write files constantly, so an explorer
+            // that has gone quiet reads as an agent doing nothing.
+            rewatchPath = useFileStore.getState().watchedPath;
 
             // The backend keeps one chokidar watcher per watched path and drops
             // it only on an explicit unwatch — `close(ws)` in
@@ -4908,6 +5029,17 @@ const useBackendStore = create<BackendStore>((set, get) => ({
             // leaves a tunnel nobody owns. Swallow a failure to close it — the
             // switch already failed and there is nothing else to report.
             await bridge.cancelActivation(id).catch(() => {});
+            // The failed switch leaves us on the old backend; put its watcher
+            // back. Best-effort: if the old connection is also gone there is
+            // nothing to re-watch through, and the reconnect path will rebuild
+            // it. This covers the `promoteConnection` branch too — that one
+            // throws into here rather than returning.
+            if (rewatchPath) {
+                await useFileStore
+                    .getState()
+                    .watchPath(rewatchPath)
+                    .catch(() => {});
+            }
             set({
                 switching: null,
                 error: error instanceof Error ? error.message : "Could not switch backend",
@@ -5017,6 +5149,8 @@ git commit -m "feat(ui): switch the active backend behind a compatibility handsh
 - Create: `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`
 - Create: `packages/ui/src/components/sidebar/TrustHostKeyDialog.tsx`
 - Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx:381-395`
+- Modify: `packages/ui/src/App.tsx:29-43`
+- Modify: `packages/ui/src/components/AppShell.tsx`
 
 **Interfaces:**
 - Consumes: Task 10's `useBackendStore`.
@@ -5628,6 +5762,73 @@ The reconnect goes through the full switch — handshake, reset, remount — not
 socket-level retry. The backend on the other side has not necessarily restarted,
 but this client cannot tell the difference between an ssh process that died and
 a machine that rebooted, and re-running the switch is correct for both.
+
+**None of the above is reachable until `ConnectionOverlay` stops covering it.**
+`packages/ui/src/App.tsx:29-43` renders `<ConnectionOverlay />` as a sibling of
+`<AppShell>`, and it is a `fixed inset-0 z-50` blocking layer shown whenever the
+WebSocket is not connected. `AppShell` sets no `z-` class anywhere, so the
+banner this step just added, its **Reconnect** button, and the backend menu in
+the sidebar are all *underneath* it.
+
+That is not a corner case — it is the main line of this whole feature. A remote
+tunnel dies, the socket to it closes, `connected` goes false, and the overlay
+drops over the app. The backoff in Task 8 keeps redialling a forwarded port
+that no longer forwards anywhere, so every attempt fails and `connected` never
+comes back: the overlay stays up for good, over a blurred, unclickable
+**Reconnect** button that exists precisely for this moment. The user's only way
+out is to quit and relaunch, and only because startup always begins on local.
+The same overlay is what a user meets in the window-reopen case that Task 10's
+`refresh()` derives `dropped` for, except that there it says "No backend is
+running" — `WebSocketProvider` throws on a null origin before a socket is ever
+opened.
+
+The overlay is right for what it was written for — the *local* backend
+restarting, where there is nothing to click and waiting is the answer. It is
+wrong the moment there is a backend menu behind it. Change it so the shell's
+backend controls stay usable:
+
+```tsx
+function ConnectionOverlay() {
+    const { connected, error } = useWsStatus();
+    const isLocal = useBackendStore((s) => s.isLocal);
+    if (connected) return null;
+    // Only the local backend gets the blocking treatment. When a remote one is
+    // active the two controls that can fix this — the backend menu and the
+    // banner's Reconnect — live underneath, so the overlay must not eat their
+    // clicks. `pointer-events-none` on the backdrop, `pointer-events-auto` on
+    // the card, so the message stays readable and selectable without trapping
+    // the pointer.
+    const blocking = isLocal;
+    return (
+        <div
+            className={cn(
+                "fixed inset-0 z-50 flex items-center justify-center",
+                blocking ? "bg-background/80 backdrop-blur-sm" : "pointer-events-none",
+            )}>
+            <div
+                className={cn(
+                    "space-y-2 text-center",
+                    blocking ? undefined : "bg-background/95 pointer-events-auto rounded-md border p-3 shadow-md",
+                )}>
+                {/* ...unchanged message content */}
+            </div>
+        </div>
+    );
+}
+```
+
+`App.tsx` imports neither of these today — add
+`import { cn } from "@/lib/utils";` and
+`import { useBackendStore } from "@/stores/backend-store";`. `isLocal` starts
+`true` (`backend-store.ts`, initial state), so first paint while the local
+backend is still coming up keeps today's blocking overlay, which is what that
+moment wants.
+
+In the non-blocking form the card floats over the workspace and everything
+behind it still takes clicks, so the sidebar menu and the banner work. Do not
+"simplify" this by deleting the overlay outright: the local-backend restart it
+was written for still needs it, and the browser dev server has no backend menu
+to fall back on at all.
 
 - [ ] **Step 6: Explain an empty list on macOS**
 
@@ -6275,6 +6476,18 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
   the Backend port field left blank. Expected: the error names the machine and
   points at the port field. "SSH exited with code 1." means `readRemotePort` is
   still handing a failed `cat` to `classifyTunnelFailure`.
+- Connect to machine B, then kill its ssh child (`pkill -f "ssh -N -L"`).
+  Expected: the dropped banner and the sidebar's backend menu are both still
+  clickable, and **Reconnect** works. A blurred, unclickable screen saying
+  "Connecting to backend…" means `ConnectionOverlay` is still the blocking
+  variant while a remote backend is active — and there is no way out of it
+  except quitting.
+- macOS only: connect to machine B, close the window (the app stays in the menu
+  bar), kill B's ssh child, then reopen the window from the dock. Expected: the
+  app comes back with the dropped banner and a working **Reconnect**. A ticked
+  B row that does nothing when clicked means `refresh()` is not deriving
+  `dropped` from a null origin, and the `backend-dropped` event that would have
+  set it was sent while no window existed.
 - On a remote backend, open a wiki page in preview and look at the markdown
   toolbar. Expected: no Obsidian button. It appearing means only the wiki root's
   menu was gated and `MarkdownPane`'s `canOpenInObsidian` still trusts the
