@@ -22,7 +22,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | in-review round 6 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`; round 6 found two defects, fixed |
+| 15 | Application shell and entry point | in-review round 7 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; round 7 found one defect, fixed |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
@@ -3796,19 +3796,101 @@ packages, `bun test packages/tui` 334 pass / 0 fail, full `bun test` 1167 pass /
 session's two codex runs were waited out first. `prettier --check` clean on the four
 touched files. The +2 over the `93f37a6` baseline of 332 is the two new regression tests.
 
-Next step: Task 15 review round 7 — gpt-5.5 via codex-review over `43df638..98d3d0c`
-(Mode B, restricted to `packages/tui`). Round 6 found two real defects, so the task is
-not clear and another round is owed. New surface to point the reviewer at: the now-empty
-`terminalOwner === null` branch in `packages/tui/src/index.ts` (ask whether writing
-*nothing* there leaves any mode stranded — in particular whether the kitty query itself,
-or anything `startBackend`/`WsClient` emit on failure, needs undoing), and the
-`try/catch` around `opts.onSpawn` in `packages/tui/src/backend/manager.ts` (ask whether
-`terminate()` there can race the poll loop's own `terminate()`, and whether the hook's
-error should be wrapped rather than rethrown bare).
-Launch **two** codex runs in parallel over the same prompt and reconcile them, as rounds
-5 and 6 did. Carry the round-6 "known and deliberately accepted" list into the prompt and
-add the two claims dropped so far (`readOnce` chunk loss, in both its forms) so a third
-round does not spend its budget re-raising them.
+- **Task 15, round 7** (gpt-5.5 via codex-review, Mode B over `43df638..98d3d0c`
+  restricted to `packages/tui`): two independent codex runs over the same prompt,
+  launched in parallel, as rounds 5 and 6 did. They **disagreed**: run A returned
+  "Verdict: Clear", run B returned "Verdict: Changes required" with one finding.
+  B's finding was real. The fix is in `3bc5ee8`.
+  - **Substantiated — a backend that ignores SIGTERM outlives the TUI.** What you
+    would see: quit the TUI, or have it fail to start, and the backend process it
+    spawned is still running afterwards with nothing left that can stop it —
+    holding its data dir, its file watchers and any agent PTYs it had open, for as
+    long as the machine is up. Mechanism: the only backend cleanup a
+    `process.on("exit")` handler can reach is `stop()`, and `stop()` sends
+    `child.kill()` (SIGTERM) and nothing else. That was deliberate — every caller
+    runs `process.exit` on the next line, so an escalation timer scheduled there
+    would never fire — but it means the escalating `terminate()` is reachable only
+    from `startBackend`'s own startup paths, never from the exit path. The real
+    backend's SIGTERM handler is `async` (`prepareForShutdown`, `ptyManager.closeAll`,
+    `fileWatcher.stopAll`, `wikiIndex.stopAll`), so wedging inside it is not
+    hypothetical. Verified independently before the fix was written, with a probe
+    that pointed the TUI at a `trap '' TERM` fake backend: "TUI exit code: 1 /
+    backend pid 19193 still alive 3s after TUI exit: true".
+    Regression tests, both red on `98d3d0c` and green on `3bc5ee8`:
+    - `startBackend > kills a backend that ignores SIGTERM when the caller stops it`
+      in `packages/tui/src/backend/manager.test.ts` — runs the reaper on a 1s grace
+      and waits for the pid to go. Red: `Expected: true, Received: false` after 5s.
+    - `tui entry point > arms the escalating reaper from its exit handler` in
+      `packages/tui/src/index.test.ts` — the half only an end-to-end run can show,
+      that `spawn()` from inside a `process.on("exit")` handler actually creates the
+      process. Red: `Expected: not ""`.
+      Run both with `bun test packages/tui/src/backend/manager.test.ts packages/tui/src/index.test.ts`.
+  - **Run A reported clean on everything**, including both surfaces the round-7
+    prompt pointed it at, and it ran the tests, typecheck and lint itself. Run B
+    reported the same "no demonstrated issue" on both of those surfaces. So the two
+    round-6 changes are now clear from two independent reads; the finding came from
+    older code that Task 15 wired into the exit path.
+  - Both runs reported clean on: the empty pre-entry `terminalOwner === null` branch
+    (the kitty query is a query and pushes no mode; the backend's stdout is `ignore`
+    so it cannot write to the terminal; `setRawMode(false)` is `isTTY`-guarded and the
+    double restore is harmless), and the `onSpawn` try/catch (double `kill`/port-file
+    removal is harmless, the bare rethrow preserves the hook's error, and awaiting
+    `terminate()` is right on that path).
+  - Neither run re-raised any of the carried-forward known-and-accepted items, which
+    is what the prompt's exclusion list was for.
+
+## Decisions taken (Task 15 round 7)
+
+- **The escalation is handed to a detached reaper rather than awaited in-process.**
+  An in-process fix would have to move backend cleanup off the `exit` hook onto the
+  async paths, because `process.on("exit")` cannot await — and rounds 1-3 converged
+  on `exit` precisely because it is the one hook every route out of the process
+  passes through. It would also cost the *common* path: the TUI would hold the
+  user's shell for up to the whole grace on every quit, waiting to find out
+  something that is almost always fine. The reaper costs the common path nothing.
+- **The grace is 10s, not the 1s `terminate()` uses.** `terminate()` runs on startup
+  paths where the child has done no work worth saving. `stop()` runs on quit, where
+  the backend is persisting interrupted sessions and stopping watchers; cutting that
+  short would trade a rare leak for routine data loss. `reapGraceSeconds` exists as
+  an option so the test can run it at 1s — the same shape as the existing `timeoutMs`.
+- **The reaper polls `kill -0` every second instead of sleeping out the window.** Two
+  reasons: a healthy backend leaves a stray `sh` for about a second rather than ten,
+  and exiting on the first failed check is what keeps the final `kill -9` off a
+  recycled pid. `stop()` also skips arming entirely when `outcome.exit` is already set.
+- **The reaper is `detached`.** A closed terminal window sends SIGHUP to the TUI's
+  process group, which is one of the ways `stop()` is reached; a reaper in that group
+  would die alongside the thing it was armed to outlive.
+- **Two tests, at two levels, deliberately.** The manager test proves the reaper kills;
+  only the end-to-end test proves `spawn()` works from inside an exit handler, which is
+  the genuinely uncertain part of the design. Neither alone covers it.
+
+## Note on the round-7 split verdict
+
+Rounds 5 and 6 had both runs converge, and the convergence was treated as what gave a
+finding its weight. Round 7 is the counter-case: one run said Clear, the other found a
+real defect, and the Clear run had *also* executed the test suite, typecheck and lint.
+A clean verdict — even a well-evidenced one — remains weak evidence. Keep two runs.
+
+Checks on `3bc5ee8`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 336 pass / 0 fail, full `bun test` 1169 pass / 8 fail
+(the known `MarkdownPaneImpl` eight), run with nothing else on the machine.
+`prettier --check` clean on the three touched files. The +2 over the `98d3d0c` baseline
+of 334 is the two new regression tests.
+
+Next step: Task 15 review round 8 — gpt-5.5 via codex-review over `43df638..3bc5ee8`
+(Mode B, restricted to `packages/tui`). Round 7 found a real defect, so the task is not
+clear and another round is owed. New surface to point the reviewer at: `armReaper` and
+the changed `stop()` in `packages/tui/src/backend/manager.ts`. Ask specifically about —
+the shell script's portability and quoting; whether `spawn()` inside a
+`process.on("exit")` handler is guaranteed to complete the fork (the end-to-end test says
+it does on this machine, but ask whether it is contractual); whether `detached: true`
+plus `unref()` is enough for the reaper to survive every way the TUI dies; the pid-reuse
+window between two 1s polls; whether 10s can cut short a legitimately slow backend
+shutdown; and whether arming a reaper per `stop()` can accumulate strays in any flow.
+Launch **two** codex runs in parallel over the same prompt and reconcile them. Carry the
+round-6 exclusion list forward unchanged and add round 7's own accepted decisions (the
+detached-reaper choice over an in-process await, and the 10s grace) so round 8 does not
+re-litigate them.
 After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then
 implement it, then Tasks 16-18.
 
