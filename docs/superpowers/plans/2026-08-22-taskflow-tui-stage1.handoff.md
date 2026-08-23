@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | in-review round 1 | `e64f1f0` | commits `85871fc`, `33fbe44`; round 1 found 3 real defects, fixed; round 2 due |
+| 13 | Sidebar rendering | in-review round 2 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`; round 2 found 1 real defect, fixed; round 3 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -2489,8 +2489,57 @@ width and cursor edge cases.
 - Control characters in a label are drawn as a blank. Not a review finding, but the same
   frame-corruption class the fix addresses, and one branch in `layoutText`.
 
-Next step: Task 13 review round 2 — one gpt-5.5 review via the codex-review skill over
+- **Task 13, round 2** (gpt-5.5 via codex-review, Mode B over `e64f1f0..bf998d3`
+  scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
+  `packages/tui/src/render/text.ts` and `text.test.ts`, diff inlined in the prompt):
+  one finding, substantiated and fixed in `bbb7a98`, plus one point explicitly filed
+  as speculative by Codex and not fixed. Run the repro with
+  `bun test packages/tui/src/render/text.test.ts`.
+
+  - **Substantiated — a CRLF in a label was written to the terminal raw.**
+    `CONTROL` was `/^[\p{Cc}]$/u`, anchored around a single code point, but
+    `Intl.Segmenter` keeps `"\r\n"` as one grapheme, so the cluster failed the
+    control test and was stored as a printable width-1 cell. `Screen.flush`
+    (`packages/tui/src/render/screen.ts:68`) emits `cell.ch` for every cell whose
+    width is not zero, so the raw sequence carried the cursor to column 0 of the
+    next line in the middle of a frame and everything after it landed in the wrong
+    place. Verified before the fix by calling the functions directly:
+    `layoutText("a\r\nb", 4, 0)` gave cells `"a" "\r\n" "b" " "`, and
+    `drawSidebar` with label `"A\r\nB"` left `buf.get(1, 0).ch === "\r\n"`.
+    Fix: `CONTROL` is now unanchored (`/\p{Cc}/u`), so any cluster carrying a
+    control code point is blanked. Regression test:
+    `layoutText > blanks a control sequence the segmenter kept as one grapheme`
+    — red on `bf998d3`, green on `bbb7a98`.
+  - **Speculative, not fixed — emoji-cluster width for flags, keycaps and
+    variation-selector emoji.** Codex filed this itself as terminal-policy
+    dependent rather than a defect. Independently reproduced: `layoutText` gives
+    width 1 to `🇺🇸`, `❤️`, `1️⃣` and `🏳️‍🌈` while giving width 2 to `👨‍👩‍👧`, `👍🏽`
+    and `你`. See the decision below for why it stays as is.
+  - Independent checks that found nothing: `WIDE_RANGES` verified sorted,
+    non-overlapping and `lo <= hi` across all 85 entries (so the linear
+    short-circuit scan in `isWide` is sound); every code point `U+0020..U+2FFFF`
+    cross-checked against the repo's `eastasianwidth` data, with the only
+    under-counts being 89 Hangul-jamo code points that package's Unicode-8 tables
+    call Wide and that terminals draw as combining; `drawSidebar` budget
+    arithmetic probed at `width` 0/1/2 and with a four-digit `sessionCount`, which
+    stays within the pane (a badge that cannot fit is dropped, never overflowed).
+
+- Validation at `bbb7a98`: `bun run lint` exit 0, `bun run typecheck` exit 0 across
+  all five packages, `bun test` 1089 pass / 8 fail (1097 across 104 files, 59s) —
+  the 8 being the same pre-existing `MarkdownPaneImpl` failures, verified unchanged
+  by name against the round-1 list. Working tree clean.
+
+## Decisions taken (Task 13 round 2)
+
+- Emoji-presentation clusters (regional-indicator flags, keycaps, VS16 sequences)
+  keep width 1. That matches what `@xterm/headless` reports for the same clusters,
+  and session panes already take their widths from xterm via `term/blit.ts`; making
+  the chrome disagree with the panes would trade one shear for another. Revisit only
+  if the TUI adopts a full grapheme-width service for both paths.
+
+Next step: Task 13 review round 3 — one gpt-5.5 review via the codex-review skill over
 `e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
-`packages/tui/src/render/text.ts` and `text.test.ts` (the round-1 fix added a new module,
-so it needs a look). Verify each finding independently, fix the substantiated ones,
-validate with `bun run lint && bun run typecheck && bun test`, and commit.
+`packages/tui/src/render/text.ts` and `text.test.ts`, diff inlined in the prompt.
+Verify each finding independently, fix the substantiated ones, validate with
+`bun run lint && bun run typecheck && bun test`, and commit. If the round comes back
+clean, mark Task 13 clear and move to Task 14 (session pane and tab strip).
