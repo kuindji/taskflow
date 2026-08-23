@@ -3143,7 +3143,7 @@ type Action =
 
 This is the whole keymap as a pure function, which is why it is tested rather than inspected. `pendingEscape` carries the first half of a double-`Esc` in legacy mode; it is always `false` when the kitty protocol is available.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/tui/src/ui/routing.test.ts`:
 
@@ -3243,12 +3243,12 @@ describe("route in legacy mode", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `bun test packages/tui/src/ui/routing.test.ts`
 Expected: FAIL — cannot resolve `./routing`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 `packages/tui/src/ui/routing.ts`:
 
@@ -3340,12 +3340,12 @@ export { route };
 export type { Action, Focus };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `bun test packages/tui/src/ui/routing.test.ts`
 Expected: PASS, 12 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/tui/src/ui

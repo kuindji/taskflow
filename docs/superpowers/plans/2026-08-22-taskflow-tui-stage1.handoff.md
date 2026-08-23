@@ -19,7 +19,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
-| 12 | Focus and key routing | implemented | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; rounds 1-2 found and fixed defects, awaiting round 3 |
+| 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | pending | — | |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
@@ -2388,9 +2388,37 @@ width and cursor edge cases.
   unchanged by name against the round-1 list. `bun test packages/tui/src/ui/routing.test.ts`:
   24 pass / 0 fail. Working tree clean.
 
-Next step: Task 12 review round 3 — one gpt-5.5 review via codex-review over
-`b44a56f..HEAD`, restricted to `packages/tui/src/ui`. Verify findings, fix the
-substantiated ones, validate, commit. Carry the same round-1 preamble (kitty flag 1
-only: no releases, no alternate keys; single-code-point `char`) plus the round-2
-decision that `Action`/`Focus` stay exported for Tasks 13-15, so none of those are
-re-reported.
+- **Task 12 — review round 3** (gpt-5.5 via codex-review, Mode B over `b44a56f..HEAD`,
+  scoped to `packages/tui/src/ui`). The prompt carried the round-1 flag-1 facts (no key
+  releases, no alternate keys, single-code-point `char`) and the round-2 decision that
+  `Action`/`Focus` stay exported for Tasks 13-15, so none of those were re-reported.
+
+  **Zero findings. Verdict `Clear`.** Codex traced `pendingEscape` through both the
+  legacy and kitty branches — held Escape plus release, held Escape plus a non-Escape in
+  each focus, legacy session forwarding order, the sidebar drop, the `Ctrl+Escape` mode
+  difference, and `1`-`9` tab selection — and found no contradiction between the returned
+  `action` and `pendingEscape`, and no reachable keymap shadowing. It independently ran
+  `bun test packages/tui/src/ui/routing.test.ts` (24 pass), the package typecheck and
+  eslint over both files, all green.
+
+  - Note on the run: the prompt referenced a `task12.diff` written next to the prompt in
+    the temp artifact directory, but Codex ran with `-C` at the repo root and did not
+    find it there. It regenerated the same diff itself with
+    `git diff b44a56f..HEAD -- packages/tui/src/ui` and reviewed the files on disk, so
+    the scope was unaffected. Future rounds should inline the diff path as an absolute
+    path or place the diff inside the repo.
+  - No code changed this round, so there is no fix commit for it.
+
+- Validation at `4c819f4` (unchanged HEAD for `packages/tui`, re-run this session):
+  `bun run lint` exit 0, `bun run typecheck` exit 0 across all five packages, `bun test`
+  1060 pass / 8 fail (59s) — the 8 being the same pre-existing `MarkdownPaneImpl`
+  suite-ordering failures, verified unchanged by name against the round-2 list. Working
+  tree clean.
+
+Next step: Task 13 — Sidebar rendering. Record HEAD as the base commit, then implement
+`packages/tui/src/ui/sidebar.ts` with `packages/tui/src/ui/sidebar.test.ts` per plan
+Task 13 (plan line 3357): `SidebarRow`, `buildRows(store)` and
+`drawSidebar(buf, rows, selected, width, height)`, splitting tree construction from
+drawing. Consumes `ScreenBuffer`/`blankCell`/`ATTR_INVERSE`/`ATTR_BOLD` from Task 3 and
+`Store` from Task 11. Validate with `bun run lint && bun run typecheck && bun test`,
+commit, then review round 1.
