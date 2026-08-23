@@ -28,7 +28,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
-| 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
+| 19.2 | Mouse — outer tracking on/off | implemented | `3829f83` | commit `5345824`; review round 1 due |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
 | 19.5 | Mouse — forward to the child | pending | — | `ChildModes.mouseTracking`/`mouseEncoding`, `encodeMouseForChild` |
@@ -5005,10 +5005,54 @@ Verification at `7cc4e54`: `bun run lint` clean, `bun run typecheck` clean acros
 packages, `bun test packages/tui` → 378 pass, 0 fail. Codex independently ran the same three
 and reported them clean. No code changed this round, so the tree is `7cc4e54` unmodified.
 
-Next step: implement Task 19.2 — mouse — outer tracking on/off.
-Task 19.1 is clear after twelve rounds. 19.2 is `term/tty.ts`'s enter sequence plus the
-`TASKFLOW_TUI_NO_MOUSE` opt-out, per `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`.
-Record HEAD as its base commit before starting, implement only that, validate with
-`bun run lint`, `bun run typecheck` and `bun test packages/tui`, commit, then review round 1.
+## Task 19.2 — implemented
+
+Base commit `3829f83`, implementation commit `5345824`.
+
+`TtyOptions` gains a required `mouse: boolean`; `enterSequence` appends
+`\x1b[?1000h\x1b[?1002h\x1b[?1006h` after the kitty push when it is set. `index.ts` reads
+the flag as `process.env.TASKFLOW_TUI_NO_MOUSE === undefined`. `leaveSequence` is untouched
+and still emits the full mouse-off run unconditionally. The ten existing `TtyOptions`
+literals in `tty.test.ts` were given an explicit `mouse: false`, so nothing they already
+pinned moved.
+
+Tests added (all in `packages/tui`, run with `bun test packages/tui`):
+
+- `enterSequence > the enter sequence turns mouse tracking on in SGR encoding` — the three
+  modes are present and `?1006h` comes after `?1000h`.
+- `enterSequence > mouse: false enables no tracking at all`.
+- `leaveSequence > turns tracking off even when it was never enabled`.
+- `leaveSequence > everything the enter sequence enables, the leave sequence disables` — the
+  invariant test: it splits the enter sequence on `CSI ?`, and for every `<digits>h` it finds
+  requires the matching `<digits>l` in the leave sequence. Adding a mode to the enter side
+  without a restore fails it.
+- `tui entry point > enables mouse tracking on entry, and TASKFLOW_TUI_NO_MOUSE turns it off`
+  — end to end against `erroringBackend`, which enters the terminal before failing. Verified
+  red by pinning `mouse` to `false` in `index.ts`: `Expected to contain "\x1b[?1000h"`,
+  received a capture with only the alt-screen and leave bytes.
+
+`runTui` in `index.test.ts` gained an optional env-overrides argument, defaulting to `{}`,
+so the existing call sites are unchanged.
+
+## Decisions taken (Task 19.2)
+
+- **`mouse` is required, not optional-with-a-default.** The plan's reasoning stands: a mode
+  the leave sequence has to undo should never be switched on by a field someone forgot to
+  pass. The cost is the ten literals, all mechanical.
+- **The opt-out is an env var, not a flag.** `index.ts` has no argument parser, and
+  `TASKFLOW_TUI_NO_MOUSE` costs one line. Any value opts out — the test uses `1`, but the
+  check is `=== undefined`, so `TASKFLOW_TUI_NO_MOUSE=` (empty) also opts out. That is the
+  friendlier reading for a variable whose only job is to be present.
+
+Verification at `5345824`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 383 pass, 0 fail (378 before, plus the five new tests).
+
+Next step: Task 19.2 review round 1.
+Run one gpt-5.5 review via the codex-review skill over `3829f83..HEAD` restricted to
+`packages/tui`, verify every finding independently, fix the substantiated ones, validate with
+`bun run lint`, `bun run typecheck` and `bun test packages/tui`, and commit. Zero
+substantiated findings → 19.2 is clear and Task 19.3 (`ui/layout.ts`, `tabSpans`,
+`routeMouse`) is next. Mention in the review prompt that the two decisions above are settled,
+and that `leaveSequence` emitting `MOUSE_OFF` when `mouse` is false is deliberate.
 After 19.2: 19.3 - 19.6, then Tasks 16-18, then Tasks 20 and 21 (each needs its own plan;
 20 touches `packages/backend` and `electron/`, 21 touches `packages/tui/src/input`).
