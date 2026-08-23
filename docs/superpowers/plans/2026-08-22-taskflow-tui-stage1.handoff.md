@@ -22,7 +22,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | in-review round 3 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`; round 3 found two defects, both fixed |
+| 15 | Application shell and entry point | in-review round 4 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`; round 4 found one defect, fixed |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
@@ -3574,14 +3574,78 @@ packages, `bun test packages/tui` 330 pass / 0 fail, full `bun test` 1163 pass /
 The +6 over the `1873c41` baseline of 1157 is two new entry-point tests and four net-new
 negotiate tests.
 
-Next step: Task 15 review round 4 — gpt-5.5 via codex-review over `43df638..28ac654`
-(Mode B, restricted to `packages/tui`). Round 3 found two real defects, so the task is
-not clear and another round is owed. Point the reviewer at the rewritten
-`packages/tui/src/input/negotiate.ts` specifically: the read loop now calls
-`waitForData` repeatedly against a shared deadline and treats an empty chunk as the
-reader's own timeout, and `rest` splices the reply out of the buffer — both are new
-surface. Also worth asking whether feeding `rest` through `feed()` before
-`process.stdin.resume()` can reorder or double-handle input.
+- **Task 15, round 4** (gpt-5.5 via codex-review, Mode B over `43df638..28ac654`
+  restricted to `packages/tui`): the run produced two reports over the same target.
+  The first said "Verdict: Clear, findings: none". A second run then overwrote the
+  report file with "Verdict: Changes required" and one finding — which turned out to
+  be real. Recorded because it is a process lesson, not a code one: a single codex
+  verdict of "clean" is weaker evidence than it reads as.
+  - **Substantiated — an Escape typed at startup ate the next keypress.** What you
+    would see on a terminal without the kitty protocol: launch the TUI, press
+    `Escape` while it is starting, then press `Q` a second or two later while the
+    sidebar is still empty — and nothing quits. Mechanism: an Escape pressed into the
+    kitty negotiation window comes back as `negotiated.rest`, and a lone ESC is held
+    as a carry rather than decoded, on the premise that a continuation within 25ms
+    makes it an Alt chord. But the stream is paused across the whole of `app.init()`,
+    so `process.stdin.resume()` releases a key pressed seconds later straight into
+    that carry: `decodeLegacy` sees `ESC` `Q` adjacent and emits Alt+Q, which is bound
+    to nothing. Regression test: `tui entry point > does not merge an escape from the
+    negotiation window with a later key` in `packages/tui/src/index.test.ts` — it
+    writes `\x1b` before the TUI has read a byte, waits for the ready marker (which
+    the fake backend writes when the first request arrives, so negotiation is over and
+    the snapshot is still 2s out), then writes `Q`. Red on `28ac654` (timed out at
+    20s — the TUI never quit), green on `bdbfe2b`. Run with
+    `bun test packages/tui/src/index.test.ts`.
+  - Codex reported clean on: `negotiate.ts`'s shared deadline, split-reply handling,
+    reply excision and `rest` byte order; the exit chain across startup failure,
+    signals, quit and the top-level catch; `app.ts`'s selection clamp and per-frame
+    row rebuild; `routing.ts`'s arrow, chord and quit handling; and `manager.ts`'s
+    `onSpawn` hook across its failure, timeout and double-stop paths.
+
+## Decisions taken (Task 15 round 4)
+
+- **The carry is flushed rather than the resume delayed.** Waiting out the 25ms idle
+  timer before `resume()` would not help: the stream is paused for the whole of it, so
+  a genuine continuation could not arrive either way, and every startup would pay the
+  delay. Flushing says the true thing — the negotiation window has closed, so nothing
+  that follows was part of the same keypress.
+- **The narrower mirror case is accepted.** A user who presses Alt+Q *during*
+  negotiation, with the ESC read and the `Q` arriving after the pause, now gets Escape
+  then Q — so the app quits on a chord that was not the quit binding. That is a
+  strictly rarer sequence than the one fixed, and its outcome (something happens) is
+  better than the one it replaces (the quit is silently swallowed).
+- **`flushHeldEscape` is shared with the idle timer** rather than duplicated, so the
+  two paths cannot drift on what "release the carry" means.
+
+## Open limitations (Stage 1) — added in round 4
+
+- **A multi-byte character split across two stdin reads is corrupted.** Both `readOnce`
+  and the main data handler call `chunk.toString("utf-8")` per chunk, which decodes each
+  chunk independently: `printf '\xd0' ; printf '\xbf'` delivered as two chunks comes out
+  as two U+FFFD rather than `п`. Demonstrated at the language level, not at the TUI
+  level, because it has no Stage-1 symptom: `App.sendToChild` returns early while
+  `sessions` is empty, and Stage 1 never creates one, so non-ASCII input reaches nothing.
+  It becomes user-visible the moment session creation lands (pasting non-ASCII into a
+  focused pane). The fix is `process.stdin.setEncoding("utf-8")` plus the string-typed
+  chunk it implies; deliberately not made here because it cannot be given a red test
+  today. Pick it up with session creation.
+
+Checks on `bdbfe2b`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 331 pass / 0 fail, full `bun test` 1164 pass / 8 fail
+(the known `MarkdownPaneImpl` eight), run with nothing else on the machine. `prettier
+--check` clean on the two touched files. The +1 over the `28ac654` baseline of 1163 is
+the one new regression test.
+
+Next step: Task 15 review round 5 — gpt-5.5 via codex-review over `43df638..bdbfe2b`
+(Mode B, restricted to `packages/tui`). Round 4 found a real defect, so the task is not
+clear and another round is owed. Point the reviewer at the new `flushHeldEscape` in
+`packages/tui/src/index.ts` and the ordering around it: the carry is now released
+synchronously between `feed(negotiated.rest)` and `process.stdin.resume()`, which is
+new surface. Ask specifically whether flushing there can emit an Escape the user never
+pressed, whether it interacts badly with the legacy double-Esc focus switcher, and
+whether the idle timer and the synchronous flush can both fire for one carry.
+Run the review twice, or read the report carefully rather than trusting its verdict
+line: round 4's first report said "clear" over a defect its second run found.
 After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then
 implement it, then Tasks 16-18.
 
