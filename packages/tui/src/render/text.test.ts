@@ -30,6 +30,32 @@ describe("fitToWidth", () => {
         expect(fitToWidth("Alpha", -3)).toBe("");
     });
 
+    test("counts every East Asian Wide character as two columns, not just the CJK blocks", () => {
+        // One sample per wide range that lives outside the big ideograph blocks:
+        // trigrams, monograms, hexagrams, Vietnamese reading marks, Kana
+        // Extended-B, Tai Xuan Jing, counting rods, and the newer emoji.
+        const wide = [
+            "\u2630",
+            "\u268a",
+            "\u4dc0",
+            "\u{16ff0}",
+            "\u{1aff0}",
+            "\u{1d300}",
+            "\u{1d360}",
+            "\u{1f6dc}",
+            "\u{1f7f0}",
+        ];
+        for (const ch of wide) {
+            expect(fitToWidth(`${ch}x`, 2)).toBe(ch);
+        }
+    });
+
+    test("leaves an ambiguous-width character narrow", () => {
+        // U+3248 is East Asian Ambiguous, which a terminal draws in one column
+        // unless it is told otherwise.
+        expect(fitToWidth("\u3248x", 2)).toBe("\u3248x");
+    });
+
     test("drops a standalone zero-width cluster with no base to ride on", () => {
         // A leading combining mark has nothing to attach to inside the label.
         // Kept, it would attach to whatever the caller concatenates in front of

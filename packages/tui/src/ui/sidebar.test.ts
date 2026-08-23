@@ -229,6 +229,24 @@ describe("drawSidebar", () => {
         expect(rowText(buf, 0, 8)).toBe("  \u4f60\u4f60 4");
     });
 
+    test("reserves two cells for a wide symbol outside the CJK blocks", () => {
+        // U+2630 is East Asian Wide, so a terminal advances two columns for it.
+        // Laid out as one cell, every glyph after it sits one column left of
+        // where the sidebar drew it and the row spills into the session pane.
+        const buf = new ScreenBuffer(6, 1);
+        drawSidebar(
+            buf,
+            [{ kind: "project", id: "p1", label: "\u2630A", sessionCount: 0 }],
+            0,
+            6,
+            1,
+        );
+        expect(buf.get(0, 0).ch).toBe("\u2630");
+        expect(buf.get(0, 0).width).toBe(2);
+        expect(buf.get(1, 0).width).toBe(0);
+        expect(buf.get(2, 0).ch).toBe("A");
+    });
+
     test("does not let a leading combining mark ride on the task indentation", () => {
         // Width 4 is fully spent by the two-space prefix and the " 1" badge, so
         // the label has no display budget at all and must contribute nothing.
