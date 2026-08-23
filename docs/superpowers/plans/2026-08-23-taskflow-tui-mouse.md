@@ -532,6 +532,23 @@ It is not worth switching stdin to binary for: the TUI always requests `?1006h`,
 the X10 path exists to keep a non-compliant terminal from injecting garbage keystrokes,
 not to be a first-class encoding.
 
+Round 1 of the 19.1 review re-raised this and it was re-accepted, so here are the two
+concrete outputs, measured, to save a third derivation:
+
+- A lone high byte becomes U+FFFD, whose code unit is 65533. Bytes
+  `1b 5b 4d 20 c8 21` decode to one report at **`col: 65500, row: 0`** — a coordinate
+  that hits nothing, so 19.4's hit testing turns it into a no-op click.
+- A valid two-byte pair collapses to one code unit and shortens the payload, so the
+  *next* real keystroke is eaten as the third payload byte. Bytes
+  `1b 5b 4d 20 c2 a0 71` (a click at col 161, row 127, then `q`) decode to one report
+  at **`col: 127, row: 80` and no `q` key event** — a wrong click and a lost keystroke.
+
+Neither is worth a partial guard in `parseX10Mouse`. Rejecting a payload code unit
+above 127 would turn the first case into a dropped report and the second into a dropped
+report *plus the still-lost `q`* — a half-fix that a later binary-stdin change would
+have to unwind, in a decoder that 19.5 needs to keep faithful to X10 for its outbound
+direction.
+
 - [ ] **Step 3: Verify**
 
 ```bash

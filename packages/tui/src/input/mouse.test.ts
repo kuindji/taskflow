@@ -84,6 +84,15 @@ describe("parseX10Mouse", () => {
         expect(report?.button).toBe("wheel-right");
     });
 
+    test("an extra button is a press, not the release sentinel", () => {
+        // Button 11 is `128 + 3`, so `b & 3` is the plain form's release value
+        // by coincidence. Bit 128 has to be excluded from the release test the
+        // same way `buttonOf` tests it first.
+        const report = parseX10Mouse(String.fromCharCode(32 + 131, 0x21, 0x21));
+        expect(report?.action).toBe("press");
+        expect(report?.button).toBe("none");
+    });
+
     test("a payload shorter than three code units is dropped", () => {
         expect(parseX10Mouse("\x20\x21")).toBeUndefined();
     });

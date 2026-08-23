@@ -75,15 +75,18 @@ function parseSgrMouse(params: string, final: string): MouseReport | undefined {
 /**
  * Parses the X10 form: the three raw bytes following `CSI M`, each `32 +
  * value`. There is no release final here, so `b & 3 === 3` is the release and
- * the button that was let go is unknowable — except on a wheel notch, where
- * bit 64 means the low bits name a direction instead.
+ * the button that was let go is unknowable — except on a wheel notch or an
+ * extra button, where bit 64 or bit 128 means the low bits mean something else.
  */
 function parseX10Mouse(payload: string): MouseReport | undefined {
     if (payload.length !== 3) return undefined;
     const b = payload.charCodeAt(0) - 32;
     const x = payload.charCodeAt(1) - 32;
     const y = payload.charCodeAt(2) - 32;
-    const released = (b & 3) === 3 && (b & 64) === 0;
+    // Bit 128 is excluded for the same reason `buttonOf` tests it first: an
+    // extra button (8-11) is `128 + (n - 8)`, so button 11 is 131 and its low
+    // two bits are the release value by coincidence, not by meaning.
+    const released = (b & 3) === 3 && (b & 64) === 0 && (b & 128) === 0;
     return build(b, x, y, released);
 }
 
