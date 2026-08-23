@@ -847,16 +847,30 @@ function createListener(opts: {
                     if (!message || "probe" in message) return;
                     const id = backendIdFor(message.hostname, message.instanceId);
                     const existing = seen.get(id);
-                    // Two machines can answer to one hostname and instance. The
-                    // id is hostname-based on purpose — it has to survive a DHCP
-                    // lease change — so the two are indistinguishable here.
-                    // First one seen holds the id: letting the last datagram win
-                    // makes the entry's address flap every five seconds, and the
-                    // tunnel would then target whichever machine announced most
-                    // recently. Ignoring the other machine's datagrams also lets
-                    // the entry go stale normally if the first one goes away,
-                    // after which the second claims the id on its next announce.
-                    if (existing && existing.address !== address) return;
+                    // A datagram for a known id from a *different* address is
+                    // one of two things, and they need opposite handling:
+                    //
+                    //   - one machine that changed address (DHCP, Wi-Fi to
+                    //     Ethernet). The old address goes quiet, so the entry
+                    //     should follow the new one immediately — otherwise the
+                    //     menu keeps offering a dead ssh target until the entry
+                    //     ages out.
+                    //   - two machines answering to the same hostname and
+                    //     instance. Both keep announcing, so letting the last
+                    //     datagram win would make the entry's address flap every
+                    //     five seconds and the tunnel would target whichever
+                    //     announced most recently.
+                    //
+                    // Whether the incumbent is still announcing separates them.
+                    // Two missed announcements is the threshold: one dropped
+                    // datagram is normal on a multicast group.
+                    if (
+                        existing &&
+                        existing.address !== address &&
+                        Date.now() - existing.lastSeenAt < ANNOUNCE_INTERVAL_MS * 2
+                    ) {
+                        return;
+                    }
                     seen.set(id, { ...message, address, lastSeenAt: Date.now() });
                     opts.onChange(live());
                 });
@@ -3236,6 +3250,8 @@ A successful switch never goes through a disconnect, which is the whole point �
 **Files:**
 - Create: `packages/ui/src/stores/store-reset.ts`
 - Create: `packages/ui/src/stores/store-reset.test.ts`
+- Modify: `packages/ui/src/stores/session-activity.ts:12-15`
+- Modify: `packages/ui/src/stores/session-helpers.ts:83`
 - Modify: `packages/ui/src/hooks/useConnectivity.ts:8,31-45`
 - Modify: `packages/ui/src/hooks/useAgentAvailability.ts:8-20`
 - Modify: `packages/ui/src/hooks/useActiveWorkspace.ts:19-30`
@@ -3291,8 +3307,9 @@ describe("reset coverage", () => {
                 !name.includes(".test.") &&
                 name !== "store-reset.ts" &&
                 name !== "rebootstrap.ts" &&
-                name !== "session-subscriptions.ts" &&
-                name !== "session-helpers.ts",
+                // Only module state is `lastTrayState`, which the session-store
+                // reset recomputes through the tray subscription.
+                name !== "session-subscriptions.ts",
         );
         for (const module of modules) {
             await import(join(dir, module));
@@ -3347,7 +3364,7 @@ export { registerReset, registeredResetNames, resetAllState };
 
 - [ ] **Step 4: Register a reset in every store**
 
-For each module in `packages/ui/src/stores/` other than `store-reset.ts`, `rebootstrap.ts`, `session-subscriptions.ts` and `session-helpers.ts`, add at the bottom of the file, adapting the initial state to that store. For example, in `packages/ui/src/stores/project-store.ts`:
+For each module in `packages/ui/src/stores/` other than `store-reset.ts`, `rebootstrap.ts` and `session-subscriptions.ts`, add at the bottom of the file, adapting the initial state to that store. Two of them — `session-activity.ts` and `session-helpers.ts` — are not zustand stores at all; Step 5 covers what they reset instead. For example, in `packages/ui/src/stores/project-store.ts`:
 
 ```ts
 registerReset("project-store", () => {
@@ -3433,6 +3450,41 @@ registerReset("codex-models", () => {
 });
 ```
 
+`packages/ui/src/stores/session-activity.ts` is in the coverage test's scope but
+is **not** a zustand store — it is two module-level `Map`s and a pending timer
+per session (`session-activity.ts:12-15`), so "copy the initial state from
+`create(...)`" does not apply. It needs its own reset, and it earns one: a
+terminal-output event on the old backend arms a 3-second timer
+(`session-activity.ts:43-52`) whose callback calls `setSessionStatus` when it
+fires. Switch inside that window and it writes `attention` for a session id that
+does not exist on the new backend, which the tray then shows.
+
+```ts
+registerReset("session-activity", () => {
+    for (const timer of activityTimers.values()) clearTimeout(timer);
+    activityTimers.clear();
+    lastInteractionAt.clear();
+});
+```
+
+`packages/ui/src/stores/session-helpers.ts` holds `exitedSessions`
+(`session-helpers.ts:83`), a set of ids from a machine the app is no longer
+talking to. Drop it from the coverage test's exclusion list and register:
+
+```ts
+registerReset("session-helpers", () => {
+    exitedSessions.clear();
+    // `windowFocused` is deliberately not reset: it describes this window, not
+    // the backend.
+});
+```
+
+`session-subscriptions.ts` stays excluded. Its only module state is
+`lastTrayState` (`session-subscriptions.ts:57`), and the reset of the session
+store fires the tray subscription, which recomputes and sends the new backend's
+aggregate. Say so in the exclusion comment so the next reader does not have to
+re-derive it.
+
 - [ ] **Step 5b: Stop a queued markdown write from landing on the next backend**
 
 This is the only place in the app where switching backends can *modify* a file
@@ -3464,9 +3516,17 @@ rules):
 let epoch = 0;
 const toggleChains = new Map<string, Promise<void>>();
 
-function queueToggle(filePath: string, run: () => Promise<void>): void {
+/**
+ * `run` receives `isCurrent`. Checking the epoch once, before `run` starts, is
+ * not enough: the switch promotes the new socket *before* the resets run, so a
+ * closure sitting between its `readFile` and its `writeFile` has already passed
+ * an entry check and would write machine A's bytes to machine B. `run` has to
+ * re-ask after every await that precedes backend I/O.
+ */
+function queueToggle(filePath: string, run: (isCurrent: () => boolean) => Promise<void>): void {
     const queuedAt = epoch;
-    const guarded = () => (queuedAt === epoch ? run() : Promise.resolve());
+    const isCurrent = () => queuedAt === epoch;
+    const guarded = () => (isCurrent() ? run(isCurrent) : Promise.resolve());
     const previous = toggleChains.get(filePath) ?? Promise.resolve();
     // `then(guarded, guarded)` — a rejected predecessor must not wedge the queue.
     const chain = previous.then(guarded, guarded).finally(() => {
@@ -3483,9 +3543,26 @@ function clearToggleQueues(): void {
 export { clearToggleQueues, queueToggle };
 ```
 
-`MarkdownPaneImpl.tsx` imports `queueToggle` instead of declaring it; the
-`toggleTaskLine` body is unchanged. Register the reset from `file-store.ts`
-alongside `editor-state`:
+`MarkdownPaneImpl.tsx` imports `queueToggle` instead of declaring it, and
+`toggleTaskLine` takes the new argument and re-checks it around its two backend
+calls (`MarkdownPaneImpl.tsx:355` and `:375`):
+
+```ts
+            queueToggle(path, async (isCurrent) => {
+                // ...unchanged, up to and including the read:
+                current = await readFile(path);
+                if (!isCurrent()) return;
+                // ...unchanged, up to the write:
+                if (!isCurrent()) return;
+                await writeFile(path, next);
+```
+
+The read is guarded as well as the write. A read that resolves against the new
+backend returns that machine's bytes, `relocateTaskLine` then matches the click
+against a document it never came from, and the write that follows is wrong in a
+way no later check can see.
+
+Register the reset from `file-store.ts` alongside `editor-state`:
 
 ```ts
 registerReset("markdown-toggles", clearToggleQueues);
@@ -3525,6 +3602,23 @@ describe("queueToggle", () => {
         // "first" was already in flight; "second" had not started, and its
         // snapshot describes a file on a machine we are no longer talking to.
         expect(ran).not.toContain("second");
+    });
+
+    test("work already in flight can tell that the backend changed under it", async () => {
+        // This is the case an entry-only check misses: the switch promotes the
+        // new socket before the resets run, so a closure between its read and
+        // its write is holding the old machine's bytes and the new machine's
+        // socket.
+        const wrote: string[] = [];
+        queueToggle("/a.md", async (isCurrent) => {
+            await Bun.sleep(20); // stands in for `await readFile(path)`
+            if (!isCurrent()) return;
+            wrote.push("write");
+        });
+        await Bun.sleep(5);
+        clearToggleQueues(); // the switch lands mid-closure
+        await Bun.sleep(60);
+        expect(wrote).toEqual([]);
     });
 });
 ```
@@ -4709,5 +4803,5 @@ git commit -m "fix: address multi-backend end-to-end findings"
 
 Out of scope for this plan, recorded so nobody adds them on the way past:
 telling apart two machines that answer to the same hostname *and* the same
-instance id — the listener keeps the first and ignores the second (Task 3), and
-the menu therefore shows one row; showing several backends' records in one view; keeping non-active backends connected for notifications; per-client session viewports; creating or repairing projects on a remote host; the TUI adopting the discovery listener.
+instance id — the listener keeps whichever is still announcing (Task 3), so the
+menu shows one row and the other machine is invisible; showing several backends' records in one view; keeping non-active backends connected for notifications; per-client session viewports; creating or repairing projects on a remote host; the TUI adopting the discovery listener.
