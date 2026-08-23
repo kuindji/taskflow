@@ -381,4 +381,28 @@ describe("tui entry point", () => {
         // in `afterEach`, which reports as a signal rather than a clean exit.
         expect(await child.exited).toBe(0);
     }, 20_000);
+
+    test("does not quit on the payload of a click split by the escape timeout", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+
+        // An X10 mouse header, whose three payload characters are still in
+        // flight. A read boundary here is rare but the sequence is six bytes,
+        // so it is not impossible.
+        await child.stdin.write("\x1b[M\x20");
+        await child.stdin.flush();
+        // Long enough for the escape idle timer to fire on the held header.
+        await Bun.sleep(200);
+        // Column 49 encodes as `Q`. Reaching the keymap it quits the TUI; it
+        // belongs to the click and must be consumed as payload instead.
+        await child.stdin.write("\x51\x21");
+        await child.stdin.flush();
+
+        await Bun.sleep(300);
+        expect(child.exitCode).toBeNull();
+    }, 20_000);
 });

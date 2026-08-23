@@ -7,7 +7,7 @@ import { Screen } from "./render/screen";
 import { Tty } from "./term/tty";
 import { negotiateKitty } from "./input/negotiate";
 import { decodeKitty } from "./input/decode-kitty";
-import { decodeLegacy, flushCarry } from "./input/decode-legacy";
+import { decodeLegacy, flushCarry, isPartialX10 } from "./input/decode-legacy";
 import { App } from "./ui/app";
 
 const FRAME_INTERVAL_MS = 16;
@@ -161,6 +161,10 @@ async function main(): Promise<void> {
             carryTimer = null;
         }
         if (carry === "") return;
+        // An X10 mouse header owes three payload characters. Waiting cannot
+        // turn it into a key, so releasing it would clear the header and let
+        // the payload land on the keymap as typed characters.
+        if (isPartialX10(carry)) return;
         const stranded = carry;
         carry = "";
         for (const ev of flushCarry(stranded)) app.handleKey(ev);

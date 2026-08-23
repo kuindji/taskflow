@@ -3,6 +3,8 @@ import { noMods, modsFromParam, type KeyEvent, type KeyName } from "./keys";
 import { parseSgrMouse, parseX10Mouse, type MouseReport } from "./mouse";
 
 const ESC = "\x1b";
+/** `CSI M` is followed by exactly three raw payload characters. */
+const X10_PAYLOAD_LENGTH = 3;
 
 const FINAL_TO_NAME: Record<string, KeyName | undefined> = {
     A: "up",
@@ -111,9 +113,10 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
                 // The X10 form: three raw payload bytes follow the sequence and
                 // are not part of it. Left unconsumed they decode as ordinary
                 // characters — a click in column 49 sends `Q`, the quit binding.
-                const payload = buf.slice(i + scan.length, i + scan.length + 3);
-                if (payload.length < 3) return { events, carry: buf.slice(i) };
-                i += scan.length + 3;
+                const end = i + scan.length + X10_PAYLOAD_LENGTH;
+                const payload = buf.slice(i + scan.length, end);
+                if (payload.length < X10_PAYLOAD_LENGTH) return { events, carry: buf.slice(i) };
+                i = end;
                 const report = parseX10Mouse(payload);
                 if (report !== undefined) events.push(report);
                 continue;
@@ -174,6 +177,21 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
 }
 
 /**
+ * True when `carry` is a complete `CSI M` still waiting for X10 payload bytes.
+ * The idle timeout must not clear such a carry: `flushCarry` has no event to
+ * make of it, so clearing would only strip the header and let the payload
+ * arrive as bare printables — a click in column 49 sends `Q`, which quits.
+ * Held instead, the payload completes the report on the next read, and a
+ * header that never gets one swallows the next three characters, which is
+ * already what the same bytes do when they arrive in a single read.
+ */
+function isPartialX10(carry: string): boolean {
+    const header = `${ESC}[M`;
+    if (!carry.startsWith(header)) return false;
+    return carry.length < header.length + X10_PAYLOAD_LENGTH;
+}
+
+/**
  * Convert a carry that has gone stale into events. `decodeLegacy` cannot know
  * whether a trailing ESC starts a longer sequence or is a real Escape press, so
  * it holds it; the caller calls this after a short idle timeout to release it.
@@ -196,5 +214,5 @@ function flushCarry(carry: string): KeyEvent[] {
     return [];
 }
 
-export { decodeLegacy, flushCarry };
+export { decodeLegacy, flushCarry, isPartialX10 };
 export type { DecodeResult, InputEvent };

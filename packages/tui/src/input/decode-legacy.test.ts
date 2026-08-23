@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { decodeLegacy, flushCarry } from "./decode-legacy";
+import { decodeLegacy, flushCarry, isPartialX10 } from "./decode-legacy";
 import { noMods } from "./keys";
 import type { InputEvent } from "./decode-legacy";
 import type { KeyEvent } from "./keys";
@@ -253,6 +253,31 @@ describe("decodeLegacy", () => {
     test("keys around a mouse report are still decoded, in order", () => {
         const result = decodeLegacy("a\x1b[<0;1;1Mb", "");
         expect(result.events.map((e) => e.kind)).toEqual(["press", "mouse", "press"]);
+    });
+
+    test("an X10 header owed payload is held rather than flushed as keystrokes", () => {
+        // The idle timer can fire between the header and its payload. Releasing
+        // the carry there strips the header and leaves the payload to decode as
+        // typed characters: this one is `Q`, which quits, followed by `!`.
+        const first = decodeLegacy("\x1b[M\x20", "");
+        expect(first.carry).toBe("\x1b[M\x20");
+        expect(isPartialX10(first.carry)).toBe(true);
+        expect(flushCarry(first.carry)).toEqual([]);
+        expect(decodeLegacy("\x51\x21", first.carry).events).toEqual([
+            { kind: "mouse", action: "press", button: "left", col: 48, row: 0, mods: noMods() },
+        ]);
+        // What the flush would have produced from the stranded payload alone.
+        expect(keysOf(decodeLegacy("\x51\x21", "").events).map((e) => e.char)).toEqual(["Q", "!"]);
+    });
+
+    test("isPartialX10 is false for a header that already has its payload", () => {
+        // Only a header still owed bytes may be held; anything else has to stay
+        // flushable or a stale carry would wedge the decoder.
+        expect(isPartialX10("\x1b[M\x20\x51\x21")).toBe(false);
+        expect(isPartialX10("\x1b")).toBe(false);
+        expect(isPartialX10("\x1b[1;5")).toBe(false);
+        expect(isPartialX10("\x1b[M")).toBe(true);
+        expect(isPartialX10("\x1b[M\x20\x51")).toBe(true);
     });
 
     test("a malformed SGR report is consumed without emitting keystrokes", () => {
