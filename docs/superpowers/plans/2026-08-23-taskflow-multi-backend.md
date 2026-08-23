@@ -46,6 +46,7 @@
 | `packages/ui/src/components/sidebar/BackendMenu.tsx` | The dropdown |
 | `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx` | Manual host entry |
 | `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx` | Rename / edit / remove |
+| `packages/ui/src/components/sidebar/TrustHostKeyDialog.tsx` | Host-key fingerprint and approval, mounted off `pendingTrust` |
 
 **Modified files**
 
@@ -438,6 +439,15 @@ export interface BackendRecord {
     /** SSH login user. Defaults to the local username at add time. */
     user: string;
     sshPort: number;
+    /**
+     * Who owns `host`. `"manual"` means the user typed it and nothing may
+     * rewrite it; `"discovery"` means it is the source address of a beacon and
+     * tracking the beacon is the point. See `mergeForMenu` for why this is not
+     * optional: the merged record is what `findRecord` returns and what
+     * `activateBackend` persists, so without it a beacon overwrites a typed
+     * hostname on disk and there is no dialog that can put it back.
+     */
+    hostSource: "manual" | "discovery";
     /**
      * A backend port the user typed into the connect dialog. Authoritative and
      * never overwritten — the spec makes leaving the field blank the trigger
@@ -1259,6 +1269,7 @@ const saved: BackendRecord = {
     displayName: "desktop",
     user: "kuindji",
     sshPort: 22,
+    hostSource: "discovery",
     manualPort: null,
     lastKnownPort: 54892,
     addedAt: "2026-08-23T00:00:00.000Z",
@@ -1361,6 +1372,27 @@ describe("mergeForMenu", () => {
         expect(recordAt(entries, 1).lastKnownPort).toBe(54892);
     });
 
+    test("a typed hostname is not rewritten to the beacon's address", () => {
+        // The merged record is what `findRecord` returns and what
+        // `activateBackend` persists, so a rewrite here reaches disk. A record
+        // added by typing `desktop` matches its own beacon on id, and losing
+        // the name it was added under breaks it everywhere the address does
+        // not route — with no dialog that can put the name back.
+        const typed = { ...saved, host: "desktop", hostSource: "manual" as const };
+        const entries = mergeForMenu([typed], [discovered], 1_500, [], "kuindji");
+        expect(recordAt(entries, 1).host).toBe("desktop");
+        // The port still follows the beacon; only `host` is pinned.
+        expect(recordAt(entries, 1).lastKnownPort).toBe(discovered.port);
+    });
+
+    test("a discovered record's host does follow the beacon", () => {
+        // DHCP moved the machine. Nothing typed this address, so tracking it is
+        // the whole point of keeping the record.
+        const moved = { ...discovered, address: "192.168.1.44" };
+        const entries = mergeForMenu([saved], [moved], 1_500, [], "kuindji");
+        expect(recordAt(entries, 1).host).toBe("192.168.1.44");
+    });
+
     test("this machine's own beacon is not listed as a remote backend", () => {
         // Every backend hears its own multicast, so without the address filter
         // the local backend shows up twice.
@@ -1397,6 +1429,7 @@ function recordFromDiscovered(
         displayName: discovered.displayName,
         user,
         sshPort: 22,
+        hostSource: "discovery",
         // Discovery is the opposite of a manual entry: nothing was typed.
         manualPort: null,
         lastKnownPort: discovered.port,
@@ -1482,8 +1515,22 @@ function mergeForMenu(
         if (saved) matched.add(saved.id);
         // A matched record keeps its own id. That id is what is persisted, what
         // the menu marks as active, and what `activateBackend` looks up.
+        // `host` follows the beacon only for a record discovery owns. This is
+        // not cosmetic: `findRecord` reads from this merged list, and
+        // `activateBackend` writes what it gets back into `records` and
+        // persists it. A record added by typing `desktop` matches its own
+        // beacon (`matchesDiscovered` line 1, id equality), so without the
+        // guard the first successful connect rewrites `host` to
+        // `192.168.1.20` on disk. Off the LAN — VPN, another subnet — the
+        // typed name is the only thing that resolves, and it is gone; the
+        // Manage dialog does not own `host`, so the only way back is to remove
+        // the record and add it again.
         const record = saved
-            ? { ...saved, host: entry.address, lastKnownPort: entry.port }
+            ? {
+                  ...saved,
+                  ...(saved.hostSource === "discovery" ? { host: entry.address } : {}),
+                  lastKnownPort: entry.port,
+              }
             : recordFromDiscovered(entry, defaultUser, new Date(entry.lastSeenAt).toISOString());
         entries.push({ kind: "live", record, protocolVersion: entry.protocolVersion });
     }
@@ -1502,7 +1549,7 @@ export { matchesDiscovered, mergeForMenu, recordFromDiscovered, removeRecord, up
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `bun test electron/src/backend-records.test.ts`
-Expected: PASS, 14 tests.
+Expected: PASS, 16 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -1549,6 +1596,7 @@ const record: BackendRecord = {
     displayName: "desktop",
     user: "kuindji",
     sshPort: 22,
+    hostSource: "discovery",
     manualPort: null,
     lastKnownPort: 54892,
     addedAt: "2026-08-23T00:00:00.000Z",
@@ -2155,7 +2203,7 @@ git commit -m "feat(electron): supervise ssh tunnels with a backend readiness pr
 
 **Interfaces:**
 - Consumes: Tasks 4, 5, 6.
-- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<void>`, `removeBackend(id): Promise<void>`, `trustBackendHost(id): Promise<void>` (rejects unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void`.
+- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<void>`, `removeBackend(id): Promise<{ ok: boolean; reason?: string }>`, `trustBackendHost(id): Promise<void>` (rejects unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void`.
 
 - [ ] **Step 1: Write the registry**
 
@@ -2488,6 +2536,8 @@ async function addBackend(input: {
         displayName: input.displayName ?? input.host,
         user: input.user && input.user.length > 0 ? input.user : userInfo().username,
         sshPort: input.sshPort ?? 22,
+        // The user typed `host`. Nothing may rewrite it — see `mergeForMenu`.
+        hostSource: "manual",
         manualPort: input.port ?? null,
         lastKnownPort: null,
         addedAt: new Date().toISOString(),
@@ -2537,11 +2587,31 @@ async function updateBackend(
     deps.onChanged();
 }
 
-async function removeBackend(id: string): Promise<void> {
+/**
+ * Refuses to remove the backend the app is currently talking to. Nothing else
+ * repairs that state: `activeId` and `activeOrigin` keep pointing at the gone
+ * record, so the menu can no longer tick a row and `activeLabel` falls back to
+ * "This machine" while the remote badge is still lit; `getLastUsedId` names a
+ * record that is not there; and the moment the tunnel drops, the banner's
+ * **Reconnect** calls `activateBackend(activeId)`, whose `findRecord` now
+ * returns null — "That backend is no longer known." — with no way back except
+ * noticing that "This machine" is the escape hatch.
+ *
+ * Returning a result rather than throwing: the caller is a dialog button, and
+ * this is a refusal the user can act on, not an error.
+ */
+async function removeBackend(id: string): Promise<{ ok: boolean; reason?: string }> {
+    if (id === activeId && id !== LOCAL_ID) {
+        return {
+            ok: false,
+            reason: "That backend is the one you are connected to. Switch to another backend first.",
+        };
+    }
     records = removeRecord(records, id);
     forgetScannedHostKey(id);
     await persist();
     deps.onChanged();
+    return { ok: true };
 }
 
 function stopBackendRegistry(): void {
@@ -2618,9 +2688,7 @@ In `electron/src/ipc-handlers.ts`, add near the existing `get-backend-port` hand
         },
     );
 
-    ipcMain.handle("backend-remove", async (_event, id: string) => {
-        await removeBackend(id);
-    });
+    ipcMain.handle("backend-remove", (_event, id: string) => removeBackend(id));
 
     ipcMain.handle("backend-fingerprint", async (_event, id: string) => {
         const record = findRecord(id);
@@ -2706,7 +2774,7 @@ In `packages/ui/src/env.d.ts`, add to `interface TaskflowBridge`:
         id: string,
         patch: { displayName?: string; user?: string; sshPort?: number },
     ): Promise<void>;
-    removeBackend(id: string): Promise<void>;
+    removeBackend(id: string): Promise<{ ok: boolean; reason?: string }>;
     getHostFingerprint(id: string): Promise<string>;
     trustBackendHost(id: string): Promise<void>;
     onBackendsChanged(callback: () => void): () => void;
@@ -3502,7 +3570,7 @@ A successful switch never goes through a disconnect, which is the whole point �
 - Modify: `packages/ui/src/components/panes/editor-dirty-state.ts`
 - Modify: `packages/ui/src/components/panes/terminal/terminal-link-provider.ts:76-77`
 - Modify: `packages/ui/src/stores/session-store.ts:36,106,142`
-- Modify: `packages/ui/src/stores/wiki-store.ts:29-30`, `packages/ui/src/stores/search-store.ts:153,174,199`
+- Modify: `packages/ui/src/stores/wiki-store.ts:29-30`, `packages/ui/src/stores/search-store.ts:120,153,174,199`
 - Create: `packages/ui/src/components/panes/markdown-toggle-queue.ts`
 - Create: `packages/ui/src/components/panes/markdown-toggle-queue.test.ts`
 - Modify: `packages/ui/src/components/panes/MarkdownPaneImpl.tsx:82-90`
@@ -3741,12 +3809,26 @@ life. `"master"` is the easy repeat offender: it is a single fixed key, so one
 interrupted master session create silences master auto-placement permanently.
 
 Fix both ends. In `createSession`, move the delete into a `finally` so the key
-cannot outlive the call:
+cannot outlive the call. There is no `try` there today, so one has to be
+introduced, and where it *ends* matters: it opens immediately after the
+`pendingSessionCreates.add(pendingKey)` block (`session-store.ts:105-107`) and
+closes after `addTab` (`:141`) — **not** around the `Promise.all` refetch that
+follows. Wrapping the refetch too would hold the key for the length of two more
+round trips, which is exactly the window `syncOwnerTabs` must not see it in:
 
 ```ts
+        if (targetWorkspaceKey && pendingKey) {
+            pendingSessionCreates.add(pendingKey);
+        }
+        try {
+            // ...unchanged: lastTerminalSize, sendRequest, the `tab` literal,
+            // the `workspaceKey` computation, and `get().addTab(...)`
         } finally {
             if (pendingKey) pendingSessionCreates.delete(pendingKey);
         }
+        await Promise.all([
+            // ...unchanged
+        ]);
 ```
 
 and clear the set in the reset, because a key added by an in-flight create that
@@ -3784,11 +3866,30 @@ import it and skip the write:
 ```
 
 Apply the same guard to every `catch` in `packages/ui/src/stores/` that writes a
-message a user reads. Auditing them all: `wiki-store.ts:30` and
-`search-store.ts:153`, `:174`, `:199` write error strings and need it;
-`project-store.ts:52`, `task-store.ts:60`, `theme-store.ts:130` and
-`search-store.ts:133` only clear a `loading`/`scanning`/`searching` flag, which
-is what the reset sets anyway, so they are left alone rather than churned.
+message a user reads. Do not audit by eye — the list below was wrong twice.
+Enumerate them:
+
+```bash
+cd packages/ui/src/stores && for f in *.ts; do case "$f" in *.test.ts) continue;; esac
+awk -v F="$f" '/catch/{c=NR} c && NR<=c+6 && /error:|errorByRoot/ {print F":"NR}' "$f"; done
+```
+
+That returns exactly five, and all five need the guard: `wiki-store.ts:30`,
+`search-store.ts:120`, `:153`, `:174`, `:199`.
+
+`search-store.ts:120` is the one to check first, not last. It is the `catch` on
+`search()` itself, and a repository-wide search is the longest-running request
+in the app — the request most likely to still be in flight when a switch lands.
+Switch backends while a search is running and the new backend's search panel
+opens with `searching: false` and the error `Backend switched` against a query
+it never ran. The earlier draft of this audit listed `search-store.ts:133`
+instead, which is not in a `catch` body at all: the `catch` at `:130` is empty
+and `:133` is the `set` after it, in `cancel()`.
+
+The remaining `catch` blocks in the directory — `project-store.ts:52`,
+`task-store.ts:60`, `theme-store.ts:130` — only clear a
+`loading`/`scanning`/`searching` flag, which is what the reset sets anyway, so
+they are left alone rather than churned.
 
 `session-subscriptions.ts` stays excluded. Its only module state is
 `lastTrayState` (`session-subscriptions.ts:57`), and the reset of the session
@@ -4256,10 +4357,6 @@ const useBackendStore = create<BackendStore>((set, get) => ({
                 dropped: false,
                 generation: state.generation + 1,
             }));
-            await rebootstrap();
-            // The old tunnel is only safe to kill now that nothing is using it.
-            await bridge.retirePreviousTunnel();
-            await get().refresh();
         } catch (error) {
             abortPending();
             // Same reasoning as the incompatible-protocol branch: everything
@@ -4271,6 +4368,30 @@ const useBackendStore = create<BackendStore>((set, get) => ({
                 switching: null,
                 error: error instanceof Error ? error.message : "Could not switch backend",
             });
+            return;
+        }
+
+        // Past the point of no return, and therefore outside the try above.
+        // The socket is promoted, the stores are reset and the shell has
+        // remounted; the switch has happened whatever these do. Folding them
+        // into the same `try` had two consequences, both wrong: a throw here
+        // painted a red "could not switch backend" banner over a switch that
+        // had plainly succeeded, and it skipped `retirePreviousTunnel`, so the
+        // ssh child for the backend just left survived — permanently, because
+        // the next `setActive` overwrites `previousId` and nothing ever names
+        // that tunnel again.
+        //
+        // `retirePreviousTunnel` runs in its own `finally` for the same reason:
+        // it is the only thing here that leaks a process, so it must not be
+        // skippable by `rebootstrap` throwing ahead of it.
+        try {
+            await rebootstrap();
+        } catch (bootstrapError) {
+            console.error("Re-bootstrap after a backend switch failed:", bootstrapError);
+        } finally {
+            // The old tunnel is only safe to kill now that nothing is using it.
+            await bridge.retirePreviousTunnel().catch(() => {});
+            await get().refresh().catch(() => {});
         }
     },
 
@@ -4278,6 +4399,11 @@ const useBackendStore = create<BackendStore>((set, get) => ({
         // `dropped` deliberately survives: dismissing the banner hides the
         // message, it does not restore the tunnel. Only a completed switch
         // clears it.
+        //
+        // Clearing `pendingTrust` is what makes this the trust dialog's Cancel
+        // as well as the banner's dismiss — that dialog is mounted off
+        // `pendingTrust`, so this is the only thing that closes it without
+        // approving a key.
         set({ error: null, pendingTrust: null });
     },
 }));
@@ -4345,6 +4471,7 @@ git commit -m "feat(ui): switch the active backend behind a compatibility handsh
 - Create: `packages/ui/src/components/sidebar/BackendMenu.tsx`
 - Create: `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx`
 - Create: `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`
+- Create: `packages/ui/src/components/sidebar/TrustHostKeyDialog.tsx`
 - Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx:381-395`
 
 **Interfaces:**
@@ -4506,7 +4633,25 @@ export { BackendMenu };
 - [ ] **Step 2: Build the connect dialog**
 
 Task 10's store already sets `pendingTrust` when activation fails with a
-host-key problem. This dialog is its only consumer.
+host-key problem. **The trust UI does not live here.** It used to, and that was
+wrong twice over:
+
+- Selecting a discovered backend from the menu calls `switchTo(id)` and closes
+  the menu. Nothing opens this dialog on that path, so `pendingTrust` was set
+  with no mounted consumer: the user got the error text and no fingerprint, and
+  first contact with a discovered machine could not be approved at all. Task
+  14's Step 6 asks for exactly that flow — "switch to a host whose key is not
+  in `known_hosts` → fingerprint dialog; approving connects" — and it could not
+  have passed.
+- The fingerprint was component state that nothing cleared when
+  `pendingTrust.id` changed. Fail host A, show A's fingerprint, correct the
+  Host field to B, fail B the same way, and the dialog rendered **A's**
+  fingerprint above a button that pins **B's** key.
+
+So the trust flow gets its own component in Step 2b, mounted off `pendingTrust`
+itself and keyed by the record id, which fixes both: it is reachable from every
+path that can raise trust, and its fingerprint cannot outlive the record it
+belongs to. This dialog keeps only the form.
 
 Create `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx`. Read
 `packages/ui/src/components/sidebar/NewProjectDialog.tsx` first and reuse its
@@ -4532,74 +4677,60 @@ function ConnectBackendDialog({ open, onOpenChange }: ConnectBackendDialogProps)
     const [user, setUser] = useState("");
     const [sshPort, setSshPort] = useState("");
     const [port, setPort] = useState("");
-    const [fingerprint, setFingerprint] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+
+    /**
+     * `Number.parseInt("ssh", 10)` is `NaN`, and `NaN` is not `null`, so a
+     * typo in either port field would sail through `addBackend` and land on the
+     * record. `manualPort: NaN` then short-circuits `resolveBackendPort` and
+     * ssh is handed `-L 0:127.0.0.1:NaN`; worse, `JSON.stringify` writes `NaN`
+     * as `null`, so a restart silently converts the typo into "resolve over the
+     * port file" and the failure changes shape between runs.
+     */
+    function parsePort(value: string): number | undefined | "invalid" {
+        const trimmed = value.trim();
+        if (trimmed.length === 0) return undefined;
+        const parsed = Number(trimmed);
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) return "invalid";
+        return parsed;
+    }
 
     async function handleSubmit(): Promise<void> {
         const bridge = window.taskflow;
         if (!bridge || host.trim().length === 0) return;
+        const parsedSshPort = parsePort(sshPort);
+        const parsedPort = parsePort(port);
+        if (parsedSshPort === "invalid" || parsedPort === "invalid") {
+            useBackendStore.setState({ error: "Ports must be whole numbers between 1 and 65535." });
+            return;
+        }
         setBusy(true);
         try {
             const record = await bridge.addBackend({
                 host: host.trim(),
                 user: user.trim() || undefined,
-                sshPort: sshPort.trim() ? Number.parseInt(sshPort, 10) : undefined,
-                port: port.trim() ? Number.parseInt(port, 10) : undefined,
+                sshPort: parsedSshPort,
+                port: parsedPort,
             });
             await refresh();
             await switchTo(record.id);
-            // switchTo may have set pendingTrust; only close on a clean switch.
-            if (useBackendStore.getState().error === null) onOpenChange(false);
-        } finally {
-            setBusy(false);
-        }
-    }
-
-    async function handleShowFingerprint(): Promise<void> {
-        const bridge = window.taskflow;
-        if (!bridge || !pendingTrust) return;
-        setBusy(true);
-        try {
-            // `fetchHostKeyFingerprint` throws when `ssh-keyscan` comes back
-            // empty, which a host that is down, firewalled on the ssh port, or
-            // just slow produces routinely. Called through `void` with no catch
-            // this is an unhandled renderer rejection and the button appears to
-            // do nothing at all.
-            setFingerprint(await bridge.getHostFingerprint(pendingTrust.id));
-        } catch (scanError) {
-            setFingerprint(null);
+            const after = useBackendStore.getState();
+            // Close on a clean switch, and also when the failure raised trust:
+            // the trust dialog is mounted off `pendingTrust` and takes over
+            // from here, so leaving this form stacked under it is just noise.
+            if (after.error === null || after.pendingTrust !== null) onOpenChange(false);
+        } catch (submitError) {
+            // `addBackend` and `refresh` both cross IPC and both reject on an
+            // fs error under `userData`. `switchTo` swallows its own failures,
+            // but these two do not, and behind `void handleSubmit()` an escaped
+            // rejection is a Connect button that silently does nothing. This is
+            // the same shape the trust handlers were given; the button every
+            // user presses was left without it.
             useBackendStore.setState({
                 error:
-                    scanError instanceof Error
-                        ? scanError.message
-                        : "Could not read that host's key.",
-            });
-        } finally {
-            setBusy(false);
-        }
-    }
-
-    async function handleTrust(): Promise<void> {
-        const bridge = window.taskflow;
-        if (!bridge || pendingTrust?.kind !== "unknown-host-key") return;
-        setBusy(true);
-        try {
-            // `trustBackendHost` pins the key whose fingerprint this dialog
-            // showed, and rejects if main has none stashed for this id. The
-            // "Trust and connect" button only renders once `fingerprint` is
-            // set, so that rejection is a backstop — but it must be surfaced
-            // rather than left as an unhandled rejection, because it means the
-            // approval and the key have come apart.
-            await bridge.trustBackendHost(pendingTrust.id);
-            await switchTo(pendingTrust.id);
-            if (useBackendStore.getState().error === null) onOpenChange(false);
-        } catch (trustError) {
-            setFingerprint(null);
-            useBackendStore.setState({
-                error:
-                    trustError instanceof Error
-                        ? trustError.message
-                        : "Could not trust that host key.",
+                    submitError instanceof Error
+                        ? submitError.message
+                        : "Could not add that backend.",
             });
         } finally {
             setBusy(false);
@@ -4635,32 +4766,9 @@ function ConnectBackendDialog({ open, onOpenChange }: ConnectBackendDialogProps)
                 />
             </label>
 
-            {error && <p role="alert">{error}</p>}
-
-            {pendingTrust?.kind === "unknown-host-key" && (
-                <div>
-                    {fingerprint === null ? (
-                        <Button disabled={busy} onClick={() => void handleShowFingerprint()}>
-                            Show host key fingerprint
-                        </Button>
-                    ) : (
-                        <>
-                            <pre>{fingerprint}</pre>
-                            <p>
-                                Trust this host key? A first-use fingerprint is trusted, not
-                                verified — check it against the machine itself if this host came
-                                from network discovery.
-                            </p>
-                            <Button disabled={busy} onClick={() => void handleTrust()}>
-                                Trust and connect
-                            </Button>
-                        </>
-                    )}
-                </div>
-            )}
-
-            {/* A changed host key is exactly what interception looks like, so no
-                approval is offered — `error` already carries ssh's message. */}
+            {/* Trust lives in `TrustHostKeyDialog`, which mounts itself off
+                `pendingTrust` — see Step 2b. */}
+            {error && pendingTrust === null && <p role="alert">{error}</p>}
 
             <Button disabled={busy || host.trim().length === 0} onClick={() => void handleSubmit()}>
                 Connect
@@ -4676,9 +4784,205 @@ Replace the placeholder `className="..."` and the bare `label`/`input` elements
 with the dialog, `Label` and `Input` components `NewProjectDialog.tsx` uses. The
 logic above is the part that matters; the chrome must match the rest of the app.
 
+- [ ] **Step 2b: Build the trust dialog, mounted off `pendingTrust`**
+
+Create `packages/ui/src/components/sidebar/TrustHostKeyDialog.tsx`. It takes the
+trust it is for as a prop and owns no identity of its own, so the mount site can
+guarantee its fingerprint always belongs to the record on screen:
+
+```tsx
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { useBackendStore } from "@/stores/backend-store";
+
+interface TrustHostKeyDialogProps {
+    trust: { id: string; kind: "unknown-host-key" | "changed-host-key" };
+    label: string;
+}
+
+function TrustHostKeyDialog({ trust, label }: TrustHostKeyDialogProps) {
+    const switchTo = useBackendStore((s) => s.switchTo);
+    const dismissError = useBackendStore((s) => s.dismissError);
+    const error = useBackendStore((s) => s.error);
+    const [fingerprint, setFingerprint] = useState<string | null>(null);
+    const [busy, setBusy] = useState(false);
+
+    async function handleShowFingerprint(): Promise<void> {
+        const bridge = window.taskflow;
+        if (!bridge) return;
+        setBusy(true);
+        try {
+            // `fetchHostKeyFingerprint` throws when `ssh-keyscan` comes back
+            // empty, which a host that is down, firewalled on the ssh port, or
+            // just slow produces routinely. Called through `void` with no catch
+            // this is an unhandled renderer rejection and the button appears to
+            // do nothing at all.
+            setFingerprint(await bridge.getHostFingerprint(trust.id));
+        } catch (scanError) {
+            setFingerprint(null);
+            useBackendStore.setState({
+                error:
+                    scanError instanceof Error
+                        ? scanError.message
+                        : "Could not read that host's key.",
+            });
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function handleTrust(): Promise<void> {
+        const bridge = window.taskflow;
+        if (!bridge || trust.kind !== "unknown-host-key") return;
+        setBusy(true);
+        try {
+            // `trustBackendHost` pins the key whose fingerprint this dialog
+            // showed, and rejects if main has none stashed for this id. The
+            // "Trust and connect" button only renders once `fingerprint` is
+            // set, so that rejection is a backstop — but it must be surfaced
+            // rather than left as an unhandled rejection, because it means the
+            // approval and the key have come apart.
+            await bridge.trustBackendHost(trust.id);
+            // `switchTo` clears `pendingTrust`, which unmounts this component.
+            // Nothing after the await may assume it is still mounted.
+            await switchTo(trust.id);
+        } catch (trustError) {
+            setFingerprint(null);
+            useBackendStore.setState({
+                error:
+                    trustError instanceof Error
+                        ? trustError.message
+                        : "Could not trust that host key.",
+            });
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <div role="dialog" aria-label={`Host key for ${label}`} className="...">
+            <p>{error}</p>
+            {trust.kind === "changed-host-key" ? (
+                // A changed host key is exactly what interception looks like,
+                // so no approval is offered — `error` carries ssh's message and
+                // the only button closes the dialog.
+                <Button onClick={dismissError}>Close</Button>
+            ) : fingerprint === null ? (
+                <>
+                    <Button disabled={busy} onClick={() => void handleShowFingerprint()}>
+                        Show host key fingerprint
+                    </Button>
+                    <Button variant="ghost" disabled={busy} onClick={dismissError}>
+                        Cancel
+                    </Button>
+                </>
+            ) : (
+                <>
+                    <pre>{fingerprint}</pre>
+                    <p>
+                        Trust this host key for {label}? A first-use fingerprint is trusted, not
+                        verified — check it against the machine itself if this host came from
+                        network discovery.
+                    </p>
+                    <Button disabled={busy} onClick={() => void handleTrust()}>
+                        Trust and connect
+                    </Button>
+                    <Button variant="ghost" disabled={busy} onClick={dismissError}>
+                        Cancel
+                    </Button>
+                </>
+            )}
+        </div>
+    );
+}
+
+export { TrustHostKeyDialog };
+```
+
+`dismissError` is the cancel path: it clears `error` and `pendingTrust`
+together, which unmounts this dialog. There has to be one — without it a trust
+prompt raised by a menu selection has no way out except succeeding.
+
+Mount it from `BackendMenu`, next to the other two dialogs, so every path that
+can raise trust reaches it — the menu's rows, the connect form, and a
+**Reconnect** press after a drop:
+
+```tsx
+    const pendingTrust = useBackendStore((s) => s.pendingTrust);
+    const trustEntry = entries.find(
+        (entry) => entry.kind !== "local" && entry.record.id === pendingTrust?.id,
+    );
+    // Same shape as `activeEntry` above, and for the same reason: `find`'s
+    // result is `MenuEntry | undefined`, so the `kind` test has to be repeated
+    // outside the predicate before `.record` is reachable.
+    const trustLabel =
+        trustEntry === undefined || trustEntry.kind === "local"
+            ? (pendingTrust?.id ?? "")
+            : trustEntry.record.displayName;
+
+// ...alongside <ConnectBackendDialog /> and <ManageBackendsDialog />:
+    {pendingTrust && (
+        <TrustHostKeyDialog key={pendingTrust.id} trust={pendingTrust} label={trustLabel} />
+    )}
+```
+
+The `key` is the load-bearing part, not decoration. `switchTo` sets
+`pendingTrust: null` before it calls `activateBackend`, so React normally
+unmounts this component between one trust prompt and the next and the
+fingerprint dies with it — but that relies on a render landing inside the gap.
+Keying on the record id makes the guarantee structural: a fingerprint can never
+be shown next to a different backend's name or above a button that pins a
+different backend's key.
+
+Add the import to `BackendMenu.tsx` alongside the other two dialogs:
+
+```tsx
+import { TrustHostKeyDialog } from "./TrustHostKeyDialog";
+```
+
 - [ ] **Step 3: Build the manage dialog**
 
 Create `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`: a list of saved records with an editable display name, an editable user, an editable ssh port, and a remove button per row, calling `updateBackend(record.id, patch)` and `removeBackend(record.id)` on the bridge and `refresh()` after each.
+
+Removal can be refused. `removeBackend` returns `{ ok: false, reason }` for the
+currently active backend, because deleting the record the app is connected
+through leaves `activeId` naming something that is not there — see its comment
+in Task 7. Disable the button on that row *and* surface the reason if it comes
+back anyway, since `activeId` can change between render and click:
+
+```tsx
+const activeId = useBackendStore((s) => s.activeId);
+// ...per row:
+<Button
+    disabled={record.id === activeId}
+    title={record.id === activeId ? "Switch to another backend first" : undefined}
+    onClick={() => void handleRemove(record.id)}>
+    Remove
+</Button>
+```
+
+```ts
+    async function handleRemove(id: string): Promise<void> {
+        const bridge = window.taskflow;
+        if (!bridge) return;
+        try {
+            const result = await bridge.removeBackend(id);
+            if (!result.ok) {
+                useBackendStore.setState({ error: result.reason ?? "Could not remove that backend." });
+                return;
+            }
+            await refresh();
+        } catch (removeError) {
+            useBackendStore.setState({
+                error: removeError instanceof Error ? removeError.message : "Could not remove that backend.",
+            });
+        }
+    }
+```
+
+Every bridge call in this dialog gets that shape. `updateBackend` writes to disk
+and `refresh` reads main's state; both reject on an fs error, and an
+un-caught rejection behind `void` is a button that looks like it did nothing.
 
 Not `addBackend`: it derives the record id from `host`, so using it to edit a
 row would leave the original record in place and add a second one under a
@@ -5204,7 +5508,22 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
 - [ ] **Step 6: Confirm the failure paths**
 
 - Switch to a host that is up but not running Taskflow → "Taskflow is not running on …".
-- Switch to a host whose key is not in `known_hosts` → fingerprint dialog; approving connects.
+- Switch to a host whose key is not in `known_hosts` **by picking it from the
+  menu, not from the connect form** → fingerprint dialog; approving connects.
+  The menu path is the one that was broken: the trust UI used to live inside
+  the connect dialog, which that path never opens.
+- With that prompt up, press Cancel → it closes and the app stays where it was.
+- Add a backend by typing its short hostname (`desktop`, not its IP) while its
+  beacon is visible, connect, quit, and reopen `backends.json` under
+  `userData`. Expected: `host` is still `desktop`. An IP there means
+  `mergeForMenu` is rewriting a manual host and the name is unrecoverable.
+- Connect to a remote backend, open **Manage backends…**, and try to remove the
+  row you are connected through. Expected: the button is disabled and says to
+  switch away first.
+- Start a repository-wide search on a remote backend and switch backends while
+  it is still running. Expected: the new backend's search panel is empty and
+  idle. `Backend switched` in its error slot means the `search-store.ts:120`
+  guard is missing.
 - Open a file, type into it without saving, then try to switch → refused, naming the unsaved file.
 - Pull the network while a remote backend is active → disconnected banner. ssh
   gives up after `ServerAliveInterval` × `ServerAliveCountMax`, roughly 45
