@@ -30,9 +30,22 @@ function buildRows(store: Store): SidebarRow[] {
     return rows;
 }
 
+/**
+ * Code points a fitted label can carry that put no ink on the row: whitespace,
+ * format characters, the rest of Unicode's default-ignorable set — and U+2800,
+ * the braille cell with no dots raised, the one graphic character whose glyph is
+ * defined as empty.
+ *
+ * Trimming alone is not enough. It strips the blanks but leaves an invisible
+ * code point riding on one, and the cluster then reads back as text: a space
+ * followed by a zero-width joiner, or an Arabic number sign binding forwards
+ * onto a space, both survive `trim` and both draw an empty cell.
+ */
+const INVISIBLE = /[\s\p{Cf}\p{Default_Ignorable_Code_Point}⠀]/gu;
+
 /** Whether a fitted label puts anything visible on the row. */
 function shows(label: string): boolean {
-    return label.trim() !== "";
+    return label.replace(INVISIBLE, "") !== "";
 }
 
 function drawSidebar(

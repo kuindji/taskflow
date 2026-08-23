@@ -274,14 +274,14 @@ function cell(ch: string, width: 0 | 1 | 2, attrs: number): Cell {
 function fitToWidth(text: string, cols: number): string {
     let used = 0;
     let out = "";
-    let joined = false;
+    let dropped = false;
     for (const grapheme of graphemes(text)) {
         const width = graphemeWidth(grapheme);
         if (width === 0 || UNPRINTABLE.test(grapheme)) {
-            joined = true;
+            dropped = true;
             continue;
         }
-        if (joined && out !== "") {
+        if (dropped && out !== "") {
             // Dropping a cluster leaves the two around it adjacent, and the
             // segmenter can read that pair as one: two regional indicators
             // separated by a control byte are two two-column clusters, but
@@ -290,17 +290,21 @@ function fitToWidth(text: string, cols: number): string {
             // what the row will actually lay out rather than from the sum of
             // the clusters read — counting them apart reserved four columns
             // for two and hid the text behind them.
+            //
+            // `dropped` never clears again, because the rejoin shifts every
+            // later cluster boundary too: a drop between four regional
+            // indicators leaves the first flag paired and the rest offset by
+            // one, so a running total resumed after the rejoin counts the
+            // trailing indicator as its own two-column cluster and stops a
+            // flag short of what the row lays out.
             const next = out + grapheme;
-            const nextUsed = textWidth(next);
-            if (nextUsed > cols) break;
+            if (textWidth(next) > cols) break;
             out = next;
-            used = nextUsed;
         } else {
             if (used + width > cols) break;
             used += width;
             out += grapheme;
         }
-        joined = false;
     }
     return out;
 }

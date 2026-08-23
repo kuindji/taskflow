@@ -231,6 +231,51 @@ describe("drawSidebar", () => {
         expect(drawn(5)).toBe(" A 1");
     });
 
+    test("drops the indent when the label fits beside it as an invisible cluster", () => {
+        // `trim` strips the blank but leaves the zero-width joiner riding on
+        // it, so a cluster the row draws as an empty cell read back as text and
+        // the indent kept the column the label needed: `A` showed at width 2,
+        // vanished at 3, and came back at 4.
+        const row = { kind: "task" as const, id: "t1", label: "\u00a0\u200dA", sessionCount: 0 };
+        const drawn = (width: number): string => {
+            const buf = new ScreenBuffer(width, 1);
+            drawSidebar(buf, [row], 0, width, 1);
+            return rowText(buf, 0, width);
+        };
+        expect(drawn(2)).toBe("\u00a0\u200dA");
+        expect(drawn(3)).toBe("\u00a0\u200dA");
+        expect(drawn(4)).toBe("  \u00a0\u200dA");
+    });
+
+    test("drops the indent for a format character that binds forwards onto a blank", () => {
+        // Same hole, reached from the other side: the Arabic number sign binds
+        // to the space behind it, so the cluster's base is a blank and `trim`
+        // leaves the sign standing.
+        const row = { kind: "task" as const, id: "t1", label: "\u0600 A", sessionCount: 0 };
+        const drawn = (width: number): string => {
+            const buf = new ScreenBuffer(width, 1);
+            drawSidebar(buf, [row], 0, width, 1);
+            return rowText(buf, 0, width);
+        };
+        expect(drawn(2)).toBe("\u0600 A");
+        expect(drawn(3)).toBe("\u0600 A");
+        expect(drawn(4)).toBe("  \u0600 A");
+    });
+
+    test("drops the indent for a braille cell with no dots raised", () => {
+        // U+2800 takes a column and draws nothing, and no amount of trimming
+        // removes it — it is a graphic character, not a blank.
+        const row = { kind: "task" as const, id: "t1", label: "\u2800A", sessionCount: 1 };
+        const drawn = (width: number): string => {
+            const buf = new ScreenBuffer(width, 1);
+            drawSidebar(buf, [row], 0, width, 1);
+            return rowText(buf, 0, width);
+        };
+        expect(drawn(4)).toBe("\u2800A 1");
+        expect(drawn(5)).toBe("\u2800A 1");
+        expect(drawn(6)).toBe("  \u2800A 1");
+    });
+
     test("draws the whole badge when it exactly fills the pane", () => {
         // `badge.length <= width` is the boundary: one column narrower and the
         // count would have to go, one wider and the label joins it.

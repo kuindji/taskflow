@@ -144,6 +144,19 @@ describe("fitToWidth", () => {
         expect(fitToWidth("\u6f22\u0007\u6f22", 4)).toBe("\u6f22\u6f22");
     });
 
+    test("keeps counting by layout for every cluster after a rejoin, not just the first", () => {
+        // A drop between four regional indicators offsets every boundary after
+        // it: the row lays them out as two flags, four columns, but the pair
+        // the drop rejoined leaves a lone indicator trailing. Resuming the
+        // running total there counted that indicator as its own two-column
+        // cluster and stopped a whole flag short of what fits.
+        const flags = "\u{1f1fa}\u{1f1f8}\u{1f1e8}\u{1f1e6}";
+        expect(fitToWidth("\u{1f1fa}\u0007\u{1f1f8}\u{1f1e8}\u{1f1e6}", 4)).toBe(flags);
+        // Still a column count and not a cluster count: the rejoined pair
+        // needs two more columns than the budget has left, so it goes.
+        expect(fitToWidth("\u{1f1fa}\u0007\u{1f1f8}\u{1f1e8}\u{1f1e6}", 3)).toBe("\u{1f1fa}");
+    });
+
     test("still drops a cluster that is only marks and format characters", () => {
         // The forward-binding case above must not reopen the baseless rule: a
         // prepend with nothing printable behind it has no base either.
