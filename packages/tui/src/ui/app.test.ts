@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { MSG } from "@taskflow/shared";
 import type { Project, Task } from "@taskflow/shared";
 import { Screen, type Sink } from "../render/screen";
+import { ATTR_INVERSE } from "../render/cells";
 import { Store } from "../state/store";
 import { App } from "./app";
 import { noMods, type KeyEvent } from "../input/keys";
@@ -57,20 +58,38 @@ function key(patch: Partial<KeyEvent>): KeyEvent {
     return { name: "char", mods: noMods(), kind: "press", ...patch };
 }
 
-async function makeApp(): Promise<{ app: App; sink: Sink & { output: string } }> {
+async function makeApp(): Promise<{
+    app: App;
+    sink: Sink & { output: string };
+    screen: Screen;
+}> {
     const net = stubNet();
     const store = new Store(net);
     const sink = collectingSink();
+    const screen = new Screen(sink, 60, 10);
     const app = new App({
         net,
         store,
-        screen: new Screen(sink, 60, 10),
+        screen,
         cols: 60,
         rows: 10,
         kittyAvailable: true,
     });
     await app.init();
-    return { app, sink };
+    return { app, sink, screen };
+}
+
+/**
+ * The row the sidebar drew as selected, read off the painted frame. `render()`
+ * leaves `back` holding what was just flushed, and the selection is the one row
+ * drawn in inverse video — so this pins the selection itself rather than the
+ * fact that something, anything, was repainted.
+ */
+function selectedRow(screen: Screen): number | null {
+    for (let y = 0; y < screen.back.rows; y++) {
+        if ((screen.back.get(0, y).attrs & ATTR_INVERSE) !== 0) return y;
+    }
+    return null;
 }
 
 describe("App", () => {
@@ -96,26 +115,27 @@ describe("App", () => {
     });
 
     test("j and k move the sidebar selection", async () => {
-        const { app, sink } = await makeApp();
+        const { app, screen } = await makeApp();
         app.render();
-        sink.output = "";
+        expect(selectedRow(screen)).toBe(0);
         app.handleKey(key({ char: "j" }));
         app.render();
-        expect(sink.output).not.toBe("");
+        expect(selectedRow(screen)).toBe(1);
+        app.handleKey(key({ char: "k" }));
+        app.render();
+        expect(selectedRow(screen)).toBe(0);
     });
 
     test("arrow keys move the sidebar selection like j and k", async () => {
-        const { app, sink } = await makeApp();
+        const { app, screen } = await makeApp();
         app.render();
-        sink.output = "";
+        expect(selectedRow(screen)).toBe(0);
         app.handleKey(key({ name: "down" }));
         app.render();
-        const moved = sink.output;
-        expect(moved).not.toBe("");
-        sink.output = "";
+        expect(selectedRow(screen)).toBe(1);
         app.handleKey(key({ name: "up" }));
         app.render();
-        expect(sink.output).not.toBe("");
+        expect(selectedRow(screen)).toBe(0);
     });
 
     test("Q stops the app", async () => {

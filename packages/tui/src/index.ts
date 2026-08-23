@@ -41,6 +41,24 @@ function armRawModeGuard(): () => void {
     };
 }
 
+/**
+ * Release a resource when the process ends, whatever ends it. `Tty` restores the
+ * terminal from its own signal and `uncaughtException` handlers, but each of
+ * those calls `process.exit` immediately afterwards, so anything else that is
+ * owed has to hang off `exit` to be reached at all. Registered per resource as
+ * it is created, because `main` can throw in between them.
+ */
+function releaseOnExit(release: () => void): void {
+    process.on("exit", () => {
+        try {
+            release();
+        } catch {
+            // Exit is the last chance for every other resource too, so one that
+            // fails to close must not strand the rest.
+        }
+    });
+}
+
 function readOnce(timeoutMs: number): Promise<string> {
     return new Promise((resolve) => {
         const timer = setTimeout(() => {
@@ -60,8 +78,14 @@ async function main(): Promise<void> {
     const devBranch = process.env.TASKFLOW_DEV_BRANCH ?? null;
     const binary = process.env.TASKFLOW_BACKEND_BIN ?? "taskflow-backend";
     const backend = await startBackend({ binary, args: [], devBranch });
+    releaseOnExit(backend.stop);
 
     const net = new WsClient(backend.port);
+    // Registered before the connect so a socket that fails midway through
+    // opening is still torn down rather than left to the event loop.
+    releaseOnExit(() => {
+        net.close();
+    });
     await net.connect();
 
     const sink = { write: (data: string) => void process.stdout.write(data) };
@@ -75,6 +99,11 @@ async function main(): Promise<void> {
     const disarmRawGuard = armRawModeGuard();
 
     const kittyAvailable = await negotiateKitty({ write: sink.write, waitForData: readOnce });
+    // `readOnce` drops its listener but leaves the stream flowing, so anything
+    // typed between here and the decode loop below would be emitted with nothing
+    // listening and lost. A paused stream buffers it instead, and the loop
+    // resumes the stream once it is able to receive it.
+    process.stdin.pause();
 
     const tty = new Tty(sink, { kitty: kittyAvailable });
     tty.installExitHandlers();
@@ -112,13 +141,14 @@ async function main(): Promise<void> {
             }, ESCAPE_IDLE_MS);
         }
     });
+    process.stdin.resume();
 
     const timer = setInterval(() => {
         if (!app.running) {
             clearInterval(timer);
             tty.leave();
-            net.close();
-            backend.stop();
+            // `net` and `backend` are released by their `exit` handlers, which
+            // this reaches and every other way out of the process reaches too.
             process.exit(0);
         }
         app.render();
