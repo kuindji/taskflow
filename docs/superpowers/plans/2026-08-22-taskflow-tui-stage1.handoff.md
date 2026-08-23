@@ -29,7 +29,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
 | 19.2 | Mouse — outer tracking on/off | clear | `3829f83` | commit `5345824`; round 1 fixed in `a7af6dd`; round 2 found nothing — clear after two rounds |
-| 19.3 | Mouse — layout hoist and hit testing | implemented | `db844f4` | commit `ec39171`; review round 1 due |
+| 19.3 | Mouse — layout hoist and hit testing | clear | `db844f4` | commit `ec39171`; round 1 found only test gaps, fixed in `10e7b0f`; round 2 found nothing — clear after two rounds |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
 | 19.5 | Mouse — forward to the child | pending | — | `ChildModes.mouseTracking`/`mouseEncoding`, `encodeMouseForChild` |
 | 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
@@ -5250,11 +5250,65 @@ Other things checked here that produced no finding:
 Verification at `10e7b0f`: `bun run lint` clean, `bun run typecheck` clean across all five
 packages, `bun test packages/tui` → 411 pass, 0 fail (409 before, plus the 2 new).
 
-Next step: Task 19.3 review round 2.
-Findings were fixed this round, so another round is due. Run one gpt-5.5 review via
-codex-review over `db844f4..HEAD` restricted to `packages/tui`, calling out the three Task
-19.3 decisions and round 1's zero-row-comment decision as settled, and noting that round 1
-found only test gaps and that the two new tests are the delta to scrutinise. Verify any
-finding here before acting on it.
-After 19.3 is clear: 19.4 - 19.6, then Tasks 16-18, then Tasks 20 and 21 (each needs its own
-plan; 20 touches `packages/backend` and `electron/`, 21 touches `packages/tui/src/input`).
+## Task 19.3, round 2
+
+**gpt-5.5 via codex-review, Mode B over `db844f4..HEAD`** (`packages/tui` only), with the
+three Task 19.3 decisions and round 1's zero-row-comment decision called out as settled, and
+round 1's outcome stated so the round would not repeat it — the brief pointed the effort at
+the two new tests in `10e7b0f`, at whether the `drawTabs` extraction is behaviour-preserving
+against `db844f4`, at the `App.render` hoist, and at the edges round 1's probe did not sweep.
+Codex returned **zero findings** — verdict "Clear". It ran no tests (read-only sandbox).
+
+**No findings raised here either.** Everything Codex asserted was re-checked locally rather
+than taken on its word, and each check is below with what was actually run. No code changed
+this round; the only commit is this handoff entry.
+
+Verified independently:
+
+1. **The `drawTabs` extraction is behaviour-preserving — by differential sweep, not by
+   reading.** `drawTabs` as it stood at `db844f4` was copied verbatim into a throwaway test
+   beside the current one, and both were run against the same `ScreenBuffer` over the cross
+   product of `x0` ∈ {0, 5, 30}, `width` 0-24, two tabs drawn from a 12-label set (empty,
+   ASCII, over-long, `日本語`, `日本語テスト`, a combining-mark-only cluster, `⚠️ warn`, a
+   regional-indicator flag, a tab/newline label, 60 `x`s), each of the three active-tab
+   positions, plus zero-, three- and twelve-tab strips at `width` 0-40. **32,564 cases, every
+   one cell-for-cell identical**, comparing the full 120-column row so a write past the strip
+   would show. The harness was confirmed non-vacuous: perturbing the copied implementation's
+   `cols` by one turned it red immediately. The file was deleted afterwards — it duplicates a
+   deleted implementation and has no place in the tree; `git status` clean before committing.
+2. **`layoutText` returns exactly `cols` cells for every input**, which is what makes the
+   extraction sound rather than coincidental. It breaks at `cells.length >= cols`, refuses a
+   wide glyph that would overrun (`cells.length + 2 > cols`) and pads the remainder — so the
+   old `cursor`, which advanced once per emitted cell across the whole strip, lands exactly on
+   `span.end` for every tab. That is the invariant the hoist depends on: had `layoutText` ever
+   under-filled, the next tab's `room` would differ between the two versions.
+   `packages/tui/src/render/text.ts:319-339`.
+3. **Both round-1 tests go red under the mutations that motivated them**, re-run here rather
+   than trusted from round 1's record: dropping `Math.max(0, rows - 1)` reddens
+   `computeLayout > a zero-row terminal leaves the pane no height either`, and
+   `col < layout.sidebarWidth → col <=` reddens
+   `routeMouse > the sidebar owns its last column and the pane owns the first`. One failure
+   each, 108 passing alongside. Command: `bun test packages/tui/src/ui`. Tree restored with
+   `git checkout` after each; `git status` clean.
+
+Codex's one observation that was not a finding: `App.render`'s inline arithmetic and
+`computeLayout` differ at `rows = 0` (`-1` against `0`) with no drawn-output difference. That
+is the clamp this task added on purpose, and round 1 already settled that `index.ts` cannot
+pass a zero today — it is the reason the zero-row test exists, not a defect.
+
+Verification at `130d365`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 411 pass, 0 fail (unchanged — no code moved this round).
+
+Next step: implement Task 19.4 (mouse — app wiring).
+Task 19.3 is clear after two rounds. 19.4 adds `App.handleMouse(report)` and
+`SessionTerminal.scroll(lines)`, and turns 19.1's `continue` in `index.ts`'s `feed` loop into
+`app.handleMouse(ev)`. Plan section: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`
+→ "Task 19.4: Wire the mouse into the app". Two constraints the plan is explicit about: only
+the `feed` loop changes — `flushHeldEscape` keeps calling `app.handleKey(ev)` unguarded,
+because `flushCarry` returns `KeyEvent[]` and a `ev.kind === "mouse"` test there is a hard
+`TS2367` typecheck failure; and `scroll` is a method on `SessionTerminal` rather than a reach
+through `term.terminal.scrollLines` from the UI layer. The child-first-refusal guard named in
+the plan's `handleMouse` shape belongs to 19.5, not here.
+After 19.4: 19.5, 19.6 (**user gate — manual smoke test**), then Tasks 16-18, then Tasks 20
+and 21 (each needs its own plan; 20 touches `packages/backend` and `electron/`, 21 touches
+`packages/tui/src/input`).
