@@ -115,6 +115,14 @@ describe("fitToWidth", () => {
         expect(fitToWidth("\u0600\u6f22", 2)).toBe("\u0600\u6f22");
     });
 
+    test("drops an unprintable cluster instead of spending a column on it", () => {
+        // `layoutText` renders one as a blank, so a column reserved here is a
+        // column of the caller's pane that draws as a space.
+        expect(fitToWidth("\r\nAB", 2)).toBe("AB");
+        expect(fitToWidth("A", 1)).toBe("A");
+        expect(fitToWidth("\ud800A", 1)).toBe("A");
+    });
+
     test("still drops a cluster that is only marks and format characters", () => {
         // The forward-binding case above must not reopen the baseless rule: a
         // prepend with nothing printable behind it has no base either.

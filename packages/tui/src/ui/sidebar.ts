@@ -56,9 +56,21 @@ function drawSidebar(
             // columns before the indent, and drop it whole rather than render a
             // count that lies. The badge is ASCII, so its length is its width.
             const badgeCols = badge.length <= width ? badge.length : 0;
-            const indent = prefix.length + badgeCols <= width ? prefix : "";
-            const available = width - indent.length - badgeCols;
-            text = `${indent}${fitToWidth(row.label, available)}${badgeCols > 0 ? badge : ""}`;
+            // The badge outranks the label and the label outranks the indent,
+            // which is only decoration. So the indent goes whenever keeping it
+            // would starve the label of every column it could otherwise have
+            // shown — including the case where one column is left and the
+            // label's first glyph is two wide. Spending those columns on the
+            // indent regardless made a wider pane show less: a task read
+            // `A 12` at width 4 and `   12` at width 5.
+            const roomWithout = width - badgeCols;
+            const roomWith = roomWithout - prefix.length;
+            const fitsIndent = prefix.length + badgeCols <= width;
+            const withIndent = fitsIndent ? fitToWidth(row.label, roomWith) : "";
+            const withoutIndent = fitToWidth(row.label, roomWithout);
+            const keepIndent = fitsIndent && (withIndent !== "" || withoutIndent === "");
+            const label = keepIndent ? withIndent : withoutIndent;
+            text = `${keepIndent ? prefix : ""}${label}${badgeCols > 0 ? badge : ""}`;
         }
 
         const cells = layoutText(text, width, attrs);

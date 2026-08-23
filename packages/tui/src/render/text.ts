@@ -258,13 +258,18 @@ function cell(ch: string, width: 0 | 1 | 2, attrs: number): Cell {
  * segmenter a mark that attaches to the prefix's last character and repaints a
  * cell the label does not own. A cluster that merely *starts* with a format
  * character is kept: see `baseCodePoint`.
+ *
+ * An unprintable cluster is dropped for the same reason. `layoutText` renders
+ * one as a blank, so a column spent on it here buys the caller nothing visible
+ * — and worse, a non-empty result made of nothing but such clusters reads to
+ * the caller as a label that will show, when the frame draws it as spaces.
  */
 function fitToWidth(text: string, cols: number): string {
     let used = 0;
     let out = "";
     for (const grapheme of graphemes(text)) {
         const width = graphemeWidth(grapheme);
-        if (width === 0) continue;
+        if (width === 0 || UNPRINTABLE.test(grapheme)) continue;
         if (used + width > cols) break;
         used += width;
         out += grapheme;

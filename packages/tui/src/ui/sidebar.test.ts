@@ -6,8 +6,20 @@ import { Store } from "../state/store";
 import { buildRows, drawSidebar } from "./sidebar";
 import type { NetLike } from "../net/client";
 
-function project(id: string, name: string): Project {
-    return { id, name, path: `/tmp/${id}`, sessions: [], attributes: [], createdAt: "" };
+function project(id: string, name: string, sessions = 0): Project {
+    return {
+        id,
+        name,
+        path: `/tmp/${id}`,
+        sessions: Array.from({ length: sessions }, (_, i) => ({
+            id: `${id}-s${String(i)}`,
+            type: "claude" as const,
+            label: "claude",
+            createdAt: "",
+        })),
+        attributes: [],
+        createdAt: "",
+    };
 }
 
 function task(id: string, projectId: string, title: string, sessions = 0): Task {
@@ -74,6 +86,17 @@ describe("buildRows", () => {
         expect(buildRows(store)[1]?.sessionCount).toBe(2);
         store.dispose();
     });
+
+    test("carries the session count on project rows too", async () => {
+        // A project runs sessions of its own, not only through its tasks. Read
+        // from the task list instead, and a project row silently loses its badge.
+        const store = new Store(
+            stubNet([project("p1", "Alpha", 3)], [task("t1", "p1", "First", 2)]),
+        );
+        await store.load();
+        expect(buildRows(store)[0]?.sessionCount).toBe(3);
+        store.dispose();
+    });
 });
 
 describe("drawSidebar", () => {
@@ -137,9 +160,55 @@ describe("drawSidebar", () => {
     });
 
     test("drops a badge that cannot fit rather than drawing a wrong count", () => {
+        // Asserted whole, not as an absence of "1": dropping the badge must cost
+        // the count and nothing else. Blanking the row would also hide the digit.
         const buf = new ScreenBuffer(2, 1);
         drawSidebar(buf, [{ kind: "task", id: "t1", label: "A", sessionCount: 12 }], 0, 2, 1);
-        expect(rowText(buf, 0, 2)).not.toContain("1");
+        expect(rowText(buf, 0, 2)).toBe("A");
+    });
+
+    test("never spends the last column on indentation instead of the label", () => {
+        // The indent used to be kept whenever it fit alongside the badge, which
+        // could leave the label nothing at all — so a wider pane showed less:
+        // `A 12` at width 4, `   12` at width 5.
+        const row = { kind: "task" as const, id: "t1", label: "A", sessionCount: 12 };
+        const drawn = (width: number): string => {
+            const buf = new ScreenBuffer(width, 1);
+            drawSidebar(buf, [row], 0, width, 1);
+            return rowText(buf, 0, width);
+        };
+        expect(drawn(4)).toBe("A 12");
+        expect(drawn(5)).toBe("A 12");
+        expect(drawn(6)).toBe("  A 12");
+    });
+
+    test("drops the indent when the column it leaves cannot hold a wide glyph", () => {
+        // One column survives the indent, but the label's first glyph needs two,
+        // so keeping the indent would draw a row with no label in it at all.
+        const buf = new ScreenBuffer(3, 1);
+        drawSidebar(buf, [{ kind: "task", id: "t1", label: "漢字", sessionCount: 0 }], 0, 3, 1);
+        expect(rowText(buf, 0, 3)).toBe("漢");
+    });
+
+    test("does not spend the label's columns on a control character", () => {
+        // `layoutText` draws an unprintable cluster as a blank. Counted as a
+        // column here, it displaces the printable text behind it and the row
+        // renders empty.
+        const buf = new ScreenBuffer(5, 1);
+        drawSidebar(buf, [{ kind: "task", id: "t1", label: "\r\nA", sessionCount: 1 }], 0, 5, 1);
+        expect(rowText(buf, 0, 5)).toBe("  A 1");
+    });
+
+    test("keeps a task label rather than a bare indent in a two-column pane", () => {
+        const buf = new ScreenBuffer(2, 1);
+        drawSidebar(buf, [{ kind: "task", id: "t1", label: "Ab", sessionCount: 0 }], 0, 2, 1);
+        expect(rowText(buf, 0, 2)).toBe("Ab");
+    });
+
+    test("draws the session count badge on a project row", () => {
+        const buf = new ScreenBuffer(20, 1);
+        drawSidebar(buf, [{ kind: "project", id: "p1", label: "Alpha", sessionCount: 3 }], 0, 20, 1);
+        expect(rowText(buf, 0, 20)).toBe("Alpha 3");
     });
 
     test("reserves two cells for an emoji presentation sequence in a label", () => {
@@ -279,17 +348,19 @@ describe("drawSidebar", () => {
     });
 
     test("does not let a leading combining mark ride on the task indentation", () => {
-        // Width 4 is fully spent by the two-space prefix and the " 1" badge, so
-        // the label has no display budget at all and must contribute nothing.
-        const buf = new ScreenBuffer(4, 1);
+        // `Mn` marks bind backwards, so a label starting with one attaches to
+        // the second space of the indent once the row is concatenated, and the
+        // sidebar draws an accent into a cell the label does not own.
+        const buf = new ScreenBuffer(6, 1);
         drawSidebar(
             buf,
             [{ kind: "task", id: "t1", label: "\u0301A", sessionCount: 1 }],
             0,
-            4,
+            6,
             1,
         );
-        expect(rowText(buf, 0, 4)).toBe("   1");
+        expect(buf.get(1, 0).ch).toBe(" ");
+        expect(rowText(buf, 0, 6)).toBe("  A 1");
     });
 
     test("does not let a leading spacing mark ride on the task indentation", () => {
