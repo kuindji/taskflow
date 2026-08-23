@@ -145,6 +145,11 @@ await Bun.write(process.env.TASKFLOW_PORT_FILE ?? "", String(srv.port));
     return fakeBackend(`echo $$ > "${pidFile}"\nexec bun ${server}`);
 }
 
+/** The parts of the leave sequence that undo a mode, rather than reset colour. */
+const ALT_SCREEN_OFF = "\x1b[?1049l";
+const MOUSE_OFF_FIRST = "\x1b[?1000l";
+const CURSOR_SHOW = "\x1b[?25h";
+
 function countOf(haystack: string, needle: string): number {
     return haystack.split(needle).length - 1;
 }
@@ -306,6 +311,22 @@ describe("tui entry point", () => {
         // `CSI < u` pops a stack entry. A second pop for one push takes the
         // entry belonging to whatever the TUI was launched from with it.
         expect(countOf(out, "\x1b[<u")).toBe(1);
+    }, 20_000);
+
+    test("writes no leave sequence when startup fails before the terminal is entered", async () => {
+        const pidFile = join(await tempDir("tui-index-pid-"), "pid");
+        const child = runTui(await deafBackend(pidFile));
+        await waitForPid(pidFile);
+
+        expect(await child.exited).toBe(1);
+        const out = await new Response(child.stdout).text();
+        // Nothing was entered on this path, so every byte of the leave sequence
+        // would be undoing a mode belonging to whatever the TUI was launched
+        // from: `\x1b[?1049l` restores that program's saved cursor, and the
+        // mouse-off run turns its tracking off.
+        expect(countOf(out, ALT_SCREEN_OFF)).toBe(0);
+        expect(countOf(out, MOUSE_OFF_FIRST)).toBe(0);
+        expect(countOf(out, CURSOR_SHOW)).toBe(0);
     }, 20_000);
 
     test("does not lose a key typed while the first snapshot is still loading", async () => {

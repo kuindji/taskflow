@@ -132,7 +132,9 @@ describe("startBackend", () => {
         const binary = await writeFakeBackend("exit 3");
         let message = "";
         try {
-            handles.push(await startBackend({ binary, args: [], devBranch: null, timeoutMs: 2000 }));
+            handles.push(
+                await startBackend({ binary, args: [], devBranch: null, timeoutMs: 2000 }),
+            );
         } catch (err) {
             message = err instanceof Error ? err.message : String(err);
         }
@@ -180,7 +182,9 @@ describe("startBackend", () => {
         const binary = await writeFakeBackend('echo "bind: address already in use" >&2; exit 3');
         let message = "";
         try {
-            handles.push(await startBackend({ binary, args: [], devBranch: null, timeoutMs: 2000 }));
+            handles.push(
+                await startBackend({ binary, args: [], devBranch: null, timeoutMs: 2000 }),
+            );
         } catch (err) {
             message = err instanceof Error ? err.message : String(err);
         }
@@ -215,7 +219,9 @@ describe("startBackend", () => {
     }, 10_000);
 
     test("gives concurrent starts their own port file", async () => {
-        const slow = await writeFakeBackend('sleep 1; echo 4329 > "$TASKFLOW_PORT_FILE"; exec sleep 30');
+        const slow = await writeFakeBackend(
+            'sleep 1; echo 4329 > "$TASKFLOW_PORT_FILE"; exec sleep 30',
+        );
         const fast = await writeFakeBackend('echo 4328 > "$TASKFLOW_PORT_FILE"; exec sleep 30');
         const [a, b] = await Promise.all([
             start({ binary: fast, args: [], devBranch: null, timeoutMs: 4000 }),
@@ -281,7 +287,9 @@ describe("startBackend", () => {
         );
         let message = "";
         try {
-            handles.push(await startBackend({ binary, args: [], devBranch: null, timeoutMs: 1500 }));
+            handles.push(
+                await startBackend({ binary, args: [], devBranch: null, timeoutMs: 1500 }),
+            );
         } catch (err) {
             message = err instanceof Error ? err.message : String(err);
         }
@@ -298,7 +306,9 @@ describe("startBackend", () => {
         );
         let message = "";
         try {
-            handles.push(await startBackend({ binary, args: [], devBranch: null, timeoutMs: 1500 }));
+            handles.push(
+                await startBackend({ binary, args: [], devBranch: null, timeoutMs: 1500 }),
+            );
         } catch (err) {
             message = err instanceof Error ? err.message : String(err);
         }
@@ -343,7 +353,9 @@ describe("startBackend", () => {
         );
         let message = "";
         try {
-            handles.push(await startBackend({ binary, args: [], devBranch: null, timeoutMs: 2000 }));
+            handles.push(
+                await startBackend({ binary, args: [], devBranch: null, timeoutMs: 2000 }),
+            );
         } catch (err) {
             message = err instanceof Error ? err.message : String(err);
         }
@@ -371,11 +383,67 @@ describe("startBackend", () => {
         expect(message).toMatch(/ENOENT/);
     });
 
+    test("kills the backend when the onSpawn hook throws", async () => {
+        // The hook runs after the child exists but before anything else holds a
+        // handle on it. Letting its throw leave the function is the one exit that
+        // skips both `terminate()` and the port-file cleanup, so the backend is
+        // left running with nothing able to stop it.
+        const dir = await mkdtemp(join(tmpdir(), "tui-backend-onspawn-"));
+        const keepalive = join(dir, "keepalive");
+        await writeFile(keepalive, "");
+        const binary = join(dir, "fake-backend.sh");
+        // Both the script path and the `tail -f` target live in this one temp
+        // directory, so `pgrep -f dir` identifies the child continuously — before
+        // the `exec` replaces the shell's command line and after.
+        await writeFile(
+            binary,
+            `#!/bin/sh\necho 4331 > "$TASKFLOW_PORT_FILE"\nexec tail -f "${keepalive}"\n`,
+        );
+        await chmod(binary, 0o755);
+        const stillRunning = async (): Promise<boolean> => {
+            const proc = Bun.spawn(["pgrep", "-f", dir], { stdout: "pipe", stderr: "ignore" });
+            const out = await new Response(proc.stdout).text();
+            await proc.exited;
+            return out.trim() !== "";
+        };
+
+        let message = "";
+        try {
+            handles.push(
+                await startBackend({
+                    binary,
+                    args: [],
+                    devBranch: null,
+                    timeoutMs: 2000,
+                    onSpawn: () => {
+                        throw new Error("hook failed");
+                    },
+                }),
+            );
+        } catch (err) {
+            message = err instanceof Error ? err.message : String(err);
+        }
+        // The hook's own error is the real reason startup did not happen, so it
+        // is what the caller has to see.
+        expect(message).toBe("hook failed");
+
+        let gone = false;
+        for (let i = 0; i < 120 && !gone; i++) {
+            gone = !(await stillRunning());
+            if (!gone) await Bun.sleep(25);
+        }
+        // Left behind on a red run, where nothing else can reach the child.
+        if (!gone) Bun.spawnSync(["pkill", "-f", dir]);
+        expect(gone).toBe(true);
+    }, 15_000);
+
     test("names the signal when the backend is killed before startup", async () => {
         const binary = await writeFakeBackend("kill -TERM $$");
         let message = "";
         try {
-            handles.push(await startBackend({ binary, args: [], devBranch: null, timeoutMs: 2000 }));
+            handles.push(
+                await startBackend({ binary, args: [], devBranch: null, timeoutMs: 2000 }),
+            );
         } catch (err) {
             message = err instanceof Error ? err.message : String(err);
         }

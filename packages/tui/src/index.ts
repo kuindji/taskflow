@@ -4,7 +4,7 @@ import { startBackend } from "./backend/manager";
 import { WsClient } from "./net/client";
 import { Store } from "./state/store";
 import { Screen } from "./render/screen";
-import { Tty, leaveSequence } from "./term/tty";
+import { Tty } from "./term/tty";
 import { negotiateKitty } from "./input/negotiate";
 import { decodeKitty } from "./input/decode-kitty";
 import { decodeLegacy, flushCarry } from "./input/decode-legacy";
@@ -220,10 +220,13 @@ void main().catch((err: unknown) => {
         // terminal is left exactly one leave sequence for the one it entered.
         terminalOwner.leave();
     } else {
-        // Nothing has been entered, so nothing was pushed: a kitty pop here
-        // would come off a stack this process never wrote to. Raw mode may be
-        // on, and its guard only runs at exit, after the error is printed.
-        process.stdout.write(leaveSequence({ kitty: false }));
+        // Nothing has been entered, so there is nothing to leave. Writing the
+        // leave sequence anyway would undo modes belonging to whatever the TUI
+        // was launched from: `CSI ? 1049 l` restores that program's saved cursor
+        // and the mouse-off run turns its tracking off — the same defect as the
+        // stray kitty pop, in the other direction. Raw mode is the one thing
+        // this process did change, and its guard only runs at exit, after the
+        // error is printed, so it comes off here.
         setRawMode(false);
     }
     console.error(err);

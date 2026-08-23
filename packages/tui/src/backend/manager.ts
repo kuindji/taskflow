@@ -117,8 +117,6 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
         child.kill();
         removePortFile(portFile);
     };
-    opts.onSpawn?.(stop);
-
     // The startup paths can wait, so they escalate: SIGTERM gives the backend its
     // shutdown handler, and a child that ignores it or has wedged is SIGKILLed
     // rather than left alive holding the port a retry needs.
@@ -133,6 +131,18 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
         }
         if (outcome.exit === null) child.kill("SIGKILL");
     };
+
+    // Handing the terminator over is the last thing that can fail before the poll
+    // loop, and it is the one failure the loop's own cleanup cannot see. A hook
+    // that throws would otherwise leave the child running with nothing holding a
+    // handle on it — exactly the leak the hook exists to prevent.
+    try {
+        opts.onSpawn?.(stop);
+    } catch (err) {
+        await terminate();
+        removePortFile(portFile);
+        throw err;
+    }
 
     const stderrSuffix = (): string => {
         const tail = outcome.stderr.trim();
