@@ -37,6 +37,15 @@ function isSwitcher(ev: KeyEvent): boolean {
 }
 
 /**
+ * True when the key is part of a chord rather than a bare press. Shift is
+ * excluded: a shifted printable arrives as its shifted character, so `Q` is
+ * the quit binding rather than a modified `q`.
+ */
+function isChorded(ev: KeyEvent): boolean {
+    return ev.mods.ctrl || ev.mods.alt || ev.mods.super;
+}
+
+/**
  * The complete keymap. `pendingEscape` holds the first half of a double-Esc
  * in legacy mode and is always false when the kitty protocol is available.
  */
@@ -46,28 +55,35 @@ function route(
     kittyAvailable: boolean,
     pendingEscape: boolean,
 ): RouteResult {
-    if (ev.kind === "release") return { action: { kind: "none" }, pendingEscape };
+    // The double-Esc switcher exists only in legacy mode, so under the kitty
+    // protocol there is nothing to hold and a caller that passed one anyway
+    // must not have a phantom Escape injected into the child on its behalf.
+    const held = kittyAvailable ? false : pendingEscape;
+
+    if (ev.kind === "release") return { action: { kind: "none" }, pendingEscape: held };
 
     if (kittyAvailable) {
         if (isSwitcher(ev)) return { action: { kind: "toggle-focus" }, pendingEscape: false };
     } else if (ev.name === "escape" && !ev.mods.ctrl && !ev.mods.alt) {
-        if (pendingEscape) return { action: { kind: "toggle-focus" }, pendingEscape: false };
+        if (held) return { action: { kind: "toggle-focus" }, pendingEscape: false };
         return { action: { kind: "none" }, pendingEscape: true };
     }
 
     if (focus === "session") {
         // A held Escape that turned out not to be a double-Esc still belongs to
         // the child, and must arrive before the key that followed it.
-        const events = pendingEscape
+        const events = held
             ? [{ name: "escape" as const, mods: noMods(), kind: "press" as const }, ev]
             : [ev];
         return { action: { kind: "to-child", events }, pendingEscape: false };
     }
 
-    if (ev.name === "enter") return { action: { kind: "open" }, pendingEscape: false };
+    if (ev.name === "enter" && !isChorded(ev)) {
+        return { action: { kind: "open" }, pendingEscape: false };
+    }
 
     const char = ev.char;
-    if (char !== undefined && !ev.mods.ctrl && !ev.mods.alt) {
+    if (char !== undefined && !isChorded(ev)) {
         if (char >= "1" && char <= "9") {
             return {
                 action: { kind: "select-tab", index: Number.parseInt(char, 10) - 1 },

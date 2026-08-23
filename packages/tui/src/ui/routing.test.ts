@@ -150,4 +150,40 @@ describe("route edge cases", () => {
             kind: "toggle-focus",
         });
     });
+
+    test("a super-modified sidebar char is not a command", () => {
+        const superJ = key({ char: "j", mods: { ...noMods(), super: true } });
+        expect(route("sidebar", superJ, true, false).action).toEqual({ kind: "none" });
+        const superQ = key({ char: "Q", mods: { ...noMods(), super: true } });
+        expect(route("sidebar", superQ, true, false).action).toEqual({ kind: "none" });
+        const super3 = key({ char: "3", mods: { ...noMods(), super: true } });
+        expect(route("sidebar", super3, true, false).action).toEqual({ kind: "none" });
+    });
+
+    test("a chorded enter does not open", () => {
+        for (const mod of ["ctrl", "alt", "super"] as const) {
+            const chord = key({ name: "enter", mods: { ...noMods(), [mod]: true } });
+            expect(route("sidebar", chord, true, false).action).toEqual({ kind: "none" });
+        }
+        const shiftEnter = key({ name: "enter", mods: { ...noMods(), shift: true } });
+        expect(route("sidebar", shiftEnter, true, false).action).toEqual({ kind: "open" });
+    });
+
+    test("kitty mode never injects a held escape into the child", () => {
+        const ev = key({ char: "a" });
+        const result = route("session", ev, true, true);
+        expect(result.action).toEqual({ kind: "to-child", events: [ev] });
+        expect(result.pendingEscape).toBe(false);
+    });
+
+    test("kitty mode clears a held escape rather than carrying it", () => {
+        expect(route("sidebar", key({ char: "a", kind: "release" }), true, true)).toEqual({
+            action: { kind: "none" },
+            pendingEscape: false,
+        });
+        expect(route("sidebar", key({ name: "escape" }), true, true)).toEqual({
+            action: { kind: "none" },
+            pendingEscape: false,
+        });
+    });
 });
