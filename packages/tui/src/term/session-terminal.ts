@@ -51,6 +51,8 @@ class SessionTerminal {
     private recent: PendingChunk[] = [];
     private recentBytes = 0;
     private readonly kitty = new KittyKeyboardStack();
+    /** Counts kitty push/pop sequences parsed, so a replay can be told whether it carried any. */
+    private kittyEvents = 0;
     private hiddenCursor = false;
     private readonly disposers: Array<() => void> = [];
     /** Serializes writes so `attach()` can await the parser actually finishing. */
@@ -110,6 +112,7 @@ class SessionTerminal {
             parser.registerCsiHandler({ prefix: ">", final: "u" }, (params) => {
                 const first = params[0];
                 this.kitty.push(typeof first === "number" ? first : 0);
+                this.kittyEvents += 1;
                 return false;
             }),
         );
@@ -117,6 +120,7 @@ class SessionTerminal {
             parser.registerCsiHandler({ prefix: "<", final: "u" }, (params) => {
                 const first = params[0];
                 this.kitty.pop(typeof first === "number" ? first : 1);
+                this.kittyEvents += 1;
                 return false;
             }),
         );
@@ -249,27 +253,34 @@ class SessionTerminal {
         // them, so there the saved state is the best we have.
         if (restore !== "") void this.enqueue(restore);
 
+        const kittyEventsBefore = this.kittyEvents;
         try {
             const history = await this.deps.net.request<SessionHistoryResponse>(
                 MSG.SESSION_HISTORY,
                 { ...this.deps.owner, sessionId: this.deps.sessionId },
             );
             if (history.data) await this.enqueue(history.data);
-            this.recoverKittyStack(savedKitty);
+            this.recoverKittyStack(savedKitty, this.kittyEvents === kittyEventsBefore);
             await this.finishLoad(history.lastSequence);
         } catch {
-            this.recoverKittyStack(savedKitty);
+            this.recoverKittyStack(savedKitty, this.kittyEvents === kittyEventsBefore);
             await this.finishLoad(-1);
         }
     }
 
     /**
-     * History has been replayed; if it still carried the child's pushes the
-     * stack rebuilt itself and stands. If it was trimmed past them the stack is
-     * empty and the pre-drop state is the best guess left, the same reasoning
-     * that replays the saved DEC modes on this path.
+     * History has been replayed. If it carried any of the child's own pushes or
+     * pops the stack rebuilt itself and stands — including when it rebuilt to
+     * empty, which means the child left the protocol while we were disconnected
+     * and must not be dragged back into it. Only a replay that carried no kitty
+     * sequences at all leaves the pre-drop state as the best guess, the same
+     * reasoning that replays the saved DEC modes on this path.
      */
-    private recoverKittyStack(saved: readonly (number | null)[]): void {
+    private recoverKittyStack(
+        saved: readonly (number | null)[],
+        historyCarriedNoKitty: boolean,
+    ): void {
+        if (!historyCarriedNoKitty) return;
         if (this.kitty.flags === null && saved.length > 0) this.kitty.restore(saved);
     }
 

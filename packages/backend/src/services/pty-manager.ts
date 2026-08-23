@@ -113,6 +113,13 @@ interface Session {
      * and is what a snapshot of the terminal's state actually covers.
      */
     parsedSequence: number;
+    /**
+     * True while a restored session's log is still being parsed. Nothing of it
+     * is on the grid yet, so a snapshot taken now would serialize a blank screen
+     * and there is no replay a client could rebuild it from — the log lives only
+     * in the scrollback that `SESSION_HISTORY` serves.
+     */
+    restorePending: boolean;
     headless: HeadlessTerminal;
     serializer: SerializeAddon;
     /** Kitty keyboard protocol state the child pushed; SerializeAddon does not carry it. */
@@ -140,6 +147,7 @@ export class PtyManager {
         let lastSequence = options.startSequence ?? 0;
         const startSequence = lastSequence;
         let parsedSequence = lastSequence;
+        let restorePending = false;
         let sessionEntry: Session | null = null;
 
         const markParsed = (sequence: number) => {
@@ -177,9 +185,13 @@ export class PtyManager {
             scrollback.push(retained);
             scrollbackLen = retained.length;
             // Nothing of the restored log is on the grid until this completes,
-            // so the session starts out covering no sequence at all.
+            // so the session starts out covering no sequence at all and has no
+            // snapshot worth serving.
             parsedSequence = 0;
+            restorePending = true;
             headless.write(retained, () => {
+                restorePending = false;
+                if (sessionEntry) sessionEntry.restorePending = false;
                 markParsed(startSequence);
             });
         }
@@ -309,6 +321,7 @@ export class PtyManager {
             scrollback,
             lastSequence,
             parsedSequence,
+            restorePending,
             headless,
             serializer,
             kitty,
@@ -360,7 +373,10 @@ export class PtyManager {
 
     getSnapshot(id: string): SessionSnapshotResponse {
         const session = this.sessions.get(id);
-        if (!session) {
+        // A restored session whose log has not been parsed yet would serialize a
+        // blank screen. Reporting no snapshot sends the client to SESSION_HISTORY,
+        // which serves the scrollback the grid is still catching up on.
+        if (!session || session.restorePending) {
             return { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] };
         }
         // Access internal API: SerializeAddon v0.13.0 doesn't serialize DECTCEM

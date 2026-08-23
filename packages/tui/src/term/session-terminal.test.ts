@@ -460,6 +460,66 @@ describe("SessionTerminal", () => {
         term.dispose();
     });
 
+    test("re-attaching honours a kitty pop the history replay carries", async () => {
+        // The child left the protocol while we were disconnected, and the
+        // scrollback still carries both its push and its pop. Replaying it
+        // rebuilds an empty stack, which is the truth — the pre-drop stack must
+        // not stand in for it.
+        const net = fakeNet({
+            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_HISTORY]: { data: "\x1b[>5u", lastSequence: 0 },
+        });
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        await settle();
+        expect(term.modes.kittyFlags).toBe(5);
+
+        net.request = <T,>(type: string): Promise<T> => {
+            if (type === MSG.SESSION_SNAPSHOT) {
+                return Promise.resolve({
+                    snapshot: null,
+                    lastSequence: 0,
+                    cursorHidden: false,
+                    kittyStack: [],
+                } as unknown as T);
+            }
+            if (type === MSG.SESSION_HISTORY) {
+                return Promise.resolve({ data: "\x1b[>5u\x1b[<u", lastSequence: 0 } as unknown as T);
+            }
+            return Promise.reject(new Error(`no stub for ${type}`));
+        };
+        await term.attach();
+        await settle();
+        expect(term.modes.kittyFlags).toBeNull();
+        term.dispose();
+    });
+
+    test("re-attaching keeps the pre-drop kitty stack when history carries none", async () => {
+        // Raw scrollback may have been trimmed past the child's push. A replay
+        // that carries no kitty sequence at all says nothing about the protocol,
+        // so the pre-drop stack is the best guess left.
+        const responses: Record<string, unknown> = {
+            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_HISTORY]: { data: "\x1b[>5u", lastSequence: 0 },
+        };
+        const net = fakeNet(responses);
+        net.request = <T,>(type: string): Promise<T> => {
+            const response = responses[type];
+            if (response === undefined) return Promise.reject(new Error(`no stub for ${type}`));
+            return Promise.resolve(response as T);
+        };
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        await settle();
+        expect(term.modes.kittyFlags).toBe(5);
+
+        responses[MSG.SESSION_HISTORY] = { data: "TRIMMED", lastSequence: 0 };
+        await term.attach();
+        await settle();
+        expect(term.modes.kittyFlags).toBe(5);
+        term.dispose();
+    });
+
     test("restores the kitty stack the snapshot reports", async () => {
         const net = fakeNet({
             [MSG.SESSION_SNAPSHOT]: {

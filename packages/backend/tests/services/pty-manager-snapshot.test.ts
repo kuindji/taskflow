@@ -44,6 +44,30 @@ describe("PtyManager.getSnapshot", () => {
         manager.close(sessionId);
     });
 
+    it("offers no snapshot until the restored log has parsed", async () => {
+        // headless.write() parses on a later tick, so immediately after spawn
+        // the grid is still empty. Handing a client that empty snapshot makes it
+        // skip SESSION_HISTORY and render a blank resumed terminal.
+        const sessionId = manager.spawn({
+            command: testShell,
+            args: [],
+            cwd: testCwd,
+            initialOutput: "RESTORED-LOG",
+            startSequence: 7,
+            onData: () => {},
+            onExit: () => {},
+        });
+
+        const immediate = manager.getSnapshot(sessionId);
+        expect(immediate.snapshot).toBeNull();
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const settled = manager.getSnapshot(sessionId);
+        expect(settled.snapshot).toContain("RESTORED-LOG");
+        expect(settled.lastSequence).toBe(7);
+        manager.close(sessionId);
+    });
+
     it("reports the kitty keyboard flags the child pushed", async () => {
         const sessionId = manager.spawn({
             command: testShell,
