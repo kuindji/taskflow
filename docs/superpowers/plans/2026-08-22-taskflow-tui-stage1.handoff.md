@@ -18,7 +18,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
-| 11 | State store | implemented | `9420a4b` | commit `21040e4`; review round 1 due |
+| 11 | State store | in-review round 1 | `9420a4b` | commits `21040e4`, `3cb8118`; round 1 found 2 defects, both fixed; round 2 due |
 | 12 | Focus and key routing | pending | — | |
 | 13 | Sidebar rendering | pending | — | |
 | 14 | Session pane and tab strip | pending | — | |
@@ -1897,6 +1897,71 @@ width and cursor edge cases.
   `load()`. There is no message to subscribe to, so this belongs to Task 17
   (reconnection and resync) or to a backend change, not here.
 
-Next step: review round 1 for Task 11 — run one gpt-5.5 review via the codex-review
-skill over `9420a4b..21040e4`, verify the findings independently, fix the
+## Task 11 — review rounds
+
+- **Task 11, round 1** (gpt-5.5 via codex-review, Mode B over `9420a4b..21040e4`,
+  prompt scoped to `packages/tui/src/state/` with the backend broadcast sites named
+  as context to verify): one finding from Codex, substantiated; one further defect
+  found by Claude's own verification during the same round. Both fixed in `3cb8118`.
+  Run the repros with `bun test packages/tui/src/state/`.
+
+  - **Substantiated (Codex, High) — `load()` overwrote a broadcast that arrived
+    while it was in flight.** The constructor subscribes before `load()` runs, and
+    `load()` assigned both lists unconditionally from the snapshot. Sequence: the
+    `TASK_LIST` response resolves without `t7`; the slower `PROJECT_LIST` request is
+    still pending; a `TASK_CREATED` for `t7` arrives and is applied; `Promise.all`
+    then settles and `this.taskList = tasks.tasks` drops `t7`. Observable symptom: a
+    task created or renamed in the moment the TUI starts shows stale, or not at all,
+    until some later event touches it. Realistic because the two snapshot requests
+    settle independently and `listProjects()` does per-project `stat()` work.
+    Regression test: `Store > keeps an event that arrived while load() was in flight`
+    — red on `21040e4`, green on `3cb8118`. Uses a `slowNet` helper whose
+    `PROJECT_LIST` response is gated so the emit genuinely lands mid-load.
+    Fix: a `deferred` queue, non-null only while a `load()` is in flight; event
+    handlers push their mutation onto it instead of applying, and `load()`'s
+    `finally` replays the queue on top of the snapshot in arrival order, then
+    notifies once. Replay happens in `finally` rather than after the `await` so a
+    failed snapshot request does not silently swallow the events that arrived during
+    it. This is the fix Codex proposed; it was already implemented and verified
+    before the report landed.
+
+  - **Substantiated (Claude) — `PROJECT_REMOVED` left the project's tasks behind.**
+    `taskStore.removeProject` (`packages/backend/src/services/task-store.ts:540`)
+    deletes every task of the project, and no per-task event is broadcast for them,
+    so the store dropped the project but kept its tasks forever. Observable symptom:
+    `store.tasks` (and `tasksFor(<removed id>)`) keeps returning phantom tasks of a
+    deleted project — anything reading the flat task list, rather than iterating
+    live projects, shows them. Regression test:
+    `Store > removes a project's tasks when the project is removed` — red on
+    `21040e4` (`["t1","t2"]`), green on `3cb8118` (`["t2"]`). Fix: the
+    `PROJECT_REMOVED` handler filters `taskList` by `projectId` as well.
+    Note this is distinct from the recorded task-deletion limitation: there the
+    store receives no event at all, here it receives one that implies the removal.
+
+  - **Codex's clean areas, independently spot-checked, no action.** Payload-shape
+    casts: Claude re-enumerated every broadcast site, including the ones the
+    implementation note missed (`session-lifecycle.ts:207/217/599/614`,
+    `title-generator.ts:54`, `git.ts:205`, `worktree-setup.ts:135/144`,
+    `attribute-routes.ts:37/41`, `handlers/attribute.ts:60/66`,
+    `project-routes.ts:255`) — all send a full filtered `Project`/`Task` or `{ id }`,
+    so `payload as Project` / `as Task` / `as { id: string }` hold. `notify()`
+    copying the listener set is sound. Getter predicates match the shared types
+    (`Project.hidden?: boolean` at `packages/shared/src/types/project.ts:19`), and
+    per-access allocation is not material at this scale.
+
+  - **Test-coverage gaps Codex noted, closed in the same commit.** Two tests added
+    that are green both before and after the fix, so they are coverage rather than
+    repros: `Store > hides projects flagged hidden` (the `hidden !== true` filter had
+    no test at all — deleting it left all five plan tests passing) and
+    `Store > dispose detaches the backend event subscriptions` (asserts the `net.on`
+    disposers actually run, via a `listenerCount` hook on the fake net).
+
+- Validation at `3cb8118`: `bun run lint` exit 0, `bun run typecheck` exit 0 across
+  all five packages, `bun test` 1025 pass / 8 fail — the 8 being the recorded
+  pre-existing `MarkdownPaneImpl` suite-ordering failures, verified unchanged by
+  name, and 1025 = the previous 1021 plus this round's 4 new tests. Working tree
+  clean.
+
+Next step: review round 2 for Task 11 — run one gpt-5.5 review via the codex-review
+skill over `9420a4b..3cb8118`, verify the findings independently, fix the
 substantiated ones, validate, and commit.
