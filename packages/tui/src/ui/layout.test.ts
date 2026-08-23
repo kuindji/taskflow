@@ -25,6 +25,16 @@ describe("computeLayout", () => {
         expect(computeLayout(80, 1, false).paneHeight).toBe(0);
     });
 
+    // One row is the smallest size at which `rows - 1` is still correct on its
+    // own, so the test above passes with or without the clamp and pins nothing.
+    // Zero rows is the only input that reaches it. `index.ts` cannot produce
+    // one today — `process.stdout.rows || 24` turns a zero into 24 — so this
+    // guards the clamp for the resize path that will call `computeLayout`
+    // directly rather than for a size the entry point can pass now.
+    test("a zero-row terminal leaves the pane no height either", () => {
+        expect(computeLayout(80, 0, false).paneHeight).toBe(0);
+    });
+
     test("the pane fills the columns the sidebar does not", () => {
         const layout = computeLayout(100, 30, false);
         expect(layout.paneX).toBe(layout.sidebarWidth);

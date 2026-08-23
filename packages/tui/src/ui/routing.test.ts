@@ -334,6 +334,24 @@ describe("routeMouse", () => {
         ).toEqual({ kind: "none" });
     });
 
+    // The column the sidebar ends on is the column the pane starts on, and
+    // the two tests are one apart: an off-by-one in either bound hands the
+    // pane's first column to the sidebar, or the sidebar's last to the pane.
+    test("the sidebar owns its last column and the pane owns the first", () => {
+        expect(
+            routeMouse(at({ col: layout.sidebarWidth - 1, row: 5 }), layout, {
+                rows: 20,
+                tabs: tabs(1),
+            }),
+        ).toEqual({ kind: "select", index: 5 });
+        expect(
+            routeMouse(at({ col: layout.sidebarWidth, row: 5 }), layout, {
+                rows: 20,
+                tabs: tabs(1),
+            }),
+        ).toEqual({ kind: "focus", target: "session" });
+    });
+
     test("the sidebar's columns belong to the pane while zoomed", () => {
         const zoomed = computeLayout(100, 30, true);
         expect(routeMouse(at({ col: 5, row: 7 }), zoomed, { rows: 20, tabs: tabs(1) })).toEqual({
