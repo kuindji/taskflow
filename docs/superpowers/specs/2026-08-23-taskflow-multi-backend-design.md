@@ -8,7 +8,7 @@ Status: Approved for planning
 The desktop client can only ever talk to the backend Electron spawned for it.
 `packages/ui/src/hooks/useWebSocket.ts` holds one module-level socket pointed at
 `ws://localhost:<port>`, where the port arrives once from Electron main
-(`WebSocketProvider.tsx:23`). A user with Taskflow running on more than one
+(`packages/ui/src/providers/WebSocketProvider.tsx:23`). A user with Taskflow running on more than one
 machine — a desktop that runs the agents and a laptop they carry — has no way to
 see the desktop's projects, tasks and sessions from the laptop's app. The only
 client that will be able to is the TUI, whose `--connect` mode is being built
@@ -42,6 +42,8 @@ creating or repairing projects on a remote host.
 | Re-point mechanism | Re-point the existing singleton, then reset stores and remount the shell |
 | Menu location | The sidebar's bottom-left `Monitor` button; Master Workspace folds into the menu |
 | Local-path affordances | Disabled while a remote backend is active |
+| Backend bind address | Changed to `127.0.0.1` by this spec. It is a prerequisite, not an inherited assumption |
+| Protocol compatibility | A `PROTOCOL_VERSION` constant, carried in the beacon and checked on connect |
 
 ### Rejected alternatives
 
@@ -76,8 +78,8 @@ for the browser-based dev renderer that has no Electron at all.
 **No authentication, backend bound to a routable interface.** Considered — on a
 trusted LAN with discovery it is the least work. Rejected because the backend
 spawns shells: an unauthenticated listener means any device on the network can
-run commands on the host. It also directly contradicts the loopback bind the TUI
-design introduces. SSH keys the user already manages give the same one-click
+run commands on the host. That is true of the backend as it stands today, which
+is why the loopback bind is a prerequisite of this design rather than a nicety. SSH keys the user already manages give the same one-click
 feel once configured.
 
 **mDNS/Bonjour via `bonjour-service`.** Standard, inspectable with `dns-sd`,
@@ -111,6 +113,37 @@ is pure data with a JSON file behind it and is testable without spawning
 anything, while the tunnel manager is all process and stderr handling and is
 tested through its pure argv builder and failure classifier.
 
+## Required backend changes
+
+This design does not work on today's backend. Three changes come first, and each
+is worth making on its own.
+
+**Bind to loopback.** `createServer` calls `Bun.serve({ port })` with no
+`hostname` (`packages/backend/src/ws/server.ts:41`), and Bun defaults to
+`0.0.0.0`. The backend spawns shells, so it is currently reachable and
+unauthenticated from any device on the LAN. Passing `hostname: "127.0.0.1"` is
+what makes the SSH tunnel the only route in, and it must land **before** the
+beacon starts advertising the port — advertising a port that anyone can connect
+to directly is strictly worse than today. The TUI design introduces the same
+change; whichever lands first, the other inherits it.
+
+**A stable port file.** Today `config.portFile` is a temp path supplied by
+Electron via `TASKFLOW_PORT_FILE` (`packages/backend/src/config.ts:74`), written
+after `server.start()` (`packages/backend/src/index.ts:469`) and never removed by
+the backend — Electron cleans up its own artifact instead
+(`electron/src/backend-manager.ts:101`). A new `config.instancePortFile` at
+`<BASE_DIR>/<instanceId>.port` is written alongside it and, unlike the existing
+one, removed in the backend's `shutdown` handler
+(`packages/backend/src/index.ts:499`). Both the manual-connect fallback and the
+TUI need a path that does not depend on who spawned the process.
+
+**A protocol version.** There is no version anywhere in the protocol today —
+`SYSTEM_INFO` returns editors and homedir (`packages/backend/src/index.ts:416`)
+and `packages/shared/src/utils/version.ts` only parses semver strings for agent
+CLIs. A `PROTOCOL_VERSION` constant is added to
+`packages/shared/src/constants.ts`, bumped when the message set changes
+incompatibly. See Version compatibility.
+
 ## Discovery
 
 ### Beacon
@@ -121,7 +154,7 @@ Every backend advertises on start unless disabled. Multicast group
 Payload, JSON, under 512 bytes:
 
 ```
-{ v: 1, instanceId, hostname, displayName, port, appVersion, os }
+{ v: 1, protocolVersion, instanceId, hostname, displayName, port, appVersion, os }
 ```
 
 `instanceId` is `config.instanceId` — `main`, or `dev-<branch>` under
@@ -144,21 +177,45 @@ Electron main joins the same group, keeps a map keyed by `hostname:instanceId`,
 and marks an entry stale after 15 seconds without an announcement. The renderer
 subscribes over IPC and re-renders the menu as entries appear and go stale.
 
+Multicast is not one decision, it is several per-platform ones:
+
+- **Interfaces.** `addMembership(group)` joins one interface the OS picks. On a
+  laptop with Wi-Fi, Ethernet, a VPN and Docker bridges that is frequently the
+  wrong one. Both sides enumerate `os.networkInterfaces()` and call
+  `addMembership(group, address)` for every non-internal IPv4 interface, and
+  send announcements out of each via `setMulticastInterface`. A join that throws
+  for one interface is logged and skipped, never fatal.
+- **Rebinding.** Interfaces come and go. The membership set is recomputed when
+  `os.networkInterfaces()` changes, polled every 30 seconds — cheap, and simpler
+  than platform-specific link-state watching.
+- **`reuseAddr: true`** on both sockets, so a dev backend and a production
+  backend on one machine can both bind `47654`.
+- **macOS local network permission.** Multicast is local-network traffic, so
+  macOS prompts on first use and silently drops datagrams if denied. The
+  Electron build gains `NSLocalNetworkUsageDescription` in Info.plist. If no
+  backend is ever discovered on macOS, the menu shows a hint pointing at System
+  Settings rather than an empty list, because a denied permission and an empty
+  network look identical from inside the process.
+- **Failure is not an error state.** Many networks drop multicast entirely.
+  Discovering nothing is normal; manual connect is always available.
+
 The listener and the advertiser are the same module in `@taskflow/shared` behind
 a new `"./discovery"` entry in the package's `exports` map, so that `node:dgram`
 never reaches the browser bundle — `packages/shared/package.json` currently has
-no `exports` map at all and is consumed as source, so one is added with `"."`
-pointing at `src/index.ts` to preserve today's behaviour.
+no `exports` map at all and is consumed as source (`"main": "src/index.ts"`), so
+one is added with `"."` pointing at `./src/index.ts` to preserve today's
+resolution for Vite, the backend's `bun build --compile`, the TUI build and
+Electron's `Bun.build`. `src/index.ts` must never re-export the discovery module:
+one stray `export *` and `node:dgram` lands in the browser bundle. A test asserts
+the barrel does not reach it.
 
 ### Port file fallback
 
 Multicast is dropped by many WLAN access points and by every VPN and Tailscale
-link. For those hosts the backend also writes its port to a stable path:
-a new `config.instancePortFile`, resolving to `<BASE_DIR>/<instanceId>.port`,
-written alongside the existing `config.portFile` (`config.ts:74`) and removed on
-clean shutdown. Manual "Connect to backend…" resolves a host with no beacon by running
-`ssh <user>@<host> cat <path>` over the same SSH the tunnel will use. This also
-gives the TUI a stable port file it does not have today.
+link. For those hosts, manual "Connect to backend…" resolves a host with no
+beacon by running `ssh <user>@<host> cat <BASE_DIR>/<instanceId>.port` over the
+same SSH the tunnel will use, reading the stable port file described under
+Required backend changes.
 
 ## Connecting
 
@@ -204,10 +261,25 @@ stderr instead. `ExitOnForwardFailure=yes` makes a failed forward an exit rather
 than a silently dead tunnel. The keepalive options make a sleeping laptop's dead
 tunnel fail fast rather than hang.
 
-Readiness is a TCP connect to the local end, polled for up to 10 seconds. The
-renderer then receives `ws://127.0.0.1:<local>` and connects to it exactly as it
-connects to the local backend today; HTTP file URLs
+Readiness is **not** a TCP connect to the local end. `ssh -L` accepts
+connections as soon as it is up, whether or not anything is listening on the
+remote side, so a TCP connect proves only that ssh is running. Readiness is an
+HTTP `GET /` through the forward, which the backend answers with
+`Taskflow backend` and a 200 (`packages/backend/src/ws/server.ts:48`), polled for
+up to 10 seconds. That proves the remote backend is actually there, and is what
+separates "the machine is up but Taskflow is not running" from every other
+failure.
+
+The renderer then receives `ws://127.0.0.1:<local>` and connects to it exactly as
+it connects to the local backend today; HTTP file URLs
 (`packages/ui/src/lib/backend-url.ts`) go over the same forward.
+
+**Local port allocation races.** Binding port 0, reading the port and closing it
+before handing the number to ssh leaves a window in which something else takes
+it. Narrow, but reachable when a retry and an activation overlap. With
+`ExitOnForwardFailure=yes` this is a clean, immediate ssh exit carrying
+`Address already in use` rather than a silent half-failure, so the tunnel manager
+retries with a fresh port, up to three times, before reporting failure.
 
 The ssh child is killed when the backend is switched away from, when the
 connection is explicitly closed, and on app quit. If it exits on its own, main
@@ -233,15 +305,29 @@ details area — a misclassified failure must still be diagnosable.
 
 ### Host key trust
 
-On `Host key verification failed`, main runs `ssh-keyscan -T 5 <host>`, and the
-renderer shows a dialog with the host, key type and SHA256 fingerprint. On
-approval main appends the scanned line to `~/.ssh/known_hosts` and retries the
-tunnel once. On rejection the connection attempt ends.
+On `Host key verification failed`, main first runs `ssh-keygen -F <host>` to
+find out which case it is:
 
-This is deliberately the one security decision the app makes on the user's
-behalf, and it is the standard first-connect prompt ssh would show in a
-terminal — with the caveat, stated in the dialog, that a first-use fingerprint
-is trusted rather than verified.
+- **No entry.** First contact. Run `ssh-keyscan -T 5 -p <port> <host>`, show the
+  host, key type and SHA256 fingerprint, and on approval append the scanned lines
+  to `~/.ssh/known_hosts` with a leading newline guard, creating `~/.ssh` as 0700
+  and `known_hosts` as 0600 if absent. Non-default ports are written in
+  `[host]:port` form, which is what `ssh-keyscan -p` emits. Then retry once.
+- **An entry exists and does not match.** The key changed. This is never
+  auto-fixed and no fingerprint dialog is offered — it is exactly what an
+  interception looks like. The user gets ssh's own message and the offending
+  line number, and is told to resolve it themselves.
+
+Hashed `known_hosts` files are handled by `ssh-keygen -F` rather than by parsing,
+which is why detection goes through it instead of a grep.
+
+This is the one security decision the app makes for the user, and it matters
+more here than in a terminal, because the host being trusted may have arrived
+from **a beacon**. Anyone on the LAN can advertise a convincing entry pointing at
+a machine they control. The host key check is what stops that from being useful:
+a spoofed entry either fails to authenticate, or presents an unknown key the user
+is asked to look at. Beacons are hints about where to look, never grounds for
+trust — the menu shows discovered entries as unverified until first connect.
 
 ## Switching
 
@@ -265,26 +351,81 @@ Because the socket is opened before the old one closes, two sockets exist for
 the duration of a handshake. The backend already permits concurrent clients, and
 they are to different backends here, so this is harmless.
 
-### Store reset
+### What the WS client has to become
 
-`stores/store-reset.ts` exports `registerStoreReset(fn)` and `resetAllStores()`.
-Every store module registers its own reset at module scope. The remount handles
-component state; the registry handles the module-level zustand state that a
-remount does not touch. A test enumerates `stores/*.ts` and asserts each
-non-test module registered a reset, so a new store cannot silently leak records
-across a switch.
+The current client is not a connection, it is a set of module globals: one `ws`,
+one `wsPort`, and shared `pendingRequests` / `eventListeners` / `statusListeners`
+maps (`packages/ui/src/hooks/useWebSocket.ts:3-25`). `connectWebSocket` closes
+the old socket *before* opening the new one and nulls `onclose` to stop the stale
+handler firing (`useWebSocket.ts:56-66`). Opening the new socket first, as the
+switch requires, means two sockets exist at once, and every one of those globals
+would be written by both.
+
+The change is contained but it is not free. The module gains a generation
+counter. Each socket captures its generation on creation, and `onmessage`,
+`onclose` and `onerror` return immediately if their generation is not the
+current one. Only the current socket may reject `pendingRequests`, flip
+`connected`, or call `scheduleReconnect`. In-flight requests belonging to the
+outgoing socket reject with a distinct `BackendSwitched` error so callers can
+tell a switch apart from a dropped connection. `connectWebSocket(port)` becomes
+`connectTo(origin)`, taking a full origin rather than a port, because a tunnel
+port is not `localhost` in any meaningful sense and `backend-url.ts` needs the
+origin anyway.
+
+`eventListeners` deliberately stays global and is **not** cleared. Listeners are
+registered against message types, not sockets, so they keep working across the
+swap. That is what makes the switch survivable at all, and it is also why the
+reset is more subtle than "unmount everything" — see below.
+
+### Reset and re-bootstrap
+
+Remounting `AppShell` disposes component state, terminals and Monaco models. It
+does **not** re-run module-scope initialization, and the codebase has real
+module-scope initialization:
+
+- `initSessionSubscriptions(useSessionStore)` runs at import time
+  (`packages/ui/src/stores/session-store.ts:612`) and only tears down under HMR
+  (`packages/ui/src/stores/session-subscriptions.ts:262`).
+- `initConnectivity()` is guarded by an `initialized` flag and never runs twice
+  (`packages/ui/src/hooks/useConnectivity.ts:31`), so its one-shot
+  `CONNECTIVITY_STATUS` request would never be re-issued against the new
+  backend and connectivity state would silently describe the previous one.
+
+So the switch is two distinct operations, not one:
+
+1. `resetAllStores()` clears record state. Every store registers its own reset
+   via `stores/store-reset.ts`.
+2. `rebootstrap()` re-runs the one-shot fetches that populated state at startup —
+   connectivity status among them. `initConnectivity` gains a reset for its
+   guard rather than a second listener registration.
+
+Event subscriptions are left alone in both. A test asserts that switching twice
+registers each `MSG` listener exactly once, because a leak here is invisible
+until it duplicates every terminal chunk.
 
 ### Electron main's own consumers
 
-`notification-poller.ts:27` and `tray-manager.ts:161,186` call
-`getBackendPort()` today, which means the local backend. Both move to the active
-backend's origin so desktop notifications and tray state describe what the user
-is looking at. `backend-manager.ts` keeps `getBackendPort()` for the local
-backend it owns; the registry exposes `getActiveOrigin()` separately.
+Three modules in main call `getBackendPort()` today, and they do not all want
+the same answer.
+
+`notification-poller.ts:27` and `tray-manager.ts:161,186` move to the **active**
+backend's origin, so desktop notifications and the tray icon describe what the
+user is looking at.
+
+`window-manager.ts:27,131` stays on the **local** backend. It reads and writes
+`layout.window` — the window's position, size and maximized state — through
+`/api/settings`. Window geometry is a property of this screen, not of the machine
+being viewed, and routing it to the active backend would mean a laptop's window
+position overwriting a desktop's every time you switched. This is the one
+deliberate exception to "settings follow the active backend", and it is invisible
+to the user precisely because it is the behaviour they already have.
+
+`backend-manager.ts` keeps `getBackendPort()` for the local backend it owns; the
+registry exposes `getActiveOrigin()` alongside it.
 
 ## The menu
 
-The `Monitor` button at `TaskSidebar.tsx:~380` becomes the backend menu:
+The `Monitor` button at `packages/ui/src/components/sidebar/TaskSidebar.tsx:381-395` becomes the backend menu:
 
 ```
 Master Workspace                    ✓
@@ -327,6 +468,24 @@ tooltip naming the reason:
 | `openExternalFile` (external editor) | `terminal/terminal-links.ts:64`, `file-store.ts:301`, `FileContextMenu.tsx:107` |
 | `showItemInFolder` | `FileContextMenu.tsx` |
 | `runInShell` | `Workspace.tsx:251,391` |
+| Native file drop into a terminal | `TerminalPane.tsx:457-470` |
+
+Native file drop needs explaining: dropping a file from Finder resolves a
+**client-machine** path with `webUtils.getPathForFile()` and types it into a
+session running on the backend. On a remote backend that path names a file that
+is not there. Dropping from Taskflow's own file explorer is unaffected — those
+are already backend paths (`TerminalPane.tsx:451-456`).
+
+Artifact download is the one place where disabling is the wrong answer, and it
+is fixed rather than gated. `saveArtifact` currently `copyFile`s a
+backend-supplied absolute path using the client's filesystem
+(`electron/src/ipc-handlers.ts:115`, triggered from
+`packages/ui/src/components/flows/FlowPanel.tsx:298`) — with a remote backend
+that either fails or, worse, copies an unrelated local file that happens to share
+the path. It moves to fetching the bytes from the active backend's
+`/api/file/raw` endpoint, which already exists and rides the tunnel. The save
+dialog stays local, because that is where the file is going. This makes the local
+case go through the same path as the remote one, so there is no untested branch.
 
 `openExternalUrl` stays enabled — it opens URLs, not paths. Monaco's raw-file
 fetch stays enabled; it is an HTTP request to the active backend and rides the
@@ -334,6 +493,30 @@ tunnel.
 
 Projects are therefore added and repaired on the machine that owns them. This is
 the deliberate v1 boundary: a remote backend is operated, not set up.
+
+## Version compatibility
+
+Two machines will not update in lockstep. A newer client against an older
+backend sends message types the router does not know
+(`packages/backend/src/ws/router.ts`), which surfaces as per-request errors in
+whichever pane happened to need them — the worst kind of failure to diagnose.
+
+`PROTOCOL_VERSION` is a single integer in `packages/shared/src/constants.ts`,
+bumped only when a change is not backward compatible. It rides in the beacon, so
+the menu can label an incompatible backend before you connect, and it is checked
+again on connect, since a backend reached manually never announced anything.
+
+- Equal: connect.
+- Backend older or newer, one step apart: connect, with a persistent banner
+  naming which side is behind and what to update.
+- More than one step apart: refuse, and say which version each side is running.
+
+Two entries with the same `PROTOCOL_VERSION` but different app versions are not
+flagged. That is the common case after a routine release and it works.
+
+The app's own auto-updater is unaffected: it updates this machine's app, which
+carries this machine's backend binary. Updating the app does not update a remote
+host, which is exactly why the version check exists.
 
 ## Non-Electron renderer
 
@@ -350,8 +533,18 @@ retry. The existing WebSocket backoff (`useWebSocket.ts:44-54`) still applies
 and will reconnect on its own if the tunnel survived. If the ssh child died, the
 first reconnect fails and retry re-establishes the tunnel before reconnecting.
 
-A backend that vanishes from discovery while active is not disconnected — the
+A backend that vanishes from discovery while active is not disconnected. The
 tunnel is what matters, and the beacon can be lost independently.
+
+Quitting the app with a remote backend active closes the socket and kills the
+ssh child. Nothing on the remote host stops: its sessions, agents and schedules
+belong to its own backend and keep running, which is the point of the feature.
+Reconnecting later re-attaches to those sessions through the existing snapshot
+path. The same is true in reverse — the local backend keeps running while you are
+looking at a remote one. Two backends on two machines have separate data
+directories, separate schedulers and separate session stores, so nothing is
+shared and nothing races. The double-write concern the TUI design raises applies
+to two backends on *one* machine, which this feature does not create.
 
 ## Testing
 
@@ -374,8 +567,16 @@ close only after the new one opens, and a failed activation must leave the
 original connection intact. The store-reset registry gets its own enumeration
 test.
 
-`useBackendIsLocal()` gating is tested at one representative site rather than
-all six.
+`useBackendIsLocal()` gating is tested at one representative site rather than at
+every one.
+
+The WS client's generation handling gets direct tests: a superseded socket's
+`close` must not reject the current socket's pending requests, must not flip
+connection status, and must not schedule a reconnect. This is the failure that
+would present as a mysterious disconnect seconds after a successful switch.
+
+Protocol version comparison — equal, one step, more than one step, missing on an
+old backend — is a pure function and is tested as one.
 
 ## Assumptions
 
@@ -399,8 +600,19 @@ was chosen over splitting the settings object.
 
 ## To verify during implementation
 
-Whether `resetAllStores()` plus the remount genuinely leaves nothing behind is
-the one unproven assumption. The enumeration test proves every store is
-*registered*; it cannot prove every store's reset is *complete*. If leaks show
-up in practice, the fallback is approach C — reloading the window on switch —
-which is a contained change behind the same menu action.
+**Does a switch really leave nothing behind?** The enumeration test proves every
+store is *registered* for reset; it cannot prove any store's reset is
+*complete*. If leaks show up, the fallback is approach C, reloading the window on
+switch, which is a contained change behind the same menu action.
+
+**Does `node:dgram` multicast survive `bun build --compile`?** It works under
+`bun run` on Bun 1.4.0 — verified directly: joining `239.255.42.98:47654`,
+sending, and receiving the datagram back. The backend ships as a compiled single
+binary, and Bun documents `node:dgram` as implemented but not fully covered by
+Node's test suite, so the compiled binary needs the same check before the beacon
+is relied on. If it fails there, the advertise side moves to a probe-response
+over the existing HTTP server and discovery narrows to hosts already known.
+
+**Does the macOS local-network prompt appear where users expect it?** Denial is
+silent from inside the process, so the "nothing discovered" hint is the only
+feedback path and needs to be seen on a real machine, not reasoned about.
