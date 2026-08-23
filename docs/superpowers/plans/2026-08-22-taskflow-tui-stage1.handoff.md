@@ -28,7 +28,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
-| 19.2 | Mouse — outer tracking on/off | implemented | `3829f83` | commit `5345824`; review round 1 due |
+| 19.2 | Mouse — outer tracking on/off | in-review round 1 | `3829f83` | commit `5345824`; round 1 found one substantiated issue, fixed in `a7af6dd`; review round 2 due |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
 | 19.5 | Mouse — forward to the child | pending | — | `ChildModes.mouseTracking`/`mouseEncoding`, `encodeMouseForChild` |
@@ -5047,12 +5047,67 @@ so the existing call sites are unchanged.
 Verification at `5345824`: `bun run lint` clean, `bun run typecheck` clean across all five
 packages, `bun test packages/tui` → 383 pass, 0 fail (378 before, plus the five new tests).
 
-Next step: Task 19.2 review round 1.
-Run one gpt-5.5 review via the codex-review skill over `3829f83..HEAD` restricted to
-`packages/tui`, verify every finding independently, fix the substantiated ones, validate with
-`bun run lint`, `bun run typecheck` and `bun test packages/tui`, and commit. Zero
-substantiated findings → 19.2 is clear and Task 19.3 (`ui/layout.ts`, `tabSpans`,
-`routeMouse`) is next. Mention in the review prompt that the two decisions above are settled,
-and that `leaveSequence` emitting `MOUSE_OFF` when `mouse` is false is deliberate.
+## Task 19.2, round 1
+
+**gpt-5.5 via codex-review, Mode B over `3829f83..HEAD`** (`packages/tui` only), with the two
+Task 19.2 decisions and the unconditional `MOUSE_OFF` called out as settled. Codex returned
+**one finding, substantiated and fixed**. Fix commit `a7af6dd`.
+
+- **Confirmed — `runTui` let an ambient `TASKFLOW_TUI_NO_MOUSE` decide the mouse tests.**
+  `runTui` spread the whole of `process.env` into the child, and the entry point reads the
+  opt-out from its own environment, so a developer or CI job that happens to have the
+  variable set saw the new default-on assertion fail against correct code.
+
+  Repro, red before the fix:
+  `TASKFLOW_TUI_NO_MOUSE=1 bun test packages/tui/src/index.test.ts -t "enables mouse tracking"`
+  → `Expected to contain: "\u001B[?1000h"`, received a capture with only the alt-screen and
+  leave bytes. Green after. Codex could not run this itself — its read-only sandbox hit
+  `EPERM` in the repo-root test preload before reaching the assertion — so it was reproduced
+  here independently.
+
+  Fixed by destructuring `TASKFLOW_TUI_NO_MOUSE` out of the inherited copy, so only what a
+  case passes explicitly reaches the entry point. The opt-out branch is untouched, and a
+  later case wanting the empty-string form can still pass it.
+
+Independent work alongside the report:
+
+- **The invariant test really is red-able.** Temporarily extending `MOUSE_ON` with
+  `\x1b[?1003h\x1b[?2004h` failed `everything the enter sequence enables, the leave sequence
+  disables` with `Expected to contain: "\u001B[?2004l"`, and correctly ignored the `1003h`
+  the leave sequence already restores. Tree restored afterwards.
+- **Mouse reports cannot leak to a child or to the keymap.** `decodeKitty` delegates every
+  non-`u` sequence to `decodeLegacy`, so SGR and X10 reports become `kind: "mouse"` events
+  under both decoders and hit the `continue` in `feed`. The one path that could release a
+  half-report as keys — `decodeKitty` calling `flushCarry` on a legacy carry when a kitty
+  sequence follows it in the same read — cannot: `flushCarry` drops a partial CSI and only
+  ever emits Escape or the two-byte Alt chords.
+- **Nothing else resets the modes.** No `RIS`, soft reset, or second `?1049h` anywhere in
+  `packages/tui/src`, so tracking cannot be silently switched off after entry.
+- **Found independently: the `feed` comment was stale.** It still claimed "19.2 is what turns
+  tracking on, so no report can reach here yet", which this task makes false. Corrected in
+  the same commit.
+
+## Decisions taken (Task 19.2, round 1)
+
+- **The env strip goes in `runTui`, not in each mouse case.** Every case that spawns the entry
+  point wants a known environment, not just the two new ones, and one destructure covers all
+  of them.
+- **Wheel and native selection stop working until 19.4, and that is accepted.** With `?1000h`
+  and `?1002h` on, the terminal reports wheel and drag instead of handling them, and `feed`
+  drops those reports. It is the staged cost the plan chose, and `TASKFLOW_TUI_NO_MOUSE` is
+  the way out until 19.4 routes them.
+
+Verification at `a7af6dd`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 383 pass, 0 fail. Codex independently ran the same three
+and reported them clean.
+
+Next step: Task 19.2 review round 2.
+Findings were fixed this round, so 19.2 gets another round. Run one gpt-5.5 review via the
+codex-review skill over `3829f83..HEAD` restricted to `packages/tui`, verify every finding
+independently, fix the substantiated ones, validate with `bun run lint`, `bun run typecheck`
+and `bun test packages/tui`, and commit. Zero substantiated findings → 19.2 is clear and Task
+19.3 (`ui/layout.ts`, `tabSpans`, `routeMouse`) is next. Mention in the review prompt that the
+four Task 19.2 decisions are settled, that `leaveSequence` emitting `MOUSE_OFF` when `mouse`
+is false is deliberate, and that round 1's env-inheritance finding is already fixed.
 After 19.2: 19.3 - 19.6, then Tasks 16-18, then Tasks 20 and 21 (each needs its own plan;
 20 touches `packages/backend` and `electron/`, 21 touches `packages/tui/src/input`).
