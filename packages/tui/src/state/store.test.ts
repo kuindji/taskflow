@@ -85,14 +85,17 @@ function slowNet(projects: Project[], tasks: Task[]): FakeNet & { resolveProject
  * A net that serves one snapshot pair per `load()` call, each behind its own
  * gate, so a test can resolve a later load before an earlier one.
  */
-function stagedNet(rounds: { projects: Project[]; tasks: Task[] }[]): FakeNet & { release(round: number): void } {
+function stagedNet(
+    rounds: { projects: Project[]; tasks: Task[] }[],
+    failing: number[] = [],
+): FakeNet & { release(round: number): void } {
     const base = fakeNet([], []);
-    const gates = rounds.map((round) => {
+    const gates = rounds.map((round, index) => {
         let release = (): void => undefined;
         const opened = new Promise<void>((resolve) => {
             release = resolve;
         });
-        return { round, opened, release };
+        return { round, opened, release, fails: failing.includes(index) };
     });
     let projectCall = 0;
     let taskCall = 0;
@@ -102,12 +105,18 @@ function stagedNet(rounds: { projects: Project[]; tasks: Task[] }[]): FakeNet & 
             if (type === MSG.PROJECT_LIST) {
                 const gate = gates[projectCall++];
                 if (!gate) throw new Error("stagedNet: no snapshot left for PROJECT_LIST");
-                return gate.opened.then(() => ({ projects: gate.round.projects }) as T);
+                return gate.opened.then(() => {
+                    if (gate.fails) throw new Error("snapshot failed");
+                    return { projects: gate.round.projects } as T;
+                });
             }
             if (type === MSG.TASK_LIST) {
                 const gate = gates[taskCall++];
                 if (!gate) throw new Error("stagedNet: no snapshot left for TASK_LIST");
-                return gate.opened.then(() => ({ tasks: gate.round.tasks }) as T);
+                return gate.opened.then(() => {
+                    if (gate.fails) throw new Error("snapshot failed");
+                    return { tasks: gate.round.tasks } as T;
+                });
             }
             return base.request<T>(type);
         },
@@ -230,21 +239,106 @@ describe("Store", () => {
         expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["t2"]);
         store.dispose();
     });
-    test("an event queued during a superseded load survives into the newer snapshot", async () => {
+    test("an event that arrives after the newest load was issued survives its snapshot", async () => {
         const net = stagedNet([
             { projects: [project("p1", "One")], tasks: [] },
             { projects: [project("p1", "One")], tasks: [] },
         ]);
         const store = new Store(net);
         const first = store.load();
-        // Lands while the first load is still in flight, before the second starts.
-        net.emit(MSG.TASK_CREATED, task("t5", "p1", "Queued"));
         const second = store.load();
+        // Lands after both requests went out, so neither snapshot can contain it.
+        net.emit(MSG.TASK_CREATED, task("t5", "p1", "Queued"));
         net.release(1);
         await second;
         net.release(0);
         await first;
         expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["t5"]);
+        store.dispose();
+    });
+
+    test("does not replay an event the newer snapshot already covers", async () => {
+        const net = stagedNet([
+            { projects: [project("p1", "One")], tasks: [task("t1", "p1", "Original")] },
+            { projects: [project("p1", "One")], tasks: [task("t1", "p1", "New")] },
+        ]);
+        const store = new Store(net);
+        const first = store.load();
+        // Broadcast before the second load's requests went out, so the second
+        // snapshot is built from a backend that has already applied it.
+        net.emit(MSG.TASK_UPDATED, task("t1", "p1", "Old"));
+        const second = store.load();
+        net.release(1);
+        await second;
+        net.release(0);
+        await first;
+        expect(store.tasksFor("p1")[0]?.title).toBe("New");
+        store.dispose();
+    });
+
+    test("keeps a queued event when the load that would cover it fails", async () => {
+        const net = stagedNet([{ projects: [], tasks: [] }], [0]);
+        const store = new Store(net);
+        const loading = store.load();
+        net.emit(MSG.TASK_CREATED, task("t6", "p1", "Queued"));
+        net.release(0);
+        let failure = "";
+        try {
+            await loading;
+        } catch (err) {
+            failure = err instanceof Error ? err.message : String(err);
+        }
+        expect(failure).toBe("snapshot failed");
+        expect(store.tasks.map((t) => t.id)).toEqual(["t6"]);
+        store.dispose();
+    });
+
+    test("applies a project reorder broadcast", async () => {
+        const net = fakeNet([project("p1", "One"), project("p2", "Two")], []);
+        const store = new Store(net);
+        await store.load();
+        net.emit(MSG.PROJECT_REORDERED, { orderedIds: ["p2", "p1"] });
+        expect(store.projects.map((p) => p.id)).toEqual(["p2", "p1"]);
+        store.dispose();
+    });
+
+    test("archives a parent's subtasks when only the parent archive is broadcast", async () => {
+        const parent = task("parent", "p1", "Parent");
+        const child: Task = { ...task("child", "p1", "Child"), parentId: "parent" };
+        const net = fakeNet([project("p1", "One")], [parent, child]);
+        const store = new Store(net);
+        await store.load();
+        net.emit(MSG.TASK_UPDATED, { ...parent, status: "archived", archivedAt: "2026-08-23T00:00:00Z" });
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual([]);
+        store.dispose();
+    });
+
+    test("restores a parent's subtasks when the parent is unarchived", async () => {
+        const parent = task("parent", "p1", "Parent");
+        const child: Task = { ...task("child", "p1", "Child"), parentId: "parent" };
+        const net = fakeNet([project("p1", "One")], [parent, child]);
+        const store = new Store(net);
+        await store.load();
+        net.emit(MSG.TASK_UPDATED, { ...parent, status: "archived", archivedAt: "2026-08-23T00:00:00Z" });
+        net.emit(MSG.TASK_UPDATED, { ...parent, status: "active", archivedAt: null });
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["parent", "child"]);
+        store.dispose();
+    });
+
+    test("leaves subtasks alone when a parent update does not change its status", async () => {
+        const parent = task("parent", "p1", "Parent");
+        const child: Task = { ...task("child", "p1", "Child"), parentId: "parent" };
+        const archivedChild: Task = {
+            ...task("other", "p1", "Archived child"),
+            parentId: "parent",
+            status: "archived",
+            archivedAt: "2026-08-23T00:00:00Z",
+        };
+        const net = fakeNet([project("p1", "One")], [parent, child, archivedChild]);
+        const store = new Store(net);
+        await store.load();
+        net.emit(MSG.TASK_UPDATED, { ...parent, title: "Renamed" });
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["parent", "child"]);
         store.dispose();
     });
 });

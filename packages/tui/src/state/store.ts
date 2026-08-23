@@ -1,4 +1,4 @@
-import { MSG } from "@taskflow/shared";
+import { MSG, orderProjectsByIds } from "@taskflow/shared";
 import type { Project, Task, ProjectListResponse, TaskListResponse } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 
@@ -19,7 +19,8 @@ class Store {
      * Non-null while a `load()` is in flight. Events that land in that window
      * describe changes the snapshot may predate, so they are held here and
      * replayed on top of the snapshot instead of being overwritten by it.
-     * One shared queue across overlapping loads: whichever load commits drains it.
+     * One shared queue across overlapping loads: whichever load commits drains it,
+     * from that load's own mark onwards.
      */
     private deferred: (() => void)[] | null = null;
     /** Incremented per `load()`; only the newest load may commit its snapshot. */
@@ -36,6 +37,11 @@ class Store {
             net.on(MSG.PROJECT_REMOVED, (payload) => {
                 this.apply(() => {
                     this.removeProject(payload);
+                });
+            }),
+            net.on(MSG.PROJECT_REORDERED, (payload) => {
+                this.apply(() => {
+                    this.reorderProjects(payload);
                 });
             }),
             net.on(MSG.TASK_CREATED, (payload) => {
@@ -62,7 +68,30 @@ class Store {
     }
 
     private applyTask(payload: unknown): void {
-        this.taskList = upsert(this.taskList, payload as Task);
+        const next = payload as Task;
+        const previous = this.taskList.find((t) => t.id === next.id);
+        this.taskList = upsert(this.taskList, next);
+        // Archiving or unarchiving a top-level task cascades to its subtasks on
+        // the backend, which broadcasts the parent alone
+        // (`api/routes/task-routes.ts` archive and unarchive), so mirror the
+        // cascade or the children keep the status they had before.
+        // Only a status transition cascades: an ordinary parent update — a
+        // rename, a session change — must leave the children as they are.
+        if (next.parentId === undefined && previous !== undefined && previous.status !== next.status) {
+            const { status, archivedAt } = next;
+            this.taskList = this.taskList.map((t) =>
+                t.parentId === next.id ? { ...t, status, archivedAt } : t,
+            );
+        }
+    }
+
+    /**
+     * Project order is client-visible, and a reorder broadcast carries only the
+     * new id order, so reapply it to the records already held.
+     */
+    private reorderProjects(payload: unknown): void {
+        const { orderedIds } = payload as { orderedIds: string[] };
+        this.projectList = orderProjectsByIds(this.projectList, orderedIds);
     }
 
     /**
@@ -81,7 +110,11 @@ class Store {
 
     async load(): Promise<void> {
         const token = ++this.loadToken;
-        this.deferred ??= [];
+        // Mutations already queued were broadcast before these requests went out,
+        // so the backend had committed them before it built this snapshot.
+        // Replaying them on top would put their older values back over newer ones.
+        const mark = (this.deferred ??= []).length;
+        let committed = false;
         try {
             const [projects, tasks] = await Promise.all([
                 this.net.request<ProjectListResponse>(MSG.PROJECT_LIST),
@@ -92,11 +125,14 @@ class Store {
             if (this.loadToken !== token) return;
             this.projectList = projects.projects;
             this.taskList = tasks.tasks;
+            committed = true;
         } finally {
             if (this.loadToken === token) {
                 const deferred = this.deferred ?? [];
                 this.deferred = null;
-                for (const mutation of deferred) mutation();
+                // Without a committed snapshot nothing has superseded the earlier
+                // mutations, so they all still have to be applied.
+                for (const mutation of committed ? deferred.slice(mark) : deferred) mutation();
                 this.notify();
             }
         }
