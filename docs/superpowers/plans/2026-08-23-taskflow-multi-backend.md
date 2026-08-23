@@ -3915,7 +3915,7 @@ git commit -m "feat(ui): add a client state reset registry and re-bootstrap"
 
 **Interfaces:**
 - Consumes: Tasks 7, 8, 9.
-- Produces: `useBackendStore` with `{ entries, activeId, isLocal, switching, error, refresh(), switchTo(id), dismissError() }`, and `checkProtocol(info: SystemInfo): { ok: boolean; reason?: string }`.
+- Produces: `useBackendStore` with `{ entries, activeId, isLocal, generation, switching, error, pendingTrust, dropped, refresh(), switchTo(id), dismissError() }`, and `checkProtocol(info: SystemInfo): { ok: boolean; reason?: string }`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4085,9 +4085,25 @@ const useBackendStore = create<BackendStore>((set, get) => ({
             }
 
             // The backend keeps one chokidar watcher per watched path and drops
-            // it only on an explicit unwatch, so this has to go out while the
-            // old socket is still open.
-            await useFileStore.getState().unwatchAll();
+            // it only on an explicit unwatch — `close(ws)` in
+            // `packages/backend/src/ws/server.ts:57-59` just removes the socket
+            // from the broadcast set — so this has to go out while the old
+            // socket is still open.
+            //
+            // Best-effort, and the `catch` is load-bearing. `unwatchAll` sends
+            // over the *current* connection, which is exactly the one that is
+            // dead in the two cases where switching matters most: reconnecting
+            // after a dropped tunnel, and leaving a backend whose machine went
+            // away. `sendRequest` rejects with "WebSocket not connected", the
+            // outer catch runs `cancelActivation`, and the tunnel that was just
+            // opened successfully is torn down — so a disconnect would make the
+            // app unable to switch backends at all, including back to this
+            // machine. A watcher we cannot reach is the other side's leak to
+            // collect, and it dies with that backend's next restart.
+            await useFileStore
+                .getState()
+                .unwatchAll()
+                .catch(() => {});
 
             // Main is told first: everything up to here is still rollback-able
             // by aborting the pending socket, and nothing after promotion is.
@@ -4525,7 +4541,7 @@ id is keyed on the announced hostname rather than the address.
 
 - [ ] **Step 4: Replace the Monitor button**
 
-In `packages/ui/src/components/sidebar/TaskSidebar.tsx`, delete the `Button` at lines 381-395 and render instead:
+In `packages/ui/src/components/sidebar/TaskSidebar.tsx`, delete the `Button` at lines 382-394 — that is the `Button` element only, *not* the `<div className="flex items-center">` opening at 381, which the next paragraph tells you to keep and wrap — and render instead:
 
 ```tsx
                     <BackendMenu
@@ -5094,6 +5110,18 @@ wrong is silence rather than an error. On a remote backend:
 - Connect to a backend discovered on the LAN that has never been saved before →
   it connects. A blank ssh user here is what makes ssh print its usage banner and
   exit 255, which the classifier can only report as "SSH exited with code 255".
+
+- [ ] **Step 6d: Confirm a switch survives a dead old socket**
+
+The switch sends `FILE_UNWATCH` over the connection it is leaving, and after a
+drop that connection is gone. Open a project on a remote backend so a file
+watcher is active, then kill the ssh child from a terminal
+(`pkill -f "ssh -N -L"`). When the dropped banner appears, press **Reconnect**,
+and separately try selecting "This machine".
+
+Expected: both work. If either fails with "WebSocket not connected", the
+`unwatchAll` call in `switchTo` has lost its `catch` and a disconnect has left
+the app unable to switch backends at all.
 
 - [ ] **Step 7: Confirm the caches actually cleared**
 
