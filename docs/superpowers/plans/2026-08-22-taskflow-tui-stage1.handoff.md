@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | in-review round 10 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`; round 10 found 2 real defects + 2 test gaps, fixed; round 11 due |
+| 13 | Sidebar rendering | in-review round 11 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; round 11 found 2 real defects, fixed; round 12 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -3065,6 +3065,58 @@ width and cursor edge cases.
   pre-existing `MarkdownPaneImpl` cross-file isolation failures as every prior round, verified
   by name; the pass count is up by exactly the four new tests. Working tree clean.
 
+- **Task 13, round 11** (gpt-5.5 via codex-review, Mode B over `e64f1f0..HEAD` scoped to
+  `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`, `packages/tui/src/render/text.ts` and
+  `text.test.ts`): two findings, both substantiated and both fixed in `382b33f`. Run the repros
+  with `bun test packages/tui`.
+  - **Substantiated — `fitToWidth` resumed its running total after a rejoin and stopped a
+    cluster short.** Round 10 made the re-measure fire only for the cluster immediately after a
+    drop, then cleared the flag. But a rejoin shifts every *later* boundary as well: in
+    `"\u{1f1fa}\u0007\u{1f1f8}\u{1f1e8}\u{1f1e6}"` the control byte rejoins the first two
+    indicators into one flag, which leaves the third and fourth offset by one, and the resumed
+    additive total read the fourth as its own two-column cluster. At `cols` 4 the row laid out
+    `"\u{1f1fa}\u{1f1f8}\u{1f1e8}"` — four columns of ink with the last flag half-drawn —
+    where all four indicators lay out as two flags in exactly four columns. Fix: `dropped` is
+    now sticky, so every admission after the first drop is measured by layout. Regression test:
+    `fitToWidth > keeps counting by layout for every cluster after a rejoin, not just the first`
+    in `packages/tui/src/render/text.test.ts` — red on `8f92af6`, green on `382b33f`.
+  - **Substantiated — `shows()` read an invisible cluster as text and the indent starved the
+    label.** `trim()` strips the blank in a cluster but leaves an invisible code point riding
+    on it, so the cluster reads back as visible and round 10's guard keeps the indent. Three
+    inputs, all task rows: `"\u00a0\u200dA"` (NBSP + zero-width joiner) drew `A` at width 2,
+    a blank row at width 3 and `A` again at width 4; `"\u0600 A"` (Arabic number sign binding
+    forwards onto a space) behaved the same way; `"\u2800A"` with one session drew
+    `"\u2800A 1"` at width 4, `"  \u2800 1"` at width 5 and `"  \u2800A 1"` at width 6. Found
+    independently from the Cf side before the report landed, which named the U+2800 case. Fix:
+    `shows` strips whitespace, `\p{Cf}`, `\p{Default_Ignorable_Code_Point}` and U+2800 before
+    testing for emptiness. Regression tests: `drawSidebar > drops the indent when the label
+    fits beside it as an invisible cluster`, `> drops the indent for a format character that
+    binds forwards onto a blank` and `> drops the indent for a braille cell with no dots
+    raised` in `packages/tui/src/ui/sidebar.test.ts` — all red on `8f92af6`, green on `382b33f`.
+  - Independent probing beyond the report, over ~200k-500k random rows built from an alphabet of
+    wide, astral, combining, format, control, regional-indicator and blank clusters:
+    `textWidth(fitToWidth(t, c)) <= c` never violated; `fitToWidth` never lost a column when
+    `cols` grew by one; the assembled `indent + label + badge` never measured more than `width`;
+    the badge never came out truncated when `badgeCols > 0`; and after the fix no row that drew
+    ink at one width drew none at the next width up. Before the fix that last probe found 1180
+    violations, all of the two shapes above.
+
+## Decisions taken (Task 13 round 11)
+
+- The re-measure is made sticky rather than unconditional. Once a drop has happened every
+  later admission is measured by layout, but a string with no drop keeps the additive count.
+  The cost stays bounded either way: `out` never exceeds `cols` columns, so it holds at most
+  `cols` clusters and each `textWidth` call is O(cols), not O(n).
+- `shows()` keeps a predicate rather than a table of glyphs that happen to render blank. The
+  line drawn is what Unicode itself calls invisible — whitespace, `Cf`, and the rest of
+  `Default_Ignorable_Code_Point` — which also covers the Hangul fillers.
+- U+2800 is the single named exception to that line. It is a graphic character, so no property
+  catches it, but the braille cell with no dots raised is defined as an empty glyph and it is
+  the only one. Codex raised it; taking the exception costs one code point and closes a row
+  that would otherwise draw nothing where a narrower pane drew a label.
+- Combining marks are deliberately not stripped in `shows()`. A space carrying an acute accent
+  draws ink, so the cluster counts as visible even though `trim` would leave only the mark.
+
 ## Decisions taken (Task 13 round 10)
 
 - "The label shows something" is decided by `label.trim() !== ""`, not by emptiness. Whitespace
@@ -3089,24 +3141,35 @@ commit is still `e64f1f0`. `bdc2bd0` (a revision of that same multi-backend plan
 same way during round 9 and sits under this round's two commits; it is docs-only and touches
 none of the four files under review, so the scoping still holds. More docs-only revisions of
 that same plan landed during round 10, most recently `028aa1e` (a renumbering of its steps).
-Same reasoning, same conclusion: the scoping and the base commit both still hold.
+Same reasoning, same conclusion: the scoping and the base commit both still hold. No
+further unrelated commits landed during round 11: `8f92af6` was this flow's own round 10
+record, and `382b33f` sits directly on it.
 
-Next step: Task 13 review round 11 — one gpt-5.5 review via the codex-review skill over
+Next step: Task 13 review round 12 — one gpt-5.5 review via the codex-review skill over
 `e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
-`packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-10 listed as already fixed.
-Point it at what round 10 changed: the `joined` re-measure branch in `fitToWidth` (whether the
-`joined && out !== ""` guard can miss a rejoin, whether `used` and `out` can fall out of step,
-whether a cluster can now be admitted that the additive path would have rejected, and the cost
-of `textWidth` on a long label) and `shows()` in `drawSidebar` (whether `trim()` is the right
-notion of visible, and whether the `shows(withIndent) || !shows(withoutIndent)` pair still holds
-at width 0/1/2 and around `badge.length`). Give it the settled width rules as before: width comes
-from `baseCodePoint`, the first code point in the cluster that is not `Mn`/`Me`/`Mc`/`Cf`, and a
-cluster with no such code point is dropped; `WIDE_RANGES` is Unicode 16.0 EAW `W`/`F`, verified
-sorted and complete; `graphemeWidth` widens any cluster containing U+FE0F or based on a regional
-indicator; badge > label > indent. Steer it away from the width tables. Tell it the one-column
-loss at the indent transition is an accepted trade, not a finding. Verify each finding
-independently and probe *around* it, not just at it — rounds 9 and 10 both turned up their real
-defects that way, and in round 10 the defect was in an area codex had explicitly cleared. Fix
-the substantiated ones, validate with `bun run lint && bun run typecheck && bun test`, and
-commit. If the round comes back clean, mark Task 13 clear and move to Task 14 (session pane and
-tab strip).
+`packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-11 listed as already fixed.
+Point it at what round 11 changed: the now-sticky `dropped` flag in `fitToWidth` (whether the
+`dropped && out !== ""` guard is still right when the very first clusters are all dropped,
+whether `used` can be stale in a way that matters, whether making every post-drop admission a
+layout measure can now admit or reject the wrong cluster, and the real worst-case cost on a
+long label full of dropped clusters) and the `INVISIBLE` predicate behind `shows()` in
+`drawSidebar` (whether `\p{Cf}` plus `\p{Default_Ignorable_Code_Point}` plus U+2800 is the
+right set, whether stripping them can now make `shows` false for a cluster that *does* draw —
+combining marks are the case to press on — and whether the `shows(withIndent) ||
+!shows(withoutIndent)` pair still holds at width 0/1/2 and around `badge.length`). Give it the
+settled width rules as before: width comes from `baseCodePoint`, the first code point in the
+cluster that is not `Mn`/`Me`/`Mc`/`Cf`, and a cluster with no such code point is dropped;
+`WIDE_RANGES` is Unicode 16.0 EAW `W`/`F`, verified sorted and complete; `graphemeWidth` widens
+any cluster containing U+FE0F or based on a regional indicator; badge > label > indent. Steer
+it away from the width tables. Tell it the one-column loss at the indent transition is an
+accepted trade, not a finding, and that a wider pane replacing a label with a badge is the
+badge-outranks-label rule working, not a defect. Verify each finding independently and probe
+*around* it — rounds 9, 10 and 11 all turned up their real defects that way, and round 11's
+first finding was in the exact code round 10 had just rewritten. Fix the substantiated ones,
+validate with `bun run lint && bun run typecheck && bun test`, and commit. If the round comes
+back clean, mark Task 13 clear and move to Task 14 (session pane and tab strip).
+
+Validation note: run the full `bun test` with nothing else running. Two runs launched while
+other `bun test` processes were alive reported extra failures (three `startBackend` timing
+tests, and once a `probe > union member access` that exists nowhere in the repo); a clean run
+reproduces the documented baseline exactly.
