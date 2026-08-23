@@ -523,6 +523,7 @@ Create `packages/shared/src/discovery/socket.test.ts`:
 
 ```ts
 import { afterEach, describe, expect, test } from "bun:test";
+import { networkInterfaces } from "node:os";
 import { PROTOCOL_VERSION } from "../constants";
 import type { BeaconAnnounce } from "../types/backend";
 import { createAdvertiser, createListener } from "./socket";
@@ -546,6 +547,15 @@ function announce(port: number): BeaconAnnounce {
     };
 }
 
+/**
+ * Multicast needs a real interface. On a machine with none — a CI container, a
+ * laptop with the network off — the test is skipped rather than left to time
+ * out, which reads as a failure and tells you nothing.
+ */
+const hasLan = Object.values(networkInterfaces())
+    .flatMap((entries) => entries ?? [])
+    .some((entry) => entry.family === "IPv4" && !entry.internal);
+
 function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
     return new Promise((resolve, reject) => {
         const startedAt = Date.now();
@@ -559,7 +569,7 @@ function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
 }
 
 describe("discovery over the loopback multicast group", () => {
-    test("a listener sees an advertiser and can force an announcement with a probe", async () => {
+    test.skipIf(!hasLan)("a listener sees an advertiser and can force an announcement with a probe", async () => {
         const listener = createListener({ onChange: () => {} });
         stops.push(() => listener.stop());
         await listener.start();
@@ -576,7 +586,7 @@ describe("discovery over the loopback multicast group", () => {
         expect(entry?.address.length).toBeGreaterThan(0);
     });
 
-    test("stopping the advertiser stops new announcements", async () => {
+    test.skipIf(!hasLan)("stopping the advertiser stops new announcements", async () => {
         const listener = createListener({ onChange: () => {} });
         stops.push(() => listener.stop());
         await listener.start();
@@ -820,7 +830,9 @@ In `packages/shared/package.json`, replace the `"main"` / `"types"` pair with an
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `bun test packages/shared/src/discovery/socket.test.ts`
-Expected: PASS. If the machine has no non-internal IPv4 interface (no network at all), the first test times out — run it on a connected machine.
+Expected: PASS, or both tests reported as skipped on a machine with no
+non-internal IPv4 interface. A skip there is correct: there is no multicast to
+test. A *timeout* would mean `hasLan` is wrong.
 
 - [ ] **Step 6: Verify the export map did not break any build**
 
@@ -1548,8 +1560,12 @@ async function attemptTunnel(
     const localPort = await allocateLocalPort();
     const { child, readStderr } = spawnTunnel(record, localPort, backendPort);
 
-    const exited = new Promise<TunnelFailure | null>((resolve) => {
-        child.once("exit", (code) => resolve(classifyTunnelFailure(readStderr(), code)));
+    // `close` rather than `exit`: a spawn failure (no ssh binary) emits
+    // `error` and `close` but never `exit`, so racing `exit` alone would let
+    // ENOENT fall through to the readiness timeout and be reported as
+    // "Taskflow is not running" ten seconds later.
+    const exited = new Promise<TunnelFailure>((resolve) => {
+        child.once("close", (code) => resolve(classifyTunnelFailure(readStderr(), code)));
     });
     const ready = waitForBackend(localPort).then((ok) => (ok ? null : "not-ready"));
 
@@ -1557,7 +1573,7 @@ async function attemptTunnel(
 
     if (outcome === null) {
         tunnels.set(record.id, { child, localPort });
-        child.once("exit", (code) => {
+        child.once("close", (code) => {
             tunnels.delete(record.id);
             exitHandler?.(record.id, classifyTunnelFailure(readStderr(), code));
         });
@@ -1597,7 +1613,7 @@ function closeTunnel(id: string): void {
     const tunnel = tunnels.get(id);
     if (!tunnel) return;
     tunnels.delete(id);
-    tunnel.child.removeAllListeners("exit");
+    tunnel.child.removeAllListeners("close");
     tunnel.child.kill();
 }
 
@@ -1728,14 +1744,28 @@ let discovered: DiscoveredBackend[] = [];
 let listener: DiscoveryListener | null = null;
 let activeId = LOCAL_ID;
 let activeOrigin: string | null = null;
+/** Read back from disk for menu ordering. Never auto-connected to on startup. */
+let lastUsedId = LOCAL_ID;
 
 function storePath(): string {
     return join(app.getPath("userData"), "backends.json");
 }
 
+/**
+ * `activeId` is persisted so the menu can show what you last used, but startup
+ * always begins on the local backend: restoring a remote one would make app
+ * launch wait on ssh, and fail when the other machine is asleep.
+ */
 async function load(): Promise<void> {
     try {
         const parsed: unknown = JSON.parse(await readFile(storePath(), "utf-8"));
+        if (typeof parsed === "object" && parsed !== null && "records" in parsed) {
+            const file = parsed as { records?: unknown; activeId?: unknown };
+            records = Array.isArray(file.records) ? (file.records as BackendRecord[]) : [];
+            lastUsedId = typeof file.activeId === "string" ? file.activeId : LOCAL_ID;
+            return;
+        }
+        // A file written before activeId was persisted.
         if (Array.isArray(parsed)) records = parsed as BackendRecord[];
     } catch {
         records = [];
@@ -1743,7 +1773,11 @@ async function load(): Promise<void> {
 }
 
 async function persist(): Promise<void> {
-    await writeFile(storePath(), JSON.stringify(records, null, 2), "utf-8");
+    await writeFile(
+        storePath(),
+        JSON.stringify({ records, activeId }, null, 2),
+        "utf-8",
+    );
 }
 
 async function initBackendRegistry(d: BackendRegistryDeps): Promise<void> {
@@ -1853,8 +1887,15 @@ async function activateBackend(
 async function commitActive(id: string, origin: string): Promise<void> {
     if (activeId !== LOCAL_ID && activeId !== id) closeTunnel(activeId);
     activeId = id;
+    lastUsedId = id;
     activeOrigin = id === LOCAL_ID ? null : origin;
+    await persist();
     deps.onChanged();
+}
+
+/** The backend that was active when the app last quit. Menu ordering only. */
+function getLastUsedId(): string {
+    return lastUsedId;
 }
 
 async function addBackend(input: {
@@ -1920,6 +1961,7 @@ export {
     commitActive,
     findRecord,
     getActiveOrigin,
+    getLastUsedId,
     initBackendRegistry,
     isLocalActive,
     listBackends,
@@ -2184,11 +2226,26 @@ function startServer(): FakeServer {
             close() {
                 closed++;
             },
-            message(ws) {
-                // Requests are never answered — the tests are about connection
-                // lifecycle, not protocol — but every request triggers one
-                // broadcast, which is what the duplicate-subscription test counts.
+            message(ws, raw) {
+                const request = JSON.parse(String(raw)) as {
+                    correlationId?: string;
+                    type: string;
+                };
+                // Every request also triggers one broadcast, which is what the
+                // duplicate-subscription test counts.
                 ws.send(JSON.stringify({ type: "task:updated", payload: {} }));
+                // system:info is answered so the handshake tests have something
+                // to await. Everything else is left hanging on purpose, which is
+                // what makes the switch and abort tests meaningful.
+                if (request.type === "system:info" && request.correlationId) {
+                    ws.send(
+                        JSON.stringify({
+                            correlationId: request.correlationId,
+                            type: request.type,
+                            payload: { editors: [], homedir: "/h", protocolVersion: 1 },
+                        }),
+                    );
+                }
             },
         },
     });
@@ -2292,6 +2349,52 @@ describe("switching connections", () => {
         expect(received).toBe(1);
     });
 
+    test("a request can be sent over the pending socket before promotion", async () => {
+        // This is what the compatibility handshake does. If pending sockets have
+        // no message routing, the handshake times out and no switch completes.
+        const a = track(startServer());
+        const b = track(startServer());
+
+        await connectTo(a.origin);
+        promoteConnection();
+
+        await connectTo(b.origin);
+        await expect(
+            sendRequest("system:info", {}, { usePending: true }),
+        ).resolves.toBeDefined();
+    });
+
+    test("aborting rejects a request that was in flight on the pending socket", async () => {
+        const a = track(startServer());
+        const b = track(startServer());
+
+        await connectTo(a.origin);
+        promoteConnection();
+
+        await connectTo(b.origin);
+        const inFlight = sendRequest("system:info", {}, { usePending: true });
+        abortPending();
+
+        await expect(inFlight).rejects.toThrow(BACKEND_SWITCHED);
+    });
+
+    test("a failed reconnect schedules another attempt", async () => {
+        const a = track(startServer());
+        await connectTo(a.origin);
+        promoteConnection();
+
+        const statuses: Array<{ connected: boolean; reconnecting: boolean }> = [];
+        const unsubscribe = onStatusChange((status) => statuses.push({ ...status }));
+
+        a.stop(); // The backend goes away entirely, so every reconnect fails.
+        await Bun.sleep(2_500);
+        unsubscribe();
+
+        // At least two reconnecting notifications: the first backoff, and the
+        // one the failure of that attempt scheduled.
+        expect(statuses.filter((s) => s.reconnecting).length).toBeGreaterThan(1);
+    });
+
     test("a superseded socket closing does not report the app as disconnected", async () => {
         const a = track(startServer());
         const b = track(startServer());
@@ -2335,6 +2438,8 @@ interface Connection {
 
 let current: Connection | null = null;
 let pending: Connection | null = null;
+/** Settles the promise `connectTo` returned for the pending socket. */
+let pendingSettle: { resolve: () => void; reject: (reason: unknown) => void } | null = null;
 let generationCounter = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempt = 0;
@@ -2387,7 +2492,11 @@ function scheduleReconnect(): void {
         reconnectTimer = null;
         void connectTo(origin)
             .then(() => promoteConnection())
-            .catch(() => {});
+            .catch(() => {
+                // A failed reconnect must schedule the next one. Without this the
+                // backoff fires exactly once and the app never recovers on its own.
+                scheduleReconnect();
+            });
     }, delay);
 }
 
@@ -2400,15 +2509,24 @@ function rejectGeneration(generation: number, reason: string): void {
     }
 }
 
+/**
+ * Handlers are attached when the socket is created, not when it is promoted:
+ * the compatibility handshake runs a real request over the *pending* socket, so
+ * its responses have to be routed before promotion.
+ */
 function attachHandlers(connection: Connection): void {
     const { socket, generation } = connection;
 
     socket.onmessage = (event) => {
+        const isCurrent = current?.generation === generation;
+        const isPending = pending?.generation === generation;
         // A superseded socket's traffic is not ours any more.
-        if (current?.generation !== generation) return;
+        if (!isCurrent && !isPending) return;
+
         const raw: unknown = JSON.parse(event.data as string);
         if (typeof raw !== "object" || raw === null) return;
         const data = raw as Record<string, unknown>;
+
         if (typeof data.correlationId === "string" && pendingRequests.has(data.correlationId)) {
             const request = pendingRequests.get(data.correlationId);
             if (!request) return;
@@ -2421,6 +2539,11 @@ function attachHandlers(connection: Connection): void {
             else request.resolve(data.payload);
             return;
         }
+
+        // Broadcasts from a socket that is not live yet belong to a backend the
+        // stores have not been reset for. Dropping them is the point: delivering
+        // one would mix the two backends' records.
+        if (!isCurrent) return;
         if (typeof data.type === "string") {
             const listeners = eventListeners.get(data.type);
             if (listeners) for (const listener of listeners) listener(data.payload);
@@ -2428,6 +2551,16 @@ function attachHandlers(connection: Connection): void {
     };
 
     socket.onclose = () => {
+        if (pending?.generation === generation) {
+            // A pending socket that died before promotion. Settle whoever is
+            // waiting on connectTo, and reject anything sent over it.
+            const settle = pendingSettle;
+            pending = null;
+            pendingSettle = null;
+            rejectGeneration(generation, "WebSocket closed");
+            settle?.reject(new Error("WebSocket closed before it was ready"));
+            return;
+        }
         // Only the live connection may report a disconnect or retry. Without
         // this, a socket we deliberately replaced would tear down its successor.
         if (current?.generation !== generation) return;
@@ -2457,9 +2590,17 @@ function connectTo(origin: string): Promise<void> {
             generation: ++generationCounter,
         };
         pending = connection;
-        connection.socket.onopen = () => resolve();
+        pendingSettle = { resolve, reject };
+        attachHandlers(connection);
+        connection.socket.onopen = () => {
+            pendingSettle = null;
+            resolve();
+        };
         connection.socket.onerror = () => {
-            if (pending === connection) pending = null;
+            if (pending === connection) {
+                pending = null;
+                pendingSettle = null;
+            }
             reject(new Error("WebSocket connection error"));
         };
     });
@@ -2471,7 +2612,7 @@ function promoteConnection(): void {
     const previous = current;
     current = pending;
     pending = null;
-    attachHandlers(current);
+    pendingSettle = null;
 
     if (previous) {
         rejectGeneration(previous.generation, BACKEND_SWITCHED);
@@ -2486,22 +2627,42 @@ function promoteConnection(): void {
     notifyStatus();
 }
 
-/** Throws away a socket opened by `connectTo` that will not be promoted. */
+/**
+ * Throws away a socket opened by `connectTo` that will not be promoted —
+ * a failed handshake, or the user cancelling mid-switch. Settles the
+ * `connectTo` promise and rejects anything already sent over that socket, so
+ * no caller is left waiting on a connection that no longer exists.
+ */
 function abortPending(): void {
     if (!pending) return;
-    pending.socket.onopen = null;
-    pending.socket.onerror = null;
-    pending.socket.close();
+    const { socket, generation } = pending;
+    const settle = pendingSettle;
     pending = null;
+    pendingSettle = null;
+    socket.onopen = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    socket.onmessage = null;
+    socket.close();
+    rejectGeneration(generation, BACKEND_SWITCHED);
+    settle?.reject(new Error(BACKEND_SWITCHED));
 }
 ```
 
 Then update `sendRequest`, `sendFireAndForget` and the exports at the bottom of the file:
 
 ```ts
-function sendRequest<T = unknown>(type: string, payload: unknown = {}): Promise<T> {
+/**
+ * `usePending` addresses the socket that is open but not yet promoted. Only the
+ * compatibility handshake uses it: everything else must go to the live backend.
+ */
+function sendRequest<T = unknown>(
+    type: string,
+    payload: unknown = {},
+    opts?: { usePending?: boolean },
+): Promise<T> {
     return new Promise((resolve, reject) => {
-        const connection = current;
+        const connection = opts?.usePending ? pending : current;
         if (!connection || connection.socket.readyState !== WebSocket.OPEN) {
             reject(new Error("WebSocket not connected"));
             return;
@@ -2603,7 +2764,7 @@ Update its imports to `connectTo, promoteConnection, onStatusChange`.
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `bun test packages/ui`
-Expected: PASS, including the five new connection tests.
+Expected: PASS, including the eight new connection tests.
 
 - [ ] **Step 7: Commit**
 
@@ -3040,24 +3201,20 @@ const useBackendStore = create<BackendStore>((set, get) => ({
     },
 }));
 
+registerReset("backend-store", () => {
+    // The backend list itself must survive a switch — it is what you switched
+    // with. Only the transient fields reset.
+    useBackendStore.setState({ switching: null, error: null, pendingTrust: null });
+});
+
 export { LOCAL_ID, checkProtocol, useBackendStore };
 ```
 
-- [ ] **Step 4: Add the two capabilities the store assumes**
+That registration is not optional: Task 9's coverage test walks
+`packages/ui/src/stores/*.ts` and fails on any module that registers nothing.
+Import `registerReset` from `./store-reset` at the top.
 
-`sendRequest` needs to be able to address the *pending* socket for the handshake. In `packages/ui/src/hooks/useWebSocket.ts`, give it a third parameter:
-
-```ts
-function sendRequest<T = unknown>(
-    type: string,
-    payload: unknown = {},
-    opts?: { usePending?: boolean },
-): Promise<T> {
-    return new Promise((resolve, reject) => {
-        const connection = opts?.usePending ? pending : current;
-```
-
-The rest of the body is unchanged.
+- [ ] **Step 4: Add the capability the store assumes**
 
 `file-store` needs `unwatchAll`. In `packages/ui/src/stores/file-store.ts`, add to the store next to `watchPath`:
 
@@ -3508,6 +3665,7 @@ Everything that assumes the backend's filesystem is this machine's.
 - Modify: `packages/ui/src/components/appearance/ImportTab.tsx:28`
 - Modify: `packages/ui/src/components/flows/FlowInputDialog.tsx:34`
 - Modify: `packages/ui/src/components/panels/FileContextMenu.tsx:107`
+- Modify: `packages/ui/src/components/panes/terminal/terminal-links.ts:64-72`
 - Modify: `packages/ui/src/components/workspace/Workspace.tsx:251,391`
 - Modify: `packages/ui/src/components/panes/TerminalPane.tsx:457-486`
 
@@ -3585,6 +3743,21 @@ In `packages/ui/src/components/panels/FileContextMenu.tsx`, disable the "Open wi
 ```ts
         if (!backendIsLocal()) return;
 ```
+
+`packages/ui/src/components/panes/terminal/terminal-links.ts:64` is the same
+problem in a place with no UI to disable: clicking a file path in terminal
+output hands it to the *client's* external editor, and on a remote backend that
+path is the other machine's. It is not a component, so it takes the non-hook
+read:
+
+```ts
+function openExternalFile(filePath: string, opts?: { line?: number; col?: number }) {
+    // The path came from the backend's output, so it is the backend's
+    // filesystem. Opening it locally is only meaningful when they are the same.
+    if (!backendIsLocal()) return;
+```
+
+`openExternalUrl` in the same file stays as it is — it opens URLs, not paths.
 
 - [ ] **Step 7: Gate both terminal drop paths**
 
