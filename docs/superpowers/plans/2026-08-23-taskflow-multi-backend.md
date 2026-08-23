@@ -3664,7 +3664,7 @@ workspace, wired to `dismissError()`. The same banner carries switch failures
 and the unsaved-files refusal from Task 10, so there is one place errors about
 backends appear rather than three.
 
-- [ ] **Step 5b: Explain an empty list on macOS**
+- [ ] **Step 6: Explain an empty list on macOS**
 
 A denied local-network permission is silent from inside the process: no error,
 no datagrams, an empty list — identical to a network with nothing on it. That
@@ -3681,7 +3681,7 @@ below the list:
 )}
 ```
 
-- [ ] **Step 6: Keep the non-Electron renderer working**
+- [ ] **Step 7: Keep the non-Electron renderer working**
 
 With no `window.taskflow`, `refresh()` returns early and `entries` stays
 `[{ kind: "local" }]`. Disable "Connect to backend…" and "Manage backends…" in
@@ -3695,12 +3695,12 @@ and put `disabled={!hasBridge}` on both. Verify with `bun run dev:ui` against a
 backend started by `bun run dev:backend`: the menu opens, shows one entry, and
 nothing throws.
 
-- [ ] **Step 7: Verify by hand**
+- [ ] **Step 8: Verify by hand**
 
 Run: `bun run dev:backend` in one terminal and `bun run dev:electron` in another.
 Expected: the bottom-left icon opens a menu listing Master Workspace and "This machine", both marked. A second machine on the LAN running Taskflow appears within five seconds of opening the menu.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add packages/ui/src/components/sidebar packages/ui/src/components/AppShell.tsx
@@ -4002,7 +4002,7 @@ Expected: all pass.
 Run: `grep -rl "node:dgram\|child_process" packages/ui/dist/assets || echo "clean"`
 Expected: `clean`. A hit means the shared barrel is re-exporting the discovery socket module.
 
-- [ ] **Step 2b: Confirm multicast survives `bun build --compile`**
+- [ ] **Step 3: Confirm multicast survives `bun build --compile`**
 
 `node:dgram` multicast is verified working under `bun run` on Bun 1.4.0, but the
 backend ships as a compiled single binary and Bun documents `node:dgram` as
@@ -4024,29 +4024,29 @@ fallback named in the spec is moving the advertise side to a probe response over
 the existing HTTP server — do not paper over it by shipping discovery that only
 works in development.
 
-- [ ] **Step 3: Confirm the backend is off the LAN**
+- [ ] **Step 4: Confirm the backend is off the LAN**
 
 With the app running, from another machine on the same network:
 
 Run: `curl --max-time 3 http://<this-machine-ip>:<backend-port>/`
 Expected: connection refused. A `Taskflow backend` response means Task 1 regressed and discovery is advertising an open door.
 
-- [ ] **Step 4: Two-machine switch**
+- [ ] **Step 5: Two-machine switch**
 
 On machine B, run Taskflow. On machine A, open the backend menu: B appears within five seconds. Switch to it and confirm: B's projects and tasks appear, a session opens and streams, the theme becomes B's, "Add project" is disabled, and dropping a Finder file into a terminal does nothing. Switch back and confirm A's records return with no trace of B's.
 
-- [ ] **Step 5: Confirm the failure paths**
+- [ ] **Step 6: Confirm the failure paths**
 
 - Switch to a host that is up but not running Taskflow → "Taskflow is not running on …".
 - Switch to a host whose key is not in `known_hosts` → fingerprint dialog; approving connects.
 - Open a file, type into it without saving, then try to switch → refused, naming the unsaved file.
 - Pull the network while a remote backend is active → disconnected banner; restoring the network reconnects.
 
-- [ ] **Step 6: Confirm the caches actually cleared**
+- [ ] **Step 7: Confirm the caches actually cleared**
 
 After a switch, open the new-session agent picker and the external-editor menu. Both must list what is installed on the machine you switched *to*. This is the check the unit tests approximate; the caches are the most likely thing to be quietly wrong.
 
-- [ ] **Step 7: Commit any fixes**
+- [ ] **Step 8: Commit any fixes**
 
 ```bash
 git add -A
