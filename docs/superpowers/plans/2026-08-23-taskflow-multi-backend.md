@@ -315,7 +315,11 @@ Create `packages/shared/src/discovery/beacon.test.ts`:
 
 ```ts
 import { describe, expect, test } from "bun:test";
-import { PROTOCOL_VERSION } from "../constants";
+import {
+    DISCOVERY_MAX_DATAGRAM_BYTES,
+    DISCOVERY_MAX_DISPLAY_NAME,
+    PROTOCOL_VERSION,
+} from "../constants";
 import type { BeaconAnnounce } from "../types/backend";
 import { backendIdFor, encodeAnnounce, encodeProbe, isStale, parseDatagram } from "./beacon";
 
@@ -377,6 +381,22 @@ describe("parseDatagram", () => {
         );
         expect(parseDatagram(bytes)).toBeNull();
     });
+
+    // The test above says what happens to an oversized name; this one is what
+    // stops a user producing one. `DISCOVERY_MAX_DISPLAY_NAME` bounds the field
+    // and `DISCOVERY_MAX_DATAGRAM_BYTES` bounds the datagram, and nothing else
+    // ties the two together — raise the first without checking the second and
+    // the symptom is a machine that silently stops appearing in other clients'
+    // menus. Multi-byte characters, because the cap counts bytes and the input
+    // counts UTF-16 code units.
+    test("the longest permitted display name still fits in a datagram", () => {
+        const bytes = encodeAnnounce({
+            ...announce,
+            displayName: "é".repeat(DISCOVERY_MAX_DISPLAY_NAME),
+        });
+        expect(bytes.byteLength).toBeLessThanOrEqual(DISCOVERY_MAX_DATAGRAM_BYTES);
+        expect(parseDatagram(bytes)).not.toBeNull();
+    });
 });
 
 describe("isStale", () => {
@@ -409,8 +429,29 @@ export const DISCOVERY_PORT = 47654;
 export const DISCOVERY_TTL = 1;
 export const ANNOUNCE_INTERVAL_MS = 5_000;
 export const DISCOVERY_STALE_AFTER_MS = 15_000;
+/** How often multicast memberships are reconciled against the machine's
+ *  interfaces. From the spec: cheap polling instead of per-platform link-state
+ *  watching (`specs/2026-08-23-taskflow-multi-backend-design.md:186-188`). */
+export const MEMBERSHIP_REFRESH_MS = 30_000;
 /** Datagrams larger than this are rejected without parsing. */
 export const DISCOVERY_MAX_DATAGRAM_BYTES = 1_024;
+/**
+ * Longest `network.displayName` that may reach a beacon.
+ *
+ * Without a bound this field is the one piece of an announcement a user can
+ * make arbitrarily long, and `parseDatagram` drops anything over
+ * `DISCOVERY_MAX_DATAGRAM_BYTES` **before** parsing — so a pasted paragraph in
+ * Settings → "Name on the network" does not produce an error anywhere. The
+ * backend keeps serving, keeps announcing, and simply stops being parseable:
+ * the machine vanishes from every other client's menu with nothing logged on
+ * either side. The codec test at Step 3 ("returns null for a datagram larger
+ * than the cap") is that outcome, written down.
+ *
+ * 64 is well past any real machine name and leaves the rest of the payload —
+ * hostname, instance id, app version, os, port — several hundred bytes of room
+ * inside a 1 KiB datagram.
+ */
+export const DISCOVERY_MAX_DISPLAY_NAME = 64;
 ```
 
 - [ ] **Step 4: Add the types**
@@ -741,6 +782,7 @@ import {
     DISCOVERY_GROUP,
     DISCOVERY_PORT,
     DISCOVERY_TTL,
+    MEMBERSHIP_REFRESH_MS,
 } from "../constants";
 import type { BeaconAnnounce, DiscoveredBackend } from "../types/backend";
 import { backendIdFor, encodeAnnounce, encodeProbe, isStale, parseDatagram } from "./beacon";
@@ -767,23 +809,77 @@ function localIPv4Addresses(): string[] {
         .map((entry) => entry.address);
 }
 
-function joinAllInterfaces(socket: dgram.Socket): void {
-    const addresses = localIPv4Addresses();
-    if (addresses.length === 0) {
-        try {
-            socket.addMembership(DISCOVERY_GROUP);
-        } catch {
-            // No usable interface. Discovery is unavailable; manual connect still works.
+/**
+ * Keeps `socket`'s multicast memberships in step with the machine's interfaces,
+ * and returns the timer that goes on doing so.
+ *
+ * A one-shot join at bind time is not enough, and the failure is invisible from
+ * the inside. `addMembership` is per interface, and an interface that did not
+ * exist when we bound is one we never joined: start Taskflow before the laptop
+ * is on Wi-Fi — closing the lid, a VPN coming up, docking, a restart in a cafe
+ * before the network is picked — and the listener stays joined to nothing.
+ *
+ * What makes it hard to diagnose is that it is one-directional. `sendToGroup`
+ * re-enumerates `localIPv4Addresses()` on every call, so *announcing* starts
+ * using a new interface immediately: this machine appears in everyone else's
+ * backend menu while their machines never appear in its own, and probes sent
+ * to wake them up are answered into a socket that is not listening on that
+ * interface. The user sees a permanently empty list on the one machine, is
+ * told by the macOS hint that it might be a local-network permission problem,
+ * and restarting the app fixes it — which is the worst possible signal,
+ * because it makes the bug look intermittent.
+ *
+ * `specs/2026-08-23-taskflow-multi-backend-design.md:186-188` calls for exactly
+ * this and sets the interval: recompute when `os.networkInterfaces()` changes,
+ * polled every 30 seconds rather than watching link state per platform.
+ */
+function keepMembershipsCurrent(socket: dgram.Socket): ReturnType<typeof setInterval> {
+    // The addresses we have successfully joined. Not "the addresses that
+    // existed last time we looked" — a join that throws must be retried on the
+    // next tick, because the common reason is an interface that is up but not
+    // yet configured, which resolves itself a second later.
+    const joined = new Set<string>();
+
+    function refresh(): void {
+        const addresses = localIPv4Addresses();
+        if (addresses.length === 0) {
+            // No usable interface. Join the OS-chosen one so a loopback-only
+            // machine still hears something, and leave `joined` empty so the
+            // real interfaces are picked up the moment they appear.
+            try {
+                socket.addMembership(DISCOVERY_GROUP);
+            } catch {
+                // Discovery is unavailable; manual connect still works.
+            }
+            return;
         }
-        return;
-    }
-    for (const address of addresses) {
-        try {
-            socket.addMembership(DISCOVERY_GROUP, address);
-        } catch {
-            // One interface refusing the join must not take down the others.
+        for (const address of addresses) {
+            if (joined.has(address)) continue;
+            try {
+                socket.addMembership(DISCOVERY_GROUP, address);
+                joined.add(address);
+            } catch {
+                // One interface refusing the join must not take down the
+                // others, and must not stop us retrying it next tick.
+            }
+        }
+        for (const address of [...joined]) {
+            if (addresses.includes(address)) continue;
+            joined.delete(address);
+            try {
+                socket.dropMembership(DISCOVERY_GROUP, address);
+            } catch {
+                // The interface is already gone; the kernel dropped the
+                // membership with it. Nothing to do, and nothing to report.
+            }
         }
     }
+
+    refresh();
+    const timer = setInterval(refresh, MEMBERSHIP_REFRESH_MS);
+    // `unref` so this timer alone never holds the backend process open.
+    timer.unref?.();
+    return timer;
 }
 
 /**
@@ -853,6 +949,9 @@ function sendToGroup(socket: dgram.Socket, bytes: Uint8Array): void {
 function createAdvertiser(opts: { payload: () => BeaconAnnounce }): DiscoveryHandle {
     let socket: dgram.Socket | null = null;
     let timer: ReturnType<typeof setInterval> | null = null;
+    let membershipTimer: ReturnType<typeof setInterval> | null = null;
+    /** The current `start()`'s resolver while its bind is still in flight. */
+    let pendingSettle: (() => void) | null = null;
 
     function announceNow(): void {
         if (!socket) return;
@@ -885,14 +984,22 @@ function createAdvertiser(opts: { payload: () => BeaconAnnounce }): DiscoveryHan
                                 socket = null;
                                 if (timer) clearInterval(timer);
                                 timer = null;
+                                if (membershipTimer) clearInterval(membershipTimer);
+                                membershipTimer = null;
                             },
                             settle,
                         )(error),
                 );
                 socket = bound;
+                pendingSettle = settle;
                 bound.bind(DISCOVERY_PORT, () => {
+                    // A `stop()` between the bind call and this callback has
+                    // already closed and cleared the socket; binding a closed
+                    // socket's handlers back up would resurrect it.
+                    if (socket !== bound) return;
+                    pendingSettle = null;
                     bound.setMulticastTTL(DISCOVERY_TTL);
-                    joinAllInterfaces(bound);
+                    membershipTimer = keepMembershipsCurrent(bound);
                     announceNow();
                     timer = setInterval(announceNow, ANNOUNCE_INTERVAL_MS);
                     settle();
@@ -902,6 +1009,8 @@ function createAdvertiser(opts: { payload: () => BeaconAnnounce }): DiscoveryHan
         stop() {
             if (timer) clearInterval(timer);
             timer = null;
+            if (membershipTimer) clearInterval(membershipTimer);
+            membershipTimer = null;
             try {
                 socket?.close();
             } catch {
@@ -909,6 +1018,16 @@ function createAdvertiser(opts: { payload: () => BeaconAnnounce }): DiscoveryHan
                 // ERR_SOCKET_DGRAM_NOT_RUNNING. Stopping is still the answer.
             }
             socket = null;
+            // A `stop()` while the bind is still pending would otherwise leave
+            // `start()`'s promise unsettled forever. Verified on Node 22.14:
+            // `bind(port, cb)` followed immediately by `close()` emits `close`
+            // and **neither** the bind callback nor an `error`, so nothing else
+            // in this function can settle it. The backend `await`s
+            // `advertiser.start()` inside `applyNetworkSettings`, so an
+            // unsettled promise there is the same wedged boot round 12 fixed
+            // for the bind-failure case, reached from the other side.
+            pendingSettle?.();
+            pendingSettle = null;
         },
     };
 }
@@ -919,6 +1038,10 @@ function createListener(opts: {
     const seen = new Map<string, DiscoveredBackend>();
     let socket: dgram.Socket | null = null;
     let sweepTimer: ReturnType<typeof setInterval> | null = null;
+    let membershipTimer: ReturnType<typeof setInterval> | null = null;
+    /** As in the advertiser: the current `start()`'s resolver while its bind is
+     *  still in flight, so `stop()` can settle it. */
+    let pendingSettle: (() => void) | null = null;
 
     function live(): DiscoveredBackend[] {
         return [...seen.values()];
@@ -989,6 +1112,8 @@ function createListener(opts: {
                             socket = null;
                             if (sweepTimer) clearInterval(sweepTimer);
                             sweepTimer = null;
+                            if (membershipTimer) clearInterval(membershipTimer);
+                            membershipTimer = null;
                             // The menu must not keep offering machines this
                             // listener can no longer hear from.
                             seen.clear();
@@ -998,9 +1123,12 @@ function createListener(opts: {
                     )(error),
                 );
                 socket = bound;
+                pendingSettle = settle;
                 bound.bind(DISCOVERY_PORT, () => {
+                    if (socket !== bound) return;
+                    pendingSettle = null;
                     bound.setMulticastTTL(DISCOVERY_TTL);
-                    joinAllInterfaces(bound);
+                    membershipTimer = keepMembershipsCurrent(bound);
                     sweepTimer = setInterval(sweep, ANNOUNCE_INTERVAL_MS);
                     settle();
                 });
@@ -1009,6 +1137,8 @@ function createListener(opts: {
         stop() {
             if (sweepTimer) clearInterval(sweepTimer);
             sweepTimer = null;
+            if (membershipTimer) clearInterval(membershipTimer);
+            membershipTimer = null;
             try {
                 socket?.close();
             } catch {
@@ -1019,6 +1149,8 @@ function createListener(opts: {
             }
             socket = null;
             seen.clear();
+            pendingSettle?.();
+            pendingSettle = null;
         },
         probe() {
             if (socket) sendToGroup(socket, encodeProbe());
@@ -1156,7 +1288,9 @@ Add to the merge at line 278:
 
 - [ ] **Step 9: Start the advertiser in the backend**
 
-In `packages/backend/src/index.ts`, after the port files are written, add:
+In `packages/backend/src/index.ts`, after the port files are written, add
+(importing `DISCOVERY_MAX_DISPLAY_NAME` from `@taskflow/shared` alongside
+`PROTOCOL_VERSION`):
 
 ```ts
         let network = (await settingsStore.get()).network;
@@ -1167,7 +1301,15 @@ In `packages/backend/src/index.ts`, after the port files are written, add:
                 protocolVersion: PROTOCOL_VERSION,
                 instanceId: config.instanceId,
                 hostname: hostname(),
-                displayName: network.displayName.trim() || hostname(),
+                // Clamped here as well as in the Settings input, because
+                // `settings.json` is a file a user can edit and this is the
+                // last point before the bytes go on the wire. Over the cap the
+                // whole announcement becomes unparsable and this backend
+                // silently disappears from every other machine's menu.
+                displayName: (network.displayName.trim() || hostname()).slice(
+                    0,
+                    DISCOVERY_MAX_DISPLAY_NAME,
+                ),
                 port: startedServer.port,
                 appVersion: APP_VERSION,
                 os: process.platform,
@@ -1258,6 +1400,9 @@ and `displayName` as something they override (`:162`).
 Add two rows to `packages/ui/src/components/settings/sections/GeneralSection.tsx`,
 following the `Ask before exit` row already there (`GeneralSection.tsx:84-95`):
 
+Import the cap at the top of the file:
+`import { DISCOVERY_MAX_DISPLAY_NAME } from "@taskflow/shared";`
+
 ```tsx
             <SettingRow
                 label="Discoverable on this network"
@@ -1278,6 +1423,14 @@ following the `Ask before exit` row already there (`GeneralSection.tsx:84-95`):
                     id="network-display-name"
                     value={displayName}
                     placeholder={hostname}
+                    // Not cosmetic. Past this length the announcement exceeds
+                    // `DISCOVERY_MAX_DATAGRAM_BYTES` and every listener drops
+                    // it unparsed, so this machine quietly stops appearing in
+                    // other clients' menus with no error anywhere. Stopping the
+                    // keystroke is the only feedback that arrives in time; the
+                    // advertiser clamps too, for names that got in by other
+                    // routes.
+                    maxLength={DISCOVERY_MAX_DISPLAY_NAME}
                     onChange={(event) => onDisplayNameChange(event.target.value)}
                 />
             </SettingRow>
@@ -1298,7 +1451,7 @@ Run: `bun test && bun run typecheck`
 Expected: PASS
 
 ```bash
-git add packages/shared packages/backend/src/index.ts packages/backend/src/services/settings-store.ts
+git add packages/shared packages/backend/src/index.ts packages/backend/src/services/settings-store.ts packages/ui/src/components/settings/sections/GeneralSection.tsx packages/ui/src/components/settings/SettingsModal.tsx
 git commit -m "feat(discovery): advertise backends on the LAN and listen for peers"
 ```
 
@@ -2036,7 +2189,7 @@ The process side: spawn ssh, prove the *backend* is there rather than just ssh, 
 
 **Interfaces:**
 - Consumes: everything from Task 5.
-- Produces: `openTunnel(record: BackendRecord, backendPort: number): Promise<TunnelResult>` where `TunnelResult = { ok: true; localPort: number } | { ok: false; failure: TunnelFailure }`; `closeTunnel(id: string): void`; `closeAllTunnels(): void`; `trustHostKey(record: BackendRecord): Promise<void>`; `fetchHostKeyFingerprint(record: BackendRecord): Promise<string>`; `readRemotePort(record: BackendRecord): Promise<{ port: number } | { failure: TunnelFailure }>`; `onTunnelExit(handler: (id: string, failure: TunnelFailure) => void): void`.
+- Produces: `openTunnel(record: BackendRecord, backendPort: number): Promise<TunnelResult>` where `TunnelResult = { ok: true; localPort: number } | { ok: false; failure: TunnelFailure }`; `closeTunnel(id: string): void`; `closeAllTunnels(): void`; `hasTunnel(id: string): boolean`; `trustHostKey(record: BackendRecord): Promise<void>`; `fetchHostKeyFingerprint(record: BackendRecord): Promise<string>`; `readRemotePort(record: BackendRecord): Promise<{ port: number } | { failure: TunnelFailure }>`; `onTunnelExit(handler: (id: string, failure: TunnelFailure) => void): void`.
 
 `trustHostKey` is ordered, not standalone: it pins the key material that the
 most recent `fetchHostKeyFingerprint` for that same record scanned, and rejects
@@ -2089,6 +2242,20 @@ const LOCAL_PORT_ATTEMPTS = 3;
 
 function onTunnelExit(handler: (id: string, failure: TunnelFailure) => void): void {
     exitHandler = handler;
+}
+
+/**
+ * Whether an ssh child is currently registered for `id`. A child that exits on
+ * its own deregisters itself (`deregister` in `attemptTunnel`), so this is a
+ * true liveness check and not just "we started one once".
+ *
+ * `revertActiveBackend` is the caller. It restores `previousOrigin`, and a
+ * forwarded local port is only an address for as long as the child holding it
+ * is alive — see the comment there for the sequence that leaves main pointing
+ * at a dead one.
+ */
+function hasTunnel(id: string): boolean {
+    return tunnels.has(id);
 }
 
 function delay(ms: number): Promise<void> {
@@ -2437,6 +2604,7 @@ export {
     closeTunnel,
     fetchHostKeyFingerprint,
     forgetScannedHostKey,
+    hasTunnel,
     onTunnelExit,
     openTunnel,
     readRemotePort,
@@ -2472,7 +2640,7 @@ git commit -m "feat(electron): supervise ssh tunnels with a backend readiness pr
 
 **Interfaces:**
 - Consumes: Tasks 4, 5, 6.
-- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<void>`, `removeBackend(id): Promise<{ ok: boolean; reason?: string }>`, `revertActiveBackend(): Promise<void>`, `trustBackendHost(id): Promise<void>` (rejects unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void`.
+- Produces: on `window.taskflow` — `listBackends(): Promise<MenuEntry[]>`, `getActiveBackend(): Promise<{ id: string; origin: string | null; isLocal: boolean }>`, `activateBackend(id: string): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`, `cancelActivation(id: string): Promise<void>`, `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`, `updateBackend(id, patch: { displayName?, user?, sshPort? }): Promise<{ ok: boolean; reason?: string }>`, `removeBackend(id): Promise<{ ok: boolean; reason?: string }>`, `revertActiveBackend(): Promise<void>`, `trustBackendHost(id): Promise<void>` (rejects unless `getHostFingerprint` ran for the same id first — see Task 6), `getHostFingerprint(id): Promise<string>`, `onBackendsChanged(cb: () => void): () => void`, `onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void`.
 
 - [ ] **Step 1: Write the registry**
 
@@ -2499,7 +2667,13 @@ import {
     removeRecord,
     upsertRecord,
 } from "./backend-records";
-import { closeTunnel, forgetScannedHostKey, openTunnel, readRemotePort } from "./tunnel-manager";
+import {
+    closeTunnel,
+    forgetScannedHostKey,
+    hasTunnel,
+    openTunnel,
+    readRemotePort,
+} from "./tunnel-manager";
 
 interface BackendRegistryDeps {
     /** The port of the backend Electron spawned for this window. */
@@ -2818,7 +2992,27 @@ async function revertActiveBackend(): Promise<void> {
     // port that `notification-poller` and `tray-manager` then hit every tick.
     // Null is the honest answer; the renderer's `dropped` banner is what the
     // user acts on, and it is still set because the switch failed.
-    activeOrigin = abandoned === previousId ? null : previousOrigin;
+    //
+    // `hasTunnel` is the second half of that, and the id comparison alone does
+    // not cover it. The reconnect case is only one way `previousOrigin` goes
+    // stale; the other is the old backend's tunnel dying *during* the switch,
+    // which one lost network covers both ends of. Sequence: on remote A,
+    // switch to remote B, and the network drops between `setActiveBackend(B)`
+    // and `promoteConnection`. A's ssh child exits, `onTunnelExit` fires, and
+    // `markTunnelDropped(A)` returns immediately because `activeId` is already
+    // B — its guard reads a drop for a non-active backend as "a tunnel already
+    // retired by a completed switch", and this switch has not completed. B's
+    // socket then dies, promotion fails, and we land here with `abandoned = B`,
+    // `previousId = A`: the ids differ, so `previousOrigin` is restored and
+    // main believes A is reachable at a forwarded port whose child is gone. The
+    // pollers hit it every tick until the user presses **Reconnect**, each
+    // request running to its `AbortSignal.timeout(1000)` — precisely the waste
+    // `markTunnelDropped` exists to prevent, arrived at through the one door
+    // its guard leaves open.
+    activeOrigin =
+        abandoned === previousId || (previousId !== LOCAL_ID && !hasTunnel(previousId))
+            ? null
+            : previousOrigin;
     await persist();
     deps.onChanged();
 }
@@ -2939,9 +3133,9 @@ async function rememberDiscovered(id: string): Promise<void> {
 async function updateBackend(
     id: string,
     patch: { displayName?: string; user?: string; sshPort?: number },
-): Promise<void> {
+): Promise<{ ok: boolean; reason?: string }> {
     const existing = records.find((record) => record.id === id);
-    if (!existing) return;
+    if (!existing) return { ok: false, reason: "That backend is no longer in the list." };
     // Validated here, not only in the dialog. These three fields go straight
     // into an ssh command line — `buildTunnelArgs` emits `-p
     // ${String(record.sshPort)}` and `${record.user}@${record.host}` — and a
@@ -2954,28 +3148,45 @@ async function updateBackend(
     // `classifyTunnelFailure` reads ssh's stderr and reports "no route" or
     // "auth refused" for a record the user broke by hand a moment earlier.
     //
-    // Rejecting rather than silently correcting: a rejected IPC is a visible
-    // error in the dialog (`updateBackend` is awaited in a `try`), whereas
-    // coercing a typo into 22 hides it until the connection fails.
+    // Refusing rather than silently correcting: coercing a typo into 22 hides
+    // it until the connection fails. Returned as `{ ok, reason }` rather than
+    // thrown, matching `removeBackend` directly below and `save-artifact`'s
+    // `{ success, error }` in `ipc-handlers.ts:104` — the repo has no handler
+    // that throws text meant for a user, and for a good reason: Electron wraps
+    // a rejected `ipcMain.handle` before the renderer sees it, so a thrown
+    // "A backend needs an SSH user." reaches the banner as `Error invoking
+    // remote method 'backend-update': Error: A backend needs an SSH user.`
     const displayName = patch.displayName?.trim();
     const user = patch.user?.trim();
     if (patch.displayName !== undefined && !displayName) {
-        throw new Error("A backend needs a name.");
+        return { ok: false, reason: "A backend needs a name." };
     }
     if (patch.user !== undefined && !user) {
-        throw new Error("A backend needs an SSH user.");
+        return { ok: false, reason: "A backend needs an SSH user." };
     }
     if (
         patch.sshPort !== undefined &&
         (!Number.isInteger(patch.sshPort) || patch.sshPort < 1 || patch.sshPort > 65535)
     ) {
-        throw new Error("The SSH port must be a whole number between 1 and 65535.");
+        return { ok: false, reason: "The SSH port must be a whole number between 1 and 65535." };
     }
+    // Built field by field from the validated locals, **not** `{ ...existing,
+    // ...patch }`. A spread does not mean "keys the caller supplied" — it means
+    // "own keys", and an explicitly-`undefined` key is an own key that wins.
+    // The Manage dialog sends `sshPort: parsePort(field)`, which is `undefined`
+    // whenever the port input is blank, so a user editing only the display name
+    // would have `sshPort: undefined` written over a working `2222`. ssh is
+    // then handed `-p undefined`; `JSON.stringify` drops the key entirely, so
+    // `backends.json` loses it and `normalizeRecord` heals it to 22 on the next
+    // launch — the same row failing two different ways either side of a
+    // restart, which is exactly what this validation was added to stop.
+    // `addBackend` does not have this problem because it *builds* a record with
+    // `??` defaults rather than merging onto one.
     records = upsertRecord(records, {
         ...existing,
-        ...patch,
-        ...(displayName ? { displayName } : {}),
-        ...(user ? { user } : {}),
+        ...(displayName !== undefined ? { displayName } : {}),
+        ...(user !== undefined ? { user } : {}),
+        ...(patch.sshPort !== undefined ? { sshPort: patch.sshPort } : {}),
     });
     // `sshPort` is half of the `known_hosts` key (`knownHostsKey`, Task 5), so
     // a key scanned before this edit describes a different endpoint than the
@@ -2983,6 +3194,7 @@ async function updateBackend(
     forgetScannedHostKey(id);
     await persist();
     deps.onChanged();
+    return { ok: true };
 }
 
 /**
@@ -3080,13 +3292,11 @@ In `electron/src/ipc-handlers.ts`, add near the existing `get-backend-port` hand
 
     ipcMain.handle(
         "backend-update",
-        async (
+        (
             _event,
             id: string,
             patch: { displayName?: string; user?: string; sshPort?: number },
-        ) => {
-            await updateBackend(id, patch);
-        },
+        ) => updateBackend(id, patch),
     );
 
     ipcMain.handle("backend-remove", (_event, id: string) => removeBackend(id));
@@ -3176,7 +3386,7 @@ In `packages/ui/src/env.d.ts`, add to `interface TaskflowBridge`:
     updateBackend(
         id: string,
         patch: { displayName?: string; user?: string; sshPort?: number },
-    ): Promise<void>;
+    ): Promise<{ ok: boolean; reason?: string }>;
     removeBackend(id: string): Promise<{ ok: boolean; reason?: string }>;
     getHostFingerprint(id: string): Promise<string>;
     trustBackendHost(id: string): Promise<void>;
@@ -4379,7 +4589,7 @@ export { registerReset, registeredResetNames, resetAllState };
 
 - [ ] **Step 4: Register a reset in every store**
 
-For each module in `packages/ui/src/stores/` other than `store-reset.ts`, `rebootstrap.ts` and `session-subscriptions.ts`, add at the bottom of the file, adapting the initial state to that store. Two of them — `session-activity.ts` and `session-helpers.ts` — are not zustand stores at all; Step 5 covers what they reset instead. For example, in `packages/ui/src/stores/project-store.ts`:
+For each module in `packages/ui/src/stores/` other than `store-reset.ts`, `rebootstrap.ts`, `session-subscriptions.ts` and `session-sync.ts`, add at the bottom of the file, adapting the initial state to that store. That exclusion list must stay identical to the one in Step 1's coverage test — it is the same list stated twice, and `session-sync.ts` is in the test's but was missing here, so following this step literally would add a reset to a pure helper the test deliberately does not ask for. Two of them — `session-activity.ts` and `session-helpers.ts` — are not zustand stores at all; Step 5 covers what they reset instead. For example, in `packages/ui/src/stores/project-store.ts`:
 
 ```ts
 registerReset("project-store", () => {
@@ -5860,11 +6070,17 @@ created for exactly this — rather than writing a second one:
             return;
         }
         try {
-            await bridge.updateBackend(id, {
+            const result = await bridge.updateBackend(id, {
                 displayName: name,
                 user: sshUser,
                 sshPort: parsedSshPort,
             });
+            if (!result.ok) {
+                useBackendStore.setState({
+                    error: result.reason ?? "Could not save that backend.",
+                });
+                return;
+            }
             await refresh();
         } catch (saveError) {
             useBackendStore.setState({
@@ -5875,12 +6091,20 @@ created for exactly this — rather than writing a second one:
     }
 ```
 
-`parsePort` returns `undefined` for an empty field, and `updateBackend` reads
-`sshPort: undefined` as "not in this patch", so clearing the port field leaves
-the saved one alone. That is deliberate — the port has a meaningful default (22)
-and a blank field is not evidence the user wants something else. It is also why
-main validates too: this dialog's guard covers the typo, and `updateBackend`'s
-covers a future third caller.
+`parsePort` returns `undefined` for an empty field, and `updateBackend` treats a
+missing `sshPort` as "not in this patch", so clearing the port field leaves the
+saved one alone. That is deliberate — the port has a meaningful default (22) and
+a blank field is not evidence the user wants something else. **This only holds
+because `updateBackend` merges field by field rather than spreading the patch**;
+see the comment there. It is also why main validates at all: this dialog's guard
+is what the user sees, and `updateBackend`'s is what protects the record from a
+future third caller.
+
+The refusal comes back as `{ ok, reason }` rather than a rejection, the same
+shape `removeBackend` uses two paragraphs down. Do not "simplify" it back to a
+throw: Electron prefixes a rejected `ipcMain.handle` with
+`Error invoking remote method 'backend-update': `, so the banner would read that
+before it got to the sentence the user needs.
 
 Removal can be refused. `removeBackend` returns `{ ok: false, reason }` for the
 currently active backend, because deleting the record the app is connected
@@ -6137,7 +6361,7 @@ Expected: the bottom-left icon opens a menu listing Master Workspace and "This m
 - [ ] **Step 9: Commit**
 
 ```bash
-git add packages/ui/src/components/sidebar packages/ui/src/components/AppShell.tsx
+git add packages/ui/src/components/sidebar packages/ui/src/components/AppShell.tsx packages/ui/src/App.tsx
 git commit -m "feat(ui): replace the master workspace button with a backend menu"
 ```
 
@@ -6739,6 +6963,18 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
   fine but nothing ran it: `WebSocketProvider.connect()` is missing its
   `refresh()` call, so `ConnectionOverlay` is still reading the initial
   `isLocal: true` and blocking.
+- Turn Wi-Fi off, launch Taskflow on both machines, then turn Wi-Fi back on and
+  wait a minute. Expected: each machine appears in the other's backend menu
+  without a restart. One-sided is the tell, and it is the shape this bug takes:
+  `sendToGroup` re-enumerates interfaces per announce so *announcing* recovers
+  on its own, while a one-shot `addMembership` at bind time means *receiving*
+  never does. If A sees B but B does not see A, B's `keepMembershipsCurrent`
+  timer is not running.
+- In Settings → General, paste a 200-character name into "Name on the network".
+  Expected: the field stops accepting input at 64. If it takes the whole string,
+  this backend will vanish from every other machine's menu the moment it
+  announces, with nothing logged anywhere — `parseDatagram` drops the datagram
+  over `DISCOVERY_MAX_DATAGRAM_BYTES` before it parses far enough to complain.
 - Open the backend menu → **Manage backends**, clear the SSH user on a saved
   remote row and save. Expected: an inline "Name and SSH user cannot be empty."
   and no write. Then put a valid user back, type `0` in the SSH port and save.
