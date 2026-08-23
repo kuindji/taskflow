@@ -29,7 +29,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
 | 19.2 | Mouse — outer tracking on/off | clear | `3829f83` | commit `5345824`; round 1 fixed in `a7af6dd`; round 2 found nothing — clear after two rounds |
-| 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
+| 19.3 | Mouse — layout hoist and hit testing | implemented | `db844f4` | commit `ec39171`; review round 1 due |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
 | 19.5 | Mouse — forward to the child | pending | — | `ChildModes.mouseTracking`/`mouseEncoding`, `encodeMouseForChild` |
 | 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
@@ -5134,9 +5134,55 @@ Independent verification done here rather than taken on trust:
 Verification at `16d9aeb` (code unchanged since `a7af6dd`): `bun run lint` clean, `bun run
 typecheck` clean across all five packages, `bun test packages/tui` → 383 pass, 0 fail.
 
-Next step: Task 19.3.
-Task 19.2 is clear after two review rounds. Implement Task 19.3 as the plan specifies —
-`ui/layout.ts`, `tabSpans`, and `routeMouse` — recording current HEAD as its base commit in
-this handoff before starting. Then review round 1 for 19.3.
-After 19.3: 19.4 - 19.6, then Tasks 16-18, then Tasks 20 and 21 (each needs its own plan;
-20 touches `packages/backend` and `electron/`, 21 touches `packages/tui/src/input`).
+
+## Task 19.3 — implementation
+
+Base commit `db844f4`, implemented in `ec39171`. Built exactly what the plan specifies.
+
+- **`ui/layout.ts` — `computeLayout(cols, rows, zoomed): Layout`.** `SIDEBAR_WIDTH` and the
+  geometry moved out of `App.render` verbatim, with `paneHeight` clamped at zero so a
+  one-row terminal gives the blitter a rect rather than a negative height. `App.render` now
+  draws from `layout` — the same numbers a click will be tested against.
+- **`tabSpans(width, tabs)` extracted from `drawTabs`.** The shared cursor loop lives in a
+  private `layoutTabs`, which returns each fitting tab's `{start, end, label, active}`;
+  `drawTabs` paints those spans and `tabSpans` is the positions-only public view. Sharing
+  one loop is what makes it impossible for the strip that is drawn and the strip that is
+  clicked to disagree.
+- **`routeMouse(report, layout, ctx)` in `routing.ts`.** Pure, region-then-button, sidebar
+  tested first. `Action` gains `select`, `open-tab`, `scroll` and `focus`; `App.handleKey`'s
+  switch has a `default`, so the new kinds are inert until 19.4 wires them.
+
+Decisions taken:
+
+- **`tabSpans` drops the label rather than typing it away.** `layoutTabs` needs the label
+  and the active flag; returning that object under a narrower declared type would leave the
+  extra fields present at runtime for a caller to start depending on. It maps to
+  `{start, end}` instead — one small allocation per tab strip, on mouse reports only.
+- **`drawTabs` reads `active` off the span, not `tabs[i]`.** Indexing back into the input
+  needed a `?.active === true` that `no-unnecessary-boolean-literal-compare` rejects, and
+  carrying the flag through `layoutTabs` removes the index correspondence entirely.
+- **A tab opens on press only; the sidebar also selects on drag.** The plan gives the
+  sidebar press-or-drag so a held drag keeps moving the selection, and gives the tab strip
+  a plain left press. A drag across the strip therefore opens nothing.
+
+Independent verification that the new tests are not vacuous:
+
+- **The drawn strip and the hit-tested strip really are pinned together.** Replacing
+  `tabSpans` with a uniform 10-column guess reddened four tests, including
+  `tabSpans > matches the columns drawTabs actually paints` and
+  `the second tab is where drawTabs paints its highlight, whatever the first is called`.
+- **`routeMouse` really consults the spans.** Replacing its `findIndex` over `tabSpans` with
+  `Math.floor(x / 10)` reddened
+  `routeMouse > a click on the second tab opens the second tab, whatever the first one's width`.
+- Command for both: `bun test packages/tui/src/ui`. Tree restored after each; `git diff`
+  confirmed clean before committing.
+
+Verification at `ec39171`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 409 pass, 0 fail (383 before, plus 26 new).
+
+Next step: Task 19.3 review round 1.
+Run one gpt-5.5 review via codex-review over `db844f4..HEAD` restricted to `packages/tui`,
+with the three Task 19.3 decisions above called out as settled. Verify any finding here
+before acting on it.
+After 19.3 is clear: 19.4 - 19.6, then Tasks 16-18, then Tasks 20 and 21 (each needs its own
+plan; 20 touches `packages/backend` and `electron/`, 21 touches `packages/tui/src/input`).
