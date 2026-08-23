@@ -27,7 +27,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | in-review round 10 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`; next is review round 11 |
+| 19.1 | Mouse — report decoding | in-review round 11 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; next is review round 12 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
@@ -4865,8 +4865,78 @@ regression test). Codex independently ran `bun test packages/tui/src/input` (105
 `bun test packages/tui/src/index.test.ts` (18), typecheck and eslint, all clean — note it
 read the working tree, which already carried this fix and its test.
 
-Next step: review round 11 for Task 19.1.
-Round 10 fixed a substantiated finding, so the task takes another round rather than
+## Task 19.1, round 11
+
+**gpt-5.5 via codex-review, Mode B over `e00cd13..HEAD`** (`packages/tui` only), with the
+ten settled decisions listed in the prompt so the round could not re-tread them. One
+finding, substantiated and fixed in `984ac93`.
+
+Before the report landed, two independent probes over `decodeLegacy` and `decodeKitty`
+found nothing: 20 000 random byte streams built from mouse reports, escape sequences and
+ordinary keys, each decoded whole and again at random split points, agreed exactly
+(0 mismatches); and over inputs with no kitty `u` sequences, `decodeKitty` agreed exactly
+with `decodeLegacy` (0 mismatches). Throwaway probes, not kept — the property they check
+is already covered piecewise by the suite.
+
+- **Substantiated and fixed — an intermediate byte did not end the mouse hold.**
+  `isPartialMouseReport` gave the second-long mouse drop window to any incomplete
+  `CSI <` run, testing only that `scanCsi` came back `incomplete`. A run that has already
+  taken an intermediate byte (0x20-0x2f) also scans as incomplete, but it can never be an
+  SGR report: the finals `M` and `m` come straight after the parameters. So a dead run
+  went on absorbing input for a full second instead of being discarded by the 25ms idle
+  flush, and the next printable key landed on it as the sequence's final byte and was
+  consumed.
+
+  What the user would see: a mouse report loses its tail over a slow link, the user types
+  a space, and the very next letter vanishes — or, if that letter is `Q`, quit is silently
+  swallowed.
+
+  The space is what makes this reachable without corrupt input: space is 0x20, an
+  intermediate byte, and users type it constantly. Codex's own trigger was the synthetic
+  `\x1b[<0;1;1 ` then `Q`.
+
+  Independently reproduced at `d945675` before fixing. Regression tests:
+  `decodeLegacy > an intermediate byte ends the SGR hold, so the next key is not
+  swallowed` in `src/input/decode-legacy.test.ts` (red: `isPartialMouseReport` returned
+  `true` for `\x1b[<0;5;5 `), and `tui entry point > a space typed into a dead SGR report
+  ends its hold instead of extending it` in `src/index.test.ts` (red: the TUI never quit
+  on the `Q` typed 300ms after the space). Both green at `984ac93`. Run with
+  `bun test packages/tui`.
+
+  Fix: the SGR arm of `isPartialMouseReport` now tests that everything after the `CSI` is
+  still a parameter byte (`isParamBytes`, 0x30-0x3f), which is all a half-written report
+  can be made of.
+
+## Decisions taken (Task 19.1, round 11)
+
+- **`isParamBytes` replaces the `scanCsi` call rather than joining it.** A run of nothing
+  but parameter bytes always scans as `incomplete` — the parameter loop runs to the end of
+  the buffer and there is no byte left to be a final — so the new test accepts a strict
+  subset of what the old one did. Keeping both would state the same fact twice.
+- **A new predicate rather than reusing `isNumericParams`.** That one allows only digits
+  and `;`, so it would reject the leading `<` of every SGR report. The full ECMA-48
+  parameter range is what the hold needs.
+- **Nothing is emitted from the dropped run.** `flushCarry` already returns `[]` for it, so
+  ending the hold sooner discards the dead sequence rather than fabricating keys from it —
+  the same treatment any other stranded partial CSI gets.
+- **The one keystroke consumed inside a single read stays consumed.** With the carry
+  `\x1b[<0;5;5 ` and `h` arriving in the same read, `h` is still the sequence's final byte
+  and still disappears; only the *window* is shortened, so everything after it survives.
+  Making a completed-but-nonsense CSI give its final byte back to the keymap is a different
+  change and not one this task's plan asks for.
+
+Verification at `984ac93`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 378 pass, 0 fail (376 before, plus the two new
+regression tests). One full-suite run showed `startBackend > rejects when the backend
+writes a port and then dies` failing; it is an unrelated Task 2 spawn-timing flake —
+`packages/tui/src/backend/manager.test.ts` passes in isolation on both the pre-fix and the
+post-fix tree, the next full-suite run was 378/0, and nothing in this commit touches
+`src/backend`. Codex independently ran `bun test packages/tui/src/input`,
+`bun test packages/tui`, typecheck and lint, all clean — it read the tree before the fix,
+so its clean runs are of the defective code, not of the fix.
+
+Next step: review round 12 for Task 19.1.
+Round 11 fixed a substantiated finding, so the task takes another round rather than
 closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
 (`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
 Settled, do not re-litigate: the X10 UTF-8 payload limitation — **including a plain X10
@@ -4878,19 +4948,25 @@ section** (round 1, re-accepted rounds 1 and 7); the extra-button release sentin
 drop window (round 4, fixed in `3770749`); the SGR carry hold (round 5, fixed in
 `ee518be`); the invalid-CSI discard plus the absolute drop deadline (round 6, fixed in
 `012049f`); the deadline check inside `feed` (round 7, fixed in `2911a80`); the
-fresh-report deadline plus the SGR intermediate-byte guard (round 8, fixed in `176d5af`);
-the X10 below-bias payload guard (round 9, fixed in `f828057`); and the consumed-nothing
-test for a fresh report's deadline (round 10, fixed in `4554556`) — each only if the fix
-itself is shown wrong. Also settled: bare motion (`?1003h`) is never enabled on the outer
-terminal, so an X10 `b = 35` decoding as a release is out of scope by plan decision; the
-`ESC [` two-byte split, per the round-4 decision; holding partial CSIs beyond `CSI <` and
-`CSI M`, per the round-5 decision; refreshing the drop deadline on decoded events rather
-than on bytes arriving, per the round-6 decision; and keeping the "same held report" test
-in `feed` rather than in `DecodeResult`, per the round-10 decision.
-Note for round 11: Codex has now returned a clean verdict once while the round's own fix
-was already in the tree, so its report is weaker evidence than it looks. Read the code
-independently as well as prompting Codex; rounds 6, 9 and 10 all turned on defects found
-by reading rather than by the report.
+fresh-report deadline plus the SGR intermediate-byte guard on a *completed* sequence
+(round 8, fixed in `176d5af`); the X10 below-bias payload guard (round 9, fixed in
+`f828057`); the consumed-nothing test for a fresh report's deadline (round 10, fixed in
+`4554556`); and the intermediate-byte guard on a *half-written* run (round 11, fixed in
+`984ac93`) — each only if the fix itself is shown wrong. Also settled: bare motion
+(`?1003h`) is never enabled on the outer terminal, so an X10 `b = 35` decoding as a release
+is out of scope by plan decision; the `ESC [` two-byte split, per the round-4 decision;
+holding partial CSIs beyond `CSI <` and `CSI M`, per the round-5 decision; refreshing the
+drop deadline on decoded events rather than on bytes arriving, per the round-6 decision;
+keeping the "same held report" test in `feed` rather than in `DecodeResult`, per the
+round-10 decision; and letting a nonsense CSI keep the one final byte it consumed inside a
+single read, per the round-11 decision.
+Note for round 12: Codex has twice returned its verdict while the round's own fix was
+already in the tree, so its clean validation runs are weaker evidence than they look. Read
+the code independently as well as prompting Codex; rounds 6, 9 and 10 all turned on defects
+found by reading rather than by the report. Round 11's split-invariance probes came back
+clean, so that property is covered — pick a different angle (the `feed` deadline
+arithmetic under concurrent timers, or `decodeKitty`'s boundary flush) rather than
+repeating it.
 Verify every new finding independently before fixing it; a finding without a repro is not
 a finding, and check the mouse plan's own decisions before treating one as new. Zero
 substantiated findings → 19.1 is clear and 19.2 is next.
