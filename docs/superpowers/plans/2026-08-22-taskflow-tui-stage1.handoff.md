@@ -22,7 +22,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
+| 15 | Application shell and entry point | implemented | `43df638` | commit `8c01132`; plan Step 6 (manual smoke test) is a user gate — AWAITING USER |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
@@ -3231,14 +3231,47 @@ further unrelated commits landed during round 11: `8f92af6` was this flow's own 
 record, and `382b33f` sits directly on it. None landed during round 12 either: `e524484`,
 this flow's own round 11 record, was still HEAD when the round started and no code changed.
 
-Next step: Task 15 — Application shell and entry point (plan `### Task 15`, line 3767).
-Record HEAD as the base commit, then work Steps 1-5: write `packages/tui/src/ui/app.test.ts`,
-confirm it fails, write `packages/tui/src/ui/app.ts`, confirm it passes, and write
-`packages/tui/src/index.ts`. Step 6 is a manual smoke test that has to be run by hand in a
-kitty-protocol terminal (Ghostty, Kitty, foot or Alacritty) against a built backend — that is
-a user gate. Stop there: write `Next step: AWAITING USER` with the exact commands and the six
-things to check, ask in the session, and leave the flow action open rather than committing a
-task the plan says must be smoke-tested first.
+## Task 15 — implementation
+
+Base commit `43df638`; implemented in `8c01132` (`packages/tui/src/ui/app.ts`,
+`packages/tui/src/ui/app.test.ts`, `packages/tui/src/index.ts`).
+
+Plan Steps 1-5 ran as written: `app.test.ts` failed with `Cannot find module './app'`,
+then passed 6/6 once `app.ts` landed. `index.ts` has no test of its own — the plan gives it
+none, and it is the one module that owns real process state.
+
+Checks on `8c01132`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 313 pass / 0 fail, full `bun test` 1146 pass / 8 fail with
+the 8 being the known pre-existing `MarkdownPaneImpl` failures. `prettier --check` clean on
+the three new files.
+
+## Decisions taken (Task 15 implementation)
+
+- **One `Tty`, not two.** The plan's `index.ts` built a throwaway `Tty(sink, {kitty: false})`,
+  called `installExitHandlers()` on it, then set raw mode by hand before negotiating, on the
+  stated reasoning that "the handlers that undo it are installed first". Those handlers do not
+  undo it: every one of them calls `leave()`, which returns immediately while `entered` is
+  false, so nothing takes raw mode off. A signal landing during the ~150ms negotiation window
+  would have left the shell in raw mode. Replaced with a single `Tty` created after
+  negotiation, plus `armRawModeGuard()` — an exit/SIGINT/SIGTERM/SIGHUP guard that only
+  restores raw mode, armed before the kitty query goes out and disarmed the moment
+  `tty.enter()` returns, so the two never overlap and never leave a gap.
+- `setRawMode` is a local helper guarding on `process.stdin.isTTY`, matching what `Tty` does
+  internally; the plan called `process.stdin.setRawMode(true)` unguarded, which throws when
+  stdin is a pipe.
+- The `to-child` branch moved out of `handleKey` into a private `sendToChild`. The plan's
+  version shadowed the outer `ev` parameter with the loop variable; splitting it is clearer
+  than renaming, and keeps the switch a flat list of one-liners.
+- `App.rows` renamed to `App.sidebarRows`. The plan had a field `rows` and a dep `rows`
+  (the terminal height), and `render()` destructures `rows` from the deps — the two names
+  collided in the one function that uses both.
+- `SessionTerminal` is imported as a type: `App.sessions` is empty in this task and the class
+  is only referenced in a type position, so a value import would be an unused runtime import.
+
+Next step: AWAITING USER — plan Task 15 Step 6 is a manual smoke test in a kitty-protocol
+terminal, which cannot be run from this session. Commands and checks are in the plan at
+`### Task 15` Step 6. After the smoke test, the next recorded step is Task 15 review round 1
+(gpt-5.5 via codex-review over `43df638..8c01132`).
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
@@ -3247,7 +3280,8 @@ reproduces the documented baseline exactly. It recurred in Task 14 round 1: a
 `bun test packages/tui` launched while codex was running its own `bun test` reported
 306 pass / 1 fail, and the same command re-run once codex was idle reported 307 / 0.
 
-Baseline as of `b825ded`: `bun run lint` clean, `bun run typecheck` clean across all five
-packages, `bun test packages/tui` 307 pass / 0 fail, full `bun test` 1140 pass / 8 fail with
+Baseline as of `8c01132`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 313 pass / 0 fail, full `bun test` 1146 pass / 8 fail with
 the 8 being the known pre-existing `MarkdownPaneImpl` failures (three fragment-link tests and
-five checkbox-click tests).
+five checkbox-click tests). Those eight are flaky upward, not downward: one full run during
+Task 15 reported 9 fail, and a clean re-run of the same tree reported 8 again.

@@ -1752,10 +1752,24 @@ import { buildKeyscanArgs, buildTunnelArgs, classifyTunnelFailure } from "./tunn
 interface ActiveTunnel {
     child: ChildProcess;
     localPort: number;
+    /** False until the readiness probe has answered. See `pending` below. */
+    established: boolean;
 }
 
 type TunnelResult = { ok: true; localPort: number } | { ok: false; failure: TunnelFailure };
 
+/**
+ * Keyed by backend id, and holds the child from the moment it is spawned — not
+ * from the moment it is ready. Readiness takes up to READINESS_TIMEOUT_MS, and
+ * up to LOCAL_PORT_ATTEMPTS times that on a local-port retry; a child that is
+ * only registered on success is invisible to `closeAllTunnels` for all of that
+ * window. Quitting the app inside it leaves an orphan `ssh -N -L …` holding a
+ * forwarded port: on POSIX a child is not killed when its parent exits, it is
+ * reparented, so nothing else cleans it up either.
+ *
+ * One map rather than two, because both cases need the same thing done to them
+ * — kill the child — and a second map is a second place to forget.
+ */
 const tunnels = new Map<string, ActiveTunnel>();
 let exitHandler: ((id: string, failure: TunnelFailure) => void) | null = null;
 
@@ -1794,7 +1808,13 @@ function allocateLocalPort(): Promise<number> {
 /**
  * `ssh -L` accepts connections whether or not anything is listening on the far
  * side, so a TCP connect proves nothing. The backend answers `GET /` with
- * "Taskflow backend", which proves it is actually there.
+ * "Taskflow backend" (`packages/backend/src/ws/server.ts:41-50` — `/` falls
+ * past the API router to exactly that string), and the body is what gets
+ * checked. A status check alone is not enough: the port being forwarded to can
+ * be a *stale* one — `resolveBackendPort` falls back to a remembered port, and
+ * the remote machine may have handed it to something else since — and any HTTP
+ * server answering 200 there would pass. The failure then resurfaces much
+ * later, as an unexplained WebSocket error against a promoted backend.
  */
 async function waitForBackend(localPort: number): Promise<boolean> {
     const deadline = Date.now() + READINESS_TIMEOUT_MS;
@@ -1803,7 +1823,9 @@ async function waitForBackend(localPort: number): Promise<boolean> {
             const response = await fetch(`http://127.0.0.1:${localPort}/`, {
                 signal: AbortSignal.timeout(1_000),
             });
-            if (response.ok) return true;
+            if (response.ok && (await response.text()).startsWith("Taskflow backend")) {
+                return true;
+            }
         } catch {
             // Not up yet.
         }
@@ -1891,6 +1913,15 @@ async function attemptTunnel(
 ): Promise<TunnelResult> {
     const localPort = await allocateLocalPort();
     const { child, readStderr } = spawnTunnel(record, localPort, backendPort);
+    // Registered before the readiness probe runs, not after it succeeds, so
+    // `closeAllTunnels` on quit can see it. See the comment on `tunnels`.
+    const entry: ActiveTunnel = { child, localPort, established: false };
+    tunnels.set(record.id, entry);
+
+    /** Drops this attempt's registration without disturbing a later one. */
+    const deregister = (): void => {
+        if (tunnels.get(record.id) === entry) tunnels.delete(record.id);
+    };
 
     // `close` rather than `exit`: a spawn failure (no ssh binary) emits
     // `error` and `close` but never `exit`, so racing `exit` alone would let
@@ -1899,12 +1930,11 @@ async function attemptTunnel(
     // One listener for the child's whole life, not one per phase: before
     // readiness it settles the race, after it notifies the renderer. Two
     // listeners on one `close` would double-fire.
-    let established = false;
     const exited = new Promise<TunnelFailure>((resolve) => {
         child.once("close", (code) => {
             const failure = classifyTunnelFailure(readStderr(), code);
-            if (established) {
-                tunnels.delete(record.id);
+            deregister();
+            if (entry.established) {
                 exitHandler?.(record.id, failure);
                 return;
             }
@@ -1916,11 +1946,14 @@ async function attemptTunnel(
     const outcome = await Promise.race([exited, ready]);
 
     if (outcome === null) {
-        established = true;
-        tunnels.set(record.id, { child, localPort });
+        // Safe to read the flag rather than a fresh map lookup: `ready` settles
+        // as a microtask, and microtasks drain before the next macrotask, so no
+        // `close` can have run between the race settling and this line.
+        entry.established = true;
         return { ok: true, localPort };
     }
 
+    deregister();
     child.kill();
     if (outcome === "not-ready") {
         return {
@@ -1950,12 +1983,16 @@ async function openTunnel(record: BackendRecord, backendPort: number): Promise<T
     return last;
 }
 
+/** Kills whatever child is registered for `id`, established or still probing. */
 function closeTunnel(id: string): void {
     const tunnel = tunnels.get(id);
     if (!tunnel) return;
     tunnels.delete(id);
     // Drops the single lifetime listener, so a deliberate close is not reported
-    // to the renderer as a dropped tunnel.
+    // to the renderer as a dropped tunnel. On a child that is still probing it
+    // also strands that attempt's `exited` promise, which is intended: the
+    // readiness loop finishes on its own timeout and returns a failure nobody
+    // is waiting on any more.
     tunnel.child.removeAllListeners("close");
     tunnel.child.kill();
 }
@@ -1964,36 +2001,62 @@ function closeAllTunnels(): void {
     for (const id of [...tunnels.keys()]) closeTunnel(id);
 }
 
-async function fetchHostKeyFingerprint(record: BackendRecord): Promise<string> {
-    const scanned = await new Promise<string>((resolve) => {
+function scanHostKey(record: BackendRecord): Promise<string> {
+    return new Promise((resolve) => {
         execFile("ssh-keyscan", buildKeyscanArgs(record), { timeout: 10_000 }, (_e, stdout) =>
             resolve(stdout),
         );
     });
-    if (scanned.trim().length === 0) throw new Error(`No host key returned by ${record.host}`);
+}
+
+/**
+ * The exact bytes whose fingerprint was last shown to the user, per backend id.
+ * `trustHostKey` writes from here and nowhere else.
+ *
+ * Scanning twice — once to show a fingerprint, once to write a key — would mean
+ * the bytes the user approved and the bytes pinned in `known_hosts` came from
+ * two different network round trips with nothing tying them together, and this
+ * pair of calls is the entire trust-on-first-use anchor. Someone who answers
+ * only the second scan gets pinned permanently; more mundanely, a host that
+ * rotated keys between the two gets its new key pinned under the fingerprint
+ * the user read. Keeping the material in main also keeps it off the IPC
+ * channel, so the renderer never handles key bytes and the bridge is unchanged.
+ */
+const scannedHostKeys = new Map<string, string>();
+
+async function fetchHostKeyFingerprint(record: BackendRecord): Promise<string> {
+    const keyMaterial = await scanHostKey(record);
+    if (keyMaterial.trim().length === 0) {
+        throw new Error(`No host key returned by ${record.host}`);
+    }
     const fingerprint = await new Promise<string>((resolve) => {
         const child = execFile("ssh-keygen", ["-lf", "-"], (_e, stdout) => resolve(stdout));
-        child.stdin?.end(scanned);
+        child.stdin?.end(keyMaterial);
     });
+    scannedHostKeys.set(record.id, keyMaterial);
     return fingerprint.trim();
 }
 
 /**
- * Only ever called after the user approved the fingerprint, and only for an
- * `unknown-host-key` failure. A CHANGED key is classified separately and never
- * reaches here — that case is the user's to resolve outside the app.
+ * Only ever called after the user approved the fingerprint from
+ * `fetchHostKeyFingerprint`, and only for an `unknown-host-key` failure. A
+ * CHANGED key is classified separately and never reaches here — that case is
+ * the user's to resolve outside the app.
+ *
+ * Refuses rather than re-scanning when there is nothing stashed. A trust dialog
+ * that showed no fingerprint has approved nothing, so there is no key this is
+ * entitled to pin.
  */
 async function trustHostKey(record: BackendRecord): Promise<void> {
+    const keyMaterial = scannedHostKeys.get(record.id);
+    if (keyMaterial === undefined) {
+        throw new Error("Re-check this host's fingerprint before trusting it.");
+    }
+    scannedHostKeys.delete(record.id);
+
     const sshDir = join(homedir(), ".ssh");
     const knownHosts = join(sshDir, "known_hosts");
     await mkdir(sshDir, { recursive: true, mode: 0o700 });
-
-    const scanned = await new Promise<string>((resolve) => {
-        execFile("ssh-keyscan", buildKeyscanArgs(record), { timeout: 10_000 }, (_e, stdout) =>
-            resolve(stdout),
-        );
-    });
-    if (scanned.trim().length === 0) throw new Error(`No host key returned by ${record.host}`);
 
     let existing = "";
     try {
@@ -2002,7 +2065,7 @@ async function trustHostKey(record: BackendRecord): Promise<void> {
         // File does not exist yet.
     }
     const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-    await appendFile(knownHosts, `${prefix}${scanned.trimEnd()}\n`, { mode: 0o600 });
+    await appendFile(knownHosts, `${prefix}${keyMaterial.trimEnd()}\n`, { mode: 0o600 });
     await chmod(knownHosts, 0o600);
 }
 
