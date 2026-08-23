@@ -1,6 +1,21 @@
 import { describe, test, expect } from "bun:test";
 import { decodeLegacy, flushCarry } from "./decode-legacy";
 import { noMods } from "./keys";
+import type { InputEvent } from "./decode-legacy";
+import type { KeyEvent } from "./keys";
+
+/** The event at `index`, asserted to be a key. Mouse reports carry no `name`. */
+function keyAt(events: InputEvent[], index: number): KeyEvent {
+    const ev = events[index];
+    if (ev === undefined || ev.kind === "mouse") throw new Error(`not a key at ${String(index)}`);
+    return ev;
+}
+
+/** All of `events`, asserted to be keys, for the whole-stream assertions. */
+function keysOf(events: InputEvent[]): KeyEvent[] {
+    return events.map((_, i) => keyAt(events, i));
+}
+
 
 describe("decodeLegacy", () => {
     test("decodes a plain character", () => {
@@ -20,9 +35,9 @@ describe("decodeLegacy", () => {
     });
 
     test("decodes enter, tab and backspace", () => {
-        expect(decodeLegacy("\r", "").events[0]?.name).toBe("enter");
-        expect(decodeLegacy("\t", "").events[0]?.name).toBe("tab");
-        expect(decodeLegacy("\x7f", "").events[0]?.name).toBe("backspace");
+        expect(keyAt(decodeLegacy("\r", "").events, 0).name).toBe("enter");
+        expect(keyAt(decodeLegacy("\t", "").events, 0).name).toBe("tab");
+        expect(keyAt(decodeLegacy("\x7f", "").events, 0).name).toBe("backspace");
     });
 
     test("decodes a CSI arrow key", () => {
@@ -31,7 +46,7 @@ describe("decodeLegacy", () => {
     });
 
     test("decodes an SS3 arrow key", () => {
-        expect(decodeLegacy("\x1bOB", "").events[0]?.name).toBe("down");
+        expect(keyAt(decodeLegacy("\x1bOB", "").events, 0).name).toBe("down");
     });
 
     test("decodes a modified CSI arrow key", () => {
@@ -51,7 +66,7 @@ describe("decodeLegacy", () => {
 
     test("a carried escape still completes a split sequence", () => {
         const first = decodeLegacy("\x1b", "");
-        expect(decodeLegacy("[A", first.carry).events[0]?.name).toBe("up");
+        expect(keyAt(decodeLegacy("[A", first.carry).events, 0).name).toBe("up");
     });
 
     test("flushCarry releases a stranded escape as a real Escape press", () => {
@@ -77,17 +92,17 @@ describe("decodeLegacy", () => {
         expect(first.events).toEqual([]);
         expect(first.carry).toBe("\x1b[");
         const second = decodeLegacy("A", first.carry);
-        expect(second.events[0]?.name).toBe("up");
+        expect(keyAt(second.events, 0).name).toBe("up");
         expect(second.carry).toBe("");
     });
 
     test("decodes several keys from one chunk", () => {
         const { events } = decodeLegacy("ab\r", "");
-        expect(events.map((e) => e.name)).toEqual(["char", "char", "enter"]);
+        expect(keysOf(events).map((e) => e.name)).toEqual(["char", "char", "enter"]);
     });
 
     test("decodes the tilde-final navigation keys with modifiers", () => {
-        expect(decodeLegacy("\x1b[3~", "").events[0]?.name).toBe("delete");
+        expect(keyAt(decodeLegacy("\x1b[3~", "").events, 0).name).toBe("delete");
         expect(decodeLegacy("\x1b[5;2~", "").events[0]).toEqual({
             name: "pageup",
             mods: { ...noMods(), shift: true },
@@ -106,7 +121,7 @@ describe("decodeLegacy", () => {
 
     test("keeps decoding keys typed after an unrecognized CSI sequence", () => {
         const { events, carry } = decodeLegacy("\x1b[?1ua", "");
-        expect(events.map((e) => e.char)).toEqual(["a"]);
+        expect(keysOf(events).map((e) => e.char)).toEqual(["a"]);
         expect(carry).toBe("");
     });
 
@@ -114,7 +129,7 @@ describe("decodeLegacy", () => {
         const first = decodeLegacy("\x1b[?1", "");
         expect(first.events).toEqual([]);
         expect(first.carry).toBe("\x1b[?1");
-        expect(decodeLegacy("ua", first.carry).events.map((e) => e.char)).toEqual(["a"]);
+        expect(keysOf(decodeLegacy("ua", first.carry).events).map((e) => e.char)).toEqual(["a"]);
     });
 
     test("does not carry a tail that can never complete a CSI sequence", () => {
@@ -123,7 +138,7 @@ describe("decodeLegacy", () => {
         // literal `[`, then Enter keeps the decoder moving; carrying it would
         // stall every later read behind a tail that can never complete.
         const { events, carry } = decodeLegacy("\x1b[\r", "");
-        expect(events.map((e) => e.name)).toEqual(["escape", "char", "enter"]);
+        expect(keysOf(events).map((e) => e.name)).toEqual(["escape", "char", "enter"]);
         expect(carry).toBe("");
     });
 
@@ -154,7 +169,7 @@ describe("decodeLegacy", () => {
             mods: ctrl,
             kind: "press",
         });
-        expect(decodeLegacy("\x1c\x1d\x1e\x1f", "").events.map((e) => e.char)).toEqual([
+        expect(keysOf(decodeLegacy("\x1c\x1d\x1e\x1f", "").events).map((e) => e.char)).toEqual([
             "\\",
             "]",
             "^",
@@ -204,5 +219,47 @@ describe("decodeLegacy", () => {
             mods: noMods(),
             kind: "press",
         });
+    });
+    test("an SGR mouse report decodes to a mouse event, not keys", () => {
+        const result = decodeLegacy("\x1b[<0;12;5M", "");
+        expect(result.events).toEqual([
+            { kind: "mouse", action: "press", button: "left", col: 11, row: 4, mods: noMods() },
+        ]);
+    });
+
+    test("an X10 mouse report does not leak its payload as keystrokes", () => {
+        // 32+49 = 81 = "Q", which is the quit binding.
+        const result = decodeLegacy("\x1b[M\x20\x51\x21", "");
+        expect(result.events).toEqual([
+            { kind: "mouse", action: "press", button: "left", col: 48, row: 0, mods: noMods() },
+        ]);
+        expect(result.carry).toBe("");
+    });
+
+    test("a mouse report split across two reads survives the carry", () => {
+        const first = decodeLegacy("\x1b[<0;12", "");
+        expect(first.events).toEqual([]);
+        const second = decodeLegacy(";5M", first.carry);
+        expect(second.events).toHaveLength(1);
+    });
+
+    test("an X10 report split before its payload survives the carry", () => {
+        const first = decodeLegacy("\x1b[M\x20", "");
+        expect(first.events).toEqual([]);
+        expect(first.carry).toBe("\x1b[M\x20");
+        expect(decodeLegacy("\x51\x21", first.carry).events).toHaveLength(1);
+    });
+
+    test("keys around a mouse report are still decoded, in order", () => {
+        const result = decodeLegacy("a\x1b[<0;1;1Mb", "");
+        expect(result.events.map((e) => e.kind)).toEqual(["press", "mouse", "press"]);
+    });
+
+    test("a malformed SGR report is consumed without emitting keystrokes", () => {
+        // The sequence is still a complete CSI, so it must not fall through to
+        // the key branches or be left in the buffer.
+        const result = decodeLegacy("\x1b[<0;0;1M", "");
+        expect(result.events).toEqual([]);
+        expect(result.carry).toBe("");
     });
 });

@@ -1,5 +1,6 @@
 import { inRange, scanCsi } from "./csi";
 import { noMods, modsFromParam, type KeyEvent, type KeyName } from "./keys";
+import { parseSgrMouse, parseX10Mouse, type MouseReport } from "./mouse";
 
 const ESC = "\x1b";
 
@@ -25,8 +26,10 @@ const TILDE_TO_NAME: Record<number, KeyName | undefined> = {
     8: "end",
 };
 
+type InputEvent = KeyEvent | MouseReport;
+
 interface DecodeResult {
-    events: KeyEvent[];
+    events: InputEvent[];
     carry: string;
 }
 
@@ -66,7 +69,7 @@ function isNumericParams(params: string): boolean {
  */
 function decodeLegacy(input: string, carry: string): DecodeResult {
     const buf = carry + input;
-    const events: KeyEvent[] = [];
+    const events: InputEvent[] = [];
     let i = 0;
 
     while (i < buf.length) {
@@ -102,6 +105,23 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
                 // instead would wedge the decoder on every later read.
                 events.push(press("escape"));
                 i++;
+                continue;
+            }
+            if (scan.final === "M" && scan.params === "" && scan.intermediates === "") {
+                // The X10 form: three raw payload bytes follow the sequence and
+                // are not part of it. Left unconsumed they decode as ordinary
+                // characters — a click in column 49 sends `Q`, the quit binding.
+                const payload = buf.slice(i + scan.length, i + scan.length + 3);
+                if (payload.length < 3) return { events, carry: buf.slice(i) };
+                i += scan.length + 3;
+                const report = parseX10Mouse(payload);
+                if (report !== undefined) events.push(report);
+                continue;
+            }
+            if (scan.params.startsWith("<") && (scan.final === "M" || scan.final === "m")) {
+                i += scan.length;
+                const report = parseSgrMouse(scan.params, scan.final);
+                if (report !== undefined) events.push(report);
                 continue;
             }
             i += scan.length;
@@ -177,4 +197,4 @@ function flushCarry(carry: string): KeyEvent[] {
 }
 
 export { decodeLegacy, flushCarry };
-export type { DecodeResult };
+export type { DecodeResult, InputEvent };

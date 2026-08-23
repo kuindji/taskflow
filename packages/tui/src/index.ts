@@ -174,7 +174,13 @@ async function main(): Promise<void> {
         const decode = kittyAvailable ? decodeKitty : decodeLegacy;
         const result = decode(text, carry);
         carry = result.carry;
-        for (const ev of result.events) app.handleKey(ev);
+        for (const ev of result.events) {
+            // 19.2 is what turns tracking on, so no report can reach here yet;
+            // between 19.2 and 19.4 a click is silently ignored rather than
+            // leaking its payload bytes as keystrokes.
+            if (ev.kind === "mouse") continue; // wired up in 19.4
+            app.handleKey(ev);
+        }
 
         // A held ESC is only a real Escape press if nothing follows it.
         if (carry !== "") carryTimer = setTimeout(flushHeldEscape, ESCAPE_IDLE_MS);

@@ -1,5 +1,5 @@
 import { scanCsi } from "./csi";
-import { decodeLegacy, flushCarry, type DecodeResult } from "./decode-legacy";
+import { decodeLegacy, flushCarry, type DecodeResult, type InputEvent } from "./decode-legacy";
 import { modsFromParam, type KeyEvent, type KeyName } from "./keys";
 
 const ESC = "\x1b";
@@ -94,7 +94,7 @@ function kittyEvent(params: string): KeyEvent | undefined {
  */
 function decodeKitty(input: string, carry: string): DecodeResult {
     const buf = carry + input;
-    const events: KeyEvent[] = [];
+    const events: InputEvent[] = [];
     let i = 0;
 
     while (i < buf.length) {

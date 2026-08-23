@@ -2,6 +2,21 @@ import { describe, test, expect } from "bun:test";
 import { decodeKitty } from "./decode-kitty";
 import { decodeLegacy } from "./decode-legacy";
 import { noMods } from "./keys";
+import type { InputEvent } from "./decode-legacy";
+import type { KeyEvent } from "./keys";
+
+/** The event at `index`, asserted to be a key. Mouse reports carry no `name`. */
+function keyAt(events: InputEvent[], index: number): KeyEvent {
+    const ev = events[index];
+    if (ev === undefined || ev.kind === "mouse") throw new Error(`not a key at ${String(index)}`);
+    return ev;
+}
+
+/** All of `events`, asserted to be keys, for the whole-stream assertions. */
+function keysOf(events: InputEvent[]): KeyEvent[] {
+    return events.map((_, i) => keyAt(events, i));
+}
+
 
 describe("decodeKitty", () => {
     test("decodes ctrl+escape, the focus switcher", () => {
@@ -33,22 +48,22 @@ describe("decodeKitty", () => {
     });
 
     test("delegates non-u sequences to the legacy decoder", () => {
-        expect(decodeKitty("\x1b[A", "").events[0]?.name).toBe("up");
-        expect(decodeKitty("q", "").events[0]?.char).toBe("q");
+        expect(keyAt(decodeKitty("\x1b[A", "").events, 0).name).toBe("up");
+        expect(keyAt(decodeKitty("q", "").events, 0).char).toBe("q");
     });
 
     test("keeps both keys when a chunk mixes legacy and kitty input", () => {
         // A single read can contain both; delegating the whole tail to the
         // legacy decoder silently swallowed the CSI-u sequence.
         const { events } = decodeKitty("q\x1b[13;2u", "");
-        expect(events.map((e) => e.name)).toEqual(["char", "enter"]);
+        expect(keysOf(events).map((e) => e.name)).toEqual(["char", "enter"]);
     });
 
     test("carries an incomplete u sequence", () => {
         const first = decodeKitty("\x1b[27;", "");
         expect(first.events).toEqual([]);
         expect(first.carry).toBe("\x1b[27;");
-        expect(decodeKitty("5u", first.carry).events[0]?.name).toBe("escape");
+        expect(keyAt(decodeKitty("5u", first.carry).events, 0).name).toBe("escape");
     });
 
     test("reports space the same way the legacy decoder does", () => {
@@ -58,8 +73,8 @@ describe("decodeKitty", () => {
     });
 
     test("decodes tab and backspace by name", () => {
-        expect(decodeKitty("\x1b[9u", "").events[0]?.name).toBe("tab");
-        expect(decodeKitty("\x1b[127u", "").events[0]?.name).toBe("backspace");
+        expect(keyAt(decodeKitty("\x1b[9u", "").events, 0).name).toBe("tab");
+        expect(keyAt(decodeKitty("\x1b[127u", "").events, 0).name).toBe("backspace");
     });
 
     test("keeps the shifted-key alternate out of the codepoint", () => {
@@ -90,14 +105,18 @@ describe("decodeKitty", () => {
         // The legacy chunk ends mid-sequence, but a kitty sequence follows in
         // the same read, so nothing can complete it — it must not vanish.
         const { events, carry } = decodeKitty("\x1b\x1b[13;2u", "");
-        expect(events.map((e) => e.name)).toEqual(["escape", "enter"]);
+        expect(keysOf(events).map((e) => e.name)).toEqual(["escape", "enter"]);
         expect(carry).toBe("");
     });
 
     test("carries a legacy sequence that is still in flight", () => {
         const { events, carry } = decodeKitty("\x1b[13;2u\x1b[1;5", "");
-        expect(events.map((e) => e.name)).toEqual(["enter"]);
+        expect(keysOf(events).map((e) => e.name)).toEqual(["enter"]);
         expect(carry).toBe("\x1b[1;5");
-        expect(decodeKitty("A", carry).events[0]?.name).toBe("up");
+        expect(keyAt(decodeKitty("A", carry).events, 0).name).toBe("up");
+    });
+    test("a mouse report inside a kitty stream is decoded", () => {
+        const result = decodeKitty("\x1b[97u\x1b[<0;1;1M", "");
+        expect(result.events.map((e) => e.kind)).toEqual(["press", "mouse"]);
     });
 });
