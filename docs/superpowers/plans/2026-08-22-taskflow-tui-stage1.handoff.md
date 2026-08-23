@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | in-review round 3 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`; round 3 found 1 real defect, fixed; round 4 due |
+| 13 | Sidebar rendering | in-review round 4 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`; round 4 found 1 real defect, fixed; round 5 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -2586,10 +2586,70 @@ width and cursor edge cases.
   (any row with `sessionCount > 0`), not "task rows only". The wrong paraphrase in
   the round-3 prompt manufactured a finding.
 
-Next step: Task 13 review round 4 — one gpt-5.5 review via the codex-review skill over
+- **Task 13, round 4** (gpt-5.5 via codex-review, Mode B over `e64f1f0..HEAD`
+  scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
+  `packages/tui/src/render/text.ts` and `text.test.ts`, diff inlined in the prompt,
+  with the badge rule stated as the plan states it and rounds 1-3 listed as already
+  fixed): one finding, substantiated and fixed in `9816700`. Run the repros with
+  `bun test packages/tui/src/render/text.test.ts packages/tui/src/ui/sidebar.test.ts`.
+
+  - **Substantiated — a label's leading combining mark repainted the indent space.**
+    `fitToWidth` kept a standalone zero-width cluster because `used + 0 > cols` is
+    false even when `cols` is 0, so `fitToWidth("\u0301A", 0)` returned `"\u0301"`.
+    `drawSidebar` concatenates that result after the two-space task indent, and
+    `Intl.Segmenter` then re-attaches the mark to the second indent space, so
+    `layoutText` stored `" \u0301"` as one printable width-1 cell.
+    `Screen.flush` (`packages/tui/src/render/screen.ts:68`) writes `cell.ch` for every
+    cell whose width is not zero, so the sidebar drew an accent over its own
+    indentation for a label that had no display budget at all. Verified before the fix
+    by calling both functions directly: `fitToWidth("\u0301A", 0)` gave `"\u0301"`,
+    and `drawSidebar` at `width` 4 with label `"\u0301A"` and `sessionCount` 1 gave
+    the row `"  \u0301 1"` instead of `"   1"`. Not limited to `cols === 0`: at
+    `cols` 1, `fitToWidth("\u0301A", 1)` returned `"\u0301A"`, which shifts the same
+    accent onto the indent.
+    Fix: `fitToWidth` now skips any grapheme of width 0, which is exactly what
+    `layoutText` already did (`if (width === 0) continue`), so the string `fitToWidth`
+    returns lays out to the width it counted and carries no mark that could bind to a
+    caller's prefix. Regression tests: `fitToWidth > drops a standalone zero-width
+    cluster with no base to ride on` and `drawSidebar > does not let a leading
+    combining mark ride on the task indentation` — both red on `92ab831`, green on
+    `9816700`.
+  - Codex reported no other defects in scope, and independently ran
+    `bun test packages/tui/src/render/text.test.ts packages/tui/src/ui/sidebar.test.ts`
+    (31 pass at `92ab831`), `bun run typecheck` in `packages/tui`, and `eslint` over
+    the four files, all clean.
+  - Independent checks that found nothing: `layoutText` probed at `cols` 0 and -1, with
+    a ZWJ family cluster, a wide glyph exactly filling the row, a wide glyph straddling
+    the last column, a tab, and non-zero `attrs` propagation — all correct.
+    `drawSidebar` probed at `width` 0/1/2/3/4, with a negative `selected`, with a wide
+    label plus badge, and with a project row — all within the pane. `WIDE_RANGES`
+    re-verified sorted, non-overlapping and `lo <= hi` across all 85 entries.
+  - Considered and not filed: a `sessionCount` of six or more digits at `width` 8 leaves
+    `available` negative, and the badge is then clipped mid-number (`123456` draws as
+    `12345`). The plan's own reference implementation clips the same way
+    (`buf.set(x, y, styled(text[x] ?? " ", attrs))` over `x < width`, plan line 3566),
+    so this is specified behaviour at a width no real sidebar uses, not a defect.
+
+- Validation at `9816700`: `bun run lint` exit 0, `bun run typecheck` exit 0 across all
+  five packages, `bun test` 1093 pass / 8 fail (1101 across 104 files, 59s) — the 8 being
+  the same pre-existing `MarkdownPaneImpl` failures, verified unchanged by name against
+  the round-3 list, and the pass count up by exactly the two new tests. Working tree clean.
+
+## Decisions taken (Task 13 round 4)
+
+- `fitToWidth` and `layoutText` now share one rule for standalone zero-width clusters:
+  both drop them. The alternative — having `drawSidebar` lay out the prefix, label and
+  badge as separate segment runs instead of concatenating them — would stop the
+  segmenter from binding across the seams generally, but it is a larger change to a
+  module three other tasks will consume, and no other seam in the current code can carry
+  a baseless mark. Revisit if a future caller concatenates user text on both sides of a
+  fitted string.
+
+Next step: Task 13 review round 5 — one gpt-5.5 review via the codex-review skill over
 `e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
 `packages/tui/src/render/text.ts` and `text.test.ts`, diff inlined in the prompt, with
-the badge rule described correctly and rounds 1-3 listed as already fixed. Verify each
-finding independently, fix the substantiated ones, validate with
-`bun run lint && bun run typecheck && bun test`, and commit. If the round comes back
-clean, mark Task 13 clear and move to Task 14 (session pane and tab strip).
+the badge rule described as the plan states it (any row with `sessionCount > 0`) and
+rounds 1-4 listed as already fixed. Verify each finding independently, fix the
+substantiated ones, validate with `bun run lint && bun run typecheck && bun test`, and
+commit. If the round comes back clean, mark Task 13 clear and move to Task 14 (session
+pane and tab strip).
