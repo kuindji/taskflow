@@ -16,7 +16,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
-| 9 | Session terminal — attach, resync and mode tracking | in-review round 6 (fixed, awaiting round 7) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`; round 6 clean from gpt-5.5, one finding raised and fixed by Claude |
+| 9 | Session terminal — attach, resync and mode tracking | in-review round 7 (fixed, awaiting round 8) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; round 7 found two, both substantiated and fixed |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
@@ -1590,6 +1590,62 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   and verified by name; the pass count rose from 997 by the two new TUI tests.
   Working tree clean.
 
-Next step: Task 9 review round 7 — one gpt-5.5 review via the codex-review skill
+- **Task 9, round 7** (gpt-5.5 via codex-review, Mode A over `--base 4572b1f`;
+  the working tree was left untouched until the report landed, and the codex run
+  was backgrounded with the harness's own `run_in_background`): two findings,
+  both substantiated, both reproduced red and fixed in `1f221be`.
+
+  - **Substantiated — a resumed session served a blank screen for its first
+    tick.** `packages/backend/src/services/pty-manager.ts`, `spawn()` and
+    `getSnapshot()`. A session spawned with `initialOutput` writes the restored
+    log through `headless.write`, which parses on a later tick. Until that
+    callback ran, `serializer.serialize()` returned `""` — an empty *string*,
+    not `null` — so `getSnapshot` handed a client a snapshot of a blank grid.
+    The client's `attach()` tests `snapshot.snapshot !== null`, so it took the
+    snapshot path, skipped `SESSION_HISTORY` and drew nothing. Unlike the
+    ordinary parse-lag case that round 3 handled, there is no replay to recover
+    from: the restored log predates the client's connection and exists only in
+    the scrollback that history serves. What the user would see is a resumed
+    session opening empty instead of showing its log. Red repro
+    (`Expected: null / Received: ""`):
+    `bun test packages/backend/tests/services/pty-manager-snapshot.test.ts -t "offers no snapshot until the restored log has parsed"`.
+  - Fix: `Session` gains `restorePending`, set while the `initialOutput` write is
+    in flight and cleared in its callback beside `markParsed`. `getSnapshot`
+    returns the same "no snapshot" shape it already returns for an unknown
+    session while the flag is set, which routes the client to history. The local
+    `restorePending` is mirrored onto `sessionEntry` the same way `parsedSequence`
+    is, so it is correct whether the callback fires before or after the `Session`
+    object is built.
+
+  - **Substantiated — re-attach dragged the child back into kitty mode after it
+    had left.** `packages/tui/src/term/session-terminal.ts`, `recoverKittyStack()`.
+    Round 4 added the rule "history replayed, stack still empty ⇒ scrollback was
+    trimmed past the child's push, so stand in the pre-drop stack". That reads a
+    null result as *absence of evidence*, but it is equally the evidence that the
+    child pushed and then popped while the client was disconnected — raw
+    scrollback carries both sequences, the replay rebuilds the stack and then
+    empties it correctly, and the fallback overwrote that with the stale
+    pre-drop stack. The Task 8 encoder then kept sending kitty-encoded keys to a
+    child back on legacy, so keystrokes arrive as garbage. Red repro
+    (`Expected: null / Received: 5`):
+    `bun test packages/tui/src/term/session-terminal.test.ts -t "honours a kitty pop"`.
+  - Fix: a `kittyEvents` counter is bumped in both CSI handlers. `attach()`
+    samples it before the history replay and passes `historyCarriedNoKitty` into
+    `recoverKittyStack`, which now returns early when the replay carried any push
+    or pop — that stack is authoritative, empty included. Only a replay with no
+    kitty sequence at all falls back to the saved stack, which is the case round 4
+    was actually reasoning about. The counter cannot be moved by live output:
+    while `attach()` is loading, `TERMINAL_OUTPUT` chunks go to `pending` rather
+    than through the parser. Round 4's own scenario is now pinned by
+    `-t "keeps the pre-drop kitty stack when history carries none"`, which had no
+    coverage before.
+
+- Validation at `1f221be`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 1002 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged and
+  verified by name; the pass count rose from 999 by the three new tests. Working
+  tree clean.
+
+Next step: Task 9 review round 8 — one gpt-5.5 review via the codex-review skill
 over `--base 4572b1f`, leaving the working tree untouched until the report
 lands. Zero substantiated findings means Task 9 is clear and Task 10 is next.
