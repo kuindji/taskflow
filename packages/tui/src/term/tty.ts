@@ -4,6 +4,7 @@ import type { Sink } from "../render/screen";
 
 interface TtyOptions {
     kitty: boolean;
+    mouse: boolean;
 }
 
 const ALT_SCREEN_ON = "\x1b[?1049h";
@@ -11,6 +12,11 @@ const ALT_SCREEN_OFF = "\x1b[?1049l";
 const CURSOR_HIDE = "\x1b[?25l";
 const CURSOR_SHOW = "\x1b[?25h";
 const MOUSE_OFF = "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l";
+// Press-and-release, then motion while a button is held, then SGR encoding.
+// The encoding mode goes last on purpose: it changes only how reports are
+// written, so a terminal that does not understand it is left with the tracking
+// modes before it enabled rather than swallowing the whole run.
+const MOUSE_ON = "\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const KITTY_PUSH = "\x1b[>1u";
 const KITTY_POP = "\x1b[<u";
 // Exiting the alternate screen restores the saved cursor, which on a compliant
@@ -19,7 +25,7 @@ const KITTY_POP = "\x1b[<u";
 const SGR_RESET = "\x1b[0m";
 
 function enterSequence(opts: TtyOptions): string {
-    return `${ALT_SCREEN_ON}${CURSOR_HIDE}${opts.kitty ? KITTY_PUSH : ""}`;
+    return `${ALT_SCREEN_ON}${CURSOR_HIDE}${opts.kitty ? KITTY_PUSH : ""}${opts.mouse ? MOUSE_ON : ""}`;
 }
 
 function leaveSequence(opts: TtyOptions): string {

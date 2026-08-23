@@ -158,15 +158,16 @@ await Bun.write(process.env.TASKFLOW_PORT_FILE ?? "", String(srv.port));
 /** The parts of the leave sequence that undo a mode, rather than reset colour. */
 const ALT_SCREEN_OFF = "\x1b[?1049l";
 const MOUSE_OFF_FIRST = "\x1b[?1000l";
+const MOUSE_ON_FIRST = "\x1b[?1000h";
 const CURSOR_SHOW = "\x1b[?25h";
 
 function countOf(haystack: string, needle: string): number {
     return haystack.split(needle).length - 1;
 }
 
-function runTui(binary: string): TuiProcess {
+function runTui(binary: string, env: Record<string, string> = {}): TuiProcess {
     const child = Bun.spawn(["bun", ENTRY], {
-        env: { ...process.env, TASKFLOW_BACKEND_BIN: binary },
+        env: { ...process.env, TASKFLOW_BACKEND_BIN: binary, ...env },
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
@@ -334,6 +335,23 @@ describe("tui entry point", () => {
         // `CSI < u` pops a stack entry. A second pop for one push takes the
         // entry belonging to whatever the TUI was launched from with it.
         expect(countOf(out, "\x1b[<u")).toBe(1);
+    }, 20_000);
+
+    test("enables mouse tracking on entry, and TASKFLOW_TUI_NO_MOUSE turns it off", async () => {
+        const withMouse = runTui(await erroringBackend(join(await tempDir("tui-index-pid-"), "pid")));
+        expect(await withMouse.exited).toBe(1);
+        expect(await new Response(withMouse.stdout).text()).toContain(MOUSE_ON_FIRST);
+
+        const without = runTui(
+            await erroringBackend(join(await tempDir("tui-index-pid-"), "pid")),
+            { TASKFLOW_TUI_NO_MOUSE: "1" },
+        );
+        expect(await without.exited).toBe(1);
+        const out = await new Response(without.stdout).text();
+        expect(out).not.toContain(MOUSE_ON_FIRST);
+        // The leave sequence still turns tracking off: disabling a mode that was
+        // never on is a no-op, and the restore must not depend on the opt-out.
+        expect(out).toContain(MOUSE_OFF_FIRST);
     }, 20_000);
 
     test("writes no leave sequence when startup fails before the terminal is entered", async () => {

@@ -145,7 +145,10 @@ async function main(): Promise<void> {
     // resumes the stream once it is able to receive it.
     process.stdin.pause();
 
-    const tty = new Tty(sink, { kitty: kittyAvailable });
+    // Tracking takes native click-drag selection away from the user on most
+    // terminals, so anyone whose terminal misbehaves gets out without a rebuild.
+    const mouse = process.env.TASKFLOW_TUI_NO_MOUSE === undefined;
+    const tty = new Tty(sink, { kitty: kittyAvailable, mouse });
     tty.installExitHandlers();
     terminalOwner = tty;
     tty.enter();
