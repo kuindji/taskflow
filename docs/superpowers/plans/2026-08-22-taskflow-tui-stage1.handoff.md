@@ -27,13 +27,14 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
-| 19.1 | Mouse — report decoding | in-review round 11 (fixed) | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; next is review round 12 |
+| 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
 | 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
 | 19.5 | Mouse — forward to the child | pending | — | `ChildModes.mouseTracking`/`mouseEncoding`, `encodeMouseForChild` |
 | 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
+| 21 | Bound the incomplete-CSI carry | pending | — | **added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
 
 ## Review rounds
 
@@ -4935,40 +4936,79 @@ post-fix tree, the next full-suite run was 378/0, and nothing in this commit tou
 `bun test packages/tui`, typecheck and lint, all clean — it read the tree before the fix,
 so its clean runs are of the defective code, not of the fix.
 
-Next step: review round 12 for Task 19.1.
-Round 11 fixed a substantiated finding, so the task takes another round rather than
-closing. Run one gpt-5.5 review via the codex-review skill over `e00cd13..HEAD`
-(`packages/tui` only; `docs/` in that range is plan bookkeeping and is out of scope).
-Settled, do not re-litigate: the X10 UTF-8 payload limitation — **including a plain X10
-report whose high coordinate bytes fold and eat the next keystroke, which is not the
-`?1005` extension and is written up byte-for-byte in the mouse plan's "Known limitation"
-section** (round 1, re-accepted rounds 1 and 7); the extra-button release sentinel
-(round 1, fixed in `39299ff`); the idle-timer carry exception (round 2, fixed in
-`cbfde10`); the one-byte button bound (round 3, fixed in `436313f`); the stranded-report
-drop window (round 4, fixed in `3770749`); the SGR carry hold (round 5, fixed in
-`ee518be`); the invalid-CSI discard plus the absolute drop deadline (round 6, fixed in
-`012049f`); the deadline check inside `feed` (round 7, fixed in `2911a80`); the
-fresh-report deadline plus the SGR intermediate-byte guard on a *completed* sequence
-(round 8, fixed in `176d5af`); the X10 below-bias payload guard (round 9, fixed in
-`f828057`); the consumed-nothing test for a fresh report's deadline (round 10, fixed in
-`4554556`); and the intermediate-byte guard on a *half-written* run (round 11, fixed in
-`984ac93`) — each only if the fix itself is shown wrong. Also settled: bare motion
-(`?1003h`) is never enabled on the outer terminal, so an X10 `b = 35` decoding as a release
-is out of scope by plan decision; the `ESC [` two-byte split, per the round-4 decision;
-holding partial CSIs beyond `CSI <` and `CSI M`, per the round-5 decision; refreshing the
-drop deadline on decoded events rather than on bytes arriving, per the round-6 decision;
-keeping the "same held report" test in `feed` rather than in `DecodeResult`, per the
-round-10 decision; and letting a nonsense CSI keep the one final byte it consumed inside a
-single read, per the round-11 decision.
-Note for round 12: Codex has twice returned its verdict while the round's own fix was
-already in the tree, so its clean validation runs are weaker evidence than they look. Read
-the code independently as well as prompting Codex; rounds 6, 9 and 10 all turned on defects
-found by reading rather than by the report. Round 11's split-invariance probes came back
-clean, so that property is covered — pick a different angle (the `feed` deadline
-arithmetic under concurrent timers, or `decodeKitty`'s boundary flush) rather than
-repeating it.
-Verify every new finding independently before fixing it; a finding without a repro is not
-a finding, and check the mouse plan's own decisions before treating one as new. Zero
-substantiated findings → 19.1 is clear and 19.2 is next.
-After 19.1: 19.2 - 19.6, then Tasks 16-18, then Task 20 (which needs its own plan too, and
-touches `packages/backend` and `electron/`, not `packages/tui`).
+## Task 19.1, round 12
+
+**gpt-5.5 via codex-review, Mode B over `e00cd13..HEAD`** (`packages/tui` only), with the
+seventeen settled decisions listed in the prompt and the round-11 split-invariance property
+called out as already covered. Codex returned **one finding, not substantiated as a defect
+of this diff**. Nothing found independently either. **Task 19.1 is clear — no code changed
+this round.**
+
+Independent work before and alongside the report, all clean, all throwaway probes:
+
+- **`feed`'s state machine over a virtual clock, well-behaved input.** 20 000 runs of
+  complete SGR reports and printable keys, split at arbitrary offsets from `CSI <` onward
+  and delivered with 30-230ms gaps, compared against feeding each token whole:
+  0 mismatches.
+- **`feed` over stranded reports.** 20 000 runs: a truncated SGR or X10 head, then more
+  than a second of idle, then 1-4 keys in one or two reads. Every key survived, no mouse
+  event was fabricated: 0 failures.
+- **`feed` under continuous fast typing across the deadline.** 20 000 runs of 200 keys at
+  1-20ms gaps into a stranded head. Exactly one key is lost per run, and it is the
+  round-11 case: a typed space is an intermediate byte, so the run stops being a partial
+  report, and the next printable key within `ESCAPE_IDLE_MS` lands on it as the CSI's
+  final byte. That is the round-11 decision verbatim, only reached across a read boundary
+  rather than inside one read — same rule, same cause, so it stays settled.
+
+- **Not substantiated — "the SGR mouse carry has no byte-length cap inside the
+  one-second hold window."** Codex called this an arbitrary memory spike or OOM reachable
+  from a paste or a hostile stdin. The retention is real; attributing it to the mouse work
+  is not. Two measurements:
+
+  `decodeLegacy("1".repeat(1_000_000), "\x1b[<")` returns a carry of 1 000 003, and
+  `decodeLegacy("1".repeat(1_000_000), "\x1b[")` — no `<`, so `isPartialMouseReport` is
+  `false` and nothing this task added is involved — returns 1 000 002. The bytes are held
+  by `decodeLegacy`'s incomplete-CSI carry, which predates Task 19.1.
+
+  Modelling base `feed` (`e00cd13`) against current `feed` over a drip of parameter bytes,
+  peak carry in bytes:
+
+  | drip gap | `CSI <` prefix | `CSI ` prefix |
+  |---|---|---|
+  | 10ms (faster than the idle flush) | base 500 003 **and still growing**, current 99 003 | base 500 002, current 500 002 — **still unbounded** |
+  | 40ms (slower than the idle flush) | base 3, current 24 003 | base 2, current 2 |
+
+  So the mouse hold is what *bounds* the fast-drip case — `feed` cancels the idle timer on
+  every read, so at base a stream arriving faster than 25ms apart is held forever, and the
+  one-second deadline is the only thing that ever retires it. The TUI's worst case is
+  unchanged by this diff and is reached with no `<` at all, on the path the mouse work does
+  not touch. Capping only the held mouse run would leave that path open — an adversary
+  drops the `<`.
+
+  The one place the mouse hold is worse than base is the slow drip: at a 40ms gap the idle
+  flush used to clear the carry every read, and now up to one second of input accumulates
+  first. Bounded by one second of stdin throughput, and the price of the hold the task
+  exists to add.
+
+## Decisions taken (Task 19.1, round 12)
+
+- **The finding is recorded as new Task 21 rather than fixed here.** It is pre-existing, it
+  is not specific to mouse input, and the only fix that closes it is a cap on any held CSI —
+  which changes non-mouse key handling and belongs outside Task 19.1's scope. Same treatment
+  Task 15 round 8's out-of-scope finding got as Task 20.
+- **The cross-read form of the round-11 intermediate-byte case stays settled.** The probe
+  reaches it through a read boundary inside the 25ms window rather than inside one read, but
+  the mechanism and the rule are identical, and round 11 already decided a nonsense CSI keeps
+  the one final byte it consumed.
+
+Verification at `7cc4e54`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 378 pass, 0 fail. Codex independently ran the same three
+and reported them clean. No code changed this round, so the tree is `7cc4e54` unmodified.
+
+Next step: implement Task 19.2 — mouse — outer tracking on/off.
+Task 19.1 is clear after twelve rounds. 19.2 is `term/tty.ts`'s enter sequence plus the
+`TASKFLOW_TUI_NO_MOUSE` opt-out, per `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`.
+Record HEAD as its base commit before starting, implement only that, validate with
+`bun run lint`, `bun run typecheck` and `bun test packages/tui`, commit, then review round 1.
+After 19.2: 19.3 - 19.6, then Tasks 16-18, then Tasks 20 and 21 (each needs its own plan;
+20 touches `packages/backend` and `electron/`, 21 touches `packages/tui/src/input`).
