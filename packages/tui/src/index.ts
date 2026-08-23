@@ -217,6 +217,15 @@ async function main(): Promise<void> {
             clearTimeout(carryTimer);
             carryTimer = null;
         }
+        // The timer cleared just above is the only thing that ever retires a
+        // stranded report, and every read cancels it before it can fire. So a
+        // read that arrives past the deadline has to retire the report itself:
+        // otherwise keys typed closer together than `ESCAPE_IDLE_MS` keep
+        // cancelling the timer, the deadline is never consulted, and the dead
+        // report goes on eating them for as long as the typing lasts.
+        if (mouseCarryDeadline !== null && Date.now() >= mouseCarryDeadline) {
+            dropStrandedMouseReport();
+        }
         const decode = kittyAvailable ? decodeKitty : decodeLegacy;
         const result = decode(text, carry);
         carry = result.carry;

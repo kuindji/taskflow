@@ -472,6 +472,37 @@ describe("tui entry point", () => {
         expect(await waitForExit(child, "quit on a key typed after a padded dead click")).toBe(0);
     }, 20_000);
 
+    test("a dead SGR report cannot be kept alive by typing faster than the idle timer", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+
+        // The front of an SGR click whose `M` never arrives.
+        await child.stdin.write("\x1b[<0;50;10");
+        await child.stdin.flush();
+
+        // Every read cancels the timer that would retire the dead report, and
+        // a digit is a valid parameter byte, so it joins the run and decodes to
+        // nothing. Typed steadily inside the idle window the timer never gets
+        // to fire, so nothing ever notices that the report's deadline passed.
+        const start = Date.now();
+        while (Date.now() - start < 1100) {
+            await child.stdin.write("1");
+            await child.stdin.flush();
+            await Bun.sleep(8);
+        }
+
+        // Long past the deadline the report was given. Still held, the run
+        // takes `Q` as its final byte and quit never reaches the keymap.
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+
+        expect(await waitForExit(child, "quit on a key typed past the click deadline")).toBe(0);
+    }, 20_000);
+
     test("drops a click header whose payload never arrives", async () => {
         const dir = await tempDir("tui-index-pid-");
         const pidFile = join(dir, "pid");
