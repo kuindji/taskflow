@@ -18,7 +18,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
-| 11 | State store | pending | — | |
+| 11 | State store | implemented | `9420a4b` | commit `21040e4`; review round 1 due |
 | 12 | Focus and key routing | pending | — | |
 | 13 | Sidebar rendering | pending | — | |
 | 14 | Session pane and tab strip | pending | — | |
@@ -1867,6 +1867,36 @@ width and cursor edge cases.
   1016 pass / 8 fail, the 8 being the recorded pre-existing `MarkdownPaneImpl`
   suite-ordering failures, verified unchanged by name. Working tree clean.
 
-Next step: implement Task 11 — State store. Record HEAD as the task's base commit
-first, implement only that task, validate with
-`bun run lint && bun run typecheck && bun test`, and commit.
+## Task 11 — implementation
+
+- Base commit `9420a4b`, implemented in `21040e4`. Files: `packages/tui/src/state/store.ts`
+  and `packages/tui/src/state/store.test.ts`. The plan's 5 tests pass unchanged;
+  the test file is the plan's verbatim.
+
+- Payload shapes were checked against the backend rather than taken from the plan:
+  `project-routes.ts:78` broadcasts the project for `PROJECT_CREATED`, `:105`
+  broadcasts `{ id }` for `PROJECT_REMOVED`, `:182` the project for
+  `PROJECT_UPDATED`; `task-routes.ts:559` broadcasts the task for `TASK_CREATED`
+  and every `TASK_UPDATED` site broadcasts the filtered task. The plan's casts
+  match all five.
+
+- Validation at `21040e4`: `bun run lint` exit 0, `bun run typecheck` exit 0 across
+  all five packages, `bun test` 1021 pass / 8 fail — the 8 being the recorded
+  pre-existing `MarkdownPaneImpl` suite-ordering failures, verified unchanged by
+  name, and 1021 = the previous 1016 plus this task's 5. Working tree clean.
+
+- Three deviations from the plan's sample body, all cosmetic or defensive:
+  `Array<() => void>` written as `(() => void)[]` and the `net.on` callbacks given
+  braced bodies, both to satisfy the repo's existing lint rules; and `notify()`
+  iterates a copy of the listener set so a listener that unsubscribes or subscribes
+  during a notification cannot change who that same notification reaches.
+
+- Known limitation, not a Task 11 defect: the backend has no task-removed event.
+  `MSG.TASK_DELETE` (`packages/backend/src/handlers/task.ts:184`) deletes the record
+  and broadcasts nothing, so a deleted task stays in the store until the next
+  `load()`. There is no message to subscribe to, so this belongs to Task 17
+  (reconnection and resync) or to a backend change, not here.
+
+Next step: review round 1 for Task 11 — run one gpt-5.5 review via the codex-review
+skill over `9420a4b..21040e4`, verify the findings independently, fix the
+substantiated ones, validate, and commit.
