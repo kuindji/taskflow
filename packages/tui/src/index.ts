@@ -92,6 +92,15 @@ function readOnce(timeoutMs: number): Promise<string> {
     });
 }
 
+/**
+ * Set once `Tty` owns the terminal, which is the moment it will restore it from
+ * its own `exit` handler. Until then nothing writes the leave sequence, so the
+ * top-level catch has to; afterwards the catch must go through the same `Tty`,
+ * because a second `CSI < u` for one push pops the keyboard-stack entry
+ * belonging to whatever the TUI was launched from.
+ */
+let terminalOwner: Tty | null = null;
+
 async function main(): Promise<void> {
     installSignalExit();
 
@@ -130,6 +139,7 @@ async function main(): Promise<void> {
 
     const tty = new Tty(sink, { kitty: kittyAvailable });
     tty.installExitHandlers();
+    terminalOwner = tty;
     tty.enter();
     // Only now is the terminal owned by something that restores it in full.
     disarmRawGuard();
@@ -202,10 +212,20 @@ async function main(): Promise<void> {
 }
 
 void main().catch((err: unknown) => {
-    // Restore unconditionally: main() may have thrown before its own handlers
-    // were armed, and a half-configured terminal is unusable.
-    process.stdout.write(leaveSequence({ kitty: true }));
-    setRawMode(false);
+    // Restore before the error is printed either way: on the alternate screen it
+    // would be wiped by the leave that follows, and the user would be told
+    // nothing about why the TUI would not start.
+    if (terminalOwner !== null) {
+        // Idempotent, so the `exit` handler's own call becomes a no-op and the
+        // terminal is left exactly one leave sequence for the one it entered.
+        terminalOwner.leave();
+    } else {
+        // Nothing has been entered, so nothing was pushed: a kitty pop here
+        // would come off a stack this process never wrote to. Raw mode may be
+        // on, and its guard only runs at exit, after the error is printed.
+        process.stdout.write(leaveSequence({ kitty: false }));
+        setRawMode(false);
+    }
     console.error(err);
     process.exit(1);
 });

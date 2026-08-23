@@ -114,6 +114,41 @@ await Bun.write(process.env.TASKFLOW_PORT_FILE ?? "", String(srv.port));
     return fakeBackend(`echo $$ > "${pidFile}"\nexec bun ${server}`);
 }
 
+/**
+ * A backend that connects but fails the first snapshot, so `app.init()` rejects
+ * after the terminal has already been entered.
+ */
+async function erroringBackend(pidFile: string): Promise<string> {
+    const dir = await tempDir("tui-index-server-");
+    const server = join(dir, "server.ts");
+    await writeFile(
+        server,
+        `const srv = Bun.serve({
+    port: 0,
+    fetch: (req, s) => (s.upgrade(req) ? undefined : new Response("no")),
+    websocket: {
+        message(ws, raw) {
+            const req = JSON.parse(String(raw));
+            ws.send(
+                JSON.stringify({
+                    correlationId: req.correlationId,
+                    type: req.type,
+                    error: "snapshot failed",
+                }),
+            );
+        },
+    },
+});
+await Bun.write(process.env.TASKFLOW_PORT_FILE ?? "", String(srv.port));
+`,
+    );
+    return fakeBackend(`echo $$ > "${pidFile}"\nexec bun ${server}`);
+}
+
+function countOf(haystack: string, needle: string): number {
+    return haystack.split(needle).length - 1;
+}
+
 function runTui(binary: string): TuiProcess {
     const child = Bun.spawn(["bun", ENTRY], {
         env: { ...process.env, TASKFLOW_BACKEND_BIN: binary },
@@ -254,6 +289,23 @@ describe("tui entry point", () => {
         await child.stdin.flush();
 
         expect(await child.exited).toBe(0);
+    }, 20_000);
+
+    test("pops the kitty keyboard stack once for the push when startup fails", async () => {
+        const pidFile = join(await tempDir("tui-index-pid-"), "pid");
+        const child = runTui(await erroringBackend(pidFile));
+
+        // The protocol reply, already in the pipe when the query goes out, so
+        // negotiation succeeds and the TUI pushes the keyboard stack exactly once.
+        await child.stdin.write("\x1b[?1u");
+        await child.stdin.flush();
+
+        expect(await child.exited).toBe(1);
+        const out = await new Response(child.stdout).text();
+        expect(countOf(out, "\x1b[>1u")).toBe(1);
+        // `CSI < u` pops a stack entry. A second pop for one push takes the
+        // entry belonging to whatever the TUI was launched from with it.
+        expect(countOf(out, "\x1b[<u")).toBe(1);
     }, 20_000);
 
     test("does not lose a key typed while the first snapshot is still loading", async () => {
