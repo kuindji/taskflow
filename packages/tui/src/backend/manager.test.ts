@@ -437,6 +437,52 @@ describe("startBackend", () => {
         expect(gone).toBe(true);
     }, 15_000);
 
+    test("kills a backend that ignores SIGTERM when the caller stops it", async () => {
+        // `stop()` is reached from a `process.on("exit")` handler, which has no
+        // time left to watch whether the SIGTERM was honoured. A backend that
+        // ignores it is leaked for good unless the escalation outlives the exit.
+        const dir = await mkdtemp(join(tmpdir(), "tui-backend-stubborn-"));
+        const pidFile = join(dir, "pid");
+        // SIG_IGN survives exec, so the `sleep` inherits the ignored disposition.
+        const binary = await writeFakeBackend(
+            `trap '' TERM\nprintf '%s' "$$" > ${pidFile}\necho 4334 > "$TASKFLOW_PORT_FILE"\nexec sleep 60`,
+        );
+        const handle = await startBackend({
+            binary,
+            args: [],
+            devBranch: null,
+            reapGraceSeconds: 1,
+        });
+        const pid = Number((await readFile(pidFile, "utf-8")).trim());
+        expect(Number.isInteger(pid) && pid > 0).toBe(true);
+
+        const alive = (): boolean => {
+            try {
+                process.kill(pid, 0);
+                return true;
+            } catch {
+                return false;
+            }
+        };
+        expect(alive()).toBe(true);
+        handle.stop();
+
+        let gone = false;
+        for (let i = 0; i < 200 && !gone; i++) {
+            gone = !alive();
+            if (!gone) await Bun.sleep(25);
+        }
+        // Left behind on a red run, where nothing else holds a handle on it.
+        if (!gone) {
+            try {
+                process.kill(pid, "SIGKILL");
+            } catch {
+                // Already gone.
+            }
+        }
+        expect(gone).toBe(true);
+    }, 15_000);
+
     test("names the signal when the backend is killed before startup", async () => {
         const binary = await writeFakeBackend("kill -TERM $$");
         let message = "";

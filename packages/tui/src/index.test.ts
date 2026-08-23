@@ -115,6 +115,16 @@ await Bun.write(process.env.TASKFLOW_PORT_FILE ?? "", String(srv.port));
 }
 
 /**
+ * A backend that ignores SIGTERM, so only an escalation can ever stop it.
+ * `SIG_IGN` survives `exec`, so the `sleep` inherits the ignored disposition.
+ */
+async function stubbornBackend(pidFile: string): Promise<string> {
+    return fakeBackend(
+        `trap '' TERM\necho $$ > "${pidFile}"\necho 1 > "$TASKFLOW_PORT_FILE"\nexec sleep 60`,
+    );
+}
+
+/**
  * A backend that connects but fails the first snapshot, so `app.init()` rejects
  * after the terminal has already been entered.
  */
@@ -327,6 +337,29 @@ describe("tui entry point", () => {
         expect(countOf(out, ALT_SCREEN_OFF)).toBe(0);
         expect(countOf(out, MOUSE_OFF_FIRST)).toBe(0);
         expect(countOf(out, CURSOR_SHOW)).toBe(0);
+    }, 20_000);
+
+    test("arms the escalating reaper from its exit handler", async () => {
+        const pidFile = join(await tempDir("tui-index-pid-"), "pid");
+        const child = runTui(await stubbornBackend(pidFile));
+        const backendPid = await waitForPid(pidFile);
+
+        expect(await child.exited).toBe(1);
+        // The only backend cleanup an `exit` handler can reach is `stop()`, and
+        // `stop()` has no time left to watch whether its SIGTERM was honoured. A
+        // backend that ignores it survives unless something outliving this exit
+        // escalates — so the reaper has to have been spawned from inside the exit
+        // handler itself, which is the part only an end-to-end run can show.
+        // (That the reaper then kills is `manager.test.ts`'s "kills a backend that
+        // ignores SIGTERM when the caller stops it", which runs it on a 1s grace.)
+        expect(alive(backendPid)).toBe(true);
+        const probe = Bun.spawn(["pgrep", "-f", `kill -0 ${String(backendPid)}`], {
+            stdout: "pipe",
+            stderr: "ignore",
+        });
+        const reapers = (await new Response(probe.stdout).text()).trim();
+        await probe.exited;
+        expect(reapers).not.toBe("");
     }, 20_000);
 
     test("does not lose a key typed while the first snapshot is still loading", async () => {

@@ -11,6 +11,13 @@ interface StartBackendOptions {
     devBranch: string | null;
     timeoutMs?: number;
     /**
+     * How long the out-of-process reaper waits for the child to honour `stop()`'s
+     * SIGTERM before it SIGKILLs it. Generous by default: the backend's shutdown
+     * handler persists interrupted sessions and tears down its watchers, and
+     * cutting that short costs real work.
+     */
+    reapGraceSeconds?: number;
+    /**
      * Handed the child's terminator the moment it is spawned, long before startup
      * has succeeded or failed. `startBackend` cleans up after its own failures,
      * but it cannot see the calling process ending underneath it: a signal that
@@ -29,6 +36,43 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const POLL_INTERVAL_MS = 50;
 const STDERR_TAIL_BYTES = 8192;
 const KILL_GRACE_MS = 1000;
+const DEFAULT_REAP_GRACE_SECONDS = 10;
+
+/**
+ * Escalate `stop()`'s SIGTERM from outside this process. Every caller of `stop()`
+ * runs `process.exit` on the next line, so nothing in here can watch whether the
+ * child actually went: a backend that ignores SIGTERM, or that wedges part-way
+ * through its own async shutdown handler, would simply be left running with
+ * nothing holding a handle on it. A detached reaper outlives the exit and does
+ * what `terminate()` does on the startup paths, which can afford to wait.
+ *
+ * It polls rather than sleeping out the whole grace so that the common case — a
+ * backend that shuts down cleanly in a moment — leaves a stray process behind for
+ * about a second rather than for the whole window. Exiting on the first failed
+ * `kill -0` is also what keeps it off a recycled pid: once this process is gone
+ * the child is reparented and reaped promptly, so a dead pid reads as dead.
+ */
+function armReaper(pid: number, graceSeconds: number): void {
+    const target = String(pid);
+    const script =
+        `i=0\n` +
+        `while [ $i -lt ${String(graceSeconds)} ]; do\n` +
+        `  kill -0 ${target} 2>/dev/null || exit 0\n` +
+        `  sleep 1\n` +
+        `  i=$((i+1))\n` +
+        `done\n` +
+        `kill -9 ${target} 2>/dev/null\n`;
+    try {
+        // Detached so that a SIGHUP to the TUI's process group — a closed terminal
+        // window, which is one of the ways `stop()` is reached — does not take the
+        // reaper down with the thing it was armed to outlive.
+        const reaper = spawn("/bin/sh", ["-c", script], { detached: true, stdio: "ignore" });
+        reaper.unref();
+    } catch {
+        // Best effort. The child has had its SIGTERM either way, and this runs from
+        // an exit handler with nothing left that could report a failure.
+    }
+}
 
 // Cleanup runs on paths that are already reporting a failure, so it must never throw:
 // a child that left a directory at the port-file path would make a plain `rmSync` fail
@@ -110,11 +154,18 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
     });
 
     // Removal is synchronous so that a caller which exits right after `stop()`
-    // still leaves no port file behind. `stop()` stays synchronous and sends only
-    // SIGTERM for the same reason: its callers run `process.exit(0)` on the next
-    // line, so any escalation timer this scheduled would never fire.
+    // still leaves no port file behind, and `stop()` itself stays synchronous for
+    // the same reason: its callers run `process.exit` on the next line, so any
+    // escalation timer this scheduled would never fire. The escalation is handed
+    // to a process that outlives the exit instead — SIGTERM alone leaks a backend
+    // that ignores it.
     const stop = (): void => {
         child.kill();
+        // A child already known to be gone needs no reaper, and arming one for a
+        // pid the OS has finished with is how a reaper ends up on a recycled pid.
+        if (outcome.exit === null && child.pid !== undefined) {
+            armReaper(child.pid, opts.reapGraceSeconds ?? DEFAULT_REAP_GRACE_SECONDS);
+        }
         removePortFile(portFile);
     };
     // The startup paths can wait, so they escalate: SIGTERM gives the backend its
