@@ -784,6 +784,26 @@ export * from "./beacon";
 export * from "./socket";
 ```
 
+- [ ] **Step 3b: Note what the socket layer does not guarantee**
+
+Two things were verified on macOS with `node:dgram` before this plan was
+written, and both matter to anyone debugging it later. Put them in a comment
+above `bindDiscoverySocket`:
+
+```ts
+/**
+ * Two sockets on one machine can both bind DISCOVERY_PORT thanks to reuseAddr,
+ * and both receive every datagram in the group — including their own. Verified
+ * on macOS: one send produced two receipts per socket, because the packet
+ * arrives over both the loopback and the interface path.
+ *
+ * So: delivery is at-least-once, never exactly-once. Everything downstream must
+ * be idempotent. The listener keys entries by host and instance, so a duplicate
+ * is a no-op; the advertiser answering a probe twice costs one extra datagram.
+ * Do not write a test that asserts a datagram arrives exactly once.
+ */
+```
+
 - [ ] **Step 4: Add the package export map**
 
 In `packages/shared/package.json`, replace the `"main"` / `"types"` pair with an `exports` map, keeping both fields for tools that ignore `exports`:
@@ -1019,7 +1039,7 @@ describe("renameRecord and removeRecord", () => {
 describe("mergeForMenu", () => {
     test("orders local first, then live entries, then saved-but-unseen", () => {
         const unseen = { ...saved, id: "laptop:main", displayName: "laptop" };
-        const entries = mergeForMenu([saved, unseen], [discovered], 1_500);
+        const entries = mergeForMenu([saved, unseen], [discovered], 1_500, []);
         expect(entries.map((e) => e.kind)).toEqual(["local", "live", "unseen"]);
         expect(entries[1].record.id).toBe("desktop:main");
         expect(entries[2].record.id).toBe("laptop:main");
@@ -1027,18 +1047,25 @@ describe("mergeForMenu", () => {
 
     test("refreshes a saved record's port from the live beacon", () => {
         const stale = { ...saved, lastKnownPort: 1 };
-        const entries = mergeForMenu([stale], [discovered], 1_500);
+        const entries = mergeForMenu([stale], [discovered], 1_500, []);
         expect(entries[1].record.lastKnownPort).toBe(54892);
     });
 
     test("a discovered backend that is not saved still appears", () => {
-        const entries = mergeForMenu([], [discovered], 1_500);
+        const entries = mergeForMenu([], [discovered], 1_500, []);
         expect(entries.map((e) => e.kind)).toEqual(["local", "live"]);
     });
 
     test("a stale beacon does not count as live", () => {
-        const entries = mergeForMenu([saved], [discovered], 30_000);
+        const entries = mergeForMenu([saved], [discovered], 30_000, []);
         expect(entries.map((e) => e.kind)).toEqual(["local", "unseen"]);
+    });
+
+    test("this machine's own beacon is not listed as a remote backend", () => {
+        // Every backend hears its own multicast, so without the address filter
+        // the local backend shows up twice.
+        const entries = mergeForMenu([], [discovered], 1_500, ["192.168.1.20"]);
+        expect(entries.map((e) => e.kind)).toEqual(["local"]);
     });
 });
 ```
@@ -1100,8 +1127,16 @@ function mergeForMenu(
     records: BackendRecord[],
     discovered: DiscoveredBackend[],
     now: number,
+    localAddresses: string[],
 ): MenuEntry[] {
-    const live = discovered.filter((entry) => !isStale(entry.lastSeenAt, now));
+    // This machine's own backend hears its own multicast — verified: two
+    // sockets on one host in one group both receive every datagram, including
+    // their own. Without this filter the local backend appears twice, once as
+    // "This machine" and once as a remote host you would ssh to yourself.
+    const local = new Set(localAddresses);
+    const live = discovered.filter(
+        (entry) => !isStale(entry.lastSeenAt, now) && !local.has(entry.address),
+    );
     const liveById = new Map(live.map((entry) => [backendIdFor(entry.hostname, entry.instanceId), entry]));
     const savedById = new Map(records.map((record) => [record.id, record]));
 
@@ -1660,7 +1695,7 @@ Create `electron/src/backend-registry.ts`:
 ```ts
 import { app } from "electron";
 import { readFile, writeFile } from "fs/promises";
-import { userInfo } from "os";
+import { networkInterfaces, userInfo } from "os";
 import { join } from "path";
 import { backendIdFor } from "@taskflow/shared/discovery";
 import { createListener, type DiscoveryListener } from "@taskflow/shared/discovery";
@@ -1737,13 +1772,20 @@ function isLocalActive(): boolean {
     return activeId === LOCAL_ID;
 }
 
+function localAddresses(): string[] {
+    return Object.values(networkInterfaces())
+        .flatMap((entries) => entries ?? [])
+        .filter((entry) => entry.family === "IPv4")
+        .map((entry) => entry.address);
+}
+
 function listBackends(): MenuEntry[] {
     listener?.probe();
-    return mergeForMenu(records, discovered, Date.now());
+    return mergeForMenu(records, discovered, Date.now(), localAddresses());
 }
 
 function findRecord(id: string): BackendRecord | null {
-    const entry = mergeForMenu(records, discovered, Date.now()).find(
+    const entry = mergeForMenu(records, discovered, Date.now(), localAddresses()).find(
         (candidate) => candidate.kind !== "local" && candidate.record.id === id,
     );
     return entry && entry.kind !== "local" ? entry.record : null;
