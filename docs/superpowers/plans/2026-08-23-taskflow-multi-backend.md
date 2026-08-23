@@ -2642,7 +2642,12 @@ function startServer(): FakeServer {
                         JSON.stringify({
                             correlationId: request.correlationId,
                             type: request.type,
-                            payload: { editors: [], homedir: "/h", protocolVersion: 1 },
+                            payload: {
+                                editors: [],
+                                homedir: "/h",
+                                hostname: "fake",
+                                protocolVersion: 1,
+                            },
                         }),
                     );
                 }
@@ -3504,28 +3509,27 @@ Create `packages/ui/src/stores/backend-store.test.ts`:
 ```ts
 import { describe, expect, test } from "bun:test";
 import { PROTOCOL_VERSION } from "@taskflow/shared";
+import type { SystemInfo } from "@taskflow/shared";
 import { checkProtocol } from "./backend-store";
+
+const info: SystemInfo = { editors: [], homedir: "/h", hostname: "desktop" };
 
 describe("checkProtocol", () => {
     test("accepts an equal version", () => {
-        expect(checkProtocol({ editors: [], homedir: "/h", protocolVersion: PROTOCOL_VERSION })).toEqual({
-            ok: true,
-        });
+        expect(checkProtocol({ ...info, protocolVersion: PROTOCOL_VERSION })).toEqual({ ok: true });
     });
 
     test("refuses a different version and names both sides", () => {
-        const result = checkProtocol({
-            editors: [],
-            homedir: "/h",
-            protocolVersion: PROTOCOL_VERSION + 1,
-        });
+        const result = checkProtocol({ ...info, protocolVersion: PROTOCOL_VERSION + 1 });
         expect(result.ok).toBe(false);
         expect(result.reason).toContain(String(PROTOCOL_VERSION));
         expect(result.reason).toContain(String(PROTOCOL_VERSION + 1));
     });
 
     test("refuses a backend too old to report a version at all", () => {
-        const result = checkProtocol({ editors: [], homedir: "/h" });
+        // `protocolVersion` is the only optional field on SystemInfo, and this
+        // is why: a pre-feature backend answers SYSTEM_INFO without it.
+        const result = checkProtocol(info);
         expect(result.ok).toBe(false);
         expect(result.reason).toContain("too old");
     });
