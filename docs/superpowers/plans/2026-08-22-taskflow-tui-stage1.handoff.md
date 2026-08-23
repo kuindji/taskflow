@@ -5376,3 +5376,72 @@ left calling `app.handleKey` unguarded (`TS2367`); mouse reports deliberately do
 `pendingEscape`; and the `open-tab`/`scroll` coverage gap above is structural until Stage 2.
 After 19.4 is clear: 19.5, 19.6 (**user gate — manual smoke test**), then Tasks 16-18, then
 Tasks 20 and 21 (each needs its own plan).
+
+## Task 19.4 — review round 1
+
+Base `4e89f26`, head `adf7c5a` (code) / `822682f` (docs). One standard gpt-5.5 review via
+the codex-review skill, Mode B (the brief carries the plan's requirements and the four
+deliberate decisions, so the round was not spent re-deriving them). Codex read the repo,
+ran `bun test` over the four touched suites (108 pass, 0 fail) and returned **zero
+findings** — verdict "Clear".
+
+**No findings raised here either. Task 19.4 is clear.** Codex's clean verdict was not
+taken on its word: the one thing in this task that could regress silently is the
+`handleKey` rewrite through the new helpers, and that was checked differentially rather
+than by reading.
+
+Verified independently:
+
+1. **`handleKey` is behaviour-identical to the pre-19.4 implementation — by differential
+   sweep.** `app.ts` at `4e89f26` was snapshotted as an oracle class beside the current
+   one, and both were driven by the *same* key sequences with their frames compared after
+   every single key (not just at the end, so a divergence a later clamp would hide still
+   shows). Domain: all 18 keys the sidebar keymap can observe (arrows, `j`/`k`, `z`,
+   `1`/`2`/`9`, `n`/`s`/`q`/`?`, Enter, Ctrl+Esc, bare Esc, a chorded `j`, a release, a
+   repeat) × 4 store shapes (0, 1, 4, 9 projects with their tasks) × 3 geometries
+   (60x10, 12x3, 200x40) × kitty on and off × 200 deterministic pseudo-random sequences
+   each (LCG-seeded, so a red run is repeatable). Compared: the full painted frame
+   cell-by-cell (char, attrs, fg, bg), `focus` and `running`. **31,037 cases, every one
+   identical.** Non-vacuity confirmed: perturbing `clampIndex` to `Math.min(index, length)`
+   turned it red within 15,546 assertions.
+2. **The one behaviour the extraction *did* change is unobservable, which is why the
+   sweep stayed green.** `selectTab` added an `index < 0` guard the old inline
+   `if (action.index < this.sessions.length)` did not have. Reverting just that guard and
+   re-running the sweep passed all 31,037 cases — `route` only ever emits tab indices 0-8
+   (from chars `1`-`9`, `routing.ts:122-128`), so no keymap input can reach it. A strict
+   safety addition, not a behaviour change.
+3. **Mouse hit-testing agrees with the painted frame, swept exhaustively.** Every
+   clickable cell of 6 geometries (60x10, 12x3, 24x6, 200x40, 3x2, 1x1) × 4 list lengths
+   (0, 1, 4, 12 rows) × zoomed and not: **70,296 cells clicked**, each followed by a
+   render. Asserted that a click which moved the selection moved it to *the row it landed
+   on*, was inside the sidebar's columns, named a row that exists, and that the frame
+   never highlights a row past the end of the list. All held. Non-vacuous: making
+   `routeMouse` return `index: row + 1` reddens it.
+4. **The sidebar/pane boundary column is a blind spot of that sweep, and is covered
+   elsewhere.** Widening the sidebar branch to `col <= layout.sidebarWidth` does *not*
+   redden the cell sweep — by the time the scan reaches the boundary column the selection
+   is already on that row, so nothing moves and the assertion is skipped. The same
+   mutation reddens the in-tree `routeMouse > the sidebar owns its last column and the
+   pane owns the first` (45 pass, 1 fail), which is exactly what Task 19.3 round 1 added
+   it for. Recorded so a later round does not mistake the gap for missing coverage.
+
+Both throwaway harnesses were deleted afterwards — the differential one duplicates a
+superseded implementation and has no place in the tree, and the cell sweep is 27s of
+runtime for a property the existing targeted tests already pin. `git status` clean before
+committing; `routing.ts` and `app.ts` restored from scratchpad copies after every
+mutation and confirmed clean with `git diff --stat`.
+
+Verification at `822682f`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 420 pass, 0 fail (unchanged — no code changed this
+round).
+
+Next step: implement Task 19.5 — forward reports to a child that asked for them
+(`docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md:1028`). It is the largest of the
+19.x tasks and touches three files plus a non-append-only test: `ChildModes` gains required
+`mouseTracking`/`mouseEncoding` (so `encode.test.ts:5`'s `legacy` fixture and
+`SessionTerminal.modes` both stop compiling until filled in), `SessionTerminal` tracks the
+encoding by hand off the `?h`/`?l` handlers and replays both modes across `attach()`'s
+history path, `encodeMouseForChild` maps tracking→which events and encoding→which bytes
+(dropping `sgr-pixels` and any X10 byte above 127), and `App.handleMouse` finally gains the
+child-first-refusal guard ahead of `routeMouse`. After 19.5: 19.6 (**user gate — manual
+smoke test**), then Tasks 16-18, then Tasks 20 and 21 (each needs its own plan).
