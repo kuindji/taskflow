@@ -19,7 +19,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
-| 12 | Focus and key routing | pending | — | |
+| 12 | Focus and key routing | implemented | `b44a56f` | commit `cc41d6f`; awaiting review round 1 |
 | 13 | Sidebar rendering | pending | — | |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
@@ -475,7 +475,34 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
   `bun test packages/tui` 53 pass / 0 fail, full `bun test` 869 pass / 8 fail
   with the 8 being the known pre-existing `MarkdownPaneImpl` failures.
 
+- **Task 12, implementation** (commit `cc41d6f`, base `b44a56f`):
+  `packages/tui/src/ui/routing.ts` plus `routing.test.ts`, 18 tests. The plan's
+  10 tests are verbatim apart from one added assertion (`q` -> `close-pane`,
+  which the plan maps but never asserts); 8 more cover releases, key repeats,
+  the ctrl/alt guard on sidebar chars, the 1-9 tab range and its `0` boundary,
+  ctrl+escape in legacy mode, and a held Escape meeting a sidebar command.
+  Validation: `bun run lint` clean, `bun run typecheck` clean across all five
+  packages, `bun test` 1054 pass / 8 fail with the 8 being the known
+  pre-existing `MarkdownPaneImpl` failures. Run this task's tests with
+  `bun test packages/tui/src/ui/routing.test.ts`.
+
 ## Decisions taken
+
+- **`to-child` carries `events: KeyEvent[]`, not the plan's `ev: KeyEvent`.** The
+  Task 12 "Interfaces" bullet declares `{ kind: "to-child"; ev: KeyEvent }`, but
+  the plan's own implementation, its tests, and the Task 15 consumer
+  (`for (const ev of action.events)`) all use an array. The array is the shape
+  that works: legacy mode has to release a held Escape *and* the key that
+  followed it in one action, which a single-event field cannot express. The
+  bullet is a stale line in the plan.
+
+- **`SIDEBAR_CHARS` is typed `Record<string, Action | undefined>`.** The plan
+  writes `Record<string, Action>`, which lies about a lookup on an arbitrary
+  char — the repo does not enable `noUncheckedIndexedAccess`, so `mapped` would
+  type as `Action` and the `if (mapped)` guard would look dead. The
+  `| undefined` form is what `decode-legacy.ts`, `decode-kitty.ts` and
+  `encode.ts` already use for the same reason.
+
 
 - **The task comparator moved to `@taskflow/shared` and all three clients now
   share it.** Round 4's ordering fix needed the backend's sort in the TUI. That
@@ -2234,5 +2261,6 @@ width and cursor edge cases.
   whole-repo run both finished normally — so treat a silent `bun test` as worth retrying
   rather than as a broken environment. Working tree clean.
 
-Next step: implement Task 12 (Focus and key routing) — record HEAD as its base commit
-first, implement only that task, validate, and commit.
+Next step: Task 12 review round 1 — one gpt-5.5 review via codex-review over
+`b44a56f..cc41d6f`, restricted to `packages/tui/src/ui`. Verify findings, fix the
+substantiated ones, validate, commit.
