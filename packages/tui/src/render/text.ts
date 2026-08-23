@@ -338,4 +338,4 @@ function layoutText(text: string, cols: number, attrs: number): Cell[] {
     return cells;
 }
 
-export { fitToWidth, layoutText };
+export { textWidth, fitToWidth, layoutText };
