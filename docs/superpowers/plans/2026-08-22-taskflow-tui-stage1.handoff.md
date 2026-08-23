@@ -16,7 +16,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 6 | Legacy key decoder | clear | `f7f072b` | commits `cfde4b3`, `74af2bd`, `6bccf51`, `d045f40`; clear after round 4 |
 | 7 | Kitty key decoder and protocol negotiation | clear | `11af111` | commit `846de64`; clear after round 1 |
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
-| 9 | Session terminal — attach, resync and mode tracking | in-review round 3 (paused mid-round) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`; round 3 report in hand, both findings reproduced red, **fixes not written yet** |
+| 9 | Session terminal — attach, resync and mode tracking | in-review round 3 (fixed, awaiting round 4) | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`; round 3's two findings fixed |
 | 10 | Blit a terminal buffer into the screen | pending | — | |
 | 11 | State store | pending | — | |
 | 12 | Focus and key routing | pending | — | |
@@ -1420,16 +1420,46 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
     (`snapshot: null` plus a `SESSION_HISTORY` stub) because they encoded the
     wrong contract for the snapshot path.
 
-## Working tree state at the pause
+- **Task 9, round 3 fixes** — both findings applied in `a5ae10d`, together with
+  the three repro tests the previous session left uncommitted. Each was
+  re-confirmed red at `c2be0a1` before the source was touched.
 
-Uncommitted, and deliberately left in place: the three repro tests above, in
-`packages/tui/src/term/session-terminal.test.ts` and
-`packages/backend/tests/services/pty-manager-snapshot.test.ts`. Nothing under
-`src/` was touched, so `git diff --stat` should show exactly those two test
-files. They are **red on purpose** — do not treat the failures as a broken
-environment, and do not commit them without the fixes.
+  - *Backend snapshot claimed an unparsed sequence* — fixed as the report
+    intended. `Session` gained `parsedSequence`, set from the completion
+    callback of every `headless.write`: `startSequence` when a restored
+    `initialOutput` finishes parsing (and `0` until then), and the batch's own
+    sequence for live output. `getSnapshot` reports that instead of
+    `lastSequence`, so the sequence a client is told the snapshot covers now
+    matches the state actually on the grid — everything `getSnapshot` reads
+    (serialized screen, `cursorHidden`, `kittyStack`) comes off the headless
+    terminal, so they all move together. Reporting a *lower* sequence cannot
+    duplicate output: the client replays chunks with `sequence > reported`,
+    which is now exactly the set not yet parsed. `getScrollback` still reports
+    `lastSequence` — scrollback is pushed synchronously in the same callback, so
+    it was already accurate. Red before the fix
+    (`claimsRestoredSequence: true`, and `reported` `1` where `< 1` was
+    expected): `bun test packages/backend/tests/services/pty-manager-snapshot.test.ts`.
+    While editing, `options.onData` was also switched to pass the captured
+    per-batch `sequence` rather than re-reading the mutable `lastSequence`
+    closure — same value today, but it no longer depends on nothing else
+    incrementing between the two lines.
 
-Next step: finish Task 9 review round 3 — apply the two fixes described above,
-confirm the three repro tests go green, run `bun run lint && bun run typecheck &&
-bun test` (expect the 8 recorded pre-existing `MarkdownPaneImpl` suite-ordering
-failures and nothing else), commit, and set the next step to review round 4.
+  - *Re-attach re-enabled modes the child had turned off* — fixed as the report
+    intended. `restore` is now built in the reset branch but written only after
+    the snapshot attempt falls through, immediately before the history request.
+    On the snapshot path the snapshot is authoritative and nothing is replayed
+    over it; on the history path the pre-drop modes still stand in, because raw
+    scrollback may have been trimmed past the sequences that set them. Red
+    before the fix (`Expected: false / Received: true`):
+    `bun test packages/tui/src/term/session-terminal.test.ts -t "takes its modes from the snapshot"`.
+
+- Validation at `a5ae10d`: `bun run lint` exit 0, `bun run typecheck` exit 0
+  across all five packages, `bun test` 994 pass / 8 fail — the 8 are the
+  recorded pre-existing `MarkdownPaneImpl` suite-ordering failures, unchanged
+  and verified by name; the pass count rose from 990 by the 3 new backend tests
+  and 1 new TUI test. Working tree clean.
+
+Next step: Task 9 review round 4 — one gpt-5.5 review via the codex-review skill
+over `--base 4572b1f`, leaving the working tree untouched until the report
+lands (see the round 2 process note). Zero substantiated findings means Task 9
+is clear and Task 10 is next.
