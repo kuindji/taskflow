@@ -24,6 +24,20 @@
 - `PROTOCOL_VERSION` starts at `1`. Equal connects; anything else refuses.
 - Backend binds `127.0.0.1` from Task 1 onward. Nothing in this plan may reintroduce a routable bind.
 
+**Three judgment calls, settled 2026-08-23 — do not re-litigate them.**
+
+- **A switch is refused while any editor is dirty** (Task 10). Dirty Monaco
+  models are keyed by absolute path alone, so carrying them across would show,
+  and then save, one machine's unsaved buffer into the other machine's file.
+  Save-or-discard first is the accepted cost; no confirm dialog, no silent
+  discard.
+- **Startup always begins on the local backend.** `activeId` is persisted for
+  menu ordering only. Auto-reconnecting would make app launch wait on ssh and
+  fail whenever the other machine is asleep.
+- **Task 6 ships with no unit tests.** Every branch there is a real `ssh`
+  process; the testable parts were extracted into Task 5, which is tested, and
+  Task 14 covers the rest by hand. Do not add a spawn-injection seam for it.
+
 ---
 
 ## File Structure
@@ -4195,10 +4209,41 @@ registerReset("file-store", () => {
 
 - [ ] **Step 5: Make the module-level caches resettable**
 
-`packages/ui/src/hooks/useConnectivity.ts` — replace the guard reset:
+`packages/ui/src/hooks/useConnectivity.ts` — the reset has to **undo the
+subscription**, not just re-open the guard. `initConnectivity` registers an
+`onEvent(MSG.CONNECTIVITY_STATUS_CHANGED, …)` handler (`useConnectivity.ts:43`)
+and throws away the unsubscribe it gets back, and `rebootstrap` calls
+`initConnectivity()` again after every switch. Clearing `initialized` on its own
+therefore stacks one more permanent listener per switch into `useWebSocket`'s
+`eventListeners` map (`useWebSocket.ts:24,138-148` — a `Set` of closures, no
+dedup), and nothing ever drains it. It is the same rule the file-store reset
+above states from the other side ("resetting it would register a second handler
+and double every refresh"); the difference is that connectivity *must*
+re-subscribe, because the value it caches belongs to the backend it was
+registered against — so it keeps the handle instead of skipping the reset.
+
+First make the subscription droppable, in `initConnectivity`:
+
+```ts
+let unsubscribeStatusChanged: (() => void) | null = null;
+
+function initConnectivity(): void {
+    if (initialized) return;
+    initialized = true;
+    // ...unchanged: the CONNECTIVITY_STATUS request and its two handlers
+    unsubscribeStatusChanged = onEvent(MSG.CONNECTIVITY_STATUS_CHANGED, (payload) => {
+        const data = payload as ConnectivityStatusPayload;
+        setOnline(data.online);
+    });
+}
+```
+
+then drop it in the reset:
 
 ```ts
 registerReset("connectivity", () => {
+    unsubscribeStatusChanged?.();
+    unsubscribeStatusChanged = null;
     initialized = false;
     online = true;
 });
@@ -5664,6 +5709,7 @@ Everything that assumes the backend's filesystem is this machine's.
 - Modify: `packages/ui/src/components/flows/FlowInputDialog.tsx:34`
 - Modify: `packages/ui/src/components/panels/FileContextMenu.tsx:107,138-192`
 - Modify: `packages/ui/src/components/panels/WikiPanel.tsx:113,118`
+- Modify: `packages/ui/src/components/panes/MarkdownPane.tsx:50-53`
 - Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx:278-285`
 - Modify: `packages/ui/src/components/panes/terminal/terminal-links.ts:64-72`
 - Modify: `packages/ui/src/components/panes/terminal/terminal-link-provider.ts:243-245`
@@ -5839,6 +5885,37 @@ fix:
 ```
 
 "New page" stays enabled: it writes through the backend.
+
+`packages/ui/src/components/panes/MarkdownPane.tsx:50-53` is the **second** call
+site of that same `openInObsidian`, and it is not a menu — it is a toolbar
+button, so both sweeps above miss it. `MarkdownPane` computes
+`canOpenInObsidian` from `fetchObsidianState(wikiRoot)` (`MarkdownPane.tsx:33-50`),
+which is a *backend* request (`MSG.WIKI_OBSIDIAN_STATE`): on a remote backend
+the **other** machine answers "installed, vault registered", and
+`packages/ui/src/components/panes/markdown/MarkdownToolbar.tsx:57` renders the
+button on **this** one. Clicking it calls `openInObsidian(filePath)` with the
+remote machine's absolute path.
+
+Gate it in `MarkdownPane`, not in `MarkdownToolbar` — the toolbar only renders
+what it is handed, and `canOpenInObsidian` is the flag it is handed:
+
+```tsx
+    const isLocal = useBackendIsLocal();
+// ...
+    const canOpenInObsidian =
+        isLocal && obsidian?.installed === true && obsidian.vault === "registered";
+```
+
+**One correction to the WikiPanel paragraph above.** "Opens a same-named local
+vault — the wrong notes, silently" is what *would* happen; today nothing happens
+at all, on any machine, local included. `openInObsidian` goes through
+`window.taskflow.openExternalUrl`
+(`packages/ui/src/lib/wiki/open-in-obsidian.ts:11`), and
+`electron/src/ipc-handlers.ts:74` returns early for any URL that does not start
+with `http://` or `https://` — so the `obsidian://` deep link is dropped in main
+and `shell.openExternal` is never reached. That is a pre-existing bug in shipped
+code and out of scope for this plan; the gating stays correct either way, and
+becomes load-bearing the moment that scheme guard is widened.
 
 **Do not gate `runInShell`.** `packages/ui/src/lib/run-in-shell.ts:27-45` asks the
 active backend for its shells over the WebSocket and creates a backend session;
@@ -6198,6 +6275,10 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
   the Backend port field left blank. Expected: the error names the machine and
   points at the port field. "SSH exited with code 1." means `readRemotePort` is
   still handing a failed `cat` to `classifyTunnelFailure`.
+- On a remote backend, open a wiki page in preview and look at the markdown
+  toolbar. Expected: no Obsidian button. It appearing means only the wiki root's
+  menu was gated and `MarkdownPane`'s `canOpenInObsidian` still trusts the
+  *remote* machine's answer about the *local* machine's Obsidian.
 - On a remote backend, open the wiki root's menu. Expected: "Open in Obsidian"
   and "Reveal in Finder" are greyed out, "New page" is not.
 - Connect to machine B, then start a switch and kill B's `ssh` child from a
