@@ -8,9 +8,10 @@ Status: Approved for planning
 The desktop client can only ever talk to the backend Electron spawned for it.
 `packages/ui/src/hooks/useWebSocket.ts` holds one module-level socket pointed at
 `ws://localhost:<port>`, where the port arrives once from Electron main
-(`packages/ui/src/providers/WebSocketProvider.tsx:23`). A user with Taskflow running on more than one
-machine — a desktop that runs the agents and a laptop they carry — has no way to
-see the desktop's projects, tasks and sessions from the laptop's app. The only
+(`packages/ui/src/providers/WebSocketProvider.tsx:23`). A user running Taskflow
+on more than one machine — a desktop that runs the agents and a laptop they
+carry — has no way to see the desktop's projects, tasks and sessions from the
+laptop's app. The only
 client that will be able to is the TUI, whose `--connect` mode is being built
 now.
 
@@ -39,11 +40,11 @@ creating or repairing projects on a remote host.
 | Authentication | SSH's. The app adds none and handles no credentials |
 | Registry owner | Electron main — it owns the tunnel processes and outlives any one connection |
 | Settings scope | Everything follows the active backend, appearance and layout included |
-| Re-point mechanism | Re-point the existing singleton, then reset stores and remount the shell |
+| Re-point mechanism | Re-point the existing singleton, then reset, re-bootstrap and remount the shell |
 | Menu location | The sidebar's bottom-left `Monitor` button; Master Workspace folds into the menu |
 | Local-path affordances | Disabled while a remote backend is active |
 | Backend bind address | Changed to `127.0.0.1` by this spec. It is a prerequisite, not an inherited assumption |
-| Protocol compatibility | A `PROTOCOL_VERSION` constant, carried in the beacon and checked on connect |
+| Protocol compatibility | A `PROTOCOL_VERSION` constant, carried in the beacon and checked before the new socket is promoted |
 
 ### Rejected alternatives
 
@@ -79,8 +80,8 @@ for the browser-based dev renderer that has no Electron at all.
 trusted LAN with discovery it is the least work. Rejected because the backend
 spawns shells: an unauthenticated listener means any device on the network can
 run commands on the host. That is true of the backend as it stands today, which
-is why the loopback bind is a prerequisite of this design rather than a nicety. SSH keys the user already manages give the same one-click
-feel once configured.
+is why the loopback bind is a prerequisite of this design rather than a nicety.
+SSH keys the user already manages give the same one-click feel once configured.
 
 **mDNS/Bonjour via `bonjour-service`.** Standard, inspectable with `dns-sd`,
 and plays with other tooling. Rejected because a hand-rolled beacon is roughly
@@ -98,7 +99,7 @@ the TUI can adopt it without a rewrite.
 
 ## Architecture
 
-Three new units plus edits to existing ones.
+Five units, three of them new files, plus edits to existing ones.
 
 | Unit | Lives in | Responsibility | Knows nothing about |
 |---|---|---|---|
@@ -294,8 +295,15 @@ that re-establishes the tunnel.
 | Auth refused | `Permission denied` | "SSH key not accepted by `<host>`" plus stderr |
 | Needs passphrase | `Permission denied` after a key was offered | Same, plus "run `ssh <host>` once to unlock your key" |
 | No route | `Could not resolve` / `Connection refused` / timeout | "`<host>` is not reachable" |
-| Forward failed | `remote port forwarding failed` / exit with `ExitOnForwardFailure` | "Backend is not listening on `<port>` — it may have restarted" |
+| Local bind failed | `bind: Address already in use` / `Could not request local forwarding` | Not surfaced — retried with a fresh local port |
+| Tunnel up, no backend | ssh alive but the readiness probe never answers | "Taskflow is not running on `<host>`" |
 | No ssh binary | `ENOENT` on spawn | "OpenSSH client not found" |
+
+The last two are the pair worth separating. `ExitOnForwardFailure` only reports
+on the **local** end of a `-L` forward — ssh cannot know whether anything is
+listening on the far side, which is exactly why readiness is an HTTP probe and
+why "the host is up but Taskflow is not" gets its own message instead of being
+folded into a generic tunnel error.
 
 The classifier is a pure `(stderr, exitCode) => TunnelFailure` function and is
 where the tests for this module live. Every class shows the raw stderr in a
@@ -303,11 +311,11 @@ details area — a misclassified failure must still be diagnosable.
 
 ### Host key trust
 
-On `Host key verification failed`, main first runs `ssh-keygen -F <host>` (or `[host]:port`) to
-find out which case it is:
+On `Host key verification failed`, main first runs `ssh-keygen -F <host>` (or
+`[host]:port` for a non-default `sshPort`) to find out which case it is:
 
-- **No entry.** First contact. Run `ssh-keyscan -T 5 -p <sshPort> <host>`, show the
-  host, key type and SHA256 fingerprint, and on approval append the scanned lines
+- **No entry.** First contact. Run `ssh-keyscan -T 5 -p <sshPort> <host>`, show
+  the host, key type and SHA256 fingerprint, and on approval append the lines
   to `~/.ssh/known_hosts` with a leading newline guard, creating `~/.ssh` as 0700
   and `known_hosts` as 0600 if absent. A non-default `sshPort` is written in
   `[host]:port` form, which is what `ssh-keyscan -p` emits, and `ssh-keygen -F`
@@ -345,7 +353,7 @@ The switch is ordered so a failure is never destructive:
 5. Only after the handshake passes does the renderer promote the new socket:
    it sends `FILE_UNWATCH` on the **old, still-open** socket for whatever path
    is being watched (`packages/ui/src/stores/file-store.ts:206`), closes it,
-   calls `resetAllStores()` and `rebootstrap()`, and bumps the `key` on
+   calls `resetAllState()` and `rebootstrap()`, and bumps the `key` on
    `AppShell`, which unmounts and remounts the whole tree — disposing every
    xterm, Monaco model and pane.
 
@@ -378,8 +386,8 @@ The change is contained but it is not free. The new socket is held in a separate
 `pendingSocket` binding, not in `ws`, so `sendRequest` and `sendFireAndForget`
 keep addressing the old, still-open socket during the handshake instead of
 failing against a `CONNECTING` one. `ws` is reassigned only when the new socket
-opens. The module also gains a generation
-counter. Each socket captures its generation on creation, and `onmessage`,
+opens. The module also gains a generation counter. Each socket captures its
+generation on creation, and `onmessage`,
 `onclose` and `onerror` return immediately if their generation is not the
 current one. Only the current socket may flip `connected` or call
 `scheduleReconnect`.
@@ -390,10 +398,11 @@ generation's entries are rejected explicitly with a distinct `BackendSwitched`
 error, so callers can tell a switch apart from a dropped connection. Without
 that explicit sweep the old socket's `close` is ignored by design and its
 requests sit there until the 30-second timeout fires — a switch would look like
-it worked, then throw `Request timeout` half a minute later. `connectWebSocket(port)` becomes
-`connectTo(origin)`, taking a full origin rather than a port, because a tunnel
-port is not `localhost` in any meaningful sense and `backend-url.ts` needs the
-origin anyway.
+it worked, then throw `Request timeout` half a minute later.
+
+`connectWebSocket(port)` becomes `connectTo(origin)`, taking a full origin rather
+than a port: a tunnel port is not `localhost` in any meaningful sense, and
+`packages/ui/src/lib/backend-url.ts` needs the origin anyway.
 
 `eventListeners` deliberately stays global and is **not** cleared. Listeners are
 registered against message types, not sockets, so they keep working across the
@@ -422,6 +431,10 @@ module-scope initialization:
 - `cachedHomedir` in `packages/ui/src/hooks/useActiveWorkspace.ts:19` is
   prefetched once at module load, so master workspace would keep the old
   machine's home directory.
+- `cachedEditors` in `packages/ui/src/lib/open-file.ts:10` holds the detected
+  editors of whichever machine answered `SYSTEM_INFO` first, and refetches only
+  when the list is empty, so the external-editor menu would offer the wrong
+  machine's editors.
 
 The general rule, which the implementer should apply rather than work from this
 list: any module-level value derived from backend data must register a reset.
@@ -430,7 +443,7 @@ will actually bite.
 
 So the switch is two distinct operations, not one:
 
-1. `resetAllStores()` clears record state and module-level caches. Every store
+1. `resetAllState()` clears record state and module-level caches. Every store
    and every caching hook registers its own reset via `stores/store-reset.ts`.
 2. `rebootstrap()` re-runs the one-shot fetches that populated state at startup:
    connectivity status, the agent list, homedir. `initConnectivity` gains a reset
@@ -462,7 +475,9 @@ registry exposes `getActiveOrigin()` alongside it.
 
 ## The menu
 
-The `Monitor` button at `packages/ui/src/components/sidebar/TaskSidebar.tsx:381-395` becomes the backend menu:
+The `Monitor` button at
+`packages/ui/src/components/sidebar/TaskSidebar.tsx:381-395` becomes the backend
+menu:
 
 ```
 Master Workspace                    ✓
@@ -487,9 +502,10 @@ icon when the active backend has dropped. Master Workspace keeps today's accent
 colouring on the icon; "remote" is signalled by a small corner dot, so the two
 signals do not compete for the same channel.
 
-"Connect to backend…" opens a dialog taking host, optional port and optional
-user, for hosts multicast cannot reach. "Manage backends…" lists saved records
-with rename, edit-user and remove.
+"Connect to backend…" opens a dialog taking host, plus optional backend port,
+SSH user and SSH port, for hosts multicast cannot reach. Leaving the backend port
+blank resolves it from the port file over ssh. "Manage backends…" lists saved
+records with rename, edit-user, edit-ssh-port and remove.
 
 ## Remote-mode degradation
 
@@ -558,8 +574,18 @@ whichever pane happened to need them — the worst kind of failure to diagnose.
 
 `PROTOCOL_VERSION` is a single integer in `packages/shared/src/constants.ts`,
 bumped only when a change is not backward compatible. It rides in the beacon, so
-the menu can label an incompatible backend before you connect, and it is checked
-again on connect, since a backend reached manually never announced anything.
+the menu can label an incompatible backend before you connect.
+
+The on-connect check is a `protocolVersion` field added to the `SYSTEM_INFO`
+response (`packages/backend/src/index.ts:416`,
+`packages/shared/src/types/system.ts:15`) rather than a new message type, so that
+a backend too old to know about any of this still answers rather than erroring.
+An absent field means "older than this mechanism" and is treated as
+incompatible. `SYSTEM_INFO` is the right carrier because the client needs its
+`homedir` and `editors` at bootstrap anyway, so the handshake costs no extra
+round trip. It is re-checked on connect and not merely trusted from the beacon,
+because a manually added backend never announced anything and because a host can
+be restarted onto a different version between announcement and connect.
 
 Equal connects; anything else refuses and names the version each side is
 running. A tolerance band would be self-contradictory: the constant bumps *only*
@@ -608,7 +634,8 @@ datagrams and are tested directly, including a truncated and a
 future-`v` payload.
 
 Tunnel argv construction is a pure function and is asserted verbatim, including
-the case where a record carries a non-default user. Failure classification is
+the cases where a record carries a non-default user and a non-default SSH port.
+Failure classification is
 tested against captured stderr for each class in the table above, plus an
 unrecognised stderr that must fall through to a generic failure with the raw
 text preserved.
