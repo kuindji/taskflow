@@ -22,7 +22,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | in-review round 2 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`; round 2 found two defects plus test hygiene, all fixed |
+| 15 | Application shell and entry point | in-review round 3 | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`; round 3 found two defects, both fixed |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
@@ -3518,13 +3518,70 @@ packages, `bun test packages/tui` 324 pass / 0 fail, full `bun test` 1157 pass /
 (the known `MarkdownPaneImpl` eight). `prettier --check` clean on the five touched files.
 The +2 over the `8045ed4` baseline of 1155 is exactly the two new regression tests.
 
-Next step: Task 15 review round 3 — gpt-5.5 via codex-review over `43df638..1873c41`
-(Mode B, restricted to `packages/tui`). Round 2 found four things worth fixing, so the
-task is not clear and another round is owed. Point the reviewer at the new signal
-ordering specifically: `installSignalExit` now shadows the signal handlers `Tty` and
-`armRawModeGuard` install, and the claim that nothing is lost because `Tty` also
-restores from `exit` is the part most worth a second opinion. The `onSpawn` hook
-touches Task 2, which was already clear — worth asking whether it broke anything there.
+- **Task 15, round 3** (gpt-5.5 via codex-review, Mode B over `43df638..1873c41`
+  restricted to `packages/tui`): two findings, both substantiated and fixed in
+  `28ac654`. Both were reproduced before a line of the fix was written.
+  - **Substantiated — a key pressed at startup did nothing.** The kitty
+    capability query is the only thing that reads stdin before the decoder is
+    installed. `readOnce` resolved with the first chunk and `negotiateKitty`
+    reduced that chunk to a boolean, so whatever the user typed inside the 150ms
+    window was thrown away. What you would see: launch the TUI, press `Q` (or an
+    arrow) immediately, and nothing happens. A second, quieter half: a keystroke
+    that lands as its own chunk *ahead* of a kitty terminal's reply made the read
+    return with no reply in it, so a capable terminal was downgraded to legacy
+    keys for the whole session. Regression test: `tui entry point > does not lose
+    a key typed before the kitty query goes out` in
+    `packages/tui/src/index.test.ts` — it writes `Q` into the pipe before the TUI
+    has read a byte, which is deterministic because the pipe buffers it until the
+    negotiation read resumes the stream. Red on `1873c41` (the TUI never quit and
+    was SIGKILLed by the harness, exit 137), green on `28ac654`. Run with
+    `bun test packages/tui/src/index.test.ts`.
+  - **Substantiated — a hangup was reported as a termination.** `installSignalExit`
+    mapped every non-`SIGINT` signal to 143, so `SIGHUP` exited 143 instead of the
+    conventional 129 and a supervisor or shell reads it as SIGTERM. Regression
+    test: `tui entry point > reports a hangup with the conventional exit code` —
+    red on `1873c41` (`143`), green on `28ac654`.
+  - Codex reported clean on: the signal ordering (the early `process.exit` handler
+    does win, and the `exit` chain does reach `Tty`'s restore), the synchronicity
+    of every `releaseOnExit` callback, the `onSpawn` hook against Task 2's error,
+    timeout and double-stop paths, the sidebar clamp arithmetic at every boundary,
+    arrow/chord/quit routing, and the test harness's cleanup.
+
+## Decisions taken (Task 15 round 3)
+
+- **`negotiateKitty` returns `{ kitty, rest }` rather than the entry point
+  re-reading stdin.** The bytes are already consumed by the time `negotiateKitty`
+  returns; only it knows which of them were the reply. Handing back the remainder
+  is the one place the distinction exists.
+- **The read loop repeats until the reply or the budget, instead of taking one
+  chunk.** This is what fixes the downgrade half of the finding. It costs nothing
+  on a terminal that answers (it returns as soon as the reply is complete) and
+  nothing on one that stays silent (an empty chunk means the reader hit its own
+  timeout, so the loop stops rather than waiting out the rest of the window).
+- **The decode body was extracted into `feed(text)`** so the leftover input goes
+  through exactly the same path as a live chunk — carry, escape timer and all —
+  rather than a second, subtly different decode call.
+- **`feed(rest)` runs before `process.stdin.resume()`**, so the keys typed during
+  negotiation are handled ahead of anything the stream is about to deliver.
+- **`Tty`'s signal handlers got the same exit-code fix even though they are dead
+  code.** They are unreachable only because `installSignalExit` exits first; if
+  that ordering is ever changed, the wrong code should not come back with it.
+  `os.constants.signals` supplies the numbers rather than a hand-written table.
+
+Checks on `28ac654`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 330 pass / 0 fail, full `bun test` 1163 pass / 8 fail
+(the known `MarkdownPaneImpl` eight). `prettier --check` clean on the five touched files.
+The +6 over the `1873c41` baseline of 1157 is two new entry-point tests and four net-new
+negotiate tests.
+
+Next step: Task 15 review round 4 — gpt-5.5 via codex-review over `43df638..28ac654`
+(Mode B, restricted to `packages/tui`). Round 3 found two real defects, so the task is
+not clear and another round is owed. Point the reviewer at the rewritten
+`packages/tui/src/input/negotiate.ts` specifically: the read loop now calls
+`waitForData` repeatedly against a shared deadline and treats an empty chunk as the
+reader's own timeout, and `rest` splices the reply out of the buffer — both are new
+surface. Also worth asking whether feeding `rest` through `feed()` before
+`process.stdin.resume()` can reorder or double-handle input.
 After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then
 implement it, then Tasks 16-18.
 
