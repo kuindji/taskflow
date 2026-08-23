@@ -22,10 +22,11 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
-| 15 | Application shell and entry point | implemented | `43df638` | commit `8c01132`; plan Step 6 (manual smoke test) is a user gate — AWAITING USER |
+| 15 | Application shell and entry point | implemented | `43df638` | commits `8c01132`, `584f615`; smoke-tested, arrows added after it |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
+| 19 | Mouse support (UI) | pending | — | **added after the Task 15 smoke test — not in the original plan.** Needs its own plan first |
 
 ## Review rounds
 
@@ -3309,14 +3310,69 @@ clear since round 3) never did. The plan's smoke-test wording is wrong, not the 
 whether that should be resolved by fixing the wording or by binding the arrows is a scope
 call, not a defect fix.
 
-Next step: AWAITING USER — two questions, both scope calls that change what gets built:
-(1) Did `j` / `k` / `Q` work in your terminal? The PTY runs say they should. If they did not,
-there is a second, environment-specific bug and this investigation is not finished.
-(2) Should arrow keys alias `j`/`k` in the sidebar, and should the UI take mouse input at all?
-Arrow aliases are a few lines in `route()` plus a routing test. Mouse is a subsystem — enable
-tracking, decode SGR reports, hit-test the sidebar, forward to the child per the child's own
-`mouseTrackingMode` — and is not in the Stage 1 plan anywhere.
-After that: Task 15 review round 1 (gpt-5.5 via codex-review over `43df638..8c01132`).
+## Task 15 — smoke test outcome and arrow keys
+
+User's answer to both questions: they want arrow keys **and** mouse support. The concern
+that mouse is a subsystem outside the Stage 1 plan was raised and they reaffirmed the ask,
+so it is now in scope and gets Task 19 below. They did not say whether `j`/`k` worked; the
+PTY runs say they do, and no second bug was ever substantiated, so that thread is closed.
+
+**Arrow keys — done**, commit `584f615` (`ui/routing.ts`, `ui/routing.test.ts`,
+`ui/app.test.ts`). `SIDEBAR_KEYS`, a `Partial<Record<KeyName, Action>>` checked before the
+char map because an arrow carries no `char` at all, binds `down` to `move +1` and `up` to
+`move -1`. Six new routing tests plus one app-level test; the two "arrows move the sidebar"
+routing tests were red before the change and green after
+(`bun test packages/tui/src/ui/routing.test.ts`).
+
+End-to-end confirmation, same PTY harness as the investigation, kitty path: down arrow went
+from **0 bytes written back to 82** — the highlight moves from row 2 to row 3. `j`, `k` and
+`Q` unchanged.
+
+## Decisions taken (Task 15 arrow keys)
+
+- **Up/Down only. Left/Right stay unbound.** The spec gives `h`/`l` the job of moving between
+  the sidebar and the main area, and neither `h` nor `l` is implemented, so binding the
+  horizontal arrows would be binding them to nothing. They get bound when `h`/`l` do.
+- Keyed by `KeyName` in its own map rather than folded into `SIDEBAR_CHARS`. The char map is
+  reached through a `char !== undefined` guard that an arrow can never satisfy.
+- Chorded arrows are excluded by the existing `isChorded` check, so `Ctrl+Down` stays free
+  for a future binding and is not silently a move. Covered by a test.
+- Shift+Arrow *does* move, matching how `Q` works — `isChorded` deliberately ignores shift.
+
+Checks on `584f615`: `bun run lint` clean, `bun run typecheck` clean across all five packages,
+`bun test packages/tui` 319 pass / 0 fail, full `bun test` 1152 pass / 8 fail (the known
+`MarkdownPaneImpl` eight). `prettier --check` clean.
+
+## Task 19 — Mouse support (added post-plan, needs a plan of its own)
+
+Requested by the user after the Task 15 smoke test. Nothing in `packages/tui/src` enables
+mouse tracking today and the Stage 1 plan and spec never had it, so this is new scope, not a
+defect fix. It is not a one-task change — a sketch of what it touches, for whoever plans it:
+
+- `term/tty.ts` — `enterSequence` has to turn tracking on (`?1000h` for clicks, `?1002h` if
+  drag is wanted, plus `?1006h` for SGR encoding so coordinates past column 223 survive).
+  `leaveSequence` already turns all four off, so only the enter side is missing.
+- A mouse decoder for `CSI < b ; x ; y M|m`. It has to run *before* the generic CSI handling
+  in `decodeLegacy`, which is the single choke point — `decodeKitty` delegates everything
+  that is not `CSI … u` to it.
+- `DecodeResult.events` is `KeyEvent[]`. A mouse report is not a key, so this becomes a union
+  and the change ripples into `route()`, `App.handleKey` and `encodeForChild`.
+- Hit-testing needs the frame's layout — sidebar width and the pane rect — which `App.render()`
+  computes locally today and throws away. It has to be hoisted so `handleMouse` can read it.
+- Forwarding to the child has to honour that child's own `mouseTrackingMode` and encoding
+  (`IModes`), the same way `encodeForChild` honours `applicationCursorKeysMode`. A child that
+  never asked for mouse reports must not receive them.
+
+Per the repo's own rule for new features, this gets a written plan reviewed by gpt-5.5 twice
+before any code, appended to the Stage 1 plan as new tasks.
+
+Next step: Task 15 review round 1 — gpt-5.5 via codex-review over `43df638..584f615`
+(Mode B, restricted to `packages/tui`). That range is the application shell, the entry point
+and the arrow-key binding, which is the whole of Task 15 as it now stands. Review this before
+starting Task 19's plan: the mouse work rewrites `routing.ts` and the decoders, and reviewing
+a small diff now beats reviewing a large one later.
+After that: write the Task 19 mouse plan (two gpt-5.5 plan-review rounds), then implement it,
+then Tasks 16-18.
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
@@ -3325,8 +3381,8 @@ reproduces the documented baseline exactly. It recurred in Task 14 round 1: a
 `bun test packages/tui` launched while codex was running its own `bun test` reported
 306 pass / 1 fail, and the same command re-run once codex was idle reported 307 / 0.
 
-Baseline as of `8c01132`: `bun run lint` clean, `bun run typecheck` clean across all five
-packages, `bun test packages/tui` 313 pass / 0 fail, full `bun test` 1146 pass / 8 fail with
+Baseline as of `584f615`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` 319 pass / 0 fail, full `bun test` 1152 pass / 8 fail with
 the 8 being the known pre-existing `MarkdownPaneImpl` failures (three fragment-link tests and
 five checkbox-click tests). Those eight are flaky upward, not downward: one full run during
 Task 15 reported 9 fail, and a clean re-run of the same tree reported 8 again.
