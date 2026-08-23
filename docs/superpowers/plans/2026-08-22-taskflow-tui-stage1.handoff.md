@@ -18,7 +18,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 8 | Per-child key encoding | clear | `7932626` | commits `4a8ac77`, `7e38b14`, `603c444`, `2eec4c1`, `207cdd3`; clear after round 5 |
 | 9 | Session terminal — attach, resync and mode tracking | clear | `4572b1f` | commits `f693314`, `b2de3c4`, `6261aea`, `a5ae10d`, `e3c7c91`, `60ee4f2`, `7d943d9`, `1f221be`; clear after round 8 |
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
-| 11 | State store | in-review round 4 | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; round 4 found 2 defects, fixed; round 5 due |
+| 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | pending | — | |
 | 13 | Sidebar rendering | pending | — | |
 | 14 | Session pane and tab strip | pending | — | |
@@ -2185,6 +2185,54 @@ width and cursor edge cases.
   unchanged by name, and 1036 = the previous 1033 plus this round's 3 new tests.
   Working tree clean.
 
-Next step: review round 5 for Task 11 — run one gpt-5.5 review via the codex-review
-skill over `9420a4b..32d6267`, verify the findings independently, fix the
-substantiated ones, validate, and commit.
+- **Task 11, round 5** (gpt-5.5 via codex-review, Mode B over `9420a4b..32d6267`
+  restricted to `packages/tui`, `packages/shared`, `packages/ui`, `packages/backend`,
+  with rounds 1-4's fixes called out as already known): two findings, **neither a defect
+  in Task 11's scope**, so Task 11 is clear with no code change this round.
+
+  - **Out of scope — the store does not subscribe to `SESSION_STATUS`.** Real, and
+    deliberate. Task 11's plan fixes the store's produced interface at `load()`,
+    `projects`, `tasks`, `tasksFor()`, `onChange()`, `dispose()` — no session state —
+    and the spec assigns `SESSION_STATUS` to the session pane
+    (`docs/superpowers/specs/2026-08-22-taskflow-tui-client-design.md:240`, "Session
+    pane + tabs | `SessionRef`, `SESSION_STATUS`, `onTitleChange`"), which is Task 14.
+    Adding it here would widen a bounded task. Left for Task 14.
+
+  - **Out of scope — `MSG.SESSION_RENAME` mutates the owner record and broadcasts
+    nothing.** Verified: `packages/backend/src/handlers/session.ts:80-112` updates the
+    owning task, project or master session and returns `{success: true}`; the file
+    contains no `broadcast` call at all (`grep -n broadcast` on it is empty), so a
+    second client's label stays stale until its next reload. Pre-existing backend gap,
+    untouched by this diff — `git diff 9420a4b..32d6267 -- packages/backend/src/handlers/`
+    is empty — and the same family as the already-recorded missing `TASK_REMOVED`
+    broadcast and the silent WS archive path. Not a TUI-store bug; recorded here as a
+    known backend gap rather than fixed inside this task.
+
+  - **Codex found nothing in the areas round 5 targeted.** It reported the
+    `loadToken`/deferred-queue replay, the cascade mirrors, the unarchive refetch path
+    and subscriber notification all clean, and confirmed the shared comparator is
+    semantically identical to the three implementations it replaced (pinned first,
+    newest valid `createdAt`, invalid date as `0`, `id.localeCompare` tie-break).
+
+  - **Claude's own probes this round, all healthy.** Two throwaway probes against the
+    live store (written, run, then deleted): the unarchive refetch converges at exactly
+    one extra `TASK_LIST` (`taskListCalls` 1 → 2) and restores the family, with no
+    reload storm; and a second top-level `TASK_UPDATED` arriving *during* the refetch is
+    queued, drained after the commit, and triggers no further reload, because the
+    snapshot it lands on already carries that task as active. Also checked by hand: the
+    dead helpers really are gone — `grep -rn "compareTasksByCreatedAtDesc"` across
+    `packages/` has no hits, and `getCreatedAtTimestamp` survives only as a private
+    function inside `packages/shared/src/utils/task-order.ts`.
+
+- Validation at `32d6267` (re-run for round 5, no code change): `bun run lint` exit 0,
+  `bun run typecheck` exit 0 across all five packages, `bun test` 1036 pass / 8 fail
+  (1044 across 101 files, 57s) — the 8 being the pre-existing `MarkdownPaneImpl`
+  suite-ordering failures, verified unchanged by name. Cross-checked per package as well:
+  tui 203, shared 97, backend 600, ui 136 pass / 8 fail; `packages/cli` has no test files.
+  One flake worth knowing about for later rounds: the first whole-repo `bun test` produced
+  no output for 20+ minutes and had to be killed, while per-package runs and a second
+  whole-repo run both finished normally — so treat a silent `bun test` as worth retrying
+  rather than as a broken environment. Working tree clean.
+
+Next step: implement Task 12 (Focus and key routing) — record HEAD as its base commit
+first, implement only that task, validate, and commit.
