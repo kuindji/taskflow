@@ -5180,9 +5180,81 @@ Independent verification that the new tests are not vacuous:
 Verification at `ec39171`: `bun run lint` clean, `bun run typecheck` clean across all five
 packages, `bun test packages/tui` → 409 pass, 0 fail (383 before, plus 26 new).
 
-Next step: Task 19.3 review round 1.
-Run one gpt-5.5 review via codex-review over `db844f4..HEAD` restricted to `packages/tui`,
-with the three Task 19.3 decisions above called out as settled. Verify any finding here
-before acting on it.
+## Task 19.3, round 1
+
+**gpt-5.5 via codex-review, Mode B over `db844f4..HEAD`** (`packages/tui` only), with the
+three Task 19.3 decisions called out as settled and the coordinate-frame / off-by-one /
+region-boundary / drift questions named explicitly. Codex returned **zero findings** —
+verdict "Clear". It compared `computeLayout` number for number against the removed inline
+`App.render` arithmetic (zoomed case and clamp included), checked the `end`-exclusive span
+convention against both consumers, and confirmed the sidebar-before-tab-strip ordering and
+the unbound buttons. It ran no tests (read-only sandbox).
+
+**Findings raised here instead, both substantiated by surviving mutations.** Codex's report
+was clean, so these came out of a mutation pass run locally: every invariant the task claims
+was broken one at a time to see whether a test noticed.
+
+1. **The `paneHeight` clamp was untested.** `layout.test.ts`'s "a one-row terminal leaves the
+   pane no height rather than a negative one" is vacuous for the thing it names: at
+   `rows = 1`, `rows - 1` is already 0, so it passes with the clamp and without it. Replacing
+   `Math.max(0, rows - 1)` with `rows - 1` left all 107 tests green.
+2. **The sidebar/pane boundary column was untested.** Nothing asserted which side owns
+   `col === sidebarWidth`. Widening the sidebar test to `col <= layout.sidebarWidth` — which
+   hands the pane's first column to the sidebar, exactly the off-by-one this task exists to
+   prevent — also left all 107 green.
+
+Neither is a behaviour bug: the shipped code is correct on both. They are holes in the net,
+and this task's whole point is that the net catches this class of error.
+
+**Fixed in `10e7b0f`** by adding the two missing tests. Both were confirmed red-able against
+the mutations that motivated them, in both directions:
+
+- `computeLayout > a zero-row terminal leaves the pane no height either` fails with
+  `Expected: 0, Received: -1` when the clamp is dropped.
+- `routeMouse > the sidebar owns its last column and the pane owns the first` fails under
+  `col <= layout.sidebarWidth` **and** under `col < layout.sidebarWidth - 1`, so it pins the
+  boundary from both sides rather than only one.
+- Command for both: `bun test packages/tui/src/ui`. Tree restored after each mutation;
+  `git status` confirmed clean before committing.
+
+Decisions taken:
+
+- **The zero-row test's comment says the clamp is defensive, not currently reachable.** The
+  first draft claimed `process.stdout.rows` can report 0 during a resize; `index.ts:159` is
+  `process.stdout.rows || 24`, which turns a zero into 24, and there is no SIGWINCH handler
+  yet — so the claim was false and was rewritten rather than left as a plausible-sounding
+  comment. The test still earns its place: it guards the clamp for the resize path that will
+  call `computeLayout` directly.
+
+Other things checked here that produced no finding:
+
+- **The remaining mutations were caught.** `paneY: 1 → 0` reddens "the tab strip owns row 0
+  and the pane the rest"; dropping `"drag"` from the sidebar's `pressed` reddens "a left drag
+  in the sidebar keeps selecting"; `x < span.end → x <= span.end` reddens "a click on the
+  second tab opens the second tab, whatever the first one's width" with `index: 0` for
+  `index: 1`.
+- **Boundary sweep by direct probe**, not by reading. `col = sidebarWidth - 1` → `select`,
+  `col = sidebarWidth` → `focus`, `col = cols - 1` at the last pane row → `focus`,
+  `col = cols` → `none`, `row = -1` → `none`, a click at each span's `start`, `end - 1` and
+  `end` → the tab painted there and then `none` past the last.
+- **`drawTabs` and `tabSpans` do not drift on the hard inputs.** Swept `width` 1-8 for two
+  ASCII tabs and 5-10 for a wide-glyph label (`日本語`), comparing spans against the painted
+  cell widths: every span matches the columns painted, a wide glyph keeps its width-2 cell
+  plus width-0 continuation, and a tab squeezed to 1-2 columns is drawn as the padding it has
+  room for and hit-tests to exactly those columns. The two can disagree only if `layoutTabs`
+  is bypassed, and nothing bypasses it.
+- **The negative-column case is unreachable, so it is not a finding.** `routeMouse` would
+  treat `col = -1` as a sidebar click, but `build` in `input/mouse.ts` rejects any report with
+  `x < 1` or `y < 1` before a `MouseReport` exists, so no parser can produce one.
+
+Verification at `10e7b0f`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/tui` → 411 pass, 0 fail (409 before, plus the 2 new).
+
+Next step: Task 19.3 review round 2.
+Findings were fixed this round, so another round is due. Run one gpt-5.5 review via
+codex-review over `db844f4..HEAD` restricted to `packages/tui`, calling out the three Task
+19.3 decisions and round 1's zero-row-comment decision as settled, and noting that round 1
+found only test gaps and that the two new tests are the delta to scrutinise. Verify any
+finding here before acting on it.
 After 19.3 is clear: 19.4 - 19.6, then Tasks 16-18, then Tasks 20 and 21 (each needs its own
 plan; 20 touches `packages/backend` and `electron/`, 21 touches `packages/tui/src/input`).
