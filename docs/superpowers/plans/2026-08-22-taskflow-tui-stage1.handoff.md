@@ -3230,7 +3230,10 @@ that same plan landed during round 10, most recently `028aa1e` (a renumbering of
 Same reasoning, same conclusion: the scoping and the base commit both still hold. No
 further unrelated commits landed during round 11: `8f92af6` was this flow's own round 10
 record, and `382b33f` sits directly on it. None landed during round 12 either: `e524484`,
-this flow's own round 11 record, was still HEAD when the round started and no code changed.
+this flow's own round 11 record, was still HEAD when the round started and no code changed. Four more docs-only commits landed from outside this
+flow during Task 15: `383c97b`, `765e069` and `9d45325` (multi-backend plan revisions) and
+they sit interleaved with this flow's own records. None touch `packages/tui`, so scoping
+`43df638..584f615` to `packages/tui` leaves exactly the five files of Task 15.
 
 ## Task 15 — implementation
 
