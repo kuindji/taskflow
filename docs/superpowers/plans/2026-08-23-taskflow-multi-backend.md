@@ -2942,7 +2942,41 @@ async function updateBackend(
 ): Promise<void> {
     const existing = records.find((record) => record.id === id);
     if (!existing) return;
-    records = upsertRecord(records, { ...existing, ...patch });
+    // Validated here, not only in the dialog. These three fields go straight
+    // into an ssh command line — `buildTunnelArgs` emits `-p
+    // ${String(record.sshPort)}` and `${record.user}@${record.host}` — and a
+    // spread of a raw patch will write whatever the renderer sent. Clearing the
+    // SSH user field to "go back to the default" gives ssh `@192.168.1.20`;
+    // clearing the port field gives it `-p NaN`, which `JSON.stringify` then
+    // writes to `backends.json` as `null`, so `normalizeRecord` silently heals
+    // it to 22 on the next launch and the same row fails two different ways
+    // either side of a restart. Neither failure names the field that caused it:
+    // `classifyTunnelFailure` reads ssh's stderr and reports "no route" or
+    // "auth refused" for a record the user broke by hand a moment earlier.
+    //
+    // Rejecting rather than silently correcting: a rejected IPC is a visible
+    // error in the dialog (`updateBackend` is awaited in a `try`), whereas
+    // coercing a typo into 22 hides it until the connection fails.
+    const displayName = patch.displayName?.trim();
+    const user = patch.user?.trim();
+    if (patch.displayName !== undefined && !displayName) {
+        throw new Error("A backend needs a name.");
+    }
+    if (patch.user !== undefined && !user) {
+        throw new Error("A backend needs an SSH user.");
+    }
+    if (
+        patch.sshPort !== undefined &&
+        (!Number.isInteger(patch.sshPort) || patch.sshPort < 1 || patch.sshPort > 65535)
+    ) {
+        throw new Error("The SSH port must be a whole number between 1 and 65535.");
+    }
+    records = upsertRecord(records, {
+        ...existing,
+        ...patch,
+        ...(displayName ? { displayName } : {}),
+        ...(user ? { user } : {}),
+    });
     // `sshPort` is half of the `known_hosts` key (`knownHostsKey`, Task 5), so
     // a key scanned before this edit describes a different endpoint than the
     // one the user would now be trusting. Drop it and make them look again.
@@ -3287,6 +3321,7 @@ Create `packages/ui/src/hooks/useWebSocket.test.ts`:
 import { afterEach, describe, expect, test } from "bun:test";
 import {
     BACKEND_SWITCHED,
+    __resetForTests,
     abortPending,
     connectTo,
     getBackendOrigin,
@@ -3363,8 +3398,22 @@ function startServer(): FakeServer {
 
 const servers: FakeServer[] = [];
 
+// `abortPending()` alone is not enough, and the way it fails is quiet. It only
+// touches the *pending* slot; `current` is left open and promoted. Stopping the
+// fake server then closes that socket for real, its `onclose` runs the live
+// branch, and the live branch calls `scheduleReconnect` — so every test that
+// promotes a connection leaves a backoff timer behind, redialling a server that
+// no longer exists. A second later, inside some later test, that timer runs
+// `connectTo`, whose first act is `abortPending()`: it rejects *that* test's
+// in-flight connection with "Backend switched" and takes its socket away. The
+// symptom is a suite that passes alone and fails in file order, with an error
+// message from a switch nobody performed.
+//
+// Resetting before stopping the servers is the order that matters: detach and
+// close while the sockets are still ours, so no handler is left to react to the
+// server going away.
 afterEach(() => {
-    abortPending();
+    __resetForTests();
     while (servers.length > 0) servers.pop()?.stop();
 });
 
@@ -3959,6 +4008,54 @@ function abortPending(): void {
 
     scheduleReconnectIfCurrentDown();
 }
+
+/**
+ * Returns the module to its just-imported state. Exported **only** for the test
+ * file: this module is a set of globals with a reconnect timer, and Bun runs
+ * every test in one file against the same import, so without a way to put
+ * `current` down a promoted socket and its backoff outlive the test that made
+ * them. See the comment on `afterEach` in `useWebSocket.test.ts` for what that
+ * looks like when it goes wrong. Nothing in the app calls this — a real reset
+ * of the connection is `connectTo` plus `promoteConnection`.
+ */
+function __resetForTests(): void {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    for (const connection of [pending, current]) {
+        if (!connection) continue;
+        const { socket } = connection;
+        socket.onopen = null;
+        socket.onerror = null;
+        socket.onclose = null;
+        socket.onmessage = null;
+        socket.close();
+    }
+    pending = null;
+    current = null;
+    const settle = pendingSettle;
+    pendingSettle = null;
+    settle?.reject(new Error(BACKEND_SWITCHED));
+    // Rejected, not just cleared. A test that awaits a `sendRequest` the fake
+    // server was told to leave hanging would otherwise await a promise nothing
+    // can ever settle, and the failure is a timed-out test file rather than a
+    // named assertion.
+    for (const [, request] of pendingRequests) {
+        clearTimeout(request.timeoutId);
+        request.reject(new Error(BACKEND_SWITCHED));
+    }
+    pendingRequests.clear();
+    // The listener maps too. A test that registers an `onEvent` handler and
+    // does not unsubscribe would otherwise still be counting broadcasts in the
+    // next one — which is the assertion the duplicate-subscription test makes.
+    eventListeners.clear();
+    statusListeners.clear();
+    connected = false;
+    reconnecting = false;
+    reconnectAttempt = 0;
+    generationCounter = 0;
+}
 ```
 
 Then update `sendRequest`, `sendFireAndForget` and the exports at the bottom of the file:
@@ -4004,6 +4101,7 @@ function sendFireAndForget(type: string, payload: unknown = {}): void {
 
 export {
     BACKEND_SWITCHED,
+    __resetForTests,
     abortPending,
     connectTo,
     getBackendOrigin,
@@ -4044,6 +4142,11 @@ In `packages/ui/src/providers/WebSocketProvider.tsx`, replace the body of `conne
                 setError(null);
                 let origin: string;
                 if (window.taskflow) {
+                    // Before anything can throw. This is the only thing that
+                    // runs `refresh()` at boot, and without it a window
+                    // reopened onto a dropped remote backend has no way back —
+                    // see the comment below and Task 11's `ConnectionOverlay`.
+                    await useBackendStore.getState().refresh().catch(() => {});
                     const active = await window.taskflow.getActiveBackend();
                     if (active.origin === null) throw new Error("No backend is running");
                     origin = active.origin.replace(/^http/, "ws");
@@ -4069,7 +4172,35 @@ In `packages/ui/src/providers/WebSocketProvider.tsx`, replace the body of `conne
         }
 ```
 
-Update its imports to `connectTo, promoteConnection, onStatusChange`.
+Update its imports to `connectTo, promoteConnection, onStatusChange`, and add
+`import { useBackendStore } from "@/stores/backend-store";`.
+
+That one added line is load-bearing, and the reason is worth spelling out
+because the shape of it is not obvious from this file. **Nothing else in the app
+calls `refresh()` before the user opens the backend menu.** Task 11 wires it to
+the menu's `open` state and to `backends-changed`; Task 10 calls it from
+`switchTo`'s `finally`. Every one of those needs the user to have done
+something first.
+
+Now take the case Task 10's derived `dropped` was written for: macOS, connected
+to a remote backend, the window closed while the app stays in the menu bar, the
+tunnel dies, the window reopens. Main has `activeId` naming that backend and
+`activeOrigin === null`, and the `backend-dropped` event that would have told
+the renderer was sent to a window that did not exist. The fresh renderer starts
+from the store's initial state: `isLocal: true`, `dropped: false`, `error: null`.
+`connect()` throws "No backend is running" and does not retry — there is no
+socket, so `scheduleReconnect` returns on `!current`. Task 11's
+`ConnectionOverlay` reads `isLocal` to decide whether to block, sees `true`, and
+puts a full-screen `fixed inset-0 z-50` blur over the app. Underneath it: the
+backend menu, whose `open` effect is the only thing that would run `refresh()`,
+and which cannot be clicked. `dropped` is never derived, so the banner and its
+**Reconnect** button never render either. The user is back at quit-and-relaunch
+— the exact dead end round 14 set out to remove, reached by a different door.
+
+Refreshing here closes it: by the time `connect()` throws, the store knows
+`isLocal: false` and `dropped: true`, the overlay takes its non-blocking branch,
+and the banner is up with a working **Reconnect**. The `catch` is deliberate —
+`refresh` crossing IPC must not be what stops the renderer connecting.
 
 - [ ] **Step 5: Fix the three test files that stub `getBackendPort`**
 
@@ -4868,20 +4999,47 @@ const useBackendStore = create<BackendStore>((set, get) => ({
         // an id it cannot reach. `markTunnelDropped` and `revertActiveBackend`
         // are the two writers, and both mean "dropped".
         const dropped = !active.isLocal && active.origin === null;
-        set((state) => ({
-            entries,
-            activeId: active.id,
-            isLocal: active.isLocal,
-            dropped,
-            // The **Reconnect** button renders inside the error banner, so
-            // deriving `dropped` without a message would put the one control
-            // that fixes this inside a banner that never appears. An existing
-            // message wins — it is more specific than this one.
-            error:
-                dropped && state.error === null
-                    ? "The connection to that backend was lost."
-                    : state.error,
-        }));
+        set((state) => {
+            // A refresh in flight while a switch is running must not write the
+            // active fields, because it is reading a value that is still being
+            // decided. `setActive` persists and calls `deps.onChanged()` from
+            // inside `switchTo`, *before* `promoteConnection` — that is the
+            // deliberate order, main commits first — so `backends-changed`
+            // reaches `BackendMenu`'s subscription and starts a `refresh()`
+            // that reads the new backend. If the pending socket then dies,
+            // `promoteConnection` returns false, `revertActiveBackend` puts
+            // main back on the old one, and the catch reports the failure. Two
+            // refreshes are now in flight against opposite states, and nothing
+            // orders them: should the first land last it writes
+            // `activeId: B, isLocal: false, dropped: false` over a renderer
+            // that is still talking to A. The menu ticks a backend the app is
+            // not connected to, Task 12's remote gating disables local paths
+            // for a machine the user is sitting at, and the only thing that
+            // repairs it is the next unrelated `backends-changed`.
+            //
+            // `entries` is still applied: the record list is not part of the
+            // contested state, and the menu is the reason this refresh ran.
+            // Everything else is re-derived the moment the switch settles —
+            // the success path sets it synchronously and then calls `refresh`
+            // from its `finally` with `switching` already null, and the
+            // failure path is followed by the `onChanged` that
+            // `revertActiveBackend` fires.
+            if (state.switching !== null) return { entries };
+            return {
+                entries,
+                activeId: active.id,
+                isLocal: active.isLocal,
+                dropped,
+                // The **Reconnect** button renders inside the error banner, so
+                // deriving `dropped` without a message would put the one control
+                // that fixes this inside a banner that never appears. An existing
+                // message wins — it is more specific than this one.
+                error:
+                    dropped && state.error === null
+                        ? "The connection to that backend was lost."
+                        : state.error,
+            };
+        });
     },
 
     async switchTo(id: string) {
@@ -5145,6 +5303,7 @@ git commit -m "feat(ui): switch the active backend behind a compatibility handsh
 
 **Files:**
 - Create: `packages/ui/src/components/sidebar/BackendMenu.tsx`
+- Create: `packages/ui/src/components/sidebar/backend-fields.ts`
 - Create: `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx`
 - Create: `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`
 - Create: `packages/ui/src/components/sidebar/TrustHostKeyDialog.tsx`
@@ -5361,7 +5520,35 @@ itself and keyed by the record id, which fixes both: it is reachable from every
 path that can raise trust, and its fingerprint cannot outlive the record it
 belongs to. This dialog keeps only the form.
 
-Create `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx`. Read
+First create `packages/ui/src/components/sidebar/backend-fields.ts`, which holds
+the one rule both this dialog and Step 3's manage dialog need. It edits the same
+`sshPort` field on the same records, so a second hand-written copy is how one of
+them ends up accepting `0` or `65536`. `parsePort` is the only thing it exports:
+
+```ts
+/**
+ * `Number.parseInt("ssh", 10)` is `NaN`, and `NaN` is not `null`, so a typo in
+ * either port field would sail through `addBackend` and land on the record.
+ * `manualPort: NaN` then short-circuits `resolveBackendPort` and ssh is handed
+ * `-L 0:127.0.0.1:NaN`; worse, `JSON.stringify` writes `NaN` as `null`, so a
+ * restart silently converts the typo into "resolve over the port file" and the
+ * failure changes shape between runs.
+ *
+ * `undefined` means the field was left empty, which every caller reads as
+ * "not part of this patch"; `"invalid"` is a typo the caller must refuse.
+ */
+function parsePort(value: string): number | undefined | "invalid" {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    const parsed = Number(trimmed);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) return "invalid";
+    return parsed;
+}
+
+export { parsePort };
+```
+
+Then create `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx`. Read
 `packages/ui/src/components/sidebar/NewProjectDialog.tsx` first and reuse its
 `Dialog` primitives and form layout rather than introducing a second idiom.
 
@@ -5369,6 +5556,7 @@ Create `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx`. Read
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useBackendStore } from "@/stores/backend-store";
+import { parsePort } from "./backend-fields";
 
 interface ConnectBackendDialogProps {
     open: boolean;
@@ -5386,22 +5574,6 @@ function ConnectBackendDialog({ open, onOpenChange }: ConnectBackendDialogProps)
     const [sshPort, setSshPort] = useState("");
     const [port, setPort] = useState("");
     const [busy, setBusy] = useState(false);
-
-    /**
-     * `Number.parseInt("ssh", 10)` is `NaN`, and `NaN` is not `null`, so a
-     * typo in either port field would sail through `addBackend` and land on the
-     * record. `manualPort: NaN` then short-circuits `resolveBackendPort` and
-     * ssh is handed `-L 0:127.0.0.1:NaN`; worse, `JSON.stringify` writes `NaN`
-     * as `null`, so a restart silently converts the typo into "resolve over the
-     * port file" and the failure changes shape between runs.
-     */
-    function parsePort(value: string): number | undefined | "invalid" {
-        const trimmed = value.trim();
-        if (trimmed.length === 0) return undefined;
-        const parsed = Number(trimmed);
-        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) return "invalid";
-        return parsed;
-    }
 
     async function handleSubmit(): Promise<void> {
         const bridge = window.taskflow;
@@ -5652,6 +5824,64 @@ import { TrustHostKeyDialog } from "./TrustHostKeyDialog";
 
 Create `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`: a list of saved records with an editable display name, an editable user, an editable ssh port, and a remove button per row, calling `updateBackend(record.id, patch)` and `removeBackend(record.id)` on the bridge and `refresh()` after each.
 
+**Validate before calling `updateBackend`, with the same rules the connect
+dialog uses.** This dialog edits the same three fields that dialog collects, on
+a record that already works, and the fields it edits are ssh command-line
+arguments. Import `parsePort` from `./backend-fields` — the module Step 2
+created for exactly this — rather than writing a second one:
+
+```ts
+    // `draft` is whatever this dialog keeps the in-progress edits in — one row
+    // component's `useState`, or a map keyed by record id. That choice is
+    // yours; the validation below is not.
+    async function handleSave(
+        id: string,
+        draft: { displayName: string; user: string; sshPort: string },
+    ): Promise<void> {
+        const bridge = window.taskflow;
+        if (!bridge) return;
+        const name = draft.displayName.trim();
+        const sshUser = draft.user.trim();
+        const parsedSshPort = parsePort(draft.sshPort);
+        // Blank is not "leave it alone" here the way it is in the connect
+        // dialog — there the field is empty because the user never filled it
+        // in and `addBackend` supplies a default, whereas here it is empty
+        // because the user cleared a value that was working. Saying so beats
+        // quietly restoring `userInfo().username`, which is a different machine
+        // account than the one they just deleted.
+        if (name.length === 0 || sshUser.length === 0) {
+            useBackendStore.setState({ error: "Name and SSH user cannot be empty." });
+            return;
+        }
+        if (parsedSshPort === "invalid") {
+            useBackendStore.setState({
+                error: "The SSH port must be a whole number between 1 and 65535.",
+            });
+            return;
+        }
+        try {
+            await bridge.updateBackend(id, {
+                displayName: name,
+                user: sshUser,
+                sshPort: parsedSshPort,
+            });
+            await refresh();
+        } catch (saveError) {
+            useBackendStore.setState({
+                error:
+                    saveError instanceof Error ? saveError.message : "Could not save that backend.",
+            });
+        }
+    }
+```
+
+`parsePort` returns `undefined` for an empty field, and `updateBackend` reads
+`sshPort: undefined` as "not in this patch", so clearing the port field leaves
+the saved one alone. That is deliberate — the port has a meaningful default (22)
+and a blank field is not evidence the user wants something else. It is also why
+main validates too: this dialog's guard covers the typo, and `updateBackend`'s
+covers a future third caller.
+
 Removal can be refused. `removeBackend` returns `{ ok: false, reason }` for the
 currently active backend, because deleting the record the app is connected
 through leaves `activeId` naming something that is not there — see its comment
@@ -5780,7 +6010,10 @@ out is to quit and relaunch, and only because startup always begins on local.
 The same overlay is what a user meets in the window-reopen case that Task 10's
 `refresh()` derives `dropped` for, except that there it says "No backend is
 running" — `WebSocketProvider` throws on a null origin before a socket is ever
-opened.
+opened. That case only works because Task 8 has the provider run `refresh()`
+*before* it throws; without it the store is still at `isLocal: true` and the
+branch below picks blocking for a remote failure. The two edits are one fix in
+two files.
 
 The overlay is right for what it was written for — the *local* backend
 restarting, where there is nothing to click and waiting is the answer. It is
@@ -5791,6 +6024,7 @@ backend controls stay usable:
 function ConnectionOverlay() {
     const { connected, error } = useWsStatus();
     const isLocal = useBackendStore((s) => s.isLocal);
+    const dropped = useBackendStore((s) => s.dropped);
     if (connected) return null;
     // Only the local backend gets the blocking treatment. When a remote one is
     // active the two controls that can fix this — the backend menu and the
@@ -5798,7 +6032,17 @@ function ConnectionOverlay() {
     // clicks. `pointer-events-none` on the backdrop, `pointer-events-auto` on
     // the card, so the message stays readable and selectable without trapping
     // the pointer.
-    const blocking = isLocal;
+    //
+    // `&& !dropped` is the second belt. `isLocal` is right on its own only for
+    // as long as something keeps it current, and the thing that does is one
+    // `refresh()` call at the top of `WebSocketProvider.connect()`. If that
+    // ever stops running — an early return added above it, a refactor that
+    // moves the connect — `isLocal` falls back to its initial `true` and this
+    // branch goes back to blocking the Reconnect button on the exact path it
+    // was added for. `dropped` is set by the same refresh and by the
+    // `backend-dropped` event, so it survives one of the two going missing.
+    // Two separate selectors, not one object selector: see the banner above.
+    const blocking = isLocal && !dropped;
     return (
         <div
             className={cn(
@@ -5820,9 +6064,12 @@ function ConnectionOverlay() {
 `App.tsx` imports neither of these today — add
 `import { cn } from "@/lib/utils";` and
 `import { useBackendStore } from "@/stores/backend-store";`. `isLocal` starts
-`true` (`backend-store.ts`, initial state), so first paint while the local
-backend is still coming up keeps today's blocking overlay, which is what that
-moment wants.
+`true` (`backend-store.ts`, initial state) and `dropped` starts `false`, so
+first paint while the *local* backend is still coming up keeps today's blocking
+overlay, which is what that moment wants. First paint onto a *remote* backend
+does not reach this component with the initial state, because Task 8's
+`WebSocketProvider` awaits `refresh()` before it can throw — that is what makes
+the initial value a safe default rather than a wrong one.
 
 In the non-blocking form the card floats over the workspace and everything
 behind it still takes clicks, so the sidebar menu and the banner work. Do not
@@ -6487,7 +6734,17 @@ On machine B, run Taskflow. On machine A, open the backend menu: B appears withi
   app comes back with the dropped banner and a working **Reconnect**. A ticked
   B row that does nothing when clicked means `refresh()` is not deriving
   `dropped` from a null origin, and the `backend-dropped` event that would have
-  set it was sent while no window existed.
+  set it was sent while no window existed. A full-screen blur saying "No backend
+  is running", with the menu unreachable underneath it, means the derivation is
+  fine but nothing ran it: `WebSocketProvider.connect()` is missing its
+  `refresh()` call, so `ConnectionOverlay` is still reading the initial
+  `isLocal: true` and blocking.
+- Open the backend menu → **Manage backends**, clear the SSH user on a saved
+  remote row and save. Expected: an inline "Name and SSH user cannot be empty."
+  and no write. Then put a valid user back, type `0` in the SSH port and save.
+  Expected: the whole-number refusal. If either saves, `updateBackend`'s
+  validation is missing and the next connection to that row will fail with an
+  ssh error that names nothing the user touched.
 - On a remote backend, open a wiki page in preview and look at the markdown
   toolbar. Expected: no Obsidian button. It appearing means only the wiki root's
   menu was gated and `MarkdownPane`'s `canOpenInObsidian` still trusts the
