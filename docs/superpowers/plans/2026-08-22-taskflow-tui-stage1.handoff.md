@@ -26,7 +26,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
-| 19 | Mouse support | plan written, in-review round 0 | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`. Splits into 19.1–19.6 below |
+| 19 | Mouse support | plan in-review round 1 done, findings fixed | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`. Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | pending | — | `input/mouse.ts`, X10 + SGR, into `decodeLegacy`'s CSI branch |
 | 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
 | 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
@@ -4016,15 +4016,128 @@ Decisions the plan takes, so a review round argues with them rather than re-deri
 
 Checks: documentation only, no code changed, so `5caaa3a`'s recorded checks stand.
 
-Next step: mouse-plan review round 1 — one gpt-5.5 review via the `codex-review` skill
-over `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`. A plan has no diff, so
-this is the skill's plain `codex exec` path, not `codex exec review`. Feed it the plan
-plus the Stage 1 spec and the files the plan modifies; ask it to attack the decisions
-listed above rather than restate them. Two review rounds are required before any code
-(one is enough only if the first found nothing).
-After the plan is clear: implement 19.1–19.6 in order, then Tasks 16-18, then Task 20
-(which needs its own plan too, and touches `packages/backend` and `electron/`, not
-`packages/tui`).
+## Task 19 — mouse plan, review round 1
+
+**gpt-5.5 via the `codex-review` skill, Mode B** (`codex exec -m gpt-5.5 -s read-only`),
+over `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md` at `333c04a` plus the
+Stage 1 spec, the parent plan and the thirteen source files the plan modifies. The
+prompt named the plan's own decisions and told it to attack them with a concrete
+failure rather than restate them. **Eight findings, all eight substantiated and fixed
+in `47d9c29`.** No code changed — the plan is a document, so the checks recorded at
+`5caaa3a` still stand; `bun run typecheck` was run anyway and is clean at `47d9c29`.
+
+Verified findings, in the order they matter:
+
+1. **The union widening breaks 23 sites, not zero.** The plan claimed discriminating
+   `InputEvent` on `kind` "leaves every existing assertion in `decode-legacy.test.ts`
+   and `decode-kitty.test.ts` compiling and green untouched". That is false: an
+   unnarrowed property read on a union is a type error whatever the discriminant is.
+   Measured, not argued — `DecodeResult.events` was widened locally at `98d801c` and
+   `bun run typecheck` reported **23 errors**: 12 in `decode-legacy.test.ts`, 9 in
+   `decode-kitty.test.ts` (all `result.events[0]?.name` / `?.char`), one in
+   `decode-kitty.ts:116` and one in `index.ts:177` (`app.handleKey(ev)` on an
+   `InputEvent`). Task 19.1 would have left the tree red through 19.2 and 19.3.
+   Fix: 19.1 now owns all of them — a `keyAt(events, i)` narrowing helper for the 21
+   test reads, and the `ev.kind === "mouse"` dispatch in `index.ts` moved forward from
+   19.4 (dropping reports until 19.4 gives them somewhere to go). Its Verify step ran
+   `bun test packages/tui/src/input` and now runs the whole package.
+2. **Extra mouse buttons decoded as left clicks.** xterm encodes buttons 8-11 (thumb,
+   back, forward) as `128 + (n - 8)`. The plan's `buttonOf` tests bit 64 and then
+   `b & 3`, so `CSI < 128 ; 6 ; 8 M` came out as `button: "left"`, 129 as `"middle"`,
+   130 as `"right"`. Reproduced by running the plan's own snippet verbatim: it printed
+   `left`, `middle`, `right`, `none` for 128-131. A back-button click in the sidebar
+   would have moved the selection; in the pane it would have reached the child as a
+   left click. Fix: bit 128 is tested first and decodes as `"none"`, with a
+   `mouse.test.ts` case for 128/129/130 and a matching `encodeMouseForChild` drop rule.
+3. **`routeMouse` could not hit-test tabs.** Its signature took `counts: { tabs: number }`
+   while `drawTabs` sizes every tab from its own label (`fitToWidth`/`textWidth` plus
+   two padding columns, `session-pane.ts:46-60`). A count cannot say which tab column 34
+   is in, so the plan's stated guarantee — "the strip that is drawn and the strip that
+   is clicked cannot disagree" — was not implementable as written. Fix: the parameter
+   is `ctx: { rows: number; tabs: TabSpec[] }`, `routeMouse` calls
+   `tabSpans(layout.paneWidth, ctx.tabs)` itself, the routing tests build real
+   `TabSpec[]`, and a new case clicks the second of two unequal-width tabs — the case a
+   uniform-width guess gets wrong. Checked for an import cycle: none
+   (`session-pane.ts` imports only `render/` and `term/`).
+4. **Nothing ever called `encodeMouseForChild`.** 19.5 added the encoder and widened
+   `App.sendToChild`, but `routeMouse` returns only UI actions and 19.4's `handleMouse`
+   switch had no forwarding branch. A child with `mouseTracking: "vt200"` would have
+   received no `SESSION_INPUT` at all, and 19.5's own `app.test.ts` case would have
+   failed. Fix: the pane-and-tracking guard is written out in 19.4 as the shape and in
+   19.5 as the code, ahead of `routeMouse`.
+5. **Wheel double-movement.** Following from 4: with no precedence rule, a wheel notch
+   over a pane whose child tracks the mouse would scroll the client's scrollback *and*
+   forward the notch, moving the view twice. The interaction-model table already said
+   otherwise; 19.4 now states the ordering that makes it true.
+6. **`?1016` (SGR-Pixels) was untracked.** The plan tracked 1005/1006/1015 only. A child
+   writing `?1002h ?1016h` would have been handed `CSI <0;12;5M` for a click on cell
+   (11, 4) and read 12 and 5 as pixels, landing it in its top-left cell. Fix:
+   `mouseEncoding` gains `"sgr-pixels"`, tracked by the same `?h`/`?l` handlers, and
+   `encodeMouseForChild` returns `""` for it — this client has no pixel geometry and
+   guessing a cell size is worse than silence.
+7. **A re-attach via history lost the child's mouse modes.** `attach()` already saves
+   `applicationCursorKeys` and `bracketedPaste` across `terminal.reset()` and replays
+   them on the history fallback (`session-terminal.ts:198-224`, `:248-254`), precisely
+   because trimmed scrollback may not contain the sequences that set them. The plan
+   said to reset the mouse encoding and nothing about restoring it, so a reconnected
+   child came back as `mouseTracking: "none"` and every later click was dropped. Fix:
+   both mouse fields join the saved `restore` string, with the mode-to-sequence table
+   spelled out, plus a `session-terminal.test.ts` case.
+8. **"Append-only" tests that would not compile.** `TtyOptions.mouse` and the two
+   `ChildModes` fields are required, which breaks ten existing literals in
+   `tty.test.ts` (lines 43, 49, 50, 56, 64, 71, 84, 94, 116, 143), `index.ts:140`, and
+   the `legacy: ChildModes` fixture at `encode.test.ts:5` — all marked "(append)" in the
+   plan. Fix: the file lists say what has to be edited, and the choice of required over
+   optional-with-a-default is recorded (a mode the leave sequence must undo should not
+   be enabled by a field someone forgot to pass).
+
+**Insertion-point precision (also raised, also fixed).** The plan said to put the X10
+branch "before the existing `isNumericParams` filter"; at HEAD `i += scan.length` runs
+*before* that filter (`decode-legacy.ts:107`). Inserted literally where the plan said,
+`i` advances twice: reproduced by patching a scratch copy of `decode-legacy.ts` at the
+stated line — `decodeLegacy("a\x1b[<0;1;1Mb", "")` returned `["press", "mouse"]`, the
+trailing `b` swallowed, against the plan's own expected `["press", "mouse", "press"]`.
+The plan now names line 107 explicitly.
+
+Codex's non-findings, spot-checked and agreed: the SGR/X10 coordinate math, the `+32`
+legacy offset, `M`/`m` release discrimination, modifier bits 4/8/16, motion bit 32 and
+wheel base 64/65 are all correct as written, and both split-report carry paths work
+against the real `scanCsi`.
+
+Two claims in the plan that this round checked and left alone, because they hold:
+`ScreenBuffer.get` returns a non-nullable `Cell`, so the `?.attrs ?? 0` in 19.3's
+session-pane test is redundant but not a lint error —
+`@typescript-eslint/no-unnecessary-condition` is off at `eslint.config.js:65`. And
+`blitTerminal` reads `active.viewportY` and corrects `cursorRow` for it
+(`blit.ts:82`, `:98`), so 19.4's `SessionTerminal.scroll` will be visible.
+
+## Decisions taken (Task 19 mouse plan, round 1)
+
+- **Extra mouse buttons (8-11) decode as `"none"` and are never forwarded**, rather than
+  gaining four members of `MouseButton`. Nothing binds them and nothing would.
+- **`?1016` SGR-Pixels is tracked in order to be refused.** The client has cell geometry
+  and no pixel geometry; a dropped report beats a guessed cell size.
+- **`TtyOptions.mouse` and the two `ChildModes` mouse fields are required, not optional
+  with a default.** A mode that `leaveSequence` must undo should never be switched on by
+  a field someone forgot to pass. The cost is editing eleven existing literals.
+- **`routeMouse` takes `TabSpec[]`, not a tab count**, and calls `tabSpans` itself. That
+  is the only way the drawn strip and the clicked strip cannot disagree.
+- **Task 19.1 owns the whole type-widening blast radius**, including `index.ts` and the
+  two decoder test files, rather than letting the tree stay red until 19.4.
+- **Mouse reports are decoded and dropped between 19.1 and 19.4.** That is the correct
+  intermediate behaviour, not a placeholder: tracking is not enabled until 19.2, and a
+  dropped click beats an X10 payload leaking through as keystrokes.
+
+Next step: mouse-plan review round 2 — one gpt-5.5 review via the `codex-review` skill
+over the revised plan at `47d9c29`. Same Mode B shape as round 1 (a plan has no diff);
+reuse the round-1 prompt but point it at the revised document, tell it round 1's eight
+findings are already fixed and list them so it does not re-report them, and add the
+three new decisions to the do-not-restate list: extra buttons decode as `"none"`,
+`"sgr-pixels"` is tracked only in order to drop reports, and `routeMouse` takes
+`TabSpec[]`. Round 2 is required — round 1 found eight things, so one round was not
+enough. If round 2 is clean, start implementing 19.1.
+After 19.1-19.6: Tasks 16-18, then Task 20 (which needs its own plan too, and touches
+`packages/backend` and `electron/`, not `packages/tui`).
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
