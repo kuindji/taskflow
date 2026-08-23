@@ -26,7 +26,13 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
-| 19 | Mouse support (UI) | pending | — | **added after the Task 15 smoke test — not in the original plan.** Needs its own plan first |
+| 19 | Mouse support | plan written, in-review round 0 | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`. Splits into 19.1–19.6 below |
+| 19.1 | Mouse — report decoding | pending | — | `input/mouse.ts`, X10 + SGR, into `decodeLegacy`'s CSI branch |
+| 19.2 | Mouse — outer tracking on/off | pending | — | `term/tty.ts` enter sequence, `TASKFLOW_TUI_NO_MOUSE` opt-out |
+| 19.3 | Mouse — layout hoist and hit testing | pending | — | `ui/layout.ts`, `tabSpans`, `routeMouse` |
+| 19.4 | Mouse — app wiring | pending | — | `App.handleMouse`, `SessionTerminal.scroll` |
+| 19.5 | Mouse — forward to the child | pending | — | `ChildModes.mouseTracking`/`mouseEncoding`, `encodeMouseForChild` |
+| 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
 
 ## Review rounds
@@ -3964,12 +3970,61 @@ task and would not have fixed the Electron path.
   `kill -9` fires immediately. Only `manager.test.ts:454` passes the option, with `1`;
   no production path can reach it. Latent trap, deliberately not fixed.
 
-Next step: write the Task 19 mouse plan — a new plan document for mouse support in the
-TUI, reviewed by gpt-5.5 via the `codex-review` skill twice (plain `codex exec` path, no
-diff exists for a plan). Task 19 was added after the Task 15 smoke test and is not in the
-original plan, so it needs its own plan document before any code.
-After that: implement Task 19, then Tasks 16-18, then Task 20 (which needs its own plan
-too, and touches `packages/backend` and `electron/`, not `packages/tui`).
+## Task 19 — plan written
+
+The mouse plan is `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit
+`333c04a`. It splits Task 19 into 19.1–19.6 (rows added to the table above) and is
+written against the code as it stands at `5caaa3a`, which was read before drafting:
+`input/csi.ts`, `input/decode-legacy.ts`, `input/decode-kitty.ts`, `input/keys.ts`,
+`input/encode.ts`, `term/tty.ts`, `term/session-terminal.ts`, `term/blit.ts`,
+`ui/app.ts`, `ui/routing.ts`, `ui/sidebar.ts`, `ui/session-pane.ts` and `index.ts`.
+
+Decisions the plan takes, so a review round argues with them rather than re-deriving them:
+
+- **`?1000h` + `?1002h` + `?1006h` on the outer terminal; never `?1003h`.** Bare motion
+  reporting has no hover UI to serve and would put a packet on the wire per pointer
+  move. A child in `any` tracking still gets press, release and drag.
+- **The X10 wire form (`CSI M` + three bytes) is decoded even though the TUI never asks
+  for it.** `scanCsi` already matches `ESC [ M` as a complete 3-char sequence and leaves
+  the three payload bytes in the buffer, where they decode as ordinary characters — a
+  click in column 49 sends byte 81, which is `Q`, which is the quit binding. Consuming
+  the payload is the fix; parsing it is two more lines. (Unreachable today because
+  nothing enables tracking; reachable the moment 19.2 lands.)
+- **`InputEvent = KeyEvent | MouseReport`, discriminated on the existing `kind` field**
+  (`MouseReport.kind = "mouse"`). Keeps every existing decoder-test assertion compiling
+  and green; the wrapper alternative rewrites ~300 lines of passing tests.
+- **`MouseReport`, not `MouseEvent`** — the latter is a DOM global.
+- **Layout is recomputed per mouse report, not stored from the last render**, so a click
+  can never be tested against a stale frame's geometry.
+- **`tabSpans` is extracted from `drawTabs` and consumed by it**, so the strip that is
+  drawn and the strip that is clicked cannot disagree.
+- **`routeMouse` stays pure and knows nothing about sessions.** Whether a report is
+  forwarded depends on the child's own `mouseTrackingMode`, which lives in `App`.
+- **Tracking gates which events reach the child; encoding decides the bytes.** They are
+  orthogonal on the wire. `IModes` has no member for the encoding, so 1005/1006/1015 are
+  tracked in `SessionTerminal` by the same `?h`/`?l` handlers that track DECTCEM.
+- **The X10 decode path is capped near column 95** by `chunk.toString("utf-8")` in
+  `index.ts`. Recorded as a limitation, not fixed: the TUI always requests `?1006h`, and
+  the X10 path exists to stop garbage keystrokes, not to be a supported encoding.
+- **A mouse report does not drain a held Escape** in legacy mode, so a click inside the
+  25ms window is delivered before the Escape it followed.
+- **19.6 is a user gate** — a manual smoke test at a real terminal.
+- **The child-forwarding half (19.5) cannot be exercised end to end in Stage 1**, because
+  `App.sessions` is empty until Stage 2's `SESSION_CREATE`. It is unit-tested here and
+  first used in Stage 2, exactly as `encodeForChild` was built in Task 8 and first used
+  in Task 15.
+
+Checks: documentation only, no code changed, so `5caaa3a`'s recorded checks stand.
+
+Next step: mouse-plan review round 1 — one gpt-5.5 review via the `codex-review` skill
+over `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`. A plan has no diff, so
+this is the skill's plain `codex exec` path, not `codex exec review`. Feed it the plan
+plus the Stage 1 spec and the files the plan modifies; ask it to attack the decisions
+listed above rather than restate them. Two review rounds are required before any code
+(one is enough only if the first found nothing).
+After the plan is clear: implement 19.1–19.6 in order, then Tasks 16-18, then Task 20
+(which needs its own plan too, and touches `packages/backend` and `electron/`, not
+`packages/tui`).
 
 Validation note: run the full `bun test` with nothing else running. Two runs launched while
 other `bun test` processes were alive reported extra failures (three `startBackend` timing
