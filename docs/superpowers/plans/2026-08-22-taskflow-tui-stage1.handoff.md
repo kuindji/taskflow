@@ -20,7 +20,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 10 | Blit a terminal buffer into the screen | clear | `ad82029` | commits `75f0f23`, `9d6e970`, `4ff75be`; clear after round 3 |
 | 11 | State store | clear | `9420a4b` | commits `21040e4`, `3cb8118`, `cad685b`, `57ad359`, `32d6267`; clear after round 5 |
 | 12 | Focus and key routing | clear | `b44a56f` | commits `cc41d6f`, `ebe33ab`, `4c819f4`; clear after round 3 |
-| 13 | Sidebar rendering | in-review round 4 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`; round 4 found 1 real defect, fixed; round 5 due |
+| 13 | Sidebar rendering | in-review round 5 | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`; round 5 found 2 real defects, both fixed; round 6 due |
 | 14 | Session pane and tab strip | pending | — | |
 | 15 | Application shell and entry point | pending | — | plan Step 6 is a manual smoke test — user gate |
 | 16 | Backend — bind to loopback and report connected clients | pending | — | |
@@ -2645,11 +2645,89 @@ width and cursor edge cases.
   a baseless mark. Revisit if a future caller concatenates user text on both sides of a
   fitted string.
 
-Next step: Task 13 review round 5 — one gpt-5.5 review via the codex-review skill over
+## Task 13 — review round 5
+
+- Reviewer: gpt-5.5 via the codex-review skill (Mode B, prompted), diff `e64f1f0..HEAD`
+  scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
+  `packages/tui/src/render/text.ts` and `text.test.ts`, with rounds 1-4 listed as
+  already fixed. Two findings, both against `WIDE_RANGES`; both substantiated.
+
+- **Substantiated — the wide table missed 208 East Asian Wide code points.**
+  `WIDE_RANGES` was hand-written and had no entry for U+2630..U+2637 (trigrams),
+  U+268A..U+268F (monograms and digrams), U+4DC0..U+4DFF (hexagrams), U+16FF0..U+16FF1,
+  U+1AFF0..U+1AFFE (Kana Extended-B), U+1D300..U+1D356 (Tai Xuan Jing), U+1D360..U+1D376
+  (counting rods), U+1F6DC..U+1F6DF or U+1F7F0. `isWide` returned false for all of them,
+  so `graphemeWidth` counted one column where the terminal advances two: the sidebar drew
+  a width-1 cell, every glyph after it landed one column left of where the layout thought
+  it was, and the row ran one column past the pane into the session area. Verified before
+  the fix: `fitToWidth("\u2630x", 2)` returned `"\u2630x"` (two graphemes budgeted into
+  two columns when the first alone needs two), and `drawSidebar` at `width` 6 with label
+  `"\u2630A"` put `"\u2630"` in cell 0 with `width` 1 and `"A"` in cell 1 instead of
+  cell 2.
+- **Substantiated — the table forced eight ambiguous-width code points wide.**
+  The broad `[0x3041, 0x33ff]` entry swallowed U+3248..U+324F (CIRCLED NUMBER TEN ON
+  BLACK SQUARE and its seven neighbours), which are East Asian *Ambiguous*, not Wide; a
+  terminal draws them in one column unless told the text is East Asian. Verified before
+  the fix: `fitToWidth("\u3248x", 2)` returned `"\u3248"`, dropping a character that
+  fits, and `layoutText("\u3248x", 3, 0)` emitted a width-2 cell plus a width-0
+  continuation, so the row was laid out one column short of what the terminal renders.
+- Fix for both: `WIDE_RANGES` regenerated from `unicodedata.east_asian_width` for
+  Unicode 16.0 as exactly the `W` and `F` code points — 122 ranges replacing 85. Verified
+  after the fix by re-running the comparison against the generated Unicode 16 range list:
+  0 code points wide in Unicode but narrow in the table, 0 wide in the table but not
+  `W`/`F` in Unicode, and the sorted / non-overlapping / `lo <= hi` invariants `isWide`
+  depends on still hold across all 122 entries.
+  U+3099 and U+309A are `Mn` with East Asian Width `W` and are now inside
+  `[0x3099, 0x30ff]`, but `graphemeWidth` tests `ZERO_WIDTH` before `isWide`, so they
+  still measure zero.
+  Regression tests: `fitToWidth > counts every East Asian Wide character as two columns,
+  not just the CJK blocks` (one sample per newly-added range outside the ideograph
+  blocks), `fitToWidth > leaves an ambiguous-width character narrow`, and
+  `drawSidebar > reserves two cells for a wide symbol outside the CJK blocks` — all three
+  red on `00db2d7`, green on `ce2d6e8`.
+- Codex independently re-ran `bun test packages/tui/src/ui/sidebar.test.ts
+  packages/tui/src/render/text.test.ts` (33 pass at `00db2d7`) and `git diff --check`,
+  and reported no other defects: it checked `drawSidebar` row selection, padding, badges,
+  small widths and heights, `buildRows`, `Screen.flush` width-0 behaviour, table ordering
+  and overlap, and the banned-pattern rules.
+- Independent checks that found nothing: laid-out cell count and width sum equal `cols`
+  for CJK text, a regional-indicator flag, a ZWJ family, a leading combining mark, a tab
+  and an astral emoji at `cols` 0/1/2/3/5/8; `fitToWidth` output never exceeds its budget
+  for the same inputs; `drawSidebar` probed at `width` 0 through 6 with a wide label and a
+  two-digit badge, with `selected` negative, and with a project row carrying a badge
+  (project badges render, as the plan specifies). `store.tasksFor` confirmed to filter on
+  `status === "active"`, matching the plan's wording.
+- Noted, not filed: `drawSidebar` has no test for a badge on a *project* row even though
+  the plan specifies badges on any row with `sessionCount > 0`. Behaviour verified correct
+  by hand (`"Alpha 2"` at `width` 20), so this is a coverage gap rather than a defect.
+
+- Validation at `ce2d6e8`: `bun run lint` exit 0, `bun run typecheck` exit 0 across all
+  five packages, `bun test` 1096 pass / 8 fail (1104 across 104 files, 59s) — the 8 being
+  the same pre-existing `MarkdownPaneImpl` failures, verified unchanged by name against
+  the round-4 list, and the pass count up by exactly the three new tests. Working tree
+  clean.
+
+## Decisions taken (Task 13 round 5)
+
+- `WIDE_RANGES` is now generated rather than curated, and its doc comment says so. Codex
+  filed two entries; hand-patching them would have left the other 200 missing code points
+  in place, and the module's stated intent was already "the East Asian Wide and Fullwidth
+  blocks", so regenerating from the Unicode 16 data makes the table correct by
+  construction instead of correct by inspection.
+- The regenerated table drops 419 *unassigned* code points that the old block-shaped
+  ranges covered (inside Tangut, Nushu and Kana Supplement). Unicode's own default for
+  those is Narrow, and the five blocks whose default *is* Wide — U+3400..U+4DBF,
+  U+4E00..U+9FFF, U+F900..U+FAFF, U+20000..U+2FFFD, U+30000..U+3FFFD — are still covered
+  whole. Nothing renders at an unassigned code point, so this is not observable.
+
+Next step: Task 13 review round 6 — one gpt-5.5 review via the codex-review skill over
 `e64f1f0..HEAD` scoped to `packages/tui/src/ui/sidebar.ts`, `sidebar.test.ts`,
 `packages/tui/src/render/text.ts` and `text.test.ts`, diff inlined in the prompt, with
 the badge rule described as the plan states it (any row with `sessionCount > 0`) and
-rounds 1-4 listed as already fixed. Verify each finding independently, fix the
+rounds 1-5 listed as already fixed — including that `WIDE_RANGES` is now generated from
+Unicode 16.0 East Asian Width `W`/`F` and verified complete, so a further "this code
+point is missing" finding needs to show the table disagrees with Unicode 16, not with an
+older or emoji-presentation-based width table. Verify each finding independently, fix the
 substantiated ones, validate with `bun run lint && bun run typecheck && bun test`, and
 commit. If the round comes back clean, mark Task 13 clear and move to Task 14 (session
 pane and tab strip).
