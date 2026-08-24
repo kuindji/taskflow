@@ -24,7 +24,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
-| 17 | Reconnection and session resync | in-review round 1 | `6f62137` | commits `550331f`, `0951096`; round 1 found 2 substantiated defects, both fixed — next round 2 |
+| 17 | Reconnection and session resync | in-review round 2 | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; next round 3 |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
@@ -6420,7 +6420,71 @@ belongs with the code that opens one.
 - Full `bun test` → **1316 pass, 8 fail** — the same pre-existing `packages/ui`
   `MarkdownPaneImpl` failures logged as Task 22 (1314 + the 2 new tests here).
 
-Next step: review Task 17, round 2 — one gpt-5.5 review via the codex-review skill over
-`6f62137..0951096`.
+## Task 17 — review round 2
+
+- **Task 17, round 2** (gpt-5.5 via codex-review, Mode B over `6f62137..0951096` restricted to
+  `packages/tui`): one finding, substantiated. Verifying it surfaced a second defect of the same
+  class on a different path. Both fixed in `1123c80`.
+
+  1. **A redial made from inside the disconnect notification was replaced by the retry it
+     could not cancel** (codex's finding). `onclose` ran `setStatus(false)` *before*
+     `scheduleReconnect()`, and `setStatus` calls its listeners synchronously. A listener that
+     dials again on being told the link is down therefore ran `connect()` — and its
+     `cancelReconnect()` — at a moment when no retry was armed yet; `onclose` then resumed and
+     armed one behind the new socket. 250ms later that retry called `connect()`, tore the live
+     socket down as `"Connection replaced"`, reported `false` then `true` for an outage that
+     never happened, and rejected everything in flight.
+     Regression test: `WsClient reconnection > a connect() made from inside the disconnect
+     notification is not replaced by the retry` in `packages/tui/src/net/reconnect.test.ts`.
+     Red at `0951096` (`expect(states).toEqual([])` receives `[false, true]`), green at
+     `1123c80`. Run with `bun test packages/tui/src/net/reconnect.test.ts`.
+     Fix: arm the retry before notifying — `failPending`, `scheduleReconnect`, then
+     `setStatus(false)` — so a listener's `connect()` has something to cancel.
+     Test support: `serveOn`'s `open` handler now records the accepted `ServerWebSocket` in
+     `accepted`, so a test can drop one client without stopping the server (the server has to
+     stay up for the redial to succeed).
+
+  2. **The retry loop rearmed itself after a dial that a later `connect()` had superseded**
+     (found while verifying finding 1, not reported by codex). `scheduleReconnect`'s
+     `void this.connect().catch(() => this.scheduleReconnect())` rearmed on *any* rejection.
+     `connect()` rejects a dial it supersedes with `"Connection replaced"`, so a manual dial
+     landing on top of an in-flight retry dial left a retry armed behind itself, which then
+     fired mid-handshake and rejected the manual caller's own `connect()` promise with
+     `"Connection replaced"` — nothing had replaced it, and the server was reachable
+     throughout. `index.ts` does `await net.connect()`, so this shape rejects a startup dial.
+     Regression test: `WsClient reconnection > a retry armed by a superseded dial does not
+     replace the dial that superseded it`. Red at `0951096` (`expect(errors).toEqual([])`
+     receives `["Connection replaced"]`), green at `1123c80`.
+     Test support: `serveOn` now awaits `upgradeDelayMs` before upgrading, so a dial can be
+     caught while still CONNECTING.
+     Fix: rearm only while `this.ws === null`. The failure the rearm exists for — a dial that
+     never opens — always ends in `onclose`, which clears `ws` first, so it still gets through.
+     Verified against Bun directly: a refused dial fires `onerror` *then* `onclose`
+     (`["error","close"]`), so the old comment's "never reaches onclose" does not hold for that
+     case; the guard leaves the rearm in place regardless, rather than removing it.
+
+### Decisions taken (Task 17 round 2)
+
+6. **`onclose` now orders itself bookkeeping-first, notification-last.** `settle`, `failPending`
+   and `scheduleReconnect` all run before `setStatus(false)`, so a re-entrant listener sees the
+   client fully in its post-close state. Only `setStatus` re-enters synchronously —
+   `failPending`'s rejections are microtasks — so this is the one ordering that matters.
+7. **The `.catch` rearm was guarded, not deleted.** Bun always follows `onerror` with `onclose`
+   on a refused dial, which would make the rearm redundant, but that was only measured for one
+   failure shape. The guard closes the hazard without betting on the others.
+
+### Verification at `1123c80`
+
+- Red before the fix: `bun test packages/tui/src/net/reconnect.test.ts` with `client.ts` stashed
+  back to `0951096` → both new tests fail, 4 pass.
+- `bun test packages/tui/src/net/` → 14 pass, 0 fail.
+- `bun test packages/tui` → 460 pass, 0 fail.
+- `bun run lint` clean, `bun run typecheck` clean across all five packages plus both Electron
+  projects.
+- Full `bun test` → **1318 pass, 8 fail** — the same pre-existing `packages/ui`
+  `MarkdownPaneImpl` failures logged as Task 22 (1316 + the 2 new tests here).
+
+Next step: review Task 17, round 3 — one gpt-5.5 review via the codex-review skill over
+`6f62137..1123c80`.
 After that: Task 18, then Tasks 19.6, 20, 21, 22 and 23 (20, 21, 22 and 23 each need their own
 plan or investigation; 18 and 19.6 are manual smoke tests — user gates).
