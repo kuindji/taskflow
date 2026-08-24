@@ -25,7 +25,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
 | 17 | Reconnection and session resync | clear | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; round 3 found nothing — clear after round 3 |
-| 18 | Remote mode | in-review round 1 | `3e31dd2` | commits `f6cc308`, `684ffa6` (plan Steps 1–6 and 8); round 1 found 5 substantiated defects, all fixed; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
+| 18 | Remote mode | in-review round 2 | `3e31dd2` | commits `f6cc308`, `684ffa6`, `b98ca3b` (plan Steps 1–6 and 8); round 1 found 5 substantiated defects, round 2 found 1 — all fixed; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
 | 18.1 | Remote mode — manual smoke test over an SSH tunnel | pending | — | **user gate** |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
@@ -6683,7 +6683,89 @@ them. All five substantiated and fixed in `684ffa6`.
   already established that backend work serving the TUI belongs to this plan, and the defect is in
   a Task 18 feature.
 
-Next step: review Task 18, round 2 — one gpt-5.5 review via codex-review over `3e31dd2..684ffa6`,
+## Task 18, review round 2
+
+One gpt-5.5 review via codex-review (Mode B, self-contained prompt over
+`git diff 3e31dd2..684ffa6 -- packages/`, i.e. the whole Task 18 change including the round-1
+fixes). Codex returned two findings. One is confirmed and fixed in `b98ca3b`; the other rests on a
+premise that does not hold for this backend and was dropped.
+
+### Confirmed and fixed
+
+1. **`--connect [fe80::1%en0]:7777` cannot connect at all** (Codex, medium; verified here).
+   Symptom: the TUI prints `SyntaxError: Invalid url for WebSocket ws://[fe80::1%en0]:7777` and
+   exits, instead of a usage error. `parseTarget`'s `IPV6_HOST` regex *deliberately* supported a
+   zone id — round 1 added `(?:%[A-Za-z0-9._~-]+)?` to it and a test, `keeps an IPv6 zone id`,
+   pinning the acceptance — but the WHATWG URL parser rejects a zone id outright, in either
+   spelling: `new URL("ws://[fe80::1%en0]:7777")` and `new URL("ws://[fe80::1%25en0]:7777")` both
+   throw `Invalid URL`. So the one form the regex went out of its way to allow was the one form
+   that could never be dialled. This is the same defect class as round 1's finding 1, one layer in:
+   the host passed the shape check and then failed the grammar.
+
+   The same loose shape accepted `[:]:7777`, `[1:2:3:4:5:6:7:8:9]:7777` and `[::g]:7777`, and
+   `PLAIN_HOST`'s `%` accepted `%:7777`, `%zz:7777` and `a%2Fb:7777` — all of them unopenable.
+
+   Evidence, end to end:
+   - Before: `bun run packages/tui/src/index.ts --connect '[fe80::1%en0]:7777'` →
+     `SyntaxError: Invalid url for WebSocket ws://[fe80::1%en0]:7777`.
+   - After: the same command →
+     `error: --connect expects host:port. usage: taskflow-tui [--connect <host:port>] (IPv6 must be bracketed: [::1]:7777)`.
+   - Regression tests in `packages/tui/src/cli.test.ts`: `rejects an IPv6 zone id, which no URL
+     parser will take`, `rejects a bracketed literal that is not a valid IPv6 address`, `rejects a
+     host whose percent sequence is not one a URL accepts` — all three red against `684ffa6`'s
+     `cli.ts`, green after. Run with `bun test packages/tui/src/cli.test.ts`.
+
+### Dropped — premise disproven
+
+2. **"`await clients` can stall startup for 30s against a backend that never answers"**
+   (Codex, medium). Not reachable. `Router.handle` throws `No handler for message type: <type>`
+   for anything unregistered, and `server.ts`'s `message` handler turns that throw into an error
+   response, which `WsClient` uses to reject the pending request immediately. Measured against a
+   faithful stand-in for an older backend — the real `Router` and `createServer` from this repo
+   with no `SYSTEM_CLIENTS` handler registered, a real `WsClient` dialling it:
+   `REJECTED in 0ms: No handler for message type: system:clients`. Codex's repro used a fabricated
+   `NetLike` whose request never settles, which demonstrates the shape of the code rather than a
+   reachable defect. `init()` is left as it is.
+
+### Fixes
+
+- **`packages/tui/src/net/client.ts`** — new `backendUrl(host, port)`, exported and used by
+  `connect()`, so the string that is validated and the string that is dialled are the same one.
+- **`packages/tui/src/cli.ts`** — `PLAIN_HOST` and `IPV6_HOST` are gone. `parseTarget` keeps the
+  structural split (bracketed vs. first colon) and the port checks, then validates the host with
+  `URL.canParse(backendUrl(host, port))`. A `hasControlOrSpace` scan runs first, because the URL
+  parser *deletes* tab, CR and LF from an authority rather than refusing it — `desk<TAB>top:7777`
+  would otherwise parse cleanly and dial `desktop`. It is a scan and not a regex because a
+  character class holding literal controls fails `no-control-regex`, and CLAUDE.md forbids
+  disabling the rule.
+
+### Verification
+
+- `packages/tui/src/cli.test.ts` — 5 tests added (25 total). Three are red against `684ffa6`;
+  the other two are guards: `every accepted target produces a URL a WebSocket can open` builds a
+  real `WebSocket` for every accepted form, and `rejects a control character in the host rather
+  than letting it be stripped` pins the behaviour the removed `PLAIN_HOST` used to provide.
+- `bun run lint` clean, `bun run typecheck` clean across all five packages.
+- `bun test packages/tui packages/backend` → 1098 pass, 0 fail. Full `bun test` → 1353 pass,
+  8 fail — exactly the known Task 22 set.
+
+## Decisions taken (Task 18, review round 2)
+
+- **The host is validated by construction, not by description.** Every hand-written host regex is a
+  second, worse copy of the URL grammar, and round 1 and round 2 each found it wrong in a different
+  place. `URL.canParse` on the exact dialled string cannot be wrong about what will parse.
+- **An IPv6 zone id is now a usage error rather than dead support.** There is no encoding of one
+  that WHATWG URL accepts, so the choice was between rejecting it clearly and failing later with a
+  `SyntaxError`. Reaching a link-local peer through the tunnel this feature is built around is not
+  a case anyone loses.
+- **`backendUrl` lives in `net/client.ts` rather than being spelled twice.** The defect was two
+  descriptions of one URL disagreeing; a second literal in `cli.ts` would have reintroduced exactly
+  that.
+- **`init()`'s `await clients` is left alone.** See finding 2 above — the stall it is accused of
+  needs a backend that answers some requests and silently drops others, which no build of this
+  backend does.
+
+Next step: review Task 18, round 3 — one gpt-5.5 review via codex-review over `3e31dd2..b98ca3b`,
 covering `packages/tui`, `packages/backend/src/ws/server.ts` and the `SYSTEM_CLIENTS` registration
 in `packages/backend/src/index.ts`.
 After that: Tasks 18.1, 19.6, 20, 21, 22 and 23. **18.1 and 19.6 are manual smoke tests — user
