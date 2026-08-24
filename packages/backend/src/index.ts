@@ -1,5 +1,5 @@
 import { MSG, isAgentType } from "@taskflow/shared";
-import type { BrowserOpenPayload } from "@taskflow/shared";
+import type { BrowserOpenPayload, SystemClientsEvent } from "@taskflow/shared";
 import { ensureDirectories, config } from "./config";
 import { Router } from "./ws/router";
 import { createServer } from "./ws/server";
@@ -414,6 +414,12 @@ async function main() {
         });
 
         router.register(MSG.SYSTEM_INFO, async () => ({ editors, homedir: homedir() }));
+        // Broadcast on every connect and disconnect as well, but a client
+        // cannot hear the broadcast announcing its own arrival, so it asks
+        // once on startup and follows the broadcasts after that.
+        router.register(MSG.SYSTEM_CLIENTS, async (): Promise<SystemClientsEvent> => ({
+            count: server.clientCount(),
+        }));
         router.register(MSG.SHELLS_LIST, async () => ({
             shells,
             systemShellPath,

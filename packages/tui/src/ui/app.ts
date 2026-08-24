@@ -48,6 +48,8 @@ class App {
     private activeSession = 0;
     /** Clients other than this one attached to the same backend. */
     private otherClients = 0;
+    /** Set once a broadcast count has landed, which outranks the initial fetch. */
+    private clientsBroadcast = false;
 
     constructor(private readonly deps: AppDeps) {}
 
@@ -76,13 +78,30 @@ class App {
         });
         // A session has one grid on the backend and the last resize wins, so a
         // second client attached at a different size makes one of the two
-        // render wrongly. The count is broadcast rather than asked for, and it
-        // includes this client — hence the -1.
+        // render wrongly. Every count the backend reports includes this client
+        // — hence the -1.
         this.deps.net.on(MSG.SYSTEM_CLIENTS, (payload) => {
             const event = payload as SystemClientsEvent;
+            this.clientsBroadcast = true;
             this.otherClients = Math.max(0, event.count - 1);
         });
+        // The broadcast announcing this client's own arrival is on the wire
+        // before any of the above exists: the socket delivers it in the same
+        // turn as the open, so nothing subscribed after `connect()` resolves
+        // can hear it. Without this the warning stays dark for exactly the
+        // case it is for — starting the TUI while Electron is already open —
+        // until some third client happens to come or go. A broadcast that
+        // lands first wins, because it is the newer count of the two.
+        const clients = this.deps.net
+            .request<SystemClientsEvent>(MSG.SYSTEM_CLIENTS)
+            .then((event) => {
+                if (!this.clientsBroadcast) this.otherClients = Math.max(0, event.count - 1);
+            })
+            // An older backend does not answer this, and the count is a warning
+            // rather than something the UI needs to run.
+            .catch(() => undefined);
         await this.deps.store.load();
+        await clients;
         this.setRows(buildRows(this.deps.store));
     }
 

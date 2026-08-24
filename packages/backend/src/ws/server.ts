@@ -19,6 +19,7 @@ export function createServer(
     start(): Promise<{ port: number; stop(): void }>;
     broadcast(event: WsEvent, opts?: BroadcastOptions): void;
     onConnect(callback: () => void): void;
+    clientCount(): number;
 } {
     let server: Server<unknown>;
     const clients = new Set<ServerWebSocket<unknown>>();
@@ -36,6 +37,17 @@ export function createServer(
             }
             ws.send(data);
         }
+    }
+
+    /**
+     * How many clients are attached right now. The count is otherwise only
+     * broadcast, and a client that has just opened its socket cannot hear the
+     * broadcast announcing its own arrival — the frame is on the wire before
+     * anything downstream of `connect()` has subscribed — so it has to be able
+     * to ask for the current value once and follow the broadcasts from there.
+     */
+    function clientCount(): number {
+        return clients.size;
     }
 
     function broadcastClientCount(): void {
@@ -108,5 +120,5 @@ export function createServer(
         };
     }
 
-    return { start, broadcast, onConnect };
+    return { start, broadcast, onConnect, clientCount };
 }

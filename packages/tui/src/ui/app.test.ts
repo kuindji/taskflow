@@ -40,7 +40,7 @@ interface FakeNet extends NetLike {
     sent: string[];
 }
 
-function stubNet(projects: Project[], tasks: Task[]): FakeNet {
+function stubNet(projects: Project[], tasks: Task[], clients = 1): FakeNet {
     const handlers = new Map<string, ((payload: unknown) => void)[]>();
     const statusListeners = new Set<(status: { connected: boolean }) => void>();
     return {
@@ -50,6 +50,7 @@ function stubNet(projects: Project[], tasks: Task[]): FakeNet {
             // socket, so the store must not end up sharing a test's fixture.
             if (type === MSG.PROJECT_LIST) return Promise.resolve({ projects: [...projects] } as T);
             if (type === MSG.TASK_LIST) return Promise.resolve({ tasks: [...tasks] } as T);
+            if (type === MSG.SYSTEM_CLIENTS) return Promise.resolve({ count: clients } as T);
             if (type === MSG.SESSION_INPUT) {
                 const data = (payload as { data?: unknown }).data;
                 this.sent.push(typeof data === "string" ? data : "");
@@ -116,6 +117,7 @@ function fourRows(): Promise<{
 async function makeApp(
     projects: Project[] = [project("p1", "Alpha")],
     tasks: Task[] = [task("t1", "p1", "Build the TUI")],
+    clients = 1,
 ): Promise<{
     app: App;
     sink: Sink & { output: string };
@@ -123,7 +125,7 @@ async function makeApp(
     net: FakeNet;
     tasks: Task[];
 }> {
-    const net = stubNet(projects, tasks);
+    const net = stubNet(projects, tasks, clients);
     const store = new Store(net);
     const sink = collectingSink();
     const screen = new Screen(sink, 60, 10);
@@ -516,6 +518,23 @@ describe("App", () => {
         net.emit(MSG.SYSTEM_CLIENTS, { count: 3 });
         app.render();
         expect(tabRowText(screen)).toContain("2 other client(s) attached");
+    });
+
+    test("warns about a client that was already attached before the TUI started", async () => {
+        // The backend announces the count on every connect, but the frame
+        // arrives in the same turn as the socket open — before init() can
+        // subscribe. Only the fetch in init() sees it, so without that fetch
+        // this warning never appears for the case it exists for.
+        const { app, screen } = await makeApp(undefined, undefined, 2);
+        app.render();
+        expect(tabRowText(screen)).toContain("1 other client(s) attached");
+    });
+
+    test("a broadcast that lands during init outranks the fetched count", async () => {
+        const { app, net, screen } = await makeApp(undefined, undefined, 2);
+        net.emit(MSG.SYSTEM_CLIENTS, { count: 4 });
+        app.render();
+        expect(tabRowText(screen)).toContain("3 other client(s) attached");
     });
 
     test("says nothing when this client is the only one", async () => {

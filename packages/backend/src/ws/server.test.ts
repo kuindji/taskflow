@@ -13,13 +13,16 @@ afterEach(() => {
     else process.env.TASKFLOW_HOST = originalHost;
 });
 
-async function startTestServer(): Promise<number> {
+async function startTestServer(): Promise<{
+    port: number;
+    clientCount: () => number;
+}> {
     const router = new Router();
     router.register("ping", () => Promise.resolve({ ok: true }));
     const server = createServer(router, 0);
     const started = await server.start();
     stop = started.stop;
-    return started.port;
+    return { port: started.port, clientCount: server.clientCount };
 }
 
 function connect(port: number, host = "127.0.0.1"): Promise<WebSocket> {
@@ -36,14 +39,14 @@ function connect(port: number, host = "127.0.0.1"): Promise<WebSocket> {
 
 describe("createServer", () => {
     test("accepts connections on loopback", async () => {
-        const port = await startTestServer();
+        const { port } = await startTestServer();
         const ws = await connect(port);
         expect(ws.readyState).toBe(WebSocket.OPEN);
         ws.close();
     });
 
     test("broadcasts the connected client count as clients join and leave", async () => {
-        const port = await startTestServer();
+        const { port } = await startTestServer();
         const first = await connect(port);
 
         // `first` was counted on its own `open`, so that broadcast is already in flight.
@@ -70,6 +73,27 @@ describe("createServer", () => {
         second.close();
         await Bun.sleep(50);
         expect(counts).toEqual([1]);
+        first.close();
+    });
+
+    test("reports the live client count to anything that asks", async () => {
+        // A client cannot hear the broadcast announcing its own arrival — that
+        // frame reaches it in the same turn as the socket open, before it has
+        // subscribed to anything — so the count has to be readable on demand.
+        const { port, clientCount } = await startTestServer();
+        expect(clientCount()).toBe(0);
+
+        const first = await connect(port);
+        await Bun.sleep(50);
+        expect(clientCount()).toBe(1);
+
+        const second = await connect(port);
+        await Bun.sleep(50);
+        expect(clientCount()).toBe(2);
+
+        second.close();
+        await Bun.sleep(50);
+        expect(clientCount()).toBe(1);
         first.close();
     });
 
