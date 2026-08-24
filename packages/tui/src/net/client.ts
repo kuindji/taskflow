@@ -15,6 +15,9 @@ interface Pending {
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
+/** First retry delay; each further attempt doubles it up to the ceiling below. */
+const RECONNECT_BASE_DELAY_MS = 250;
+const MAX_RECONNECT_DELAY_MS = 5_000;
 
 class WsClient implements NetLike {
     private ws: WebSocket | null = null;
@@ -23,10 +26,25 @@ class WsClient implements NetLike {
     private readonly pending = new Map<string, Pending>();
     private readonly listeners = new Map<string, Set<(payload: unknown) => void>>();
     private readonly statusListeners = new Set<(status: { connected: boolean }) => void>();
+    private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private reconnectAttempt = 0;
+    /** Set by close(): an intentional shutdown must not be undone by the retry loop. */
+    private closed = false;
 
-    constructor(private readonly port: number) {}
+    /**
+     * `host` is for remote mode, where the backend is on another machine and
+     * `TASKFLOW_HOST` describes this one. Left null, the local rule applies.
+     */
+    constructor(
+        private readonly port: number,
+        private readonly host: string | null = null,
+    ) {}
 
     connect(): Promise<void> {
+        // Dialling again means the caller wants a connection, so a previous
+        // close() no longer holds: leaving `closed` set would give them a live
+        // socket with the retry loop silently disabled behind it.
+        this.closed = false;
         // A second connect() supersedes the first: tear the old socket down so it
         // cannot deliver events or linger open behind the new one.
         this.disconnect(new Error("Connection replaced"));
@@ -38,15 +56,19 @@ class WsClient implements NetLike {
                 else resolve();
             };
             this.settleConnect = settle;
-            // The backend follows TASKFLOW_HOST (packages/backend/src/ws/server.ts) and
-            // inherits this process's environment through startBackend, so the same read
-            // keeps the client pointed at the socket the backend actually bound.
+            // With no explicit host this is the local backend, which follows
+            // TASKFLOW_HOST (packages/backend/src/ws/server.ts) and inherits this
+            // process's environment through startBackend — so the same read keeps
+            // the client pointed at the socket that backend actually bound.
             const ws = new WebSocket(
-                `ws://${hostForUrl(resolveBackendHost())}:${String(this.port)}`,
+                `ws://${hostForUrl(this.host ?? resolveBackendHost())}:${String(this.port)}`,
             );
             this.ws = ws;
             ws.onopen = () => {
                 if (this.ws !== ws) return;
+                // The backoff is per outage, not per process: a connection that
+                // came back starts the next one at the shortest delay again.
+                this.reconnectAttempt = 0;
                 this.setStatus(true);
                 settle();
             };
@@ -61,6 +83,10 @@ class WsClient implements NetLike {
                 settle(new Error("Connection closed before it opened"));
                 this.setStatus(false);
                 this.failPending(new Error("Connection lost"));
+                // Only an unexpected close reaches here. disconnect() detaches
+                // this handler before closing, so neither close() nor a
+                // superseding connect() restarts the loop.
+                this.scheduleReconnect();
             };
             ws.onmessage = (event: MessageEvent) => {
                 if (this.ws !== ws) return;
@@ -74,6 +100,30 @@ class WsClient implements NetLike {
         return () => {
             this.statusListeners.delete(listener);
         };
+    }
+
+    /**
+     * Dial again after a backoff. Over a tunnel the connection drops whenever the
+     * laptop sleeps or changes network, so this is the normal path rather than an
+     * error path — each open session re-runs `SessionTerminal.attach()`, which
+     * restores its screen from the backend's snapshot.
+     */
+    private scheduleReconnect(): void {
+        if (this.closed || this.reconnectTimer !== null) return;
+        const delay = Math.min(
+            RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempt,
+            MAX_RECONNECT_DELAY_MS,
+        );
+        this.reconnectAttempt++;
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            void this.connect().catch(() => {
+                // A dial that fails through onerror alone never reaches onclose,
+                // so the retry is rearmed here too; the timer guard above keeps
+                // the two from stacking when both fire.
+                this.scheduleReconnect();
+            });
+        }, delay);
     }
 
     private setStatus(connected: boolean): void {
@@ -168,6 +218,13 @@ class WsClient implements NetLike {
     }
 
     close(): void {
+        // Set before anything else, so a close racing an armed timer cannot be
+        // undone by the dial that timer was about to make.
+        this.closed = true;
+        if (this.reconnectTimer !== null) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
         this.disconnect(new Error("Client closed"));
     }
 }
