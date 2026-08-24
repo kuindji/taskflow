@@ -25,7 +25,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
 | 17 | Reconnection and session resync | clear | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; round 3 found nothing — clear after round 3 |
-| 18 | Remote mode | implemented | `3e31dd2` | commit `f6cc308` (plan Steps 1–6 and 8); **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
+| 18 | Remote mode | in-review round 1 | `3e31dd2` | commits `f6cc308`, `684ffa6` (plan Steps 1–6 and 8); round 1 found 5 substantiated defects, all fixed; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
 | 18.1 | Remote mode — manual smoke test over an SSH tunnel | pending | — | **user gate** |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
@@ -6590,7 +6590,101 @@ between two machines, which needs the user. It is now Task 18.1 in the table.
   bounds-checks and silently drops out-of-range writes, so the guard was a second copy of the same
   rule. `startX` is still clamped to `paneX` on the left, which is the guard that does work.
 
-Next step: review Task 18, round 1 — one gpt-5.5 review via codex-review over `3e31dd2..f6cc308`,
-restricted to `packages/tui`.
+## Task 18 — review round 1
+
+Base `3e31dd2` → `f6cc308`. One standard gpt-5.5 review via the codex-review skill (Mode B — the
+brief carried the four deliberate Task 18 decisions so they would not be re-raised, and named the
+areas to press on). Codex reported four findings; a fifth was found independently while verifying
+them. All five substantiated and fixed in `684ffa6`.
+
+### Findings, all confirmed
+
+1. **`--connect [::1]:7777` cannot connect at all** (Codex, high). `parseTarget` kept the brackets
+   in the host, and `hostForUrl` (`packages/shared/src/utils/backend-host.ts`) brackets any host
+   containing a colon — so the URL came out `ws://[[::1]]:7777` and `new WebSocket` threw
+   `TypeError: Invalid URL` before anything was drawn. The bracketed form is the one `cli.ts`'s own
+   comment says the `lastIndexOf(":")` split exists to support, and it was the only form that did
+   not work. Reproduced directly: `parseArgs(["--connect","[::1]:7777"])` →
+   `{host:"[::1]",port:7777}` → `new URL("ws://[[::1]]:7777")` throws.
+2. **A bare IPv6 target parsed as a host and a port instead of being rejected** (Codex, medium).
+   `--connect ::1` gave `{host:":",port:1}`; `--connect 2001:db8::1` gave
+   `{host:"2001:db8:",port:1}`. A silent mis-parse of an invalid target, which then failed much
+   later as an unopenable URL rather than as a usage error.
+3. **A host with whitespace in it was accepted** (Codex, low). `--connect " desktop:7777"` and
+   `--connect "desk top:7777"` both parsed. `parseArgs` owns usage validation, and `WebSocket`
+   rejects those URLs later anyway.
+4. **`CliOptions` was exported with no importer** (Codex, low) — CLAUDE.md forbids that.
+5. **The client-count warning never fired for the case it exists for** (found here, not by Codex).
+   The backend broadcasts `system:clients` from the websocket `open` handler, so the frame that
+   announces this client's own arrival is delivered in the same event-loop turn as the open —
+   before the `await net.connect()` continuation, and therefore before `App.init()` subscribes.
+   Confirmed with a scratch backend on port 45997: a listener registered immediately after
+   `connect()` resolved saw nothing, while a second raw client saw both `{count:1}` and
+   `{count:2}`, and a listener registered *before* `connect()` did see `{count:2}`. So starting
+   the TUI while Electron was already open showed no warning until some third client happened to
+   connect or disconnect — which is exactly the scenario the warning is for.
+
+### Fixes
+
+- **`packages/tui/src/cli.ts`** — `parseTarget` now branches on a leading `[`. The bracketed form
+  requires a closing `]` immediately followed by `:`, validates the inner literal against
+  `IPV6_HOST` (hex, dots, colons, optional `%zone`) and returns the host *unbracketed*, so
+  `hostForUrl` is the single place brackets are applied. The unbracketed form splits on the first
+  colon and validates the host against `PLAIN_HOST` (`[A-Za-z0-9._~%+-]+`), which rejects both a
+  bare IPv6 address and a host with a space in it. `USAGE` now says IPv6 must be bracketed. The
+  repeated inline `throw new Error(...)` became `throw usageError()`. `export type { CliOptions }`
+  removed.
+- **`packages/backend/src/ws/server.ts`** — `createServer` returns a new `clientCount()`.
+- **`packages/backend/src/index.ts`** — `MSG.SYSTEM_CLIENTS` registered as a *request* as well,
+  answering `{ count: server.clientCount() }`.
+- **`packages/tui/src/ui/app.ts`** — `init()` fetches the count once alongside `store.load()` and
+  keeps following the broadcasts. A new `clientsBroadcast` flag makes a broadcast that lands during
+  the fetch win over the fetch's older value. The fetch is `.catch`ed: an older backend does not
+  answer it, and the count is a warning rather than something the UI needs to run.
+
+### Verification
+
+- `packages/tui/src/cli.test.ts` — 12 tests added (20 total). Against the pre-fix `cli.ts`, 7 of
+  them fail; all 20 pass after. Includes `a bracketed IPv6 target produces a URL a WebSocket can
+  open`, which composes `parseArgs` with `hostForUrl` so it fails on the actual defect rather than
+  on the intermediate shape.
+- `packages/tui/src/ui/app.test.ts` — `warns about a client that was already attached before the
+  TUI started` is red against the pre-fix `app.ts` and green after. `a broadcast that lands during
+  init outranks the fetched count` passes either way by construction and is there to pin the
+  precedence rule.
+- `packages/backend/src/ws/server.test.ts` — `reports the live client count to anything that asks`.
+- End-to-end: a scratch backend on port 45993 with the new request handler, a raw client already
+  attached, and a `WsClient` that waits out the 150ms negotiation window before asking →
+  `count: 2 → otherClients = 1`.
+- `bun run lint` clean, `bun run typecheck` clean across all five packages.
+- `bun test packages/tui packages/backend` → 1093 pass, 0 fail. Full `bun test` → 1348 pass,
+  8 fail — exactly the known Task 22 set.
+
+## Decisions taken (Task 18, review round 1)
+
+- **A bare IPv6 target is now a usage error rather than a best guess.** `::1:7777` used to parse as
+  host `::1`; it now throws and asks for `[::1]:7777`. The two readings of `::1:7777` — an address
+  with a port and an address without one — cannot be told apart, and the URL authority grammar
+  settles it the same way. Nothing depends on the old behaviour: Task 18.1, the smoke test, has not
+  been run yet.
+- **The unbracketed branch splits on the *first* colon, not the last.** A `PLAIN_HOST` host has no
+  colon in it, so the two differ only on input that is rejected either way, and `indexOf` reads as
+  the same rule the validation states.
+- **The initial count is fetched rather than latched in `index.ts`.** Registering a listener before
+  `connect()` would also catch the frame, but the handler belongs to `App`, which does not exist
+  until after negotiation — so that shape needs a latch in `index.ts` and a new `App` dep to carry
+  it. Fetch-then-follow is what `store.load()` plus the store's broadcast subscriptions already do
+  for projects and tasks, and it does not depend on the socket delivering a frame at exactly the
+  right moment.
+- **`clientCount()` is exposed on the server rather than the router closing over `clients`.**
+  `packages/backend/src/index.ts` already holds `server` and uses `server.broadcast`, so this adds
+  one accessor instead of a second reference to the client set.
+- **The backend change was made rather than deferred.** It is outside `packages/tui`, but Task 16
+  already established that backend work serving the TUI belongs to this plan, and the defect is in
+  a Task 18 feature.
+
+Next step: review Task 18, round 2 — one gpt-5.5 review via codex-review over `3e31dd2..684ffa6`,
+covering `packages/tui`, `packages/backend/src/ws/server.ts` and the `SYSTEM_CLIENTS` registration
+in `packages/backend/src/index.ts`.
 After that: Tasks 18.1, 19.6, 20, 21, 22 and 23. **18.1 and 19.6 are manual smoke tests — user
 gates**; 20, 21, 22 and 23 each need their own plan or investigation.
