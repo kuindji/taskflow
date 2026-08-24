@@ -48,7 +48,12 @@ async function settle(): Promise<void> {
 describe("SessionTerminal", () => {
     test("restores from a snapshot when one is available", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "HELLO", lastSequence: 5, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "HELLO",
+                lastSequence: 5,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -58,7 +63,12 @@ describe("SessionTerminal", () => {
 
     test("falls back to history when there is no snapshot", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: null,
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
             [MSG.SESSION_HISTORY]: { data: "FROMLOG", lastSequence: 2 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
@@ -73,11 +83,16 @@ describe("SessionTerminal", () => {
             release = resolve;
         });
         const net = fakeNet({});
-        net.request = <T,>(type: string): Promise<T> => {
+        net.request = <T>(type: string): Promise<T> => {
             if (type === MSG.SESSION_SNAPSHOT) {
                 return gate.then(
                     () =>
-                        ({ snapshot: "AAA", lastSequence: 5, cursorHidden: false, kittyStack: [] }) as unknown as T,
+                        ({
+                            snapshot: "AAA",
+                            lastSequence: 5,
+                            cursorHidden: false,
+                            kittyStack: [],
+                        }) as unknown as T,
                 );
             }
             return Promise.reject(new Error(`no stub for ${type}`));
@@ -95,7 +110,12 @@ describe("SessionTerminal", () => {
 
     test("ignores output belonging to other sessions", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -107,7 +127,12 @@ describe("SessionTerminal", () => {
 
     test("tracks application cursor keys and bracketed paste from child output", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -125,7 +150,12 @@ describe("SessionTerminal", () => {
 
     test("tracks the kitty protocol flags the child pushes and pops", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -141,7 +171,12 @@ describe("SessionTerminal", () => {
 
     test("restores the outer kitty flags when a nested push is popped", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -162,7 +197,12 @@ describe("SessionTerminal", () => {
 
     test("tracks cursor visibility", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -175,7 +215,12 @@ describe("SessionTerminal", () => {
 
     test("writes a process-exited marker when the session ends", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
         await term.attach();
@@ -192,11 +237,16 @@ describe("SessionTerminal", () => {
             release = resolve;
         });
         const net = fakeNet({});
-        net.request = <T,>(type: string): Promise<T> => {
+        net.request = <T>(type: string): Promise<T> => {
             if (type === MSG.SESSION_SNAPSHOT) {
                 return gate.then(
                     () =>
-                        ({ snapshot: "WORK", lastSequence: 0, cursorHidden: false, kittyStack: [] }) as unknown as T,
+                        ({
+                            snapshot: "WORK",
+                            lastSequence: 0,
+                            cursorHidden: false,
+                            kittyStack: [],
+                        }) as unknown as T,
                 );
             }
             return Promise.reject(new Error(`no stub for ${type}`));
@@ -216,7 +266,12 @@ describe("SessionTerminal", () => {
 
     test("ignores an exit belonging to another session", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
         await term.attach();
@@ -231,7 +286,12 @@ describe("SessionTerminal", () => {
         // What Task 18 does on reconnect. Without the reset, the snapshot is
         // drawn on top of the old grid and everything appears twice.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "PROMPT>",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -275,7 +335,12 @@ describe("SessionTerminal", () => {
         // History is raw scrollback and may have been trimmed past the
         // sequences that set these modes, so the pre-drop state stands in.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: null,
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
             [MSG.SESSION_HISTORY]: { data: "", lastSequence: 0 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
@@ -297,7 +362,12 @@ describe("SessionTerminal", () => {
         // is already in the serialized screen. Replaying it over the snapshot
         // would draw it twice.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "PROMPT>", lastSequence: 1, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "PROMPT>",
+                lastSequence: 1,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
         await term.attach();
@@ -413,7 +483,11 @@ describe("SessionTerminal", () => {
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 40, rows: 5 });
         await term.attach();
-        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "A".repeat(200 * 1024), sequence: 1 });
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "A".repeat(200 * 1024),
+            sequence: 1,
+        });
         net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "BBB", sequence: 2 });
         await settle();
 
@@ -425,7 +499,12 @@ describe("SessionTerminal", () => {
 
     test("re-attach reads modes from output that was still queued", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: null,
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
             [MSG.SESSION_HISTORY]: { data: "", lastSequence: 0 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
@@ -443,7 +522,12 @@ describe("SessionTerminal", () => {
         // would push a second copy of it, and the child's next pop would land
         // on the duplicate instead of leaving the protocol.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: null,
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
             [MSG.SESSION_HISTORY]: { data: "\x1b[>5u", lastSequence: 0 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
@@ -466,7 +550,12 @@ describe("SessionTerminal", () => {
         // rebuilds an empty stack, which is the truth — the pre-drop stack must
         // not stand in for it.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: null,
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
             [MSG.SESSION_HISTORY]: { data: "\x1b[>5u", lastSequence: 0 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
@@ -474,7 +563,7 @@ describe("SessionTerminal", () => {
         await settle();
         expect(term.modes.kittyFlags).toBe(5);
 
-        net.request = <T,>(type: string): Promise<T> => {
+        net.request = <T>(type: string): Promise<T> => {
             if (type === MSG.SESSION_SNAPSHOT) {
                 return Promise.resolve({
                     snapshot: null,
@@ -484,7 +573,10 @@ describe("SessionTerminal", () => {
                 } as unknown as T);
             }
             if (type === MSG.SESSION_HISTORY) {
-                return Promise.resolve({ data: "\x1b[>5u\x1b[<u", lastSequence: 0 } as unknown as T);
+                return Promise.resolve({
+                    data: "\x1b[>5u\x1b[<u",
+                    lastSequence: 0,
+                } as unknown as T);
             }
             return Promise.reject(new Error(`no stub for ${type}`));
         };
@@ -499,11 +591,16 @@ describe("SessionTerminal", () => {
         // that carries no kitty sequence at all says nothing about the protocol,
         // so the pre-drop stack is the best guess left.
         const responses: Record<string, unknown> = {
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: null,
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
             [MSG.SESSION_HISTORY]: { data: "\x1b[>5u", lastSequence: 0 },
         };
         const net = fakeNet(responses);
-        net.request = <T,>(type: string): Promise<T> => {
+        net.request = <T>(type: string): Promise<T> => {
             const response = responses[type];
             if (response === undefined) return Promise.reject(new Error(`no stub for ${type}`));
             return Promise.resolve(response as T);
@@ -542,7 +639,12 @@ describe("SessionTerminal", () => {
 
     test("sends a resize request and resizes the local grid", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
             [MSG.TERMINAL_RESIZE]: { success: true },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
@@ -555,7 +657,12 @@ describe("SessionTerminal", () => {
     test("scroll moves the viewport back over the scrollback and returns to it", async () => {
         const lines = Array.from({ length: 20 }, (_, i) => `L${String(i + 1)}`).join("\r\n");
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: null,
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
             [MSG.SESSION_HISTORY]: { data: lines, lastSequence: 1 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
@@ -580,14 +687,23 @@ describe("SessionTerminal", () => {
 
     test("the child's mouse modes are read off its own output", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
         expect(term.modes.mouseTracking).toBe("none");
         expect(term.modes.mouseEncoding).toBe("x10");
 
-        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h\x1b[?1006h", sequence: 1 });
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "\x1b[?1002h\x1b[?1006h",
+            sequence: 1,
+        });
         await settle();
         expect(term.modes.mouseTracking).toBe("drag");
         expect(term.modes.mouseEncoding).toBe("sgr");
@@ -603,11 +719,20 @@ describe("SessionTerminal", () => {
         // A child that turned SGR on and then reset urxvt is still in SGR; the
         // last enable wins and only its own disable clears it.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
-        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1006h\x1b[?1015l", sequence: 1 });
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "\x1b[?1006h\x1b[?1015l",
+            sequence: 1,
+        });
         await settle();
         expect(term.modes.mouseEncoding).toBe("sgr");
         term.dispose();
@@ -615,11 +740,20 @@ describe("SessionTerminal", () => {
 
     test("pixel mouse mode is tracked as its own encoding", async () => {
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
-        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h\x1b[?1016h", sequence: 1 });
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "\x1b[?1002h\x1b[?1016h",
+            sequence: 1,
+        });
         await settle();
         expect(term.modes.mouseEncoding).toBe("sgr-pixels");
         term.dispose();
@@ -631,11 +765,20 @@ describe("SessionTerminal", () => {
         // afterwards without reselecting an extended encoding is parsing
         // legacy bytes again.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
-        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h\x1b[?1006h", sequence: 1 });
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "\x1b[?1002h\x1b[?1006h",
+            sequence: 1,
+        });
         await settle();
         expect(term.modes.mouseEncoding).toBe("sgr");
 
@@ -658,7 +801,12 @@ describe("SessionTerminal", () => {
         // copy stale the same way: the grid's cursor is back and ours says it
         // is still hidden.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
@@ -713,12 +861,21 @@ describe("SessionTerminal", () => {
         // every reconnect. `lastSequence: 1` drops the held-back chunk, so the
         // replay cannot put the encoding back and only the carry-over can.
         const responses: Record<string, unknown> = {
-            [MSG.SESSION_SNAPSHOT]: { snapshot: "", lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
         };
         const net = fakeNet(responses);
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
-        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h\x1b[?1006h", sequence: 1 });
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "\x1b[?1002h\x1b[?1006h",
+            sequence: 1,
+        });
         await settle();
         expect(term.modes.mouseEncoding).toBe("sgr");
 
@@ -740,7 +897,12 @@ describe("SessionTerminal", () => {
         // and a child that comes back as mouseTracking "none" has every click
         // after the reconnect silently dropped.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: null,
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
             // lastSequence 1 covers the chunk below, so it is dropped rather
             // than replayed — without that the held-back output would set the
             // modes again and the `restore` string would never be exercised.
@@ -748,7 +910,11 @@ describe("SessionTerminal", () => {
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
-        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1002h\x1b[?1006h", sequence: 1 });
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "\x1b[?1002h\x1b[?1006h",
+            sequence: 1,
+        });
         await settle();
 
         await term.attach();
@@ -762,17 +928,61 @@ describe("SessionTerminal", () => {
         // encoding just before the drop still wins — the same ordering the
         // existing DEC-mode replay relies on.
         const net = fakeNet({
-            [MSG.SESSION_SNAPSHOT]: { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] },
+            [MSG.SESSION_SNAPSHOT]: {
+                snapshot: null,
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+            },
             [MSG.SESSION_HISTORY]: { data: "\x1b[?1015h", lastSequence: 1 },
         });
         const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
         await term.attach();
-        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b[?1000h\x1b[?1006h", sequence: 1 });
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "\x1b[?1000h\x1b[?1006h",
+            sequence: 1,
+        });
         await settle();
 
         await term.attach();
         expect(term.modes.mouseEncoding).toBe("urxvt");
         expect(term.modes.mouseTracking).toBe("vt200");
+        term.dispose();
+    });
+
+    test("a re-attach that fetches nothing leaves the screen it had", async () => {
+        // A reconnect over a flaky tunnel can drop again while the snapshot is
+        // in flight. The re-attach clears the grid before it knows whether it
+        // has anything to put back, so failing both fetches used to leave the
+        // pane blank — the child's output is gone from the screen even though
+        // the backend still has it, and nothing redraws it until the next
+        // reconnect happens to succeed.
+        let online = true;
+        const net: NetLike = {
+            request: <T>(type: string): Promise<T> => {
+                if (!online) return Promise.reject<T>(new Error("connection lost"));
+                if (type === MSG.SESSION_SNAPSHOT) {
+                    return Promise.resolve({
+                        snapshot: "HELLO",
+                        lastSequence: 5,
+                        cursorHidden: false,
+                        kittyStack: [],
+                    } as T);
+                }
+                return Promise.reject<T>(new Error(`no stub for ${type}`));
+            },
+            on: () => () => undefined,
+            onStatusChange: () => () => undefined,
+        };
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+        await term.attach();
+        expect(readRow(term, 0)).toBe("HELLO");
+
+        online = false;
+        await term.attach();
+        await settle();
+        expect(readRow(term, 0)).toBe("HELLO");
         term.dispose();
     });
 });

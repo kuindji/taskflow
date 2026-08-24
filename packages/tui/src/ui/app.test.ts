@@ -345,7 +345,7 @@ describe("App", () => {
         size: { cols: number; rows: number } = { cols: 34, rows: 9 },
     ): Promise<SessionTerminal> {
         const net: NetLike = {
-            request: <T,>() => Promise.resolve({} as T),
+            request: <T>() => Promise.resolve({} as T),
             on: () => () => undefined,
             onStatusChange: () => () => undefined,
         };
@@ -451,7 +451,7 @@ describe("App", () => {
     function openCountingSession(app: App, id: string): { term: SessionTerminal; types: string[] } {
         const types: string[] = [];
         const net: NetLike = {
-            request: <T,>(type: string) => {
+            request: <T>(type: string) => {
                 types.push(type);
                 return Promise.resolve({ snapshot: null, kittyStack: [], history: "" } as T);
             },
@@ -482,7 +482,7 @@ describe("App", () => {
     test("a reconnect survives a session whose attach rejects", async () => {
         const { app, net } = await makeApp();
         const failing: NetLike = {
-            request: <T,>() => Promise.reject<T>(new Error("gone")),
+            request: <T>() => Promise.reject<T>(new Error("gone")),
             on: () => () => undefined,
             onStatusChange: () => () => undefined,
         };
@@ -573,5 +573,27 @@ describe("App", () => {
         net.emit(MSG.SYSTEM_CLIENTS, { count: 1 });
         app.render();
         expect(tabRowText(screen)).not.toContain("other client(s) attached");
+    });
+
+    test("a click on the client warning does not reach the tab under it", async () => {
+        // The banner is painted over the right of the tab strip, so a column
+        // showing "attached" is a column the user cannot see a tab in. Routing
+        // it as a tab switches the pane to a session the user never clicked.
+        const { app, net, screen } = await makeApp();
+        const first = openCountingSession(app, "s1");
+        const second = openCountingSession(app, "s2");
+        const third = openCountingSession(app, "s3");
+        net.emit(MSG.SYSTEM_CLIENTS, { count: 2 });
+        app.render();
+
+        const banner = tabRowText(screen).indexOf("attached");
+        expect(banner).toBeGreaterThan(-1);
+        expect(app["activeSession"]).toBe(0);
+        app.handleMouse(mouse({ col: banner + 1, row: 0 }));
+        expect(app["activeSession"]).toBe(0);
+
+        first.term.dispose();
+        second.term.dispose();
+        third.term.dispose();
     });
 });

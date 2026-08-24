@@ -151,7 +151,17 @@ const WHEEL_LINES = 3;
 function routeMouse(
     report: MouseReport,
     layout: Layout,
-    ctx: { rows: number; tabs: TabSpec[] },
+    ctx: {
+        rows: number;
+        tabs: TabSpec[];
+        /**
+         * The first column the client warning is painted in, or null when it is
+         * not painted at all. The banner is drawn over the right of the tab
+         * strip, so those columns show the warning and not the tab beneath it —
+         * and a click has to mean what the user can see.
+         */
+        warningStart: number | null;
+    },
 ): Action {
     const { col, row, button } = report;
     const pressed = report.action === "press" || report.action === "drag";
@@ -168,6 +178,10 @@ function routeMouse(
 
     if (row === layout.tabRow) {
         if (button !== "left" || report.action !== "press") return { kind: "none" };
+        // The banner covers whatever tab was under it, so a click there is a
+        // click on the banner. It does nothing rather than opening a tab the
+        // user cannot see.
+        if (ctx.warningStart !== null && col >= ctx.warningStart) return { kind: "none" };
         const x = col - layout.paneX;
         const index = tabSpans(layout.paneWidth, ctx.tabs).findIndex(
             (span) => x >= span.start && x < span.end,

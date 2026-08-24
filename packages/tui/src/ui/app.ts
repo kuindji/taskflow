@@ -23,6 +23,21 @@ function clampIndex(index: number, length: number): number {
     return Math.max(0, Math.min(index, length - 1));
 }
 
+/**
+ * The "someone else is attached" banner as it is painted, or null when there is
+ * nothing to say. One function rather than two, for the same reason
+ * `computeLayout` exists: the span that is drawn and the span a click is tested
+ * against must not be able to disagree about where the banner starts.
+ */
+function clientWarning(
+    otherClients: number,
+    layout: Layout,
+): { text: string; startX: number } | null {
+    if (otherClients === 0) return null;
+    const text = ` ${String(otherClients)} other client(s) attached `;
+    return { text, startX: Math.max(layout.paneX, layout.cols - text.length) };
+}
+
 interface AppDeps {
     net: NetLike;
     store: Store;
@@ -233,6 +248,7 @@ class App {
         const action = routeMouse(report, layout, {
             rows: this.sidebarRows.length,
             tabs: this.tabSpecs(),
+            warningStart: clientWarning(this.otherClients, layout)?.startX ?? null,
         });
 
         switch (action.kind) {
@@ -291,13 +307,12 @@ class App {
      * the tail of a tab label.
      */
     private drawClientWarning(layout: Layout): void {
-        if (this.otherClients === 0) return;
-        const warning = ` ${String(this.otherClients)} other client(s) attached `;
-        const startX = Math.max(layout.paneX, layout.cols - warning.length);
-        for (let i = 0; i < warning.length; i++) {
-            this.deps.screen.back.set(startX + i, layout.tabRow, {
+        const warning = clientWarning(this.otherClients, layout);
+        if (warning === null) return;
+        for (let i = 0; i < warning.text.length; i++) {
+            this.deps.screen.back.set(warning.startX + i, layout.tabRow, {
                 ...blankCell(),
-                ch: warning[i] ?? " ",
+                ch: warning.text[i] ?? " ",
                 attrs: ATTR_INVERSE,
             });
         }

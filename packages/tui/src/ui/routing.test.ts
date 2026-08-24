@@ -276,20 +276,38 @@ describe("routeMouse", () => {
     }
 
     test("a click in the sidebar selects the row under it", () => {
-        expect(routeMouse(at({ col: 5, row: 7 }), layout, { rows: 20, tabs: tabs(0) })).toEqual({
+        expect(
+            routeMouse(at({ col: 5, row: 7 }), layout, {
+                rows: 20,
+                tabs: tabs(0),
+                warningStart: null,
+            }),
+        ).toEqual({
             kind: "select",
             index: 7,
         });
     });
 
     test("a click past the last row selects nothing", () => {
-        expect(routeMouse(at({ col: 5, row: 7 }), layout, { rows: 3, tabs: tabs(0) })).toEqual({
+        expect(
+            routeMouse(at({ col: 5, row: 7 }), layout, {
+                rows: 3,
+                tabs: tabs(0),
+                warningStart: null,
+            }),
+        ).toEqual({
             kind: "none",
         });
     });
 
     test("a click on the sidebar's first row is a selection, not a tab", () => {
-        expect(routeMouse(at({ col: 5, row: 0 }), layout, { rows: 20, tabs: tabs(2) })).toEqual({
+        expect(
+            routeMouse(at({ col: 5, row: 0 }), layout, {
+                rows: 20,
+                tabs: tabs(2),
+                warningStart: null,
+            }),
+        ).toEqual({
             kind: "select",
             index: 0,
         });
@@ -297,7 +315,11 @@ describe("routeMouse", () => {
 
     test("a left drag in the sidebar keeps selecting", () => {
         expect(
-            routeMouse(at({ col: 5, row: 2, action: "drag" }), layout, { rows: 20, tabs: tabs(0) }),
+            routeMouse(at({ col: 5, row: 2, action: "drag" }), layout, {
+                rows: 20,
+                tabs: tabs(0),
+                warningStart: null,
+            }),
         ).toEqual({ kind: "select", index: 2 });
     });
 
@@ -306,6 +328,7 @@ describe("routeMouse", () => {
             routeMouse(at({ col: 5, row: 2, action: "release" }), layout, {
                 rows: 20,
                 tabs: tabs(0),
+                warningStart: null,
             }),
         ).toEqual({ kind: "none" });
     });
@@ -315,12 +338,14 @@ describe("routeMouse", () => {
             routeMouse(at({ col: 5, row: 2, button: "wheel-down" }), layout, {
                 rows: 20,
                 tabs: tabs(0),
+                warningStart: null,
             }),
         ).toEqual({ kind: "move", delta: 1 });
         expect(
             routeMouse(at({ col: 5, row: 2, button: "wheel-up" }), layout, {
                 rows: 20,
                 tabs: tabs(0),
+                warningStart: null,
             }),
         ).toEqual({ kind: "move", delta: -1 });
     });
@@ -330,6 +355,7 @@ describe("routeMouse", () => {
             routeMouse(at({ col: 5, row: 2, button: "wheel-left" }), layout, {
                 rows: 20,
                 tabs: tabs(0),
+                warningStart: null,
             }),
         ).toEqual({ kind: "none" });
     });
@@ -342,19 +368,27 @@ describe("routeMouse", () => {
             routeMouse(at({ col: layout.sidebarWidth - 1, row: 5 }), layout, {
                 rows: 20,
                 tabs: tabs(1),
+                warningStart: null,
             }),
         ).toEqual({ kind: "select", index: 5 });
         expect(
             routeMouse(at({ col: layout.sidebarWidth, row: 5 }), layout, {
                 rows: 20,
                 tabs: tabs(1),
+                warningStart: null,
             }),
         ).toEqual({ kind: "focus", target: "session" });
     });
 
     test("the sidebar's columns belong to the pane while zoomed", () => {
         const zoomed = computeLayout(100, 30, true);
-        expect(routeMouse(at({ col: 5, row: 7 }), zoomed, { rows: 20, tabs: tabs(1) })).toEqual({
+        expect(
+            routeMouse(at({ col: 5, row: 7 }), zoomed, {
+                rows: 20,
+                tabs: tabs(1),
+                warningStart: null,
+            }),
+        ).toEqual({
             kind: "focus",
             target: "session",
         });
@@ -362,7 +396,11 @@ describe("routeMouse", () => {
 
     test("a click on a tab opens it and focuses the session", () => {
         expect(
-            routeMouse(at({ col: layout.paneX + 1, row: 0 }), layout, { rows: 20, tabs: tabs(2) }),
+            routeMouse(at({ col: layout.paneX + 1, row: 0 }), layout, {
+                rows: 20,
+                tabs: tabs(2),
+                warningStart: null,
+            }),
         ).toEqual({ kind: "open-tab", index: 0 });
     });
 
@@ -380,19 +418,25 @@ describe("routeMouse", () => {
             routeMouse(at({ col: layout.paneX + second.start, row: 0 }), layout, {
                 rows: 20,
                 tabs: wide,
+                warningStart: null,
             }),
         ).toEqual({ kind: "open-tab", index: 1 });
         expect(
             routeMouse(at({ col: layout.paneX + second.end - 1, row: 0 }), layout, {
                 rows: 20,
                 tabs: wide,
+                warningStart: null,
             }),
         ).toEqual({ kind: "open-tab", index: 1 });
     });
 
     test("a click past the last tab does nothing", () => {
         expect(
-            routeMouse(at({ col: layout.cols - 1, row: 0 }), layout, { rows: 20, tabs: tabs(1) }),
+            routeMouse(at({ col: layout.cols - 1, row: 0 }), layout, {
+                rows: 20,
+                tabs: tabs(1),
+                warningStart: null,
+            }),
         ).toEqual({ kind: "none" });
     });
 
@@ -401,13 +445,18 @@ describe("routeMouse", () => {
             routeMouse(at({ col: layout.paneX + 1, row: 0, action: "drag" }), layout, {
                 rows: 20,
                 tabs: tabs(2),
+                warningStart: null,
             }),
         ).toEqual({ kind: "none" });
     });
 
     test("a click in the pane focuses the session", () => {
         expect(
-            routeMouse(at({ col: layout.paneX + 3, row: 5 }), layout, { rows: 20, tabs: tabs(1) }),
+            routeMouse(at({ col: layout.paneX + 3, row: 5 }), layout, {
+                rows: 20,
+                tabs: tabs(1),
+                warningStart: null,
+            }),
         ).toEqual({ kind: "focus", target: "session" });
     });
 
@@ -416,12 +465,14 @@ describe("routeMouse", () => {
             routeMouse(at({ col: layout.paneX + 3, row: 5, button: "wheel-up" }), layout, {
                 rows: 20,
                 tabs: tabs(1),
+                warningStart: null,
             }),
         ).toEqual({ kind: "scroll", delta: -3 });
         expect(
             routeMouse(at({ col: layout.paneX + 3, row: 5, button: "wheel-down" }), layout, {
                 rows: 20,
                 tabs: tabs(1),
+                warningStart: null,
             }),
         ).toEqual({ kind: "scroll", delta: 3 });
     });
@@ -431,20 +482,48 @@ describe("routeMouse", () => {
             routeMouse(at({ col: layout.paneX + 3, row: layout.rows }), layout, {
                 rows: 20,
                 tabs: tabs(1),
+                warningStart: null,
             }),
         ).toEqual({ kind: "none" });
     });
 
     test("a middle click is unbound everywhere", () => {
-        expect(routeMouse(at({ col: 2, row: 2, button: "middle" }), layout, {
-            rows: 20,
-            tabs: tabs(0),
-        })).toEqual({ kind: "none" });
+        expect(
+            routeMouse(at({ col: 2, row: 2, button: "middle" }), layout, {
+                rows: 20,
+                tabs: tabs(0),
+                warningStart: null,
+            }),
+        ).toEqual({ kind: "none" });
         expect(
             routeMouse(at({ col: layout.paneX + 3, row: 5, button: "middle" }), layout, {
                 rows: 20,
                 tabs: tabs(1),
+                warningStart: null,
             }),
+        ).toEqual({ kind: "none" });
+    });
+
+    test("a click on the client warning is not a click on the tab under it", () => {
+        // The banner is painted over the right of the strip, so those columns
+        // show the warning rather than the tab beneath — and the click has to
+        // mean what the user can see.
+        const spans = tabSpans(layout.paneWidth, tabs(3));
+        const third = spans[2];
+        if (third === undefined) throw new Error("three tabs should fit in 70 columns");
+        const col = layout.paneX + third.end - 1;
+        expect(
+            routeMouse(at({ col, row: 0 }), layout, {
+                rows: 20,
+                tabs: tabs(3),
+                warningStart: null,
+            }),
+        ).toEqual({
+            kind: "open-tab",
+            index: 2,
+        });
+        expect(
+            routeMouse(at({ col, row: 0 }), layout, { rows: 20, tabs: tabs(3), warningStart: col }),
         ).toEqual({ kind: "none" });
     });
 });

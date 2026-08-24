@@ -244,13 +244,28 @@ class SessionTerminal {
 
     async attach(): Promise<void> {
         // A second attach means the connection dropped and came back. The
-        // snapshot is the entire screen, so the old grid must go first or it
-        // renders twice. terminal.reset() also clears DEC modes, which the
-        // child set long ago and will not send again, so they are held here
-        // for the fallback path below.
+        // snapshot is the entire screen, so the old grid must go before one is
+        // applied or it renders twice — but not one moment sooner. A tunnel
+        // that drops again while the snapshot is in flight leaves both fetches
+        // rejecting, and a grid cleared up front is then a blank pane holding
+        // output the backend still has and nothing on this side redraws until
+        // some later reconnect happens to succeed. So the clear is deferred to
+        // the point where there is something to put in its place, and the
+        // failure path simply leaves the screen alone.
+        //
+        // terminal.reset() also clears DEC modes, which the child set long ago
+        // and will not send again, so they are held here for the fallback path
+        // below.
+        const reattaching = this.historyLoaded;
         let restore = "";
         let savedKitty: (number | null)[] = [];
-        if (this.historyLoaded) {
+        let cleared = false;
+        const clearGrid = async (): Promise<void> => {
+            if (!reattaching || cleared) return;
+            cleared = true;
+            // Output stops being written straight to the grid from here: what
+            // arrives during the rest of the attach belongs after the replay,
+            // which is what `pending` is for.
             this.historyLoaded = false;
             // reset() is about to wipe the grid, so output that is already on it
             // but may not be in the coming snapshot has to go back in the replay
@@ -286,7 +301,7 @@ class SessionTerminal {
                 // back or every click after the reconnect is dropped.
                 restore += MOUSE_TRACKING_SET[previous.mouseTracking];
             });
-        }
+        };
 
         try {
             const snapshot = await this.deps.net.request<SessionSnapshotResponse>(
@@ -294,6 +309,7 @@ class SessionTerminal {
                 { sessionId: this.deps.sessionId },
             );
             if (snapshot.snapshot !== null) {
+                await clearGrid();
                 // The serialized screen carries no kitty keyboard state, so the
                 // backend reports it separately; without it a client attaching
                 // to a session already in kitty mode would encode legacy keys.
@@ -310,24 +326,31 @@ class SessionTerminal {
             // Fall through to history.
         }
 
-        // Only the history path needs the pre-drop modes back. SerializeAddon
-        // writes an enable sequence for a mode that is on and nothing for one
-        // that is off, so replaying them over a snapshot would switch back on
-        // whatever the child turned off while we were disconnected. History is
-        // raw scrollback and may have been trimmed past the sequences that set
-        // them, so there the saved state is the best we have.
-        if (restore !== "") void this.enqueue(restore);
-
-        const kittyEventsBefore = this.kittyEvents;
+        let kittyEventsBefore = this.kittyEvents;
         try {
             const history = await this.deps.net.request<SessionHistoryResponse>(
                 MSG.SESSION_HISTORY,
                 { ...this.deps.owner, sessionId: this.deps.sessionId },
             );
+            await clearGrid();
+            // Counted after the clear, because the clear is what empties the
+            // stack the recovery below decides about.
+            kittyEventsBefore = this.kittyEvents;
+            // Only the history path needs the pre-drop modes back. SerializeAddon
+            // writes an enable sequence for a mode that is on and nothing for one
+            // that is off, so replaying them over a snapshot would switch back on
+            // whatever the child turned off while we were disconnected. History is
+            // raw scrollback and may have been trimmed past the sequences that set
+            // them, so there the saved state is the best we have.
+            if (restore !== "") void this.enqueue(restore);
             if (history.data) await this.enqueue(history.data);
             this.recoverKittyStack(savedKitty, this.kittyEvents === kittyEventsBefore);
             await this.finishLoad(history.lastSequence);
         } catch {
+            // Nothing was fetched, so nothing was cleared: the grid still holds
+            // the screen it had, `savedKitty` is empty because the reset that
+            // fills it never ran, and finishLoad only puts `historyLoaded` back
+            // where it was.
             this.recoverKittyStack(savedKitty, this.kittyEvents === kittyEventsBefore);
             await this.finishLoad(-1);
         }
