@@ -104,7 +104,10 @@ Three additions to what carries over:
 | Backend-derived caches | Keyed by `backendId`. Correctness, not hygiene |
 | Attach timing | Every attached machine is dialled in the background at launch. Launch never waits |
 | Offline machines | Section header with state and retry, no projects. No local record cache |
-| Primary backend | Owns appearance, master workspace, global flows and actions, settings, connectivity. `layout.window` stays local always |
+| Primary backend | Owns appearance, master workspace, connectivity, and the only **editable** settings. `layout.window` stays local always |
+| Settings | Every attached machine's settings are mirrored read-only, so payloads built for a target machine use that machine's defaults. Only primary's are editable |
+| Flow/action definitions | Always the owning machine's, globals included. A project's run menu never offers another machine's flows |
+| Backend identity | A persistent `backendUid` minted by the backend, not the user-entered host. Two aliases of one backend cannot both attach |
 | Remote setup | Out of scope. Local-path affordances stay disabled for remote targets |
 | Sidebar shape | Local projects unheaded at top; one collapsible section per attached machine below |
 | Project order | Per machine, unchanged. `PROJECT_REORDER` is untouched |
@@ -168,6 +171,29 @@ are new.
 callback takes a `backendId` and must drop only that machine's state. A reset
 that clears everything is a bug in aggregate mode, and it is a bug that looks
 like a working app until a second machine is attached.
+
+### Backend identity
+
+The superseded design keys a `BackendRecord` by `${host}:${instanceId}`, where
+`host` is whatever the user typed or the beacon advertised. Under one active
+backend an alias was a cosmetic annoyance. Under an attached set it corrupts the
+sidebar: attach `192.168.1.20:main` manually and `desktop.local:main` from
+discovery, and two records tunnel to one backend, hold two connections to it,
+and deliver the same UUID records twice under two different `backendId`s.
+Duplicate projects, duplicate tasks, doubled events.
+
+Host strings therefore cannot be identity. The backend mints a persistent
+`backendUid` once per data directory and reports it in both the beacon payload
+and `SYSTEM_INFO`. The registry learns it at handshake and deduplicates on it: an
+attach that resolves to an already-attached `backendUid` merges into the existing
+record — updating its host if the new one is more reachable — rather than
+becoming a second member. Host and `instanceId` stay on the record as the way to
+*reach* a backend and as what the menu displays; they stop being what identifies
+it.
+
+This is the one addition to the carried-over transport half that is not a
+widening: `backendUid` is a new field in the beacon and in `SYSTEM_INFO`, and it
+lands alongside `protocolVersion` in the existing Task 1.
 
 ### The attached set
 
@@ -304,6 +330,21 @@ generation for it. Each attach increments a per-backend generation; a response
 carrying a stale generation is dropped. A leg that fails leaves its slice as it
 was and marks that machine offline; it never empties another machine's slice.
 
+The attach generation is necessary but not sufficient — it only catches a slice
+whose *connection* changed. Within one healthy connection, a list response is
+still a snapshot that can be older than events already applied:
+
+1. `TASK_LIST` for the desktop is sent.
+2. `TASK_CREATED` arrives from the desktop and is applied to its slice.
+3. The list response resolves and replaces the slice with a snapshot taken
+   before that task existed.
+
+The new task vanishes until something refetches. So each slice also carries a
+**revision**, bumped by every event that mutates it. A list request records the
+revision it was issued at, and its response is discarded if the slice has moved
+on. Discarding is correct rather than wasteful: the events that bumped the
+revision are themselves the newer state.
+
 ### Session sync is per backend
 
 `syncWithTasks` and `syncWithProjects` reconcile session tabs against the owner
@@ -435,6 +476,11 @@ explicit rather than left to "every store registers a reset":
   map, connectivity, scripts and agent commands.
 - Pending timers and debounces owned by that machine's panes, including
   file-store debounce state and debounced attribute saves.
+- The session-activity module maps and their timers
+  (`stores/session-activity.ts:12-15`). A working-to-attention debounce that
+  fires after its backend is gone calls `setSessionStatus` for a session that no
+  longer exists, resurrecting an `attention` badge and lighting the tray for a
+  machine that is not attached.
 
 Event subscriptions are **not** touched. They are registered against message
 types and shared by every connection; unsubscribing on detach would silently
@@ -547,20 +593,42 @@ an attached machine is offline.
 
 ### Settings
 
-The modal shows primary's settings. Appearance and layout come from primary.
-`layout.window` remains pinned to local in all modes — window geometry is a
-property of this screen, and routing it elsewhere would have a laptop's window
-position overwrite a desktop's.
+Settings have two jobs here and they need different answers, which the first
+draft of this document conflated.
 
-To change another machine's settings — its default agent, shell, editors,
-per-agent defaults — hard-switch to it.
+**Editing** belongs to primary. The modal shows primary's settings; appearance
+comes from primary; `layout.window` remains pinned to local in all modes, since
+window geometry is a property of this screen. To change another machine's
+settings, hard-switch to it.
+
+**Reading** cannot belong to primary, because settings carry the defaults that
+go into payloads sent to *other* machines. `AgentOptionsPanel.tsx:41-45` reads
+`settings.claude`, `settings.codex` and the rest from a single store, and New
+Task and the run controls build launch options from them. With a primary-only
+store, creating a task on the desktop would prefill the laptop's default model,
+permission mode and shell and send them to the desktop — routed correctly,
+populated wrongly, and silently.
+
+So `settings-store` joins the aggregating set as a **read-only mirror**: each
+attached machine's settings are fetched and held in its own slice, and anything
+building a payload for a machine reads that machine's slice. Only primary's
+slice is writable, and `SETTINGS_UPDATE` is only ever sent to primary. The
+client-scoped parts — panels, collapsed projects, window — continue to come from
+primary alone, because they describe this screen rather than any machine.
 
 ### Flows and actions
 
 A flow or action with a `projectId` (`packages/shared/src/types/flow.ts`) comes
 from that project's machine and runs there, so the flow and action dropdowns
-inside a remote workspace are that machine's. Global flows and actions — no
-`projectId`, plus `MASTER_OWNER_ID` runs — come from primary. Schedules carry a
+inside a remote workspace are that machine's. Global flows and actions — those with no `projectId` — are **also per machine**,
+and this is the point the first draft contradicted itself on. `filterByProject`
+in `stores/flow-store.ts:21-27` returns every definition without a `projectId`
+for any project, so with aggregated definitions and no machine filter a desktop
+project's run menu would list the laptop's global flows, which the desktop
+cannot run. The filter therefore takes a `backendId` as well: a project's menu
+offers that machine's globals plus that project's own definitions, never another
+machine's. `MASTER_OWNER_ID` runs belong to primary, because master workspace
+does. Schedules carry a
 required `projectId` and therefore follow their project's machine with no extra
 rule.
 
@@ -616,6 +684,16 @@ menu.
 In Electron main, `notification-poller.ts:27` and `tray-manager.ts:161,186` move
 from one origin to every attached origin. `window-manager.ts:29,132` stays on
 local, unchanged.
+
+Polling every origin is not enough on its own, because the poller keeps one
+watermark: `lastNotificationCheck` at `notification-poller.ts:9`. Shared across
+machines it drops notifications — the desktop emits at 10:00:01, the laptop at
+10:00:10, the watermark advances to 10:00:10, and the desktop's next
+notification at 10:00:05 is never shown. The watermark becomes one per backend,
+advanced only by that backend's own responses. The click payload
+(`notification-poller.ts:54-59`) also carries the originating `backendId`, since
+`projectId`, `sessionId` and `taskId` alone no longer say which machine to
+navigate on.
 
 ### Gating
 
@@ -691,6 +769,21 @@ servers:
   agent-command requests on that machine's connection, and never on local's.
 - Detaching one machine leaves the other machine's open workspace, terminals and
   Monaco models alive, with no remount.
+- A list response for a slice whose revision moved on — because an event landed
+  while the request was in flight — is discarded, and the event's record
+  survives.
+- New Task and the agent-options panel, built for a remote project, carry that
+  machine's defaults (model, permission mode, shell), not primary's.
+- A remote project's run menu lists that machine's global flows and none of
+  primary's.
+- Attaching one backend twice through two host aliases yields one attached
+  member, one connection and one copy of each record.
+- Each backend has its own notification watermark: a notification from the older
+  machine is still delivered after a newer one arrived from another machine.
+- A session-activity timer that fires after its backend is detached does not
+  resurrect session status or the tray badge.
+- Project drag-reorder is confined to its machine's section and sends
+  `PROJECT_REORDER` only to that machine.
 
 The hard switch keeps its own tests: a dirty editor refuses it with the files
 listed; a failed target resolution leaves the attached set untouched; an
@@ -754,6 +847,11 @@ Appearance following primary means the window re-themes on a hard switch and
 does not re-theme in aggregate mode.
 
 ## To verify during implementation
+
+**Is a read-only settings mirror per machine enough, or does it want a way to
+edit remote settings in place?** The mirror is what makes remote task creation
+correct. Whether hard-switching purely to change a remote default is acceptable
+in daily use is a question only running it answers.
 
 **Does the backend-scoped Monaco URI break anything that assumes a file URI?**
 Language services, import navigation and the external-editor opener all read the
