@@ -1,4 +1,4 @@
-import { MSG, isAgentType } from "@taskflow/shared";
+import { MSG, isAgentType, backendHttpOrigin } from "@taskflow/shared";
 import type {
     AgentLaunchOptions,
     AgentType,
@@ -451,7 +451,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         }
 
         const taskflowEnv: Record<string, string> = {
-            TASKFLOW_API_URL: `http://localhost:${getPort()}`,
+            // Not `localhost`: the backend may be bound to `::1`, which `localhost`
+            // does not reach on a host that resolves the name to IPv4 only.
+            TASKFLOW_API_URL: backendHttpOrigin(getPort()),
             TASKFLOW_SESSION_ID: sessionId,
         };
         if (task) taskflowEnv.TASKFLOW_TASK_ID = task.id;

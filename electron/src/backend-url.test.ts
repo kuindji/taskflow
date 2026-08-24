@@ -14,9 +14,10 @@ describe("backendOrigin", () => {
         expect(backendOrigin(7100)).toBe("http://127.0.0.1:7100");
     });
 
-    test("follows the TASKFLOW_HOST override the backend binds to", () => {
-        process.env.TASKFLOW_HOST = "127.0.0.2";
-        expect(backendOrigin(7100)).toBe("http://127.0.0.2:7100");
+    test("treats an empty TASKFLOW_HOST as unset, exactly as the backend does", () => {
+        process.env.TASKFLOW_HOST = "";
+        expect(backendOrigin(7100)).toBe("http://127.0.0.1:7100");
+        expect(new URL(backendOrigin(7100)).port).toBe("7100");
     });
 
     test("brackets an IPv6 literal so the URL stays parseable", () => {

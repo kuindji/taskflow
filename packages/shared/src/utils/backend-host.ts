@@ -11,14 +11,16 @@
 
 const DEFAULT_BACKEND_HOST = "127.0.0.1";
 
-const IPV6_LOOPBACK = new Set(["::1", "0:0:0:0:0:0:0:1"]);
-const IPV4_LOOPBACK = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+/**
+ * Only the addresses `localhost` itself resolves to. The rest of 127/8 is loopback
+ * too, but the desktop renderer (`packages/ui/src/hooks/useWebSocket.ts`) and every
+ * spawned agent dial the backend by name, so binding e.g. `127.0.0.2` would leave
+ * them unable to reach it. Widening this set means teaching those clients the host.
+ */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"]);
 
 function isLoopback(host: string): boolean {
-    const bare = host.toLowerCase();
-    if (bare === "localhost" || IPV6_LOOPBACK.has(bare)) return true;
-    const octets = IPV4_LOOPBACK.exec(bare);
-    return octets !== null && octets.slice(1).every((octet) => Number(octet) <= 255);
+    return LOOPBACK_HOSTS.has(host.toLowerCase());
 }
 
 /** Throws when `TASKFLOW_HOST` names anything the backend must not bind. */
@@ -27,7 +29,8 @@ function resolveBackendHost(): string {
     if (host === undefined || host === "") return DEFAULT_BACKEND_HOST;
     if (!isLoopback(host)) {
         throw new Error(
-            `TASKFLOW_HOST must name a loopback address (127.x.x.x, ::1 or localhost). ` +
+            `TASKFLOW_HOST must name a loopback address reachable as \`localhost\` ` +
+                `(127.0.0.1, ::1 or localhost). ` +
                 `Refusing to bind the unauthenticated backend to "${host}" — ` +
                 `use an SSH tunnel to reach it from another machine.`,
         );
@@ -40,4 +43,9 @@ function hostForUrl(host: string): string {
     return host.includes(":") ? `[${host}]` : host;
 }
 
-export { resolveBackendHost, hostForUrl };
+/** The backend's HTTP origin, for anything handed a URL rather than a port. */
+function backendHttpOrigin(port: number): string {
+    return `http://${hostForUrl(resolveBackendHost())}:${String(port)}`;
+}
+
+export { resolveBackendHost, hostForUrl, backendHttpOrigin };
