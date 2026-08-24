@@ -25,7 +25,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
 | 17 | Reconnection and session resync | clear | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; round 3 found nothing — clear after round 3 |
-| 18 | Remote mode | in-review round 4 | `3e31dd2` | commits `f6cc308`, `684ffa6`, `b98ca3b`, `74b5d0f`, `90a161f` (plan Steps 1–6 and 8); rounds 1–4 found 5, 1, 1 and 2 substantiated defects — all fixed; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
+| 18 | Remote mode | in-review round 5 | `3e31dd2` | commits `f6cc308`, `684ffa6`, `b98ca3b`, `74b5d0f`, `90a161f`, `a0e3904` (plan Steps 1–6 and 8); rounds 1–5 found 5, 1, 1, 2 and 1 substantiated defects — all fixed; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
 | 18.1 | Remote mode — manual smoke test over an SSH tunnel | pending | — | **user gate** |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
@@ -6930,14 +6930,97 @@ rule, `clientCount()`, the `SYSTEM_CLIENTS` request registration, or the new tes
   every tab boundary whenever a client comes or goes, which is a worse surprise than a few
   unclickable columns; the tab under the banner is still reachable by its number key.
 
-Next step: review Task 18, round 5 — one gpt-5.5 review via codex-review over `3e31dd2..90a161f`,
+## Task 18, review round 5
+
+One gpt-5.5 review via codex-review (Mode B, self-contained prompt over `git diff 3e31dd2..HEAD
+-- packages/`). The brief listed all nine findings from rounds 1–4 and the deliberate rejections,
+declared `cli.ts`'s host validation closed, and named the restructured `attach()` as the place to
+press — specifically the ordering of `clearGrid()` against the write queue, output arriving during
+the fetch window, **two overlapping `attach()` calls**, and whether the kitty/DEC recovery still
+holds now the reset runs later. Codex returned one finding, at exactly that spot. It was also found
+here independently, before the report landed, and is confirmed and fixed in `a0e3904`.
+
+### Confirmed and fixed
+
+1. **Two reconnects in quick succession leave the session pane showing two screens at once, the
+   stale one on top** (found here and by Codex, high). What you would see on a flaky SSH tunnel:
+   the connection drops, comes back, and drops and comes back again a moment later — and the pane
+   ends up with the reconnected screen followed by the screen from the *previous* reconnect
+   appended after it, so the visible content is duplicated and the newest output is buried.
+
+   `App`'s reconnect listener (`packages/tui/src/ui/app.ts:90`) fires
+   `void session.term.attach()` per open session on every `connected: true`, and nothing serialized
+   `attach()` against itself. Two of them share `historyLoaded`, `pending` and the write queue:
+
+   - Attach A's snapshot resolves, so it enters `clearGrid()`, sets `historyLoaded = false`, moves
+     `recent` into `pending`, and parks on `await this.enqueueAction(...)` behind whatever is
+     already in the write queue.
+   - Attach B starts inside that window, reads `reattaching = this.historyLoaded` as `false`,
+     concludes it is a *first* attach and skips the clear entirely.
+   - B's snapshot is enqueued onto the uncleared grid; A then resumes and enqueues its older
+     snapshot behind it.
+
+   The double render is the exact thing the reset exists to prevent, and round 4's deferral of the
+   reset is what opened the window — before it, `historyLoaded` was flipped in the first
+   synchronous statements of `attach()`, so there was no awaited gap for a second attach to read
+   the flag in.
+
+   Evidence: `SessionTerminal > a second attach cannot start inside the first one's clear` in
+   `packages/tui/src/term/session-terminal.test.ts`. It attaches once against a snapshot of
+   `"FIRST"`, holds every `terminal.write` callback so the queued reset cannot complete, starts
+   attach A and answers it with `"OLD"`, starts attach B inside A's clear and answers it with
+   `"NEW"`, then releases the writes. Red against `90a161f` — row 0 reads `"NEWOLD"` — and green
+   after, reading `"NEW"`. Run with `bun test packages/tui/src/term/session-terminal.test.ts`.
+   (Independently reproduced here before the report arrived with a throwaway probe that stalled the
+   queue with a large SGR chunk instead of holding the write callbacks; it showed the same
+   interleaving as a doubled snapshot, `"XYZXYZ"`.)
+
+Codex explicitly reported the client-warning routing (first banner column, `paneX` clamp, zoomed
+layout, tiny buffers), the local/remote startup branch, and the backend `clientCount()` and
+`SYSTEM_CLIENTS` registration as clean, and skipped `cli.ts` as asked. It found no `as any` and no
+`eslint-disable` in the touched files.
+
+### Fixes
+
+- **`packages/tui/src/term/session-terminal.ts`** — `attach()` became a thin queueing wrapper over
+  a new private `attachOnce()` holding the old body verbatim. A new `attachQueue: Promise<void>`
+  chains each call behind the last, and the chain is advanced with `run.catch(() => undefined)` so
+  one failed attach cannot make every later one reject without running. A second attach now starts
+  from a settled terminal, so it sees `historyLoaded === true`, clears properly, and its snapshot
+  is the last thing written.
+
+### Verification
+
+- 1 test added. Red against `90a161f` (`"NEWOLD"`), green after (`"NEW"`) — confirmed by stashing
+  only `session-terminal.ts` and re-running: `36 pass, 1 fail`.
+- `bun run lint` clean, `bun run typecheck` clean across all five packages.
+- `bun test packages/tui packages/backend` → 1104 pass, 0 fail. Full `bun test` → 1359 pass, 8 fail
+  — exactly the known Task 22 set.
+
+## Decisions taken (Task 18, review round 5)
+
+- **Attaches are serialized rather than coalesced.** Collapsing a queued attach into the in-flight
+  one would save a redundant fetch, but the in-flight one may be fetching over the socket that has
+  just died — a reconnect genuinely wants a fresh snapshot. Serializing also costs no more requests
+  than the old code already made; it only stops them overlapping.
+- **The queue swallows rejections rather than propagating them.** `attach()` barely rejects today
+  (its own `try`/`catch` covers both fetches), but a chain that carries a rejection forward would
+  turn one bad attach into a permanently dead terminal. Callers still see their own rejection.
+- **`attachOnce()` holds the old body unchanged.** The round-4 restructure is the least-reviewed
+  code in the diff and is correct in isolation; the defect was that two copies of it could run at
+  once. Wrapping is the smallest change that fixes it and leaves the reviewed logic byte-identical.
+- **No guard was added inside `clearGrid()` instead.** A re-entrancy flag there would fix the
+  double render but leave the two attaches still racing over `pending` and the write queue.
+  Serializing at the entry point is the one place that makes all of that shared state single-writer.
+
+Next step: review Task 18, round 6 — one gpt-5.5 review via codex-review over `3e31dd2..HEAD`,
 covering `packages/tui`, `packages/backend/src/ws/server.ts` and the `SYSTEM_CLIENTS` registration
-in `packages/backend/src/index.ts`. Round 4 found and fixed two defects, so the task is not clear
-yet. The brief should carry all nine findings from rounds 1–4 so they are not re-derived, should
-repeat that `cli.ts`'s host validation is closed, and should press hardest on **the restructured
-`attach()`** — it is the round-4 fix and the least-reviewed code in the diff: the ordering of
-`clearGrid()` against the write queue, output arriving during the fetch window, two overlapping
-attaches, and whether the kitty-stack and DEC-mode recovery still hold now that the reset runs
-later.
+in `packages/backend/src/index.ts`. Round 5 found and fixed one defect, so the task is not clear
+yet. The brief should carry all ten findings from rounds 1–5, repeat that `cli.ts`'s host
+validation is closed and that round 5 reported the client-warning routing, the local/remote branch
+and the backend client count as clean, and press on **the new `attach()`/`attachOnce()` split** —
+whether queueing can deadlock or starve (a request that never settles holding the chain), what a
+reconnect storm now does to the pane, whether `dispose()` racing a queued attach is safe, and
+whether anything else in the class is still shared mutable state across calls.
 After that: Tasks 18.1, 19.6, 20, 21, 22 and 23. **18.1 and 19.6 are manual smoke tests — user
 gates**; 20, 21, 22 and 23 each need their own plan or investigation.
