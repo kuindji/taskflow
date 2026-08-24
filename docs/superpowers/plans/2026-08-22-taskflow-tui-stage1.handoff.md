@@ -35,7 +35,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 19.5 | Mouse — forward to the child | clear | `1288c64` | commits `f377413`, `1a9179f`, `08b23d8`; rounds 1 and 2 each found one substantiated defect, both fixed; round 3 found nothing — clear after round 3 |
 | 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
-| 21 | Bound the incomplete-CSI carry | implemented | `f3fd8b8` | commit `d4800b5`; review round 1 due. **Added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
+| 21 | Bound the incomplete-CSI carry | clear | `f3fd8b8` | commit `d4800b5`; round 1 found nothing — clear after round 1. **Added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
 | 22 | Full-suite-only failures in `packages/ui` pane tests | pending | — | **pre-existing, found during Task 16.** Eight tests in `MarkdownPaneImpl.checkbox.test.tsx` and the markdown link tests fail under `bun test` (whole repo) with `'useSessionStore.setState' is undefined` / `root.unmount` undefined, but pass under `bun test packages/ui/src/components/panes/`. Confirmed present at `2684302` before any Task 16 edit, so it is cross-file test pollution, not a product defect. Needs its own investigation |
 | 23 | Flaky `backend startup` test under load | pending | — | **observed during Task 16 round 5, pre-existing.** `packages/backend/tests/index.test.ts` — `backend startup > exits non-zero when startup fails after the server starts` failed twice with `backend process did not exit after startup failure` on runs where the whole suite took 90s+ instead of ~40s, and passed on every unloaded run. A fixed timeout racing machine load, not a product defect |
 
@@ -7164,11 +7164,51 @@ of tens of bytes; it also sits comfortably above the ~147-byte run the existing
 - **No new `CsiScan` kind.** `invalid` already means "this run can never become a sequence"; an
   over-cap run is that, and both callers of the branch behave correctly without changes.
 
-Next step: review Task 21, round 1.
+## Task 21 — review round 1
 
-Review the diff `f3fd8b8..d4800b5` with one gpt-5.5 round via the codex-review skill, verify the
-findings, fix the substantiated ones, validate and commit.
+(gpt-5.5 via codex-review, Mode A over commit `d4800b5`.) **No findings.** Codex reported "no
+material defects in the CSI carry bound or the directly affected legacy/kitty decoder paths".
 
-Remaining after that: **18.1 is deferred** (remote-backend work on hold at the user's request).
-**19.6 is a manual smoke test — a user gate.** Tasks 20, 22 and 23 each need their own plan or
-investigation.
+Verified independently, by re-reading the two changed source files and every path that can still
+produce a carry:
+
+- **Every carry `decodeLegacy` returns is now bounded.** Its four carry-returning sites are a lone
+  trailing ESC (1 byte), an incomplete CSI, a short X10 payload (≤5 bytes) and a short `ESC O`
+  (≤2 bytes). The CSI one is the only one that used to be open-ended, and it now cannot exceed 257:
+  `scanCsi` returns `incomplete` only when `i === buf.length` and `i < bodyStart + MAX_CSI_BODY`, so
+  the held run is at most `ESC [` plus 255 body bytes.
+- **`decodeKitty` inherits the bound.** Its `incomplete` comes from `scanKitty`, which returns that
+  only for a lone ESC or for a `scanCsi` `incomplete`; its other carry is whatever `decodeLegacy`
+  hands back. Both are bounded by the above. The `nextKittyStart` rescan also stops being O(n) work
+  per position — each `scanKitty` now walks at most 258 bytes.
+- **Off-by-one at the cap.** A body of exactly 255 bytes followed by a final byte still decodes as a
+  sequence (`i` stops on the final, which is in neither scan range, so `i === bodyStart + 255`); a
+  body of 256 is ruled out. That is the intended edge, and no sequence either decoder reads comes
+  near it.
+- **The cap cannot strand the deadline machinery.** When it fires on a `CSI <` run, `decodeLegacy`
+  consumes the run and returns `carry: ""`, so `isPartialMouseReport("")` is false and `feed` clears
+  `mouseCarryDeadline` on the same read. No dead report is left holding a window open.
+
+`bun test packages/tui` → 505 pass, 0 fail.
+
+Task 21 is clear after round 1. No fix commit — there was nothing to fix.
+
+## Plan status — Stage 1 automated work complete
+
+Every task in this plan that this loop can do on its own is `clear`: 1–17, 18 (code), 19.1–19.5
+and 21. What is left is not implementation:
+
+- **18.1** — manual smoke test of remote mode over an SSH tunnel. Deferred on 2026-08-24 at the
+  user's request; all remote-backend work is on hold.
+- **19.6** — manual mouse smoke test. Needs a human at a real terminal.
+- **20** — backend-side orphan shutdown. Outside `packages/tui`, not in this plan, needs its own
+  plan first.
+- **22** — full-suite-only `packages/ui` pane test failures. Pre-existing cross-file test pollution,
+  needs its own investigation.
+- **23** — flaky `backend startup` test under load. Pre-existing: a fixed timeout racing machine
+  load.
+
+Next step: AWAITING USER — plan complete, end the loop? The alternatives, all of which the loop can
+do autonomously: (a) write the plan for Task 20 (backend-side orphan shutdown), (b) investigate
+Task 22 (the `packages/ui` test pollution), (c) investigate Task 23 (the flaky backend-startup
+timeout). 18.1 and 19.6 need a human at a keyboard and stay blocked either way.
