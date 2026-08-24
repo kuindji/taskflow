@@ -25,7 +25,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
 | 17 | Reconnection and session resync | clear | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; round 3 found nothing — clear after round 3 |
-| 18 | Remote mode | in-review round 3 | `3e31dd2` | commits `f6cc308`, `684ffa6`, `b98ca3b`, `74b5d0f` (plan Steps 1–6 and 8); rounds 1, 2 and 3 found 5, 1 and 1 substantiated defects — all fixed; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
+| 18 | Remote mode | in-review round 4 | `3e31dd2` | commits `f6cc308`, `684ffa6`, `b98ca3b`, `74b5d0f`, `90a161f` (plan Steps 1–6 and 8); rounds 1–4 found 5, 1, 1 and 2 substantiated defects — all fixed; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
 | 18.1 | Remote mode — manual smoke test over an SSH tunnel | pending | — | **user gate** |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
@@ -6834,10 +6834,110 @@ nothing wrong with the new tests.
   ssh-style target that quietly loses half of itself is the class of surprise this whole thread of
   findings is about, and nothing needs userinfo against a backend with no authentication.
 
-Next step: review Task 18, round 4 — one gpt-5.5 review via codex-review over `3e31dd2..74b5d0f`,
+## Task 18, review round 4
+
+One gpt-5.5 review via codex-review (Mode B, self-contained prompt over `git diff 3e31dd2..HEAD
+-- packages/`). The brief listed all seven findings from rounds 1–3 and the three deliberate
+rejections, said explicitly that `cli.ts`'s host validation was exhausted and not to press there
+again, and named the six least-scrutinised areas instead — the `init()` client-count race, the
+reconnect re-attach, the banner's drawing, the local/remote branch in `index.ts`, the backend's
+`clientCount()`, and the new tests. Codex returned two findings. Both are confirmed and fixed in
+`90a161f`.
+
+### Confirmed and fixed
+
+1. **A flaky reconnect blanks the session pane** (Codex, medium; verified here). What you would
+   see: the tunnel drops, comes back, and drops again a moment later — and the session pane goes
+   empty. The child's output is still on the backend and the child is still running, but nothing on
+   this side redraws it until some later reconnect happens to succeed.
+
+   `App`'s reconnect listener (`packages/tui/src/ui/app.ts:76`, added by Task 18) calls
+   `session.term.attach()`. `SessionTerminal.attach()` cleared the grid up front — `terminal.reset()`
+   through the write queue — because a snapshot is a whole screen and would otherwise render twice.
+   But the clear happened *before* the fetch, so when both `SESSION_SNAPSHOT` and `SESSION_HISTORY`
+   reject, `finishLoad(-1)` replays only `pending`, which is empty in the steady state (the previous
+   successful attach drained it). Reset, nothing to put back.
+
+   The comment Task 18 added on the reconnect loop asserted the opposite — "an attach that fails
+   leaves that stale screen up" — so this was a promise the code did not keep.
+
+   Evidence: `SessionTerminal > a re-attach that fetches nothing leaves the screen it had` in
+   `packages/tui/src/term/session-terminal.test.ts` — attach once against a snapshot of `"HELLO"`,
+   take the net offline, attach again. Red against `74b5d0f` (row 0 reads `""`), green after. Run
+   with `bun test packages/tui/src/term/session-terminal.test.ts`.
+
+2. **Clicking the client banner switches to a tab hidden under it** (Codex, low; verified here).
+   What you would see: several sessions open and another client attached, so the tab strip runs
+   under the ` N other client(s) attached ` banner. Clicking on the words "attached" opens whichever
+   session's tab is buried there — the pane switches to a session the user cannot see they clicked.
+
+   `drawClientWarning` paints over the right of the tab row, but `routeMouse`
+   (`packages/tui/src/ui/routing.ts:169`) still resolved that whole row through `tabSpans`. The
+   banner's start column existed in exactly one place — inside the draw method — so the hit-test
+   had no way to know about it. This is the `computeLayout` rule (what is drawn and what is
+   hit-tested come from one source) not applied to the banner.
+
+   Evidence: `App > a click on the client warning does not reach the tab under it` in
+   `packages/tui/src/ui/app.test.ts` — three sessions, one other client, click the column showing
+   `"attached"`; red against `74b5d0f` (`activeSession` becomes 2), green after. Pinned at the unit
+   level too by `routeMouse > a click on the client warning is not a click on the tab under it` in
+   `packages/tui/src/ui/routing.test.ts`, which asserts the same column both ways.
+
+Nothing was reported against `index.ts`'s local/remote branch, the `clientsBroadcast` precedence
+rule, `clientCount()`, the `SYSTEM_CLIENTS` request registration, or the new tests, and — as asked
+— nothing further against `cli.ts`.
+
+### Fixes
+
+- **`packages/tui/src/term/session-terminal.ts`** — the reset moved from the top of `attach()` into
+  a `clearGrid()` closure called only once a snapshot or a history reply is in hand. It is
+  idempotent and a no-op on a first attach, and it is what now sets `historyLoaded = false` and
+  takes `recent` into `pending`, so output arriving while the fetch is in flight keeps updating the
+  live screen and is still replayed after the clear. The history path's `enqueue(restore)` moved
+  inside the same `try`, after `clearGrid()`, because `restore` is filled in by the reset. The
+  total-failure path is byte-for-byte the old one minus the reset: `savedKitty` is empty because
+  the reset never ran, so `recoverKittyStack` is a no-op, and `finishLoad(-1)` only puts
+  `historyLoaded` back where it was.
+- **`packages/tui/src/ui/app.ts`** — new module-level `clientWarning(otherClients, layout)`
+  returning `{ text, startX }` or null. `drawClientWarning` draws from it and `handleMouse` passes
+  its `startX` to `routeMouse`.
+- **`packages/tui/src/ui/routing.ts`** — `routeMouse`'s ctx gains a required
+  `warningStart: number | null`; a left press on the tab row at or past it returns `none`.
+
+### Verification
+
+- 3 tests added. All three red against `74b5d0f` and green after — confirmed by stashing only the
+  three source files and re-running: `112 pass, 3 fail`.
+- `bun run lint` clean, `bun run typecheck` clean across all five packages.
+- `bun test packages/tui packages/backend` → 1103 pass, 0 fail. Full `bun test` → 1358 pass, 8 fail
+  — exactly the known Task 22 set.
+
+## Decisions taken (Task 18, review round 4)
+
+- **The clear is deferred rather than the failure path being taught to restore.** Once
+  `terminal.reset()` has run the old screen is gone and there is nothing left to restore from — the
+  only fix that can work is not clearing until there is a replacement. Deferring also means the
+  pane keeps showing live output through the fetch window instead of freezing, which is strictly
+  better than what it did before.
+- **`historyLoaded` moved into `clearGrid()` rather than staying at the top of `attach()`.** It is
+  the flag that decides whether incoming output goes to the grid or into the replay queue, so it
+  has to flip at the same moment the grid is wiped, not earlier. Left at the top it would hold
+  output back for the whole fetch and then need it re-derived on the failure path.
+- **`warningStart` is a required field on `routeMouse`'s ctx, not an optional one.** There is one
+  production call site and an optional field would let a future one silently opt out of the rule.
+  The 22 test call sites were updated mechanically.
+- **The banner still overlays the tabs rather than shortening the strip.** Shortening would move
+  every tab boundary whenever a client comes or goes, which is a worse surprise than a few
+  unclickable columns; the tab under the banner is still reachable by its number key.
+
+Next step: review Task 18, round 5 — one gpt-5.5 review via codex-review over `3e31dd2..90a161f`,
 covering `packages/tui`, `packages/backend/src/ws/server.ts` and the `SYSTEM_CLIENTS` registration
-in `packages/backend/src/index.ts`. Round 3 found and fixed a defect, so the task is not clear yet.
-The brief should carry all seven findings from rounds 1–3 so they are not re-derived, and should
-say that `cli.ts`'s host validation has now been through three rounds — press somewhere else.
+in `packages/backend/src/index.ts`. Round 4 found and fixed two defects, so the task is not clear
+yet. The brief should carry all nine findings from rounds 1–4 so they are not re-derived, should
+repeat that `cli.ts`'s host validation is closed, and should press hardest on **the restructured
+`attach()`** — it is the round-4 fix and the least-reviewed code in the diff: the ordering of
+`clearGrid()` against the write queue, output arriving during the fetch window, two overlapping
+attaches, and whether the kitty-stack and DEC-mode recovery still hold now that the reset runs
+later.
 After that: Tasks 18.1, 19.6, 20, 21, 22 and 23. **18.1 and 19.6 are manual smoke tests — user
 gates**; 20, 21, 22 and 23 each need their own plan or investigation.
