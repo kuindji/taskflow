@@ -1,7 +1,14 @@
 # Taskflow Multi-Backend Client — Design
 
 Date: 2026-08-23
-Status: Approved for planning
+Status: Superseded by `docs/superpowers/specs/2026-08-24-taskflow-remote-projects-design.md`
+
+The topology decision at the centre of this document — one active backend at a
+time — was replaced on 2026-08-24 by an attached set of backends rendered
+together. The transport half (loopback bind, protocol version, the beacon, ssh
+tunnels, failure classification, host key trust, the artifact endpoint) carries
+over unchanged and is still specified here; the superseding document references
+it rather than restating it.
 
 ## Problem
 
