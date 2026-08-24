@@ -24,7 +24,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
-| 17 | Reconnection and session resync | in-review round 2 | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; next round 3 |
+| 17 | Reconnection and session resync | clear | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; round 3 found nothing — clear after round 3 |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
@@ -6484,7 +6484,48 @@ belongs with the code that opens one.
 - Full `bun test` → **1318 pass, 8 fail** — the same pre-existing `packages/ui`
   `MarkdownPaneImpl` failures logged as Task 22 (1316 + the 2 new tests here).
 
-Next step: review Task 17, round 3 — one gpt-5.5 review via the codex-review skill over
-`6f62137..1123c80`.
-After that: Task 18, then Tasks 19.6, 20, 21, 22 and 23 (20, 21, 22 and 23 each need their own
-plan or investigation; 18 and 19.6 are manual smoke tests — user gates).
+## Task 17 — review round 3
+
+**Round 3** (gpt-5.5 via codex-review, Mode B over `6f62137..1123c80` restricted to
+`packages/tui`): **no findings.** Verdict "Clear" — no remaining race, retry fan-out,
+pending-request leak or reload defect in scope. Codex independently ran
+`bun test packages/tui/src/net/reconnect.test.ts packages/tui/src/ui/app.test.ts` (28 pass),
+`bun run --cwd packages/tui typecheck` and `bunx eslint` over the four touched files, all clean.
+
+No code changed this round. **Task 17 is clear.**
+
+### Independent pass alongside the review
+
+Two things were checked by hand before accepting the verdict, and neither is a defect:
+
+- **"Session resync" is store reload only, and that is correct here.** `SessionTerminal.attach()`
+  is written for re-attach after a drop, but nothing in production calls it — `App.sessions` is
+  never populated, because the plan defers session creation and attach to Stage 2 under
+  "What this stage does not do" (plan line ~4796). So there is no open session for a reconnect to
+  resync, and the reload-on-reconnect listener in `app.ts` is the whole of the task's resync
+  surface at this stage. **When Stage 2 adds `SESSION_CREATE`, that same status listener must also
+  re-run `attach()` on every open session** — the comment in `client.ts` already promises it.
+- **`store.load()` overlap on rapid reconnects is already handled.** `Store.load` takes a
+  `loadToken` per call and refuses to commit a snapshot a later load has superseded, and the
+  deferred-mutation queue drains from each load's own mark, so overlapping reloads cannot put an
+  older snapshot back over a newer one.
+
+### Unverified suspicions (not findings, recorded so they are not re-derived)
+
+- **A dial that hangs in CONNECTING has no timeout of its own.** While a dial is in flight,
+  `reconnectTimer` is null and `this.ws` is set, so nothing is armed behind it; recovery depends
+  entirely on the OS surfacing the failure as `onerror`/`onclose`. For a refused connection that
+  is immediate, and for a blackholed SYN it is the ~75s kernel connect timeout, so the loop does
+  resume — just slowly. Could not construct a case where it stalls permanently. If remote mode
+  (Task 18) turns out to hang over a half-open tunnel, this is the first place to look.
+
+### Verification at `1123c80` (unchanged this round)
+
+- `bun test packages/tui/src/net/` → 14 pass, 0 fail.
+
+Next step: implement Task 18 — Remote mode (`packages/tui/src/cli.ts` with `parseArgs`, plus the
+`index.ts` wiring for `--connect host:port`). Plan Steps 1–6 and 8 are ordinary autonomous work;
+**Step 7 is a manual smoke test over an SSH tunnel — a user gate.** Implement through Step 6,
+commit, and stop at Step 7 rather than claiming it.
+After that: Tasks 19.6, 20, 21, 22 and 23 (20, 21, 22 and 23 each need their own plan or
+investigation; 19.6 is a manual smoke test — a user gate).
