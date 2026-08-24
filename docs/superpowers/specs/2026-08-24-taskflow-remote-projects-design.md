@@ -98,7 +98,7 @@ Three additions to what carries over:
 
 **File watches must become per client.** `FileWatcher` keeps one watcher per
 path (`services/file-watcher.ts:34`), `watch()` stops any existing watcher for
-that path before creating its own (`:122`), and `FILE_UNWATCH` stops it globally
+that path before creating its own (`:122-123`), and `FILE_UNWATCH` stops it globally
 (`handlers/file.ts:72-76`). One client per backend made that safe. Aggregate
 mode makes two clients per backend routine — the desktop's own app and the
 laptop attached to it — and then:
