@@ -7101,8 +7101,12 @@ produced a defect:
 - **The pre-existing export was fixed rather than filed as a separate task.** It is a one-line
   deletion that lint and typecheck both confirm is inert. Filing it would cost more than fixing it.
 
-Next step: Task 18.1 — the manual smoke test of remote mode over an SSH tunnel (plan Step 7).
-**This is a user gate:** it needs a second machine, a real `ssh -L` tunnel and a human at the
-keyboard, none of which this loop can do on its own.
+Next step: AWAITING USER — Task 18.1 is the manual smoke test of remote mode over an SSH tunnel
+(plan Step 7), and every remaining task is either another manual smoke test or needs its own plan.
+Which should this loop do: (a) you run the 18.1 smoke test and report back, (b) skip 18.1 and 19.6
+for now and have the loop write the plan for Task 20 (backend-side orphan shutdown), (c) have the
+loop take Task 21 (bound the incomplete-CSI carry), which is small and self-contained, or (d) have
+the loop investigate Task 22 (the full-suite-only `packages/ui` pane failures)?
+Task 18 itself is clear — all automated work on it is done.
 After that: Tasks 19.6, 20, 21, 22 and 23. **19.6 is also a manual smoke test — a user gate**;
 20, 21, 22 and 23 each need their own plan or investigation.
