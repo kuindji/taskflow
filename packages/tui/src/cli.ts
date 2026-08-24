@@ -67,13 +67,31 @@ function parseTarget(value: string): { host: string; port: number } {
     if (port < 1 || port > 65535) throw usageError();
 
     // The host is validated by building the URL that will actually be dialled
-    // and asking whether it parses. A regex matching the *shape* of a host
+    // and asking what it parses to. A regex matching the *shape* of a host
     // accepts literals no URL parser does — `[fe80::1%en0]`, `[:]`, `%zz` —
     // and each of those then fails inside `new WebSocket` as a bare
     // `TypeError: Invalid URL`, long after the point where a usage error could
     // still be printed. Asking the parser is also the only check that cannot
     // drift from what is dialled, because it builds the very same string.
-    if (!URL.canParse(backendUrl(host, port))) throw usageError();
+    const url = URL.parse(backendUrl(host, port));
+    if (url === null) throw usageError();
+    // Parsing has to have succeeded *and* to have consumed the whole target as
+    // an authority. That it parsed at all is not enough: `desktop/path:7777`
+    // parses too, as the host `desktop` with the path `/path:7777`, so the port
+    // that was typed is dropped and 80 dialled in its place — the same silent
+    // mis-dial a shape check gives, one layer further in. `/`, `\`, `?`, `#`
+    // and `@` each end the authority like that, and every one of them can only
+    // reach here inside the host, because everything after the first colon has
+    // already been required to be digits.
+    if (
+        url.username !== "" ||
+        url.password !== "" ||
+        url.pathname !== "/" ||
+        url.search !== "" ||
+        url.hash !== ""
+    ) {
+        throw usageError();
+    }
     return { host, port };
 }
 

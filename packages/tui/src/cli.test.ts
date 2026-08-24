@@ -78,6 +78,43 @@ describe("parseArgs", () => {
         expect(() => parseArgs(["--connect", "a%2Fb:7777"])).toThrow(/host:port/);
     });
 
+    test("rejects a host a URL parser would read as something other than a host", () => {
+        // Each of these parses, so `URL.canParse` alone waved them through —
+        // and each parses to a *different* authority from the one typed. The
+        // port is the visible casualty: `desktop/path:7777` becomes the host
+        // `desktop` with the path `/path:7777`, i.e. port 80.
+        expect(() => parseArgs(["--connect", "desktop/path:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "127.0.0.1/x:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "desktop\\path:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "desktop?q:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "desktop#frag:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "evil@desktop:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "user:pw@desktop:7777"])).toThrow(/host:port/);
+    });
+
+    test("every accepted target is dialled at the host and port that were typed", () => {
+        // The guard below proves the URL opens; this one proves it opens the
+        // right thing. `URL.canParse` answers the first question and not the
+        // second, which is how the host-as-path forms above got in.
+        const accepted: Array<[string, string, string]> = [
+            ["127.0.0.1:7777", "127.0.0.1", "7777"],
+            ["desktop.local:9000", "desktop.local", "9000"],
+            ["DESKTOP:65535", "desktop", "65535"],
+            ["[::1]:7777", "[::1]", "7777"],
+            ["[2001:db8::1]:7777", "[2001:db8::1]", "7777"],
+            // 80 is ws's default, so the URL drops it from `port` — the check
+            // is that it is the *default* rather than a port that went missing.
+            ["desktop:80", "desktop", ""],
+        ];
+        for (const [target, hostname, port] of accepted) {
+            const parsed = parseArgs(["--connect", target]).connect;
+            expect(parsed).not.toBeNull();
+            const url = new URL(backendUrl(parsed?.host ?? "", parsed?.port ?? 0));
+            expect(url.hostname).toBe(hostname);
+            expect(url.port).toBe(port);
+        }
+    });
+
     test("every accepted target produces a URL a WebSocket can open", () => {
         // The check that matters: whatever survives parseArgs must survive the
         // one thing done with it. Anything added to this list is validated
