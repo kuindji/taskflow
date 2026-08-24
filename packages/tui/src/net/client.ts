@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { hostForUrl, resolveBackendHost } from "@taskflow/shared";
 import type { WsRequest, WsResponse, WsEvent } from "@taskflow/shared";
 
 interface NetLike {
@@ -37,7 +38,12 @@ class WsClient implements NetLike {
                 else resolve();
             };
             this.settleConnect = settle;
-            const ws = new WebSocket(`ws://127.0.0.1:${String(this.port)}`);
+            // The backend follows TASKFLOW_HOST (packages/backend/src/ws/server.ts) and
+            // inherits this process's environment through startBackend, so the same read
+            // keeps the client pointed at the socket the backend actually bound.
+            const ws = new WebSocket(
+                `ws://${hostForUrl(resolveBackendHost())}:${String(this.port)}`,
+            );
             this.ws = ws;
             ws.onopen = () => {
                 if (this.ws !== ws) return;

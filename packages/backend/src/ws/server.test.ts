@@ -4,10 +4,13 @@ import { Router } from "./router";
 import { createServer } from "./server";
 
 let stop: (() => void) | null = null;
+const originalHost = process.env.TASKFLOW_HOST;
 
 afterEach(() => {
     stop?.();
     stop = null;
+    if (originalHost === undefined) delete process.env.TASKFLOW_HOST;
+    else process.env.TASKFLOW_HOST = originalHost;
 });
 
 async function startTestServer(): Promise<number> {
@@ -68,5 +71,24 @@ describe("createServer", () => {
         await Bun.sleep(50);
         expect(counts).toEqual([1]);
         first.close();
+    });
+
+    test("refuses to start on a host that is not loopback", async () => {
+        // TASKFLOW_HOST is an escape hatch for `localhost` resolving to `::1` only.
+        // It must not double as a way to publish the unauthenticated backend, so a
+        // wildcard or LAN address has to fail the bind rather than open the socket.
+        process.env.TASKFLOW_HOST = "0.0.0.0";
+        const router = new Router();
+        const server = createServer(router, 0);
+
+        let message: string | null = null;
+        try {
+            // Assigned so afterEach can close the socket if the bind is ever allowed.
+            stop = (await server.start()).stop;
+        } catch (err) {
+            message = err instanceof Error ? err.message : String(err);
+        }
+
+        expect(message).toMatch(/loopback/);
     });
 });

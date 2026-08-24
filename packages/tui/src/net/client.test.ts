@@ -6,12 +6,16 @@ const servers: Server<unknown>[] = [];
 const clients: WsClient[] = [];
 const accepted: ServerWebSocket<unknown>[] = [];
 
+const originalHost = process.env.TASKFLOW_HOST;
+
 afterEach(async () => {
     for (const client of clients) client.close();
     clients.length = 0;
     accepted.length = 0;
     for (const server of servers) await server.stop(true);
     servers.length = 0;
+    if (originalHost === undefined) delete process.env.TASKFLOW_HOST;
+    else process.env.TASKFLOW_HOST = originalHost;
 });
 
 function makeClient(port: number): WsClient {
@@ -89,6 +93,32 @@ function startEchoServer(): number {
 }
 
 describe("WsClient", () => {
+    test("dials the host the backend bound, not a hardcoded IPv4 literal", async () => {
+        // TASKFLOW_HOST=::1 is the escape hatch for a machine where `localhost`
+        // resolves to `::1` alone. The backend inherits this environment through
+        // startBackend, so a client pinned to 127.0.0.1 can never reach it.
+        const server: Server<unknown> = Bun.serve({
+            port: 0,
+            hostname: "::1",
+            fetch(req, s) {
+                if (s.upgrade(req, { data: {} })) return undefined;
+                return new Response("no");
+            },
+            websocket: {
+                message() {
+                    // The handshake is the whole assertion.
+                },
+            },
+        });
+        servers.push(server);
+        process.env.TASKFLOW_HOST = "::1";
+        const client = makeClient(server.port ?? 0);
+        const statuses: boolean[] = [];
+        client.onStatusChange((status) => statuses.push(status.connected));
+        await client.connect();
+        expect(statuses).toEqual([true]);
+    });
+
     test("resolves a request with its correlated response", async () => {
         const client = makeClient(startEchoServer());
         await client.connect();

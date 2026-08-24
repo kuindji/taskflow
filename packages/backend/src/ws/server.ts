@@ -1,5 +1,5 @@
 import type { Server, ServerWebSocket } from "bun";
-import { MSG } from "@taskflow/shared";
+import { MSG, resolveBackendHost } from "@taskflow/shared";
 import type { WsRequest, WsResponse, WsEvent, SystemClientsEvent } from "@taskflow/shared";
 import type { ApiRouter } from "../api/router";
 import { Router } from "./router";
@@ -46,7 +46,7 @@ export function createServer(
     async function start() {
         server = Bun.serve({
             port,
-            hostname: process.env.TASKFLOW_HOST ?? "127.0.0.1",
+            hostname: resolveBackendHost(),
             async fetch(req, server) {
                 if (server.upgrade(req, { data: {} })) return;
                 if (apiRouter) {

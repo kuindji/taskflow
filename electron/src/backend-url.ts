@@ -2,6 +2,12 @@
  * Where the local backend listens. The backend binds `TASKFLOW_HOST ?? "127.0.0.1"`
  * (see `packages/backend/src/ws/server.ts`) and inherits this process's environment,
  * so reading the same variable here keeps the main process pointed at the same socket.
+ *
+ * Deliberately duplicates `resolveBackendHost`/`hostForUrl` from `@taskflow/shared`
+ * rather than importing them: the Electron main bundle does not depend on that
+ * package, and pulling in its barrel would drag the themes and YAML deps with it.
+ * The value needs no validation here — the backend refuses to start on a non-loopback
+ * `TASKFLOW_HOST`, so an origin built from a rejected value is never reachable anyway.
  */
 function backendOrigin(port: number): string {
     const host = process.env.TASKFLOW_HOST ?? "127.0.0.1";
