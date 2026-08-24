@@ -441,4 +441,118 @@ describe("App", () => {
         expect(app.focus).toBe("sidebar");
         term.dispose();
     });
+    /**
+     * A session whose net records every request type, so an attach triggered
+     * from `App` can be counted. Installed through the same private-array seam
+     * as `openSession` and for the same reason.
+     */
+    function openCountingSession(app: App, id: string): { term: SessionTerminal; types: string[] } {
+        const types: string[] = [];
+        const net: NetLike = {
+            request: <T,>(type: string) => {
+                types.push(type);
+                return Promise.resolve({ snapshot: null, kittyStack: [], history: "" } as T);
+            },
+            on: () => () => undefined,
+            onStatusChange: () => () => undefined,
+        };
+        const term = new SessionTerminal({ net, sessionId: id, owner: {}, cols: 34, rows: 9 });
+        app["sessions"].push({ id, term });
+        return { term, types };
+    }
+
+    test("re-attaches every open session on reconnect", async () => {
+        const { app, net } = await makeApp();
+        const first = openCountingSession(app, "s1");
+        const second = openCountingSession(app, "s2");
+
+        net.setStatus(false);
+        net.setStatus(true);
+        // Let the attach round-trips settle.
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+
+        expect(first.types).toContain(MSG.SESSION_SNAPSHOT);
+        expect(second.types).toContain(MSG.SESSION_SNAPSHOT);
+        first.term.dispose();
+        second.term.dispose();
+    });
+
+    test("a reconnect survives a session whose attach rejects", async () => {
+        const { app, net } = await makeApp();
+        const failing: NetLike = {
+            request: <T,>() => Promise.reject<T>(new Error("gone")),
+            on: () => () => undefined,
+            onStatusChange: () => () => undefined,
+        };
+        const term = new SessionTerminal({
+            net: failing,
+            sessionId: "s1",
+            owner: {},
+            cols: 34,
+            rows: 9,
+        });
+        app["sessions"].push({ id: "s1", term });
+        const healthy = openCountingSession(app, "s2");
+
+        net.setStatus(false);
+        net.setStatus(true);
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+
+        // The rejection is swallowed, and the session behind it still attaches.
+        expect(healthy.types).toContain(MSG.SESSION_SNAPSHOT);
+        term.dispose();
+        healthy.term.dispose();
+    });
+
+    /** The banner text drawn on the tab row, trimmed of the blank cells around it. */
+    function tabRowText(screen: Screen): string {
+        let out = "";
+        for (let x = 0; x < screen.back.cols; x++) out += screen.back.get(x, 0).ch;
+        return out;
+    }
+
+    test("warns when another client is attached to the same backend", async () => {
+        const { app, net, screen } = await makeApp();
+        net.emit(MSG.SYSTEM_CLIENTS, { count: 3 });
+        app.render();
+        expect(tabRowText(screen)).toContain("2 other client(s) attached");
+    });
+
+    test("says nothing when this client is the only one", async () => {
+        const { app, net, screen } = await makeApp();
+        net.emit(MSG.SYSTEM_CLIENTS, { count: 1 });
+        app.render();
+        expect(tabRowText(screen)).not.toContain("other client(s) attached");
+    });
+
+    test("a count of zero does not render a negative client count", async () => {
+        const { app, net, screen } = await makeApp();
+        // The backend counts this client too, so 0 should not happen — but a
+        // count that lags a disconnect must not print "-1 other client(s)".
+        net.emit(MSG.SYSTEM_CLIENTS, { count: 0 });
+        app.render();
+        expect(tabRowText(screen)).not.toContain("other client(s) attached");
+    });
+
+    test("the warning is drawn in inverse video at the right of the tab row", async () => {
+        const { app, net, screen } = await makeApp();
+        net.emit(MSG.SYSTEM_CLIENTS, { count: 2 });
+        app.render();
+        // 60 columns, and the banner ends flush with the last one.
+        const last = screen.back.get(59, 0);
+        expect(last.ch).toBe(" ");
+        expect(last.attrs & ATTR_INVERSE).toBe(ATTR_INVERSE);
+        expect(screen.back.get(58, 0).ch).toBe("d");
+    });
+
+    test("the warning clears once the other client leaves", async () => {
+        const { app, net, screen } = await makeApp();
+        net.emit(MSG.SYSTEM_CLIENTS, { count: 2 });
+        app.render();
+        expect(tabRowText(screen)).toContain("1 other client(s) attached");
+
+        net.emit(MSG.SYSTEM_CLIENTS, { count: 1 });
+        app.render();
+        expect(tabRowText(screen)).not.toContain("other client(s) attached");
+    });
 });

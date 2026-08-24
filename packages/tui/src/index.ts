@@ -9,6 +9,7 @@ import { negotiateKitty } from "./input/negotiate";
 import { decodeKitty } from "./input/decode-kitty";
 import { decodeLegacy, flushCarry, isPartialMouseReport } from "./input/decode-legacy";
 import { App } from "./ui/app";
+import { parseArgs } from "./cli";
 
 const FRAME_INTERVAL_MS = 16;
 /** How long a held ESC waits for a continuation before counting as a real Escape. */
@@ -112,14 +113,24 @@ let terminalOwner: Tty | null = null;
 async function main(): Promise<void> {
     installSignalExit();
 
-    const devBranch = process.env.TASKFLOW_DEV_BRANCH ?? null;
-    const binary = process.env.TASKFLOW_BACKEND_BIN ?? "taskflow-backend";
-    // Registered from inside the spawn rather than from the resolved handle:
-    // awaiting the port file is the longest window in startup, and a signal
-    // during it must still take the backend down.
-    const backend = await startBackend({ binary, args: [], devBranch, onSpawn: releaseOnExit });
+    // Parsed before anything is spawned or entered: a usage error must not
+    // leave a backend behind or the terminal in raw mode.
+    const options = parseArgs(process.argv.slice(2));
 
-    const net = new WsClient(backend.port);
+    let net: WsClient;
+    if (options.connect === null) {
+        const devBranch = process.env.TASKFLOW_DEV_BRANCH ?? null;
+        const binary = process.env.TASKFLOW_BACKEND_BIN ?? "taskflow-backend";
+        // Registered from inside the spawn rather than from the resolved handle:
+        // awaiting the port file is the longest window in startup, and a signal
+        // during it must still take the backend down.
+        const backend = await startBackend({ binary, args: [], devBranch, onSpawn: releaseOnExit });
+        net = new WsClient(backend.port);
+    } else {
+        // Remote mode: the backend belongs to another machine and is reached
+        // through a tunnel, so there is no child process to own or shut down.
+        net = new WsClient(options.connect.port, options.connect.host);
+    }
     // Registered before the connect so a socket that fails midway through
     // opening is still torn down rather than left to the event loop.
     releaseOnExit(() => {
@@ -290,8 +301,10 @@ async function main(): Promise<void> {
         if (!app.running) {
             clearInterval(timer);
             tty.leave();
-            // `net` and `backend` are released by their `exit` handlers, which
-            // this reaches and every other way out of the process reaches too.
+            // `net`, and the backend when there is one, are released by their
+            // `exit` handlers, which this reaches and every other way out of
+            // the process reaches too. Remote mode registers no backend
+            // handler, so there is simply nothing to run for it.
             process.exit(0);
         }
         app.render();

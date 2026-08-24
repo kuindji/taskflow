@@ -1,5 +1,7 @@
 import { MSG } from "@taskflow/shared";
+import type { SystemClientsEvent } from "@taskflow/shared";
 import type { Screen } from "../render/screen";
+import { ATTR_INVERSE, blankCell } from "../render/cells";
 import type { Store } from "../state/store";
 import type { NetLike } from "../net/client";
 import type { KeyEvent } from "../input/keys";
@@ -11,6 +13,7 @@ import { buildRows, drawSidebar, type SidebarRow } from "./sidebar";
 import { drawTabs, drawSessionPane, type TabSpec } from "./session-pane";
 import { route, routeMouse, type Focus } from "./routing";
 import { computeLayout, insidePane } from "./layout";
+import type { Layout } from "./layout";
 
 /**
  * Pull `index` inside a list of `length`, and onto 0 when the list is empty —
@@ -43,6 +46,8 @@ class App {
     private sidebarRows: SidebarRow[] = [];
     private readonly sessions: OpenSession[] = [];
     private activeSession = 0;
+    /** Clients other than this one attached to the same backend. */
+    private otherClients = 0;
 
     constructor(private readonly deps: AppDeps) {}
 
@@ -55,9 +60,27 @@ class App {
         // socket is already open by the time init() runs, so the client emits no
         // further `connected: true` until an outage has actually happened.
         this.deps.net.onStatusChange(({ connected }) => {
+            if (!connected) return;
             // The store has no error channel: a reload that fails leaves the
             // stale rows in place, and the next reconnect tries again.
-            if (connected) void this.deps.store.load().catch(() => undefined);
+            void this.deps.store.load().catch(() => undefined);
+            // The backend keeps the PTY alive across a dropped connection, so a
+            // reconnect only has to re-fetch each session's current screen —
+            // the local xterm still holds whatever was on it before the drop,
+            // and everything the child wrote during the outage is missing from
+            // it. An attach that fails leaves that stale screen up, which is
+            // the same position a failed reload leaves the sidebar in.
+            for (const session of this.sessions) {
+                void session.term.attach().catch(() => undefined);
+            }
+        });
+        // A session has one grid on the backend and the last resize wins, so a
+        // second client attached at a different size makes one of the two
+        // render wrongly. The count is broadcast rather than asked for, and it
+        // includes this client — hence the -1.
+        this.deps.net.on(MSG.SYSTEM_CLIENTS, (payload) => {
+            const event = payload as SystemClientsEvent;
+            this.otherClients = Math.max(0, event.count - 1);
         });
         await this.deps.store.load();
         this.setRows(buildRows(this.deps.store));
@@ -242,6 +265,25 @@ class App {
             .catch(() => undefined);
     }
 
+    /**
+     * Overlay the "someone else is attached" banner on the right of the tab
+     * strip. Drawn over the tabs rather than beside them because the strip is
+     * the only row that is always present, and the warning matters more than
+     * the tail of a tab label.
+     */
+    private drawClientWarning(layout: Layout): void {
+        if (this.otherClients === 0) return;
+        const warning = ` ${String(this.otherClients)} other client(s) attached `;
+        const startX = Math.max(layout.paneX, layout.cols - warning.length);
+        for (let i = 0; i < warning.length; i++) {
+            this.deps.screen.back.set(startX + i, layout.tabRow, {
+                ...blankCell(),
+                ch: warning[i] ?? " ",
+                attrs: ATTR_INVERSE,
+            });
+        }
+    }
+
     render(): void {
         const { screen, cols, rows } = this.deps;
         // Rebuilt every frame: the store mutates in place on broadcasts, and the
@@ -254,6 +296,7 @@ class App {
         }
 
         drawTabs(screen.back, layout.paneX, layout.tabRow, layout.paneWidth, this.tabSpecs());
+        this.drawClientWarning(layout);
 
         const active = this.sessions[this.activeSession];
         const cursor = drawSessionPane(screen.back, active?.term ?? null, {
