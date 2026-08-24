@@ -581,6 +581,10 @@ export interface ThemeDeletePayload {
 // System messages
 export type SystemInfoResponse = SystemInfo;
 
+export interface SystemClientsEvent {
+    count: number;
+}
+
 // Notification messages — request payloads
 export interface NotificationMarkReadPayload {
     id: string;

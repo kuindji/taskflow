@@ -173,6 +173,7 @@ export const MSG = {
 
     // System
     SYSTEM_INFO: "system:info",
+    SYSTEM_CLIENTS: "system:clients",
 } as const;
 
 export const DEFAULT_THEME_ID = "catppuccin-mocha";

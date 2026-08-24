@@ -1,5 +1,6 @@
 import type { Server, ServerWebSocket } from "bun";
-import type { WsRequest, WsResponse, WsEvent } from "@taskflow/shared";
+import { MSG } from "@taskflow/shared";
+import type { WsRequest, WsResponse, WsEvent, SystemClientsEvent } from "@taskflow/shared";
 import type { ApiRouter } from "../api/router";
 import { Router } from "./router";
 
@@ -37,9 +38,15 @@ export function createServer(
         }
     }
 
+    function broadcastClientCount(): void {
+        const payload: SystemClientsEvent = { count: clients.size };
+        broadcast({ type: MSG.SYSTEM_CLIENTS, payload });
+    }
+
     async function start() {
         server = Bun.serve({
             port,
+            hostname: process.env.TASKFLOW_HOST ?? "127.0.0.1",
             async fetch(req, server) {
                 if (server.upgrade(req, { data: {} })) return;
                 if (apiRouter) {
@@ -53,9 +60,11 @@ export function createServer(
                 open(ws) {
                     clients.add(ws);
                     if (connectCallback) connectCallback();
+                    broadcastClientCount();
                 },
                 close(ws) {
                     clients.delete(ws);
+                    broadcastClientCount();
                 },
                 async message(ws, message) {
                     const raw =
