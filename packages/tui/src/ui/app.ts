@@ -47,6 +47,18 @@ class App {
     constructor(private readonly deps: AppDeps) {}
 
     async init(): Promise<void> {
+        // A reconnect resumes the broadcast stream but replays nothing that was
+        // missed, so every project and task change made while the socket was
+        // down is simply absent from the store. Take the snapshot again, or the
+        // sidebar keeps showing whatever the outage froze it at.
+        // Subscribed before the first load, but that load is not doubled: the
+        // socket is already open by the time init() runs, so the client emits no
+        // further `connected: true` until an outage has actually happened.
+        this.deps.net.onStatusChange(({ connected }) => {
+            // The store has no error channel: a reload that fails leaves the
+            // stale rows in place, and the next reconnect tries again.
+            if (connected) void this.deps.store.load().catch(() => undefined);
+        });
         await this.deps.store.load();
         this.setRows(buildRows(this.deps.store));
     }

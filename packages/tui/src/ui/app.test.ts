@@ -34,17 +34,22 @@ function task(id: string, projectId: string, title: string): Task {
 /** A net whose broadcast handlers can be fired, so the store can be mutated mid-test. */
 interface FakeNet extends NetLike {
     emit(type: string, payload: unknown): void;
+    /** Drive the connection status the way a drop and a reconnect would. */
+    setStatus(connected: boolean): void;
     /** Every SESSION_INPUT payload the app has sent, in order. */
     sent: string[];
 }
 
 function stubNet(projects: Project[], tasks: Task[]): FakeNet {
     const handlers = new Map<string, ((payload: unknown) => void)[]>();
+    const statusListeners = new Set<(status: { connected: boolean }) => void>();
     return {
         sent: [],
         request<T>(type: string, payload?: unknown): Promise<T> {
-            if (type === MSG.PROJECT_LIST) return Promise.resolve({ projects } as T);
-            if (type === MSG.TASK_LIST) return Promise.resolve({ tasks } as T);
+            // Copies, not the arrays themselves: a real snapshot arrives over the
+            // socket, so the store must not end up sharing a test's fixture.
+            if (type === MSG.PROJECT_LIST) return Promise.resolve({ projects: [...projects] } as T);
+            if (type === MSG.TASK_LIST) return Promise.resolve({ tasks: [...tasks] } as T);
             if (type === MSG.SESSION_INPUT) {
                 const data = (payload as { data?: unknown }).data;
                 this.sent.push(typeof data === "string" ? data : "");
@@ -57,7 +62,13 @@ function stubNet(projects: Project[], tasks: Task[]): FakeNet {
             handlers.set(type, list);
             return () => undefined;
         },
-        onStatusChange: () => () => undefined,
+        onStatusChange(listener: (status: { connected: boolean }) => void) {
+            statusListeners.add(listener);
+            return () => statusListeners.delete(listener);
+        },
+        setStatus(connected: boolean) {
+            for (const listener of statusListeners) listener({ connected });
+        },
         emit(type: string, payload: unknown) {
             for (const handler of handlers.get(type) ?? []) handler(payload);
         },
@@ -110,6 +121,7 @@ async function makeApp(
     sink: Sink & { output: string };
     screen: Screen;
     net: FakeNet;
+    tasks: Task[];
 }> {
     const net = stubNet(projects, tasks);
     const store = new Store(net);
@@ -124,7 +136,7 @@ async function makeApp(
         kittyAvailable: true,
     });
     await app.init();
-    return { app, sink, screen, net };
+    return { app, sink, screen, net, tasks };
 }
 
 /**
@@ -141,6 +153,26 @@ function selectedRow(screen: Screen): number | null {
 }
 
 describe("App", () => {
+    test("reloads the store on reconnect so the sidebar is not left stale", async () => {
+        const { app, sink, net, tasks } = await makeApp();
+        app.render();
+        expect(sink.output).toContain("Build the TUI");
+
+        // The outage: the backend broadcasts nothing to a client that is gone,
+        // so a task another client adds here never reaches the store.
+        net.setStatus(false);
+        tasks.push(task("t2", "p1", "Latecomer"));
+        net.setStatus(true);
+        // Let the reload's PROJECT_LIST/TASK_LIST round-trip settle.
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        sink.output = "";
+        app.render();
+        expect(sink.output).toContain("Latecomer");
+    });
+
     test("renders project and task names on the first frame", async () => {
         const { app, sink } = await makeApp();
         app.render();

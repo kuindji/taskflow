@@ -45,6 +45,10 @@ class WsClient implements NetLike {
         // close() no longer holds: leaving `closed` set would give them a live
         // socket with the retry loop silently disabled behind it.
         this.closed = false;
+        // An armed retry is superseded too. Left running, it fires after this
+        // dial has already succeeded and replaces the live socket, which fails
+        // every in-flight request and reports an outage the user never had.
+        this.cancelReconnect();
         // A second connect() supersedes the first: tear the old socket down so it
         // cannot deliver events or linger open behind the new one.
         this.disconnect(new Error("Connection replaced"));
@@ -124,6 +128,13 @@ class WsClient implements NetLike {
                 this.scheduleReconnect();
             });
         }, delay);
+    }
+
+    /** Disarm the retry loop. Safe when nothing is armed. */
+    private cancelReconnect(): void {
+        if (this.reconnectTimer === null) return;
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
     }
 
     private setStatus(connected: boolean): void {
@@ -221,10 +232,7 @@ class WsClient implements NetLike {
         // Set before anything else, so a close racing an armed timer cannot be
         // undone by the dial that timer was about to make.
         this.closed = true;
-        if (this.reconnectTimer !== null) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
+        this.cancelReconnect();
         this.disconnect(new Error("Client closed"));
     }
 }

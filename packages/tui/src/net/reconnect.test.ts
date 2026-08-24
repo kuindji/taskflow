@@ -100,4 +100,31 @@ describe("WsClient reconnection", () => {
         await Bun.sleep(1500);
         expect(opened).toBe(0);
     }, 15_000);
+
+    test("a manual connect cancels the armed retry instead of being replaced by it", async () => {
+        server = serveOn(0);
+        const port = server.port ?? 0;
+        client = new WsClient(port);
+        await client.connect();
+
+        // Drop the socket so onclose arms a retry, then dial again by hand
+        // before that timer can fire.
+        await server.stop(true);
+        await Bun.sleep(50);
+        server = serveOn(port);
+        await client.connect();
+
+        const states: boolean[] = [];
+        client.onStatusChange((status) => {
+            states.push(status.connected);
+        });
+        // Long enough for the retry armed above (250ms) to fire.
+        await Bun.sleep(800);
+
+        // A stale timer that still dials would tear this live socket down as
+        // "Connection replaced", reporting a disconnect the user never had.
+        expect(states).toEqual([]);
+        const result = await client.request<{ ok: boolean }>("ping");
+        expect(result.ok).toBe(true);
+    }, 15_000);
 });
