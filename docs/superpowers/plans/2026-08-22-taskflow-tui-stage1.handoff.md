@@ -23,7 +23,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
-| 16 | Backend — bind to loopback and report connected clients | in-review round 2 | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`; rounds 1 and 2 each found 2 real defects, all fixed — needs round 3 |
+| 16 | Backend — bind to loopback and report connected clients | in-review round 3 | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`; rounds 1 and 2 found 2 real defects each, round 3 found 3 — all fixed; needs round 4 |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
@@ -6010,7 +6010,74 @@ packages/shared/src/utils/backend-host.test.ts electron/src/backend-url.test.ts`
    anyway: the backend refuses to start on a rejected value, so an origin built from one is
    never reachable. The duplication is now called out in that file's doc comment.
 
-Next step: review Task 16, round 3 — one gpt-5.5 review via the codex-review skill over
-`2684302..9286b46`.
+- **Task 16, round 3** (gpt-5.5 via codex-review, Mode B over `2684302..9286b46`, docs
+  excluded): three findings, all three substantiated and fixed in `74a1f88`. Codex explicitly
+  reported no loopback-gate bypass and nothing unconfirmed. Run the repros with
+  `bun test packages/shared/src/utils/backend-host.test.ts electron/src/backend-url.test.ts`.
+
+  All three are the same defect class: the bind host and the address a client dials drifting
+  apart. Round 1 fixed it for Electron's HTTP origin, round 2 for the TUI's WebSocket dial;
+  round 3 found the three call sites those rounds missed.
+
+  - **Substantiated — an accepted `TASKFLOW_HOST` the renderer cannot reach.**
+    `resolveBackendHost` accepted all of 127/8, but `packages/ui/src/hooks/useWebSocket.ts:67`
+    dials `ws://localhost:<port>` and `packages/ui/src/lib/backend-url.ts:5` builds
+    `http://localhost:<port>`, neither of which reaches `127.0.0.2`. Set
+    `TASKFLOW_HOST=127.0.0.2` on Linux (where 127/8 is bound) and the backend comes up but the
+    desktop UI never connects.
+    Fixed by narrowing rather than by plumbing the host into the renderer — see decision 1.
+    Regression test: `resolveBackendHost > refuses to bind the unauthenticated backend to
+    "127.0.0.2"` (and `"127.255.255.254"`) — those two hosts were in the *accepts* list at
+    `9286b46`, so the pair is red there and green on `74a1f88`.
+    Reproducing the runtime half on macOS needs a `sudo ifconfig lo0 alias 127.0.0.2` first:
+    unaliased, `Bun.serve({hostname: "127.0.0.2"})` dies with a misleading `EADDRINUSE`
+    (verified at `9286b46`), which is its own bad outcome for an accepted value.
+  - **Substantiated — spawned agents were handed `http://localhost:<port>`.**
+    `session-lifecycle.ts:454` hardcoded the name, so with the backend on `::1` an agent's
+    `taskflow-cli` call resolves `localhost` to IPv4 first and cannot reach it — which is
+    exactly the host the escape hatch exists for. Now built from
+    `backendHttpOrigin(getPort())`.
+    Regression test: `backendHttpOrigin > follows the host the backend bound` — the symbol did
+    not exist at `9286b46`, so the file does not compile there; green on `74a1f88`.
+  - **Substantiated — `TASKFLOW_HOST=""` produced an unparseable Electron origin.**
+    `electron/src/backend-url.ts:13` used `?? "127.0.0.1"`, which does not catch the empty
+    string, while `resolveBackendHost` treats `""` as unset. So the backend bound `127.0.0.1`
+    and Electron main built `http://:7100` — `new URL()` throws `Invalid URL`, breaking the
+    notification poller, tray state and window-bounds fetches.
+    Verified independently before writing the fix. Regression test: `backendOrigin > treats an
+    empty TASKFLOW_HOST as unset, exactly as the backend does` — red on `9286b46`
+    (`http://:7100`), green on `74a1f88`.
+
+Verification at `74a1f88`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages plus electron, `bun run build` (UI + electron) clean, and
+`grep -c 'resolveBackendHost\|backendHttpOrigin' packages/ui/dist/assets/index-*.js` → `0`, so
+the new helper is still tree-shaken out of the browser bundle. Targeted:
+`bun test packages/shared/src/utils/backend-host.test.ts electron/src/backend-url.test.ts
+packages/backend/src/ws/server.test.ts packages/tui/src/net/client.test.ts` → 31 pass, 0 fail.
+Full `bun test` → 1309 pass, 8 fail; the 8 are the same pre-existing `packages/ui`
+`MarkdownPaneImpl` failures logged as Task 22 (1306 → 1309 is the net 3 new tests).
+
+**Findings were fixed, so Task 16 needs another review round.**
+
+## Decisions taken (Task 16 review round 3)
+
+1. **The accepted `TASKFLOW_HOST` set is narrowed to `127.0.0.1`, `::1`, `0:0:0:0:0:0:0:1` and
+   `localhost`** — the addresses `localhost` itself resolves to — rather than teaching the
+   renderer the bind host over Electron IPC, which is what Codex suggested. The hatch exists
+   for exactly one scenario (a host that resolves `localhost` to `::1` alone); no use case
+   wants `127.0.0.2`, and a new preload/IPC channel is a materially larger surface than this
+   task's scope. It is also consistent with round 2's decision 3, which narrowed the IPv6
+   spellings on the same reasoning. Safe to reverse: the variable is new in this task.
+2. **`backendHttpOrigin` lives in `@taskflow/shared` beside the other two helpers.** The
+   backend already depends on shared, and putting the composition behind a named function is
+   what makes the agent-facing URL testable — it is the one URL handed to an external process.
+3. **`electron/src/backend-url.ts` still gets no validation, only the empty-string fix.**
+   Round 1 decision 2 and round 2 decision 5 stand; the bug was a divergence in the *default*,
+   not a missing check.
+4. **The error message keeps the word "loopback"** and now names the exact three accepted
+   spellings, so an operator who set `0.0.0.0` reads both why it was refused and what to use.
+
+Next step: review Task 16, round 4 — one gpt-5.5 review via the codex-review skill over
+`2684302..74a1f88`.
 After that: Tasks 17-18, then Tasks 19.6, 20, 21 and 22 (20, 21 and 22 each need their own
 plan or investigation).
