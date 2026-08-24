@@ -1,5 +1,11 @@
 # Taskflow TUI OpenTUI rewrite implementation plan
 
+Status: implemented on 2026-08-24. The remote SSH-tunnel smoke test remains
+deferred, and the production session list remains empty until Stage 2.
+
+Level 1 review: Clear after fixing shifted printable Kitty input so the decoded
+text is preserved instead of being re-encoded as a modified physical key.
+
 Design: `docs/superpowers/specs/2026-08-24-taskflow-tui-opentui-design.md`
 
 Goal: replace the completed Stage 1 client's custom renderer, outer input
@@ -167,8 +173,10 @@ Work:
    terminal when it becomes active.
 9. Set `selectable: false`, so a child mouse gesture cannot also start host text
    selection.
-10. Set an explicit `maxScrollback` of 2 MiB. Do not accept OpenTUI's
-    10,000-byte default in place of the legacy 5,000-line history.
+10. Set an explicit `maxScrollback` of 16 MiB. The planned 2 MiB retained only
+    about 950 full 200-column rows because OpenTUI accounts native cell storage,
+    not raw input bytes. The 16 MiB setting passes the 5,000-line fixture. Do
+    not accept OpenTUI's 10,000-byte default in place of the legacy history.
 11. Destroy backend subscriptions and native terminal state idempotently.
 
 Acceptance:

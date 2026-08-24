@@ -7217,3 +7217,40 @@ keeping `bun test` red, so it costs signal on every run), then **23** (the flaky
 timeout), then **20** (backend-side orphan shutdown, which needs its own plan written first).
 **18.1** and **19.6** are manual smoke tests and need a human at a real terminal; 18.1 additionally
 waits on remote-backend work coming off hold.
+
+## OpenTUI rewrite completed on 2026-08-24
+
+The TUI now uses the imperative `@opentui/core@0.5.7` renderer and
+`EmbeddedTerminalRenderable`. The custom outer renderer, TTY owner, input
+decoders, mouse parser, child encoders, manual layout, blitter, and client-side
+`@xterm/headless` dependency were removed. `web-tree-sitter@0.25.10` is pinned
+because OpenTUI requires its WASM asset when Bun compiles a standalone binary.
+
+The backend snapshot now includes `mouseEncoding`. `PtyManager` tracks X10,
+UTF-8, SGR, urxvt, and SGR pixel modes, including matching disable and RIS.
+`SessionBridge` rejects an old backend only when it returns a non-null snapshot
+without the required field. A null snapshot still falls back to raw history.
+
+The production boundary did not change. `OpenTuiApp` receives `sessions: []`.
+Stage 2 still owns session creation, attaching existing sessions, close, resume,
+and runtime tab population. The remote SSH-tunnel smoke test, backend orphan
+shutdown, and the pre-existing full-suite items remain outside this rewrite.
+
+Local real-terminal checks covered product launch, keyboard and mouse
+navigation, zoom, clean `Q` exit, signal restoration, the concurrent-client
+warning, and a deterministic embedded-terminal probe. The probe covered
+Escape, Shift+Enter, Ctrl+C, Unicode bracketed paste, application arrows,
+focus reports, SGR mouse input, and terminal restoration. A compiled default
+binary was copied outside the checkout, launched there, and exited cleanly.
+
+The rewrite's Level 1 review is clear. It found one material input-parity issue:
+a shifted printable Kitty event such as `Q` was being turned into a Kitty
+control sequence before reaching the child. The adapter now preserves decoded
+printable text, with a real-`KeyEvent` regression test at the embedded-terminal
+boundary.
+
+Final validation: `bun test packages/tui` passes 120 tests, the focused
+`PtyManager` suites pass 19 tests, lint and all workspace typechecks are clean,
+the standalone TUI build succeeds, and `git diff --check` is clean. The full
+suite's nine failures are identical on the detached pre-rewrite checkout. The
+repository-wide format check still reports four pre-existing, unmodified files.

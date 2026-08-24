@@ -17,6 +17,7 @@ describe("PtyManager.getSnapshot", () => {
         const result = manager.getSnapshot("nonexistent");
         expect(result.snapshot).toBeNull();
         expect(result.lastSequence).toBe(0);
+        expect(result.mouseEncoding).toBe("x10");
     });
 
     it("returns serialized snapshot of active session output", async () => {
@@ -102,6 +103,28 @@ describe("PtyManager.getSnapshot", () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(manager.getSnapshot(sessionId).kittyStack).toEqual([null, 1]);
         manager.close(sessionId);
+    });
+
+    it("tracks mouse encoding enables, matching disables, and RIS", async () => {
+        const encodingAfter = async (initialOutput: string) => {
+            const sessionId = manager.spawn({
+                command: testShell,
+                args: [],
+                cwd: testCwd,
+                initialOutput,
+                onData: () => {},
+                onExit: () => {},
+            });
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            const encoding = manager.getSnapshot(sessionId).mouseEncoding;
+            manager.close(sessionId);
+            return encoding;
+        };
+
+        expect(await encodingAfter("\x1b[?1006h")).toBe("sgr");
+        expect(await encodingAfter("\x1b[?1006h\x1b[?1015l")).toBe("sgr");
+        expect(await encodingAfter("\x1b[?1006h\x1b[?1006l")).toBe("x10");
+        expect(await encodingAfter("\x1b[?1016h\x1bc")).toBe("x10");
     });
 
     it("does not claim a sequence the restored log has not been parsed into yet", () => {

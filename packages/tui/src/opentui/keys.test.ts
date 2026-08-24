@@ -1,0 +1,112 @@
+import { describe, expect, it } from "bun:test";
+import { KeyEvent } from "@opentui/core";
+import { KeyRouter, prepareForEmbeddedTerminal } from "./keys";
+
+function key(
+    name: string,
+    options: Partial<ConstructorParameters<typeof KeyEvent>[0]> = {},
+): KeyEvent {
+    return new KeyEvent({
+        name,
+        ctrl: false,
+        meta: false,
+        shift: false,
+        option: false,
+        sequence: name,
+        number: false,
+        raw: name,
+        eventType: "press",
+        source: "raw",
+        ...options,
+    });
+}
+
+describe("KeyRouter", () => {
+    it("uses the event source for Ctrl+Escape support", () => {
+        const router = new KeyRouter();
+        expect(router.route("session", key("escape", { ctrl: true, source: "raw" })).kind).toBe(
+            "pass",
+        );
+        expect(router.route("session", key("escape", { ctrl: true, source: "kitty" })).kind).toBe(
+            "switch-focus",
+        );
+    });
+
+    it("consumes switch repeats and releases without toggling twice", () => {
+        const router = new KeyRouter();
+        expect(router.route("session", key("escape", { ctrl: true, source: "kitty" })).kind).toBe(
+            "switch-focus",
+        );
+        expect(
+            router.route(
+                "ui",
+                key("escape", { ctrl: true, source: "kitty", eventType: "repeat", repeated: true }),
+            ).kind,
+        ).toBe("consume");
+        expect(
+            router.route("ui", key("escape", { ctrl: true, source: "kitty", eventType: "release" }))
+                .kind,
+        ).toBe("consume");
+    });
+
+    it("holds a raw Escape for double-Escape without losing the next key", () => {
+        const router = new KeyRouter();
+        const escape = key("escape");
+        const letter = key("x");
+        expect(router.route("session", escape).kind).toBe("hold-escape");
+        expect(router.route("session", letter)).toEqual({ kind: "pass", before: escape });
+    });
+
+    it("routes the Stage 1 UI commands", () => {
+        const router = new KeyRouter();
+        expect(router.route("ui", key("down"))).toEqual({
+            kind: "command",
+            command: { kind: "move", delta: 1 },
+            before: undefined,
+        });
+        expect(router.route("ui", key("3"))).toEqual({
+            kind: "command",
+            command: { kind: "select-tab", index: 2 },
+            before: undefined,
+        });
+        expect(router.route("ui", key("q", { shift: true, sequence: "Q" }))).toEqual({
+            kind: "command",
+            command: { kind: "quit" },
+            before: undefined,
+        });
+    });
+
+    it("adapts Kitty parser fields to OpenTUI physical keys", () => {
+        const ctrlC = key("c", {
+            ctrl: true,
+            source: "kitty",
+            code: "[99u",
+            sequence: "c",
+            raw: "\x1b[99;5u",
+        });
+        prepareForEmbeddedTerminal(ctrlC);
+        expect(ctrlC.code).toBe("KeyC");
+        expect(ctrlC.sequence).toBe("");
+
+        const enter = key("return", {
+            shift: true,
+            source: "kitty",
+            code: "[13u",
+            sequence: "\x1b[13;2u",
+        });
+        prepareForEmbeddedTerminal(enter);
+        expect(enter.code).toBeUndefined();
+        expect(enter.sequence).toBe("");
+
+        const shiftedLetter = key("q", {
+            shift: true,
+            source: "kitty",
+            code: "[113u",
+            sequence: "Q",
+            raw: "\x1b[113;2u",
+        });
+        prepareForEmbeddedTerminal(shiftedLetter);
+        expect(shiftedLetter.code).toBeUndefined();
+        expect(shiftedLetter.sequence).toBe("Q");
+    });
+});

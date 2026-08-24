@@ -10,8 +10,9 @@
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
+        "@opentui/core": "0.5.7",
         "@taskflow/shared": "workspace:*",
-        "@xterm/headless": "^5.5.0"
+        "web-tree-sitter": "0.25.10"
     },
     "devDependencies": {
         "typescript": "^5.7.0"

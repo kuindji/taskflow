@@ -3,6 +3,12 @@
 Date: 2026-08-22
 Status: Approved for planning
 
+The renderer, input, layout, focus, mouse, and client VT decisions in this
+document were superseded by
+`docs/superpowers/specs/2026-08-24-taskflow-tui-opentui-design.md`. The backend,
+transport, local and remote modes, state mirroring, and staged product scope
+remain current.
+
 ## Problem
 
 Taskflow is usable only through the Electron app. On a Linux tiling-WM setup

@@ -230,6 +230,8 @@ export interface SessionSnapshotPayload {
     sessionId: string;
 }
 
+export type MouseEncoding = "x10" | "utf8" | "sgr" | "urxvt" | "sgr-pixels";
+
 export interface SessionSnapshotResponse {
     snapshot: string | null;
     lastSequence: number;
@@ -241,6 +243,8 @@ export interface SessionSnapshotResponse {
      * the flags underneath rather than dropping to legacy.
      */
     kittyStack: (number | null)[];
+    /** Mouse report encoding selected by the child; xterm snapshots omit it. */
+    mouseEncoding: MouseEncoding;
 }
 
 // Shell detection

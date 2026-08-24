@@ -124,7 +124,7 @@ class WsClient implements NetLike {
     /**
      * Dial again after a backoff. Over a tunnel the connection drops whenever the
      * laptop sleeps or changes network, so this is the normal path rather than an
-     * error path — each open session re-runs `SessionTerminal.attach()`, which
+     * error path — each open session re-runs `SessionBridge.attach()`, which
      * restores its screen from the backend's snapshot.
      */
     private scheduleReconnect(): void {

@@ -3,7 +3,7 @@ import type { Terminal } from "bun";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { TERMINAL_SCROLLBACK, KittyKeyboardStack } from "@taskflow/shared";
-import type { SessionSnapshotResponse } from "@taskflow/shared";
+import type { MouseEncoding, SessionSnapshotResponse } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 import { isWindows } from "./platform";
 import { WindowsPtySession } from "./pty-session-win";
@@ -124,6 +124,8 @@ interface Session {
     serializer: SerializeAddon;
     /** Kitty keyboard protocol state the child pushed; SerializeAddon does not carry it. */
     kitty: KittyKeyboardStack;
+    /** DEC private mouse encoding mode, which SerializeAddon does not carry. */
+    mouseEncoding: MouseEncoding;
     /** Cancels a pending initial-input injection; set only when spawned with initialInput. */
     cancelInitialInput?: () => void;
 }
@@ -169,6 +171,7 @@ export class PtyManager {
         // Track it here and report it alongside the snapshot. Registered before
         // any output is written so a restored session re-derives its state.
         const kitty = new KittyKeyboardStack();
+        let mouseEncoding: MouseEncoding = "x10";
         headless.parser.registerCsiHandler({ prefix: ">", final: "u" }, (params) => {
             const first = params[0];
             kitty.push(typeof first === "number" ? first : 0);
@@ -177,6 +180,33 @@ export class PtyManager {
         headless.parser.registerCsiHandler({ prefix: "<", final: "u" }, (params) => {
             const first = params[0];
             kitty.pop(typeof first === "number" ? first : 1);
+            return false;
+        });
+
+        const mouseEncodingModes: Readonly<Record<number, MouseEncoding | undefined>> = {
+            1005: "utf8",
+            1006: "sgr",
+            1015: "urxvt",
+            1016: "sgr-pixels",
+        };
+        const trackMouseEncoding =
+            (set: boolean) =>
+            (params: (number | number[])[]): boolean => {
+                for (const param of params) {
+                    if (typeof param !== "number") continue;
+                    const encoding = mouseEncodingModes[param];
+                    if (encoding === undefined) continue;
+                    if (set) mouseEncoding = encoding;
+                    else if (mouseEncoding === encoding) mouseEncoding = "x10";
+                }
+                if (sessionEntry) sessionEntry.mouseEncoding = mouseEncoding;
+                return false;
+            };
+        headless.parser.registerCsiHandler({ prefix: "?", final: "h" }, trackMouseEncoding(true));
+        headless.parser.registerCsiHandler({ prefix: "?", final: "l" }, trackMouseEncoding(false));
+        headless.parser.registerEscHandler({ final: "c" }, () => {
+            mouseEncoding = "x10";
+            if (sessionEntry) sessionEntry.mouseEncoding = mouseEncoding;
             return false;
         });
 
@@ -325,6 +355,7 @@ export class PtyManager {
             headless,
             serializer,
             kitty,
+            mouseEncoding,
             ...(initialInput !== undefined && {
                 cancelInitialInput: () => {
                     injected = true;
@@ -377,7 +408,13 @@ export class PtyManager {
         // blank screen. Reporting no snapshot sends the client to SESSION_HISTORY,
         // which serves the scrollback the grid is still catching up on.
         if (!session || session.restorePending) {
-            return { snapshot: null, lastSequence: 0, cursorHidden: false, kittyStack: [] };
+            return {
+                snapshot: null,
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack: [],
+                mouseEncoding: "x10",
+            };
         }
         // Access internal API: SerializeAddon v0.13.0 doesn't serialize DECTCEM
         // (cursor visibility), so we read it from the headless terminal's core.
@@ -394,6 +431,7 @@ export class PtyManager {
             lastSequence: session.parsedSequence,
             cursorHidden,
             kittyStack: session.kitty.toArray(),
+            mouseEncoding: session.mouseEncoding,
         };
     }
 
