@@ -438,4 +438,3 @@ class SessionTerminal {
 }
 
 export { SessionTerminal };
-export type { SessionOwner };
