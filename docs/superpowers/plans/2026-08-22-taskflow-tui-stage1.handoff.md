@@ -23,7 +23,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
-| 16 | Backend — bind to loopback and report connected clients | in-review round 1 | `2684302` | commits `2c0a633`, `eb6fd75`; round 1 found 2 real defects (one Codex, one Codex missed), both fixed — needs round 2 |
+| 16 | Backend — bind to loopback and report connected clients | in-review round 2 | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`; rounds 1 and 2 each found 2 real defects, all fixed — needs round 3 |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
@@ -5918,7 +5918,99 @@ purely from the 3 new tests).
    one-line, highly visible property. Safe and reversible either way, so under the anti-stall
    rule the loop continued rather than asking.
 
-Next step: review Task 16, round 2 — one gpt-5.5 review via the codex-review skill over
-`2684302..eb6fd75`.
+## Task 16 — review round 2
+
+One gpt-5.5 review via the codex-review skill (Mode B, prompted, over `2684302..dd5caac`
+with the handoff excluded). Codex reported exactly one finding, and it holds up; a second
+defect of the same class as round 1's was found here independently. Both fixed in `9286b46`.
+
+### Finding 1 (Codex, high) — `TASKFLOW_HOST` was an unguarded way back onto the network
+
+What an operator would see: they set `TASKFLOW_HOST=0.0.0.0` (or a LAN address) expecting to
+reach Taskflow from another machine, and it works — the unauthenticated backend, with full
+filesystem and process-spawning reach, is now listening on every interface. The whole point of
+Task 16 was to close that, and the plan says the hatch exists "without reopening the socket to
+the network". The variable was passed verbatim to `Bun.serve`, so it honoured anything.
+
+Regression test: `createServer > refuses to start on a host that is not loopback` in
+`packages/backend/src/ws/server.test.ts`. Red on `dd5caac` — the server started happily and
+`message` stayed `null`:
+
+```
+error: expect(received).rejects.toThrow(expected)
+Expected promise that rejects / Received promise that resolved
+(fail) createServer > refuses to start on a host that is not loopback
+```
+
+Green on `9286b46`. Run with `bun test packages/backend/src/ws/server.test.ts`.
+
+**Fix.** `resolveBackendHost()` accepts `127.x.x.x`, `::1`, `0:0:0:0:0:0:0:1` and `localhost`,
+treats unset and empty as the `127.0.0.1` default, and throws for anything else with a message
+naming the variable and pointing at the SSH tunnel. `TASKFLOW_HOST` was introduced by this very
+task, so there is no existing user whose non-loopback value this breaks.
+
+### Finding 2 (found independently, Codex missed it) — the TUI could not follow its own hatch
+
+Exactly the defect round 1 fixed for the four Electron main-process fetches, one package over:
+`packages/tui/src/net/client.ts:40` dialled a hardcoded `ws://127.0.0.1:<port>`. The TUI's
+`startBackend` spreads `process.env` into the backend child (`manager.ts:123-127`), so under
+`TASKFLOW_HOST=::1` the backend binds `::1` and the TUI that spawned it cannot connect at all —
+it dies on startup with `WebSocket connection error`. Round 1 fixed the desktop app's four call
+sites and left the terminal client, which this plan is building, unable to start.
+
+Probed before writing the test, against a real `::1`-bound server:
+
+```
+bun run probe.ts   # WsClient(port).connect() with TASKFLOW_HOST=::1
+→ FAILED: WebSocket connection error
+```
+
+Regression test: `WsClient > dials the host the backend bound, not a hardcoded IPv4 literal`
+in `packages/tui/src/net/client.test.ts` — red on `dd5caac` (throws at `client.ts:49`), green
+on `9286b46`. Run with `bun test packages/tui/src/net/client.test.ts`.
+
+### Supporting change
+
+Both call sites now go through `packages/shared/src/utils/backend-host.ts`
+(`resolveBackendHost`, `hostForUrl`), exported from the shared barrel, so the server's bind and
+the client's dial cannot drift apart. `packages/shared/src/utils/backend-host.test.ts` (14
+tests) pins the default, the empty value, each accepted loopback spelling, each rejected
+non-loopback form, and the IPv6 bracketing.
+
+Checked that this does not leak a Node-only `process.env` read into the browser: the read sits
+inside a function body, and `bun run build` tree-shakes `resolveBackendHost` out of the UI
+bundle entirely (`grep -c resolveBackendHost packages/ui/dist/assets/index-*.js` → `0`).
+
+Verification at `9286b46`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages plus electron, `bun run build` (UI + electron) clean. Targeted:
+`bun test packages/tui/src/net/client.test.ts packages/backend/src/ws/server.test.ts
+packages/shared/src/utils/backend-host.test.ts electron/src/backend-url.test.ts` → 28 pass,
+0 fail. Full `bun test` → 1306 pass, 8 fail; the 8 are the same pre-existing `packages/ui`
+`MarkdownPaneImpl` failures logged as Task 22 (1290 → 1306 is the 16 new tests).
+
+**Findings were fixed, so Task 16 needs another review round.**
+
+## Decisions taken (Task 16 review round 2)
+
+1. **A non-loopback `TASKFLOW_HOST` throws rather than warning and falling back.** A silent
+   fallback would leave an operator who deliberately set `0.0.0.0` believing they had remote
+   access while the socket stayed on loopback — the confusing failure. Throwing at bind names
+   the variable and the supported alternative immediately. Safe to reverse: the variable is new
+   in this task, so nothing depends on the old permissive behaviour.
+2. **`localhost` is accepted alongside the literals.** It resolves to loopback on every host,
+   costs nothing to allow, and is what someone reaches for first.
+3. **Exotic IPv6 loopback spellings are not accepted** — only `::1` and `0:0:0:0:0:0:0:1`.
+   Parsing every legal abbreviation to prove it is loopback is far more code than the hatch
+   deserves, and the error message names the spelling to use.
+4. **The helper lives in `@taskflow/shared`, not duplicated per package.** Backend and TUI both
+   depend on shared, so one module keeps the bind and the dial in step.
+5. **`electron/src/backend-url.ts` keeps its own copy and gains no validation.** Electron main
+   does not depend on `@taskflow/shared`, and importing the barrel would pull the themes and
+   YAML deps into the main bundle — round 1's decision 2 stands. Validation there is redundant
+   anyway: the backend refuses to start on a rejected value, so an origin built from one is
+   never reachable. The duplication is now called out in that file's doc comment.
+
+Next step: review Task 16, round 3 — one gpt-5.5 review via the codex-review skill over
+`2684302..9286b46`.
 After that: Tasks 17-18, then Tasks 19.6, 20, 21 and 22 (20, 21 and 22 each need their own
 plan or investigation).
