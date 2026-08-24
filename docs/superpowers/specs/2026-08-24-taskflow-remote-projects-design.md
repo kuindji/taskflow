@@ -199,9 +199,19 @@ Connection {
 ```
 
 The connection registry holds `Map<backendId, Connection>`. Two connections to
-different machines are separate objects, so the superseded design's generation
-counter is unnecessary — it existed only to tell two sockets to the *same*
-logical backend apart during a swap.
+*different* machines are separate objects, so no cross-backend generation
+tagging is needed — the superseded design's counter existed to tell two sockets
+to one logical backend apart during a swap, and that case is gone.
+
+The *same-backend* case is not gone. A reconnect replaces the socket inside one
+`Connection`, and the old socket can still deliver a late message, close or
+error. Today that is handled by nulling `ws.onclose` before closing
+(`useWebSocket.ts`), which does not cover a late `onmessage` resolving a pending
+request on the replacement socket. So each `Connection` carries a socket
+**epoch**: every socket captures the epoch it was created with, pending requests
+are tagged with it, and `onmessage`, `onclose` and `onerror` return immediately
+when their epoch is not current. Only the current socket may flip that
+connection's status or schedule its reconnect.
 
 The public surface becomes:
 
@@ -239,21 +249,73 @@ up first, which is why the stamp lives on the record rather than in a side map.
 
 ### Aggregating stores and workspace stores
 
-**Aggregating** — flat arrays holding `Scoped<T>` from every attached machine.
-`project-store`, `task-store`, `notification-store`, `schedule-store`,
-`session-activity` and the subscription layer in `session-subscriptions`.
-Fetches fan out across the attached set and concatenate; a fetch that fails for
-one machine leaves the others' records in place and marks that machine offline.
+The rule is **not** "stores that sound global aggregate". It is: **a store
+aggregates if anything reads it from outside the active workspace.** The sidebar
+is the reason — it renders every project and every task from every attached
+machine, so any store the sidebar reads has to hold all machines' data at once.
 
-**Workspace-scoped** — unchanged in shape, single-backend at any moment.
-`file-store`, `diff-store`, `flow-store`, `search-store`, `wiki-store`, and the
-pane and terminal layer. They serve the open task only, and take their
-`backendId` from the active workspace. This is what keeps the change bounded:
-the stores with the most call sites are the ones that do not have to aggregate.
+**Aggregating** — flat maps and arrays holding records from every attached
+machine:
+
+- `project-store`, `task-store`, `notification-store`, `schedule-store`.
+- `session-store`. The sidebar's `SessionBadge` reads session status and tabs
+  for remote tasks, not only the open one.
+- `diff-store`. It is populated entirely by the `GIT_CHANGE_STATS` broadcast
+  (`stores/diff-store.ts:31`) and drives the diff badge and behind-count on
+  every project and task row (`TaskSidebar.tsx:358-361`). Left single-backend,
+  remote rows would silently show no badges at all.
+- `flow-store`'s `flows` and `actions`. These are flat definition lists read by
+  `hooks/useRunMenu.ts` and the management dialogs; a remote task's run menu has
+  to offer that machine's flows. `activeRuns` is keyed by owner id and is
+  collision-free.
+
+**Workspace-scoped** — single-backend at any moment, taking their `backendId`
+from the active workspace: `file-store`, `search-store`, `wiki-store`, and the
+diff *content* fetches in `ChangesPane` (as distinct from `diff-store`, which
+holds only stats).
 
 `useActiveWorkspace()` gains the workspace's `backendId`, derived from the
 project the active task belongs to, or from primary for master workspace. It is
 the single place the pane layer reads its target from.
+
+One key in the aggregating set is not a UUID. `MASTER_WORKSPACE_KEY` is the
+fixed string `"master"` (`hooks/useActiveWorkspace.ts`), so master-workspace tab
+state is a singleton. That is safe only because master workspace belongs to
+primary and primary is unique. If per-machine master workspaces are ever wanted,
+this key has to be scoped first.
+
+### Per-backend slices and stale responses
+
+Aggregating stores keep their records in **per-backend slices** internally, even
+where selectors expose a flat array. This is not an optimisation; two mechanisms
+depend on it.
+
+Today `fetchProjects` does `set({ projects })` (`stores/project-store.ts:44`)
+and `fetchTasks` does the equivalent (`stores/task-store.ts:47`) — each replaces
+the whole array. Under a fan-out that is a lost update:
+
+1. A fan-out fetch for `{local}` starts.
+2. The desktop attaches; a fetch for `{local, desktop}` starts and resolves.
+3. The first fetch resolves and overwrites the array, erasing the desktop.
+
+So a fetch response replaces **only its own backend's slice**, and only if that
+backend is still attached and the response belongs to the current attach
+generation for it. Each attach increments a per-backend generation; a response
+carrying a stale generation is dropped. A leg that fails leaves its slice as it
+was and marks that machine offline; it never empties another machine's slice.
+
+### Session sync is per backend
+
+`syncWithTasks` and `syncWithProjects` reconcile session tabs against the owner
+list they are handed. `syncOwnerTabs` (`stores/session-sync.ts:81-92`) rebuilds
+the entire `task:` or `project:` namespace, keeping only the keys outside that
+prefix, so **any workspace whose owner is absent from the list is dropped along
+with its tabs**. With one backend that is correct. With an aggregated array, a
+partial or in-flight fan-out result closes another machine's live terminals.
+
+Session sync therefore takes a `backendId` and reconciles only that machine's
+workspace keys against that machine's records. This is a contract of the design,
+not implementer discipline, and it has a named test.
 
 ### Per-machine caches
 
@@ -267,6 +329,16 @@ Every module-level value derived from backend data becomes keyed by
 - `dirTsconfigCache` and `activeTsconfigPath` in
   `packages/ui/src/lib/monaco-import-navigation.ts:9-12`
 - the `initialized` guard and state in `packages/ui/src/hooks/useConnectivity.ts:32-34`
+- the script and agent-command lists fetched by `hooks/useRunMenu.ts:92,100`
+- `fileStatCache` in `components/panes/terminal/terminal-link-provider.ts:76`,
+  keyed by absolute path only
+- `pendingLines` in `components/panes/editor-dirty-state.ts:22`, also keyed by
+  absolute path only
+
+The last two are the shape to watch for: not every cross-machine collision is a
+*record* cache. Any module-level map keyed by an absolute path is a collision
+between two machines holding the same repository, and the path caches are easier
+to miss than the record ones.
 
 In the superseded design these were leaks to be cleaned on switch. Here they are
 correctness: the New Task dialog for a desktop project must offer the desktop's
@@ -278,20 +350,37 @@ The rule for the implementer, applied rather than worked from this list: any
 module-level value derived from backend data is keyed by `backendId` and
 registers a per-backend reset.
 
-### Dirty editor state
+### Editor identity across machines
 
-`packages/ui/src/components/panes/editor-dirty-state.ts:4,7` keys retained
-Monaco models and view states by absolute path alone, and
-`EditorPaneImpl.tsx:205-207` deliberately keeps a dirty model alive across unmount,
-skipping the disk read on the next mount (`EditorPaneImpl.tsx:109,150`).
+Two machines very often hold the same repository at the same absolute path, and
+the editor layer identifies files by that path alone at three levels.
 
-Two machines very often hold the same repository at the same absolute path. The
-superseded design handled this by refusing a switch while any editor was dirty.
-In aggregate mode there is no switch to refuse — a dirty desktop buffer and a
-laptop file at the same path are one click apart. So both maps are keyed by
-`backendId` + path. This is a prerequisite, not a cleanup: without it the first
-duplicated repo shows one machine's unsaved buffer as the other's file, and
-saving writes it there.
+`monaco.Uri.file(filePath)` is the model's identity
+(`components/panes/EditorPaneImpl.tsx:107-108`): the pane looks the URI up with
+`monaco.editor.getModel(uri)` and reuses whatever model it finds. Monaco's model
+registry is global and keyed by URI, so the desktop's `/Users/me/foo/src/a.ts`
+and the laptop's are **one model**, sharing text and undo history, whatever the
+surrounding maps are keyed by.
+
+Above that, `dirtyModels` and `viewStates` (`editor-dirty-state.ts:4,7`) are
+path-keyed, and `EditorPaneImpl.tsx:205-207` deliberately keeps a dirty model
+alive across unmount, skipping the disk read on the next mount
+(`EditorPaneImpl.tsx:109,150`). `pendingLines` (`editor-dirty-state.ts:22`), the
+go-to-line hand-off, is path-keyed too.
+
+So the fix is at the model, not only at the maps: the editor's URI becomes
+backend-scoped — `taskflow-file://<backendId>/<encoded path>` — and
+`dirtyModels`, `viewStates` and `pendingLines` key off that same identity.
+Everything that derives from the URI follows it: the raw-file fetch, import
+navigation (`lib/monaco-import-navigation.ts`), and the external-editor opener,
+which still needs the plain filesystem path and now gets it by decoding rather
+than by assuming the URI is a file path.
+
+Keying only the maps and leaving `monaco.Uri.file` alone would look correct and
+still share one buffer between machines. That is the same silent-data-loss case
+the superseded design refused a switch to avoid, and in aggregate mode there is
+no switch to refuse: a dirty desktop buffer and a laptop file at the same path
+are one click apart.
 
 The dirty refusal survives for the hard switch only, where local is detached too
 and unsaved local buffers would go with it.
@@ -327,13 +416,32 @@ rarely; a machine that just woke is picked up within one announce interval.
 
 Detach is the only teardown primitive. It kills the tunnel if there is one,
 closes the connection, rejects that connection's in-flight requests with a
-distinct error, drops that machine's records from every aggregating store by
-filtering on the origin stamp, disposes the workspace and its panes if the open
-workspace belonged to that machine, and clears that machine's cache entries.
+distinct error, drops that machine's slice from every aggregating store,
+disposes the workspace and its panes if the open workspace belonged to that
+machine, and clears that machine's cache entries.
+
+Because aggregate mode has no remount to hide behind, the cleanup list is
+explicit rather than left to "every store registers a reset":
+
+- Aggregating store slices, keyed by origin.
+- `diff-store` entries whose `targetId` is one of the dropped records.
+- Session tabs, active-tab entries and session status for that machine's
+  workspace keys — via the per-backend session sync, not a global rebuild.
+- Monaco models, dirty state, view states and pending lines under that
+  machine's URI scheme.
+- xterm instances and their terminal caches, including the path-keyed
+  `fileStatCache` in `components/panes/terminal/terminal-link-provider.ts:76`.
+- Per-backend cache entries: agents, homedir, editors, Codex models, tsconfig
+  map, connectivity, scripts and agent commands.
+- Pending timers and debounces owned by that machine's panes, including
+  file-store debounce state and debounced attribute saves.
+
+Event subscriptions are **not** touched. They are registered against message
+types and shared by every connection; unsubscribing on detach would silently
+stop delivery for the machines that remain.
 
 Offline-detach, unchecking a machine in the menu, removing a saved record, and
-the hard switch all call it. There is no `resetAllState()`; there is
-`detach(backendId)` applied to one machine or to all of them.
+the hard switch all call it.
 
 ### A backend dropping
 
@@ -354,21 +462,33 @@ recursive watcher on that host for as long as its backend runs.
 
 ### The hard switch
 
+The ordering matters, and the obvious ordering is wrong. "Validate the target,
+detach everything, attach the target" destroys the current set before the target
+is usable, and if the target was *already attached* — the common case, since you
+would hard-switch to a machine you are already looking at — the detach kills the
+very connection that was just validated.
+
+So the target is prepared first and never torn down:
+
 1. Refuse if any editor is dirty, listing the files. Local is about to be
    detached, so this is the one place unsaved work can be lost.
-2. Resolve the target: ensure its tunnel, probe readiness, check
-   `PROTOCOL_VERSION`. Any failure ends here with the current set untouched.
-3. Detach every attached backend.
-4. Attach the target and make it primary.
+2. Ensure the target is attached and healthy: tunnel up, readiness probe
+   answered, `PROTOCOL_VERSION` equal. If it was already attached, reuse that
+   connection as-is. Any failure ends here with the attached set untouched.
+3. Detach every attached backend **except the target**.
+4. Promote the target to primary.
 5. Remount `AppShell` by bumping its `key`.
+
+Nothing is destroyed until the target is already usable as primary, which is the
+non-destructive property the superseded design had and which a naive
+detach-all would have lost.
 
 The remount is not insurance against a leaky detach — aggregate mode has no
 remount and detach must be complete on its own. It is here because primary
 changing means theme, master workspace, settings and connectivity all re-root.
 
 While hard-switched, a persistent toolbar indicator names the machine and offers
-"Return to local", which is the reverse operation: detach the remote, attach
-local, primary = local, remount.
+"Return to local", which is the same sequence with local as the target.
 
 ### Version compatibility
 
@@ -444,11 +564,47 @@ inside a remote workspace are that machine's. Global flows and actions — no
 required `projectId` and therefore follow their project's machine with no extra
 rule.
 
+Master workspace is primary's, in both modes: its homedir, its sessions
+(`MASTER_SESSIONS_LIST`) and its global flows all come from primary, and
+sessions started there run on primary. In aggregate mode that is local. A hard
+switch changes primary, so master workspace then shows the target's — which is
+the intent of the mode, and is why the `"master"` singleton tab key is safe:
+primary is unique, and the hard switch's detach plus remount clears it before
+the new primary populates it. A machine's master sessions are never shown while
+it is merely attached and not primary.
+
 ### New Task
 
 The dialog reads agent availability, runtimes and the default shell from the
 target project's machine. This is the per-machine cache work paying off; a
 global cache would offer whatever this client happens to have installed.
+
+### Sidebar row actions and background work
+
+The "route from the active workspace" rule covers panes. It does not cover work
+that starts from a sidebar row for a project that is *not* open, and that is the
+most dangerous gap in the design if it is left implicit.
+
+`ProjectGroup` builds a run menu for any project row
+(`components/sidebar/ProjectGroup.tsx:94`), passing only `projectId` and
+`projectPath`. `useRunMenu` then fetches package scripts and agent commands with
+unrouted requests carrying that path (`hooks/useRunMenu.ts:92,100`) and can
+start a shell session or a flow from the result.
+
+Unrouted, right-clicking a desktop project row lists **this** machine's scripts
+for the desktop's path, and running one runs it here. If the path does not exist
+locally it errors, which is survivable. If the same repository is checked out at
+the same path on both machines — the case this whole design exists for — it
+succeeds against the wrong checkout, on the wrong machine, with no visible
+difference. That is worse than any failure mode in the superseded design.
+
+So every project-row and task-row operation takes the record's `backendId`
+explicitly, and the script and agent-command caches are per backend. The same
+applies to the rest of the work that runs outside a workspace: PR polling, the
+worktree/PR refresh in `useSidebarData`, notification click-through navigation,
+tray aggregation, and debounced attribute saves (`lib/attribute-api.ts`). None of
+these has an "active workspace" to inherit from, so each carries its target
+explicitly or it is routed wrong.
 
 ### Notifications and tray
 
@@ -517,6 +673,24 @@ servers:
 - `FILE_UNWATCH` is sent on a deliberate detach before the socket closes.
 - Attaching and detaching twice registers each `MSG` listener exactly once. A
   leak here is invisible until it duplicates every terminal chunk.
+- A session sync for machine A rebuilds only A's workspace keys; B's tabs and
+  active-tab entries survive untouched. This is the regression that closes a
+  live remote terminal, and it reproduces on today's code by handing
+  `syncOwnerTabs` a partial owner list.
+- A fan-out response that arrives after its backend was detached, or after a
+  newer attach generation for it, is dropped rather than written.
+- A stale fetch for `{A}` resolving after a fetch for `{A, B}` does not erase
+  B's slice.
+- A late `onmessage` from a superseded socket does not resolve a pending request
+  on its replacement, and a superseded `onclose` neither flips status nor
+  schedules a reconnect.
+- Two machines' models for the same absolute path are distinct Monaco models —
+  asserted on the URI, not only on the dirty-state map, since equal URIs are the
+  actual sharing mechanism.
+- A run menu opened from a remote project row issues its script and
+  agent-command requests on that machine's connection, and never on local's.
+- Detaching one machine leaves the other machine's open workspace, terminals and
+  Monaco models alive, with no remount.
 
 The hard switch keeps its own tests: a dirty editor refuses it with the files
 listed; a failed target resolution leaves the attached set untouched; an
@@ -549,10 +723,19 @@ two-socket generation handling it replaces. Task 9 becomes per-backend detach.
 Task 10 shrinks to the hard switch. Task 11 gains attach checkboxes, sections
 and "Work as…".
 
-**New:** the origin stamp and fan-out in the five aggregating stores; keying the
-caches by machine; sidebar machine sections; a per-backend offline indicator;
-`editor-dirty-state` keyed by machine; multi-origin notification polling and
-tray.
+**Rewritten, continued:** Task 14 (end-to-end verification) — most of it
+verifies single-active-backend switching and no longer applies. It is replaced
+by aggregate-mode checks: two machines' sections populated at once, a
+cross-machine notification, a sidebar run menu routed to the right machine,
+detaching one machine without a remount and without disturbing the other, and
+hard-switch rollback in all three target states (already attached, not attached,
+dying after validation).
+
+**New:** per-backend slices and the origin stamp in the aggregating stores, with
+generation-guarded fan-out; per-backend session sync; keying the caches by
+machine, path caches included; backend-scoped Monaco URIs; sidebar machine
+sections; a per-backend offline indicator; explicit routing for sidebar-row and
+background work; multi-origin notification polling and tray.
 
 ## Assumptions
 
@@ -571,6 +754,11 @@ Appearance following primary means the window re-themes on a hard switch and
 does not re-theme in aggregate mode.
 
 ## To verify during implementation
+
+**Does the backend-scoped Monaco URI break anything that assumes a file URI?**
+Language services, import navigation and the external-editor opener all read the
+URI today. The scheme change is the right fix, but it touches more of the editor
+than any other item here and is the most likely source of surprise.
 
 **Is per-backend detach genuinely clean?** The enumeration test proves every
 store registers a reset; it cannot prove any reset is complete, and aggregate
