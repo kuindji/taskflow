@@ -396,3 +396,63 @@ describe("Finding 5 — a backend attached in the background at launch never get
         expect(connections.has("abc123")).toBe(false);
     });
 });
+
+// ── Plan, Task 5, "matchesDiscovered" (verbatim) ────────────────────────────
+interface DiscoveredBackend {
+    backendUid: string;
+    hostname: string;
+    instanceId: string;
+    port: number;
+    lastSeenAt: number;
+}
+function matchesDiscovered(r: BackendRecord, entry: DiscoveredBackend): boolean {
+    if (r.backendUid) return r.backendUid === entry.backendUid;
+    return r.host === entry.hostname && r.instanceId === entry.instanceId;
+}
+
+// ── Plan, Task 9, Step 3, "resolveBackendPort" (verbatim) ───────────────────
+function resolveBackendPort(
+    r: BackendRecord,
+    discovered: DiscoveredBackend[],
+    readRemotePort: () => number,
+): number {
+    const live = discovered.find((entry) => matchesDiscovered(r, entry));
+    if (live) return live.port;
+    if (r.lastKnownPort) return r.lastKnownPort;
+    return readRemotePort();
+}
+
+describe("Finding 6 — any LAN peer can keep a saved machine permanently unattachable", () => {
+    test("a spoofed announce overrides the record's own good cached port", () => {
+        // backendUid is broadcast in cleartext in every announce (Task 3, Delta A),
+        // so every peer on the LAN learns it. matchesDiscovered ignores hostname
+        // entirely once a record has a uid, so the spoofed announce need not even
+        // claim to be the victim host.
+        const saved = record({
+            id: "abc123",
+            backendUid: "abc123",
+            host: "desktop.local",
+            lastKnownPort: 54892, // the real, working port
+        });
+        const spoof: DiscoveredBackend = {
+            backendUid: "abc123",
+            hostname: "attacker.local",
+            instanceId: "main",
+            port: 9,
+            lastSeenAt: 0,
+        };
+
+        expect(matchesDiscovered(saved, spoof)).toBe(true);
+
+        // The bug: the live beacon is preferred over lastKnownPort, so attach
+        // forwards to a dead port on the real host. waitForBackend requires the
+        // body to start with "Taskflow backend", so the probe fails and
+        // attachBackend reports failure { kind: "no-backend" }:
+        //   "Taskflow is not running on desktop." — while it plainly is.
+        expect(resolveBackendPort(saved, [spoof], () => 54892)).toBe(9);
+        expect(resolveBackendPort(saved, [], () => 54892)).toBe(54892); // without the spoof
+
+        // The same match also drives registry.onSeen -> onBackendSeen -> retry(id),
+        // so the failing attach is re-driven for as long as the attacker announces.
+    });
+});
