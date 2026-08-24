@@ -26,7 +26,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
 | 17 | Reconnection and session resync | clear | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; round 3 found nothing — clear after round 3 |
 | 18 | Remote mode | clear | `3e31dd2` | commits `f6cc308`, `684ffa6`, `b98ca3b`, `74b5d0f`, `90a161f`, `a0e3904`, `b53e0e7` (plan Steps 1–6 and 8); rounds 1–5 found 5, 1, 1, 2 and 1 substantiated defects — all fixed; round 6 found no defect in the diff, only a pre-existing unused export — clear after round 6; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
-| 18.1 | Remote mode — manual smoke test over an SSH tunnel | pending | — | **user gate** |
+| 18.1 | Remote mode — manual smoke test over an SSH tunnel | deferred | — | **user gate.** Deferred on 2026-08-24 at the user's request — all remote-backend work is on hold. Task 18's code is clear; only the hands-on tunnel test is outstanding, and it is not a blocker for anything else in this plan |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
 | 19.2 | Mouse — outer tracking on/off | clear | `3829f83` | commit `5345824`; round 1 fixed in `a7af6dd`; round 2 found nothing — clear after two rounds |
@@ -7101,12 +7101,19 @@ produced a defect:
 - **The pre-existing export was fixed rather than filed as a separate task.** It is a one-line
   deletion that lint and typecheck both confirm is inert. Filing it would cost more than fixing it.
 
-Next step: AWAITING USER — Task 18.1 is the manual smoke test of remote mode over an SSH tunnel
-(plan Step 7), and every remaining task is either another manual smoke test or needs its own plan.
-Which should this loop do: (a) you run the 18.1 smoke test and report back, (b) skip 18.1 and 19.6
-for now and have the loop write the plan for Task 20 (backend-side orphan shutdown), (c) have the
-loop take Task 21 (bound the incomplete-CSI carry), which is small and self-contained, or (d) have
-the loop investigate Task 22 (the full-suite-only `packages/ui` pane failures)?
-Task 18 itself is clear — all automated work on it is done.
-After that: Tasks 19.6, 20, 21, 22 and 23. **19.6 is also a manual smoke test — a user gate**;
-20, 21, 22 and 23 each need their own plan or investigation.
+Next step: implement Task 21 — bound the incomplete-CSI carry.
+
+`decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read,
+so parameter bytes arriving faster than 25ms apart grow `carry` without bound and get re-scanned from
+the start on every read. Pre-existing, present at `e00cd13`, not introduced by the mouse work. The fix
+is a cap on any held CSI, not just the mouse forms — decide what a run over the cap should do (most
+likely: stop holding and let the bytes through as literal input) and cover it with a test that feeds a
+long parameter run in sub-25ms reads.
+
+Record HEAD as the base commit before starting, then implement, validate
+(`bun run lint && bun run typecheck && bun test`) and commit — review round 1 follows in the next
+iteration.
+
+Remaining after that: **18.1 is deferred** (remote-backend work on hold at the user's request).
+**19.6 is a manual smoke test — a user gate.** Tasks 20, 22 and 23 each need their own plan or
+investigation.
