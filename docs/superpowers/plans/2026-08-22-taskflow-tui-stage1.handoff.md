@@ -25,7 +25,8 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
 | 17 | Reconnection and session resync | clear | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; round 3 found nothing — clear after round 3 |
-| 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
+| 18 | Remote mode | implemented | `3e31dd2` | commit `f6cc308` (plan Steps 1–6 and 8); **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
+| 18.1 | Remote mode — manual smoke test over an SSH tunnel | pending | — | **user gate** |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
 | 19.2 | Mouse — outer tracking on/off | clear | `3829f83` | commit `5345824`; round 1 fixed in `a7af6dd`; round 2 found nothing — clear after two rounds |
@@ -6523,9 +6524,73 @@ Two things were checked by hand before accepting the verdict, and neither is a d
 
 - `bun test packages/tui/src/net/` → 14 pass, 0 fail.
 
-Next step: implement Task 18 — Remote mode (`packages/tui/src/cli.ts` with `parseArgs`, plus the
-`index.ts` wiring for `--connect host:port`). Plan Steps 1–6 and 8 are ordinary autonomous work;
-**Step 7 is a manual smoke test over an SSH tunnel — a user gate.** Implement through Step 6,
-commit, and stop at Step 7 rather than claiming it.
-After that: Tasks 19.6, 20, 21, 22 and 23 (20, 21, 22 and 23 each need their own plan or
-investigation; 19.6 is a manual smoke test — a user gate).
+## Task 18 — implementation (base `3e31dd2`, commit `f6cc308`)
+
+Plan Steps 1–6 and 8. **Step 7 was not run** — it is a manual smoke test over an SSH tunnel
+between two machines, which needs the user. It is now Task 18.1 in the table.
+
+### What was built
+
+- **`packages/tui/src/cli.ts`** (new) — `parseArgs(argv)` returning
+  `{ connect: { host, port } | null }`, and `parseTarget`, private to the module. Verbatim from
+  the plan apart from a comment noting that `lastIndexOf(":")` is what makes a bracketed IPv6
+  literal parse. Pure, so the whole option surface is testable without spawning anything.
+- **`packages/tui/src/cli.test.ts`** (new) — the plan's eight cases: local default, `--connect
+  host:port`, `--connect=host:port`, and rejection of a missing port, a non-numeric port, a port
+  with trailing garbage (`123abc`, which `parseInt` alone would take as 123), an out-of-range
+  port, and an unknown flag.
+- **`packages/tui/src/index.ts`** — `main()` now parses argv first and branches: local mode spawns
+  the backend and dials its port as before; remote mode constructs `new WsClient(port, host)` and
+  spawns nothing. Parsing happens before `startBackend` and before raw mode, so a usage error
+  cannot leave a backend behind or the terminal in raw mode. No change was needed to the shutdown
+  path — the existing code releases the backend from an `exit` handler registered by
+  `startBackend`'s `onSpawn`, so remote mode simply registers no such handler (the plan's
+  `backend?.stop()` presumed the older shutdown shape and would have been a second, redundant
+  stop). The comment on the exit path was updated to say so.
+- **`packages/tui/src/ui/app.ts`** — the `onStatusChange` listener added in Task 17 now also calls
+  `session.term.attach()` for every open session on reconnect, each with its own `.catch`. A new
+  `MSG.SYSTEM_CLIENTS` subscription keeps `otherClients = max(0, count - 1)`, and a new private
+  `drawClientWarning(layout)` paints ` N other client(s) attached ` in inverse video at the right
+  of the tab row, after `drawTabs`, clamped left to `layout.paneX`.
+
+### Verification
+
+- `bun test packages/tui/src/cli.test.ts` → 8 pass (red before `cli.ts` existed: "Cannot find
+  module './cli'").
+- Seven tests added to `packages/tui/src/ui/app.test.ts`. Five were confirmed red against the
+  pre-change `app.ts` and green after — `re-attaches every open session on reconnect`,
+  `a reconnect survives a session whose attach rejects`, `warns when another client is attached to
+  the same backend`, `the warning is drawn in inverse video at the right of the tab row`, and
+  `the warning clears once the other client leaves`. The two negative-assertion tests (`says
+  nothing when this client is the only one`, `a count of zero does not render a negative client
+  count`) pass either way by construction and are there to pin the clamp and the zero case.
+- `bun run lint` clean, `bun run typecheck` clean across all packages.
+- `bun test packages/tui` → 475 pass, 0 fail.
+- `bun test` (whole repo) → 1333 pass, 8 fail. The eight are exactly the known Task 22 set
+  (`MarkdownPaneImpl.checkbox.test.tsx` and the markdown link tests, `'useSessionStore.setState'
+  is undefined` / `root.unmount` undefined). Pre-existing and unrelated.
+
+## Decisions taken (Task 18)
+
+- **No `disposers` array on `App`.** The plan wrapped the `SYSTEM_CLIENTS` subscription in
+  `this.disposers.push(...)` backed by a new `private readonly disposers` field. Nothing in Stage 1
+  ever drains it — `App` has no teardown path and lives for the whole process — and the
+  `onStatusChange` subscription right above it already discards its unsubscribe. An array nothing
+  reads implies a lifecycle that does not exist, so the subscription is made the same way the
+  status one is. Safe and reversible: when Stage 2 gives `App` a teardown, both subscriptions get
+  their disposers back together.
+- **The banner uses `layout.tabRow` and `layout.cols`, not literal `0` and the `cols` dep.** Same
+  reason `computeLayout` exists at all: what is drawn and what a mouse report is hit-tested
+  against must come from one rectangle. It also moves the banner automatically if `tabRow` ever
+  stops being row 0.
+- **`drawClientWarning` is a private method rather than inline in `render()`.** `render()` was
+  already at the length where another nested loop hurts; the method keeps `render()` a list of
+  draw calls.
+- **The plan's `startX + i < cols` loop guard was dropped.** `ScreenBuffer.set` already
+  bounds-checks and silently drops out-of-range writes, so the guard was a second copy of the same
+  rule. `startX` is still clamped to `paneX` on the left, which is the guard that does work.
+
+Next step: review Task 18, round 1 — one gpt-5.5 review via codex-review over `3e31dd2..f6cc308`,
+restricted to `packages/tui`.
+After that: Tasks 18.1, 19.6, 20, 21, 22 and 23. **18.1 and 19.6 are manual smoke tests — user
+gates**; 20, 21, 22 and 23 each need their own plan or investigation.
