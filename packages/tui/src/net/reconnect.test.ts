@@ -1,11 +1,15 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import type { Server } from "bun";
+import type { Server, ServerWebSocket } from "bun";
 import { WsClient } from "./client";
 
 let server: Server<unknown> | null = null;
 let client: WsClient | null = null;
 /** Every upgrade the current server has accepted, so a retry loop is visible to a test. */
 let opened = 0;
+/** The most recent accepted socket, so a test can drop one client without stopping the server. */
+let accepted: ServerWebSocket<unknown> | null = null;
+/** Held before the upgrade, so a test can catch a dial while it is still CONNECTING. */
+let upgradeDelayMs = 0;
 
 afterEach(async () => {
     client?.close();
@@ -13,18 +17,22 @@ afterEach(async () => {
     await server?.stop(true);
     server = null;
     opened = 0;
+    accepted = null;
+    upgradeDelayMs = 0;
 });
 
 function serveOn(port: number): Server<unknown> {
     return Bun.serve({
         port,
-        fetch(req, s) {
+        async fetch(req, s) {
+            if (upgradeDelayMs > 0) await Bun.sleep(upgradeDelayMs);
             if (s.upgrade(req, { data: {} })) return undefined;
             return new Response("no");
         },
         websocket: {
-            open() {
+            open(ws) {
                 opened++;
+                accepted = ws;
             },
             message(ws, raw) {
                 const req = JSON.parse(String(raw)) as { correlationId: string; type: string };
@@ -99,6 +107,64 @@ describe("WsClient reconnection", () => {
         opened = 0;
         await Bun.sleep(1500);
         expect(opened).toBe(0);
+    }, 15_000);
+
+    test("a connect() made from inside the disconnect notification is not replaced by the retry", async () => {
+        server = serveOn(0);
+        const port = server.port ?? 0;
+        client = new WsClient(port);
+        await client.connect();
+
+        // A status-driven caller redials the moment it is told the link is down,
+        // which lands synchronously inside the close handler that is about to arm
+        // a retry. The server itself stays up, so this dial succeeds.
+        const net = client;
+        let redialled = false;
+        client.onStatusChange(({ connected }) => {
+            if (connected || redialled) return;
+            redialled = true;
+            void net.connect().catch(() => undefined);
+        });
+
+        accepted?.close();
+        await Bun.sleep(150);
+        expect(redialled).toBe(true);
+
+        const states: boolean[] = [];
+        client.onStatusChange((status) => {
+            states.push(status.connected);
+        });
+        // Long enough for a retry armed by the close above (250ms) to fire.
+        await Bun.sleep(800);
+
+        // A retry armed after the redial had already taken over would tear the
+        // live socket down as "Connection replaced".
+        expect(states).toEqual([]);
+        const result = await net.request<{ ok: boolean }>("ping");
+        expect(result.ok).toBe(true);
+    }, 15_000);
+
+    test("a retry armed by a superseded dial does not replace the dial that superseded it", async () => {
+        // Long enough that a dial can be caught mid-handshake.
+        upgradeDelayMs = 600;
+        server = serveOn(0);
+        const port = server.port ?? 0;
+        client = new WsClient(port);
+        await client.connect();
+
+        // Let the retry loop's own dial get as far as CONNECTING, then dial by
+        // hand on top of it. The superseded dial rejects as "Connection
+        // replaced", which must not be mistaken for a failed retry.
+        accepted?.close();
+        await Bun.sleep(300);
+
+        const errors: string[] = [];
+        await client.connect().catch((error: unknown) => {
+            errors.push(error instanceof Error ? error.message : String(error));
+        });
+        // A retry rearmed behind this dial fires mid-handshake and tears it down,
+        // so the caller is told its connection was replaced by nothing.
+        expect(errors).toEqual([]);
     }, 15_000);
 
     test("a manual connect cancels the armed retry instead of being replaced by it", async () => {

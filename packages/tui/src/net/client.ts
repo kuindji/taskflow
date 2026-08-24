@@ -85,12 +85,18 @@ class WsClient implements NetLike {
                 // Drop the reference: request() must not try to send on it.
                 this.ws = null;
                 settle(new Error("Connection closed before it opened"));
-                this.setStatus(false);
                 this.failPending(new Error("Connection lost"));
                 // Only an unexpected close reaches here. disconnect() detaches
                 // this handler before closing, so neither close() nor a
                 // superseding connect() restarts the loop.
+                //
+                // Armed before the notification, not after: setStatus calls its
+                // listeners synchronously, and a listener that redials on being
+                // told the link is down would otherwise cancel a retry that does
+                // not exist yet, then have this line arm one behind its live
+                // socket — which the retry tears down as "Connection replaced".
                 this.scheduleReconnect();
+                this.setStatus(false);
             };
             ws.onmessage = (event: MessageEvent) => {
                 if (this.ws !== ws) return;
@@ -122,10 +128,16 @@ class WsClient implements NetLike {
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
             void this.connect().catch(() => {
-                // A dial that fails through onerror alone never reaches onclose,
-                // so the retry is rearmed here too; the timer guard above keeps
-                // the two from stacking when both fire.
-                this.scheduleReconnect();
+                // Rearm only while no socket is installed. A dial can also reject
+                // because a later connect() superseded it, and there the retry is
+                // no longer this loop's business: rearming would fire behind the
+                // dial that took over and tear it down mid-handshake, rejecting a
+                // caller whose connection nothing had actually replaced.
+                // The failure this does have to cover — a dial that never opens —
+                // always ends in onclose, which clears `ws` first, so the guard
+                // lets it through; the timer guard above keeps the two from
+                // stacking when both fire.
+                if (this.ws === null) this.scheduleReconnect();
             });
         }, delay);
     }
