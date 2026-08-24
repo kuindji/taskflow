@@ -1,5 +1,6 @@
 import { BrowserWindow, Menu, nativeImage, nativeTheme, Tray } from "electron";
 import { join } from "path";
+import { backendOrigin } from "./backend-url";
 
 type TrayState = "working" | "attention" | null;
 
@@ -162,7 +163,7 @@ async function refreshBackgroundTrayState(): Promise<void> {
     if (!port) return;
 
     try {
-        const response = await fetch(`http://127.0.0.1:${port}/api/tray-state`, {
+        const response = await fetch(`${backendOrigin(port)}/api/tray-state`, {
             signal: AbortSignal.timeout(1000),
         });
         if (!response.ok) return;

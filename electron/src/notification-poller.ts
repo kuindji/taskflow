@@ -1,4 +1,5 @@
 import { BrowserWindow, Notification } from "electron";
+import { backendOrigin } from "./backend-url";
 
 interface NotificationPollerDeps {
     getMainWindow: () => BrowserWindow | null;
@@ -28,7 +29,7 @@ async function checkNewNotifications(): Promise<void> {
     if (!port) return;
 
     try {
-        const response = await fetch(`http://127.0.0.1:${port}/api/notifications`, {
+        const response = await fetch(`${backendOrigin(port)}/api/notifications`, {
             signal: AbortSignal.timeout(2000),
         });
         if (!response.ok) return;

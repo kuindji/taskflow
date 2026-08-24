@@ -39,10 +39,12 @@ describe("createServer", () => {
         ws.close();
     });
 
-    test("broadcasts the connected client count as clients join", async () => {
+    test("broadcasts the connected client count as clients join and leave", async () => {
         const port = await startTestServer();
         const first = await connect(port);
 
+        // `first` was counted on its own `open`, so that broadcast is already in flight.
+        // Draining it here keeps the assertions below about the join and the leave only.
         const counts: number[] = [];
         first.onmessage = (event: MessageEvent) => {
             const parsed = JSON.parse(String(event.data)) as {
@@ -54,13 +56,17 @@ describe("createServer", () => {
             }
         };
 
+        await Bun.sleep(50);
+        counts.length = 0;
+
         const second = await connect(port);
         await Bun.sleep(50);
-        expect(counts).toContain(2);
+        expect(counts).toEqual([2]);
 
+        counts.length = 0;
         second.close();
         await Bun.sleep(50);
-        expect(counts).toContain(1);
+        expect(counts).toEqual([1]);
         first.close();
     });
 });

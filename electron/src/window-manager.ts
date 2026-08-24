@@ -1,5 +1,6 @@
 import { app, BrowserWindow, screen } from "electron";
 import { join } from "path";
+import { backendOrigin } from "./backend-url";
 
 interface SavedWindowBounds {
     x?: number;
@@ -28,7 +29,7 @@ async function fetchSavedLayout(): Promise<SavedWindowBounds | null> {
     const port = deps.getBackendPort();
     if (!port) return null;
     try {
-        const res = await fetch(`http://127.0.0.1:${port}/api/settings`);
+        const res = await fetch(`${backendOrigin(port)}/api/settings`);
         if (!res.ok) return null;
         const settings = (await res.json()) as { layout?: { window?: SavedWindowBounds } };
         return settings.layout?.window ?? null;
@@ -132,7 +133,7 @@ async function createWindow(): Promise<void> {
         if (!mainWindow || !port) return;
         const isMaximized = mainWindow.isMaximized();
         const bounds = isMaximized ? lastNonMaximizedBounds : mainWindow.getBounds();
-        windowSavePromise = fetch(`http://127.0.0.1:${port}/api/settings`, {
+        windowSavePromise = fetch(`${backendOrigin(port)}/api/settings`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
