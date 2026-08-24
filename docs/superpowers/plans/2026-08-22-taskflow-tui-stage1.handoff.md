@@ -23,7 +23,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
-| 16 | Backend — bind to loopback and report connected clients | implemented | `2684302` | commit `2c0a633` |
+| 16 | Backend — bind to loopback and report connected clients | in-review round 1 | `2684302` | commits `2c0a633`, `eb6fd75`; round 1 found 2 real defects (one Codex, one Codex missed), both fixed — needs round 2 |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
@@ -5792,7 +5792,133 @@ all 8 pass when their own directory is run alone on either tree. Logged as Task 
 5. **The 8 full-suite `packages/ui` failures were left alone** — reproduced on the untouched
    base tree, so out of scope for Task 16. Logged as Task 22 for its own investigation.
 
-Next step: review Task 16, round 1 — one gpt-5.5 review via the codex-review skill over
-`2684302..2c0a633`.
+## Task 16 — review round 1
+
+Base `2684302` → `2c0a633`. One standard gpt-5.5 review via the codex-review skill (Mode B —
+the brief carried the four deliberate decisions so they would not be re-raised). Codex
+returned **one confirmed defect and one test gap**; an independent pass found **a second,
+worse test defect Codex missed**. Both were fixed in `eb6fd75`.
+
+### Finding 1 (Codex, confirmed) — `TASKFLOW_HOST=::1` did not restore Electron service
+
+The plan justified the escape hatch as restoring service on a host that resolves `localhost`
+to `::1` only. It only half did. The UI websocket (`ws://localhost`) and `taskflow-cli`
+(`curl http://localhost`) address the backend by name and do follow the bind, but four
+Electron **main-process** fetches hardcoded the IPv4 literal:
+
+- `electron/src/window-manager.ts:31` and `:135` — `/api/settings` (saved window geometry)
+- `electron/src/tray-manager.ts:165` — `/api/tray-state`
+- `electron/src/notification-poller.ts:31` — `/api/notifications`
+
+Observable symptom under `TASKFLOW_HOST=::1`: window position and size are neither restored
+nor saved, the tray stops reflecting background state, and desktop notifications never fire —
+all silently, because each call site swallows the error in a bare `catch`.
+
+Reproduced directly rather than taken from the report:
+
+```
+bun -e 'const s = Bun.serve({port:45997, hostname:"::1", fetch:()=>new Response("ok")});
+  try { const r = await fetch("http://127.0.0.1:45997/api/settings");
+        console.log("IPv4", r.status); }
+  catch (e) { console.log("IPv4 FAILED:", e.message); }
+  const r2 = await fetch("http://localhost:45997/api/settings");
+  console.log("localhost", r2.status); s.stop(true);'
+→ IPv4 FAILED: Unable to connect. Is the computer able to access the url?
+→ localhost 200
+```
+
+**Fix.** New `electron/src/backend-url.ts` exporting `backendOrigin(port)`, which reads
+`process.env.TASKFLOW_HOST ?? "127.0.0.1"` — the same variable the backend binds, and visible
+to main because `startBackend` passes its own environment through to the child — and brackets
+a bare IPv6 literal so the URL authority stays legal. All four call sites now use it.
+The default path is byte-identical to before (literal `127.0.0.1`), so this cannot regress the
+normal case. `electron/src/backend-url.test.ts` (3 tests) pins the default, the override and
+the bracketing.
+
+Deliberately **not** fixed by switching the four sites to `localhost`: that would have made
+the default path depend on whether Electron's `fetch` does happy-eyeballs fallback, trading a
+latent bug in a rare escape hatch for a possible regression in the common one.
+
+### Finding 2 (found independently, Codex missed it) — the close-count assertion was vacuous
+
+Codex explicitly cleared this test, stating "after the second closes, it observes `1`". That
+is wrong. The first client is counted on its own `open`, so `counts` already held `[1]` before
+the second client ever connected, and the trailing `expect(counts).toContain(1)` was satisfied
+by that stale entry — never by the close broadcast.
+
+Probed first (15/15 runs, `counts` = `[1]` before any second client), then proved by deleting
+`broadcastClientCount()` from the `close` handler in `server.ts` and re-running the test as
+committed:
+
+```
+=== close broadcast REMOVED ===
+ 2 pass  0 fail
+```
+
+Half the feature — the count going back down on disconnect — was protected by nothing.
+
+**Fix.** The test drains `counts` between phases and asserts the exact broadcast for each
+transition (`toEqual([2])` on join, `toEqual([1])` on leave). Re-verified against the same
+mutation: now `1 pass, 1 fail` with the close broadcast removed, `2 pass, 0 fail` with it
+restored. Run 10× consecutively with no flake.
+
+### Finding 3 (Codex, non-blocking) — the bind itself is still untested
+
+`accepts connections on loopback` would also pass under a wildcard bind, so nothing in the
+suite protects the security half of Task 16; a future edit dropping the `hostname` line would
+go unnoticed. **Left as-is, deliberately** — see decision 4 below.
+
+### Cleared by Codex and re-checked here
+
+`clients` is mutated only in `open` and `close`; failed upgrades never enter the set; `open`
+adds before broadcasting and `close` deletes before broadcasting, so the just-closed socket is
+never sent the close event. `WsEvent` is loose (`type: string; payload: T`), which is exactly
+why the `SystemClientsEvent` annotation at the send site is the only real payload check —
+decision 2 of the implementation round earns its keep. The Electron renderer's `onmessage`
+(`packages/ui/src/hooks/useWebSocket.ts`) ignores event types with no registered listener, so
+the currently-unconsumed `system:clients` is inert there. `packages/backend/src/ws/server.ts`
+is the only production `Bun.serve` in the repo, so no second wildcard bind was missed.
+
+Additionally verified here, beyond both the report and the implementation round: the
+`taskflow-cli` transport is `curl`, not `fetch`, and was not covered by the implementation
+round's checks. Against a `127.0.0.1`-bound server, `curl -v http://localhost:<port>` resolves
+both families, is refused on `[::1]`, falls back to `127.0.0.1` and succeeds — so agent
+sessions keep working under the default bind.
+
+### Supporting change
+
+`electron/tsconfig.json` gains `"types": ["bun"]`. Electron has no test files today and TS's
+automatic `@types` inclusion was not reaching the root `@types/bun` from the `electron/`
+workspace, so `bun:test` failed to resolve. Confirmed additive: the electron typecheck passed
+before and after, and `bun run build:electron` still produces a bundle with no `bun:test` in
+it (the build has explicit entrypoints, so `*.test.ts` under `src` is never bundled).
+
+Verification at `eb6fd75`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages plus electron, `bun test packages/backend/src/ws/server.test.ts electron/src/backend-url.test.ts`
+→ 5 pass, 0 fail. Full `bun test` → 1290 pass, 8 fail; the 8 are the same pre-existing
+`packages/ui` `MarkdownPaneImpl` failures already logged as Task 22 (the count rose 1287 → 1290
+purely from the 3 new tests).
+
+**Findings were fixed, so Task 16 needs another review round.**
+
+## Decisions taken (Task 16 review round 1)
+
+1. **Fixed the Electron origin rather than documenting the limitation.** The escape hatch is
+   part of Task 16; shipping one that half works is a trap for whoever reaches for it.
+2. **`backendOrigin` is a standalone module, not a `backend-manager` export.** `window-manager`,
+   `tray-manager` and `notification-poller` all take their backend port through injected deps
+   specifically to avoid importing `backend-manager`; a tiny env-only module keeps that shape.
+3. **Kept the default as the literal `127.0.0.1` instead of `localhost`.** Rewriting the four
+   sites to `localhost` would have made the common path depend on Electron's happy-eyeballs
+   behaviour — an unverified risk in exchange for fixing a rare one.
+4. **Left the bind itself untested (Codex's finding 3).** The two options are asserting on
+   injected `Bun.serve` options, which tests the call rather than the socket, or connecting to
+   a non-loopback interface address, which is environment-dependent and would be skipped in
+   most sandboxes anyway. The bind was verified by `lsof` in the implementation round and is a
+   one-line, highly visible property. Safe and reversible either way, so under the anti-stall
+   rule the loop continued rather than asking.
+
+Next step: review Task 16, round 2 — one gpt-5.5 review via the codex-review skill over
+`2684302..eb6fd75`.
 After that: Tasks 17-18, then Tasks 19.6, 20, 21 and 22 (20, 21 and 22 each need their own
 plan or investigation).
