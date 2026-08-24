@@ -24,7 +24,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
-| 17 | Reconnection and session resync | implemented | `6f62137` | commit `550331f`; awaiting review round 1 |
+| 17 | Reconnection and session resync | in-review round 1 | `6f62137` | commits `550331f`, `0951096`; round 1 found 2 substantiated defects, both fixed — next round 2 |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
@@ -6363,7 +6363,64 @@ belongs with the code that opens one.
 - Full `bun test` → **1314 pass, 8 fail** — the same pre-existing `packages/ui`
   `MarkdownPaneImpl` failures logged as Task 22 (1311 + the 3 new tests here).
 
-Next step: review Task 17, round 1 — one gpt-5.5 review via the codex-review skill over
-`6f62137..550331f`.
+## Task 17 — review round 1
+
+- **Task 17, round 1** (gpt-5.5 via codex-review, Mode A `codex exec review --commit 550331f`):
+  two findings, both substantiated and fixed in `0951096`.
+
+  1. **A manual `connect()` did not disarm the retry it superseded.** After a drop, `onclose`
+     arms a reconnect timer. A caller who dialled again by hand before that timer fired got a
+     working socket — and then, at the scheduled delay, the stale timer called `connect()` a
+     second time, whose `disconnect(new Error("Connection replaced"))` tore the *live* socket
+     down: every in-flight request rejected and `onStatusChange` reported `false` then `true`
+     for an outage that never happened.
+     Regression test: `WsClient reconnection > a manual connect cancels the armed retry instead
+     of being replaced by it` in `packages/tui/src/net/reconnect.test.ts`. Red at `550331f`
+     (`expect(states).toEqual([])` receives `[false, true]`), green at `0951096`.
+     Run with `bun test packages/tui/src/net/reconnect.test.ts`.
+     Fix: `connect()` calls `cancelReconnect()`, extracted so `close()` and `connect()` disarm
+     the loop through one path.
+
+  2. **A reconnect left the sidebar stale.** `Store.load()` runs once, from `App.init()`;
+     everything after it arrives as a live broadcast, and the backend replays nothing to a
+     client that was disconnected. So any project or task created, renamed or archived by
+     another client (Electron, the CLI) during an outage never reached the store, and the
+     sidebar went on showing pre-outage rows for the rest of the process.
+     Regression test: `App > reloads the store on reconnect so the sidebar is not left stale`
+     in `packages/tui/src/ui/app.test.ts`. Red at `550331f` (the frame repaints nothing —
+     received `""`), green at `0951096`. Run with `bun test packages/tui/src/ui/app.test.ts`.
+     Fix: `App.init()` subscribes to `onStatusChange` and re-runs `store.load()` on
+     `connected: true`. The subscription is made before the first load but does not double it —
+     the socket is already open when `init()` runs, so `setStatus` emits nothing further until
+     a real outage. The reload swallows its own failure, matching `Store.refresh()`'s existing
+     rule that "the store has no error channel of its own and reconnect is the app's job".
+
+  Codex's framing of finding 2 mentioned session resync as well; that half stands as already
+  handled — `SessionTerminal.attach()` restores from the snapshot, and nothing in Stage 1 opens
+  a session. Only the `Store` half was a live defect, and only that was fixed.
+
+### Decisions taken (Task 17 round 1)
+
+4. **The `App` status subscription's disposer is dropped.** `App` has no teardown path — the
+   process exits from `index.ts` when `app.running` goes false — so storing an unsubscribe that
+   nothing can call would be dead state.
+5. **The app-test stub now returns copies from `PROJECT_LIST`/`TASK_LIST`.** It handed back the
+   test's own fixture arrays, which left `Store.taskList` aliasing them, so a test that pushed a
+   task mutated the store directly and could not tell a reload from no reload. A real snapshot
+   arrives over the socket as fresh data; the stub now matches. All 21 pre-existing app tests
+   still pass under the change.
+
+### Verification at `0951096`
+
+- `bun test packages/tui/src/net/` → 12 pass, 0 fail.
+- `bun test packages/tui/src/ui/app.test.ts` → 22 pass, 0 fail.
+- `bun test packages/tui` → 458 pass, 0 fail.
+- `bun run lint` clean, `bun run typecheck` clean across all five packages plus both Electron
+  projects.
+- Full `bun test` → **1316 pass, 8 fail** — the same pre-existing `packages/ui`
+  `MarkdownPaneImpl` failures logged as Task 22 (1314 + the 2 new tests here).
+
+Next step: review Task 17, round 2 — one gpt-5.5 review via the codex-review skill over
+`6f62137..0951096`.
 After that: Task 18, then Tasks 19.6, 20, 21, 22 and 23 (20, 21, 22 and 23 each need their own
 plan or investigation; 18 and 19.6 are manual smoke tests — user gates).
