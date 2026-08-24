@@ -1,5 +1,28 @@
 import { homedir } from "os";
-import { join, delimiter } from "path";
+import { delimiter, join, posix, win32 } from "path";
+
+interface ConfigBaseDirInputs {
+    platform: NodeJS.Platform;
+    env: Readonly<Record<string, string | undefined>>;
+    homeDir: string;
+}
+
+export function resolveConfigBaseDir(inputs: ConfigBaseDirInputs): string {
+    const path = inputs.platform === "win32" ? win32 : posix;
+    const override = inputs.env.TASKFLOW_CONFIG_DIR;
+    if (override !== undefined && override.trim() !== "") {
+        if (!path.isAbsolute(override)) {
+            throw new Error("TASKFLOW_CONFIG_DIR must be an absolute path");
+        }
+        return override;
+    }
+
+    if (inputs.platform === "win32") {
+        const appData = inputs.env.APPDATA || path.join(inputs.homeDir, "AppData", "Roaming");
+        return path.join(appData, "taskflow");
+    }
+    return path.join(inputs.homeDir, ".config", "taskflow");
+}
 
 export function isWindows(): boolean {
     return process.platform === "win32";
@@ -10,11 +33,11 @@ export function getHomeDir(): string {
 }
 
 export function getConfigBaseDir(): string {
-    if (isWindows()) {
-        const appData = process.env.APPDATA || join(homedir(), "AppData", "Roaming");
-        return join(appData, "taskflow");
-    }
-    return join(homedir(), ".config", "taskflow");
+    return resolveConfigBaseDir({
+        platform: process.platform,
+        env: process.env,
+        homeDir: homedir(),
+    });
 }
 
 export function getPathDelimiter(): string {

@@ -44,6 +44,24 @@ describe("startBackend", () => {
         expect(handle.port).toBe(4322);
     });
 
+    test("passes TASKFLOW_CONFIG_DIR through to the child unchanged", async () => {
+        const previous = process.env.TASKFLOW_CONFIG_DIR;
+        process.env.TASKFLOW_CONFIG_DIR = "/tmp/taskflow-tui-isolated";
+        try {
+            const binary = await writeFakeBackend(
+                'if [ "$TASKFLOW_CONFIG_DIR" = "/tmp/taskflow-tui-isolated" ]; then echo 4334 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',
+            );
+            const handle = await start({ binary, args: [], devBranch: "test" });
+            expect(handle.port).toBe(4334);
+        } finally {
+            if (previous === undefined) {
+                delete process.env.TASKFLOW_CONFIG_DIR;
+            } else {
+                process.env.TASKFLOW_CONFIG_DIR = previous;
+            }
+        }
+    });
+
     test("does not set TASKFLOW_DEV_BRANCH when devBranch is null", async () => {
         const binary = await writeFakeBackend(
             'if [ -z "$TASKFLOW_DEV_BRANCH" ]; then echo 4323 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',

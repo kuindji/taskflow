@@ -285,6 +285,21 @@ describe("session handlers", () => {
         expect(args).toContain("Taskflow Test");
     });
 
+    it("uses the configured root as the default master-session cwd", async () => {
+        const created = (await router.handle(MSG.SESSION_CREATE, {
+            master: true,
+            type: "shell",
+            shell: testShell,
+        })) as { sessionId: string };
+
+        expect(ptyManager.spawns).toContainEqual({
+            id: created.sessionId,
+            cwd: config.baseDir,
+            command: testShell,
+            args: [],
+        });
+    });
+
     it("rejects invalid Claude launch options before spawning a session", async () => {
         let error: unknown;
         try {

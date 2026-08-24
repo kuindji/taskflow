@@ -287,6 +287,28 @@ describe("SessionBridge", () => {
         expect(sessionInputs(net)).toEqual(["\x1b[I", "\x1b[O"]);
     });
 
+    it("keeps rendering while input is disabled and drops child-bound bytes", async () => {
+        const { test, net, bridge } = await setup();
+        net.responses.set(MSG.SESSION_SNAPSHOT, {
+            snapshot: "transcript",
+            lastSequence: 0,
+            cursorHidden: false,
+            kittyStack: [null, 1],
+            mouseEncoding: "sgr",
+        });
+        await bridge.attach();
+        bridge.setInputEnabled(false);
+        net.requests.length = 0;
+        bridge.renderable.handleKeyPress(key("a"));
+        bridge.renderable.handlePaste(new PasteEvent(new TextEncoder().encode("paste")));
+        bridge.focus();
+        bridge.blur();
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: " retained", sequence: 1 });
+        await test.renderOnce();
+        expect(sessionInputs(net)).toEqual([]);
+        expect(bridge.renderable.screen().text).toContain("transcript retained");
+    });
+
     it("lets OpenTUI own disabled, X10, SGR, drag, and any-motion mouse modes", async () => {
         const disabled = await setup();
         disabled.net.responses.set(MSG.SESSION_SNAPSHOT, {

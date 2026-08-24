@@ -1,5 +1,12 @@
 import { MSG, orderProjectsByIds, sortTasksByCreatedAtDesc } from "@taskflow/shared";
-import type { Project, Task, ProjectListResponse, TaskListResponse } from "@taskflow/shared";
+import type {
+    MasterSessionsListResponse,
+    Project,
+    ProjectListResponse,
+    SessionRef,
+    Task,
+    TaskListResponse,
+} from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 
 function upsert<T extends { id: string }>(items: T[], next: T): T[] {
@@ -13,6 +20,7 @@ function upsert<T extends { id: string }>(items: T[], next: T): T[] {
 class Store {
     private projectList: Project[] = [];
     private taskList: Task[] = [];
+    private masterSessionList: SessionRef[] = [];
     private readonly listeners = new Set<() => void>();
     private readonly disposers: (() => void)[] = [];
     /**
@@ -49,6 +57,11 @@ class Store {
             }),
             net.on(MSG.TASK_UPDATED, (payload) => {
                 this.apply(() => this.updateTask(payload));
+            }),
+            net.on(MSG.MASTER_SESSIONS_LIST, (payload) => {
+                this.apply(() => {
+                    this.masterSessionList = (payload as MasterSessionsListResponse).sessions;
+                });
             }),
         );
     }
@@ -141,15 +154,17 @@ class Store {
         const mark = (this.deferred ??= []).length;
         let committed = false;
         try {
-            const [projects, tasks] = await Promise.all([
+            const [projects, tasks, masterSessions] = await Promise.all([
                 this.net.request<ProjectListResponse>(MSG.PROJECT_LIST),
                 this.net.request<TaskListResponse>(MSG.TASK_LIST),
+                this.net.request<MasterSessionsListResponse>(MSG.MASTER_SESSIONS_LIST),
             ]);
             // A later load() already owns the state; this snapshot is stale by
             // definition, so committing it would undo the newer one.
             if (this.loadToken !== token) return;
             this.projectList = projects.projects;
             this.taskList = tasks.tasks;
+            this.masterSessionList = masterSessions.sessions;
             committed = true;
         } finally {
             if (this.loadToken === token) {
@@ -169,6 +184,10 @@ class Store {
 
     get tasks(): readonly Task[] {
         return this.taskList;
+    }
+
+    get masterSessions(): readonly SessionRef[] {
+        return this.masterSessionList;
     }
 
     tasksFor(projectId: string): Task[] {

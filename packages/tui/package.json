@@ -4,7 +4,7 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "TASKFLOW_DEV=1 bun run src/index.ts",
+        "dev": "bun run src/dev.ts",
         "build:bin": "bun build src/index.ts --compile --outfile dist/taskflow-tui",
         "test": "bun test",
         "typecheck": "tsc --noEmit"

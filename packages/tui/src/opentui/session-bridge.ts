@@ -41,6 +41,7 @@ class SessionBridge {
     private replaying = false;
     private destroyed = false;
     private active = false;
+    private inputEnabled = true;
     private pending: PendingChunk[] = [];
     private recent: PendingChunk[] = [];
     private recentBytes = 0;
@@ -185,7 +186,7 @@ class SessionBridge {
 
     private sendInput(bytes: Uint8Array): void {
         const data = inputBytesToString(bytes);
-        if (data === null || this.destroyed) return;
+        if (data === null || this.destroyed || !this.inputEnabled) return;
         void this.deps.net
             .request(MSG.SESSION_INPUT, { sessionId: this.deps.sessionId, data })
             .catch(() => undefined);
@@ -216,6 +217,10 @@ class SessionBridge {
 
     blur(): void {
         this.renderable.blur();
+    }
+
+    setInputEnabled(enabled: boolean): void {
+        this.inputEnabled = enabled;
     }
 
     destroy(): void {

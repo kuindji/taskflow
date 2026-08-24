@@ -18,8 +18,6 @@ import {
 } from "./internal-agent-skill";
 import { getEditorById } from "./editor-detector";
 import type { TrayStateTracker } from "./tray-state-tracker";
-import { homedir } from "os";
-import { join } from "path";
 import { mkdirSync } from "fs";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
@@ -319,7 +317,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         let resolvedProjectId = "";
 
         if (master) {
-            cwd = cwdOverride ?? join(homedir(), ".config", "taskflow");
+            cwd = cwdOverride ?? config.baseDir;
             mkdirSync(cwd, { recursive: true });
         } else {
             task = taskId ? await taskStore.getTask(taskId) : null;

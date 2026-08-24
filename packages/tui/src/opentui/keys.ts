@@ -8,6 +8,9 @@ type UiCommand =
     | { kind: "select-tab"; index: number }
     | { kind: "zoom" }
     | { kind: "quit" }
+    | { kind: "create" }
+    | { kind: "close" }
+    | { kind: "resume" }
     | { kind: "deferred" };
 
 type KeyRoute =
@@ -87,10 +90,22 @@ class KeyRouter {
         if (!chorded && text === "z") {
             return { kind: "command", command: { kind: "zoom" }, before };
         }
+        if (!chorded && text === "l") {
+            return { kind: "command", command: { kind: "open" }, before };
+        }
         if (!chorded && text === "Q") {
             return { kind: "command", command: { kind: "quit" }, before };
         }
-        if (!chorded && ["n", "s", "q", "?"].includes(text)) {
+        if (!chorded && text === "s") {
+            return { kind: "command", command: { kind: "create" }, before };
+        }
+        if (!chorded && text === "q") {
+            return { kind: "command", command: { kind: "close" }, before };
+        }
+        if (!chorded && text === "r") {
+            return { kind: "command", command: { kind: "resume" }, before };
+        }
+        if (!chorded && ["n", "?"].includes(text)) {
             return { kind: "command", command: { kind: "deferred" }, before };
         }
         return before ? { kind: "consume" } : { kind: "pass" };

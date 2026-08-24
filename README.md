@@ -24,3 +24,18 @@ Taskflow organizes your work into **projects** and **tasks**. Each task can have
 - macOS (Intel or ARM)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and/or [Codex](https://github.com/openai/codex) CLI installed
 - `git` and optionally `gh` CLI
+
+## TUI development
+
+Run `bun run dev:tui` from the repository root. The command builds the local
+backend and starts the TUI with a persistent, branch-specific config root beside
+the production Taskflow directory. It prints the development instance and config
+root before opening the terminal interface.
+
+Set an absolute config root to run against a disposable or parallel instance:
+
+```sh
+TASKFLOW_CONFIG_DIR=/absolute/path bun run dev:tui
+```
+
+Relative `TASKFLOW_CONFIG_DIR` values are rejected before the backend starts.
