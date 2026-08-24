@@ -24,7 +24,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
-| 17 | Reconnection and session resync | pending | — | |
+| 17 | Reconnection and session resync | implemented | `6f62137` | commit `550331f`; awaiting review round 1 |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
@@ -6309,7 +6309,61 @@ isolation and on an unloaded full run. Logged as Task 23 rather than treated as 
    pre-existing, unrelated to this task's files, and a fixed timeout racing machine load needs
    its own look.
 
-Next step: implement Task 17 — reconnection and session resync (`packages/tui`). Record HEAD as
-its base commit before starting.
+## Task 17 — implementation (base `6f62137`, commit `550331f`)
+
+Plan section: `docs/superpowers/plans/2026-08-22-taskflow-tui-stage1.md` Task 17. Only
+`packages/tui/src/net/client.ts` changed, plus the new `packages/tui/src/net/reconnect.test.ts`.
+
+**What it does.** `WsClient` now dials again after an unexpected close, with exponential backoff
+from 250ms to a 5s ceiling, and stops for good once `close()` is called. The constructor gained
+an optional second `host` argument for Task 18's remote mode; left unset, the existing
+`hostForUrl(resolveBackendHost())` rule from Task 16 still applies, so local behaviour is
+unchanged.
+
+**Where the retry is armed.** Only in `ws.onclose`. `disconnect()` detaches `onopen`/`onerror`/
+`onclose`/`onmessage` before calling `ws.close()`, so neither an intentional `close()` nor a
+superseding `connect()` can reach that handler — the loop starts only when the socket dropped on
+its own. The timer callback also rearms from `connect().catch()`, because a dial that fails
+through `onerror` alone never reaches `onclose`; the `reconnectTimer !== null` guard keeps the
+two paths from stacking two timers when both fire.
+
+**Session resync needs no wiring in Stage 1.** `SessionTerminal.attach()` already handles a
+second attach (Task 9: it replays `takeRecent()`, resets the grid through the write queue and
+restores DEC modes). Nothing in Stage 1 opens a session — `App.sessions` is only ever read, and
+the plan puts `SESSION_CREATE` and attaching to a task's sessions in Stage 2 (plan lines
+4799–4818). So there is no open session for a reconnect to resync yet, and the recovery hook
+belongs with the code that opens one.
+
+### Decisions taken (Task 17)
+
+1. **`connect()` clears `closed`.** The plan leaves `closed` sticky once `close()` has run. That
+   would make a later `connect()` return a live socket with the retry loop silently dead. Since
+   dialling again is an explicit statement that the caller wants a connection, `connect()` resets
+   the flag. Nothing in the tree calls `connect()` after `close()` today, so this changes no
+   shipped behaviour; it removes a trap. `close()` still sets the flag before clearing the timer,
+   so a close racing an armed timer cannot be undone.
+2. **`host` is `string | null`, not a `"127.0.0.1"` default.** The plan predates Task 16. A
+   literal default would throw away the `TASKFLOW_HOST` resolution Task 16 added; a null default
+   keeps the local rule and lets Task 18 pass a remote host through the same `hostForUrl`
+   bracketing that an IPv6 literal needs.
+3. **The third test was added beyond the plan's two.** The plan's "stops reconnecting after
+   close" only asserts that `request()` rejects, which already passed before this task existed.
+   `does not dial again after close, even once the server is back` counts upgrades on a
+   server restarted after `close()`, which is the behaviour that would actually regress.
+
+### Verification at `550331f`
+
+- Red before the fix: `bun test packages/tui/src/net/reconnect.test.ts` at `6f62137` with only
+  the test file present → `reports disconnect and reconnects when the server returns` fails with
+  `Expected to contain: true / Received: [ false ]`. Green at `550331f`.
+- `bun test packages/tui/src/net/` → 11 pass, 0 fail.
+- `bun test packages/tui` → 456 pass, 0 fail.
+- `bun run lint` clean, `bun run typecheck` clean across all five packages plus both Electron
+  projects.
+- Full `bun test` → **1314 pass, 8 fail** — the same pre-existing `packages/ui`
+  `MarkdownPaneImpl` failures logged as Task 22 (1311 + the 3 new tests here).
+
+Next step: review Task 17, round 1 — one gpt-5.5 review via the codex-review skill over
+`6f62137..550331f`.
 After that: Task 18, then Tasks 19.6, 20, 21, 22 and 23 (20, 21, 22 and 23 each need their own
 plan or investigation; 18 and 19.6 are manual smoke tests — user gates).
