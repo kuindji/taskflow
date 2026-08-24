@@ -25,7 +25,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
 | 17 | Reconnection and session resync | clear | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; round 3 found nothing — clear after round 3 |
-| 18 | Remote mode | in-review round 2 | `3e31dd2` | commits `f6cc308`, `684ffa6`, `b98ca3b` (plan Steps 1–6 and 8); round 1 found 5 substantiated defects, round 2 found 1 — all fixed; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
+| 18 | Remote mode | in-review round 3 | `3e31dd2` | commits `f6cc308`, `684ffa6`, `b98ca3b`, `74b5d0f` (plan Steps 1–6 and 8); rounds 1, 2 and 3 found 5, 1 and 1 substantiated defects — all fixed; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
 | 18.1 | Remote mode — manual smoke test over an SSH tunnel | pending | — | **user gate** |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
@@ -6765,8 +6765,79 @@ premise that does not hold for this backend and was dropped.
   needs a backend that answers some requests and silently drops others, which no build of this
   backend does.
 
-Next step: review Task 18, round 3 — one gpt-5.5 review via codex-review over `3e31dd2..b98ca3b`,
+## Task 18, review round 3
+
+One gpt-5.5 review via codex-review (Mode B, self-contained prompt over `git diff 3e31dd2..b98ca3b
+-- packages/`, with the round 1 and 2 findings and decisions listed so they would not be re-raised,
+and the untouched areas — `index.ts`'s local/remote branch, the `clientsBroadcast` precedence rule,
+the banner's bounds, `clientCount()` — named as where to press). Codex returned one finding. It was
+already found here independently, before the report landed, and is confirmed and fixed in `74b5d0f`.
+
+### Confirmed and fixed
+
+1. **`--connect desktop/path:7777` silently dials `desktop:80`** (found here and by Codex,
+   medium). Symptom: the TUI accepts the target without complaint and then fails to connect — to a
+   machine and a port the user never typed. No usage error, and nothing on screen says the port was
+   dropped.
+
+   `URL.canParse` answers whether *some* URL comes out of the string, not whether the target
+   survived as an authority. `ws://desktop/path:7777` parses fine — as the host `desktop` with the
+   path `/path:7777` — so the check passed and `new WebSocket` then opened the default ws port.
+   `/`, `\`, `?`, `#` and `@` all end the authority the same way, and each can only reach the host
+   slice, because everything after the first colon is already required to be digits.
+
+   This is round 1's finding 1 and round 2's finding 1 a third layer in: the target passed the
+   check and was then re-read as something else. Rounds 1 and 2 moved from a shape regex to the
+   parser; the parser was consulted for the wrong thing.
+
+   Evidence, end to end:
+   - Before, at `b98ca3b`: `parseArgs(["--connect","desktop/path:7777"])` →
+     `{host:"desktop/path",port:7777}`; `new URL(backendUrl("desktop/path",7777))` →
+     `hostname "desktop"`, `port ""`, `pathname "/path:7777"`.
+   - After: `bun run packages/tui/src/index.ts --connect 'desktop/path:7777'` →
+     `error: --connect expects host:port. usage: taskflow-tui [--connect <host:port>] (IPv6 must be bracketed: [::1]:7777)`.
+   - Regression tests in `packages/tui/src/cli.test.ts`: `rejects a host a URL parser would read as
+     something other than a host` (7 forms: `/`, `\`, `?`, `#`, `@`, `user:pw@`, and an IPv4 with a
+     path) is red against `b98ca3b`'s `cli.ts`, green after. Run with
+     `bun test packages/tui/src/cli.test.ts`.
+
+Codex found nothing in `index.ts`, `app.ts`, `server.ts` or `index.ts`'s handler registration, and
+nothing wrong with the new tests.
+
+### Fixes
+
+- **`packages/tui/src/cli.ts`** — `URL.canParse(...)` became `URL.parse(...)` plus a check that the
+  result is authority-only: `username`, `password`, `search` and `hash` empty and `pathname === "/"`.
+  A `null` parse is the old rejection. One parse, not two.
+
+### Verification
+
+- `packages/tui/src/cli.test.ts` — 2 tests added (27 total). `rejects a host a URL parser would
+  read as something other than a host` is red against `b98ca3b`; `every accepted target is dialled
+  at the host and port that were typed` is a guard, asserting `url.hostname` and `url.port` rather
+  than only that the URL opens — including `desktop:80`, where `url.port` is `""` because 80 is
+  ws's default and not because a port went missing.
+- `bun run lint` clean, `bun run typecheck` clean across all five packages.
+- Full `bun test` → 1355 pass, 8 fail in 98s — exactly the known Task 22 set.
+
+## Decisions taken (Task 18, review round 3)
+
+- **The parser is asked what the target parsed *to*, not just whether it parsed.** Every round of
+  this defect has been the same mistake at a different depth: a check that says the string is
+  plausible rather than that it means what was typed. Reading back the parsed URL's own fields is
+  the end of that regress — there is nothing further in to be wrong about.
+- **The authority-only check is spelled as five field comparisons rather than a delimiter scan.**
+  A scan for `/ \ ? # @` would be a sixth hand-written description of URL syntax, which is the
+  thing rounds 1 and 2 removed. The fields are what the parser actually decided.
+- **`user@desktop:7777` is a usage error rather than a host with the credentials dropped.** It
+  would have dialled `desktop:7777` correctly, so this is stricter than it has to be — but an
+  ssh-style target that quietly loses half of itself is the class of surprise this whole thread of
+  findings is about, and nothing needs userinfo against a backend with no authentication.
+
+Next step: review Task 18, round 4 — one gpt-5.5 review via codex-review over `3e31dd2..74b5d0f`,
 covering `packages/tui`, `packages/backend/src/ws/server.ts` and the `SYSTEM_CLIENTS` registration
-in `packages/backend/src/index.ts`.
+in `packages/backend/src/index.ts`. Round 3 found and fixed a defect, so the task is not clear yet.
+The brief should carry all seven findings from rounds 1–3 so they are not re-derived, and should
+say that `cli.ts`'s host validation has now been through three rounds — press somewhere else.
 After that: Tasks 18.1, 19.6, 20, 21, 22 and 23. **18.1 and 19.6 are manual smoke tests — user
 gates**; 20, 21, 22 and 23 each need their own plan or investigation.
