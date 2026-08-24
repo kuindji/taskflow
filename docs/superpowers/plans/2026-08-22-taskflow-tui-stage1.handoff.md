@@ -23,7 +23,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
-| 16 | Backend — bind to loopback and report connected clients | in-review round 3 | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`; rounds 1 and 2 found 2 real defects each, round 3 found 3 — all fixed; needs round 4 |
+| 16 | Backend — bind to loopback and report connected clients | in-review round 4 | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; needs round 5 |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
@@ -6077,7 +6077,134 @@ Full `bun test` → 1309 pass, 8 fail; the 8 are the same pre-existing `packages
 4. **The error message keeps the word "loopback"** and now names the exact three accepted
    spellings, so an operator who set `0.0.0.0` reads both why it was refused and what to use.
 
-Next step: review Task 16, round 4 — one gpt-5.5 review via the codex-review skill over
-`2684302..74a1f88`.
+## Task 16 — review round 4
+
+One gpt-5.5 review via the codex-review skill (Mode B, prompted, over `2684302..74a1f88` with
+the handoff excluded; the brief carried all of rounds 1–3's settled decisions so they would not
+be re-raised). **Codex returned a clear verdict on the production change** — no substantive
+defect, and it explicitly confirmed the two things prior rounds kept finding: every listener in
+the repo goes through `resolveBackendHost`, and every backend-URL surface reduces to the
+already-handled classes (Electron main fetches, the TUI `WsClient`, the renderer's `localhost`
+dial and raw-file URL, and both `taskflow-cli` implementations consuming `TASKFLOW_API_URL`).
+It also cleared the client-count broadcast: sockets enter the `Set` only in `open`, leave only
+in `close`, failed upgrades never reach `open`, and `Set` membership rules out double-counting.
+
+Two findings survived verification — one raised here independently, one raised by Codex as a
+non-blocking test gap. Both are holes in the safety net rather than user-visible defects, and
+both were fixed in `d6f0b9a`. First round on this task where nothing in the shipped behaviour
+was wrong.
+
+### Finding 1 (found independently, Codex agreed it was possible but found no instance) — round 1's `types: ["bun"]` silently disarmed the Electron typecheck
+
+What it costs: the Electron **main** process runs on Node, not Bun, so `Bun` does not exist
+there at runtime. Round 1 added `"types": ["bun"]` to `electron/tsconfig.json` so the new
+`backend-url.test.ts` could resolve `bun:test`. That setting is package-wide, so it also put
+the `Bun` global in scope for every shipped source in `electron/src`. From `74a1f88` onward, a
+future edit reaching for `Bun.file()` or `Bun.spawn()` in Electron main typechecks clean,
+builds clean, and then throws `ReferenceError: Bun is not defined` the moment that code path
+runs. Codex flagged the same masking risk but stopped at "no current production `Bun` usage";
+the point is that the guard against introducing one was gone.
+
+Repro — drop a probe into the Electron sources and typecheck at each commit:
+
+```
+cat > electron/src/__probe.ts <<'EOF'
+export async function probe(): Promise<string> {
+    return await Bun.file("/etc/hosts").text();
+}
+EOF
+cd electron && bunx tsc --noEmit
+```
+
+- At `2684302` (before the task): `error TS2868: Cannot find name 'Bun'.` — the mistake is caught.
+- At `74a1f88`: exits 0, silently. — the mistake ships.
+- At `d6f0b9a`: `error TS2868` again, from the `tsconfig.src.json` pass.
+
+**Fix.** `electron/tsconfig.json` is left exactly as it was, and a new
+`electron/tsconfig.src.json` extends it with `"types": []` and
+`"exclude": ["src/**/*.test.ts"]`, rechecking only the shipped sources with the Bun types off.
+`electron`'s `typecheck` script now runs both projects.
+
+The obvious inversion — excluding the tests from `tsconfig.json` and giving them their own
+project — was tried first and **rejected because it breaks lint**: `eslint.config.js` uses
+`projectService: true`, which needs every linted file to belong to the nearest `tsconfig.json`,
+so the excluded test file failed with `was not found by the project service. Consider either
+including it in the tsconfig.json or including it in allowDefaultProject`. Extending in the
+other direction keeps ESLint's view identical to today's.
+
+### Finding 2 (Codex, substantiated) — no URL assertion exercised the full IPv6 spelling
+
+`resolveBackendHost` accepts `0:0:0:0:0:0:0:1` as well as `::1`, and both `hostForUrl` and
+Electron's `backendOrigin` bracket any host containing `:` — so production is correct today.
+But every URL assertion in both test files used `::1` only, so a narrowing edit to either
+helper would go unnoticed while breaking the long spelling.
+
+Mutation repro — narrow both helpers to `host === "::1" ? ...`:
+
+- At `74a1f88`: `bun test packages/shared/src/utils/backend-host.test.ts electron/src/backend-url.test.ts`
+  → **17 pass, 0 fail.** The break is invisible.
+- The break is real: with that mutation, `TASKFLOW_HOST=0:0:0:0:0:0:0:1` makes
+  `backendHttpOrigin(7100)` return `http://0:0:0:0:0:0:0:1:7100`, and `new URL()` on it throws
+  `Invalid URL` — the same failure round 3's empty-string bug caused, which broke the
+  notification poller, tray state and window-bounds fetches.
+- At `d6f0b9a` with the same mutation: **19 pass, 3 fail**, in both packages.
+
+**Fix.** The `hostForUrl` and `backendOrigin` bracketing tests became `test.each` over both
+spellings, and `backendHttpOrigin > is a parseable URL for every accepted host` gained
+`0:0:0:0:0:0:0:1` to its loop.
+
+### Checked here and found sound
+
+- **The bind is protected by a test after all.** Round 1's decision 4 recorded that "a future
+  edit dropping the `hostname` line would go unnoticed". Round 2's `refuses to start on a host
+  that is not loopback` closed that without anyone noticing: deleting `hostname:
+  resolveBackendHost(),` from `server.ts` makes it fail (`Received value must be a string:
+  null`), because that line is the only caller of the throwing resolver. Verified by mutation
+  at `74a1f88` — **2 pass, 1 fail**. Decision 4 is now obsolete rather than accepted; no action
+  needed.
+- **The close-half of the count broadcast is still protected.** Deleting `broadcastClientCount()`
+  from the `close` handler → **2 pass, 1 fail**. Round 1's vacuity fix holds.
+- **`TASKFLOW_HOST` is inherited by every backend child.** Electron's `backend-manager.ts:114`
+  spreads `process.env` into `safeEnv`, and the TUI's `manager.ts:113-119` does the same
+  (stripping only `TASKFLOW_DEV`/`TASKFLOW_DEV_BRANCH`), so the bind host and the parent's
+  `backendOrigin`/`WsClient` reads can never disagree.
+- **A rejected `TASKFLOW_HOST` produces a legible failure, not a hang.** `resolveBackendHost`
+  throws inside `server.start()`, `index.ts` ends in `main().catch(...)` which prints the error
+  and exits 1, and both parents surface that: Electron races the port-file wait against the
+  child's `exit` and keeps `backendStderrBuffer`, the TUI captures stderr the same way.
+  Round 2's decision 1 rests on this and it holds.
+- **`getPort()` is typed `() => number`** (`session-lifecycle.ts:89`), so
+  `backendHttpOrigin(getPort())` cannot produce a `null` authority.
+- **`packages/backend/src/ws/server.ts:47` is still the only `Bun.serve`/`listen` in the repo**,
+  and `electron/src` has no `fetch` call left that does not go through `backendOrigin`.
+
+Verification at `d6f0b9a`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages plus electron (electron now runs two projects), `bun run build` (UI + electron) clean.
+Targeted: `bun test packages/shared/src/utils/backend-host.test.ts electron/src/backend-url.test.ts
+packages/backend/src/ws/server.test.ts packages/tui/src/net/client.test.ts` → 33 pass, 0 fail.
+Full `bun test` → 1311 pass, 8 fail; the 8 are the same pre-existing `packages/ui`
+`MarkdownPaneImpl` failures logged as Task 22 (1309 → 1311 is the 2 new `test.each` cases).
+Re-confirmed they are pre-existing by stashing this round's changes and running
+`bun test packages/ui/src/components/panes/` → 8 pass, 0 fail.
+
+**Findings were fixed, so Task 16 needs another review round.**
+
+## Decisions taken (Task 16 review round 4)
+
+1. **The Bun-global guard is a second tsconfig, not a rearrangement of the first.**
+   `electron/tsconfig.json` stays byte-identical so ESLint's `projectService` keeps resolving
+   every file; `tsconfig.src.json` extends it and turns the Bun types back off for the shipped
+   sources only. The inverse split was implemented, failed lint, and was reverted.
+2. **`"types": []` rather than `"types": ["node"]`** in `tsconfig.src.json` — `@types/node` is
+   not installed in this repo, and the pre-task state (no `types` field at all) typechecked the
+   Electron sources fine, so an empty list restores exactly that.
+3. **Codex's IPv6 gap was fixed by widening the tests, not by narrowing the accepted host set.**
+   Dropping `0:0:0:0:0:0:0:1` would have been the smaller diff, but round 2's decision 3 chose
+   to accept that spelling deliberately, and the helpers already handle it correctly.
+4. **Round 1's decision 4 is recorded as obsolete rather than revisited.** The bind gained test
+   coverage as a side effect of round 2's fix; nothing to change.
+
+Next step: review Task 16, round 5 — one gpt-5.5 review via the codex-review skill over
+`2684302..d6f0b9a`.
 After that: Tasks 17-18, then Tasks 19.6, 20, 21 and 22 (20, 21 and 22 each need their own
 plan or investigation).
