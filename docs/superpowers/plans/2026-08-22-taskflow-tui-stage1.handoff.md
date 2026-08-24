@@ -23,7 +23,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
-| 16 | Backend — bind to loopback and report connected clients | in-review round 4 | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; needs round 5 |
+| 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
@@ -36,6 +36,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
 | 21 | Bound the incomplete-CSI carry | pending | — | **added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
 | 22 | Full-suite-only failures in `packages/ui` pane tests | pending | — | **pre-existing, found during Task 16.** Eight tests in `MarkdownPaneImpl.checkbox.test.tsx` and the markdown link tests fail under `bun test` (whole repo) with `'useSessionStore.setState' is undefined` / `root.unmount` undefined, but pass under `bun test packages/ui/src/components/panes/`. Confirmed present at `2684302` before any Task 16 edit, so it is cross-file test pollution, not a product defect. Needs its own investigation |
+| 23 | Flaky `backend startup` test under load | pending | — | **observed during Task 16 round 5, pre-existing.** `packages/backend/tests/index.test.ts` — `backend startup > exits non-zero when startup fails after the server starts` failed twice with `backend process did not exit after startup failure` on runs where the whole suite took 90s+ instead of ~40s, and passed on every unloaded run. A fixed timeout racing machine load, not a product defect |
 
 ## Review rounds
 
@@ -6204,7 +6205,111 @@ Re-confirmed they are pre-existing by stashing this round's changes and running
 4. **Round 1's decision 4 is recorded as obsolete rather than revisited.** The bind gained test
    coverage as a side effect of round 2's fix; nothing to change.
 
-Next step: review Task 16, round 5 — one gpt-5.5 review via the codex-review skill over
-`2684302..d6f0b9a`.
-After that: Tasks 17-18, then Tasks 19.6, 20, 21 and 22 (20, 21 and 22 each need their own
-plan or investigation).
+## Task 16 — review round 5
+
+One gpt-5.5 review via the codex-review skill (Mode B, prompted, over `2684302..d6f0b9a` with
+docs excluded; the brief carried all of rounds 1–4's settled decisions so they would not be
+re-raised, and explicitly asked for the backpressure interaction, the bind/dial divergence
+sweep, teardown, and test vacuity).
+
+**Codex returned a clear verdict: no confident findings and no speculative ones.** It reported
+checking the whole diff and the current tree, the single production `Bun.serve`, the host gate
+and IPv6 bracketing, all four dial paths (TUI `WsClient`, Electron `backendOrigin`, the spawned
+agent's `TASKFLOW_API_URL`, the settled renderer `localhost` path), the add/delete ordering of
+the client-count broadcast, and the port-file consumers and env inheritance in both launchers.
+It ran the targeted tests, every package typecheck including both Electron projects, and lint.
+
+**Nothing substantiated on my side either, so Task 16 is clear after round 5.** No commit this
+round — the tree is unchanged from `d6f0b9a`.
+
+### Checked independently here and found sound
+
+- **No hardcoded local host survives outside the accepted set.**
+  `grep -rn -e localhost -e 127\.0\.0\.1` over `packages`, `electron`, `scripts` and `bin`
+  (excluding `node_modules`, `dist` and tests) returns only: the renderer's three `localhost`
+  sites (settled decision 1), the two doc comments, `DEFAULT_BACKEND_HOST`, the error string,
+  and Electron's deliberate duplicate. Nothing else builds a backend address.
+- **Every Electron main `fetch` goes through `backendOrigin`.** Four call sites
+  (`notification-poller.ts:32`, `tray-manager.ts:166`, `window-manager.ts:32` and `:136`), and
+  `grep -rn "fetch(" electron/src` finds no fifth.
+- **The bracketed IPv6 origin survives the `taskflow-cli` shell script.**
+  `packages/backend/src/services/taskflow-cli.sh` — the implementation that actually runs on
+  macOS/Linux — only ever concatenates `"$TASKFLOW_API_URL/api/..."` into `curl`, never parses
+  the authority apart, so `http://[::1]:7100/api/...` reaches curl intact. This was the
+  remaining place a bracketed host could have been split on `:`.
+- **`SystemClientsEvent` reaching the desktop app is silent, not noisy.**
+  `packages/ui/src/hooks/useWebSocket.ts` dispatches through a `Map` of event listeners with no
+  `default:` branch and no warn, so the new broadcast to an unsubscribed renderer logs nothing.
+- **The count broadcast cannot send to the socket that is leaving.** `close` deletes from
+  `clients` before `broadcastClientCount()` iterates it. `broadcastClientCount` deliberately
+  omits `dropOnBackpressure` so the count is never silently skipped; with Bun's
+  `closeOnBackpressureLimit` left at its `false` default, an over-buffered `ws.send` fails
+  silently rather than throwing or dropping the connection.
+- **No unused export.** All three new shared symbols have a consumer: `resolveBackendHost`
+  (backend `server.ts`, TUI `client.ts`), `hostForUrl` (TUI `client.ts`), `backendHttpOrigin`
+  (`session-lifecycle.ts`).
+- **Test files never ship.** `electron/build.ts` bundles from three explicit entrypoints
+  (`src/main.ts`, `src/preload.ts`, `src/browser-preload.ts`), so `backend-url.test.ts` and its
+  `bun:test` import are unreachable from the packaged main bundle, and `typecheck` is
+  `--noEmit` on both projects.
+- **A rejected value is refused, not trimmed into acceptance.** `resolveBackendHost` matches on
+  `host.toLowerCase()` against the exact set, so `" 127.0.0.1"` (leading space) throws rather
+  than binding. It returns the raw value, so a case variant like `LOCALHOST` is passed through
+  to both `Bun.serve` and Electron's origin identically — DNS and URL authorities are
+  case-insensitive, so the two cannot disagree.
+
+### Accepted, not fixed — the `session-lifecycle` call site has no test
+
+Round 3 changed `packages/backend/src/services/session-lifecycle.ts:456` from a hardcoded
+`http://localhost:${port}` to `backendHttpOrigin(getPort())`. That is the highest-consequence
+line in the task for the scenario the escape hatch exists for — with the backend on `::1`, a
+spawned agent's `taskflow-cli` cannot reach a `localhost` URL — and **no test asserts it**.
+
+Mutation evidence: reverting that one line to `` `http://localhost:${String(getPort())}` `` and
+running `bun test packages/backend` gives **603 pass, 0 fail** — identical to the unmutated
+baseline. The break is invisible to the suite. (`grep -rn TASKFLOW_API_URL` over the backend
+tests finds only two *fixtures* that feed the CLI a URL, never an assertion on what
+`session-lifecycle` builds.)
+
+**Not fixed, deliberately.** `createSessionLifecycle` takes seven injected deps — `PtyManager`,
+`TaskStore`, `SettingsStore`, `TrayStateTracker`, a broadcast fn, `getPort` and
+`detectedEditors` — and `createSession` loads settings, resolves linked projects, builds the
+system prompt and writes the agent skill file before it ever reaches line 456. There is no
+existing `session-lifecycle` test to extend (the module has none). Standing up that scaffolding
+without `as any` is a task-sized piece of work, not a review-round fix, and it is
+disproportionate to the residual risk: the line already carries an explicit
+`// Not localhost:` comment explaining why, and the only way to regress it is to delete
+that comment and re-hardcode the literal it warns against. Recorded here so the gap is known
+rather than silently accepted. If `session-lifecycle` ever gains a test harness, this
+assertion should be the first thing added to it.
+
+Verification at `d6f0b9a` (tree unchanged, no new commit): `bun run lint` clean,
+`bun run typecheck` clean across all five packages plus both Electron projects. Targeted:
+`bun test packages/shared/src/utils/backend-host.test.ts electron/src/backend-url.test.ts
+packages/backend/src/ws/server.test.ts packages/tui/src/net/client.test.ts` → 33 pass, 0 fail.
+`bun test packages/backend` → 603 pass, 0 fail. Full `bun test` → **1311 pass, 8 fail**, the
+same pre-existing `packages/ui` `MarkdownPaneImpl` failures logged as Task 22, and the same
+counts round 4 recorded.
+
+One earlier full run in this session reported 1310 pass / 9 fail / 1 error, with the extra
+failure being `backend startup > exits non-zero when startup fails after the server starts`.
+It did not reproduce: that run took 90s against a ~40s baseline, and the test passes in
+isolation and on an unloaded full run. Logged as Task 23 rather than treated as a regression.
+
+## Decisions taken (Task 16 review round 5)
+
+1. **Task 16 is closed after five rounds on a clear verdict from both reviewers.** Rounds 3 and
+   4 each narrowed the search (round 4 was already clear on shipped behaviour and found only
+   safety-net holes); round 5 found nothing in either category.
+2. **The uncovered `session-lifecycle` call site is recorded as a known gap, not fixed.** See
+   above — the test scaffolding it needs is out of proportion to a review round, and inventing
+   a grep-over-source assertion instead would be a brittle guard that tests the text rather
+   than the behaviour.
+3. **The flaky `backend startup` test is logged as Task 23, not fixed here.** It is
+   pre-existing, unrelated to this task's files, and a fixed timeout racing machine load needs
+   its own look.
+
+Next step: implement Task 17 — reconnection and session resync (`packages/tui`). Record HEAD as
+its base commit before starting.
+After that: Task 18, then Tasks 19.6, 20, 21, 22 and 23 (20, 21, 22 and 23 each need their own
+plan or investigation; 18 and 19.6 are manual smoke tests — user gates).
