@@ -25,7 +25,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
 | 16 | Backend — bind to loopback and report connected clients | clear | `2684302` | commits `2c0a633`, `eb6fd75`, `9286b46`, `74a1f88`, `d6f0b9a`; rounds 1 and 2 found 2 real defects each, round 3 found 3, round 4 found 2 — all fixed; round 5 found nothing — clear after round 5 |
 | 17 | Reconnection and session resync | clear | `6f62137` | commits `550331f`, `0951096`, `1123c80`; round 1 found 2 substantiated defects, round 2 found 2 more — all fixed; round 3 found nothing — clear after round 3 |
-| 18 | Remote mode | in-review round 5 | `3e31dd2` | commits `f6cc308`, `684ffa6`, `b98ca3b`, `74b5d0f`, `90a161f`, `a0e3904` (plan Steps 1–6 and 8); rounds 1–5 found 5, 1, 1, 2 and 1 substantiated defects — all fixed; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
+| 18 | Remote mode | clear | `3e31dd2` | commits `f6cc308`, `684ffa6`, `b98ca3b`, `74b5d0f`, `90a161f`, `a0e3904`, `b53e0e7` (plan Steps 1–6 and 8); rounds 1–5 found 5, 1, 1, 2 and 1 substantiated defects — all fixed; round 6 found no defect in the diff, only a pre-existing unused export — clear after round 6; **Step 7 is a manual smoke test over SSH — split out as Task 18.1** |
 | 18.1 | Remote mode — manual smoke test over an SSH tunnel | pending | — | **user gate** |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
 | 19.1 | Mouse — report decoding | clear | `e00cd13` | commits `18ad1e9`, `39299ff`, `cbfde10`, `436313f`, `3770749`, `ee518be`, `012049f`, `2911a80`, `176d5af`, `f828057`, `4554556`, `984ac93`; clear after round 12 |
@@ -7013,14 +7013,96 @@ layout, tiny buffers), the local/remote startup branch, and the backend `clientC
   double render but leave the two attaches still racing over `pending` and the write queue.
   Serializing at the entry point is the one place that makes all of that shared state single-writer.
 
-Next step: review Task 18, round 6 — one gpt-5.5 review via codex-review over `3e31dd2..HEAD`,
-covering `packages/tui`, `packages/backend/src/ws/server.ts` and the `SYSTEM_CLIENTS` registration
-in `packages/backend/src/index.ts`. Round 5 found and fixed one defect, so the task is not clear
-yet. The brief should carry all ten findings from rounds 1–5, repeat that `cli.ts`'s host
-validation is closed and that round 5 reported the client-warning routing, the local/remote branch
-and the backend client count as clean, and press on **the new `attach()`/`attachOnce()` split** —
-whether queueing can deadlock or starve (a request that never settles holding the chain), what a
-reconnect storm now does to the pane, whether `dispose()` racing a queued attach is safe, and
-whether anything else in the class is still shared mutable state across calls.
-After that: Tasks 18.1, 19.6, 20, 21, 22 and 23. **18.1 and 19.6 are manual smoke tests — user
-gates**; 20, 21, 22 and 23 each need their own plan or investigation.
+## Task 18, review round 6
+
+One gpt-5.5 review via codex-review (Mode B, self-contained prompt over `git diff 3e31dd2..HEAD
+-- packages/`). The brief carried all ten findings from rounds 1–5 and the deliberate rejections,
+repeated that `cli.ts`'s host validation is closed and that round 5 cleared the client-warning
+routing, the local/remote branch and the backend client count, and named the new
+`attach()`/`attachOnce()` split as the place to press — queue deadlock and starvation, reconnect
+storms, `dispose()` racing a queued attach, `writeQueue` poisoning, and any remaining shared mutable
+state across calls.
+
+**Codex found no substantiated defect in the diff.** It reported checking `attachQueue`, the request
+timeout and disconnect settlement, the reconnect fan-out, dispose-after-queued-attach, write-queue
+rejection risk, the `pending`/`recent` replay, the client-count broadcast and removal, and the
+`SYSTEM_CLIENTS` request path, and named none of them as broken. The same ground was covered
+independently here before the report landed, with the same result — see the notes below.
+
+### The one finding — real, but pre-existing and outside the diff
+
+1. **`SessionOwner` was exported from `packages/tui/src/term/session-terminal.ts` with no importer**
+   (Codex, low). CLAUDE.md forbids that, and round 1 of this same task fixed the identical thing for
+   `CliOptions`. Verified here: `grep -rn "SessionOwner" packages/ --include="*.ts" --include="*.tsx"`
+   returns only the declaration in that file plus two unrelated local declarations of the same name
+   in `packages/backend/src/services/session-lifecycle.ts` and
+   `packages/ui/src/components/workspace/CommitDialog.tsx`. Neither imports the TUI one.
+
+   Not introduced by Task 18: `git log -S "export type { SessionOwner };" -- packages/tui/src/term/session-terminal.ts`
+   points at `f693314` (Task 9), and `git merge-base --is-ancestor f693314 3e31dd2` confirms it
+   predates this task's base. Fixed anyway — deleting an unimported type export cannot change
+   behaviour, and leaving a known constraint violation in place to preserve a review round would be
+   the wrong trade.
+
+### Verified independently here
+
+Everything the brief pressed on was traced here as well, before the report arrived. None of it
+produced a defect:
+
+- **The attach chain cannot wedge.** `WsClient.request` arms a `REQUEST_TIMEOUT_MS = 30_000` timer
+  per request (`packages/tui/src/net/client.ts:230`) and `failPending` rejects every in-flight
+  request on a socket drop, so `attachOnce()` is bounded at roughly two timeouts even against a
+  backend that never answers. `attachQueue` is only ever `run.catch(() => undefined)`, which settles
+  whenever `attachOnce()` settles.
+- **`dispose()` racing a queued attach is unreachable.** `SessionTerminal.dispose()` has no
+  production caller — `grep -rn "\.dispose()" packages/tui/src --include="*.ts"` outside tests hits
+  only the two calls inside the class itself. The hazard it would create (a queued `terminal.reset()`
+  on a disposed terminal poisoning `writeQueue`) cannot be reached from the shipped code.
+- **`writeQueue` poisoning needs a throw that nothing can produce.** `enqueue`/`enqueueAction` chain
+  with no `.catch`, so a rejection there would be permanent and would surface as an unhandled
+  rejection from `void this.enqueue(...)` in the output listener. But the only throw sites are
+  `terminal.write`/`terminal.reset` on a disposed terminal, which the point above rules out.
+- **The reconnect fan-out is bounded and converges.** `App`'s listener
+  (`packages/tui/src/ui/app.ts:90`) fires one `void term.attach().catch(() => undefined)` per open
+  session; N reconnects queue N attaches that now run one at a time, the last one wins, and each is
+  bounded by the request timeout. Wasteful under a storm, deliberately so — round 5 chose
+  serializing over coalescing.
+- **`pending` growth during an attach is short-lived.** It only accumulates between `clearGrid()` and
+  `finishLoad()`, and both fetches have already resolved by the time `clearGrid()` runs, so the
+  window is a write-queue drain rather than a network round trip.
+- **`finishLoad(-1)` does not duplicate `recent`.** The failure path it serves is the one where
+  `clearGrid()` never ran, so `pending` is empty; where it did run, `takeRecent()` emptied `recent`
+  first, so the re-`remember()` restores rather than doubles.
+- **`sessions` is empty in production today.** Stage 1 ships no `SESSION_CREATE` — see the comment at
+  `packages/tui/src/ui/app.test.ts:334` — so the reconnect attach loop has nothing to iterate over
+  yet. That is by design and is Stage 2's seam, not a defect.
+
+### Fixes
+
+- **`packages/tui/src/term/session-terminal.ts`** — deleted `export type { SessionOwner };`. The
+  interface stays, used by `SessionTerminalDeps` in the same file.
+
+### Verification
+
+- No test added: the change removes a type-only export with no importer and no runtime surface.
+- `bun run lint` clean, `bun run typecheck` clean across all five packages.
+- `bun test packages/tui packages/backend` → 1104 pass, 0 fail. Full `bun test` → 1359 pass, 8 fail
+  — exactly the known Task 22 set.
+- Commit `b53e0e7`.
+
+## Decisions taken (Task 18, review round 6)
+
+- **Task 18 is marked clear after round 6 rather than going to a round 7.** The loop's rule is that a
+  round with fixes earns another round, but the thing being re-reviewed would be the deletion of an
+  unimported type export — there is no behaviour to re-check, and the finding was not in the diff
+  under review in the first place. Codex's verdict on the actual diff was zero substantiated defects
+  after being pressed specifically at the newest code, and the same ground was covered independently
+  here with the same result. Six rounds over one task is already well past the point of return.
+- **The pre-existing export was fixed rather than filed as a separate task.** It is a one-line
+  deletion that lint and typecheck both confirm is inert. Filing it would cost more than fixing it.
+
+Next step: Task 18.1 — the manual smoke test of remote mode over an SSH tunnel (plan Step 7).
+**This is a user gate:** it needs a second machine, a real `ssh -L` tunnel and a human at the
+keyboard, none of which this loop can do on its own.
+After that: Tasks 19.6, 20, 21, 22 and 23. **19.6 is also a manual smoke test — a user gate**;
+20, 21, 22 and 23 each need their own plan or investigation.
