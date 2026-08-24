@@ -14,6 +14,17 @@ interface Pending {
     timer: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * The URL a backend on `host:port` is dialled at. Shared with the CLI, which
+ * validates a `--connect` target by checking that this exact string parses:
+ * a host that only *looks* right — an IPv6 zone id, say — would otherwise be
+ * accepted at parse time and blow up here as a bare `TypeError: Invalid URL`.
+ * Two spellings of the URL could drift apart; one cannot.
+ */
+function backendUrl(host: string, port: number): string {
+    return `ws://${hostForUrl(host)}:${String(port)}`;
+}
+
 const REQUEST_TIMEOUT_MS = 30_000;
 /** First retry delay; each further attempt doubles it up to the ceiling below. */
 const RECONNECT_BASE_DELAY_MS = 250;
@@ -64,9 +75,7 @@ class WsClient implements NetLike {
             // TASKFLOW_HOST (packages/backend/src/ws/server.ts) and inherits this
             // process's environment through startBackend — so the same read keeps
             // the client pointed at the socket that backend actually bound.
-            const ws = new WebSocket(
-                `ws://${hostForUrl(this.host ?? resolveBackendHost())}:${String(this.port)}`,
-            );
+            const ws = new WebSocket(backendUrl(this.host ?? resolveBackendHost(), this.port));
             this.ws = ws;
             ws.onopen = () => {
                 if (this.ws !== ws) return;
@@ -249,5 +258,5 @@ class WsClient implements NetLike {
     }
 }
 
-export { WsClient };
+export { WsClient, backendUrl };
 export type { NetLike };

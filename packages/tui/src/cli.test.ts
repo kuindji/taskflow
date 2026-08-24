@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { hostForUrl } from "@taskflow/shared";
 
 import { parseArgs } from "./cli";
+import { backendUrl } from "./net/client";
 
 describe("parseArgs", () => {
     test("defaults to local mode", () => {
@@ -54,9 +55,59 @@ describe("parseArgs", () => {
         expect(() => new URL(url)).not.toThrow();
     });
 
-    test("keeps an IPv6 zone id", () => {
-        expect(parseArgs(["--connect", "[fe80::1%en0]:7777"])).toEqual({
-            connect: { host: "fe80::1%en0", port: 7777 },
+    test("rejects an IPv6 zone id, which no URL parser will take", () => {
+        // `new URL` rejects a zone id outright, in either spelling, so a target
+        // carrying one can never be dialled. Accepting it here only moves the
+        // failure to `new WebSocket`, where it surfaces as a bare
+        // `TypeError: Invalid URL` instead of a usage error.
+        expect(() => parseArgs(["--connect", "[fe80::1%en0]:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "[fe80::1%25en0]:7777"])).toThrow(/host:port/);
+    });
+
+    test("rejects a bracketed literal that is not a valid IPv6 address", () => {
+        // Shape-matched by the old regex — a colon and hex digits is all it
+        // asked for — but rejected by every URL parser.
+        expect(() => parseArgs(["--connect", "[:]:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "[1:2:3:4:5:6:7:8:9]:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "[::g]:7777"])).toThrow(/host:port/);
+    });
+
+    test("rejects a host whose percent sequence is not one a URL accepts", () => {
+        expect(() => parseArgs(["--connect", "%:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "%zz:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "a%2Fb:7777"])).toThrow(/host:port/);
+    });
+
+    test("every accepted target produces a URL a WebSocket can open", () => {
+        // The check that matters: whatever survives parseArgs must survive the
+        // one thing done with it. Anything added to this list is validated
+        // against the real constructor rather than against a second regex.
+        const accepted = [
+            "127.0.0.1:7777",
+            "0.0.0.0:7777",
+            "localhost:1",
+            "DESKTOP:65535",
+            "desktop.local:9000",
+            "my_host:7777",
+            "[::1]:7777",
+            "[2001:db8::1]:7777",
+            "[::ffff:1.2.3.4]:7777",
+        ];
+        for (const target of accepted) {
+            const parsed = parseArgs(["--connect", target]).connect;
+            expect(parsed).not.toBeNull();
+            const host = parsed?.host ?? "";
+            const port = parsed?.port ?? 0;
+            expect(() => new WebSocket(backendUrl(host, port))).not.toThrow();
+        }
+    });
+
+    test("accepts a hostname with an underscore in it", () => {
+        // Illegal in DNS, ordinary as an SSH `Host` alias or a container name.
+        // Pinned because validating against `new URL` rather than a character
+        // class is what now decides it, and a URL takes it.
+        expect(parseArgs(["--connect", "my_host:7777"])).toEqual({
+            connect: { host: "my_host", port: 7777 },
         });
     });
 
@@ -81,6 +132,15 @@ describe("parseArgs", () => {
     test("rejects whitespace in the host", () => {
         expect(() => parseArgs(["--connect", " desktop:7777"])).toThrow(/host:port/);
         expect(() => parseArgs(["--connect", "desk top:7777"])).toThrow(/host:port/);
+    });
+
+    test("rejects a control character in the host rather than letting it be stripped", () => {
+        // `new URL` deletes tab, CR and LF from an authority instead of
+        // refusing it, so `desk<TAB>top` would quietly dial `desktop` — a
+        // different machine from the one that was typed.
+        expect(() => parseArgs(["--connect", "desk\ttop:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "desk\ntop:7777"])).toThrow(/host:port/);
+        expect(() => parseArgs(["--connect", "desktop\r:7777"])).toThrow(/host:port/);
     });
 
     test("rejects --connect as the last argument", () => {

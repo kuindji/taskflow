@@ -1,3 +1,5 @@
+import { backendUrl } from "./net/client";
+
 /**
  * Command-line options, parsed as a pure function so the whole surface is
  * testable without spawning a backend or opening a socket.
@@ -9,10 +11,21 @@ interface CliOptions {
 
 const USAGE = "usage: taskflow-tui [--connect <host:port>] (IPv6 must be bracketed: [::1]:7777)";
 
-/** A name, an IPv4 literal, or a percent-encoded name — anything but a colon. */
-const PLAIN_HOST = /^[A-Za-z0-9._~%+-]+$/;
-/** Inside the brackets: an IPv6 literal, optionally carrying a zone id. */
-const IPV6_HOST = /^[0-9A-Fa-f.]*:[0-9A-Fa-f.:]*(?:%[A-Za-z0-9._~-]+)?$/;
+/**
+ * Whether the target carries whitespace or a C0/DEL control. Checked before the
+ * URL parser is consulted, because that parser *deletes* tab, CR and LF from an
+ * authority rather than refusing it: `desk<TAB>top:7777` would parse cleanly and
+ * quietly dial `desktop`, a different machine from the one that was typed.
+ * Written as a scan rather than a regex because the character class would need
+ * literal control characters in it, which `no-control-regex` rejects.
+ */
+function hasControlOrSpace(value: string): boolean {
+    for (let i = 0; i < value.length; i++) {
+        const code = value.charCodeAt(i);
+        if (code <= 0x20 || code === 0x7f) return true;
+    }
+    return false;
+}
 
 function usageError(): Error {
     return new Error(`--connect expects host:port. ${USAGE}`);
@@ -24,6 +37,8 @@ function usageError(): Error {
  * host that arrives already bracketed would be bracketed twice.
  */
 function parseTarget(value: string): { host: string; port: number } {
+    if (hasControlOrSpace(value)) throw usageError();
+
     let host: string;
     let rawPort: string;
 
@@ -34,22 +49,31 @@ function parseTarget(value: string): { host: string; port: number } {
         if (close === -1 || value[close + 1] !== ":") throw usageError();
         host = value.slice(1, close);
         rawPort = value.slice(close + 2);
-        if (!IPV6_HOST.test(host)) throw usageError();
     } else {
+        // Splitting on the first colon rejects a bare IPv6 address rather than
+        // guessing at it: `::1` gives the empty host, and `2001:db8::1` gives
+        // the port `db8::1`, and neither survives the checks below. The two
+        // readings of `2001:db8::1` — an address with a port and one without —
+        // cannot be told apart, which is why the brackets are required.
         const separator = value.indexOf(":");
         if (separator <= 0) throw usageError();
         host = value.slice(0, separator);
         rawPort = value.slice(separator + 1);
-        // Rejects a bare IPv6 address as well as a host with a space in it:
-        // `::1` would otherwise split into the host `:` and the port 1, which
-        // parses happily and then fails as an unopenable URL much later.
-        if (!PLAIN_HOST.test(host)) throw usageError();
     }
 
     // parseInt would accept "123abc" as 123, so require digits only.
     if (!/^\d+$/.test(rawPort)) throw usageError();
     const port = Number.parseInt(rawPort, 10);
     if (port < 1 || port > 65535) throw usageError();
+
+    // The host is validated by building the URL that will actually be dialled
+    // and asking whether it parses. A regex matching the *shape* of a host
+    // accepts literals no URL parser does — `[fe80::1%en0]`, `[:]`, `%zz` —
+    // and each of those then fails inside `new WebSocket` as a bare
+    // `TypeError: Invalid URL`, long after the point where a usage error could
+    // still be printed. Asking the parser is also the only check that cannot
+    // drift from what is dialled, because it builds the very same string.
+    if (!URL.canParse(backendUrl(host, port))) throw usageError();
     return { host, port };
 }
 
