@@ -410,6 +410,65 @@ describe("decodeLegacy", () => {
         expect(result.carry).toBe("");
     });
 
+    test("stops holding a CSI once its body passes the length cap", () => {
+        // A parameter run that never reaches a final byte. Held whole, it grows
+        // the carry by every byte read and is re-scanned from the start on the
+        // next read, so a terminal (or a program writing to the tty) that spews
+        // digits costs unbounded memory and quadratic time. Past the cap the
+        // decoder stops holding: the ESC is released as a real Escape press and
+        // the rest goes through as the characters it is.
+        const digits = 1000;
+        let carry = "";
+        let maxCarry = 0;
+        const events: InputEvent[] = [];
+        for (const byte of ["\x1b", "[", ...Array.from({ length: digits }, () => "1")]) {
+            const result = decodeLegacy(byte, carry);
+            carry = result.carry;
+            maxCarry = Math.max(maxCarry, carry.length);
+            events.push(...result.events);
+        }
+
+        // `ESC [` plus a body one byte short of the cap is the most that can be
+        // held; the read that fills the cap releases it.
+        expect(maxCarry).toBeLessThanOrEqual(258);
+        const keys = keysOf(events);
+        expect(keys.filter((k) => k.name === "escape")).toHaveLength(1);
+        expect(keys.map((k) => k.char ?? "").join("")).toBe(`[${"1".repeat(digits)}`);
+    });
+
+    test("stops holding an over-long SGR run rather than growing the carry", () => {
+        // The same cap on the shape the decoder discards instead of releasing.
+        // A `CSI <` run this long is far past any mouse report, so there is no
+        // report left to protect and the run is dropped up to the cap; what
+        // follows decodes as ordinary characters.
+        const digits = 1000;
+        let carry = "";
+        let maxCarry = 0;
+        const events: InputEvent[] = [];
+        for (const byte of ["\x1b", "[", "<", ...Array.from({ length: digits }, () => "1")]) {
+            const result = decodeLegacy(byte, carry);
+            carry = result.carry;
+            maxCarry = Math.max(maxCarry, carry.length);
+            events.push(...result.events);
+        }
+
+        expect(maxCarry).toBeLessThanOrEqual(258);
+        const keys = keysOf(events);
+        expect(keys.every((k) => k.name === "char")).toBe(true);
+        // The cap swallowed `<` and the 255 digits that filled the body with it.
+        expect(keys).toHaveLength(digits - 255);
+    });
+
+    test("still reads a CSI whose body is just under the cap", () => {
+        // The cap must not clip a sequence a terminal could really send. Nothing
+        // comes close to this long, so a body one byte short of the cap standing
+        // in for all of them is the strictest form of the check.
+        const params = `1;${"0".repeat(252)}`;
+        const result = decodeLegacy(`\x1b[${params}A`, "");
+        expect(result.carry).toBe("");
+        expect(keyAt(result.events, 0).name).toBe("up");
+    });
+
     test("a CSI carrying intermediate bytes is not read as an SGR mouse report", () => {
         // `CSI <0;1;1 M` — an intermediate byte (0x20) sits between the
         // parameters and the final, so this is not the SGR mouse form however

@@ -722,4 +722,36 @@ describe("tui entry point", () => {
 
         expect(await waitForExit(child, "quit on a key typed after a dead click")).toBe(0);
     }, 20_000);
+
+    test("a parameter run that never ends cannot hold the decoder open", async () => {
+        const dir = await tempDir("tui-index-pid-");
+        const pidFile = join(dir, "pid");
+        const readyFile = join(dir, "ready");
+        const child = runTui(await talkingBackend(pidFile, 0, readyFile));
+        await waitForPid(pidFile);
+        await waitForFile(readyFile, "ready marker");
+        // Written before stdin is resumed, the first chunk could otherwise be
+        // fed hundreds of milliseconds late and start the report's window then.
+        await Bun.sleep(500);
+
+        // The front of an SGR click whose `M` never arrives, followed by a
+        // steady run of parameter bytes. Each read cancels the idle timer, and
+        // the whole run lands well inside the second the report is given, so
+        // neither of the two things that retire a stranded report can fire:
+        // only the length cap can stop the run being held.
+        await child.stdin.write("\x1b[<0;50;10");
+        await child.stdin.flush();
+        for (let n = 0; n < 20; n++) {
+            await child.stdin.write("1".repeat(50));
+            await child.stdin.flush();
+            await Bun.sleep(5);
+        }
+
+        // Held whole, the run takes `Q` as its final byte — a complete CSI that
+        // names no key and is dropped — so quit never reaches the keymap.
+        await child.stdin.write("Q");
+        await child.stdin.flush();
+
+        expect(await waitForExit(child, "quit after an unbounded parameter run")).toBe(0);
+    }, 20_000);
 });

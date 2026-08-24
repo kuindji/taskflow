@@ -115,6 +115,19 @@ describe("decodeKitty", () => {
         expect(carry).toBe("\x1b[1;5");
         expect(keyAt(decodeKitty("A", carry).events, 0).name).toBe("up");
     });
+    test("stops holding a run that never reaches a final byte", () => {
+        // `scanKitty` defers to `scanCsi`, so the kitty path inherits the same
+        // unbounded carry from a parameter run that never completes. Past the
+        // cap the run stops being held here too.
+        let carry = "";
+        let maxCarry = 0;
+        for (const byte of ["\x1b", "[", ...Array.from({ length: 1000 }, () => "1")]) {
+            carry = decodeKitty(byte, carry).carry;
+            maxCarry = Math.max(maxCarry, carry.length);
+        }
+        expect(maxCarry).toBeLessThanOrEqual(258);
+    });
+
     test("a mouse report inside a kitty stream is decoded", () => {
         const result = decodeKitty("\x1b[97u\x1b[<0;1;1M", "");
         expect(result.events.map((e) => e.kind)).toEqual(["press", "mouse"]);

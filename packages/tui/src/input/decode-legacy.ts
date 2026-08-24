@@ -135,13 +135,19 @@ function decodeLegacy(input: string, carry: string): DecodeResult {
                 // a session tab, and under session focus the run is forwarded
                 // to the agent as if it had been typed. Discard the run and
                 // resume on the byte that ruled it out, which is real input.
+                // A run ruled out by the length cap instead resumes on another
+                // parameter byte, which decodes as the character it is: past
+                // `MAX_CSI_BODY` the run is far too long to be a mouse report,
+                // so there is nothing left to protect from the keymap.
                 if (buf.startsWith(`${ESC}[<`, i)) {
                     i += scan.length;
                     continue;
                 }
-                // Nothing here can complete a CSI sequence, so the ESC was a
-                // real Escape press and the rest is separate input. Carrying it
-                // instead would wedge the decoder on every later read.
+                // Nothing here can complete a CSI sequence this decoder will
+                // read — either the next byte is not a legal one, or the body
+                // has passed `MAX_CSI_BODY` — so the ESC was a real Escape
+                // press and the rest is separate input. Carrying it instead
+                // would wedge the decoder on every later read.
                 events.push(press("escape"));
                 i++;
                 continue;
