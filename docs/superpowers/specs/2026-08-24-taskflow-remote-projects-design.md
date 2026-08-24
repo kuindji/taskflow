@@ -131,7 +131,8 @@ the resize-style problem for watches generally, independent of remote projects.
 | Offline machines | Section header with state and retry, no projects. No local record cache |
 | Primary backend | Owns appearance, master workspace, connectivity, and the only **editable** settings. `layout.window` stays local always |
 | Settings | Every attached machine's settings are mirrored read-only, so payloads built for a target machine use that machine's defaults. Only primary's are editable |
-| Flow/action definitions | Always the owning machine's, globals included. A project's run menu never offers another machine's flows |
+| App-level managers | Settings, Appearance, the global Flow/Action manager and the global Schedule view show primary's only. Editing another machine's means hard-switching to it |
+| Flow/action/schedule availability | Follows the record. A project's run menu, its flows and its schedules are its own machine's, and run there |
 | Backend identity | A persistent `backendUid` minted by the backend, not the user-entered host. Two aliases of one backend cannot both attach |
 | Remote setup | Out of scope. Local-path affordances stay disabled for remote targets |
 | Sidebar shape | Local projects unheaded at top; one collapsible section per attached machine below |
@@ -653,10 +654,13 @@ an attached machine is offline.
 Settings have two jobs here and they need different answers, which the first
 draft of this document conflated.
 
-**Editing** belongs to primary. The modal shows primary's settings; appearance
-comes from primary; `layout.window` remains pinned to local in all modes, since
-window geometry is a property of this screen. To change another machine's
-settings, hard-switch to it.
+**Editing** belongs to primary, and so do the other app-level managers —
+Appearance, the global Flow and Action manager, and the global Schedule view.
+The modal shows primary's settings; `layout.window` remains pinned to local in
+all modes, since window geometry is a property of this screen. To change another
+machine's settings, hard-switch to it. This is a deliberate cost: there is no
+machine picker anywhere in the app-level managers, and no ambiguity about which
+machine a manager is addressing.
 
 **Reading** cannot belong to primary, because settings carry the defaults that
 go into payloads sent to *other* machines. `AgentOptionsPanel.tsx:41-45` reads
@@ -697,15 +701,28 @@ offers that machine's globals plus that project's own definitions, never another
 machine's. `MASTER_OWNER_ID` runs belong to primary, because master workspace
 does.
 
-Managing definitions needs the same treatment and cannot infer it. A
-project-scoped definition has a `projectId` to route by; a **global** one has
-nothing — `components/flows/FlowManagementDialog.tsx:85-105` calls `saveFlow`,
-`saveAction`, `deleteFlow` and `deleteAction` with no target, and the dialog's
-`all` and `global` filters have no machine dimension. So the management dialog
-groups definitions by machine the way the sidebar groups projects, and creating
-a global flow or action requires choosing which machine owns it, defaulting to
-primary. Without that a new global definition either lands on an arbitrary
-backend or cannot be created at all. Schedules carry a
+Managing definitions splits along the same line as settings, and the split is
+between *app-level* and *record-level* rather than between reading and writing.
+
+The **global** Flow and Action manager is primary's, like the settings modal.
+`FlowManagementDialog.tsx:85-105` calls `saveFlow`, `saveAction`, `deleteFlow`
+and `deleteAction` with no target, and its `all` / `global` filters have no
+machine dimension; rather than growing one, it addresses primary and says so.
+A new global definition lands on primary. To manage another machine's globals,
+hard-switch to it. The same rule covers Appearance and the global Schedule view.
+
+Anything opened **from a project or task row** is a different case: it already
+carries an unambiguous target, so it routes to that record's machine. Creating a
+project-scoped flow, action or schedule on a desktop project creates it on the
+desktop, where its runner and scheduler live. The alternative — routing those to
+primary too — would create a schedule on a machine that cannot see the project
+it names.
+
+Availability never follows primary. `FLOW_START` resolves a flow id against the
+store of the backend it is sent to (`packages/backend/src/handlers/flow.ts:88-90`)
+and throws `Flow not found` for anything else, so a primary-defined flow is not
+runnable on another machine at all. A remote project's run menu lists that
+machine's flows and actions, and starting one sends `FLOW_START` there. Schedules carry a
 required `projectId` and therefore follow their project's machine with no extra
 rule.
 
@@ -855,8 +872,13 @@ servers:
   survives.
 - New Task and the agent-options panel, built for a remote project, carry that
   machine's defaults (model, permission mode, shell), not primary's.
-- A remote project's run menu lists that machine's global flows and none of
-  primary's.
+- A remote project's run menu lists that machine's flows and actions, globals
+  included, and none of primary's; starting one sends `FLOW_START` to that
+  machine.
+- The global Flow/Action manager addresses primary only, and a definition
+  created in it lands on primary.
+- A schedule created from a remote project row is created on that project's
+  machine.
 - Attaching one backend twice through two host aliases yields one attached
   member, one connection and one copy of each record.
 - Each backend has its own notification watermark: a notification from the older
