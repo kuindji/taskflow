@@ -91,6 +91,31 @@ Three additions to what carries over:
 - A machine's beacon reappearing resets that machine's reconnect backoff. In the
   superseded design discovery only populated a menu; here it is also the signal
   that a sleeping machine woke up.
+- The backend mints and reports a persistent `backendUid` (see Backend
+  identity).
+- `FileWatcher` gains per-client watcher ownership (see below). This is a
+  backend change, and it is a prerequisite rather than a nicety.
+
+**File watches must become per client.** `FileWatcher` keeps one watcher per
+path (`services/file-watcher.ts:34`), `watch()` stops any existing watcher for
+that path before creating its own (`:122`), and `FILE_UNWATCH` stops it globally
+(`handlers/file.ts:72-76`). One client per backend made that safe. Aggregate
+mode makes two clients per backend routine — the desktop's own app and the
+laptop attached to it — and then:
+
+1. The desktop app watches `/repo` for its open task.
+2. The laptop, viewing the same project remotely, watches `/repo`; the backend
+   stops the desktop's watcher and installs the laptop's.
+3. The laptop detaches and sends `FILE_UNWATCH` as this design requires.
+4. The backend closes the only watcher. The desktop app is still open, still
+   connected, and silently stops receiving file changes.
+
+Step 3 is something this design *introduces*, so it cannot be filed under the
+pre-existing multi-client caveats. Watchers are therefore owned per client
+connection and refcounted by path: `watch` adds a reference for the requesting
+client, `FILE_UNWATCH` and a dropped connection release only that client's
+reference, and chokidar is stopped only when the last one goes. This also fixes
+the resize-style problem for watches generally, independent of remote projects.
 
 ## Decisions
 
@@ -190,6 +215,30 @@ record — updating its host if the new one is more reachable — rather than
 becoming a second member. Host and `instanceId` stay on the record as the way to
 *reach* a backend and as what the menu displays; they stop being what identifies
 it.
+
+Three details the merge rule alone does not settle:
+
+- **Persisted key.** `backends.json` records are keyed by `backendUid` once one
+  is known. A record added by hand, or resolved through the port-file fallback,
+  has no uid until its first successful handshake, so it is persisted
+  provisionally under `${host}:${instanceId}` and rekeyed on that handshake. If
+  the rekey collides with an existing record, the two are merged and the
+  provisional one is dropped.
+- **Existing records.** `backends.json` written before this change has no uids.
+  It is read as provisional records under the old key and rekeyed the same way,
+  so no migration step is needed and nothing is lost if a machine is never
+  reached again.
+- **Discovery staleness** stays keyed by `hostname:instanceId`. It tracks
+  *announcements*, which are pre-handshake by definition and cannot carry a
+  verified uid. The beacon's advertised uid is a hint used to grey out an entry
+  for an already-attached backend; it is never trusted for identity, since
+  anyone on the LAN can advertise one.
+
+The uid is minted once per data directory. Changing the data directory
+(`SETTINGS_UPDATE_DATA_DIR`) therefore changes the backend's identity, and the
+old record goes stale rather than following it. That is the correct outcome — a
+new data directory is a different set of projects and tasks — but it must be
+deliberate rather than discovered.
 
 This is the one addition to the carried-over transport half that is not a
 widening: `backendUid` is a new field in the beacon and in `SYSTEM_INFO`, and it
@@ -344,6 +393,14 @@ The new task vanishes until something refetches. So each slice also carries a
 revision it was issued at, and its response is discarded if the slice has moved
 on. Discarding is correct rather than wasteful: the events that bumped the
 revision are themselves the newer state.
+
+Events are not the only writer. Several mutations update the slice from their
+own response rather than waiting for a broadcast — `createTask` appends the
+returned task locally (`stores/task-store.ts:73-76`) because `TASK_CREATE` does
+not broadcast (`packages/backend/src/handlers/task.ts:77,130`). A list request
+issued before such a write can still resolve after it and erase the new record.
+So the revision is bumped by **every** local write to a slice, optimistic writes
+and mutating responses included, not only by backend events.
 
 ### Session sync is per backend
 
@@ -616,6 +673,16 @@ slice is writable, and `SETTINGS_UPDATE` is only ever sent to primary. The
 client-scoped parts — panels, collapsed projects, window — continue to come from
 primary alone, because they describe this screen rather than any machine.
 
+The data directory is a third case and needs its own gate. `SettingsModal.tsx:150`
+picks it with the client's native directory picker and sends the result through
+`SETTINGS_UPDATE_DATA_DIR` (`stores/settings-store.ts:53`), which makes the
+backend move its data dir (`handlers/settings.ts:49,103`). In hard-switch mode
+primary is remote, so that hands a laptop path to a desktop backend — the
+"operated, not set up" boundary crossed through a settings field rather than
+through Add Project. The data-directory section is therefore gated on **primary
+being local**, a different predicate from the workspace gating below: that one
+asks about the open workspace's machine, this one asks about primary.
+
 ### Flows and actions
 
 A flow or action with a `projectId` (`packages/shared/src/types/flow.ts`) comes
@@ -628,7 +695,17 @@ project's run menu would list the laptop's global flows, which the desktop
 cannot run. The filter therefore takes a `backendId` as well: a project's menu
 offers that machine's globals plus that project's own definitions, never another
 machine's. `MASTER_OWNER_ID` runs belong to primary, because master workspace
-does. Schedules carry a
+does.
+
+Managing definitions needs the same treatment and cannot infer it. A
+project-scoped definition has a `projectId` to route by; a **global** one has
+nothing — `components/flows/FlowManagementDialog.tsx:85-105` calls `saveFlow`,
+`saveAction`, `deleteFlow` and `deleteAction` with no target, and the dialog's
+`all` and `global` filters have no machine dimension. So the management dialog
+groups definitions by machine the way the sidebar groups projects, and creating
+a global flow or action requires choosing which machine owns it, defaulting to
+primary. Without that a new global definition either lands on an arbitrary
+backend or cannot be created at all. Schedules carry a
 required `projectId` and therefore follow their project's machine with no extra
 rule.
 
@@ -677,7 +754,11 @@ explicitly or it is routed wrong.
 ### Notifications and tray
 
 Notifications from every attached machine land in one list, each badged with its
-machine when more than one is attached. This is the "an agent finished on the
+machine when more than one is attached. Bulk actions follow the list rather than
+one connection: `deleteAll` currently sends `{ all: true }` to the single
+backend (`stores/notification-store.ts:50`), which in an aggregate list would
+present every machine's notifications and clear one machine's. It fans out to
+every attached backend instead, and the confirmation says so. This is the "an agent finished on the
 desktop" signal and the main reason aggregate mode is worth more than a merged
 menu.
 
@@ -784,6 +865,15 @@ servers:
   resurrect session status or the tray badge.
 - Project drag-reorder is confined to its machine's section and sends
   `PROJECT_REORDER` only to that machine.
+- A list response that resolves after a local optimistic write to the same slice
+  is discarded, and the optimistically created record survives.
+- Two clients watching one path on one backend: when the second unwatches, the
+  first still receives file-change events. This is a backend test and the one
+  that protects the desktop's own app from the laptop attaching to it.
+- Attaching a record that has no `backendUid` yet, then completing a handshake,
+  rekeys it and merges it with any existing record for the same uid.
+- `deleteAll` on the notification list clears every attached machine.
+- The data-directory section is disabled whenever primary is remote.
 
 The hard switch keeps its own tests: a dirty editor refuses it with the files
 listed; a failed target resolution leaves the attached set untouched; an
@@ -839,9 +929,13 @@ dialog and port file as the path where it is not.
 Two clients attached to one backend still misrender shared sessions, because the
 backend holds one terminal grid per session sized by whoever resized last
 (`packages/backend/src/services/pty-manager.ts:350-354`). Aggregate mode makes
-this more likely to be hit, since the desktop's own app and the laptop's may now
-both be attached to the desktop backend at once. This design does not fix it and
-does not make it worse per attached client.
+this routine rather than rare, since the desktop's own app and the laptop are
+now normally both attached to the desktop backend. This design does not fix it.
+
+The neighbouring file-watch problem is *not* left alone, because this design
+would actively cause it: detach sends `FILE_UNWATCH`, and path-owned watchers
+would let a detaching client stop a watch another client still depends on. Per
+client watcher ownership is a prerequisite, specified above.
 
 Appearance following primary means the window re-themes on a hard switch and
 does not re-theme in aggregate mode.
