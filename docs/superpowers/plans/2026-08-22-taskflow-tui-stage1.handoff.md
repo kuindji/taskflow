@@ -23,7 +23,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 13 | Sidebar rendering | clear | `e64f1f0` | commits `85871fc`, `33fbe44`, `bbb7a98`, `66b4357`, `9816700`, `ce2d6e8`, `b9461ff`, `78fc4fd`, `3f1511d`, `39d9e43`, `da3006a`, `382b33f`; clear after round 12 |
 | 14 | Session pane and tab strip | clear | `beeecf8` | commit `b825ded`; clear after round 1 |
 | 15 | Application shell and entry point | clear | `43df638` | commits `8c01132`, `584f615`, `8045ed4`, `1873c41`, `28ac654`, `bdbfe2b`, `93f37a6`, `98d3d0c`, `3bc5ee8`; clear after round 8 — round 8's one finding accepted as out of scope, see Task 20 |
-| 16 | Backend — bind to loopback and report connected clients | pending | — | |
+| 16 | Backend — bind to loopback and report connected clients | implemented | `2684302` | commit `2c0a633` |
 | 17 | Reconnection and session resync | pending | — | |
 | 18 | Remote mode | pending | — | plan Step 7 is a manual smoke test over SSH — user gate |
 | 19 | Mouse support | plan clear after round 2 — ready to implement | `5caaa3a` | **added after the Task 15 smoke test — not in the original plan.** Plan written: `docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md`, commit `333c04a`; revised `47d9c29` (round 1), `fd307a3` (round 2). Splits into 19.1–19.6 below |
@@ -35,6 +35,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
 | 21 | Bound the incomplete-CSI carry | pending | — | **added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
+| 22 | Full-suite-only failures in `packages/ui` pane tests | pending | — | **pre-existing, found during Task 16.** Eight tests in `MarkdownPaneImpl.checkbox.test.tsx` and the markdown link tests fail under `bun test` (whole repo) with `'useSessionStore.setState' is undefined` / `root.unmount` undefined, but pass under `bun test packages/ui/src/components/panes/`. Confirmed present at `2684302` before any Task 16 edit, so it is cross-file test pollution, not a product defect. Needs its own investigation |
 
 ## Review rounds
 
@@ -5725,11 +5726,73 @@ same 452/0.
 **Task 19.5 is clear.** With it, Task 19 (mouse support) is fully implemented and reviewed:
 19.1–19.5 all clear, only the manual smoke test 19.6 remains.
 
-Next step: AWAITING USER — Task 19.6 is the plan's own **user gate**: a manual smoke test that
-needs a human at a real terminal (`cd packages/tui && bun run dev`) and explicitly must not be
-run autonomously. It cannot be done from this session. See the seven checks in
-`docs/superpowers/plans/2026-08-23-taskflow-tui-mouse.md` under "Task 19.6".
-Question for the user: run the smoke test now and report the results, or defer it and let the
-loop continue with Task 16 (backend — bind to loopback and report connected clients) while
-19.6 stays open?
-After 19.6: Tasks 16-18, then Tasks 20 and 21 (each needs its own plan).
+Superseded — the loop was restarted rather than answered, so 19.6 was deferred (a safe,
+reversible choice: it stays `pending` as a standing manual check the user can run at any
+terminal) and the loop moved on to Task 16. See below.
+
+## Task 16 — implementation
+
+Base `2684302`, commit `2c0a633`.
+
+`packages/backend/src/ws/server.ts` now binds `Bun.serve` to
+`process.env.TASKFLOW_HOST ?? "127.0.0.1"` and broadcasts `MSG.SYSTEM_CLIENTS`
+(`"system:clients"`) with `{ count: clients.size }` from both the `open` and `close`
+websocket handlers. `SYSTEM_CLIENTS` added to `packages/shared/src/constants.ts` and
+`SystemClientsEvent` to `packages/shared/src/types/ws.ts`. New test file
+`packages/backend/src/ws/server.test.ts` (2 tests) written first and confirmed red before
+the implementation — the count test reported `Received: []`.
+
+**Step 6 (verify the exposure is closed) was done here, not deferred.** The plan's version
+starts the whole backend; instead the changed code path was exercised directly on a scratch
+port, which avoids touching the host Taskflow's running backend and its real data dir:
+
+```
+bun -e 'import {Router} from "./packages/backend/src/ws/router";
+        import {createServer} from "./packages/backend/src/ws/server";
+        const s = await createServer(new Router(), 45999).start(); ...'
+lsof -nP -iTCP:45999 -sTCP:LISTEN
+→ bun 3995 kuindji 4u IPv4 TCP 127.0.0.1:45999 (LISTEN)
+```
+
+`127.0.0.1:45999`, not `*:45999` — the wildcard bind is gone. The plan's stated risk (the
+IPv4-only socket stranding a client that resolves `localhost` to `::1`) was then checked on
+this machine rather than assumed: against the same loopback-bound server,
+`fetch("http://localhost:45999/")` returned `200 Taskflow backend` and
+`new WebSocket("ws://localhost:45999")` opened. Those are the two mechanisms the plan's
+manual half of Step 6 exercises (`useWebSocket.ts` and `TASKFLOW_API_URL` both address the
+backend by name), so the Electron / `taskflow-cli` half is redundant for this change and was
+not run — the running host backend predates the rebuild anyway and would not have tested it.
+
+**Deviation from the plan, deliberate.** The plan has `broadcastClientCount` inline the
+payload object literal, which would leave the newly added `SystemClientsEvent` exported and
+unused — the repo's CLAUDE.md forbids that. The helper instead annotates the payload
+(`const payload: SystemClientsEvent = { count: clients.size }`), which both uses the export
+and type-checks the wire shape at the send site.
+
+Verification at `2c0a633`: `bun run lint` clean, `bun run typecheck` clean across all five
+packages, `bun test packages/backend/src/ws/server.test.ts` → 2 pass, 0 fail.
+Full `bun test` → 1287 pass, 8 fail. **The 8 failures are pre-existing and unrelated**:
+the same 8 fail on a full run of the stashed base tree at `2684302` (1285 pass, 8 fail), and
+all 8 pass when their own directory is run alone on either tree. Logged as Task 22.
+
+## Decisions taken (Task 16 implementation)
+
+1. **Task 19.6 deferred, not answered.** The previous run stopped at the 19.6 user gate; the
+   user restarted the flow instead of replying. Deferring a human-only smoke test is safe and
+   fully reversible — 19.6 stays `pending` — so under the anti-stall rule the loop continued
+   with Task 16 rather than re-asking the same blocking question.
+2. **`broadcastClientCount` annotates its payload** with `SystemClientsEvent` instead of the
+   plan's inline literal, so the new export has a consumer (CLAUDE.md forbids unused exports)
+   and the wire shape is checked at the send site.
+3. **Step 6 run against a scratch server on port 45999**, not against a full backend start.
+   Same code path, and it avoids the running host Taskflow and its real data dir.
+4. **The Electron / `taskflow-cli` half of Step 6 was skipped**, with the name-resolution risk
+   it exists to catch verified directly instead (`http://localhost` and `ws://localhost` both
+   reach the loopback-bound socket on this machine).
+5. **The 8 full-suite `packages/ui` failures were left alone** — reproduced on the untouched
+   base tree, so out of scope for Task 16. Logged as Task 22 for its own investigation.
+
+Next step: review Task 16, round 1 — one gpt-5.5 review via the codex-review skill over
+`2684302..2c0a633`.
+After that: Tasks 17-18, then Tasks 19.6, 20, 21 and 22 (20, 21 and 22 each need their own
+plan or investigation).
