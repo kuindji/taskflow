@@ -35,7 +35,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 19.5 | Mouse — forward to the child | clear | `1288c64` | commits `f377413`, `1a9179f`, `08b23d8`; rounds 1 and 2 each found one substantiated defect, both fixed; round 3 found nothing — clear after round 3 |
 | 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
-| 21 | Bound the incomplete-CSI carry | pending | — | **added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
+| 21 | Bound the incomplete-CSI carry | implemented | `f3fd8b8` | commit `d4800b5`; review round 1 due. | **added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
 | 22 | Full-suite-only failures in `packages/ui` pane tests | pending | — | **pre-existing, found during Task 16.** Eight tests in `MarkdownPaneImpl.checkbox.test.tsx` and the markdown link tests fail under `bun test` (whole repo) with `'useSessionStore.setState' is undefined` / `root.unmount` undefined, but pass under `bun test packages/ui/src/components/panes/`. Confirmed present at `2684302` before any Task 16 edit, so it is cross-file test pollution, not a product defect. Needs its own investigation |
 | 23 | Flaky `backend startup` test under load | pending | — | **observed during Task 16 round 5, pre-existing.** `packages/backend/tests/index.test.ts` — `backend startup > exits non-zero when startup fails after the server starts` failed twice with `backend process did not exit after startup failure` on runs where the whole suite took 90s+ instead of ~40s, and passed on every unloaded run. A fixed timeout racing machine load, not a product defect |
 
@@ -7101,18 +7101,73 @@ produced a defect:
 - **The pre-existing export was fixed rather than filed as a separate task.** It is a one-line
   deletion that lint and typecheck both confirm is inert. Filing it would cost more than fixing it.
 
-Next step: implement Task 21 — bound the incomplete-CSI carry.
+## Task 21 — implementation
 
-`decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read,
-so parameter bytes arriving faster than 25ms apart grow `carry` without bound and get re-scanned from
-the start on every read. Pre-existing, present at `e00cd13`, not introduced by the mouse work. The fix
-is a cap on any held CSI, not just the mouse forms — decide what a run over the cap should do (most
-likely: stop holding and let the bytes through as literal input) and cover it with a test that feeds a
-long parameter run in sub-25ms reads.
+Base commit `f3fd8b8`. Commit `d4800b5`.
 
-Record HEAD as the base commit before starting, then implement, validate
-(`bun run lint && bun run typecheck && bun test`) and commit — review round 1 follows in the next
-iteration.
+### What was wrong
+
+`scanCsi` reported any run of parameter/intermediate bytes with no final byte as `incomplete`, and
+`decodeLegacy` holds an incomplete CSI whole in its carry. `feed` in `packages/tui/src/index.ts`
+clears the 25ms idle timer on every read, so parameter bytes arriving closer together than that keep
+the carry alive: it grew by every byte read and was re-scanned from index 0 on the next read. Both
+decoders were affected — `scanKitty` defers to `scanCsi`.
+
+### The fix
+
+- **`packages/tui/src/input/csi.ts`** — added `MAX_CSI_BODY = 256` (parameter plus intermediate
+  bytes, not counting `ESC [` or the final). The scan loops stop at the cap, and a body that fills it
+  with no final byte returns `{ kind: "invalid", length }` covering the whole run instead of
+  `incomplete`.
+- **`packages/tui/src/input/decode-legacy.ts`** — comments only. The existing invalid-scan recovery
+  already does the right thing for both shapes, so no branch was added: a `CSI <` run is discarded up
+  to the cap, and any other run releases the ESC as a real Escape press and lets the rest through as
+  the characters they are. That is the "stop holding, let the bytes through as literal input" option
+  the handoff nominated.
+
+### Decision: what an over-cap run does
+
+Reusing the `invalid` branch rather than adding a third scan kind. The over-cap case has exactly the
+property the branch is written for — the run can never become a sequence this decoder reads — and the
+two shapes already differ there for a reason that still holds: parameter digits from a half-written
+mouse report must not reach the keymap or a focused agent, while an ordinary `ESC [` run is real
+input after the Escape. Past 256 body bytes a `CSI <` run is far beyond any mouse report, so
+resuming on another parameter byte (which then decodes as a character) costs nothing worth
+protecting. The cap is 256 because the longest sequence either decoder reads is a kitty key sequence
+of tens of bytes; it also sits comfortably above the ~147-byte run the existing
+`index.test.ts` deadline test builds, so that test's mechanism is untouched.
+
+### Verification
+
+- `packages/tui/src/input/decode-legacy.test.ts` — `stops holding a CSI once its body passes the
+  length cap` and `stops holding an over-long SGR run rather than growing the carry` feed 1000 digits
+  one byte at a time (each call carrying the previous result, which is what sub-25ms reads look like
+  to the decoder) and assert the carry never exceeds 258. `still reads a CSI whose body is just under
+  the cap` guards the other side.
+- `packages/tui/src/input/decode-kitty.test.ts` — `stops holding a run that never reaches a final
+  byte` covers the same on the kitty path.
+- `packages/tui/src/index.test.ts` — `a parameter run that never ends cannot hold the decoder open`
+  is the end-to-end proof: the TUI is fed `ESC [ < 0;50;10` then 1000 digits in 20 writes 5ms apart
+  (inside the 1s stranded-report window, so only the cap can retire the run), then `Q`. It quits.
+- Red before, green after: with `csi.ts` reverted the three decoder tests report carries of 1002/1003
+  against the 258 bound, and the entry-point test fails with `the TUI never quit after an unbounded
+  parameter run`. Commands: `bun test packages/tui/src/input/` and
+  `bun test packages/tui/src/index.test.ts -t "parameter run that never ends"`.
+- `bun run lint` clean, `bun run typecheck` clean across all five packages.
+- Full `bun test` → 1364 pass, 8 fail — exactly the known Task 22 set.
+
+## Decisions taken (Task 21)
+
+- **Cap in `scanCsi`, not in `feed`.** The carry is produced by the decoders, so capping it at the
+  source fixes both decoders and leaves `index.ts`'s deadline machinery alone. A cap in `feed` would
+  have had to guess which held runs were safe to truncate.
+- **No new `CsiScan` kind.** `invalid` already means "this run can never become a sequence"; an
+  over-cap run is that, and both callers of the branch behave correctly without changes.
+
+Next step: review Task 21, round 1.
+
+Review the diff `f3fd8b8..d4800b5` with one gpt-5.5 round via the codex-review skill, verify the
+findings, fix the substantiated ones, validate and commit.
 
 Remaining after that: **18.1 is deferred** (remote-backend work on hold at the user's request).
 **19.6 is a manual smoke test — a user gate.** Tasks 20, 22 and 23 each need their own plan or
