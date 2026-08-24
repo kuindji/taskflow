@@ -7208,7 +7208,12 @@ and 21. What is left is not implementation:
 - **23** — flaky `backend startup` test under load. Pre-existing: a fixed timeout racing machine
   load.
 
-Next step: AWAITING USER — plan complete, end the loop? The alternatives, all of which the loop can
-do autonomously: (a) write the plan for Task 20 (backend-side orphan shutdown), (b) investigate
-Task 22 (the `packages/ui` test pollution), (c) investigate Task 23 (the flaky backend-startup
-timeout). 18.1 and 19.6 need a human at a keyboard and stay blocked either way.
+Next step: none — the loop was ended here. On 2026-08-24 the user chose to close the flow rather
+than continue with Task 20, 22 or 23.
+
+To resume later, restart the implementation loop against this plan. The work that is left, in the
+order I would take it: **22** (the `packages/ui` full-suite-only failures — the only item currently
+keeping `bun test` red, so it costs signal on every run), then **23** (the flaky backend-startup
+timeout), then **20** (backend-side orphan shutdown, which needs its own plan written first).
+**18.1** and **19.6** are manual smoke tests and need a human at a real terminal; 18.1 additionally
+waits on remote-backend work coming off hold.
