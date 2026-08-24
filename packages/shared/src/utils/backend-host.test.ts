@@ -37,10 +37,16 @@ describe("resolveBackendHost", () => {
 });
 
 describe("hostForUrl", () => {
-    test("brackets an IPv6 literal so the URL stays parseable", () => {
-        expect(hostForUrl("::1")).toBe("[::1]");
-        expect(new URL(`http://${hostForUrl("::1")}:7100`).port).toBe("7100");
-    });
+    // Both accepted IPv6 spellings, not just `::1`: an implementation that special-cased
+    // the short form would leave `TASKFLOW_HOST=0:0:0:0:0:0:0:1` building
+    // `http://0:0:0:0:0:0:0:1:7100`, which `new URL` rejects outright.
+    test.each(["::1", "0:0:0:0:0:0:0:1"])(
+        "brackets the IPv6 literal %p so the URL stays parseable",
+        (host) => {
+            expect(hostForUrl(host)).toBe(`[${host}]`);
+            expect(new URL(`http://${hostForUrl(host)}:7100`).port).toBe("7100");
+        },
+    );
 
     test("leaves an IPv4 address and a name alone", () => {
         expect(hostForUrl("127.0.0.1")).toBe("127.0.0.1");
@@ -57,7 +63,7 @@ describe("backendHttpOrigin", () => {
     });
 
     test("is a parseable URL for every accepted host", () => {
-        for (const host of ["127.0.0.1", "::1", "localhost"]) {
+        for (const host of ["127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "localhost"]) {
             process.env.TASKFLOW_HOST = host;
             expect(new URL(backendHttpOrigin(7100)).port).toBe("7100");
         }

@@ -8,7 +8,7 @@
     "scripts": {
         "dev": "cd .. && bun run build && cd electron && electron .",
         "build": "bun run build.ts",
-        "typecheck": "bunx tsc --noEmit",
+        "typecheck": "bunx tsc --noEmit && bunx tsc --noEmit -p tsconfig.src.json",
         "pack": "SKIP_NOTARIZE=true electron-builder --dir",
         "dist": "electron-builder",
         "dist:win": "electron-builder --win --x64",
