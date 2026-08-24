@@ -17,6 +17,9 @@ export default tseslint.config(
             "**/vite.config.ts",
             "**/.worktrees/",
             "electron/build.ts",
+            // Plan-review repro scratch: deliberately contains code that does not
+            // typecheck, and is not part of any workspace tsconfig.
+            "plan-review/",
         ],
     },
 
