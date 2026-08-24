@@ -80,6 +80,8 @@ class SessionTerminal {
     private readonly disposers: Array<() => void> = [];
     /** Serializes writes so `attach()` can await the parser actually finishing. */
     private writeQueue: Promise<void> = Promise.resolve();
+    /** Serializes `attach()` against itself; see the comment there. */
+    private attachQueue: Promise<void> = Promise.resolve();
 
     constructor(private readonly deps: SessionTerminalDeps) {
         this.terminal = new Terminal({
@@ -242,7 +244,27 @@ class SessionTerminal {
         return this.hiddenCursor;
     }
 
-    async attach(): Promise<void> {
+    /**
+     * Re-sync this terminal against the backend.
+     *
+     * Serialized, because `App` fires one of these per open session on every
+     * reconnect and a flaky tunnel can reconnect again while the first is still
+     * in flight. Two of them running at once share `historyLoaded`, `pending`
+     * and the write queue: the second reads `historyLoaded` mid-clear, takes
+     * itself for a first attach and skips the reset, and the two snapshots then
+     * land on the queue in whichever order their fetches resolved — so the pane
+     * shows both, newest first. Queueing means the second one starts from a
+     * settled terminal and re-fetches, which is what a reconnect wants anyway.
+     */
+    attach(): Promise<void> {
+        const run = this.attachQueue.then(() => this.attachOnce());
+        // The queue must survive a rejection, or one failed attach would make
+        // every later one reject without running.
+        this.attachQueue = run.catch(() => undefined);
+        return run;
+    }
+
+    private async attachOnce(): Promise<void> {
         // A second attach means the connection dropped and came back. The
         // snapshot is the entire screen, so the old grid must go before one is
         // applied or it renders twice — but not one moment sooner. A tunnel

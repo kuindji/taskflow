@@ -985,4 +985,97 @@ describe("SessionTerminal", () => {
         expect(readRow(term, 0)).toBe("HELLO");
         term.dispose();
     });
+
+    test("a second attach cannot start inside the first one's clear", async () => {
+        // A flaky tunnel can reconnect again while the first re-attach is still
+        // fetching, and App fires one attach per open session per reconnect. Run
+        // unserialized, the second one reads `historyLoaded` while the first is
+        // mid-clear, mistakes itself for a first attach and skips the reset — so
+        // its snapshot lands on the uncleared grid, and the first one's older
+        // snapshot is then written after it. The pane ends up showing both, with
+        // the stale screen on top.
+        const snapshots = ["FIRST", "OLD", "NEW"];
+        let taken = 0;
+        const gates: Array<() => void> = [];
+        let credits = 0;
+        // A request may be issued long after the test says to answer it — with
+        // attach() serialized the second one does not even reach the net until
+        // the first has finished — so an answer is a credit, not a poke.
+        const pump = (): void => {
+            while (credits > 0 && gates.length > 0) {
+                credits -= 1;
+                gates.shift()?.();
+            }
+        };
+        const listeners = new Set<(payload: unknown) => void>();
+        const net: NetLike = {
+            request: <T,>(type: string): Promise<T> => {
+                if (type !== MSG.SESSION_SNAPSHOT) {
+                    return Promise.reject<T>(new Error(`no stub for ${type}`));
+                }
+                const snapshot = snapshots[taken] ?? null;
+                taken += 1;
+                const pending = new Promise<T>((resolve) => {
+                    gates.push(() => {
+                        resolve({
+                            snapshot,
+                            lastSequence: 0,
+                            cursorHidden: false,
+                            kittyStack: [],
+                        } as T);
+                    });
+                });
+                pump();
+                return pending;
+            },
+            on: (type, handler) => {
+                if (type === MSG.TERMINAL_OUTPUT) listeners.add(handler);
+                return () => listeners.delete(handler);
+            },
+            onStatusChange: () => () => undefined,
+        };
+        const answer = (): void => {
+            credits += 1;
+            pump();
+        };
+        const term = new SessionTerminal({ net, sessionId: "s1", owner: {}, cols: 20, rows: 5 });
+
+        const first = term.attach();
+        answer();
+        await first;
+        expect(readRow(term, 0)).toBe("FIRST");
+
+        // Hold every write, so the clear's queued reset cannot complete and the
+        // first attach is parked at exactly the point the second one races.
+        const write = term.terminal.write.bind(term.terminal);
+        const held: Array<() => void> = [];
+        term.terminal.write = (data: string | Uint8Array, callback?: () => void): void => {
+            held.push(() => {
+                write(data, callback);
+            });
+        };
+        // Something has to be in the write queue ahead of the reset, or the
+        // reset resolves without ever reaching a write. It renders nothing.
+        for (const handler of listeners) {
+            handler({ sessionId: "s1", data: "\x1b[0m", sequence: 1 });
+        }
+
+        const a = term.attach();
+        answer();
+        // Let the first attach reach its clear and park there.
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        const b = term.attach();
+        answer();
+
+        term.terminal.write = write;
+        for (const run of held) run();
+        await a;
+        await b;
+        await settle();
+
+        expect(readRow(term, 0)).toBe("NEW");
+        term.dispose();
+    });
 });
