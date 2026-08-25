@@ -5,6 +5,7 @@ import { MSG } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 import { SessionBridge } from "./session-bridge";
 import { prepareForEmbeddedTerminal } from "./keys";
+import type { Osc52Sink } from "./osc52";
 
 class FakeNet implements NetLike {
     readonly requests: Array<{ type: string; payload: unknown }> = [];
@@ -39,7 +40,7 @@ describe("SessionBridge", () => {
         for (const cleanup of cleanups.splice(0)) cleanup();
     });
 
-    async function setup(width = 40, height = 8) {
+    async function setup(width = 40, height = 8, clipboard?: Osc52Sink) {
         const test = await createTestRenderer({ width, height });
         const net = new FakeNet();
         const bridge = new SessionBridge({
@@ -49,6 +50,7 @@ describe("SessionBridge", () => {
             owner: { projectId: "p1" },
             cols: width,
             rows: height,
+            clipboard,
         });
         test.renderer.root.add(bridge.renderable);
         bridge.setActive(true, width, height);
@@ -166,6 +168,36 @@ describe("SessionBridge", () => {
             1,
         );
         expect(bridge.renderable.screen().text).toContain("Process exited with code 7");
+    });
+
+    it("forwards OSC 52 only from live output after attach", async () => {
+        const copies: Array<{ text: string; target: string }> = [];
+        const clears: string[] = [];
+        const { net, bridge } = await setup(40, 8, {
+            copy: (text, target) => copies.push({ text, target }),
+            clear: (target) => clears.push(target),
+        });
+        const sequence = "\x1b]52;c;bGl2ZQ==\x07";
+        net.responses.set(MSG.SESSION_SNAPSHOT, {
+            snapshot: sequence,
+            lastSequence: 1,
+            cursorHidden: false,
+            kittyStack: [],
+            mouseEncoding: "x10",
+        });
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: sequence, sequence: 1 });
+        await bridge.attach();
+        expect(copies).toEqual([]);
+
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b]52;p;c3BsaX", sequence: 2 });
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "Q=\x1b\\", sequence: 3 });
+        net.emit(MSG.TERMINAL_OUTPUT, { sessionId: "s1", data: "\x1b]52;c;\x07", sequence: 4 });
+        expect(copies).toEqual([{ text: "split", target: "primary" }]);
+        expect(clears).toEqual(["clipboard"]);
+
+        await bridge.attach();
+        expect(copies).toHaveLength(1);
+        expect(clears).toHaveLength(1);
     });
 
     it("keeps parsing while hidden and resizes once when activated", async () => {

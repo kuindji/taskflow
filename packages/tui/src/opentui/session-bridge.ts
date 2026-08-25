@@ -1,4 +1,4 @@
-import { EmbeddedTerminalRenderable, type CliRenderer } from "@opentui/core";
+import { ClipboardTarget, EmbeddedTerminalRenderable, type CliRenderer } from "@opentui/core";
 import { MSG } from "@taskflow/shared";
 import type {
     SessionExitedEvent,
@@ -8,6 +8,8 @@ import type {
 } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 import { inputBytesToString } from "./input-bytes";
+import { Osc52Scanner } from "./osc52";
+import type { Osc52Sink, Osc52Target } from "./osc52";
 import { assertCompatibleSnapshot, supplementalSnapshotSequence } from "./snapshot-state";
 
 interface SessionOwner {
@@ -23,6 +25,7 @@ interface SessionBridgeDeps {
     owner: SessionOwner;
     cols: number;
     rows: number;
+    clipboard?: Osc52Sink;
 }
 
 interface PendingChunk {
@@ -48,8 +51,10 @@ class SessionBridge {
     private attachQueue: Promise<void> = Promise.resolve();
     private readonly disposers: Array<() => void> = [];
     private lastResize: { cols: number; rows: number } | null = null;
+    private readonly osc52: Osc52Scanner;
 
     constructor(private readonly deps: SessionBridgeDeps) {
+        this.osc52 = new Osc52Scanner(deps.clipboard ?? rendererClipboardSink(deps.renderer));
         this.renderable = new EmbeddedTerminalRenderable(deps.renderer, {
             id: `session-${deps.sessionId}`,
             cols: deps.cols,
@@ -92,6 +97,7 @@ class SessionBridge {
             return;
         }
         this.remember(chunk);
+        this.osc52.feed(chunk.data);
         this.writeLive(chunk.data);
     }
 
@@ -228,8 +234,31 @@ class SessionBridge {
         this.destroyed = true;
         for (const dispose of this.disposers) dispose();
         this.disposers.length = 0;
+        this.osc52.reset();
         this.renderable.destroy();
     }
+}
+
+function clipboardTarget(target: Osc52Target): ClipboardTarget {
+    switch (target) {
+        case "clipboard":
+            return ClipboardTarget.Clipboard;
+        case "primary":
+            return ClipboardTarget.Primary;
+        case "select":
+            return ClipboardTarget.Select;
+    }
+}
+
+function rendererClipboardSink(renderer: CliRenderer): Osc52Sink {
+    return {
+        copy: (text, target) => {
+            renderer.copyToClipboardOSC52(text, clipboardTarget(target));
+        },
+        clear: (target) => {
+            renderer.clearClipboardOSC52(clipboardTarget(target));
+        },
+    };
 }
 
 export { SessionBridge };
