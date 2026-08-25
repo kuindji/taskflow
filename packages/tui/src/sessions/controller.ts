@@ -135,6 +135,14 @@ class SessionController {
         this.activeByOwner.set(this.ownerKeyValue, sessionId);
     }
 
+    focusKnown(sessionId: string): boolean {
+        if (this.ownerKeyValue === null) return false;
+        if (!this.tabsValue.some((tab) => tab.id === sessionId)) return false;
+        this.activeByOwner.set(this.ownerKeyValue, sessionId);
+        this.deps.onChange(this.tabsValue, sessionId);
+        return true;
+    }
+
     async create(owner: SessionOwner, payload: SessionCreatePayload): Promise<string> {
         if (!this.deps.request) throw new Error("Session creation is not configured");
         const response = await this.deps.request<SessionCreateResponse>(

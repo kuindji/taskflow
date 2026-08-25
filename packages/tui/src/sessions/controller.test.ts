@@ -111,6 +111,15 @@ describe("SessionController", () => {
         expect(changes.at(-1)?.activeId).toBe("c");
     });
 
+    it("focuses a known session and emits the active tab immediately", () => {
+        const { controller, changes } = setup();
+        controller.reconcile({ kind: "master" }, [ref("a"), ref("b")]);
+        expect(controller.focusKnown("b")).toBe(true);
+        expect(changes.at(-1)?.activeId).toBe("b");
+        expect(controller.focusKnown("missing")).toBe(false);
+        expect(changes.at(-1)?.activeId).toBe("b");
+    });
+
     it("reattaches every current bridge once on reconnect", async () => {
         const { controller, created } = setup();
         controller.reconcile({ kind: "master" }, [ref("a"), ref("b")]);
