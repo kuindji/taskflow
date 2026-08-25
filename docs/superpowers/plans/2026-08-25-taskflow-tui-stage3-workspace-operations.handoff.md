@@ -82,16 +82,28 @@ An earlier smoke attempt was discarded after lowercase `g` inside the commit inp
 
 Native desktop delivery remains best effort. Argument-safe macOS and Linux adapters are covered by tests, while the smoke asserted only the required in-app unread behavior.
 
+## Closed human gates
+
+On 2026-08-25 the user ran the prescribed live-session checks in Ghostty and
+reported that direct PTY resize propagation, application-cursor input, and
+wheel scrolling through attached child-terminal history all passed. The user
+also reported that provider-backed restart and resume worked.
+
+The user also ran the OSC 52 clipboard check after the OSC 1 frame-corruption
+fix. The marker and clipboard restoration both passed.
+
 ## Outstanding human gates
 
 These remain separate approval gates and were not run or inferred:
 
-- direct terminal resize propagation;
-- application-cursor behavior;
-- wheel-scroll behavior in an attached child terminal;
-- one provider-backed agent resume check;
 - one manual disabled-schedule trigger and session lifecycle check;
-- OSC 52 clipboard preservation, marker verification, and restoration;
 - the deferred remote/SSH smoke.
+
+The first OSC 52 attempt exposed an OpenTUI 0.5.7 defect before the clipboard
+check could run. A child shell's OSC 1 icon-title sequence made OpenTUI print an
+ignored-sequence warning outside its render cycle, which displaced the header
+and footer. Taskflow now removes OSC 1 before embedded-terminal writes while
+leaving OSC 52 available to the live-output scanner. Automated regression tests
+passed, followed by the successful human clipboard check described above.
 
 Stage 3 is ready for those gates or the next separately scoped plan. Do not report any carried-forward gate as passed without its own evidence.

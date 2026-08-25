@@ -2,7 +2,7 @@
 
 Date: 2026-08-24
 
-Status: Level 1 clear; Task 7 validation gates remain
+Status: Level 1 clear; human validation complete
 
 Baseline: `77304f6`
 
@@ -94,12 +94,17 @@ Repository-suite disposition:
   baseline, and the file passes alone with 9 tests in 12.7 seconds. These are
   out-of-scope full-suite coupling issues, not Stage 2 product regressions.
 
-Outstanding gates:
+### User Ghostty verification, 2026-08-25
 
-- Repeat the isolated shell smoke in a terminal that can directly resize the
-  PTY and make application-cursor and wheel-scroll behavior observable.
-- The real-agent create, restart, resume, and close gate remains outstanding and
-  must not run without explicit authorization.
+The user ran the prescribed live-session checks in Ghostty and reported that all
+three passed. Resizing the outer terminal propagated new dimensions to the
+child PTY, Up produced the expected application-cursor sequence, and the wheel
+scrolled the attached child's terminal history in both directions. This closes
+the capable-terminal shell gate. The user also created multiple sessions,
+switched between them, closed sessions, and opened replacements successfully in
+the same real-terminal use. The user then restarted the TUI and resumed a
+provider-backed session successfully. This closes the agent restart-and-resume
+gate.
 
 ## Scope
 

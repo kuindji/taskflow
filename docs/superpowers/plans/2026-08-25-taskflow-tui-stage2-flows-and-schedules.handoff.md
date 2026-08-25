@@ -85,18 +85,23 @@ All temporary smoke roots were moved to Trash after verification.
 
 These remain separate approval gates and were not run:
 
-- OSC 52 clipboard preservation, marker verification, and restoration;
 - one provider-backed agent flow with pause/resume as applicable;
 - one manual disabled-schedule trigger and session lifecycle check;
-- the preceding live-session direct-resize, application-cursor, and wheel-scroll terminal gate;
 - the deferred remote/SSH smoke from the earlier stage.
 
-The implementation is ready for those gates. Do not claim all of product Stage 2 complete until the preceding live-session terminal gate is closed. Stage 3 remains unstarted.
+The implementation is ready for those gates. Stage 3 remains unstarted in this
+handoff's implementation history.
 
 ## User Ghostty checkpoint
 
-On 2026-08-25 the user launched the TUI in Ghostty and reported that it works.
-This closes the basic outer-terminal launch, render, and exit checkpoint. The
-test did not explicitly exercise direct PTY resize, application-cursor input,
-or wheel scrolling inside a child session, so the narrower live-session
-terminal gate above remains open.
+On 2026-08-25 the user first launched the TUI in Ghostty and confirmed basic
+launch, rendering, and exit. The user later ran the prescribed direct PTY
+resize, application-cursor, and child-terminal wheel checks and reported that
+all three passed. The user also created multiple sessions, switched between
+them, closed sessions, and opened replacements successfully. Provider-backed
+restart and resume also worked. The narrower live-session terminal gate and the
+live-session agent resume gate are closed.
+
+The user later ran the OSC 52 clipboard check after the OSC 1 frame-corruption
+fix. The marker and clipboard restoration both passed, so the OSC 52 gate is
+closed.

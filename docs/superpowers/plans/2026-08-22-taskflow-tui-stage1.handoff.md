@@ -33,7 +33,7 @@ Status legend: pending / implemented / in-review round N / clear / review-skippe
 | 19.3 | Mouse — layout hoist and hit testing | clear | `db844f4` | commit `ec39171`; round 1 found only test gaps, fixed in `10e7b0f`; round 2 found nothing — clear after two rounds |
 | 19.4 | Mouse — app wiring | clear | `4e89f26` | commit `adf7c5a`; round 1 found nothing — clear after round 1 |
 | 19.5 | Mouse — forward to the child | clear | `1288c64` | commits `f377413`, `1a9179f`, `08b23d8`; rounds 1 and 2 each found one substantiated defect, both fixed; round 3 found nothing — clear after round 3 |
-| 19.6 | Mouse — manual smoke test | pending | — | **user gate** |
+| 19.6 | Mouse — manual smoke test | clear | — | **user gate.** On 2026-08-25 the user reported that mouse behavior works in Ghostty after exercising the live TUI |
 | 20 | Backend-side orphan shutdown | pending | — | **added after Task 15 round 8 — outside `packages/tui`, not in this plan.** Pass the parent pid to `taskflow-backend` and have it shut itself down when orphaned, so a `kill -9` of the TUI (or of Electron) cannot leak it. Fixes `electron/src/backend-manager.ts` at the same time. Needs its own plan first |
 | 21 | Bound the incomplete-CSI carry | clear | `f3fd8b8` | commit `d4800b5`; round 1 found nothing — clear after round 1. **Added after Task 19.1 round 12 — pre-existing, not introduced by the mouse work.** `decodeLegacy` holds an incomplete CSI whole, and `feed` cancels the 25ms idle timer on every read, so a stream of parameter bytes arriving faster than 25ms apart grows `carry` without bound and re-scans it from the start each read. Present at `e00cd13`. Needs a cap on any held CSI, not just the mouse forms |
 | 22 | Full-suite-only failures in `packages/ui` pane tests | pending | — | **pre-existing, found during Task 16.** Eight tests in `MarkdownPaneImpl.checkbox.test.tsx` and the markdown link tests fail under `bun test` (whole repo) with `'useSessionStore.setState' is undefined` / `root.unmount` undefined, but pass under `bun test packages/ui/src/components/panes/`. Confirmed present at `2684302` before any Task 16 edit, so it is cross-file test pollution, not a product defect. Needs its own investigation |
@@ -7200,7 +7200,6 @@ and 21. What is left is not implementation:
 
 - **18.1** — manual smoke test of remote mode over an SSH tunnel. Deferred on 2026-08-24 at the
   user's request; all remote-backend work is on hold.
-- **19.6** — manual mouse smoke test. Needs a human at a real terminal.
 - **20** — backend-side orphan shutdown. Outside `packages/tui`, not in this plan, needs its own
   plan first.
 - **22** — full-suite-only `packages/ui` pane test failures. Pre-existing cross-file test pollution,
@@ -7215,8 +7214,8 @@ To resume later, restart the implementation loop against this plan. The work tha
 order I would take it: **22** (the `packages/ui` full-suite-only failures — the only item currently
 keeping `bun test` red, so it costs signal on every run), then **23** (the flaky backend-startup
 timeout), then **20** (backend-side orphan shutdown, which needs its own plan written first).
-**18.1** and **19.6** are manual smoke tests and need a human at a real terminal; 18.1 additionally
-waits on remote-backend work coming off hold.
+**18.1** is a manual smoke test over an SSH tunnel and waits on remote-backend
+work coming off hold. Task 19.6 was later closed by the user's Ghostty report.
 
 ## OpenTUI rewrite completed on 2026-08-24
 
