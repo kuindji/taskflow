@@ -38,14 +38,16 @@ describe("GitCommit", () => {
         view.handleKey(key("return", "\r"));
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("Commit message is required.");
-        for (const letter of "fix status") view.handleKey(key(letter === " " ? "space" : letter, letter));
+        for (const letter of "stage smoke") {
+            view.handleKey(key(letter === " " ? "space" : letter, letter));
+        }
         view.handleKey(key("return", "\r"));
         view.handleKey(key("return", "\r"));
-        expect(messages).toEqual(["fix status"]);
+        expect(messages).toEqual(["stage smoke"]);
         expect(view.keyHints).toBe(" Committing...");
     });
 
-    test("generates only on explicit g and keeps the returned message editable", async () => {
+    test("generates only on explicit uppercase G and keeps the returned message editable", async () => {
         const test = await createTestRenderer({ width: 80, height: 20 });
         let generated = 0;
         const submitted: string[] = [];
@@ -58,8 +60,8 @@ describe("GitCommit", () => {
         test.renderer.root.add(view.renderable);
         cleanups.push(() => view.destroy(), () => test.renderer.destroy());
         expect(generated).toBe(0);
-        view.handleKey(key("g"));
-        view.handleKey(key("g"));
+        view.handleKey(key("g", "G"));
+        view.handleKey(key("g", "G"));
         expect(generated).toBe(1);
         view.setGenerated("generated message");
         view.handleKey(key("x"));

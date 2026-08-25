@@ -54,7 +54,7 @@ class GitCommit {
     get keyHints(): string {
         if (this.pending === "generate") return " Generating message...";
         if (this.pending === "commit") return " Committing...";
-        return " Enter Commit  g Generate  Esc Cancel";
+        return " Enter Commit  G Generate  Esc Cancel";
     }
 
     setGenerated(message: string): void {
@@ -77,7 +77,7 @@ class GitCommit {
         const chorded = event.ctrl || event.meta || event.option || event.super || event.hyper;
         if (event.name === "escape" && !chorded) return this.deps.onCancel();
         if (chorded) return;
-        if (event.sequence === "g") {
+        if (event.sequence === "G") {
             this.message = this.input.value;
             this.pending = "generate";
             this.error = null;
