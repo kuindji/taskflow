@@ -198,6 +198,21 @@ describe("OpenTuiApp", () => {
         expect(selected?.bg.toInts()).toEqual([255, 255, 255, 255]);
     });
 
+    it("draws complete borders around the sidebar and main panels", async () => {
+        const { test, app } = await setup();
+        const lines = test.captureCharFrame().split("\n");
+
+        expect(lines[0]?.[0]).toBe("┌");
+        expect(lines[0]?.[25]).toBe("┐");
+        expect(lines[0]?.[26]).toBe("┌");
+        expect(lines[0]?.[79]).toBe("┐");
+        expect(lines[23]?.[0]).toBe("└");
+        expect(lines[23]?.[25]).toBe("┘");
+        expect(lines[23]?.[26]).toBe("└");
+        expect(lines[23]?.[79]).toBe("┘");
+        expect(app.paneDimensions).toEqual({ cols: 52, rows: 21 });
+    });
+
     it("opens product screens only from UI focus and returns without closing a session", async () => {
         const test = await createTestRenderer({ width: 100, height: 18, kittyKeyboard: true });
         const net = new FakeNet();
@@ -318,6 +333,12 @@ describe("OpenTuiApp", () => {
         test.resize(40, 8);
         await test.renderOnce();
         expect(test.renderer.terminalWidth).toBe(40);
+        expect(app.paneDimensions).toEqual({ cols: 38, rows: 5 });
+        const lines = test.captureCharFrame().split("\n");
+        expect(lines[0]?.[0]).toBe("┌");
+        expect(lines[0]?.[39]).toBe("┐");
+        expect(lines[7]?.[0]).toBe("└");
+        expect(lines[7]?.[39]).toBe("┘");
     });
 
     it("keeps overflowing sidebar selection visible", async () => {
@@ -334,12 +355,12 @@ describe("OpenTuiApp", () => {
 
     it("selects sidebar rows and visible tabs at their rendered cells", async () => {
         const { test, app, sessions } = await setup(80, 24, true);
-        await test.mockMouse.click(2, 1);
+        await test.mockMouse.click(2, 2);
         expect(app.selectedIndex).toBe(1);
-        await test.mockMouse.click(33, 0);
+        await test.mockMouse.click(34, 1);
         expect(app.focus).toBe("session");
         expect(sessions[1]?.calls).toContain("focus");
-        await test.mockMouse.click(2, 1);
+        await test.mockMouse.click(2, 2);
         expect(app.focus).toBe("ui");
     });
 
@@ -445,8 +466,8 @@ describe("OpenTuiApp", () => {
                 payload: {
                     taskId: "t1",
                     type: "codex",
-                    cols: 60,
-                    rows: 29,
+                    cols: 58,
+                    rows: 27,
                 },
             },
         ]);
@@ -552,7 +573,7 @@ describe("OpenTuiApp", () => {
         expect(test.captureCharFrame()).toContain("Press r to resume");
         test.mockInput.pressKey("r");
         test.mockInput.pressKey("r");
-        expect(resumes).toEqual([{ sessionId: "agent", cols: 60, rows: 29 }]);
+        expect(resumes).toEqual([{ sessionId: "agent", cols: 58, rows: 27 }]);
         resolveResume();
         await pending;
     });

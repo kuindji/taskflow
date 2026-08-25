@@ -204,6 +204,7 @@ class OpenTuiApp {
         this.sidebar = new BoxRenderable(deps.renderer, {
             id: "sidebar",
             height: "100%",
+            border: true,
             overflow: "hidden",
             onMouseScroll: (event) => {
                 const direction = event.scroll?.direction;
@@ -225,6 +226,7 @@ class OpenTuiApp {
             height: "100%",
             flexGrow: 1,
             flexDirection: "column",
+            border: true,
             overflow: "hidden",
         });
         this.tabStrip = new BoxRenderable(deps.renderer, {
@@ -1108,8 +1110,8 @@ class OpenTuiApp {
             ? 0
             : Math.min(30, Math.floor(this.deps.renderer.terminalWidth / 3));
         return {
-            paneWidth: Math.max(1, this.deps.renderer.terminalWidth - sidebarWidth),
-            paneHeight: Math.max(1, this.deps.renderer.terminalHeight - 1),
+            paneWidth: Math.max(1, this.deps.renderer.terminalWidth - sidebarWidth - 2),
+            paneHeight: Math.max(1, this.deps.renderer.terminalHeight - 3),
         };
     }
 
@@ -1125,7 +1127,7 @@ class OpenTuiApp {
     }
 
     private keepSelectionVisible(): void {
-        const height = Math.max(1, this.deps.renderer.terminalHeight);
+        const height = Math.max(1, this.deps.renderer.terminalHeight - 2);
         const maxStart = Math.max(0, this.rows.length - height);
         const start = Math.min(maxStart, Math.max(0, this.selected - height + 1));
         this.sidebarRowsBox.translateY = -start;
