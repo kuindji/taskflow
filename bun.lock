@@ -66,6 +66,7 @@
         "@opentui/core": "0.5.7",
         "@taskflow/shared": "workspace:*",
         "web-tree-sitter": "0.25.10",
+        "yaml": "2.8.2",
       },
       "devDependencies": {
         "typescript": "^5.7.0",
