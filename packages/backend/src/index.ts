@@ -53,6 +53,7 @@ import { registerTypeScriptHandlers } from "./handlers/typescript";
 import { registerSearchHandlers } from "./handlers/search";
 import { WikiIndexService } from "./services/wiki-index";
 import { registerWikiHandlers } from "./handlers/wiki";
+import { registerSystemHandlers } from "./handlers/system";
 import { writeFile } from "fs/promises";
 import { homedir } from "os";
 
@@ -413,7 +414,12 @@ async function main() {
             return { success: true };
         });
 
-        router.register(MSG.SYSTEM_INFO, async () => ({ editors, homedir: homedir() }));
+        registerSystemHandlers({
+            router,
+            editors,
+            homedir: homedir(),
+            schedulerEnabled: config.instanceId === "main",
+        });
         // Broadcast on every connect and disconnect as well, but a client
         // cannot hear the broadcast announcing its own arrival, so it asks
         // once on startup and follows the broadcasts after that.
