@@ -92,3 +92,11 @@ These remain separate approval gates and were not run:
 - the deferred remote/SSH smoke from the earlier stage.
 
 The implementation is ready for those gates. Do not claim all of product Stage 2 complete until the preceding live-session terminal gate is closed. Stage 3 remains unstarted.
+
+## User Ghostty checkpoint
+
+On 2026-08-25 the user launched the TUI in Ghostty and reported that it works.
+This closes the basic outer-terminal launch, render, and exit checkpoint. The
+test did not explicitly exercise direct PTY resize, application-cursor input,
+or wheel scrolling inside a child session, so the narrower live-session
+terminal gate above remains open.
