@@ -1,9 +1,4 @@
-import {
-    BoxRenderable,
-    TextRenderable,
-    type CliRenderer,
-    type KeyEvent,
-} from "@opentui/core";
+import { BoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
 import type { ActionDefinition, FlowDefinition, FlowRun as FlowRunRecord } from "@taskflow/shared";
 import { actionLabel, latestArtifactsByType } from "../flows/model";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
@@ -24,6 +19,7 @@ interface FlowRunDeps {
     onLibrary(): void;
     onClose(): void;
     onDismiss(): void;
+    onStateChange?(): void;
 }
 
 class FlowRun {
@@ -50,6 +46,24 @@ class FlowRun {
             },
         });
         this.rebuild();
+    }
+
+    get keyHints(): string {
+        if (this.pending) return " Working...";
+        const hints = ["↑↓ Move"];
+        const selected = this.run.actions[this.selected];
+        if (selected?.sessionId) hints.push("Enter Terminal");
+        const stopHint = this.run.loop ? "x Finish" : "x Stop";
+        if (this.run.status === "running") hints.push("p Pause", "s Skip", stopHint);
+        else if (this.run.status === "paused") hints.push("p Resume", stopHint);
+        if (selected?.status === "completed" || selected?.status === "failed") {
+            hints.push("R Restart");
+        }
+        if (this.run.status === "completed" || this.run.status === "failed") {
+            hints.push("d Dismiss");
+        }
+        hints.push("l Library", "q Sessions");
+        return ` ${hints.join("  ")}`;
     }
 
     update(run: FlowRunRecord): void {
@@ -177,17 +191,15 @@ class FlowRun {
                 }),
             );
         }
-        const stopLabel = this.run.loop ? "Finish loop" : "Stop";
-        this.renderable.add(
-            new TextRenderable(this.deps.renderer, {
-                content: this.pending
-                    ? " Working..."
-                    : this.error
-                      ? ` ${this.error}`
-                      : ` p: pause/resume  s: skip  x: ${stopLabel}  R: restart  l: library  q: sessions`,
-                height: 1,
-            }),
-        );
+        if (this.error) {
+            this.renderable.add(
+                new TextRenderable(this.deps.renderer, {
+                    content: ` ${this.error}`,
+                    height: 1,
+                }),
+            );
+        }
+        this.deps.onStateChange?.();
     }
 
     destroy(): void {

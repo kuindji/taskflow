@@ -6,6 +6,7 @@ interface ConfirmDeps {
     message: string;
     onConfirm(): void;
     onCancel(): void;
+    onStateChange?(): void;
 }
 
 class Confirm {
@@ -42,6 +43,10 @@ class Confirm {
         this.rebuild();
     }
 
+    get keyHints(): string {
+        return this.pending ? " Working..." : " Enter/y Confirm  Esc/n Cancel";
+    }
+
     handleKey(event: KeyEvent): void {
         if (event.eventType !== "press") return;
         const chorded = event.ctrl || event.meta || event.option || event.super || event.hyper;
@@ -73,12 +78,6 @@ class Confirm {
                 wrapMode: "word",
             }),
         );
-        this.dialog.add(
-            new TextRenderable(this.deps.renderer, {
-                content: this.pending ? " Closing..." : " Enter/y: close  Escape/n: cancel",
-                height: 1,
-            }),
-        );
         if (this.error) {
             this.dialog.add(
                 new TextRenderable(this.deps.renderer, {
@@ -88,6 +87,7 @@ class Confirm {
                 }),
             );
         }
+        this.deps.onStateChange?.();
     }
 
     destroy(): void {

@@ -49,7 +49,9 @@ describe("SessionPicker", () => {
         const { test, picker } = await setup();
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("Loading...");
+        expect(picker.keyHints).toBe(" Esc Cancel");
         picker.setItems(items);
+        expect(picker.keyHints).toContain("Enter Start");
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("Agent: Codex (default)");
         expect(test.captureCharFrame()).toContain("Shell: zsh (default)");

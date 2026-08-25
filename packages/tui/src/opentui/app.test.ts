@@ -206,11 +206,14 @@ describe("OpenTuiApp", () => {
         expect(lines[0]?.[25]).toBe("┐");
         expect(lines[0]?.[26]).toBe("┌");
         expect(lines[0]?.[79]).toBe("┐");
-        expect(lines[23]?.[0]).toBe("└");
-        expect(lines[23]?.[25]).toBe("┘");
-        expect(lines[23]?.[26]).toBe("└");
-        expect(lines[23]?.[79]).toBe("┘");
-        expect(app.paneDimensions).toEqual({ cols: 52, rows: 21 });
+        expect(lines[22]?.[0]).toBe("└");
+        expect(lines[22]?.[25]).toBe("┘");
+        expect(lines[22]?.[26]).toBe("└");
+        expect(lines[22]?.[79]).toBe("┘");
+        expect(lines[23]).toContain("↑↓ Select");
+        expect(lines[23]).toContain("s New");
+        expect(lines[23]).toContain("z Zoom");
+        expect(app.paneDimensions).toEqual({ cols: 52, rows: 20 });
     });
 
     it("opens product screens only from UI focus and returns without closing a session", async () => {
@@ -263,6 +266,7 @@ describe("OpenTuiApp", () => {
         test.mockInput.pressKey("f");
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("Release flow");
+        expect(test.captureCharFrame().split("\n")[17]).toContain("Tab Switch");
         test.mockInput.pressKey("q");
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("No sessions");
@@ -333,12 +337,13 @@ describe("OpenTuiApp", () => {
         test.resize(40, 8);
         await test.renderOnce();
         expect(test.renderer.terminalWidth).toBe(40);
-        expect(app.paneDimensions).toEqual({ cols: 38, rows: 5 });
+        expect(app.paneDimensions).toEqual({ cols: 38, rows: 4 });
         const lines = test.captureCharFrame().split("\n");
         expect(lines[0]?.[0]).toBe("┌");
         expect(lines[0]?.[39]).toBe("┐");
-        expect(lines[7]?.[0]).toBe("└");
-        expect(lines[7]?.[39]).toBe("┘");
+        expect(lines[6]?.[0]).toBe("└");
+        expect(lines[6]?.[39]).toBe("┘");
+        expect(lines[7]).toContain("↑↓ Select");
     });
 
     it("keeps overflowing sidebar selection visible", async () => {
@@ -438,10 +443,15 @@ describe("OpenTuiApp", () => {
 
     it("focuses the main session with Enter and l from UI focus", async () => {
         const { test, app } = await setup(80, 24, true);
+        expect(test.captureCharFrame().split("\n")[23]).toContain("Enter Focus");
         test.mockInput.pressEnter();
+        await test.renderOnce();
         expect(app.focus).toBe("session");
+        expect(test.captureCharFrame().split("\n")[23]).toContain("App controls");
         test.mockInput.pressEscape({ ctrl: true });
+        await test.renderOnce();
         expect(app.focus).toBe("ui");
+        expect(test.captureCharFrame().split("\n")[23]).toContain("q Close");
         test.mockInput.pressKey("l");
         expect(app.focus).toBe("session");
     });
@@ -467,7 +477,7 @@ describe("OpenTuiApp", () => {
                     taskId: "t1",
                     type: "codex",
                     cols: 58,
-                    rows: 27,
+                    rows: 26,
                 },
             },
         ]);
@@ -500,6 +510,10 @@ describe("OpenTuiApp", () => {
             return "created";
         });
         test.mockInput.pressKey("s");
+        await Promise.resolve();
+        await Promise.resolve();
+        await test.renderOnce();
+        expect(test.captureCharFrame().split("\n")[23]).toContain("Enter Start");
         test.mockInput.pressEscape();
         expect(calls).toBe(0);
     });
@@ -573,7 +587,7 @@ describe("OpenTuiApp", () => {
         expect(test.captureCharFrame()).toContain("Press r to resume");
         test.mockInput.pressKey("r");
         test.mockInput.pressKey("r");
-        expect(resumes).toEqual([{ sessionId: "agent", cols: 58, rows: 27 }]);
+        expect(resumes).toEqual([{ sessionId: "agent", cols: 58, rows: 26 }]);
         resolveResume();
         await pending;
     });

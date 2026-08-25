@@ -75,6 +75,7 @@ describe("Schedules", () => {
 
     it("shows the exact read-only banner and suppresses every mutation", async () => {
         const test = await setup(false);
+        expect(test.view.keyHints).toBe(" ↑↓ Move  q Sessions");
         await test.renderer.renderOnce();
         expect(test.view.renderable).toBeDefined();
         expect(test.renderer.captureCharFrame()).toContain(READ_ONLY_BANNER);
@@ -87,6 +88,8 @@ describe("Schedules", () => {
 
     it("runs main-backend mutation commands through confirmations", async () => {
         const test = await setup(true);
+        expect(test.view.keyHints).toContain("Space Toggle");
+        expect(test.view.keyHints).toContain("t Trigger");
         test.view.handleKey(key("n"));
         await Promise.resolve();
         test.view.handleKey(key(" ", "space"));

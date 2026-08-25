@@ -46,7 +46,9 @@ describe("Confirm", () => {
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("terminates the process");
         expect(test.captureCharFrame()).toContain("its saved transcript");
+        expect(confirm.keyHints).toContain("Enter/y Confirm");
         confirm.handleKey(key("y", "y"));
+        expect(confirm.keyHints).toBe(" Working...");
         confirm.handleKey(key("return", "\r"));
         expect(confirmed()).toBe(1);
     });

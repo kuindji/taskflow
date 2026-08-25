@@ -1,9 +1,4 @@
-import {
-    BoxRenderable,
-    TextRenderable,
-    type CliRenderer,
-    type KeyEvent,
-} from "@opentui/core";
+import { BoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
 import type { Project, Schedule } from "@taskflow/shared";
 import { stableSelectionIndex } from "../flows/model";
 import { scheduleStatusText } from "../schedules/model";
@@ -24,6 +19,7 @@ interface SchedulesDeps {
     onTrigger(schedule: Schedule): Promise<void>;
     confirm(message: string): Promise<boolean>;
     onClose(): void;
+    onStateChange?(): void;
 }
 
 class Schedules {
@@ -54,6 +50,13 @@ class Schedules {
 
     get selectedId(): string | null {
         return this.schedules[this.selected]?.id ?? null;
+    }
+
+    get keyHints(): string {
+        if (this.pending) return " Working...";
+        return this.deps.schedulerEnabled
+            ? " ↑↓ Move  n New  e Edit  d Delete  Space Toggle  t Trigger  q Sessions"
+            : " ↑↓ Move  q Sessions";
     }
 
     update(schedules: readonly Schedule[]): void {
@@ -161,18 +164,15 @@ class Schedules {
                 new TextRenderable(this.deps.renderer, { content: " No schedules.", height: 1 }),
             );
         }
-        this.renderable.add(
-            new TextRenderable(this.deps.renderer, {
-                content: this.pending
-                    ? " Working..."
-                    : this.error
-                      ? ` ${this.error}`
-                      : this.deps.schedulerEnabled
-                        ? " n/e/d: edit  Space: enable/disable  t: trigger  q: sessions"
-                        : " j/k: navigate  q: sessions",
-                height: 1,
-            }),
-        );
+        if (this.error) {
+            this.renderable.add(
+                new TextRenderable(this.deps.renderer, {
+                    content: ` ${this.error}`,
+                    height: 1,
+                }),
+            );
+        }
+        this.deps.onStateChange?.();
     }
 
     destroy(): void {

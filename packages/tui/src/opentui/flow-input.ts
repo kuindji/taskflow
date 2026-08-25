@@ -12,6 +12,7 @@ interface FlowInputDeps {
     inputs: readonly FlowInputDefinition[];
     onCancel(): void;
     onSubmit(values: Record<string, string>): void;
+    onStateChange?(): void;
 }
 
 class FlowInput {
@@ -48,6 +49,11 @@ class FlowInput {
         this.renderable.add(this.dialog);
         this.rebuild();
         this.valueInput.focus();
+    }
+
+    get keyHints(): string {
+        const action = this.index === this.deps.inputs.length - 1 ? "Start" : "Next";
+        return ` Enter ${action}  Esc Cancel`;
     }
 
     setValue(value: string): void {
@@ -103,12 +109,15 @@ class FlowInput {
             width: "100%",
         });
         this.dialog.add(this.valueInput);
-        this.dialog.add(
-            new TextRenderable(this.deps.renderer, {
-                content: this.error ? ` ${this.error}` : " Enter: next  Escape: cancel",
-                height: 1,
-            }),
-        );
+        if (this.error) {
+            this.dialog.add(
+                new TextRenderable(this.deps.renderer, {
+                    content: ` ${this.error}`,
+                    height: 1,
+                }),
+            );
+        }
+        this.deps.onStateChange?.();
     }
 
     destroy(): void {

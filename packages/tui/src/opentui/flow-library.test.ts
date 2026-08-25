@@ -55,6 +55,7 @@ describe("FlowLibrary", () => {
 
     it("switches tabs, moves selection, and blocks non-standalone actions", async () => {
         const test = await setup();
+        expect(test.view.keyHints).toContain("Tab Switch");
         test.view.handleKey(key("tab"));
         expect(test.view.activeTab).toBe("actions");
         test.view.handleKey(key("enter"));

@@ -1,9 +1,4 @@
-import {
-    BoxRenderable,
-    TextRenderable,
-    type CliRenderer,
-    type KeyEvent,
-} from "@opentui/core";
+import { BoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
 import type { SessionPickerItem } from "../sessions/create-model";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
@@ -11,6 +6,7 @@ interface SessionPickerDeps {
     renderer: CliRenderer;
     onCancel(): void;
     onSubmit(item: SessionPickerItem): void;
+    onStateChange?(): void;
 }
 
 function singleLine(message: string): string {
@@ -58,6 +54,12 @@ class SessionPicker {
         });
         this.renderable.add(this.dialog);
         this.rebuild();
+    }
+
+    get keyHints(): string {
+        if (this.pending) return " Starting...";
+        if (this.loading || this.items.length === 0) return " Esc Cancel";
+        return " ↑↓ Select  Enter Start  Esc Cancel";
     }
 
     setItems(items: readonly SessionPickerItem[]): void {
@@ -119,6 +121,7 @@ class SessionPicker {
             this.dialog.add(
                 new TextRenderable(this.deps.renderer, { content: " Loading...", height: 1 }),
             );
+            this.deps.onStateChange?.();
             return;
         }
         for (const [index, item] of this.items.entries()) {
@@ -151,6 +154,7 @@ class SessionPicker {
                 }),
             );
         }
+        this.deps.onStateChange?.();
     }
 
     destroy(): void {

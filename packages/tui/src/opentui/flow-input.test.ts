@@ -34,6 +34,7 @@ describe("FlowInput", () => {
         expect(submitted).toHaveLength(0);
         for (const character of "Release") view.handleKey(key(character));
         view.handleKey(key("enter"));
+        expect(view.keyHints).toContain("Enter Start");
         view.setValue("/tmp/file.txt");
         view.handleKey(key("enter"));
         expect(submitted).toEqual([{ name: "Release", path: "/tmp/file.txt" }]);

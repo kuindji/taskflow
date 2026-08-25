@@ -161,11 +161,13 @@ function rowSignature(rows: readonly SidebarRow[]): string {
 
 class OpenTuiApp {
     readonly root: BoxRenderable;
+    private readonly panels: BoxRenderable;
     private readonly sidebar: BoxRenderable;
     private readonly sidebarRowsBox: BoxRenderable;
     private readonly main: BoxRenderable;
     private readonly tabStrip: BoxRenderable;
     private readonly pane: BoxRenderable;
+    private readonly footer: TextRenderable;
     private sessions: InjectedSession[];
     private readonly emptyState: TextRenderable;
     private readonly statusNotice: TextRenderable;
@@ -199,7 +201,14 @@ class OpenTuiApp {
             id: "taskflow-root",
             width: "100%",
             height: "100%",
+            flexDirection: "column",
+        });
+        this.panels = new BoxRenderable(deps.renderer, {
+            id: "taskflow-panels",
+            width: "100%",
+            flexGrow: 1,
             flexDirection: "row",
+            overflow: "hidden",
         });
         this.sidebar = new BoxRenderable(deps.renderer, {
             id: "sidebar",
@@ -262,12 +271,25 @@ class OpenTuiApp {
             selectable: false,
             visible: false,
         });
+        this.footer = new TextRenderable(deps.renderer, {
+            id: "keyboard-footer",
+            content: "",
+            width: "100%",
+            height: 1,
+            flexShrink: 0,
+            truncate: true,
+            wrapMode: "none",
+            attributes: TextAttributes.DIM,
+            selectable: false,
+        });
 
         this.sidebar.add(this.sidebarRowsBox);
         this.main.add(this.tabStrip);
         this.main.add(this.pane);
-        this.root.add(this.sidebar);
-        this.root.add(this.main);
+        this.panels.add(this.sidebar);
+        this.panels.add(this.main);
+        this.root.add(this.panels);
+        this.root.add(this.footer);
         deps.renderer.root.add(this.root);
         for (const session of this.sessions) this.pane.add(session.bridge.renderable);
         if (this.sessions.length === 0) this.pane.add(this.emptyState);
@@ -287,6 +309,7 @@ class OpenTuiApp {
         this.applyLayout();
         this.rebuildTabs();
         this.updateSessionVisibility();
+        this.updateFooter();
     }
 
     async init(): Promise<void> {
@@ -530,30 +553,35 @@ class OpenTuiApp {
             event.preventDefault();
             event.stopPropagation();
             this.productConfirm.view.handleKey(event);
+            this.updateFooter();
             return;
         }
         if (this.confirm) {
             event.preventDefault();
             event.stopPropagation();
             this.confirm.view.handleKey(event);
+            this.updateFooter();
             return;
         }
         if (this.picker) {
             event.preventDefault();
             event.stopPropagation();
             this.picker.view.handleKey(event);
+            this.updateFooter();
             return;
         }
         if (this.flowInput) {
             event.preventDefault();
             event.stopPropagation();
             this.flowInput.handleKey(event);
+            this.updateFooter();
             return;
         }
         if (this.mainView !== "sessions" && this.productView) {
             event.preventDefault();
             event.stopPropagation();
             this.productView.handleKey(event);
+            this.updateFooter();
             return;
         }
         if (this.escapeTimer !== null) {
@@ -588,6 +616,7 @@ class OpenTuiApp {
         if (route.kind === "switch-focus") {
             this.focusTarget = this.focusTarget === "ui" ? "session" : "ui";
             this.updateFocus();
+            this.updateFooter();
             this.deps.renderer.requestRender();
             return;
         }
@@ -650,6 +679,7 @@ class OpenTuiApp {
             default:
                 break;
         }
+        this.updateFooter();
         this.deps.renderer.requestRender();
     }
 
@@ -664,6 +694,7 @@ class OpenTuiApp {
         this.pane.add(view.renderable);
         this.focusTarget = "ui";
         this.updateSessionVisibility();
+        this.updateFooter();
         this.deps.renderer.requestRender();
     }
 
@@ -674,6 +705,7 @@ class OpenTuiApp {
         this.tabStrip.visible = true;
         this.focusTarget = focusSession && this.sessions.length > 0 ? "session" : "ui";
         this.updateSessionVisibility();
+        this.updateFooter();
         this.deps.renderer.requestRender();
     }
 
@@ -699,6 +731,7 @@ class OpenTuiApp {
             onDelete: (record, tab) => void this.deleteLibraryRecord(tab, record),
             onViewRun: () => this.openFlowRun(),
             onClose: () => this.showSessions(),
+            onStateChange: () => this.updateFooter(),
         });
         this.mountProduct(view, "flow-library");
     }
@@ -714,6 +747,7 @@ class OpenTuiApp {
                     this.closeFlowInput(input);
                     void this.submitFlow(flow, values);
                 },
+                onStateChange: () => this.updateFooter(),
             });
             this.flowInput = input;
             this.root.add(input.renderable);
@@ -727,6 +761,7 @@ class OpenTuiApp {
         if (this.flowInput !== view) return;
         this.flowInput = null;
         view.destroy();
+        this.updateFooter();
         this.deps.renderer.requestRender();
     }
 
@@ -825,6 +860,7 @@ class OpenTuiApp {
                 store.dismissRun(this.selectedOwnerState);
                 this.openFlowLibrary();
             },
+            onStateChange: () => this.updateFooter(),
         });
         this.mountProduct(view, "flow-run");
     }
@@ -850,6 +886,7 @@ class OpenTuiApp {
             onTrigger: (schedule) => store.trigger(schedule.id),
             confirm: (message) => this.askProductConfirm("Schedule", message),
             onClose: () => this.showSessions(),
+            onStateChange: () => this.updateFooter(),
         });
         this.mountProduct(view, "schedules");
     }
@@ -867,6 +904,7 @@ class OpenTuiApp {
                 this.productConfirm = null;
                 view.destroy();
                 resolve(value);
+                this.updateFooter();
                 this.deps.renderer.requestRender();
             };
             const view = new Confirm({
@@ -875,6 +913,7 @@ class OpenTuiApp {
                 message,
                 onCancel: () => close(false),
                 onConfirm: () => close(true),
+                onStateChange: () => this.updateFooter(),
             });
             this.productConfirm = { view, resolve };
             this.root.add(view.renderable);
@@ -922,6 +961,7 @@ class OpenTuiApp {
             renderer: this.deps.renderer,
             onCancel: () => this.closeSessionPicker(view),
             onSubmit: (item) => this.submitSessionPicker(view, owner, item),
+            onStateChange: () => this.updateFooter(),
         });
         this.picker = { view, owner };
         this.root.add(view.renderable);
@@ -977,6 +1017,7 @@ class OpenTuiApp {
         if (this.picker?.view !== view) return;
         this.picker = null;
         view.destroy();
+        this.updateFooter();
         this.deps.renderer.requestRender();
     }
 
@@ -994,6 +1035,7 @@ class OpenTuiApp {
             message: "Closing terminates the process and removes its saved transcript.",
             onCancel: () => this.closeConfirm(view),
             onConfirm: () => this.submitClose(view, session.id),
+            onStateChange: () => this.updateFooter(),
         });
         this.confirm = {
             view,
@@ -1020,6 +1062,7 @@ class OpenTuiApp {
         if (this.confirm?.view !== view) return;
         this.confirm = null;
         view.destroy();
+        this.updateFooter();
         this.deps.renderer.requestRender();
     }
 
@@ -1062,6 +1105,7 @@ class OpenTuiApp {
         if (!session || (session.state !== "interrupted" && session.state !== "resuming")) {
             this.statusNotice.visible = false;
             this.statusNotice.content = "";
+            this.updateFooter();
             return;
         }
         let text: string;
@@ -1081,16 +1125,51 @@ class OpenTuiApp {
             ? ` Resume failed: ${error}. Press r to retry or q to close.`
             : text;
         this.statusNotice.visible = true;
+        this.updateFooter();
     }
 
     private activeBridge(): SessionBridgeLike | undefined {
         return this.sessions[this.activeSession]?.bridge;
     }
 
+    private currentKeyHints(): string {
+        if (this.productConfirm) return this.productConfirm.view.keyHints;
+        if (this.confirm) return this.confirm.view.keyHints;
+        if (this.picker) return this.picker.view.keyHints;
+        if (this.flowInput) return this.flowInput.keyHints;
+        if (this.mainView !== "sessions" && this.productView) {
+            return this.productView.keyHints;
+        }
+        if (this.focusTarget === "session") {
+            return " Ctrl+Esc or Esc Esc  App controls";
+        }
+
+        const hints = ["↑↓ Select"];
+        const session = this.sessions[this.activeSession];
+        if (session) hints.push("Enter Focus");
+        if (this.sessions.length > 1) hints.push("1-9 Tabs");
+        hints.push("s New");
+        if (session) hints.push("q Close");
+        if (session && this.canResume(session) && !this.resumePending.has(session.id)) {
+            hints.push("r Resume");
+        }
+        if (this.deps.flowStore) hints.push("f Flows");
+        if (this.deps.scheduleStore) hints.push("c Schedules");
+        hints.push("z Zoom");
+        if (this.deps.onQuit) hints.push("Q Quit");
+        return ` ${hints.join("  ")}`;
+    }
+
+    private updateFooter(): void {
+        if (this.destroyed || this.footer.isDestroyed) return;
+        this.footer.content = this.currentKeyHints();
+    }
+
     private updateFocus(): void {
         for (const session of this.sessions) session.bridge.blur();
         if (this.focusTarget === "session") this.activeBridge()?.focus();
         else this.deps.renderer.setCursorPosition(0, 0, false);
+        this.updateFooter();
     }
 
     private updateSessionVisibility(): void {
@@ -1111,7 +1190,7 @@ class OpenTuiApp {
             : Math.min(30, Math.floor(this.deps.renderer.terminalWidth / 3));
         return {
             paneWidth: Math.max(1, this.deps.renderer.terminalWidth - sidebarWidth - 2),
-            paneHeight: Math.max(1, this.deps.renderer.terminalHeight - 3),
+            paneHeight: Math.max(1, this.deps.renderer.terminalHeight - 4),
         };
     }
 
@@ -1127,7 +1206,7 @@ class OpenTuiApp {
     }
 
     private keepSelectionVisible(): void {
-        const height = Math.max(1, this.deps.renderer.terminalHeight - 2);
+        const height = Math.max(1, this.deps.renderer.terminalHeight - 3);
         const maxStart = Math.max(0, this.rows.length - height);
         const start = Math.min(maxStart, Math.max(0, this.selected - height + 1));
         this.sidebarRowsBox.translateY = -start;

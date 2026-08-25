@@ -1,9 +1,4 @@
-import {
-    BoxRenderable,
-    TextRenderable,
-    type CliRenderer,
-    type KeyEvent,
-} from "@opentui/core";
+import { BoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
 import type { ActionDefinition, FlowDefinition } from "@taskflow/shared";
 import { stableSelectionIndex } from "../flows/model";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
@@ -21,6 +16,7 @@ interface FlowLibraryDeps {
     onDelete(record: FlowDefinition | ActionDefinition, tab: LibraryTab): void;
     onViewRun(): void;
     onClose(): void;
+    onStateChange?(): void;
 }
 
 function scopeLabel(projectId?: string): string {
@@ -62,6 +58,12 @@ class FlowLibrary {
 
     get selectedId(): string | null {
         return this.items[this.selected]?.id ?? null;
+    }
+
+    get keyHints(): string {
+        return this.pending
+            ? " Working..."
+            : " ↑↓ Move  Tab Switch  Enter Run  n New  e Edit  d Delete  v Run  q Sessions";
     }
 
     private get items(): Array<FlowDefinition | ActionDefinition> {
@@ -161,16 +163,15 @@ class FlowLibrary {
                 new TextRenderable(this.deps.renderer, { content: " No records.", height: 1 }),
             );
         }
-        this.renderable.add(
-            new TextRenderable(this.deps.renderer, {
-                content: this.pending
-                    ? " Working..."
-                    : this.error
-                      ? ` ${this.error}`
-                      : " Tab: switch  Enter: run  n/e/d: edit  v: run  q: sessions",
-                height: 1,
-            }),
-        );
+        if (this.error) {
+            this.renderable.add(
+                new TextRenderable(this.deps.renderer, {
+                    content: ` ${this.error}`,
+                    height: 1,
+                }),
+            );
+        }
+        this.deps.onStateChange?.();
     }
 
     destroy(): void {

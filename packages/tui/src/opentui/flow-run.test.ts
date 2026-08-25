@@ -86,6 +86,8 @@ describe("FlowRun", () => {
 
     it("focuses a session and sends one pending control", async () => {
         const test = await setup();
+        expect(test.view.keyHints).toContain("p Pause");
+        expect(test.view.keyHints).toContain("s Skip");
         test.view.handleKey(key("enter"));
         test.view.handleKey(key("p"));
         test.view.handleKey(key("p"));
@@ -102,6 +104,9 @@ describe("FlowRun", () => {
 
     it("confirms restart only from a completed or failed action", async () => {
         const test = await setup(run("failed", "failed"));
+        expect(test.view.keyHints).toContain("R Restart");
+        expect(test.view.keyHints).toContain("d Dismiss");
+        expect(test.view.keyHints).not.toContain("p Pause");
         test.view.handleKey(key("R"));
         await Promise.resolve();
         await Promise.resolve();
