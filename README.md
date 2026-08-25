@@ -39,3 +39,34 @@ TASKFLOW_CONFIG_DIR=/absolute/path bun run dev:tui
 ```
 
 Relative `TASKFLOW_CONFIG_DIR` values are rejected before the backend starts.
+Use a fresh disposable absolute directory for mutation-heavy development and
+smoke testing so the development client cannot alter the production instance.
+`TASKFLOW_DEV_BRANCH` can give parallel runs distinct branch identities:
+
+```sh
+TASKFLOW_CONFIG_DIR=/absolute/disposable/taskflow-tui \
+TASKFLOW_DEV_BRANCH=stage3-smoke \
+bun run dev:tui
+```
+
+### TUI keyboard commands
+
+Application commands are available while the UI owns focus. From a session,
+press `Ctrl+Escape` or `Escape Escape` to return to application controls.
+
+- `Up`/`Down` or `j`/`k`: select an owner; `Enter` or `l`: open it or focus its
+  active session; `1`-`9`: select a session tab.
+- `s`: new session; `q`: close the active session; `r`: resume an interrupted
+  agent session.
+- `t`: task details; `n`: create a task or subtask; `g`: repository changes and
+  commits.
+- `f`: flows; `c`: schedules; `,`: settings; `!`: notifications.
+- `z`: zoom the main pane; `Q`: quit; `?`: keyboard help.
+
+Each product screen shows its contextual commands in the footer. Task details
+support bounded field and attribute updates, pin/archive actions, and external
+editor handoff for long text. Git changes supports file/all staging and
+unstaging, diffs, and local commits; generated commit messages only run when
+explicitly requested. Settings covers TUI runtime defaults and layout, while
+notifications supports open, read, read-all, and clear-read actions. `Escape`
+or `q` returns from a product screen, and a modal owns input until it closes.

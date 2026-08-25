@@ -18,7 +18,206 @@ type UiCommand =
     | { kind: "git" }
     | { kind: "settings" }
     | { kind: "notifications" }
-    | { kind: "deferred" };
+    | { kind: "help" };
+
+type UiCommandKind = UiCommand["kind"];
+type CommandGroup =
+    | "General"
+    | "Sessions"
+    | "Tasks"
+    | "Flows"
+    | "Schedules"
+    | "Git"
+    | "Settings"
+    | "Notifications";
+
+interface CommandRouteInput {
+    name: string;
+    text: string;
+    shift: boolean;
+}
+
+interface CommandMetadata {
+    kind: UiCommandKind;
+    group: CommandGroup;
+    keys: string;
+    hintKeys?: string;
+    label: string;
+    description: string;
+    route(input: CommandRouteInput): UiCommand | null;
+}
+
+const exactTextRoute = (
+    kind: Exclude<UiCommandKind, "move" | "select-tab" | "open">,
+    text: string,
+): ((input: CommandRouteInput) => UiCommand | null) =>
+    (input) => (input.text === text ? ({ kind } as UiCommand) : null);
+
+const COMMAND_METADATA: readonly CommandMetadata[] = [
+    {
+        kind: "move",
+        group: "General",
+        keys: "↑↓/jk",
+        hintKeys: "↑↓",
+        label: "Select",
+        description: "Move the selected owner or item",
+        route: ({ name, text, shift }) => {
+            if (shift) return null;
+            if (name === "down" || text === "j") return { kind: "move", delta: 1 };
+            if (name === "up" || text === "k") return { kind: "move", delta: -1 };
+            return null;
+        },
+    },
+    {
+        kind: "open",
+        group: "General",
+        keys: "Enter/l",
+        hintKeys: "Enter",
+        label: "Open",
+        description: "Open the selected item or focus its session",
+        route: ({ name, text, shift }) =>
+            !shift && (name === "return" || name === "enter" || text === "l")
+                ? { kind: "open" }
+                : null,
+    },
+    {
+        kind: "select-tab",
+        group: "Sessions",
+        keys: "1-9",
+        label: "Tabs",
+        description: "Select a session tab",
+        route: ({ text }) =>
+            text >= "1" && text <= "9"
+                ? { kind: "select-tab", index: Number.parseInt(text, 10) - 1 }
+                : null,
+    },
+    {
+        kind: "zoom",
+        group: "General",
+        keys: "z",
+        label: "Zoom",
+        description: "Toggle the main pane zoom",
+        route: exactTextRoute("zoom", "z"),
+    },
+    {
+        kind: "quit",
+        group: "General",
+        keys: "Q",
+        label: "Quit",
+        description: "Quit Taskflow",
+        route: exactTextRoute("quit", "Q"),
+    },
+    {
+        kind: "create",
+        group: "Sessions",
+        keys: "s",
+        label: "New",
+        description: "Create a session for the selected owner",
+        route: exactTextRoute("create", "s"),
+    },
+    {
+        kind: "close",
+        group: "Sessions",
+        keys: "q",
+        label: "Close",
+        description: "Close the active session",
+        route: exactTextRoute("close", "q"),
+    },
+    {
+        kind: "resume",
+        group: "Sessions",
+        keys: "r",
+        label: "Resume",
+        description: "Resume an interrupted agent session",
+        route: exactTextRoute("resume", "r"),
+    },
+    {
+        kind: "task-detail",
+        group: "Tasks",
+        keys: "t",
+        label: "Task",
+        description: "Open the selected task details",
+        route: exactTextRoute("task-detail", "t"),
+    },
+    {
+        kind: "task-create",
+        group: "Tasks",
+        keys: "n",
+        label: "New task",
+        description: "Create a task or subtask",
+        route: exactTextRoute("task-create", "n"),
+    },
+    {
+        kind: "flows",
+        group: "Flows",
+        keys: "f",
+        label: "Flows",
+        description: "Open flow definitions and runs",
+        route: exactTextRoute("flows", "f"),
+    },
+    {
+        kind: "schedules",
+        group: "Schedules",
+        keys: "c",
+        label: "Schedules",
+        description: "Open schedules",
+        route: exactTextRoute("schedules", "c"),
+    },
+    {
+        kind: "git",
+        group: "Git",
+        keys: "g",
+        label: "Git",
+        description: "Open repository changes and commits",
+        route: exactTextRoute("git", "g"),
+    },
+    {
+        kind: "settings",
+        group: "Settings",
+        keys: ",",
+        label: "Settings",
+        description: "Open TUI runtime settings",
+        route: exactTextRoute("settings", ","),
+    },
+    {
+        kind: "notifications",
+        group: "Notifications",
+        keys: "!",
+        label: "Notifications",
+        description: "Open notifications",
+        route: exactTextRoute("notifications", "!"),
+    },
+    {
+        kind: "help",
+        group: "General",
+        keys: "?",
+        label: "Help",
+        description: "Open this command reference",
+        route: exactTextRoute("help", "?"),
+    },
+] as const;
+
+function commandForUiKey(event: KeyEvent): UiCommand | null {
+    if (event.eventType !== "press") return null;
+    const chorded = event.ctrl || event.meta || event.option || event.super || event.hyper;
+    if (chorded) return null;
+    const input: CommandRouteInput = {
+        name: event.name,
+        text: event.sequence.length === 1 ? event.sequence : "",
+        shift: event.shift,
+    };
+    for (const command of COMMAND_METADATA) {
+        const routed = command.route(input);
+        if (routed) return routed;
+    }
+    return null;
+}
+
+function commandHint(kind: UiCommandKind, label?: string): string {
+    const command = COMMAND_METADATA.find((candidate) => candidate.kind === kind);
+    if (!command) return label ?? kind;
+    return `${command.hintKeys ?? command.keys} ${label ?? command.label}`;
+}
 
 type KeyRoute =
     | { kind: "pass"; before?: KeyEvent }
@@ -94,67 +293,8 @@ class KeyRouter {
 
         if (focus === "session") return { kind: "pass", before };
 
-        if (event.eventType !== "press") return before ? { kind: "consume" } : { kind: "pass" };
-        const chorded = event.ctrl || event.meta || event.option || event.super || event.hyper;
-        if (!chorded && !event.shift && (event.name === "down" || event.name === "j")) {
-            return { kind: "command", command: { kind: "move", delta: 1 }, before };
-        }
-        if (!chorded && !event.shift && (event.name === "up" || event.name === "k")) {
-            return { kind: "command", command: { kind: "move", delta: -1 }, before };
-        }
-        if (!chorded && !event.shift && (event.name === "return" || event.name === "enter")) {
-            return { kind: "command", command: { kind: "open" }, before };
-        }
-        const text = event.sequence.length === 1 ? event.sequence : "";
-        if (!chorded && text >= "1" && text <= "9") {
-            return {
-                kind: "command",
-                command: { kind: "select-tab", index: Number.parseInt(text, 10) - 1 },
-                before,
-            };
-        }
-        if (!chorded && text === "z") {
-            return { kind: "command", command: { kind: "zoom" }, before };
-        }
-        if (!chorded && text === "l") {
-            return { kind: "command", command: { kind: "open" }, before };
-        }
-        if (!chorded && text === "Q") {
-            return { kind: "command", command: { kind: "quit" }, before };
-        }
-        if (!chorded && text === "s") {
-            return { kind: "command", command: { kind: "create" }, before };
-        }
-        if (!chorded && text === "q") {
-            return { kind: "command", command: { kind: "close" }, before };
-        }
-        if (!chorded && text === "r") {
-            return { kind: "command", command: { kind: "resume" }, before };
-        }
-        if (!chorded && text === "f") {
-            return { kind: "command", command: { kind: "flows" }, before };
-        }
-        if (!chorded && text === "c") {
-            return { kind: "command", command: { kind: "schedules" }, before };
-        }
-        if (!chorded && text === "t") {
-            return { kind: "command", command: { kind: "task-detail" }, before };
-        }
-        if (!chorded && text === "n") {
-            return { kind: "command", command: { kind: "task-create" }, before };
-        }
-        if (!chorded && text === "g") {
-            return { kind: "command", command: { kind: "git" }, before };
-        }
-        if (!chorded && text === ",") {
-            return { kind: "command", command: { kind: "settings" }, before };
-        }
-        if (!chorded && text === "!") {
-            return { kind: "command", command: { kind: "notifications" }, before };
-        }
-        if (!chorded && text === "?") {
-            return { kind: "command", command: { kind: "deferred" }, before };
-        }
+        const command = commandForUiKey(event);
+        if (command) return { kind: "command", command, before };
         return before ? { kind: "consume" } : { kind: "pass" };
     }
 
@@ -193,5 +333,11 @@ function prepareForEmbeddedTerminal(event: KeyEvent): KeyEvent {
     return event;
 }
 
-export { KeyRouter, prepareForEmbeddedTerminal };
-export type { FocusTarget, KeyRoute, UiCommand };
+export {
+    COMMAND_METADATA,
+    KeyRouter,
+    commandForUiKey,
+    commandHint,
+    prepareForEmbeddedTerminal,
+};
+export type { CommandGroup, CommandMetadata, FocusTarget, KeyRoute, UiCommand, UiCommandKind };

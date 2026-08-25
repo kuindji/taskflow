@@ -58,6 +58,7 @@ import { FlowLibrary, type LibraryTab } from "./flow-library";
 import { FlowRun } from "./flow-run";
 import { GitChanges } from "./git-changes";
 import { GitCommit } from "./git-commit";
+import { Help } from "./help";
 import { Schedules } from "./schedules";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 import { SessionPicker } from "./session-picker";
@@ -65,7 +66,14 @@ import { Settings } from "./settings";
 import { Notifications } from "./notifications";
 import { TaskCreate } from "./task-create";
 import { TaskDetail } from "./task-detail";
-import { KeyRouter, prepareForEmbeddedTerminal, type FocusTarget, type UiCommand } from "./keys";
+import {
+    KeyRouter,
+    commandForUiKey,
+    commandHint,
+    prepareForEmbeddedTerminal,
+    type FocusTarget,
+    type UiCommand,
+} from "./keys";
 
 interface StoreLike {
     readonly masterSessions: readonly SessionRef[];
@@ -235,6 +243,8 @@ class OpenTuiApp {
     private taskCreate: TaskCreate | null = null;
     private gitCommit: GitCommit | null = null;
     private flowInput: FlowInput | null = null;
+    private help: Help | null = null;
+    private helpPreviousFocus: FocusTarget | null = null;
     private productConfirm: { view: Confirm; resolve(value: boolean): void } | null = null;
     private schedulerEnabled = false;
     private pendingFlowOwnerKey: string | null = null;
@@ -703,7 +713,20 @@ class OpenTuiApp {
             this.updateFooter();
             return;
         }
+        if (this.help) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.help.handleKey(event);
+            this.updateFooter();
+            return;
+        }
         if (this.mainView !== "sessions" && this.productView) {
+            if (commandForUiKey(event)?.kind === "help") {
+                event.preventDefault();
+                event.stopPropagation();
+                this.openHelp();
+                return;
+            }
             event.preventDefault();
             event.stopPropagation();
             this.productView.handleKey(event);
@@ -813,6 +836,9 @@ class OpenTuiApp {
             case "notifications":
                 this.openNotifications();
                 break;
+            case "help":
+                this.openHelp();
+                break;
             case "zoom":
                 this.zoomed = !this.zoomed;
                 this.applyLayout();
@@ -844,6 +870,37 @@ class OpenTuiApp {
         this.tabStrip.visible = false;
         this.pane.add(view.renderable);
         this.focusTarget = "ui";
+        this.updateSessionVisibility();
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private openHelp(): void {
+        if (this.help) return;
+        this.helpPreviousFocus = this.focusTarget;
+        const view = new Help({
+            renderer: this.deps.renderer,
+            onClose: () => this.closeHelp(),
+            onStateChange: () => {
+                this.updateFooter();
+                this.deps.renderer.requestRender();
+            },
+        });
+        this.help = view;
+        this.pane.add(view.renderable);
+        this.focusTarget = "ui";
+        this.updateSessionVisibility();
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private closeHelp(): void {
+        const view = this.help;
+        if (!view) return;
+        this.help = null;
+        view.destroy();
+        this.focusTarget = this.helpPreviousFocus ?? "ui";
+        this.helpPreviousFocus = null;
         this.updateSessionVisibility();
         this.updateFooter();
         this.deps.renderer.requestRender();
@@ -1777,6 +1834,7 @@ class OpenTuiApp {
         if (this.taskCreate) return this.taskCreate.keyHints;
         if (this.gitCommit) return this.gitCommit.keyHints;
         if (this.flowInput) return this.flowInput.keyHints;
+        if (this.help) return this.help.keyHints;
         if (this.mainView !== "sessions" && this.productView) {
             return this.productView.keyHints;
         }
@@ -1784,34 +1842,42 @@ class OpenTuiApp {
             return " Ctrl+Esc or Esc Esc  App controls";
         }
 
-        const hints = ["↑↓ Select"];
+        const hints = [commandHint("move")];
         const session = this.sessions[this.activeSession];
-        if (session) hints.push("Enter Focus");
-        else if (this.selectedOwnerState.kind === "task") hints.push("Enter Detail");
-        if (this.sessions.length > 1) hints.push("1-9 Tabs");
-        hints.push("s New");
-        if (this.selectedOwnerState.kind === "task") hints.push("t Task");
+        if (session) hints.push(commandHint("open", "Focus"));
+        else if (this.selectedOwnerState.kind === "task") hints.push(commandHint("open", "Detail"));
+        if (this.sessions.length > 1) hints.push(commandHint("select-tab"));
+        hints.push(commandHint("create"));
+        if (this.selectedOwnerState.kind === "task") hints.push(commandHint("task-detail"));
         if (
             this.selectedOwnerState.kind === "project" ||
             (this.selectedOwnerState.kind === "task" &&
                 !this.deps.store.taskById(this.selectedOwnerState.taskId)?.parentId)
         ) {
-            hints.push("n New task");
+            hints.push(commandHint("task-create"));
         }
-        if (session) hints.push("q Close");
+        if (session) hints.push(commandHint("close"));
         if (session && this.canResume(session) && !this.resumePending.has(session.id)) {
-            hints.push("r Resume");
+            hints.push(commandHint("resume"));
         }
-        if (this.deps.flowStore) hints.push("f Flows");
-        if (this.deps.scheduleStore) hints.push("c Schedules");
-        if (repositoryPathForOwner(this.selectedOwnerState, this.deps.store)) hints.push("g Git");
-        if (this.deps.settingsStore) hints.push(", Settings");
+        if (this.deps.flowStore) hints.push(commandHint("flows"));
+        if (this.deps.scheduleStore) hints.push(commandHint("schedules"));
+        if (repositoryPathForOwner(this.selectedOwnerState, this.deps.store)) {
+            hints.push(commandHint("git"));
+        }
+        if (this.deps.settingsStore) hints.push(commandHint("settings"));
         if (this.deps.notificationStore) {
             const unread = this.deps.notificationStore.unreadCount;
-            hints.push(`! Notifications${unread > 0 ? ` (${String(unread)})` : ""}`);
+            hints.push(
+                commandHint(
+                    "notifications",
+                    `Notifications${unread > 0 ? ` (${String(unread)})` : ""}`,
+                ),
+            );
         }
-        hints.push("z Zoom");
-        if (this.deps.onQuit) hints.push("Q Quit");
+        hints.push(commandHint("zoom"));
+        if (this.deps.onQuit) hints.push(commandHint("quit"));
+        hints.push(commandHint("help"));
         return ` ${hints.join("  ")}`;
     }
 
@@ -1831,7 +1897,7 @@ class OpenTuiApp {
         const { paneWidth, paneHeight } = this.paneSize();
         for (const [index, session] of this.sessions.entries()) {
             session.bridge.setActive(
-                this.mainView === "sessions" && index === this.activeSession,
+                this.help === null && this.mainView === "sessions" && index === this.activeSession,
                 paneWidth,
                 paneHeight,
             );
@@ -1964,6 +2030,9 @@ class OpenTuiApp {
         this.confirm = null;
         this.flowInput?.destroy();
         this.flowInput = null;
+        this.help?.destroy();
+        this.help = null;
+        this.helpPreviousFocus = null;
         this.productView?.destroy();
         this.productView = null;
         if (this.productConfirm) {

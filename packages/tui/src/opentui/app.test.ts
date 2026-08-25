@@ -300,7 +300,27 @@ describe("OpenTuiApp", () => {
         expect(lines[23]).toContain("↑↓ Select");
         expect(lines[23]).toContain("s New");
         expect(lines[23]).toContain("z Zoom");
+        expect(lines[23]).toContain("? Help");
         expect(app.paneDimensions).toEqual({ cols: 52, rows: 20 });
+    });
+
+    it("opens help above the current screen and restores that screen on close", async () => {
+        const { test } = await setup(100, 24);
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressKey("t");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Project: Project");
+
+        test.mockInput.pressKey("?");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Taskflow keyboard help");
+        expect(test.captureCharFrame().split("\n")[23]).toContain("Close help");
+
+        test.mockInput.pressEscape();
+        await test.renderOnce();
+        expect(test.captureCharFrame()).not.toContain("Taskflow keyboard help");
+        expect(test.captureCharFrame()).toContain("Project: Project");
     });
 
     it("opens product screens only from UI focus and returns without closing a session", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { KeyEvent } from "@opentui/core";
-import { KeyRouter, prepareForEmbeddedTerminal } from "./keys";
+import { COMMAND_METADATA, KeyRouter, prepareForEmbeddedTerminal } from "./keys";
 
 function key(
     name: string,
@@ -114,6 +114,45 @@ describe("KeyRouter", () => {
             command: { kind: "notifications" },
             before: undefined,
         });
+        expect(router.route("ui", key("/", { shift: true, sequence: "?" }))).toEqual({
+            kind: "command",
+            command: { kind: "help" },
+            before: undefined,
+        });
+    });
+
+    it("keeps routed global commands in one-to-one help metadata", () => {
+        const router = new KeyRouter();
+        const events = [
+            key("down"),
+            key("return", { sequence: "\r" }),
+            key("3"),
+            key("z"),
+            key("q", { shift: true, sequence: "Q" }),
+            key("s"),
+            key("q"),
+            key("r"),
+            key("t"),
+            key("n"),
+            key("f"),
+            key("c"),
+            key("g"),
+            key(","),
+            key("1", { shift: true, sequence: "!" }),
+            key("/", { shift: true, sequence: "?" }),
+        ];
+        const routedKinds = events.flatMap((event) => {
+            const route = router.route("ui", event);
+            return route.kind === "command" ? [route.command.kind] : [];
+        });
+        const metadataKinds = COMMAND_METADATA.map((command) => command.kind);
+        expect(new Set(metadataKinds).size).toBe(metadataKinds.length);
+        expect(new Set(routedKinds)).toEqual(new Set(metadataKinds));
+        for (const command of COMMAND_METADATA) {
+            expect(command.keys.length).toBeGreaterThan(0);
+            expect(command.label.length).toBeGreaterThan(0);
+            expect(command.description.length).toBeGreaterThan(0);
+        }
     });
 
     it("adapts Kitty parser fields to OpenTUI physical keys", () => {
