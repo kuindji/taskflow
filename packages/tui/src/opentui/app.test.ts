@@ -17,7 +17,7 @@ import { GitStore } from "../git/store";
 import { SettingsStore } from "../settings/store";
 import { NotificationStore } from "../notifications/store";
 import type { SessionOwner } from "../sessions/owner";
-import { OpenTuiApp, cleanLabel, type SessionBridgeLike, type StoreLike } from "./app";
+import { OpenTuiApp, buildRows, cleanLabel, type SessionBridgeLike, type StoreLike } from "./app";
 
 class FakeNet implements NetLike {
     private readonly handlers = new Map<string, Set<(payload: unknown) => void>>();
@@ -125,9 +125,7 @@ function task(id: string, projectId: string, title: string, sessions = 0): Task 
     };
 }
 
-function fullSettings(
-    panels: Partial<AppSettings["layout"]["panels"]> = {},
-): AppSettings {
+function fullSettings(panels: Partial<AppSettings["layout"]["panels"]> = {}): AppSettings {
     return {
         general: {
             fontFamily: "system",
@@ -500,6 +498,44 @@ describe("OpenTuiApp", () => {
         expect(cleanLabel("wide 猫\x1b[2J\nname")).toBe("wide 猫�[2J�name");
     });
 
+    it("filters owner rows by project name or task title", () => {
+        const store = new FakeStore();
+        store.projects = [project("p1", "Alpha"), project("p2", "Beta")];
+        store.tasks = [
+            task("t1", "p1", "First task"),
+            task("t2", "p1", "Needle task"),
+            task("t3", "p2", "Other task"),
+        ];
+
+        expect(buildRows(store, new Set(["p1"]), "needle").map((row) => row.label)).toEqual([
+            "Alpha",
+            "Needle task",
+        ]);
+        expect(buildRows(store, new Set(["p1"]), "beta").map((row) => row.label)).toEqual([
+            "Beta",
+            "Other task",
+        ]);
+    });
+
+    it("applies the owner filter and selects its first visible result", async () => {
+        const { test, store, app } = await setup();
+        store.projects = [project("p1", "Alpha"), project("p2", "Beta")];
+        store.tasks = [task("t1", "p1", "Needle task"), task("t2", "p2", "Other task")];
+        store.notify();
+
+        test.mockInput.pressKey("/");
+        await test.mockInput.typeText("needle");
+        test.mockInput.pressEnter();
+        await test.renderOnce();
+
+        const frame = test.captureCharFrame();
+        expect(frame).toContain("Alpha");
+        expect(frame).toContain("Needle task");
+        expect(frame).not.toContain("Beta");
+        expect(frame).not.toContain("Master Workspace");
+        expect(app.selectedOwner).toEqual({ kind: "project", projectId: "p1" });
+    });
+
     it("preserves owner selection across project reorder and task insertion", async () => {
         const { test, store, app } = await setup();
         store.projects = [project("p1", "One"), project("p2", "Two")];
@@ -670,9 +706,7 @@ describe("OpenTuiApp", () => {
                 branch: "feature",
                 ahead: 0,
                 behind: 0,
-                stagedFiles: [
-                    { path: "file.ts", status: "modified", staged: true },
-                ],
+                stagedFiles: [{ path: "file.ts", status: "modified", staged: true }],
                 unstagedFiles: [],
             },
         });
@@ -696,11 +730,13 @@ describe("OpenTuiApp", () => {
         await Promise.resolve();
         await Promise.resolve();
         await test.renderOnce();
-        expect(
-            net.requests.find((request) => request.type === MSG.GIT_STATUS)?.payload,
-        ).toEqual({ path: "/tmp/p1" });
+        expect(net.requests.find((request) => request.type === MSG.GIT_STATUS)?.payload).toEqual({
+            path: "/tmp/p1",
+        });
         expect(test.captureCharFrame()).toContain("file.ts");
-        expect(net.requests.filter((request) => request.type === MSG.GIT_GENERATE_COMMIT_MSG)).toHaveLength(0);
+        expect(
+            net.requests.filter((request) => request.type === MSG.GIT_GENERATE_COMMIT_MSG),
+        ).toHaveLength(0);
 
         test.mockInput.pressKey("c");
         await test.mockInput.typeText("fix file");
@@ -791,9 +827,9 @@ describe("OpenTuiApp", () => {
         expect(test.captureCharFrame()).toContain("Task finished");
         test.mockInput.pressEnter();
         expect(app.selectedOwner).toEqual({ kind: "task", taskId: "t1", projectId: "p1" });
-        expect(net.requests.filter((request) => request.type === MSG.NOTIFICATION_UPDATED)).toEqual([
-            { type: MSG.NOTIFICATION_UPDATED, payload: { id: "n1" } },
-        ]);
+        expect(net.requests.filter((request) => request.type === MSG.NOTIFICATION_UPDATED)).toEqual(
+            [{ type: MSG.NOTIFICATION_UPDATED, payload: { id: "n1" } }],
+        );
     });
 
     it("focuses the main session with Enter and l from UI focus", async () => {

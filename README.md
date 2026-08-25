@@ -60,6 +60,7 @@ press `Ctrl+Escape` or `Escape Escape` to return to application controls.
   agent session.
 - `t`: task details; `n`: create a task or subtask; `g`: repository changes and
   commits.
+- `/`: filter the owner list by project name or task title.
 - `f`: flows; `c`: schedules; `,`: settings; `!`: notifications.
 - `z`: zoom the main pane; `Q`: quit; `?`: keyboard help.
 

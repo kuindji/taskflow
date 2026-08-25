@@ -18,6 +18,7 @@ type UiCommand =
     | { kind: "git" }
     | { kind: "settings" }
     | { kind: "notifications" }
+    | { kind: "filter" }
     | { kind: "help" };
 
 type UiCommandKind = UiCommand["kind"];
@@ -47,11 +48,13 @@ interface CommandMetadata {
     route(input: CommandRouteInput): UiCommand | null;
 }
 
-const exactTextRoute = (
-    kind: Exclude<UiCommandKind, "move" | "select-tab" | "open">,
-    text: string,
-): ((input: CommandRouteInput) => UiCommand | null) =>
-    (input) => (input.text === text ? ({ kind } as UiCommand) : null);
+const exactTextRoute =
+    (
+        kind: Exclude<UiCommandKind, "move" | "select-tab" | "open">,
+        text: string,
+    ): ((input: CommandRouteInput) => UiCommand | null) =>
+    (input) =>
+        input.text === text ? ({ kind } as UiCommand) : null;
 
 const COMMAND_METADATA: readonly CommandMetadata[] = [
     {
@@ -186,6 +189,14 @@ const COMMAND_METADATA: readonly CommandMetadata[] = [
         label: "Notifications",
         description: "Open notifications",
         route: exactTextRoute("notifications", "!"),
+    },
+    {
+        kind: "filter",
+        group: "General",
+        keys: "/",
+        label: "Filter",
+        description: "Filter projects and tasks by name",
+        route: exactTextRoute("filter", "/"),
     },
     {
         kind: "help",
@@ -333,11 +344,5 @@ function prepareForEmbeddedTerminal(event: KeyEvent): KeyEvent {
     return event;
 }
 
-export {
-    COMMAND_METADATA,
-    KeyRouter,
-    commandForUiKey,
-    commandHint,
-    prepareForEmbeddedTerminal,
-};
+export { COMMAND_METADATA, KeyRouter, commandForUiKey, commandHint, prepareForEmbeddedTerminal };
 export type { CommandGroup, CommandMetadata, FocusTarget, KeyRoute, UiCommand, UiCommandKind };

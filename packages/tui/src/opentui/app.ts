@@ -64,6 +64,7 @@ import { SELECTED_TEXT_STYLE } from "./selection-style";
 import { SessionPicker } from "./session-picker";
 import { Settings } from "./settings";
 import { Notifications } from "./notifications";
+import { OwnerFilter } from "./owner-filter";
 import { TaskCreate } from "./task-create";
 import { TaskDetail } from "./task-detail";
 import {
@@ -152,26 +153,39 @@ function cleanLabel(label: string): string {
     return result;
 }
 
-function buildRows(store: StoreLike, collapsedProjectIds: ReadonlySet<string> = new Set()): SidebarRow[] {
-    const rows: SidebarRow[] = [
-        {
-            kind: "master",
-            id: "master",
-            owner: MASTER_OWNER,
-            label: "Master Workspace",
-            sessionCount: store.masterSessions.length,
-        },
-    ];
+function buildRows(
+    store: StoreLike,
+    collapsedProjectIds: ReadonlySet<string> = new Set(),
+    filter = "",
+): SidebarRow[] {
+    const query = filter.trim().toLowerCase();
+    const masterRow: SidebarRow = {
+        kind: "master",
+        id: "master",
+        owner: MASTER_OWNER,
+        label: "Master Workspace",
+        sessionCount: store.masterSessions.length,
+    };
+    const rows: SidebarRow[] =
+        query === "" || masterRow.label.toLowerCase().includes(query) ? [masterRow] : [];
     for (const project of store.projects) {
+        const label = cleanLabel(project.name);
+        const tasks = store.tasksFor(project.id);
+        const projectMatches = label.toLowerCase().includes(query);
+        const matchingTasks =
+            query === "" || projectMatches
+                ? tasks
+                : tasks.filter((task) => cleanLabel(task.title).toLowerCase().includes(query));
+        if (query !== "" && !projectMatches && matchingTasks.length === 0) continue;
         rows.push({
             kind: "project",
             id: project.id,
             owner: { kind: "project", projectId: project.id },
-            label: cleanLabel(project.name),
+            label,
             sessionCount: project.sessions.length,
         });
-        if (collapsedProjectIds.has(project.id)) continue;
-        for (const task of store.tasksFor(project.id)) {
+        if (query === "" && collapsedProjectIds.has(project.id)) continue;
+        for (const task of matchingTasks) {
             rows.push({
                 kind: "task",
                 id: task.id,
@@ -243,6 +257,8 @@ class OpenTuiApp {
     private taskCreate: TaskCreate | null = null;
     private gitCommit: GitCommit | null = null;
     private flowInput: FlowInput | null = null;
+    private ownerFilter: OwnerFilter | null = null;
+    private ownerFilterValue = "";
     private help: Help | null = null;
     private helpPreviousFocus: FocusTarget | null = null;
     private productConfirm: { view: Confirm; resolve(value: boolean): void } | null = null;
@@ -460,9 +476,7 @@ class OpenTuiApp {
                 ? (this.deps.taskStore?.loadLogs(this.selectedOwnerState.taskId) ??
                   Promise.resolve())
                 : Promise.resolve(),
-            this.mainView === "git-changes"
-                ? this.loadSelectedRepository()
-                : Promise.resolve(),
+            this.mainView === "git-changes" ? this.loadSelectedRepository() : Promise.resolve(),
         ]);
     }
 
@@ -474,10 +488,11 @@ class OpenTuiApp {
     }
 
     private refreshRows(force = false): void {
-        const rows = buildRows(this.deps.store, this.collapsedProjectIds);
+        const rows = buildRows(this.deps.store, this.collapsedProjectIds, this.ownerFilterValue);
         const signature = rowSignature(rows);
         const previousOwnerKey = ownerKey(this.selectedOwnerState);
         if (
+            this.ownerFilterValue === "" &&
             this.selectedOwnerState.kind === "task" &&
             this.collapsedProjectIds.has(this.selectedOwnerState.projectId)
         ) {
@@ -487,6 +502,12 @@ class OpenTuiApp {
             };
         }
         this.selectedOwnerState = resolveOwner(this.deps.store, this.selectedOwnerState);
+        if (
+            rows.length > 0 &&
+            !rows.some((row) => ownerKey(row.owner) === ownerKey(this.selectedOwnerState))
+        ) {
+            this.selectedOwnerState = rows[0].owner;
+        }
         const ownerChanged = previousOwnerKey !== ownerKey(this.selectedOwnerState);
         if (
             this.picker &&
@@ -714,6 +735,13 @@ class OpenTuiApp {
             this.updateFooter();
             return;
         }
+        if (this.ownerFilter) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.ownerFilter.handleKey(event);
+            this.updateFooter();
+            return;
+        }
         if (this.help) {
             event.preventDefault();
             event.stopPropagation();
@@ -837,6 +865,9 @@ class OpenTuiApp {
             case "notifications":
                 this.openNotifications();
                 break;
+            case "filter":
+                this.openOwnerFilter();
+                break;
             case "help":
                 this.openHelp();
                 break;
@@ -891,6 +922,36 @@ class OpenTuiApp {
         this.pane.add(view.renderable);
         this.focusTarget = "ui";
         this.updateSessionVisibility();
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private openOwnerFilter(): void {
+        if (this.ownerFilter) return;
+        const view = new OwnerFilter({
+            renderer: this.deps.renderer,
+            initialValue: this.ownerFilterValue,
+            onCancel: () => this.closeOwnerFilter(view),
+            onSubmit: (value) => {
+                this.ownerFilterValue = value;
+                this.closeOwnerFilter(view);
+                this.refreshRows(true);
+            },
+            onStateChange: () => {
+                this.updateFooter();
+                this.deps.renderer.requestRender();
+            },
+        });
+        this.ownerFilter = view;
+        this.root.add(view.renderable);
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private closeOwnerFilter(view: OwnerFilter): void {
+        if (this.ownerFilter !== view) return;
+        this.ownerFilter = null;
+        view.destroy();
         this.updateFooter();
         this.deps.renderer.requestRender();
     }
@@ -976,14 +1037,12 @@ class OpenTuiApp {
         }
     }
 
-    private async updateTaskTitle(
-        view: TaskDetail,
-        taskId: string,
-        title: string,
-    ): Promise<void> {
+    private async updateTaskTitle(view: TaskDetail, taskId: string, title: string): Promise<void> {
         if (this.productView !== view || !this.deps.taskStore) return;
         try {
-            this.deps.store.applyServerTask(await this.deps.taskStore.update({ id: taskId, title }));
+            this.deps.store.applyServerTask(
+                await this.deps.taskStore.update({ id: taskId, title }),
+            );
         } catch (error) {
             view.setError(`Could not update task: ${this.errorMessage(error)}`);
         }
@@ -1223,9 +1282,7 @@ class OpenTuiApp {
 
     private navigateNotification(notification: Notification): void {
         if (!notification.read) void this.deps.notificationStore?.markRead(notification.id);
-        const task = notification.taskId
-            ? this.deps.store.taskById(notification.taskId)
-            : null;
+        const task = notification.taskId ? this.deps.store.taskById(notification.taskId) : null;
         if (task?.status === "active") {
             this.selectedOwnerState = {
                 kind: "task",
@@ -1298,10 +1355,7 @@ class OpenTuiApp {
         }
     }
 
-    private async mutateAllGit(
-        view: GitChanges,
-        operation: "stage" | "unstage",
-    ): Promise<void> {
+    private async mutateAllGit(view: GitChanges, operation: "stage" | "unstage"): Promise<void> {
         if (this.productView !== view || !this.deps.gitStore) return;
         const confirmed = await this.askProductConfirm(
             operation === "stage" ? "Stage all files" : "Unstage all files",
@@ -1835,6 +1889,7 @@ class OpenTuiApp {
         if (this.taskCreate) return this.taskCreate.keyHints;
         if (this.gitCommit) return this.gitCommit.keyHints;
         if (this.flowInput) return this.flowInput.keyHints;
+        if (this.ownerFilter) return this.ownerFilter.keyHints;
         if (this.help) return this.help.keyHints;
         if (this.mainView !== "sessions" && this.productView) {
             return this.productView.keyHints;
@@ -1843,7 +1898,13 @@ class OpenTuiApp {
             return " Ctrl+Esc or Esc Esc  App controls";
         }
 
-        const hints = [commandHint("move")];
+        const hints = [
+            commandHint("move"),
+            commandHint(
+                "filter",
+                this.ownerFilterValue ? `Filter: ${this.ownerFilterValue}` : undefined,
+            ),
+        ];
         const session = this.sessions[this.activeSession];
         if (session) hints.push(commandHint("open", "Focus"));
         else if (this.selectedOwnerState.kind === "task") hints.push(commandHint("open", "Detail"));
@@ -2031,6 +2092,8 @@ class OpenTuiApp {
         this.confirm = null;
         this.flowInput?.destroy();
         this.flowInput = null;
+        this.ownerFilter?.destroy();
+        this.ownerFilter = null;
         this.help?.destroy();
         this.help = null;
         this.helpPreviousFocus = null;

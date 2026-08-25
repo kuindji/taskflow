@@ -114,6 +114,11 @@ describe("KeyRouter", () => {
             command: { kind: "notifications" },
             before: undefined,
         });
+        expect(router.route("ui", key("/"))).toEqual({
+            kind: "command",
+            command: { kind: "filter" },
+            before: undefined,
+        });
         expect(router.route("ui", key("/", { shift: true, sequence: "?" }))).toEqual({
             kind: "command",
             command: { kind: "help" },
@@ -139,6 +144,7 @@ describe("KeyRouter", () => {
             key("g"),
             key(","),
             key("1", { shift: true, sequence: "!" }),
+            key("/"),
             key("/", { shift: true, sequence: "?" }),
         ];
         const routedKinds = events.flatMap((event) => {
