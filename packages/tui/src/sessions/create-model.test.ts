@@ -21,33 +21,89 @@ const shells: ShellListResponse = {
 const settings = {
     general: { defaultAgent: "codex" },
     terminal: { defaultShell: "system" },
-} as AppSettings;
+    claude: { defaultModel: "default", defaultEffort: "default", permissionMode: "default" },
+    codex: {
+        defaultModel: "gpt-5",
+        defaultReasoningEffort: "high",
+        sandbox: "workspace-write",
+        approvalPolicy: "on-request",
+        dangerouslyBypassApprovalsAndSandbox: false,
+    },
+    opencode: { defaultModel: "", autoApprove: false },
+    pi: { defaultModel: "", thinking: "off", tools: "" },
+    kimi: { defaultModel: "", permissionMode: "manual" },
+} as unknown as AppSettings;
 
 describe("session creation model", () => {
     it("puts the available default agent first and marks the resolved default shell", () => {
         expect(buildSessionPickerItems(agents, shells, settings)).toEqual([
-            { kind: "agent", type: "codex", label: "Codex", isDefault: true },
-            { kind: "agent", type: "claude", label: "Claude", isDefault: false },
-            { kind: "agent", type: "pi", label: "Pi", isDefault: false },
+            {
+                kind: "agent",
+                type: "codex",
+                label: "Codex",
+                isDefault: true,
+                agentOptions: {
+                    type: "codex",
+                    model: "gpt-5",
+                    reasoningEffort: "high",
+                    sandbox: "workspace-write",
+                    approvalPolicy: "on-request",
+                    dangerouslyBypassApprovalsAndSandbox: false,
+                },
+            },
+            {
+                kind: "agent",
+                type: "claude",
+                label: "Claude",
+                isDefault: false,
+                agentOptions: { type: "claude" },
+            },
+            {
+                kind: "agent",
+                type: "pi",
+                label: "Pi",
+                isDefault: false,
+                agentOptions: { type: "pi", thinking: "off" },
+            },
             { kind: "shell", type: "shell", label: "zsh", path: "/bin/zsh", isDefault: true },
             { kind: "shell", type: "shell", label: "bash", path: "/bin/bash", isDefault: false },
         ]);
     });
 
-    it("starts a clean task agent with owner and pane dimensions only", () => {
+    it("starts a clean task agent with current default options", () => {
         const payload = buildSessionCreatePayload({
             owner: { kind: "task", taskId: "t", projectId: "p" },
-            item: { kind: "agent", type: "codex", label: "Codex", isDefault: true },
+            item: {
+                kind: "agent",
+                type: "codex",
+                label: "Codex",
+                isDefault: true,
+                agentOptions: {
+                    type: "codex",
+                    model: "gpt-5",
+                    reasoningEffort: "high",
+                    sandbox: "workspace-write",
+                    approvalPolicy: "on-request",
+                    dangerouslyBypassApprovalsAndSandbox: false,
+                },
+            },
             cols: 90,
             rows: 30,
         });
         expect(payload).toEqual({
             taskId: "t",
             type: "codex",
+            agentOptions: {
+                type: "codex",
+                model: "gpt-5",
+                reasoningEffort: "high",
+                sandbox: "workspace-write",
+                approvalPolicy: "on-request",
+                dangerouslyBypassApprovalsAndSandbox: false,
+            },
             cols: 90,
             rows: 30,
         });
-        expect("agentOptions" in payload).toBe(false);
     });
 
     it("sends a full shell path and never infers prompts for master or project", () => {

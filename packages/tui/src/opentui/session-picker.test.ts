@@ -5,7 +5,18 @@ import { SessionPicker } from "./session-picker";
 import type { SessionPickerItem } from "../sessions/create-model";
 
 const items: SessionPickerItem[] = [
-    { kind: "agent", type: "codex", label: "Codex", isDefault: true },
+    {
+        kind: "agent",
+        type: "codex",
+        label: "Codex",
+        isDefault: true,
+        agentOptions: {
+            type: "codex",
+            sandbox: "workspace-write",
+            approvalPolicy: "on-request",
+            dangerouslyBypassApprovalsAndSandbox: false,
+        },
+    },
     { kind: "shell", type: "shell", label: "zsh", path: "/bin/zsh", isDefault: true },
 ];
 

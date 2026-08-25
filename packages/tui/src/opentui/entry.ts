@@ -10,6 +10,7 @@ import { ownerProjectId, visibleDefinitions } from "../flows/model";
 import { ScheduleStore } from "../schedules/store";
 import { TaskDetailStore } from "../tasks/store";
 import { GitStore } from "../git/store";
+import { SettingsStore } from "../settings/store";
 import {
     actionRecord,
     flowRecord,
@@ -46,6 +47,7 @@ async function main(): Promise<void> {
     let scheduleStore: ScheduleStore | null = null;
     let taskDetailStore: TaskDetailStore | null = null;
     let gitStore: GitStore | null = null;
+    let settingsStore: SettingsStore | null = null;
     let finishing = false;
 
     const finish = async (code: number): Promise<void> => {
@@ -58,6 +60,7 @@ async function main(): Promise<void> {
         scheduleStore?.dispose();
         taskDetailStore?.dispose();
         gitStore?.dispose();
+        settingsStore?.dispose();
         await owner.shutdown();
         process.exit(code);
     };
@@ -85,6 +88,7 @@ async function main(): Promise<void> {
         scheduleStore = new ScheduleStore(net);
         taskDetailStore = new TaskDetailStore(net);
         gitStore = new GitStore(net);
+        settingsStore = new SettingsStore(net);
         controller = new SessionController({
             createBridge: (session, sessionOwner) => {
                 const pane = app?.paneDimensions ?? {
@@ -109,6 +113,17 @@ async function main(): Promise<void> {
         });
         const actionRunner = new ActionRunner(net, controller);
 
+        const externalEditorDeps = () => {
+            const deps = defaultExternalEditorDeps(
+                renderer,
+                () => app?.blurForEditor(),
+                () => app?.restoreAfterEditor(),
+            );
+            const configured = settingsStore?.editorCommand();
+            if (configured) deps.editor = configured;
+            return deps;
+        };
+
         const editTaskText = async (
             task: Task,
             field: "description" | "notes",
@@ -123,11 +138,7 @@ async function main(): Promise<void> {
                 save: async (source) => {
                     updated = await activeTaskStore.update({ id: task.id, [field]: source });
                 },
-                deps: defaultExternalEditorDeps(
-                    renderer,
-                    () => app?.blurForEditor(),
-                    () => app?.restoreAfterEditor(),
-                ),
+                deps: externalEditorDeps(),
             });
             return result === null ? null : updated;
         };
@@ -147,11 +158,7 @@ async function main(): Promise<void> {
                 projectIds: store?.projects.map((project) => project.id) ?? [],
                 visibleActions,
             };
-            const deps = defaultExternalEditorDeps(
-                renderer,
-                () => app?.blurForEditor(),
-                () => app?.restoreAfterEditor(),
-            );
+            const deps = externalEditorDeps();
 
             if (kind === "action") {
                 const existing = record as ActionDefinition | null;
@@ -243,6 +250,7 @@ async function main(): Promise<void> {
             scheduleStore,
             taskStore: taskDetailStore,
             gitStore,
+            settingsStore,
             onOwnerChange: (sessionOwner, sessions) =>
                 controller?.reconcile(sessionOwner, sessions),
             onSessionSelect: (sessionId) => controller?.select(sessionId),
@@ -275,6 +283,7 @@ async function main(): Promise<void> {
         scheduleStore?.dispose();
         taskDetailStore?.dispose();
         gitStore?.dispose();
+        settingsStore?.dispose();
         await owner.shutdown();
         const message = error instanceof Error ? error.stack || error.message : String(error);
         process.stderr.write(`${message}\n`);

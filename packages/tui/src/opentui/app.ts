@@ -28,6 +28,7 @@ import { visibleDefinitions, flowOwnerId, ownerProjectId } from "../flows/model"
 import type { ScheduleStore } from "../schedules/store";
 import type { GitStore } from "../git/store";
 import type { GitChange } from "../git/model";
+import type { SettingsStore } from "../settings/store";
 import type { NetLike } from "../net/client";
 import {
     repositoryPathForOwner,
@@ -58,6 +59,7 @@ import { GitCommit } from "./git-commit";
 import { Schedules } from "./schedules";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 import { SessionPicker } from "./session-picker";
+import { Settings } from "./settings";
 import { TaskCreate } from "./task-create";
 import { TaskDetail } from "./task-detail";
 import { KeyRouter, prepareForEmbeddedTerminal, type FocusTarget, type UiCommand } from "./keys";
@@ -107,6 +109,7 @@ interface OpenTuiAppDeps {
     scheduleStore?: ScheduleStore;
     taskStore?: TaskDetailStore;
     gitStore?: GitStore;
+    settingsStore?: SettingsStore;
     onRunAction?: (owner: SessionOwner, action: ActionDefinition) => Promise<string>;
     onEditRecord?: (
         kind: "flow" | "action" | "schedule",
@@ -137,7 +140,7 @@ function cleanLabel(label: string): string {
     return result;
 }
 
-function buildRows(store: StoreLike): SidebarRow[] {
+function buildRows(store: StoreLike, collapsedProjectIds: ReadonlySet<string> = new Set()): SidebarRow[] {
     const rows: SidebarRow[] = [
         {
             kind: "master",
@@ -155,6 +158,7 @@ function buildRows(store: StoreLike): SidebarRow[] {
             label: cleanLabel(project.name),
             sessionCount: project.sessions.length,
         });
+        if (collapsedProjectIds.has(project.id)) continue;
         for (const task of store.tasksFor(project.id)) {
             rows.push({
                 kind: "task",
@@ -210,16 +214,26 @@ class OpenTuiApp {
         | "sessions"
         | "task-detail"
         | "git-changes"
+        | "settings"
         | "flow-library"
         | "flow-run"
         | "schedules" = "sessions";
-    private productView: TaskDetail | GitChanges | FlowLibrary | FlowRun | Schedules | null = null;
+    private productView:
+        | TaskDetail
+        | GitChanges
+        | Settings
+        | FlowLibrary
+        | FlowRun
+        | Schedules
+        | null = null;
     private taskCreate: TaskCreate | null = null;
     private gitCommit: GitCommit | null = null;
     private flowInput: FlowInput | null = null;
     private productConfirm: { view: Confirm; resolve(value: boolean): void } | null = null;
     private schedulerEnabled = false;
     private pendingFlowOwnerKey: string | null = null;
+    private sidebarColumns = 30;
+    private collapsedProjectIds = new Set<string>();
 
     constructor(private readonly deps: OpenTuiAppDeps) {
         this.sessions = deps.sessions ?? [];
@@ -370,6 +384,14 @@ class OpenTuiApp {
         if (this.deps.gitStore) {
             this.disposers.push(this.deps.gitStore.onChange(() => this.syncProductView()));
         }
+        if (this.deps.settingsStore) {
+            this.disposers.push(
+                this.deps.settingsStore.onChange(() => {
+                    this.applyTuiSettings(this.deps.settingsStore?.settings ?? null);
+                    this.syncProductView();
+                }),
+            );
+        }
         this.disposers.push(
             this.deps.net.on(MSG.SYSTEM_CLIENTS, (payload) => {
                 this.clientsBroadcast = true;
@@ -399,6 +421,7 @@ class OpenTuiApp {
     private async loadProducts(): Promise<void> {
         const loads: Promise<void>[] = [];
         if (this.deps.flowStore) loads.push(this.deps.flowStore.loadDefinitions());
+        if (this.deps.settingsStore) loads.push(this.deps.settingsStore.loadSettings());
         loads.push(this.loadOwnerProducts());
         await Promise.all(loads);
     }
@@ -426,9 +449,18 @@ class OpenTuiApp {
     }
 
     private refreshRows(force = false): void {
-        const rows = buildRows(this.deps.store);
+        const rows = buildRows(this.deps.store, this.collapsedProjectIds);
         const signature = rowSignature(rows);
         const previousOwnerKey = ownerKey(this.selectedOwnerState);
+        if (
+            this.selectedOwnerState.kind === "task" &&
+            this.collapsedProjectIds.has(this.selectedOwnerState.projectId)
+        ) {
+            this.selectedOwnerState = {
+                kind: "project",
+                projectId: this.selectedOwnerState.projectId,
+            };
+        }
         this.selectedOwnerState = resolveOwner(this.deps.store, this.selectedOwnerState);
         const ownerChanged = previousOwnerKey !== ownerKey(this.selectedOwnerState);
         if (
@@ -451,6 +483,7 @@ class OpenTuiApp {
                 if (this.selectedOwnerState.kind === "task") this.openTaskDetail();
                 else this.showSessions();
             } else if (this.mainView === "git-changes") this.openGitChanges();
+            else if (this.mainView === "settings") this.syncProductView();
             else if (this.mainView === "flow-run") this.openFlowLibrary();
             else this.syncProductView();
         }
@@ -462,6 +495,17 @@ class OpenTuiApp {
         this.selected = selectedIndex === -1 ? 0 : selectedIndex;
         this.rebuildSidebar();
         this.deps.renderer.requestRender();
+    }
+
+    private applyTuiSettings(settings: AppSettings | null): void {
+        if (!settings) return;
+        this.sidebarColumns = Math.min(
+            60,
+            Math.max(16, Math.round(settings.layout.panels.sidebarWidth / 8)),
+        );
+        this.collapsedProjectIds = new Set(settings.layout.panels.collapsedProjectIds);
+        this.refreshRows(true);
+        this.applyLayout();
     }
 
     private clearChildren(parent: BoxRenderable): void {
@@ -748,6 +792,9 @@ class OpenTuiApp {
             case "git":
                 this.openGitChanges();
                 break;
+            case "settings":
+                this.openSettings();
+                break;
             case "zoom":
                 this.zoomed = !this.zoomed;
                 this.applyLayout();
@@ -763,7 +810,7 @@ class OpenTuiApp {
     }
 
     private mountProduct(
-        view: TaskDetail | GitChanges | FlowLibrary | FlowRun | Schedules,
+        view: TaskDetail | GitChanges | Settings | FlowLibrary | FlowRun | Schedules,
         kind: typeof this.mainView,
     ): void {
         this.productView?.destroy();
@@ -1005,6 +1052,38 @@ class OpenTuiApp {
         this.statusNotice.visible = true;
         this.updateFooter();
         this.deps.renderer.requestRender();
+    }
+
+    private openSettings(): void {
+        const store = this.deps.settingsStore;
+        if (!store) return;
+        const view = new Settings({
+            renderer: this.deps.renderer,
+            settings: store.settings,
+            choices: store.choices,
+            projects: this.deps.store.projects,
+            onSave: (item, value) => void this.saveSetting(view, item.payload(value)),
+            onClose: () => this.showSessions(),
+            onStateChange: () => this.updateFooter(),
+        });
+        this.mountProduct(view, "settings");
+        void store.load().catch((error: unknown) => {
+            if (this.productView === view) {
+                view.setError(`Could not load settings: ${this.errorMessage(error)}`);
+            }
+        });
+    }
+
+    private async saveSetting(
+        view: Settings,
+        payload: import("@taskflow/shared").SettingsUpdatePayload,
+    ): Promise<void> {
+        if (this.productView !== view || !this.deps.settingsStore) return;
+        try {
+            await this.deps.settingsStore.update(payload);
+        } catch (error) {
+            view.setError(`Could not save setting: ${this.errorMessage(error)}`);
+        }
     }
 
     private openGitChanges(): void {
@@ -1368,6 +1447,19 @@ class OpenTuiApp {
                 return;
             }
             this.productView.update(this.deps.gitStore.status, this.deps.gitStore.diff);
+        } else if (this.productView instanceof Settings) {
+            this.productView.update(
+                this.deps.settingsStore?.settings ?? null,
+                this.deps.settingsStore?.choices ?? {
+                    agents: [],
+                    runtimes: [],
+                    shells: [],
+                    editors: [],
+                    models: { codex: [], opencode: [], pi: [], kimi: [] },
+                    systemInfo: null,
+                },
+                this.deps.store.projects,
+            );
         } else if (this.productView instanceof FlowLibrary && flowStore) {
             this.productView.update(
                 visibleDefinitions(flowStore.flows, this.selectedOwnerState),
@@ -1612,6 +1704,7 @@ class OpenTuiApp {
         if (this.deps.flowStore) hints.push("f Flows");
         if (this.deps.scheduleStore) hints.push("c Schedules");
         if (repositoryPathForOwner(this.selectedOwnerState, this.deps.store)) hints.push("g Git");
+        if (this.deps.settingsStore) hints.push(", Settings");
         hints.push("z Zoom");
         if (this.deps.onQuit) hints.push("Q Quit");
         return ` ${hints.join("  ")}`;
@@ -1644,7 +1737,7 @@ class OpenTuiApp {
     private paneSize(): { paneWidth: number; paneHeight: number } {
         const sidebarWidth = this.zoomed
             ? 0
-            : Math.min(30, Math.floor(this.deps.renderer.terminalWidth / 3));
+            : Math.min(this.sidebarColumns, Math.floor(this.deps.renderer.terminalWidth / 3));
         return {
             paneWidth: Math.max(1, this.deps.renderer.terminalWidth - sidebarWidth - 2),
             paneHeight: Math.max(1, this.deps.renderer.terminalHeight - 4),
@@ -1654,7 +1747,7 @@ class OpenTuiApp {
     private applyLayout(): void {
         const sidebarWidth = this.zoomed
             ? 0
-            : Math.min(30, Math.floor(this.deps.renderer.terminalWidth / 3));
+            : Math.min(this.sidebarColumns, Math.floor(this.deps.renderer.terminalWidth / 3));
         this.sidebar.width = sidebarWidth;
         this.sidebar.visible = sidebarWidth > 0;
         this.keepSelectionVisible();

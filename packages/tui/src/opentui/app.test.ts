@@ -14,6 +14,7 @@ import { FlowStore } from "../flows/store";
 import { ScheduleStore } from "../schedules/store";
 import { TaskDetailStore } from "../tasks/store";
 import { GitStore } from "../git/store";
+import { SettingsStore } from "../settings/store";
 import type { SessionOwner } from "../sessions/owner";
 import { OpenTuiApp, cleanLabel, type SessionBridgeLike, type StoreLike } from "./app";
 
@@ -123,6 +124,62 @@ function task(id: string, projectId: string, title: string, sessions = 0): Task 
     };
 }
 
+function fullSettings(
+    panels: Partial<AppSettings["layout"]["panels"]> = {},
+): AppSettings {
+    return {
+        general: {
+            fontFamily: "system",
+            fontSize: 14,
+            defaultAgent: "codex",
+            defaultRuntime: "bun",
+            favoriteAgents: [],
+            confirmBeforeExit: false,
+        },
+        terminal: { fontFamily: "system", fontSize: 14, defaultShell: "system" },
+        editor: {
+            fontFamily: "system",
+            fontSize: 14,
+            wordWrap: true,
+            internalEditor: "default",
+            externalEditor: "system",
+            markdownWidth: "medium",
+        },
+        layout: {
+            window: { width: 1000, height: 700, isMaximized: false },
+            panels: {
+                sidebarWidth: 240,
+                fileExplorerWidth: 240,
+                taskInfoWidth: 300,
+                flowPanelWidth: 300,
+                compactSidebar: false,
+                collapsedProjectIds: [],
+                wikiRailOpen: false,
+                wikiRailWidth: 300,
+                ...panels,
+            },
+        },
+        claude: { defaultModel: "default", defaultEffort: "default", permissionMode: "default" },
+        codex: {
+            defaultModel: "",
+            defaultReasoningEffort: "default",
+            sandbox: "workspace-write",
+            approvalPolicy: "on-request",
+            dangerouslyBypassApprovalsAndSandbox: false,
+        },
+        opencode: { defaultModel: "", autoApprove: false },
+        pi: { defaultModel: "", thinking: "off", tools: "" },
+        kimi: { defaultModel: "", permissionMode: "manual" },
+        appearance: { theme: "default" },
+        remoteAgent: {
+            autoStart: false,
+            appName: "",
+            headless: false,
+            permissionMode: "default",
+        },
+    };
+}
+
 function fakeBridge(renderer: CliRenderer, label: string) {
     const renderable = new BoxRenderable(renderer, { width: "100%", height: "100%" });
     const calls: string[] = [];
@@ -167,7 +224,22 @@ describe("OpenTuiApp", () => {
         net.responses.set(MSG.SETTINGS_GET, {
             general: { defaultAgent: "codex" },
             terminal: { defaultShell: "system" },
-        } as AppSettings);
+            claude: {
+                defaultModel: "default",
+                defaultEffort: "default",
+                permissionMode: "default",
+            },
+            codex: {
+                defaultModel: "",
+                defaultReasoningEffort: "default",
+                sandbox: "workspace-write",
+                approvalPolicy: "on-request",
+                dangerouslyBypassApprovalsAndSandbox: false,
+            },
+            opencode: { defaultModel: "", autoApprove: false },
+            pi: { defaultModel: "", thinking: "off", tools: "" },
+            kimi: { defaultModel: "", permissionMode: "manual" },
+        } as unknown as AppSettings);
         const store = new FakeStore();
         store.masterSessions = [
             { id: "master-s1", type: "shell", label: "shell", createdAt: "now" },
@@ -619,6 +691,42 @@ describe("OpenTuiApp", () => {
         });
     });
 
+    it("applies sidebar width and collapsed projects without retaining a hidden task owner", async () => {
+        const test = await createTestRenderer({ width: 80, height: 24, kittyKeyboard: true });
+        const net = new FakeNet();
+        net.responses.set(MSG.SETTINGS_GET, fullSettings());
+        net.responses.set(
+            MSG.SETTINGS_UPDATE,
+            fullSettings({ sidebarWidth: 160, collapsedProjectIds: ["p1"] }),
+        );
+        net.responses.set(MSG.SYSTEM_INFO, {
+            editors: [],
+            homedir: "/tmp",
+            schedulerEnabled: false,
+        });
+        const store = new FakeStore();
+        store.projects = [project("p1", "Project")];
+        store.tasks = [task("t1", "p1", "Hidden task")];
+        const settingsStore = new SettingsStore(net);
+        const app = new OpenTuiApp({ renderer: test.renderer, net, store, settingsStore });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => settingsStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressArrow("down");
+        expect(app.selectedOwner).toEqual({ kind: "task", taskId: "t1", projectId: "p1" });
+        await settingsStore.update({
+            layout: { panels: { sidebarWidth: 160, collapsedProjectIds: ["p1"] } },
+        });
+        await test.renderOnce();
+        expect(app.selectedOwner).toEqual({ kind: "project", projectId: "p1" });
+        expect(test.captureCharFrame()).not.toContain("Hidden task");
+        expect(app.paneDimensions).toEqual({ cols: 58, rows: 20 });
+    });
+
     it("focuses the main session with Enter and l from UI focus", async () => {
         const { test, app } = await setup(80, 24, true);
         expect(test.captureCharFrame().split("\n")[23]).toContain("Enter Focus");
@@ -654,6 +762,12 @@ describe("OpenTuiApp", () => {
                 payload: {
                     taskId: "t1",
                     type: "codex",
+                    agentOptions: {
+                        type: "codex",
+                        sandbox: "workspace-write",
+                        approvalPolicy: "on-request",
+                        dangerouslyBypassApprovalsAndSandbox: false,
+                    },
                     cols: 58,
                     rows: 26,
                 },

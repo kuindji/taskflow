@@ -3,6 +3,7 @@ import {
     ALL_AGENT_TYPES,
     DEFAULT_TERMINAL_SHELL,
     type AgentListResponse,
+    type AgentLaunchOptions,
     type AgentType,
     type AppSettings,
     type SessionCreatePayload,
@@ -11,7 +12,13 @@ import {
 import { ownerRequest, type SessionOwner } from "./owner";
 
 type SessionPickerItem =
-    | { kind: "agent"; type: AgentType; label: string; isDefault: boolean }
+    | {
+          kind: "agent";
+          type: AgentType;
+          label: string;
+          isDefault: boolean;
+          agentOptions: AgentLaunchOptions;
+      }
     | { kind: "shell"; type: "shell"; label: string; path: string; isDefault: boolean };
 
 function configuredShellPath(shells: ShellListResponse, configured: string): string | null {
@@ -48,6 +55,7 @@ function buildSessionPickerItems(
                 type,
                 label: AGENT_DISPLAY_NAMES[type],
                 isDefault: type === defaultAgent,
+                agentOptions: defaultAgentOptions(type, settings),
             }),
         ),
         ...shells.shells.map(
@@ -60,6 +68,57 @@ function buildSessionPickerItems(
             }),
         ),
     ];
+}
+
+function defaultAgentOptions(type: AgentType, settings: AppSettings): AgentLaunchOptions {
+    switch (type) {
+        case "claude":
+            return {
+                type,
+                ...(settings.claude.defaultModel !== "default"
+                    ? { model: settings.claude.defaultModel }
+                    : {}),
+                ...(settings.claude.defaultEffort !== "default"
+                    ? { effort: settings.claude.defaultEffort }
+                    : {}),
+                ...(settings.claude.permissionMode !== "default"
+                    ? { permissionMode: settings.claude.permissionMode }
+                    : {}),
+            };
+        case "codex":
+            return {
+                type,
+                ...(settings.codex.defaultModel ? { model: settings.codex.defaultModel } : {}),
+                ...(settings.codex.defaultReasoningEffort !== "default"
+                    ? { reasoningEffort: settings.codex.defaultReasoningEffort }
+                    : {}),
+                sandbox: settings.codex.sandbox,
+                approvalPolicy: settings.codex.approvalPolicy,
+                dangerouslyBypassApprovalsAndSandbox:
+                    settings.codex.dangerouslyBypassApprovalsAndSandbox,
+            };
+        case "opencode":
+            return {
+                type,
+                ...(settings.opencode.defaultModel
+                    ? { model: settings.opencode.defaultModel }
+                    : {}),
+                autoApprove: settings.opencode.autoApprove,
+            };
+        case "pi":
+            return {
+                type,
+                ...(settings.pi.defaultModel ? { model: settings.pi.defaultModel } : {}),
+                thinking: settings.pi.thinking,
+                ...(settings.pi.tools ? { tools: settings.pi.tools } : {}),
+            };
+        case "kimi":
+            return {
+                type,
+                ...(settings.kimi.defaultModel ? { model: settings.kimi.defaultModel } : {}),
+                permissionMode: settings.kimi.permissionMode,
+            };
+    }
 }
 
 interface CreatePayloadInputs {
@@ -75,10 +134,11 @@ function buildSessionCreatePayload(inputs: CreatePayloadInputs): SessionCreatePa
         ...owner,
         type: inputs.item.type,
         ...(inputs.item.kind === "shell" ? { shell: inputs.item.path } : {}),
+        ...(inputs.item.kind === "agent" ? { agentOptions: inputs.item.agentOptions } : {}),
         cols: inputs.cols,
         rows: inputs.rows,
     };
 }
 
-export { buildSessionCreatePayload, buildSessionPickerItems };
+export { buildSessionCreatePayload, buildSessionPickerItems, defaultAgentOptions };
 export type { CreatePayloadInputs, SessionPickerItem };
