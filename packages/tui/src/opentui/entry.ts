@@ -9,6 +9,7 @@ import { FlowStore } from "../flows/store";
 import { ownerProjectId, visibleDefinitions } from "../flows/model";
 import { ScheduleStore } from "../schedules/store";
 import { TaskDetailStore } from "../tasks/store";
+import { GitStore } from "../git/store";
 import {
     actionRecord,
     flowRecord,
@@ -44,6 +45,7 @@ async function main(): Promise<void> {
     let flowStore: FlowStore | null = null;
     let scheduleStore: ScheduleStore | null = null;
     let taskDetailStore: TaskDetailStore | null = null;
+    let gitStore: GitStore | null = null;
     let finishing = false;
 
     const finish = async (code: number): Promise<void> => {
@@ -55,6 +57,7 @@ async function main(): Promise<void> {
         flowStore?.dispose();
         scheduleStore?.dispose();
         taskDetailStore?.dispose();
+        gitStore?.dispose();
         await owner.shutdown();
         process.exit(code);
     };
@@ -81,6 +84,7 @@ async function main(): Promise<void> {
         flowStore = new FlowStore(net);
         scheduleStore = new ScheduleStore(net);
         taskDetailStore = new TaskDetailStore(net);
+        gitStore = new GitStore(net);
         controller = new SessionController({
             createBridge: (session, sessionOwner) => {
                 const pane = app?.paneDimensions ?? {
@@ -238,6 +242,7 @@ async function main(): Promise<void> {
             flowStore,
             scheduleStore,
             taskStore: taskDetailStore,
+            gitStore,
             onOwnerChange: (sessionOwner, sessions) =>
                 controller?.reconcile(sessionOwner, sessions),
             onSessionSelect: (sessionId) => controller?.select(sessionId),
@@ -269,6 +274,7 @@ async function main(): Promise<void> {
         flowStore?.dispose();
         scheduleStore?.dispose();
         taskDetailStore?.dispose();
+        gitStore?.dispose();
         await owner.shutdown();
         const message = error instanceof Error ? error.stack || error.message : String(error);
         process.stderr.write(`${message}\n`);

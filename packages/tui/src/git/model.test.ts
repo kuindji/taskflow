@@ -27,7 +27,7 @@ describe("git model", () => {
             "unstaged:new.ts",
             "unstaged:gone.ts",
         ]);
-        expect(changeLabel(changes[0]!)).toBe("renamed  old.ts -> renamed.ts");
+        expect(changeLabel(changes[0])).toBe("renamed  old.ts -> renamed.ts");
         expect(stagedCount(status)).toBe(2);
     });
 

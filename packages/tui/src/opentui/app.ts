@@ -26,8 +26,14 @@ import type { FlowDefinition, Schedule } from "@taskflow/shared";
 import type { FlowStore } from "../flows/store";
 import { visibleDefinitions, flowOwnerId, ownerProjectId } from "../flows/model";
 import type { ScheduleStore } from "../schedules/store";
+import type { GitStore } from "../git/store";
+import type { GitChange } from "../git/model";
 import type { NetLike } from "../net/client";
-import { resolvedTaskAttributes } from "../tasks/model";
+import {
+    repositoryPathForOwner,
+    repositoryTargetIdForOwner,
+    resolvedTaskAttributes,
+} from "../tasks/model";
 import type { TaskDetailStore } from "../tasks/store";
 import {
     buildSessionCreatePayload,
@@ -47,6 +53,8 @@ import { Confirm } from "./confirm";
 import { FlowInput } from "./flow-input";
 import { FlowLibrary, type LibraryTab } from "./flow-library";
 import { FlowRun } from "./flow-run";
+import { GitChanges } from "./git-changes";
+import { GitCommit } from "./git-commit";
 import { Schedules } from "./schedules";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 import { SessionPicker } from "./session-picker";
@@ -98,6 +106,7 @@ interface OpenTuiAppDeps {
     flowStore?: FlowStore;
     scheduleStore?: ScheduleStore;
     taskStore?: TaskDetailStore;
+    gitStore?: GitStore;
     onRunAction?: (owner: SessionOwner, action: ActionDefinition) => Promise<string>;
     onEditRecord?: (
         kind: "flow" | "action" | "schedule",
@@ -200,11 +209,13 @@ class OpenTuiApp {
     private mainView:
         | "sessions"
         | "task-detail"
+        | "git-changes"
         | "flow-library"
         | "flow-run"
         | "schedules" = "sessions";
-    private productView: TaskDetail | FlowLibrary | FlowRun | Schedules | null = null;
+    private productView: TaskDetail | GitChanges | FlowLibrary | FlowRun | Schedules | null = null;
     private taskCreate: TaskCreate | null = null;
+    private gitCommit: GitCommit | null = null;
     private flowInput: FlowInput | null = null;
     private productConfirm: { view: Confirm; resolve(value: boolean): void } | null = null;
     private schedulerEnabled = false;
@@ -356,6 +367,9 @@ class OpenTuiApp {
         if (this.deps.taskStore) {
             this.disposers.push(this.deps.taskStore.onChange(() => this.syncProductView()));
         }
+        if (this.deps.gitStore) {
+            this.disposers.push(this.deps.gitStore.onChange(() => this.syncProductView()));
+        }
         this.disposers.push(
             this.deps.net.on(MSG.SYSTEM_CLIENTS, (payload) => {
                 this.clientsBroadcast = true;
@@ -398,7 +412,17 @@ class OpenTuiApp {
                 ? (this.deps.taskStore?.loadLogs(this.selectedOwnerState.taskId) ??
                   Promise.resolve())
                 : Promise.resolve(),
+            this.mainView === "git-changes"
+                ? this.loadSelectedRepository()
+                : Promise.resolve(),
         ]);
+    }
+
+    private loadSelectedRepository(): Promise<void> {
+        const path = repositoryPathForOwner(this.selectedOwnerState, this.deps.store);
+        const targetId = repositoryTargetIdForOwner(this.selectedOwnerState, this.deps.store);
+        if (!path || !targetId || !this.deps.gitStore) return Promise.resolve();
+        return this.deps.gitStore.loadStatus(path, targetId);
     }
 
     private refreshRows(force = false): void {
@@ -426,7 +450,8 @@ class OpenTuiApp {
             if (this.mainView === "task-detail") {
                 if (this.selectedOwnerState.kind === "task") this.openTaskDetail();
                 else this.showSessions();
-            } else if (this.mainView === "flow-run") this.openFlowLibrary();
+            } else if (this.mainView === "git-changes") this.openGitChanges();
+            else if (this.mainView === "flow-run") this.openFlowLibrary();
             else this.syncProductView();
         }
         if (!force && signature === this.rowsSignature && !ownerChanged) return;
@@ -605,6 +630,13 @@ class OpenTuiApp {
             this.updateFooter();
             return;
         }
+        if (this.gitCommit) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.gitCommit.handleKey(event);
+            this.updateFooter();
+            return;
+        }
         if (this.flowInput) {
             event.preventDefault();
             event.stopPropagation();
@@ -713,6 +745,9 @@ class OpenTuiApp {
             case "task-create":
                 this.openTaskCreate();
                 break;
+            case "git":
+                this.openGitChanges();
+                break;
             case "zoom":
                 this.zoomed = !this.zoomed;
                 this.applyLayout();
@@ -728,7 +763,7 @@ class OpenTuiApp {
     }
 
     private mountProduct(
-        view: TaskDetail | FlowLibrary | FlowRun | Schedules,
+        view: TaskDetail | GitChanges | FlowLibrary | FlowRun | Schedules,
         kind: typeof this.mainView,
     ): void {
         this.productView?.destroy();
@@ -743,6 +778,10 @@ class OpenTuiApp {
     }
 
     private showSessions(focusSession = false): void {
+        if (this.gitCommit) {
+            this.gitCommit.destroy();
+            this.gitCommit = null;
+        }
         this.productView?.destroy();
         this.productView = null;
         this.mainView = "sessions";
@@ -964,6 +1003,126 @@ class OpenTuiApp {
     private showCommandNotice(message: string): void {
         this.statusNotice.content = message;
         this.statusNotice.visible = true;
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private openGitChanges(): void {
+        const store = this.deps.gitStore;
+        const path = repositoryPathForOwner(this.selectedOwnerState, this.deps.store);
+        const targetId = repositoryTargetIdForOwner(this.selectedOwnerState, this.deps.store);
+        if (!store || !path || !targetId) {
+            this.showCommandNotice(" The selected owner has no repository.");
+            return;
+        }
+        const current = store.path === path;
+        const view = new GitChanges({
+            renderer: this.deps.renderer,
+            status: current ? store.status : null,
+            diff: current ? store.diff : null,
+            onSelect: (change) => void this.loadGitDiff(view, change),
+            onStage: (change) => void this.mutateGitFile(view, "stage", change),
+            onUnstage: (change) => void this.mutateGitFile(view, "unstage", change),
+            onStageAll: () => void this.mutateAllGit(view, "stage"),
+            onUnstageAll: () => void this.mutateAllGit(view, "unstage"),
+            onCommit: () => this.openGitCommit(view),
+            onClose: () => this.showSessions(),
+            onStateChange: () => this.updateFooter(),
+        });
+        this.mountProduct(view, "git-changes");
+        if (view.selectedChange) void this.loadGitDiff(view, view.selectedChange);
+        void store.loadStatus(path, targetId).catch((error: unknown) => {
+            if (this.productView === view) {
+                view.setError(`Could not load Git status: ${this.errorMessage(error)}`);
+            }
+        });
+    }
+
+    private async loadGitDiff(view: GitChanges, change: GitChange): Promise<void> {
+        if (this.productView !== view || !this.deps.gitStore) return;
+        try {
+            await this.deps.gitStore.loadDiff(change);
+        } catch (error) {
+            view.setError(`Could not load diff: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async mutateGitFile(
+        view: GitChanges,
+        operation: "stage" | "unstage",
+        change: GitChange,
+    ): Promise<void> {
+        if (this.productView !== view || !this.deps.gitStore) return;
+        view.setPending(true);
+        try {
+            if (operation === "stage") await this.deps.gitStore.stage(change);
+            else await this.deps.gitStore.unstage(change);
+        } catch (error) {
+            view.setError(`Could not ${operation} file: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async mutateAllGit(
+        view: GitChanges,
+        operation: "stage" | "unstage",
+    ): Promise<void> {
+        if (this.productView !== view || !this.deps.gitStore) return;
+        const confirmed = await this.askProductConfirm(
+            operation === "stage" ? "Stage all files" : "Unstage all files",
+            `${operation === "stage" ? "Stage" : "Unstage"} every changed file?`,
+        );
+        if (!confirmed || this.productView !== view) return;
+        view.setPending(true);
+        try {
+            if (operation === "stage") await this.deps.gitStore.stage();
+            else await this.deps.gitStore.unstage();
+        } catch (error) {
+            view.setError(`Could not ${operation} files: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private openGitCommit(view: GitChanges): void {
+        if (this.productView !== view || this.gitCommit) return;
+        if (!this.deps.gitStore?.status?.stagedFiles.length) {
+            view.setError("Stage at least one file before committing.");
+            return;
+        }
+        const commit = new GitCommit({
+            renderer: this.deps.renderer,
+            onCancel: () => this.closeGitCommit(commit),
+            onGenerate: () => void this.generateGitCommitMessage(commit),
+            onSubmit: (message) => void this.submitGitCommit(commit, message),
+            onStateChange: () => this.updateFooter(),
+        });
+        this.gitCommit = commit;
+        this.root.add(commit.renderable);
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private async generateGitCommitMessage(view: GitCommit): Promise<void> {
+        if (this.gitCommit !== view || !this.deps.gitStore) return;
+        try {
+            view.setGenerated(await this.deps.gitStore.generateMessage());
+        } catch (error) {
+            view.setError(`Could not generate message: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async submitGitCommit(view: GitCommit, message: string): Promise<void> {
+        if (this.gitCommit !== view || !this.deps.gitStore) return;
+        try {
+            await this.deps.gitStore.commit(message);
+            this.closeGitCommit(view);
+        } catch (error) {
+            view.setError(`Could not commit: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private closeGitCommit(view: GitCommit): void {
+        if (this.gitCommit !== view) return;
+        this.gitCommit = null;
+        view.destroy();
         this.updateFooter();
         this.deps.renderer.requestRender();
     }
@@ -1198,6 +1357,17 @@ class OpenTuiApp {
                 resolvedTaskAttributes(task, this.deps.store),
                 this.deps.taskStore?.logsFor(task.id) ?? [],
             );
+        } else if (this.productView instanceof GitChanges) {
+            const path = repositoryPathForOwner(this.selectedOwnerState, this.deps.store);
+            if (!path || !this.deps.gitStore) {
+                this.showSessions();
+                return;
+            }
+            if (this.deps.gitStore.path !== path) {
+                this.openGitChanges();
+                return;
+            }
+            this.productView.update(this.deps.gitStore.status, this.deps.gitStore.diff);
         } else if (this.productView instanceof FlowLibrary && flowStore) {
             this.productView.update(
                 visibleDefinitions(flowStore.flows, this.selectedOwnerState),
@@ -1412,6 +1582,7 @@ class OpenTuiApp {
         if (this.confirm) return this.confirm.view.keyHints;
         if (this.picker) return this.picker.view.keyHints;
         if (this.taskCreate) return this.taskCreate.keyHints;
+        if (this.gitCommit) return this.gitCommit.keyHints;
         if (this.flowInput) return this.flowInput.keyHints;
         if (this.mainView !== "sessions" && this.productView) {
             return this.productView.keyHints;
@@ -1440,6 +1611,7 @@ class OpenTuiApp {
         }
         if (this.deps.flowStore) hints.push("f Flows");
         if (this.deps.scheduleStore) hints.push("c Schedules");
+        if (repositoryPathForOwner(this.selectedOwnerState, this.deps.store)) hints.push("g Git");
         hints.push("z Zoom");
         if (this.deps.onQuit) hints.push("Q Quit");
         return ` ${hints.join("  ")}`;
@@ -1588,6 +1760,8 @@ class OpenTuiApp {
         this.picker = null;
         this.taskCreate?.destroy();
         this.taskCreate = null;
+        this.gitCommit?.destroy();
+        this.gitCommit = null;
         this.confirm?.view.destroy();
         this.confirm = null;
         this.flowInput?.destroy();

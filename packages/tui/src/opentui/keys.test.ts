@@ -99,6 +99,11 @@ describe("KeyRouter", () => {
             command: { kind: "task-create" },
             before: undefined,
         });
+        expect(router.route("ui", key("g"))).toEqual({
+            kind: "command",
+            command: { kind: "git" },
+            before: undefined,
+        });
     });
 
     it("adapts Kitty parser fields to OpenTUI physical keys", () => {

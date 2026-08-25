@@ -13,6 +13,7 @@ import type { NetLike } from "../net/client";
 import { FlowStore } from "../flows/store";
 import { ScheduleStore } from "../schedules/store";
 import { TaskDetailStore } from "../tasks/store";
+import { GitStore } from "../git/store";
 import type { SessionOwner } from "../sessions/owner";
 import { OpenTuiApp, cleanLabel, type SessionBridgeLike, type StoreLike } from "./app";
 
@@ -563,6 +564,59 @@ describe("OpenTuiApp", () => {
         expect(net.requests.filter((request) => request.type === MSG.TASK_ARCHIVE)).toHaveLength(1);
         expect(app.selectedOwner).toEqual({ kind: "project", projectId: "p1" });
         expect(test.captureCharFrame()).toContain("No sessions");
+    });
+
+    it("opens task Git at the resolved project path and commits staged files without push", async () => {
+        const test = await createTestRenderer({ width: 100, height: 24, kittyKeyboard: true });
+        const net = new FakeNet();
+        net.responses.set(MSG.GIT_STATUS, {
+            status: {
+                branch: "feature",
+                ahead: 0,
+                behind: 0,
+                stagedFiles: [
+                    { path: "file.ts", status: "modified", staged: true },
+                ],
+                unstagedFiles: [],
+            },
+        });
+        net.responses.set(MSG.GIT_DIFF_FILE, { staged: "@@ -1 +1 @@\n-old\n+new" });
+        net.responses.set(MSG.GIT_COMMIT, { hash: "abc123", message: "fix file" });
+        net.responses.set(MSG.GIT_GENERATE_COMMIT_MSG, { message: "generated" });
+        const store = new FakeStore();
+        store.projects = [project("p1", "Project")];
+        store.tasks = [task("t1", "p1", "Task")];
+        const gitStore = new GitStore(net);
+        const app = new OpenTuiApp({ renderer: test.renderer, net, store, gitStore });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => gitStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressKey("g");
+        await Promise.resolve();
+        await Promise.resolve();
+        await test.renderOnce();
+        expect(
+            net.requests.find((request) => request.type === MSG.GIT_STATUS)?.payload,
+        ).toEqual({ path: "/tmp/p1" });
+        expect(test.captureCharFrame()).toContain("file.ts");
+        expect(net.requests.filter((request) => request.type === MSG.GIT_GENERATE_COMMIT_MSG)).toHaveLength(0);
+
+        test.mockInput.pressKey("c");
+        await test.mockInput.typeText("fix file");
+        test.mockInput.pressEnter();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(net.requests.find((request) => request.type === MSG.GIT_COMMIT)?.payload).toEqual({
+            path: "/tmp/p1",
+            message: "fix file",
+            push: false,
+            includeUnstaged: false,
+        });
     });
 
     it("focuses the main session with Enter and l from UI focus", async () => {

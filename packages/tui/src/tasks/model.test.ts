@@ -4,6 +4,7 @@ import {
     ownAttributeDelete,
     ownAttributeUpdate,
     repositoryPathForOwner,
+    repositoryTargetIdForOwner,
     resolvedTaskAttributes,
     taskForOwner,
 } from "./model";
@@ -67,6 +68,18 @@ describe("task detail model", () => {
                 withoutWorktree,
             ),
         ).toBe("/repo");
+        expect(
+            repositoryTargetIdForOwner(
+                { kind: "task", taskId: "parent", projectId: "p1" },
+                source,
+            ),
+        ).toBe("parent");
+        expect(
+            repositoryTargetIdForOwner(
+                { kind: "task", taskId: "parent", projectId: "p1" },
+                withoutWorktree,
+            ),
+        ).toBe("p1");
     });
 
     test("labels resolved attribute scope and only mutates own attributes", () => {
@@ -75,14 +88,14 @@ describe("task detail model", () => {
             { name: "env", value: "parent", scope: "parent" },
             { name: "region", value: "east", scope: "task" },
         ]);
-        expect(ownAttributeUpdate(child, attributes[0]!, { value: "no" })).toBeNull();
-        expect(ownAttributeDelete(child, attributes[0]!)).toBeNull();
-        expect(ownAttributeUpdate(child, attributes[1]!, { value: "north" })).toEqual({
+        expect(ownAttributeUpdate(child, attributes[0], { value: "no" })).toBeNull();
+        expect(ownAttributeDelete(child, attributes[0])).toBeNull();
+        expect(ownAttributeUpdate(child, attributes[1], { value: "north" })).toEqual({
             taskId: "child",
             attrId: "task-region",
             value: "north",
         });
-        expect(ownAttributeDelete(child, attributes[1]!)).toEqual({
+        expect(ownAttributeDelete(child, attributes[1])).toEqual({
             taskId: "child",
             attrId: "task-region",
         });

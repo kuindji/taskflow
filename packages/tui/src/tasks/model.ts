@@ -22,6 +22,13 @@ function repositoryPathForOwner(owner: SessionOwner, source: TaskModelSource): s
     return source.projects.find((project) => project.id === owner.projectId)?.path ?? null;
 }
 
+function repositoryTargetIdForOwner(owner: SessionOwner, source: TaskModelSource): string | null {
+    if (owner.kind === "master") return null;
+    if (owner.kind === "project") return owner.projectId;
+    const task = taskForOwner(owner, source);
+    return task?.worktree.enabled && task.worktree.path ? task.id : owner.projectId;
+}
+
 function resolvedTaskAttributes(task: Task, source: TaskModelSource): ResolvedAttribute[] {
     const project = source.projects.find((candidate) => candidate.id === task.projectId);
     const parent = task.parentId
@@ -61,6 +68,7 @@ export {
     ownAttributeDelete,
     ownAttributeUpdate,
     repositoryPathForOwner,
+    repositoryTargetIdForOwner,
     resolvedTaskAttributes,
     taskForOwner,
 };

@@ -15,6 +15,7 @@ type UiCommand =
     | { kind: "schedules" }
     | { kind: "task-detail" }
     | { kind: "task-create" }
+    | { kind: "git" }
     | { kind: "deferred" };
 
 type KeyRoute =
@@ -139,6 +140,9 @@ class KeyRouter {
         }
         if (!chorded && text === "n") {
             return { kind: "command", command: { kind: "task-create" }, before };
+        }
+        if (!chorded && text === "g") {
+            return { kind: "command", command: { kind: "git" }, before };
         }
         if (!chorded && text === "?") {
             return { kind: "command", command: { kind: "deferred" }, before };

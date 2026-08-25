@@ -108,9 +108,9 @@ describe("GitStore", () => {
         expect(net.requests.some((request) => request.type === MSG.GIT_GENERATE_COMMIT_MSG)).toBe(
             false,
         );
-        await expect(store.commit("  ")).rejects.toThrow("Commit message is required");
-        await expect(store.commit("message")).rejects.toThrow("Stage a file before committing");
-        await expect(store.generateMessage()).rejects.toThrow("Stage a file before generating");
+        expect(store.commit("  ")).rejects.toThrow("Commit message is required");
+        expect(store.commit("message")).rejects.toThrow("Stage a file before committing");
+        expect(store.generateMessage()).rejects.toThrow("Stage a file before generating");
         expect(net.requests).toHaveLength(1);
         store.dispose();
     });
