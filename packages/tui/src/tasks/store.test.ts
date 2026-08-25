@@ -76,14 +76,14 @@ describe("TaskDetailStore", () => {
         store.dispose();
     });
 
-    test("does not overwrite a broadcast that overlaps a load", async () => {
+    test("folds an overlapping broadcast on top of the loaded snapshot", async () => {
         const net = controlledNet();
         const store = new TaskDetailStore(net);
         const loading = store.loadLogs("t1");
         net.emit(MSG.TASK_LOG_ADDED, { taskId: "t1", entry: entry("live", "2026-01-03") });
         net.resolve("t1", [entry("stale", "2026-01-01")]);
         await loading;
-        expect(store.logsFor("t1").map((item) => item.id)).toEqual(["live"]);
+        expect(store.logsFor("t1").map((item) => item.id)).toEqual(["stale", "live"]);
         store.dispose();
     });
 

@@ -144,4 +144,30 @@ describe("GitStore", () => {
         });
         store.dispose();
     });
+
+    test("does not restore an obsolete repository after a mutation finishes", async () => {
+        const net = fakeNet();
+        const store = new GitStore(net);
+        const oldLoad = store.loadStatus("/old", "old-id");
+        net.resolve(MSG.GIT_STATUS, 0, {
+            status: { ...emptyStatus, unstagedFiles: [{ ...stagedChange, staged: false }] },
+        });
+        await oldLoad;
+
+        const staging = store.stage({
+            ...stagedChange,
+            staged: false,
+            group: "unstaged",
+            key: "unstaged:file.ts",
+        });
+        net.resolve(MSG.GIT_STAGE, 0, { success: true });
+        const newLoad = store.loadStatus("/new", "new-id");
+        net.resolve(MSG.GIT_STATUS, 1, { status: { ...emptyStatus, branch: "new" } });
+        await Promise.all([staging, newLoad]);
+
+        expect(store.path).toBe("/new");
+        expect(store.status?.branch).toBe("new");
+        expect(net.requests.filter((request) => request.type === MSG.GIT_STATUS)).toHaveLength(2);
+        store.dispose();
+    });
 });

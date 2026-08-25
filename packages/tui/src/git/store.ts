@@ -111,24 +111,27 @@ class GitStore {
 
     async stage(change?: GitChange): Promise<void> {
         const path = this.requirePath();
+        const target = this.requireTarget();
         await this.net.request(MSG.GIT_STAGE, {
             repoPath: path,
             filePath: change?.path,
         });
-        await this.loadStatus(path, this.requireTarget());
+        await this.refreshIfCurrent(path, target);
     }
 
     async unstage(change?: GitChange): Promise<void> {
         const path = this.requirePath();
+        const target = this.requireTarget();
         await this.net.request(MSG.GIT_UNSTAGE, {
             repoPath: path,
             filePath: change?.path,
         });
-        await this.loadStatus(path, this.requireTarget());
+        await this.refreshIfCurrent(path, target);
     }
 
     async commit(message: string): Promise<GitCommitResult> {
         const path = this.requirePath();
+        const target = this.requireTarget();
         const trimmed = message.trim();
         if (!trimmed) throw new Error("Commit message is required");
         if (!this.statusSnapshot?.stagedFiles.length) throw new Error("Stage a file before committing");
@@ -138,7 +141,7 @@ class GitStore {
             push: false,
             includeUnstaged: false,
         });
-        await this.loadStatus(path, this.requireTarget());
+        await this.refreshIfCurrent(path, target);
         return result;
     }
 
@@ -170,6 +173,11 @@ class GitStore {
     private requireTarget(): string {
         if (!this.targetId) throw new Error("No repository owner selected");
         return this.targetId;
+    }
+
+    private async refreshIfCurrent(path: string, targetId: string): Promise<void> {
+        if (path !== this.repoPath || targetId !== this.targetId) return;
+        await this.loadStatus(path, targetId);
     }
 
     dispose(): void {

@@ -23,9 +23,18 @@ function upsertLog(entries: readonly TaskLogEntry[], entry: TaskLogEntry): TaskL
     return chronological([...entries.filter((candidate) => candidate.id !== entry.id), entry]);
 }
 
+function mergeLogs(
+    snapshot: readonly TaskLogEntry[],
+    liveEntries: readonly TaskLogEntry[],
+): TaskLogEntry[] {
+    return liveEntries.reduce<TaskLogEntry[]>(
+        (entries, entry) => upsertLog(entries, entry),
+        chronological(snapshot),
+    );
+}
+
 class TaskDetailStore {
     private readonly logSnapshots = new Map<string, TaskLogEntry[]>();
-    private readonly eventRevisionByTask = new Map<string, number>();
     private readonly listeners = new Set<() => void>();
     private readonly disposers: (() => void)[] = [];
     private loadToken = 0;
@@ -37,10 +46,6 @@ class TaskDetailStore {
             net.on(MSG.TASK_LOG_ADDED, (payload) => {
                 const event = payload as Partial<TaskLogAddedEvent>;
                 if (!event.taskId || !event.entry) return;
-                this.eventRevisionByTask.set(
-                    event.taskId,
-                    (this.eventRevisionByTask.get(event.taskId) ?? 0) + 1,
-                );
                 this.logSnapshots.set(
                     event.taskId,
                     upsertLog(this.logSnapshots.get(event.taskId) ?? [], event.entry),
@@ -67,17 +72,14 @@ class TaskDetailStore {
     async loadLogs(taskId: string): Promise<void> {
         const token = ++this.loadToken;
         this.selectedTaskId = taskId;
-        const revision = this.eventRevisionByTask.get(taskId) ?? 0;
         const response = await this.net.request<TaskLogListResponse>(MSG.TASK_LOG_LIST, { taskId });
-        if (
-            this.disposed ||
-            token !== this.loadToken ||
-            this.selectedTaskId !== taskId ||
-            revision !== (this.eventRevisionByTask.get(taskId) ?? 0)
-        ) {
+        if (this.disposed || token !== this.loadToken || this.selectedTaskId !== taskId) {
             return;
         }
-        this.logSnapshots.set(taskId, chronological(response.entries));
+        this.logSnapshots.set(
+            taskId,
+            mergeLogs(response.entries, this.logSnapshots.get(taskId) ?? []),
+        );
         this.notify();
     }
 
