@@ -373,6 +373,7 @@ class OpenTuiApp {
         if (ownerChanged) {
             void this.loadOwnerProducts().catch(() => undefined);
             if (this.mainView === "flow-run") this.openFlowLibrary();
+            else this.syncProductView();
         }
         if (!force && signature === this.rowsSignature && !ownerChanged) return;
         this.rows = rows;
@@ -496,6 +497,8 @@ class OpenTuiApp {
                 this.selectedOwnerState,
                 sessionsForOwner(this.deps.store, this.selectedOwnerState),
             );
+            if (this.mainView === "flow-run") this.openFlowLibrary();
+            else this.syncProductView();
             void this.loadOwnerProducts().then(() => {
                 if (this.mainView === "flow-run") this.openFlowProduct();
                 else this.syncProductView();
@@ -603,6 +606,8 @@ class OpenTuiApp {
                     this.selectedOwnerState,
                     sessionsForOwner(this.deps.store, this.selectedOwnerState),
                 );
+                if (this.mainView === "flow-run") this.openFlowLibrary();
+                else this.syncProductView();
                 void this.loadOwnerProducts().then(() => this.syncProductView());
                 break;
             case "select-tab":

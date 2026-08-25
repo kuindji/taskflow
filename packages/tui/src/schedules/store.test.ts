@@ -61,6 +61,26 @@ function fakeNet(): FakeNet {
 }
 
 describe("ScheduleStore", () => {
+    it("removes the previous project's rows before the next owner load resolves", async () => {
+        const net = fakeNet();
+        net.respond(MSG.SCHEDULE_LIST, { schedules: [schedule("a", "p1")] });
+        const store = new ScheduleStore(net);
+        await store.load("p1");
+        let resolveLoad: ((value: { schedules: Schedule[] }) => void) | undefined;
+        net.request = (<T>(type: string): Promise<T> => {
+            if (type !== MSG.SCHEDULE_LIST) throw new Error(`unexpected ${type}`);
+            return new Promise((resolve) => {
+                resolveLoad = resolve as (value: { schedules: Schedule[] }) => void;
+            });
+        }) as NetLike["request"];
+
+        const loading = store.load("p2");
+        expect(store.schedules).toEqual([]);
+        resolveLoad?.({ schedules: [schedule("b", "p2")] });
+        await loading;
+        expect(store.schedules.map((item) => item.id)).toEqual(["b"]);
+    });
+
     it("loads an optional project filter and folds matching updates", async () => {
         const net = fakeNet();
         net.respond(MSG.SCHEDULE_LIST, { schedules: [schedule("s1")] });
@@ -79,9 +99,7 @@ describe("ScheduleStore", () => {
         await store.load();
         net.respond(MSG.SCHEDULE_UPDATE, new Error("update failed"));
         // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
-        await expect(store.update({ id: "s1", enabled: true })).rejects.toThrow(
-            "update failed",
-        );
+        await expect(store.update({ id: "s1", enabled: true })).rejects.toThrow("update failed");
         expect(store.schedules[0]?.enabled).toBe(false);
         net.respond(MSG.SCHEDULE_UPDATE, { ...schedule("s1"), enabled: true });
         await store.update({ id: "s1", enabled: true });

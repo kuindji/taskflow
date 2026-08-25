@@ -67,11 +67,13 @@ class ScheduleStore {
     async load(projectId?: string): Promise<void> {
         const token = ++this.loadToken;
         const revision = this.eventRevision;
+        this.projectFilter = projectId;
+        this.scheduleList = this.scheduleList.filter((schedule) => this.matchesFilter(schedule));
+        this.notify();
         const response = await this.net.request<ScheduleListResponse>(MSG.SCHEDULE_LIST, {
             projectId,
         });
         if (this.disposed || token !== this.loadToken) return;
-        this.projectFilter = projectId;
         let schedules = response.schedules;
         for (const update of this.eventUpdates.values()) {
             if (update.revision <= revision) continue;
