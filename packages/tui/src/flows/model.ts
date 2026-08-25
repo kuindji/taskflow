@@ -45,8 +45,8 @@ function latestArtifactsByType(artifacts: readonly FlowArtifact[]): FlowArtifact
     return collapseArtifacts([...artifacts]);
 }
 
-function stableSelectionIndex<T extends { id: string }>(
-    items: readonly T[],
+function stableSelectionIndex(
+    items: readonly { id: string }[],
     selectedId: string | null,
     previousIndex = 0,
 ): number {

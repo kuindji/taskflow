@@ -49,12 +49,12 @@ interface FakeNet extends NetLike {
     calls: Array<{ type: string; payload: unknown }>;
     emit(type: string, payload: unknown): void;
     listenerCount(type: string): number;
-    respond(type: string, response: unknown | Error): void;
+    respond(type: string, response: unknown): void;
 }
 
 function fakeNet(): FakeNet {
     const listeners = new Map<string, Set<(payload: unknown) => void>>();
-    const responses = new Map<string, Array<unknown | Error>>();
+    const responses = new Map<string, unknown[]>();
     const calls: Array<{ type: string; payload: unknown }> = [];
     return {
         calls,
@@ -130,6 +130,7 @@ describe("FlowStore", () => {
         net.respond(MSG.FLOW_DEFINITION_SAVE, flow("saved"));
         await store.saveFlow(flow("saved"));
         net.respond(MSG.FLOW_DEFINITION_SAVE, new Error("save failed"));
+        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
         await expect(store.saveFlow(flow("rejected"))).rejects.toThrow("save failed");
         expect(store.flows.map((item) => item.id)).toEqual(["saved"]);
 

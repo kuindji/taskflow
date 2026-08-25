@@ -25,13 +25,13 @@ function schedule(id: string, projectId = "p1"): Schedule {
 
 interface FakeNet extends NetLike {
     emit(type: string, payload: unknown): void;
-    respond(type: string, response: unknown | Error): void;
+    respond(type: string, response: unknown): void;
     listenerCount(type: string): number;
 }
 
 function fakeNet(): FakeNet {
     const listeners = new Map<string, Set<(payload: unknown) => void>>();
-    const responses = new Map<string, Array<unknown | Error>>();
+    const responses = new Map<string, unknown[]>();
     return {
         request<T>(type: string): Promise<T> {
             const response = responses.get(type)?.shift();
@@ -78,6 +78,7 @@ describe("ScheduleStore", () => {
         const store = new ScheduleStore(net);
         await store.load();
         net.respond(MSG.SCHEDULE_UPDATE, new Error("update failed"));
+        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
         await expect(store.update({ id: "s1", enabled: true })).rejects.toThrow(
             "update failed",
         );
