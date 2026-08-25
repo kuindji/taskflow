@@ -290,12 +290,14 @@ class OpenTuiApp {
         this.disposers.push(
             this.deps.store.onChange(() => {
                 this.refreshRows();
+                this.focusPendingFlowSession();
             }),
         );
         this.disposers.push(
             this.deps.net.onStatusChange(({ connected }) => {
                 if (!connected) return;
                 void this.deps.store.load().catch(() => undefined);
+                void this.loadSystemInfo().catch(() => undefined);
                 void this.loadProducts().catch(() => undefined);
                 if (this.deps.onReconnect) this.deps.onReconnect();
                 else {
@@ -323,16 +325,17 @@ class OpenTuiApp {
                 if (!this.clientsBroadcast) this.setOtherClients(Math.max(0, event.count - 1));
             })
             .catch(() => undefined);
-        const systemInfo = this.deps.net
-            .request<SystemInfo>(MSG.SYSTEM_INFO)
-            .then((info) => {
-                this.schedulerEnabled = info.schedulerEnabled;
-            })
-            .catch(() => undefined);
+        const systemInfo = this.loadSystemInfo().catch(() => undefined);
         await this.deps.store.load();
         await Promise.all([systemInfo, this.loadProducts()]);
         await clientCount;
         this.refreshRows(true);
+    }
+
+    private async loadSystemInfo(): Promise<void> {
+        const info = await this.deps.net.request<SystemInfo>(MSG.SYSTEM_INFO);
+        this.schedulerEnabled = info.schedulerEnabled;
+        if (this.mainView === "schedules") this.openSchedules();
     }
 
     private async loadProducts(): Promise<void> {
@@ -887,7 +890,12 @@ class OpenTuiApp {
             this.productView.update(this.deps.scheduleStore.schedules);
         }
 
-        const run = flowStore?.runFor(this.selectedOwnerState);
+        this.focusPendingFlowSession();
+        this.deps.renderer.requestRender();
+    }
+
+    private focusPendingFlowSession(): void {
+        const run = this.deps.flowStore?.runFor(this.selectedOwnerState);
         const current = run?.actions[run.currentActionIndex];
         if (
             this.pendingFlowOwnerKey === ownerKey(this.selectedOwnerState) &&
@@ -898,7 +906,6 @@ class OpenTuiApp {
             this.pendingFlowOwnerKey = null;
             this.showSessions(true);
         }
-        this.deps.renderer.requestRender();
     }
 
     private openSessionPicker(): void {

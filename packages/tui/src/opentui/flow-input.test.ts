@@ -32,7 +32,7 @@ describe("FlowInput", () => {
         view.setValue("   ");
         view.handleKey(key("enter"));
         expect(submitted).toHaveLength(0);
-        view.setValue("Release");
+        for (const character of "Release") view.handleKey(key(character));
         view.handleKey(key("enter"));
         view.setValue("/tmp/file.txt");
         view.handleKey(key("enter"));

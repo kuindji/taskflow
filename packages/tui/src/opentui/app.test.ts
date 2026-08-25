@@ -44,6 +44,10 @@ class FakeNet implements NetLike {
     emit(type: string, payload: unknown): void {
         for (const handler of this.handlers.get(type) ?? []) handler(payload);
     }
+
+    emitStatus(connected: boolean): void {
+        for (const listener of this.statuses) listener({ connected });
+    }
 }
 
 class FakeStore implements StoreLike {
@@ -251,6 +255,47 @@ describe("OpenTuiApp", () => {
         expect(net.requests.filter((request) => request.type === MSG.SESSION_CLOSE)).toHaveLength(
             0,
         );
+        app.destroy();
+        flowStore.dispose();
+        scheduleStore.dispose();
+        test.renderer.destroy();
+    });
+
+    it("refreshes scheduler ownership after reconnect", async () => {
+        const test = await createTestRenderer({ width: 80, height: 18, kittyKeyboard: true });
+        const net = new FakeNet();
+        net.responses.set(MSG.SYSTEM_INFO, {
+            editors: [],
+            homedir: "/tmp",
+            schedulerEnabled: false,
+        });
+        net.responses.set(MSG.FLOW_DEFINITIONS_LIST, { flows: [] });
+        net.responses.set(MSG.FLOW_ACTIONS_LIST, { actions: [] });
+        net.responses.set(MSG.FLOW_RUNS_LIST, { runs: [] });
+        net.responses.set(MSG.SCHEDULE_LIST, { schedules: [] });
+        const store = new FakeStore();
+        const flowStore = new FlowStore(net);
+        const scheduleStore = new ScheduleStore(net);
+        const app = new OpenTuiApp({
+            renderer: test.renderer,
+            net,
+            store,
+            flowStore,
+            scheduleStore,
+        });
+        await app.init();
+
+        net.responses.set(MSG.SYSTEM_INFO, {
+            editors: [],
+            homedir: "/tmp",
+            schedulerEnabled: true,
+        });
+        net.emitStatus(true);
+        await Bun.sleep(0);
+        test.mockInput.pressKey("c");
+        await test.renderOnce();
+
+        expect(test.captureCharFrame()).not.toContain("Schedules are read-only here");
         app.destroy();
         flowStore.dispose();
         scheduleStore.dispose();

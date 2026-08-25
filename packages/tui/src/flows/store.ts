@@ -42,7 +42,7 @@ class FlowStore {
     private readonly disposers: (() => void)[] = [];
     private definitionLoadToken = 0;
     private runLoadToken = 0;
-    private runEventRevision = 0;
+    private readonly runEventRevisionByOwner = new Map<string, number>();
     private disposed = false;
 
     constructor(private readonly net: NetLike) {
@@ -92,14 +92,14 @@ class FlowStore {
     async loadRun(owner: SessionOwner): Promise<void> {
         const token = ++this.runLoadToken;
         const ownerId = flowOwnerId(owner);
-        const eventRevision = this.runEventRevision;
+        const eventRevision = this.runEventRevisionByOwner.get(ownerId) ?? 0;
         const response = await this.net.request<FlowRunsListResponse>(MSG.FLOW_RUNS_LIST, {
             ownerId,
         });
         if (
             this.disposed ||
             token !== this.runLoadToken ||
-            eventRevision !== this.runEventRevision
+            eventRevision !== (this.runEventRevisionByOwner.get(ownerId) ?? 0)
         ) {
             return;
         }
@@ -185,7 +185,10 @@ class FlowStore {
         } else {
             return;
         }
-        this.runEventRevision += 1;
+        this.runEventRevisionByOwner.set(
+            ownerId,
+            (this.runEventRevisionByOwner.get(ownerId) ?? 0) + 1,
+        );
         this.notify();
     }
 

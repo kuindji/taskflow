@@ -174,4 +174,24 @@ describe("FlowStore", () => {
         expect(store.runFor("p2")?.flowId).toBe("new");
         expect(store.runFor("p1")).toBeNull();
     });
+
+    it("does not discard an owner load after an unrelated owner update", async () => {
+        const net = fakeNet();
+        let resolveLoad: ((value: { runs: FlowRun[] }) => void) | undefined;
+        net.request = (<T>(type: string): Promise<T> => {
+            if (type !== MSG.FLOW_RUNS_LIST) throw new Error(`unexpected ${type}`);
+            return new Promise((resolve) => {
+                resolveLoad = resolve as (value: { runs: FlowRun[] }) => void;
+            });
+        }) as NetLike["request"];
+        const store = new FlowStore(net);
+
+        const loading = store.loadRun({ kind: "project", projectId: "p2" });
+        net.emit(MSG.FLOW_RUN_UPDATED, run("other", "running", timestamp, "p1"));
+        resolveLoad?.({ runs: [run("selected", "running", timestamp, "p2")] });
+        await loading;
+
+        expect(store.runFor("p1")?.flowId).toBe("other");
+        expect(store.runFor("p2")?.flowId).toBe("selected");
+    });
 });

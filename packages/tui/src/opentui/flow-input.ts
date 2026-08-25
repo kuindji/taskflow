@@ -60,12 +60,16 @@ class FlowInput {
             this.deps.onCancel();
             return;
         }
-        if (event.name !== "return" && event.name !== "enter") return;
+        if (event.name !== "return" && event.name !== "enter") {
+            this.valueInput.handleKeyPress(event);
+            return;
+        }
         const input = this.deps.inputs[this.index];
         const value = this.valueInput.value.trim();
         if (!input || !value) {
             this.error = "A value is required.";
             this.rebuild();
+            this.valueInput.focus();
             return;
         }
         this.values[input.id] = value;
