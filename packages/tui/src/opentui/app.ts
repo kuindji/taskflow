@@ -9,6 +9,7 @@ import {
 } from "@opentui/core";
 import { MSG } from "@taskflow/shared";
 import type {
+    ActionDefinition,
     AgentListResponse,
     AppSettings,
     Project,
@@ -18,8 +19,13 @@ import type {
     SessionResumeResponse,
     ShellListResponse,
     SystemClientsEvent,
+    SystemInfo,
     Task,
 } from "@taskflow/shared";
+import type { FlowDefinition, Schedule } from "@taskflow/shared";
+import type { FlowStore } from "../flows/store";
+import { visibleDefinitions, flowOwnerId, ownerProjectId } from "../flows/model";
+import type { ScheduleStore } from "../schedules/store";
 import type { NetLike } from "../net/client";
 import {
     buildSessionCreatePayload,
@@ -28,6 +34,7 @@ import {
 } from "../sessions/create-model";
 import {
     MASTER_OWNER,
+    ownerRequest,
     ownerKey,
     resolveOwner,
     sessionsForOwner,
@@ -35,6 +42,10 @@ import {
 } from "../sessions/owner";
 import type { SessionBridge } from "./session-bridge";
 import { Confirm } from "./confirm";
+import { FlowInput } from "./flow-input";
+import { FlowLibrary, type LibraryTab } from "./flow-library";
+import { FlowRun } from "./flow-run";
+import { Schedules } from "./schedules";
 import { SessionPicker } from "./session-picker";
 import { KeyRouter, prepareForEmbeddedTerminal, type FocusTarget, type UiCommand } from "./keys";
 
@@ -76,6 +87,15 @@ interface OpenTuiAppDeps {
     onCreate?: (owner: SessionOwner, payload: SessionCreatePayload) => Promise<string>;
     onClose?: (sessionId: string) => Promise<void>;
     onResume?: (sessionId: string, cols: number, rows: number) => Promise<void>;
+    flowStore?: FlowStore;
+    scheduleStore?: ScheduleStore;
+    onRunAction?: (owner: SessionOwner, action: ActionDefinition) => Promise<string>;
+    onEditRecord?: (
+        kind: "flow" | "action" | "schedule",
+        record: FlowDefinition | ActionDefinition | Schedule | null,
+        owner: SessionOwner,
+    ) => Promise<void>;
+    onFocusSession?: (sessionId: string) => boolean;
     onQuit?: () => void;
 }
 
@@ -165,6 +185,12 @@ class OpenTuiApp {
     private confirm: { view: Confirm; sessionId: string; ownerKey: string } | null = null;
     private readonly resumePending = new Set<string>();
     private readonly resumeErrors = new Map<string, string>();
+    private mainView: "sessions" | "flow-library" | "flow-run" | "schedules" = "sessions";
+    private productView: FlowLibrary | FlowRun | Schedules | null = null;
+    private flowInput: FlowInput | null = null;
+    private productConfirm: { view: Confirm; resolve(value: boolean): void } | null = null;
+    private schedulerEnabled = false;
+    private pendingFlowOwnerKey: string | null = null;
 
     constructor(private readonly deps: OpenTuiAppDeps) {
         this.sessions = deps.sessions ?? [];
@@ -270,6 +296,7 @@ class OpenTuiApp {
             this.deps.net.onStatusChange(({ connected }) => {
                 if (!connected) return;
                 void this.deps.store.load().catch(() => undefined);
+                void this.loadProducts().catch(() => undefined);
                 if (this.deps.onReconnect) this.deps.onReconnect();
                 else {
                     for (const session of this.sessions)
@@ -277,6 +304,12 @@ class OpenTuiApp {
                 }
             }),
         );
+        if (this.deps.flowStore) {
+            this.disposers.push(this.deps.flowStore.onChange(() => this.syncProductView()));
+        }
+        if (this.deps.scheduleStore) {
+            this.disposers.push(this.deps.scheduleStore.onChange(() => this.syncProductView()));
+        }
         this.disposers.push(
             this.deps.net.on(MSG.SYSTEM_CLIENTS, (payload) => {
                 this.clientsBroadcast = true;
@@ -290,9 +323,31 @@ class OpenTuiApp {
                 if (!this.clientsBroadcast) this.setOtherClients(Math.max(0, event.count - 1));
             })
             .catch(() => undefined);
+        const systemInfo = this.deps.net
+            .request<SystemInfo>(MSG.SYSTEM_INFO)
+            .then((info) => {
+                this.schedulerEnabled = info.schedulerEnabled;
+            })
+            .catch(() => undefined);
         await this.deps.store.load();
+        await Promise.all([systemInfo, this.loadProducts()]);
         await clientCount;
         this.refreshRows(true);
+    }
+
+    private async loadProducts(): Promise<void> {
+        const loads: Promise<void>[] = [];
+        if (this.deps.flowStore) loads.push(this.deps.flowStore.loadDefinitions());
+        loads.push(this.loadOwnerProducts());
+        await Promise.all(loads);
+    }
+
+    private async loadOwnerProducts(): Promise<void> {
+        await Promise.all([
+            this.deps.flowStore?.loadRun(this.selectedOwnerState) ?? Promise.resolve(),
+            this.deps.scheduleStore?.load(ownerProjectId(this.selectedOwnerState) ?? undefined) ??
+                Promise.resolve(),
+        ]);
     }
 
     private refreshRows(force = false): void {
@@ -312,6 +367,10 @@ class OpenTuiApp {
             this.selectedOwnerState,
             sessionsForOwner(this.deps.store, this.selectedOwnerState),
         );
+        if (ownerChanged) {
+            void this.loadOwnerProducts().catch(() => undefined);
+            if (this.mainView === "flow-run") this.openFlowLibrary();
+        }
         if (!force && signature === this.rowsSignature && !ownerChanged) return;
         this.rows = rows;
         this.rowsSignature = signature;
@@ -434,6 +493,10 @@ class OpenTuiApp {
                 this.selectedOwnerState,
                 sessionsForOwner(this.deps.store, this.selectedOwnerState),
             );
+            void this.loadOwnerProducts().then(() => {
+                if (this.mainView === "flow-run") this.openFlowProduct();
+                else this.syncProductView();
+            });
         }
         this.updateFocus();
         this.deps.renderer.requestRender();
@@ -455,6 +518,12 @@ class OpenTuiApp {
     }
 
     private handleKey(event: KeyEvent): void {
+        if (this.productConfirm) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.productConfirm.view.handleKey(event);
+            return;
+        }
         if (this.confirm) {
             event.preventDefault();
             event.stopPropagation();
@@ -465,6 +534,18 @@ class OpenTuiApp {
             event.preventDefault();
             event.stopPropagation();
             this.picker.view.handleKey(event);
+            return;
+        }
+        if (this.flowInput) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.flowInput.handleKey(event);
+            return;
+        }
+        if (this.mainView !== "sessions" && this.productView) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.productView.handleKey(event);
             return;
         }
         if (this.escapeTimer !== null) {
@@ -519,6 +600,7 @@ class OpenTuiApp {
                     this.selectedOwnerState,
                     sessionsForOwner(this.deps.store, this.selectedOwnerState),
                 );
+                void this.loadOwnerProducts().then(() => this.syncProductView());
                 break;
             case "select-tab":
                 if (command.index >= this.sessions.length) return;
@@ -542,6 +624,12 @@ class OpenTuiApp {
             case "resume":
                 this.resumeActiveSession();
                 break;
+            case "flows":
+                this.openFlowProduct();
+                break;
+            case "schedules":
+                this.openSchedules();
+                break;
             case "zoom":
                 this.zoomed = !this.zoomed;
                 this.applyLayout();
@@ -551,6 +639,264 @@ class OpenTuiApp {
                 break;
             default:
                 break;
+        }
+        this.deps.renderer.requestRender();
+    }
+
+    private mountProduct(
+        view: FlowLibrary | FlowRun | Schedules,
+        kind: typeof this.mainView,
+    ): void {
+        this.productView?.destroy();
+        this.productView = view;
+        this.mainView = kind;
+        this.tabStrip.visible = false;
+        this.pane.add(view.renderable);
+        this.focusTarget = "ui";
+        this.updateSessionVisibility();
+        this.deps.renderer.requestRender();
+    }
+
+    private showSessions(focusSession = false): void {
+        this.productView?.destroy();
+        this.productView = null;
+        this.mainView = "sessions";
+        this.tabStrip.visible = true;
+        this.focusTarget = focusSession && this.sessions.length > 0 ? "session" : "ui";
+        this.updateSessionVisibility();
+        this.deps.renderer.requestRender();
+    }
+
+    private openFlowProduct(): void {
+        const run = this.deps.flowStore?.runFor(this.selectedOwnerState);
+        if (run) this.openFlowRun();
+        else this.openFlowLibrary();
+    }
+
+    private openFlowLibrary(): void {
+        const store = this.deps.flowStore;
+        if (!store) return;
+        const flows = visibleDefinitions(store.flows, this.selectedOwnerState);
+        const actions = visibleDefinitions(store.actions, this.selectedOwnerState);
+        const view = new FlowLibrary({
+            renderer: this.deps.renderer,
+            flows,
+            actions,
+            onStartFlow: (flow) => this.startFlow(flow),
+            onRunAction: (action) => this.runAction(action),
+            onCreate: (tab) => void this.editLibraryRecord(tab, null),
+            onEdit: (record, tab) => void this.editLibraryRecord(tab, record),
+            onDelete: (record, tab) => void this.deleteLibraryRecord(tab, record),
+            onViewRun: () => this.openFlowRun(),
+            onClose: () => this.showSessions(),
+        });
+        this.mountProduct(view, "flow-library");
+    }
+
+    private startFlow(flow: FlowDefinition): void {
+        if (!this.deps.flowStore) return;
+        if (flow.inputs?.length) {
+            const input = new FlowInput({
+                renderer: this.deps.renderer,
+                inputs: flow.inputs,
+                onCancel: () => this.closeFlowInput(input),
+                onSubmit: (values) => {
+                    this.closeFlowInput(input);
+                    void this.submitFlow(flow, values);
+                },
+            });
+            this.flowInput = input;
+            this.root.add(input.renderable);
+            this.deps.renderer.requestRender();
+            return;
+        }
+        void this.submitFlow(flow);
+    }
+
+    private closeFlowInput(view: FlowInput): void {
+        if (this.flowInput !== view) return;
+        this.flowInput = null;
+        view.destroy();
+        this.deps.renderer.requestRender();
+    }
+
+    private async submitFlow(
+        flow: FlowDefinition,
+        inputValues?: Record<string, string>,
+    ): Promise<void> {
+        const library = this.productView instanceof FlowLibrary ? this.productView : null;
+        library?.setPending(true);
+        try {
+            await this.deps.flowStore?.startFlow({
+                ...ownerRequest(this.selectedOwnerState),
+                flowId: flow.id,
+                inputValues,
+            });
+            this.pendingFlowOwnerKey = ownerKey(this.selectedOwnerState);
+            this.showSessions();
+        } catch (error) {
+            library?.setError(`Could not start flow: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private runAction(action: ActionDefinition): void {
+        const library = this.productView instanceof FlowLibrary ? this.productView : null;
+        library?.setPending(true);
+        const run = this.deps.onRunAction
+            ? this.deps.onRunAction(this.selectedOwnerState, action)
+            : Promise.reject(new Error("Action runner unavailable"));
+        void run.then(
+            () => this.showSessions(),
+            (error: unknown) =>
+                library?.setError(`Could not run action: ${this.errorMessage(error)}`),
+        );
+    }
+
+    private async editLibraryRecord(
+        tab: LibraryTab,
+        record: FlowDefinition | ActionDefinition | null,
+    ): Promise<void> {
+        if (!this.deps.onEditRecord) return;
+        const library = this.productView instanceof FlowLibrary ? this.productView : null;
+        library?.setPending(true);
+        try {
+            await this.deps.onEditRecord(
+                tab === "flows" ? "flow" : "action",
+                record,
+                this.selectedOwnerState,
+            );
+            library?.setPending(false);
+        } catch (error) {
+            library?.setError(this.errorMessage(error));
+        }
+    }
+
+    private async deleteLibraryRecord(
+        tab: LibraryTab,
+        record: FlowDefinition | ActionDefinition,
+    ): Promise<void> {
+        const confirmed = await this.askProductConfirm("Delete record", `Delete ${record.name}?`);
+        if (!confirmed || !this.deps.flowStore) return;
+        const library = this.productView instanceof FlowLibrary ? this.productView : null;
+        library?.setPending(true);
+        try {
+            if (tab === "flows") await this.deps.flowStore.deleteFlow(record.id);
+            else await this.deps.flowStore.deleteAction(record.id);
+        } catch (error) {
+            library?.setError(this.errorMessage(error));
+        }
+    }
+
+    private openFlowRun(): void {
+        const store = this.deps.flowStore;
+        const run = store?.runFor(this.selectedOwnerState);
+        if (!store || !run) {
+            this.openFlowLibrary();
+            return;
+        }
+        const flow = store.flows.find((item) => item.id === run.flowId) ?? null;
+        const ownerId = flowOwnerId(this.selectedOwnerState);
+        const view = new FlowRun({
+            renderer: this.deps.renderer,
+            run,
+            flow,
+            actions: store.actions,
+            sessionState: (id) => this.sessions.find((session) => session.id === id)?.state,
+            pause: () => store.pause(ownerId, run.flowId),
+            resume: () => store.resume(ownerId, run.flowId),
+            stop: () => store.stop(ownerId, run.flowId),
+            skip: () => store.skip(ownerId, run.flowId),
+            jump: (index) => store.jump(ownerId, run.flowId, index),
+            confirm: (message) => this.askProductConfirm("Flow control", message),
+            onFocusSession: (id) => this.focusFlowSession(id),
+            onLibrary: () => this.openFlowLibrary(),
+            onClose: () => this.showSessions(),
+            onDismiss: () => {
+                store.dismissRun(this.selectedOwnerState);
+                this.openFlowLibrary();
+            },
+        });
+        this.mountProduct(view, "flow-run");
+    }
+
+    private focusFlowSession(sessionId: string): void {
+        if (!this.deps.onFocusSession?.(sessionId)) return;
+        this.showSessions(true);
+    }
+
+    private openSchedules(): void {
+        const store = this.deps.scheduleStore;
+        if (!store) return;
+        const view = new Schedules({
+            renderer: this.deps.renderer,
+            schedules: store.schedules,
+            projects: this.deps.store.projects,
+            schedulerEnabled: this.schedulerEnabled,
+            onCreate: () => this.editSchedule(null),
+            onEdit: (schedule) => this.editSchedule(schedule),
+            onDelete: (schedule) => store.delete(schedule.id),
+            onToggle: (schedule) =>
+                store.update({ id: schedule.id, enabled: !schedule.enabled }).then(() => undefined),
+            onTrigger: (schedule) => store.trigger(schedule.id),
+            confirm: (message) => this.askProductConfirm("Schedule", message),
+            onClose: () => this.showSessions(),
+        });
+        this.mountProduct(view, "schedules");
+    }
+
+    private async editSchedule(schedule: Schedule | null): Promise<void> {
+        if (!this.deps.onEditRecord) return;
+        await this.deps.onEditRecord("schedule", schedule, this.selectedOwnerState);
+    }
+
+    private askProductConfirm(title: string, message: string): Promise<boolean> {
+        if (this.productConfirm) return Promise.resolve(false);
+        return new Promise<boolean>((resolve) => {
+            const close = (value: boolean): void => {
+                if (this.productConfirm?.view !== view) return;
+                this.productConfirm = null;
+                view.destroy();
+                resolve(value);
+                this.deps.renderer.requestRender();
+            };
+            const view = new Confirm({
+                renderer: this.deps.renderer,
+                title,
+                message,
+                onCancel: () => close(false),
+                onConfirm: () => close(true),
+            });
+            this.productConfirm = { view, resolve };
+            this.root.add(view.renderable);
+            this.deps.renderer.requestRender();
+        });
+    }
+
+    private syncProductView(): void {
+        const flowStore = this.deps.flowStore;
+        if (this.productView instanceof FlowLibrary && flowStore) {
+            this.productView.update(
+                visibleDefinitions(flowStore.flows, this.selectedOwnerState),
+                visibleDefinitions(flowStore.actions, this.selectedOwnerState),
+            );
+        } else if (this.productView instanceof FlowRun && flowStore) {
+            const run = flowStore.runFor(this.selectedOwnerState);
+            if (run) this.productView.update(run);
+            else this.openFlowLibrary();
+        } else if (this.productView instanceof Schedules && this.deps.scheduleStore) {
+            this.productView.update(this.deps.scheduleStore.schedules);
+        }
+
+        const run = flowStore?.runFor(this.selectedOwnerState);
+        const current = run?.actions[run.currentActionIndex];
+        if (
+            this.pendingFlowOwnerKey === ownerKey(this.selectedOwnerState) &&
+            current?.status === "running" &&
+            current.sessionId &&
+            this.deps.onFocusSession?.(current.sessionId)
+        ) {
+            this.pendingFlowOwnerKey = null;
+            this.showSessions(true);
         }
         this.deps.renderer.requestRender();
     }
@@ -741,7 +1087,11 @@ class OpenTuiApp {
     private updateSessionVisibility(): void {
         const { paneWidth, paneHeight } = this.paneSize();
         for (const [index, session] of this.sessions.entries()) {
-            session.bridge.setActive(index === this.activeSession, paneWidth, paneHeight);
+            session.bridge.setActive(
+                this.mainView === "sessions" && index === this.activeSession,
+                paneWidth,
+                paneHeight,
+            );
         }
         this.updateFocus();
     }
@@ -846,6 +1196,16 @@ class OpenTuiApp {
         return { cols: paneWidth, rows: paneHeight };
     }
 
+    blurForEditor(): void {
+        for (const session of this.sessions) session.bridge.blur();
+        this.deps.renderer.setCursorPosition(0, 0, false);
+    }
+
+    restoreAfterEditor(): void {
+        this.updateFocus();
+        this.deps.renderer.requestRender();
+    }
+
     destroy(): void {
         if (this.destroyed) return;
         this.destroyed = true;
@@ -855,6 +1215,16 @@ class OpenTuiApp {
         this.picker = null;
         this.confirm?.view.destroy();
         this.confirm = null;
+        this.flowInput?.destroy();
+        this.flowInput = null;
+        this.productView?.destroy();
+        this.productView = null;
+        if (this.productConfirm) {
+            const pending = this.productConfirm;
+            this.productConfirm = null;
+            pending.view.destroy();
+            pending.resolve(false);
+        }
         for (const dispose of this.disposers) dispose();
         this.disposers.length = 0;
         for (const session of this.sessions) session.bridge.destroy();

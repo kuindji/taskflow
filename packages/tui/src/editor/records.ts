@@ -68,6 +68,7 @@ interface ScheduleDraft {
 
 interface RecordValidationContext {
     projectId: string | null;
+    projectIds?: readonly string[];
     visibleActions: readonly ActionDefinition[];
 }
 
@@ -81,8 +82,14 @@ const defaultMetadataFactory: MetadataFactory = {
     uuid: () => randomUUID(),
 };
 
-function validateProjectId(value: unknown, context: RecordValidationContext): string | undefined {
+function validateProjectId(
+    value: unknown,
+    context: RecordValidationContext,
+    allowListedProject = false,
+): string | undefined {
     const projectId = optionalString(value, "projectId");
+    if (allowListedProject && projectId && context.projectIds?.includes(projectId))
+        return projectId;
     if (projectId !== undefined && projectId !== context.projectId) {
         throw new Error(
             `projectId must match the selected project "${context.projectId ?? "global"}"`,
@@ -218,7 +225,7 @@ function parseScheduleDraft(
         ],
         "schedule",
     );
-    const projectId = validateProjectId(value.projectId, context);
+    const projectId = validateProjectId(value.projectId, context, creating);
     if (creating && !projectId) throw new Error("projectId is required when creating a schedule");
     if (!creating && value.projectId !== undefined) {
         throw new Error("projectId is immutable and must be omitted when editing a schedule");
@@ -231,7 +238,14 @@ function parseScheduleDraft(
     const selectedAction = actionId
         ? context.visibleActions.find((action) => action.id === actionId)
         : undefined;
-    if (actionId && (!selectedAction || !selectedAction.standalone)) {
+    const scheduleProjectId = projectId ?? context.projectId;
+    if (
+        actionId &&
+        (!selectedAction ||
+            !selectedAction.standalone ||
+            (selectedAction.projectId !== undefined &&
+                selectedAction.projectId !== scheduleProjectId))
+    ) {
         throw new Error("actionId must reference a visible standalone action");
     }
     const agentType =

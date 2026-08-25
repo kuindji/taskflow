@@ -11,6 +11,8 @@ type UiCommand =
     | { kind: "create" }
     | { kind: "close" }
     | { kind: "resume" }
+    | { kind: "flows" }
+    | { kind: "schedules" }
     | { kind: "deferred" };
 
 type KeyRoute =
@@ -104,6 +106,12 @@ class KeyRouter {
         }
         if (!chorded && text === "r") {
             return { kind: "command", command: { kind: "resume" }, before };
+        }
+        if (!chorded && text === "f") {
+            return { kind: "command", command: { kind: "flows" }, before };
+        }
+        if (!chorded && text === "c") {
+            return { kind: "command", command: { kind: "schedules" }, before };
         }
         if (!chorded && ["n", "?"].includes(text)) {
             return { kind: "command", command: { kind: "deferred" }, before };

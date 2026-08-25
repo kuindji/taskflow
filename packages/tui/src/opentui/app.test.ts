@@ -10,6 +10,8 @@ import type {
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
+import { FlowStore } from "../flows/store";
+import { ScheduleStore } from "../schedules/store";
 import type { SessionOwner } from "../sessions/owner";
 import { OpenTuiApp, cleanLabel, type SessionBridgeLike, type StoreLike } from "./app";
 
@@ -183,6 +185,76 @@ describe("OpenTuiApp", () => {
         expect(frame).toContain("12");
         expect(frame).toContain("  Task");
         expect(frame).toContain("2");
+    });
+
+    it("opens product screens only from UI focus and returns without closing a session", async () => {
+        const test = await createTestRenderer({ width: 100, height: 18, kittyKeyboard: true });
+        const net = new FakeNet();
+        net.responses.set(MSG.SYSTEM_INFO, {
+            editors: [],
+            homedir: "/tmp",
+            schedulerEnabled: false,
+        });
+        net.responses.set(MSG.FLOW_DEFINITIONS_LIST, {
+            flows: [
+                {
+                    id: "flow-1",
+                    name: "Release flow",
+                    description: "",
+                    actions: [{ id: "entry", actionId: "action-1" }],
+                    createdAt: "now",
+                    updatedAt: "now",
+                },
+            ],
+        });
+        net.responses.set(MSG.FLOW_ACTIONS_LIST, {
+            actions: [
+                {
+                    id: "action-1",
+                    name: "Build action",
+                    prompt: "bun run build",
+                    sessionType: "shell",
+                    standalone: true,
+                    createdAt: "now",
+                    updatedAt: "now",
+                },
+            ],
+        });
+        net.responses.set(MSG.FLOW_RUNS_LIST, { runs: [] });
+        net.responses.set(MSG.SCHEDULE_LIST, { schedules: [] });
+        const store = new FakeStore();
+        store.projects = [project("p1", "Project")];
+        const flowStore = new FlowStore(net);
+        const scheduleStore = new ScheduleStore(net);
+        const app = new OpenTuiApp({
+            renderer: test.renderer,
+            net,
+            store,
+            flowStore,
+            scheduleStore,
+        });
+        await app.init();
+        test.mockInput.pressKey("f");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Release flow");
+        test.mockInput.pressKey("q");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("No sessions");
+        test.mockInput.pressKey("c");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Schedules are read-only here");
+        test.mockInput.pressKey("n");
+        test.mockInput.pressKey("q");
+        expect(net.requests.filter((request) => request.type === MSG.SCHEDULE_CREATE)).toHaveLength(
+            0,
+        );
+        expect(net.requests.filter((request) => request.type === MSG.SESSION_CLOSE)).toHaveLength(
+            0,
+        );
+        app.destroy();
+        flowStore.dispose();
+        scheduleStore.dispose();
+        test.renderer.destroy();
     });
 
     it("handles a narrow and one-row terminal, zoom, and resize", async () => {

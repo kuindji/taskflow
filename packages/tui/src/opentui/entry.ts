@@ -3,7 +3,24 @@ import { parseArgs } from "../cli";
 import { WsClient } from "../net/client";
 import { Store } from "../state/store";
 import { SessionController } from "../sessions/controller";
-import { ownerRequest } from "../sessions/owner";
+import { ownerRequest, type SessionOwner } from "../sessions/owner";
+import { ActionRunner } from "../sessions/action-runner";
+import { FlowStore } from "../flows/store";
+import { ownerProjectId, visibleDefinitions } from "../flows/model";
+import { ScheduleStore } from "../schedules/store";
+import {
+    actionRecord,
+    flowRecord,
+    parseActionDraft,
+    parseFlowDraft,
+    parseScheduleDraft,
+    schedulePayload,
+    serializeAction,
+    serializeFlow,
+    serializeSchedule,
+} from "../editor/records";
+import { defaultExternalEditorDeps, editRecord } from "../editor/external-editor";
+import type { ActionDefinition, FlowDefinition, Schedule } from "@taskflow/shared";
 import { OpenTuiApp } from "./app";
 import { OpenTuiRuntimeOwner } from "./runtime";
 import { SessionBridge } from "./session-bridge";
@@ -14,6 +31,8 @@ async function main(): Promise<void> {
     let app: OpenTuiApp | null = null;
     let store: Store | null = null;
     let controller: SessionController | null = null;
+    let flowStore: FlowStore | null = null;
+    let scheduleStore: ScheduleStore | null = null;
     let finishing = false;
 
     const finish = async (code: number): Promise<void> => {
@@ -22,6 +41,8 @@ async function main(): Promise<void> {
         app?.destroy();
         controller?.destroy();
         store?.dispose();
+        flowStore?.dispose();
+        scheduleStore?.dispose();
         await owner.shutdown();
         process.exit(code);
     };
@@ -45,6 +66,8 @@ async function main(): Promise<void> {
 
         const renderer = await owner.create();
         store = new Store(net);
+        flowStore = new FlowStore(net);
+        scheduleStore = new ScheduleStore(net);
         controller = new SessionController({
             createBridge: (session, sessionOwner) => {
                 const pane = app?.paneDimensions ?? {
@@ -67,10 +90,130 @@ async function main(): Promise<void> {
             request: <T>(type: string, payload?: unknown) => net.request<T>(type, payload),
             onChange: (sessions, activeId) => app?.setSessions(sessions, activeId),
         });
+        const actionRunner = new ActionRunner(net, controller);
+
+        const editProductRecord = async (
+            kind: "flow" | "action" | "schedule",
+            record: FlowDefinition | ActionDefinition | Schedule | null,
+            sessionOwner: SessionOwner,
+        ): Promise<void> => {
+            if (!flowStore || !scheduleStore) throw new Error("Product stores unavailable");
+            const activeFlowStore = flowStore;
+            const activeScheduleStore = scheduleStore;
+            const projectId = ownerProjectId(sessionOwner);
+            const visibleActions =
+                sessionOwner.kind === "master"
+                    ? [...activeFlowStore.actions]
+                    : visibleDefinitions(activeFlowStore.actions, sessionOwner);
+            const context = {
+                projectId,
+                projectIds: store?.projects.map((project) => project.id) ?? [],
+                visibleActions,
+            };
+            const deps = defaultExternalEditorDeps(
+                renderer,
+                () => app?.blurForEditor(),
+                () => app?.restoreAfterEditor(),
+            );
+
+            if (kind === "action") {
+                const existing = record as ActionDefinition | null;
+                const initial =
+                    existing ??
+                    ({
+                        projectId: projectId ?? undefined,
+                        name: "New action",
+                        prompt: "Describe the action",
+                        sessionType: "shell",
+                        standalone: false,
+                    } as const);
+                await editRecord({
+                    filename: "action.yaml",
+                    initialContents: serializeAction(initial),
+                    validate: (source) =>
+                        actionRecord(parseActionDraft(source, context), existing ?? undefined),
+                    save: (value) => activeFlowStore.saveAction(value),
+                    deps,
+                });
+                return;
+            }
+
+            if (kind === "flow") {
+                const existing = record as FlowDefinition | null;
+                const firstAction = visibleActions[0];
+                const initial =
+                    existing ??
+                    ({
+                        projectId: projectId ?? undefined,
+                        name: "New flow",
+                        description: "",
+                        actions: firstAction
+                            ? [{ id: "step-1", actionId: firstAction.id }]
+                            : [
+                                  {
+                                      id: "step-1",
+                                      inline: {
+                                          name: "First step",
+                                          prompt: "Describe the step",
+                                          sessionType: "shell" as const,
+                                      },
+                                  },
+                              ],
+                    } as const);
+                await editRecord({
+                    filename: "flow.yaml",
+                    initialContents: serializeFlow(initial, visibleActions),
+                    validate: (source) =>
+                        flowRecord(parseFlowDraft(source, context), existing ?? undefined),
+                    save: (value) => activeFlowStore.saveFlow(value),
+                    deps,
+                });
+                return;
+            }
+
+            const existing = record as Schedule | null;
+            const createProjectId = projectId ?? store?.projects[0]?.id;
+            if (!existing && !createProjectId)
+                throw new Error("Create a project before adding a schedule");
+            const initial =
+                existing ??
+                ({
+                    projectId: createProjectId,
+                    name: "New schedule",
+                    prompt: "Describe the scheduled task",
+                    expression: "1h",
+                    expressionType: "rate",
+                    timeout: 30,
+                    enabled: false,
+                } as const);
+            const scheduleContext = {
+                ...context,
+                projectId: existing?.projectId ?? projectId,
+            };
+            await editRecord({
+                filename: "schedule.yaml",
+                initialContents: serializeSchedule(initial, !existing),
+                validate: (source) => parseScheduleDraft(source, scheduleContext, !existing),
+                save: async (draft) => {
+                    const payload = schedulePayload(draft, existing ?? undefined);
+                    if (existing)
+                        await activeScheduleStore.update(
+                            payload as import("@taskflow/shared").ScheduleUpdatePayload,
+                        );
+                    else
+                        await activeScheduleStore.create(
+                            payload as import("@taskflow/shared").ScheduleCreatePayload,
+                        );
+                },
+                deps,
+            });
+        };
         app = new OpenTuiApp({
             renderer,
             net,
             store,
+            flowStore,
+            scheduleStore,
             onOwnerChange: (sessionOwner, sessions) =>
                 controller?.reconcile(sessionOwner, sessions),
             onSessionSelect: (sessionId) => controller?.select(sessionId),
@@ -87,6 +230,9 @@ async function main(): Promise<void> {
                 if (!controller) return Promise.reject(new Error("Session controller unavailable"));
                 return controller.resume(sessionId, cols, rows);
             },
+            onRunAction: (sessionOwner, action) => actionRunner.run(sessionOwner, action),
+            onEditRecord: editProductRecord,
+            onFocusSession: (sessionId) => controller?.focusKnown(sessionId) ?? false,
             onQuit: () => void finish(0),
         });
         await app.init();
@@ -95,6 +241,8 @@ async function main(): Promise<void> {
         app?.destroy();
         controller?.destroy();
         store?.dispose();
+        flowStore?.dispose();
+        scheduleStore?.dispose();
         await owner.shutdown();
         const message = error instanceof Error ? error.stack || error.message : String(error);
         process.stderr.write(`${message}\n`);

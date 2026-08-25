@@ -79,6 +79,16 @@ describe("KeyRouter", () => {
             command: { kind: "resume" },
             before: undefined,
         });
+        expect(router.route("ui", key("f"))).toEqual({
+            kind: "command",
+            command: { kind: "flows" },
+            before: undefined,
+        });
+        expect(router.route("ui", key("c"))).toEqual({
+            kind: "command",
+            command: { kind: "schedules" },
+            before: undefined,
+        });
     });
 
     it("adapts Kitty parser fields to OpenTUI physical keys", () => {
