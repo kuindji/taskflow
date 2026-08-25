@@ -2,7 +2,7 @@
 
 Date: 2026-08-24
 
-Status: ready for review
+Status: Level 1 clear; Task 7 validation gates remain
 
 Baseline: `77304f6`
 
@@ -54,6 +54,52 @@ plan's changed code and directly affected backend integration.
 After any review fix, verify only the finding and code directly affected by the
 fix. Do not restart a broad review. Do not implement optional hardening without
 separate authorization.
+
+## Task 7 checkpoint, 2026-08-25
+
+Level 1 verdict: `Clear`.
+
+The review covered `77304f6..4f8bca5`, limited to this plan's changed TUI code
+and directly affected backend integration. It found no material defect.
+
+Completed validation:
+
+- `bun test packages/tui/src/state packages/tui/src/sessions packages/tui/src/opentui`:
+  96 pass, 0 fail.
+- `bun test packages/tui`: 168 pass, 0 fail.
+- The platform and session-handler test files pass when run separately as the
+  plan prescribes: 7 pass and 14 pass respectively.
+- `bun run lint` and `bun run typecheck` pass.
+- `bun run build:backend:bin` and
+  `bun run --filter @taskflow/tui build:bin` pass.
+- The isolated `dev-main` smoke fixture used
+  `/Users/kuindji/.config/taskflow-tui-dev/main`. It verified the master empty
+  state, shell creation and input, project and task updates without restart,
+  owner switching, two tabs, numeric tab selection, inactive output catch-up,
+  confirmed close with deterministic fallback, zoom, Ctrl+C, bracketed paste,
+  mouse sidebar selection, clean terminal restoration, and restart against the
+  same isolated root. The production backend remained running throughout.
+
+Repository-suite disposition:
+
+- A combined run of the two focused backend files made the isolated startup
+  fixture miss its 10-second port-file deadline. Both files pass separately,
+  and a direct isolated-backend probe published its port in 1.8 seconds.
+- `bun test` reproduced the pre-existing wiki-store order-dependent failure.
+  The failing test, the preceding contaminating test, and `wiki-store.ts` have
+  identical Git blobs at baseline `77304f6` and at `4f8bca5`.
+- The same full-suite run later stopped making progress at
+  `pty-manager.test.ts` and was terminated after more than three minutes with
+  no PTY child. That test and its implementation are unchanged from the
+  baseline, and the file passes alone with 9 tests in 12.7 seconds. These are
+  out-of-scope full-suite coupling issues, not Stage 2 product regressions.
+
+Outstanding gates:
+
+- Repeat the isolated shell smoke in a terminal that can directly resize the
+  PTY and make application-cursor and wheel-scroll behavior observable.
+- The real-agent create, restart, resume, and close gate remains outstanding and
+  must not run without explicit authorization.
 
 ## Scope
 
