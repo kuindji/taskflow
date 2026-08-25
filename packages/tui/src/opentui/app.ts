@@ -512,6 +512,7 @@ class OpenTuiApp {
             else if (this.mainView === "flow-run") this.openFlowLibrary();
             else this.syncProductView();
         }
+        if (!ownerChanged && this.productView) this.syncProductView();
         if (!force && signature === this.rowsSignature && !ownerChanged) return;
         this.rows = rows;
         this.rowsSignature = signature;

@@ -573,6 +573,9 @@ describe("OpenTuiApp", () => {
         test.mockInput.pressKey("t");
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("Selected description");
+        store.applyServerTask({ ...store.tasks[0], notes: "Saved without changing the sidebar" });
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Saved without changing the sidebar");
         test.mockInput.pressKey("q");
         test.mockInput.pressEnter();
         await test.renderOnce();
