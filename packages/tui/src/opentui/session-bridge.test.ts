@@ -200,6 +200,38 @@ describe("SessionBridge", () => {
         expect(clears).toHaveLength(1);
     });
 
+    it("removes OSC 1 before writing live output to OpenTUI", async () => {
+        const { net, bridge } = await setup();
+        net.responses.set(MSG.SESSION_SNAPSHOT, {
+            snapshot: "",
+            lastSequence: 0,
+            cursorHidden: false,
+            kittyStack: [],
+            mouseEncoding: "x10",
+        });
+        await bridge.attach();
+
+        const writes: string[] = [];
+        const write = bridge.renderable.write.bind(bridge.renderable);
+        bridge.renderable.write = (data) => {
+            writes.push(typeof data === "string" ? data : new TextDecoder().decode(data));
+            write(data);
+        };
+
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "before\x1b]1;shell icon",
+            sequence: 1,
+        });
+        net.emit(MSG.TERMINAL_OUTPUT, {
+            sessionId: "s1",
+            data: "\x07after",
+            sequence: 2,
+        });
+
+        expect(writes).toEqual(["before", "after"]);
+    });
+
     it("keeps parsing while hidden and resizes once when activated", async () => {
         const { test, net, bridge } = await setup();
         net.responses.set(MSG.SESSION_SNAPSHOT, {

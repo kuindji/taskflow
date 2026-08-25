@@ -11,6 +11,7 @@ import { inputBytesToString } from "./input-bytes";
 import { Osc52Scanner } from "./osc52";
 import type { Osc52Sink, Osc52Target } from "./osc52";
 import { assertCompatibleSnapshot, supplementalSnapshotSequence } from "./snapshot-state";
+import { EmbeddedTerminalOutputFilter } from "./terminal-output";
 
 interface SessionOwner {
     taskId?: string;
@@ -52,6 +53,7 @@ class SessionBridge {
     private readonly disposers: Array<() => void> = [];
     private lastResize: { cols: number; rows: number } | null = null;
     private readonly osc52: Osc52Scanner;
+    private readonly outputFilter = new EmbeddedTerminalOutputFilter();
 
     constructor(private readonly deps: SessionBridgeDeps) {
         this.osc52 = new Osc52Scanner(deps.clipboard ?? rendererClipboardSink(deps.renderer));
@@ -102,17 +104,19 @@ class SessionBridge {
     }
 
     private writeReplay(data: string): void {
-        if (data === "") return;
+        const filtered = this.outputFilter.feed(data);
+        if (filtered === "") return;
         this.replaying = true;
         try {
-            this.renderable.write(data);
+            this.renderable.write(filtered);
         } finally {
             this.replaying = false;
         }
     }
 
     private writeLive(data: string): void {
-        if (data !== "") this.renderable.write(data);
+        const filtered = this.outputFilter.feed(data);
+        if (filtered !== "") this.renderable.write(filtered);
     }
 
     private remember(chunk: PendingChunk): void {
@@ -173,6 +177,7 @@ class SessionBridge {
         if (this.loaded) {
             this.loaded = false;
             this.pending = this.takeRecent();
+            this.outputFilter.reset();
             this.writeReplay("\x1bc");
         }
     }
@@ -235,6 +240,7 @@ class SessionBridge {
         for (const dispose of this.disposers) dispose();
         this.disposers.length = 0;
         this.osc52.reset();
+        this.outputFilter.reset();
         this.renderable.destroy();
     }
 }
