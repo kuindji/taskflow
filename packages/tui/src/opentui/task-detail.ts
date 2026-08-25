@@ -27,7 +27,14 @@ interface TaskDetailDeps {
 }
 
 function cleanMultiline(value: string): string {
-    return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "�");
+    let result = "";
+    for (const char of value) {
+        const code = char.codePointAt(0) ?? 0;
+        result += code < 0x09 || (code > 0x0d && code < 0x20) || (code >= 0x7f && code <= 0x9f)
+            ? "�"
+            : char;
+    }
+    return result;
 }
 
 function taskLogLabel(entry: TaskLogEntry): string {

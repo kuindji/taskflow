@@ -71,7 +71,7 @@ class TaskCreate {
     }
 
     get selectedField(): TaskCreateField {
-        return FIELDS[this.fieldIndex]!;
+        return FIELDS[this.fieldIndex];
     }
 
     setField(field: Exclude<TaskCreateField, "worktree">, value: string): void {
@@ -161,7 +161,7 @@ class TaskCreate {
                     : this.values[field];
             this.dialog.add(
                 new TextRenderable(this.deps.renderer, {
-                    content: ` ${field === "initCommand" ? "Init command" : field[0]!.toUpperCase() + field.slice(1)}: ${value || ""}${unavailable ? "  [inherited]" : ""}`,
+                    content: ` ${field === "initCommand" ? "Init command" : field[0].toUpperCase() + field.slice(1)}: ${value || ""}${unavailable ? "  [inherited]" : ""}`,
                     height: 1,
                     ...(index === this.fieldIndex ? SELECTED_TEXT_STYLE : {}),
                 }),
