@@ -110,7 +110,7 @@ describe("KeyRouter", () => {
             sequence: "\x1b[13;2u",
         });
         prepareForEmbeddedTerminal(enter);
-        expect(enter.code).toBeUndefined();
+        expect(enter.code).toBe("Enter");
         expect(enter.sequence).toBe("");
 
         const shiftedLetter = key("q", {
@@ -123,5 +123,25 @@ describe("KeyRouter", () => {
         prepareForEmbeddedTerminal(shiftedLetter);
         expect(shiftedLetter.code).toBeUndefined();
         expect(shiftedLetter.sequence).toBe("Q");
+    });
+
+    it("replaces raw terminal escape tokens with embedded-terminal physical keys", () => {
+        const up = key("up", {
+            source: "raw",
+            code: "[A",
+            sequence: "\x1b[A",
+            raw: "\x1b[A",
+        });
+        prepareForEmbeddedTerminal(up);
+        expect(up.code).toBe("ArrowUp");
+
+        const ctrlC = key("c", {
+            ctrl: true,
+            source: "raw",
+            sequence: "\x03",
+            raw: "\x03",
+        });
+        prepareForEmbeddedTerminal(ctrlC);
+        expect(ctrlC.code).toBe("KeyC");
     });
 });

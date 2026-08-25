@@ -22,6 +22,25 @@ type KeyRoute =
     | { kind: "command"; command: UiCommand; before?: KeyEvent }
     | { kind: "consume" };
 
+const NAMED_PHYSICAL_KEYS: Readonly<Record<string, string>> = {
+    backspace: "Backspace",
+    delete: "Delete",
+    down: "ArrowDown",
+    end: "End",
+    enter: "Enter",
+    escape: "Escape",
+    home: "Home",
+    insert: "Insert",
+    left: "ArrowLeft",
+    pagedown: "PageDown",
+    pageup: "PageUp",
+    return: "Enter",
+    right: "ArrowRight",
+    space: "Space",
+    tab: "Tab",
+    up: "ArrowUp",
+};
+
 function isExactCtrlEscape(event: KeyEvent): boolean {
     return (
         event.source === "kitty" &&
@@ -131,27 +150,26 @@ class KeyRouter {
 }
 
 /**
- * OpenTUI 0.5.7 exposes a Kitty CSI token in `code`, while its embedded
- * terminal expects a physical-key name. Normalize that public event shape and
- * leave byte encoding to EmbeddedTerminalRenderable.
+ * OpenTUI 0.5.7 exposes raw and Kitty escape tokens in `code`, while its
+ * embedded terminal expects a physical-key name. Normalize that public event
+ * shape and leave byte encoding to EmbeddedTerminalRenderable.
  */
 function prepareForEmbeddedTerminal(event: KeyEvent): KeyEvent {
-    if (event.source !== "kitty") return event;
-
     const modified = event.ctrl || event.meta || event.option || event.super || event.hyper;
     const printable = Array.from(event.name).length === 1 && !modified;
     if (printable) {
-        // OpenTUI already decoded the text, including Shift and the active
-        // keyboard layout. Let the embedded terminal forward that text rather
-        // than treating it as a modified physical key.
+        // OpenTUI already decoded the text, including Shift and the active keyboard layout.
         event.code = undefined;
         return event;
     }
 
-    if (/^[a-z]$/i.test(event.name)) event.code = `Key${event.name.toUpperCase()}`;
+    const named = NAMED_PHYSICAL_KEYS[event.name.toLowerCase()];
+    if (named) event.code = named;
+    else if (/^[a-z]$/i.test(event.name)) event.code = `Key${event.name.toUpperCase()}`;
     else if (/^[0-9]$/.test(event.name)) event.code = `Digit${event.name}`;
     else event.code = undefined;
-    event.sequence = "";
+
+    if (event.source === "kitty") event.sequence = "";
     return event;
 }
 

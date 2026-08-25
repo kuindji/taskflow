@@ -1,12 +1,12 @@
 import {
     BoxRenderable,
-    TextAttributes,
     TextRenderable,
     type CliRenderer,
     type KeyEvent,
 } from "@opentui/core";
 import type { ActionDefinition, FlowDefinition } from "@taskflow/shared";
 import { stableSelectionIndex } from "../flows/model";
+import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 type LibraryTab = "flows" | "actions";
 
@@ -145,7 +145,7 @@ class FlowLibrary {
                 new TextRenderable(this.deps.renderer, {
                     content: ` ${item.name}  ${scopeLabel(item.projectId)}${standalone}`,
                     height: 1,
-                    attributes: index === this.selected ? TextAttributes.INVERSE : 0,
+                    ...(index === this.selected ? SELECTED_TEXT_STYLE : {}),
                     onMouseDown: (event) => {
                         event.preventDefault();
                         event.stopPropagation();

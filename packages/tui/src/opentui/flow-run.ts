@@ -1,12 +1,12 @@
 import {
     BoxRenderable,
-    TextAttributes,
     TextRenderable,
     type CliRenderer,
     type KeyEvent,
 } from "@opentui/core";
 import type { ActionDefinition, FlowDefinition, FlowRun as FlowRunRecord } from "@taskflow/shared";
 import { actionLabel, latestArtifactsByType } from "../flows/model";
+import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 interface FlowRunDeps {
     renderer: CliRenderer;
@@ -159,7 +159,7 @@ class FlowRun {
                 new TextRenderable(this.deps.renderer, {
                     content: ` ${label}  ${state.status}${state.sessionId ? `  ${state.sessionId}` : ""}`,
                     height: 1,
-                    attributes: index === this.selected ? TextAttributes.INVERSE : 0,
+                    ...(index === this.selected ? SELECTED_TEXT_STYLE : {}),
                     onMouseDown: (event) => {
                         event.preventDefault();
                         event.stopPropagation();

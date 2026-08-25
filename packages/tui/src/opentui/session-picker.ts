@@ -1,11 +1,11 @@
 import {
     BoxRenderable,
-    TextAttributes,
     TextRenderable,
     type CliRenderer,
     type KeyEvent,
 } from "@opentui/core";
 import type { SessionPickerItem } from "../sessions/create-model";
+import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 interface SessionPickerDeps {
     renderer: CliRenderer;
@@ -127,7 +127,7 @@ class SessionPicker {
                 new TextRenderable(this.deps.renderer, {
                     content: ` ${item.kind === "agent" ? "Agent" : "Shell"}: ${item.label}${suffix}`,
                     height: 1,
-                    attributes: index === this.selected ? TextAttributes.INVERSE : 0,
+                    ...(index === this.selected ? SELECTED_TEXT_STYLE : {}),
                     onMouseDown: (event) => {
                         event.preventDefault();
                         event.stopPropagation();

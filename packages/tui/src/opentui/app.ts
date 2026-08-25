@@ -46,6 +46,7 @@ import { FlowInput } from "./flow-input";
 import { FlowLibrary, type LibraryTab } from "./flow-library";
 import { FlowRun } from "./flow-run";
 import { Schedules } from "./schedules";
+import { SELECTED_TEXT_STYLE } from "./selection-style";
 import { SessionPicker } from "./session-picker";
 import { KeyRouter, prepareForEmbeddedTerminal, type FocusTarget, type UiCommand } from "./keys";
 
@@ -255,7 +256,7 @@ class OpenTuiApp {
             width: "100%",
             height: 1,
             zIndex: 30,
-            attributes: TextAttributes.INVERSE,
+            ...SELECTED_TEXT_STYLE,
             selectable: false,
             visible: false,
         });
@@ -391,11 +392,8 @@ class OpenTuiApp {
 
     private rebuildSidebar(): void {
         this.clearChildren(this.sidebarRowsBox);
-        const selectedAttrs = TextAttributes.INVERSE;
         for (const [index, row] of this.rows.entries()) {
-            const attrs =
-                (row.kind !== "task" ? TextAttributes.BOLD : 0) |
-                (index === this.selected ? selectedAttrs : 0);
+            const attrs = row.kind !== "task" ? TextAttributes.BOLD : 0;
             const container = new BoxRenderable(this.deps.renderer, {
                 width: "100%",
                 height: 1,
@@ -412,6 +410,7 @@ class OpenTuiApp {
                 wrapMode: "none",
                 selectable: false,
                 attributes: attrs,
+                ...(index === this.selected ? SELECTED_TEXT_STYLE : {}),
             });
             container.add(label);
             if (badge !== "") {
@@ -423,6 +422,7 @@ class OpenTuiApp {
                         flexShrink: 0,
                         selectable: false,
                         attributes: attrs,
+                        ...(index === this.selected ? SELECTED_TEXT_STYLE : {}),
                     }),
                 );
             }
@@ -448,7 +448,7 @@ class OpenTuiApp {
                     truncate: true,
                     wrapMode: "none",
                     selectable: false,
-                    attributes: index === this.activeSession ? TextAttributes.INVERSE : 0,
+                    ...(index === this.activeSession ? SELECTED_TEXT_STYLE : {}),
                     onMouseDown: (event) => this.selectSession(index, event),
                 }),
             );
@@ -465,7 +465,7 @@ class OpenTuiApp {
                     right: 0,
                     top: 0,
                     zIndex: 10,
-                    attributes: TextAttributes.INVERSE,
+                    ...SELECTED_TEXT_STYLE,
                     selectable: false,
                     onMouseDown: (event) => {
                         event.preventDefault();
@@ -949,17 +949,12 @@ class OpenTuiApp {
     ): void {
         if (this.picker?.view !== view) return;
         view.setPending(true);
-        const taskDescription =
-            owner.kind === "task"
-                ? this.deps.store.tasks.find((task) => task.id === owner.taskId)?.description
-                : undefined;
         const { cols, rows } = this.paneDimensions;
         const payload = buildSessionCreatePayload({
             owner,
             item,
             cols,
             rows,
-            taskDescription,
         });
         const create = this.deps.onCreate
             ? this.deps.onCreate(owner, payload)

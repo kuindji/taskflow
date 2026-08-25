@@ -34,18 +34,16 @@ describe("session creation model", () => {
         ]);
     });
 
-    it("sends one task owner, agent prompt, and pane dimensions without agent options", () => {
+    it("starts a clean task agent with owner and pane dimensions only", () => {
         const payload = buildSessionCreatePayload({
             owner: { kind: "task", taskId: "t", projectId: "p" },
             item: { kind: "agent", type: "codex", label: "Codex", isDefault: true },
             cols: 90,
             rows: 30,
-            taskDescription: "Do the work",
         });
         expect(payload).toEqual({
             taskId: "t",
             type: "codex",
-            prompt: "Do the work",
             cols: 90,
             rows: 30,
         });
@@ -65,7 +63,6 @@ describe("session creation model", () => {
                 },
                 cols: 80,
                 rows: 24,
-                taskDescription: "ignored",
             }),
         ).toEqual({ master: true, type: "shell", shell: "/bin/zsh", cols: 80, rows: 24 });
     });

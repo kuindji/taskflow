@@ -1,6 +1,5 @@
 import {
     BoxRenderable,
-    TextAttributes,
     TextRenderable,
     type CliRenderer,
     type KeyEvent,
@@ -8,6 +7,7 @@ import {
 import type { Project, Schedule } from "@taskflow/shared";
 import { stableSelectionIndex } from "../flows/model";
 import { scheduleStatusText } from "../schedules/model";
+import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 const READ_ONLY_BANNER =
     "Schedules are read-only here. The production Taskflow instance owns the scheduler.";
@@ -146,7 +146,7 @@ class Schedules {
                 new TextRenderable(this.deps.renderer, {
                     content: ` ${schedule.name}  ${details.join("  ")}`,
                     height: 1,
-                    attributes: index === this.selected ? TextAttributes.INVERSE : 0,
+                    ...(index === this.selected ? SELECTED_TEXT_STYLE : {}),
                     onMouseDown: (event) => {
                         event.preventDefault();
                         event.stopPropagation();

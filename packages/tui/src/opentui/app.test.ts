@@ -189,6 +189,13 @@ describe("OpenTuiApp", () => {
         expect(frame).toContain("12");
         expect(frame).toContain("  Task");
         expect(frame).toContain("2");
+
+        const selected = test
+            .captureSpans()
+            .lines.flatMap((line) => line.spans)
+            .find((span) => span.text.includes("Master Workspace"));
+        expect(selected?.fg.toInts()).toEqual([0, 0, 0, 255]);
+        expect(selected?.bg.toInts()).toEqual([255, 255, 255, 255]);
     });
 
     it("opens product screens only from UI focus and returns without closing a session", async () => {
@@ -418,7 +425,7 @@ describe("OpenTuiApp", () => {
         expect(app.focus).toBe("session");
     });
 
-    it("creates a task agent with the captured owner, prompt, and visible pane size", async () => {
+    it("creates a clean task agent with the captured owner and visible pane size", async () => {
         const creates: Array<{ owner: unknown; payload: SessionCreatePayload }> = [];
         const { test, store } = await setup(90, 30, false, async (owner, payload) => {
             creates.push({ owner, payload });
@@ -438,7 +445,6 @@ describe("OpenTuiApp", () => {
                 payload: {
                     taskId: "t1",
                     type: "codex",
-                    prompt: "Task prompt",
                     cols: 60,
                     rows: 29,
                 },

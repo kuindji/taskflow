@@ -67,22 +67,14 @@ interface CreatePayloadInputs {
     item: SessionPickerItem;
     cols: number;
     rows: number;
-    taskDescription?: string;
 }
 
 function buildSessionCreatePayload(inputs: CreatePayloadInputs): SessionCreatePayload {
     const owner = ownerRequest(inputs.owner);
-    const prompt =
-        inputs.owner.kind === "task" &&
-        inputs.item.kind === "agent" &&
-        inputs.taskDescription?.trim()
-            ? inputs.taskDescription
-            : undefined;
     return {
         ...owner,
         type: inputs.item.type,
         ...(inputs.item.kind === "shell" ? { shell: inputs.item.path } : {}),
-        ...(prompt === undefined ? {} : { prompt }),
         cols: inputs.cols,
         rows: inputs.rows,
     };

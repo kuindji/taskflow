@@ -265,6 +265,39 @@ describe("SessionBridge", () => {
         expect(sessionInputs(second.net)).toEqual(["\x1bOA"]);
     });
 
+    it("forwards raw-terminal arrows through the child's application-cursor mode", async () => {
+        const { net, bridge } = await setup();
+        net.responses.set(MSG.SESSION_SNAPSHOT, {
+            snapshot: "\x1b[?1h",
+            lastSequence: 0,
+            cursorHidden: false,
+            kittyStack: [],
+            mouseEncoding: "x10",
+        });
+        await bridge.attach();
+        net.requests.length = 0;
+
+        bridge.renderable.handleKeyPress(
+            prepareForEmbeddedTerminal(
+                new KeyEvent({
+                    name: "up",
+                    ctrl: false,
+                    meta: false,
+                    shift: false,
+                    option: false,
+                    sequence: "\x1b[A",
+                    raw: "\x1b[A",
+                    code: "[A",
+                    number: false,
+                    eventType: "press",
+                    source: "raw",
+                }),
+            ),
+        );
+
+        expect(sessionInputs(net)).toEqual(["\x1bOA"]);
+    });
+
     it("lets OpenTUI encode press, repeat, release, and paste from real events", async () => {
         const { net, bridge } = await setup();
         net.responses.set(MSG.SESSION_SNAPSHOT, {
