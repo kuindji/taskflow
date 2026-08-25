@@ -13,6 +13,8 @@ type UiCommand =
     | { kind: "resume" }
     | { kind: "flows" }
     | { kind: "schedules" }
+    | { kind: "task-detail" }
+    | { kind: "task-create" }
     | { kind: "deferred" };
 
 type KeyRoute =
@@ -132,7 +134,13 @@ class KeyRouter {
         if (!chorded && text === "c") {
             return { kind: "command", command: { kind: "schedules" }, before };
         }
-        if (!chorded && ["n", "?"].includes(text)) {
+        if (!chorded && text === "t") {
+            return { kind: "command", command: { kind: "task-detail" }, before };
+        }
+        if (!chorded && text === "n") {
+            return { kind: "command", command: { kind: "task-create" }, before };
+        }
+        if (!chorded && text === "?") {
             return { kind: "command", command: { kind: "deferred" }, before };
         }
         return before ? { kind: "consume" } : { kind: "pass" };

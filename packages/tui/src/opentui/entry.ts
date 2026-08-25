@@ -8,6 +8,7 @@ import { ActionRunner } from "../sessions/action-runner";
 import { FlowStore } from "../flows/store";
 import { ownerProjectId, visibleDefinitions } from "../flows/model";
 import { ScheduleStore } from "../schedules/store";
+import { TaskDetailStore } from "../tasks/store";
 import {
     actionRecord,
     flowRecord,
@@ -21,7 +22,7 @@ import {
     serializeSchedule,
 } from "../editor/records";
 import { defaultExternalEditorDeps, editRecord } from "../editor/external-editor";
-import type { ActionDefinition, FlowDefinition, Schedule } from "@taskflow/shared";
+import type { ActionDefinition, FlowDefinition, Schedule, Task } from "@taskflow/shared";
 import { OpenTuiApp } from "./app";
 import { OpenTuiRuntimeOwner } from "./runtime";
 import { SessionBridge } from "./session-bridge";
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
     let controller: SessionController | null = null;
     let flowStore: FlowStore | null = null;
     let scheduleStore: ScheduleStore | null = null;
+    let taskDetailStore: TaskDetailStore | null = null;
     let finishing = false;
 
     const finish = async (code: number): Promise<void> => {
@@ -52,6 +54,7 @@ async function main(): Promise<void> {
         store?.dispose();
         flowStore?.dispose();
         scheduleStore?.dispose();
+        taskDetailStore?.dispose();
         await owner.shutdown();
         process.exit(code);
     };
@@ -77,6 +80,7 @@ async function main(): Promise<void> {
         store = new Store(net);
         flowStore = new FlowStore(net);
         scheduleStore = new ScheduleStore(net);
+        taskDetailStore = new TaskDetailStore(net);
         controller = new SessionController({
             createBridge: (session, sessionOwner) => {
                 const pane = app?.paneDimensions ?? {
@@ -100,6 +104,29 @@ async function main(): Promise<void> {
             onChange: (sessions, activeId) => app?.setSessions(sessions, activeId),
         });
         const actionRunner = new ActionRunner(net, controller);
+
+        const editTaskText = async (
+            task: Task,
+            field: "description" | "notes",
+        ): Promise<Task | null> => {
+            if (!taskDetailStore) throw new Error("Task detail store unavailable");
+            const activeTaskStore = taskDetailStore;
+            let updated: Task | null = null;
+            const result = await editRecord({
+                filename: `${field}.txt`,
+                initialContents: task[field],
+                validate: (source) => source,
+                save: async (source) => {
+                    updated = await activeTaskStore.update({ id: task.id, [field]: source });
+                },
+                deps: defaultExternalEditorDeps(
+                    renderer,
+                    () => app?.blurForEditor(),
+                    () => app?.restoreAfterEditor(),
+                ),
+            });
+            return result === null ? null : updated;
+        };
 
         const editProductRecord = async (
             kind: "flow" | "action" | "schedule",
@@ -210,6 +237,7 @@ async function main(): Promise<void> {
             store,
             flowStore,
             scheduleStore,
+            taskStore: taskDetailStore,
             onOwnerChange: (sessionOwner, sessions) =>
                 controller?.reconcile(sessionOwner, sessions),
             onSessionSelect: (sessionId) => controller?.select(sessionId),
@@ -228,6 +256,7 @@ async function main(): Promise<void> {
             },
             onRunAction: (sessionOwner, action) => actionRunner.run(sessionOwner, action),
             onEditRecord: editProductRecord,
+            onEditTaskText: editTaskText,
             onFocusSession: (sessionId) => controller?.focusKnown(sessionId) ?? false,
             onQuit: () => void finish(0),
         });
@@ -239,6 +268,7 @@ async function main(): Promise<void> {
         store?.dispose();
         flowStore?.dispose();
         scheduleStore?.dispose();
+        taskDetailStore?.dispose();
         await owner.shutdown();
         const message = error instanceof Error ? error.stack || error.message : String(error);
         process.stderr.write(`${message}\n`);

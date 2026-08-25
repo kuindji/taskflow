@@ -12,6 +12,7 @@ import { MSG } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 import { FlowStore } from "../flows/store";
 import { ScheduleStore } from "../schedules/store";
+import { TaskDetailStore } from "../tasks/store";
 import type { SessionOwner } from "../sessions/owner";
 import { OpenTuiApp, cleanLabel, type SessionBridgeLike, type StoreLike } from "./app";
 
@@ -61,6 +62,18 @@ class FakeStore implements StoreLike {
         return this.tasks.filter(
             (task) => task.projectId === projectId && task.status === "active",
         );
+    }
+    projectById(projectId: string): Project | null {
+        return this.projects.find((candidate) => candidate.id === projectId) ?? null;
+    }
+    taskById(taskId: string): Task | null {
+        return this.tasks.find((candidate) => candidate.id === taskId) ?? null;
+    }
+    applyServerTask(task: Task): void {
+        const index = this.tasks.findIndex((candidate) => candidate.id === task.id);
+        if (index < 0) this.tasks.push(task);
+        else this.tasks[index] = task;
+        this.notify();
     }
     onChange(listener: () => void): () => void {
         this.listeners.add(listener);
@@ -439,6 +452,117 @@ describe("OpenTuiApp", () => {
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("No sessions. Press s to start one.");
         expect(app.focus).toBe("ui");
+    });
+
+    it("opens the selected task detail with t and Enter when it has no session", async () => {
+        const test = await createTestRenderer({ width: 90, height: 24, kittyKeyboard: true });
+        const net = new FakeNet();
+        net.responses.set(MSG.TASK_LOG_LIST, { entries: [] });
+        const store = new FakeStore();
+        store.projects = [project("p1", "Project")];
+        store.tasks = [
+            {
+                ...task("t1", "p1", "Selected task"),
+                description: "Selected description",
+            },
+        ];
+        const taskStore = new TaskDetailStore(net);
+        const app = new OpenTuiApp({ renderer: test.renderer, net, store, taskStore });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => taskStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressKey("t");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Selected description");
+        test.mockInput.pressKey("q");
+        test.mockInput.pressEnter();
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Selected description");
+    });
+
+    it("creates a top-level task from a project and consumes duplicate submit keys", async () => {
+        const test = await createTestRenderer({ width: 90, height: 24, kittyKeyboard: true });
+        const net = new FakeNet();
+        const created = { ...task("new-task", "p1", "New task"), description: "Do work" };
+        net.responses.set(MSG.TASK_CREATE, created);
+        net.responses.set(MSG.TASK_LOG_LIST, { entries: [] });
+        const store = new FakeStore();
+        store.projects = [project("p1", "Project")];
+        const taskStore = new TaskDetailStore(net);
+        const app = new OpenTuiApp({ renderer: test.renderer, net, store, taskStore });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => taskStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressKey("n");
+        await test.mockInput.typeText("New task");
+        test.mockInput.pressArrow("down");
+        await test.mockInput.typeText("Do work");
+        test.mockInput.pressEnter();
+        test.mockInput.pressEnter();
+        await Promise.resolve();
+        await test.renderOnce();
+        expect(net.requests.filter((request) => request.type === MSG.TASK_CREATE)).toEqual([
+            {
+                type: MSG.TASK_CREATE,
+                payload: {
+                    projectId: "p1",
+                    parentId: undefined,
+                    title: "New task",
+                    description: "Do work",
+                    worktree: false,
+                    initCommand: undefined,
+                },
+            },
+        ]);
+        expect(app.selectedOwner).toEqual({
+            kind: "task",
+            taskId: "new-task",
+            projectId: "p1",
+        });
+        expect(test.captureCharFrame()).toContain("Do work");
+    });
+
+    it("requires archive confirmation and falls back to the task project", async () => {
+        const test = await createTestRenderer({ width: 90, height: 24, kittyKeyboard: true });
+        const net = new FakeNet();
+        const active = task("t1", "p1", "Archive me");
+        net.responses.set(MSG.TASK_LOG_LIST, { entries: [] });
+        net.responses.set(MSG.TASK_ARCHIVE, {
+            ...active,
+            status: "archived",
+            archivedAt: "2026-08-25T12:00:00.000Z",
+        });
+        const store = new FakeStore();
+        store.projects = [project("p1", "Project")];
+        store.tasks = [active];
+        const taskStore = new TaskDetailStore(net);
+        const app = new OpenTuiApp({ renderer: test.renderer, net, store, taskStore });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => taskStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressKey("t");
+        test.mockInput.pressKey("a");
+        expect(net.requests.filter((request) => request.type === MSG.TASK_ARCHIVE)).toHaveLength(0);
+        test.mockInput.pressKey("y");
+        await Promise.resolve();
+        await test.renderOnce();
+        expect(net.requests.filter((request) => request.type === MSG.TASK_ARCHIVE)).toHaveLength(1);
+        expect(app.selectedOwner).toEqual({ kind: "project", projectId: "p1" });
+        expect(test.captureCharFrame()).toContain("No sessions");
     });
 
     it("focuses the main session with Enter and l from UI focus", async () => {

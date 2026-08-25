@@ -27,6 +27,8 @@ import type { FlowStore } from "../flows/store";
 import { visibleDefinitions, flowOwnerId, ownerProjectId } from "../flows/model";
 import type { ScheduleStore } from "../schedules/store";
 import type { NetLike } from "../net/client";
+import { resolvedTaskAttributes } from "../tasks/model";
+import type { TaskDetailStore } from "../tasks/store";
 import {
     buildSessionCreatePayload,
     buildSessionPickerItems,
@@ -48,6 +50,8 @@ import { FlowRun } from "./flow-run";
 import { Schedules } from "./schedules";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 import { SessionPicker } from "./session-picker";
+import { TaskCreate } from "./task-create";
+import { TaskDetail } from "./task-detail";
 import { KeyRouter, prepareForEmbeddedTerminal, type FocusTarget, type UiCommand } from "./keys";
 
 interface StoreLike {
@@ -55,6 +59,9 @@ interface StoreLike {
     readonly projects: readonly Project[];
     readonly tasks: readonly Task[];
     tasksFor(projectId: string): Task[];
+    projectById(projectId: string): Project | null;
+    taskById(taskId: string): Task | null;
+    applyServerTask(task: Task): void;
     load(): Promise<void>;
     onChange(listener: () => void): () => void;
 }
@@ -90,6 +97,7 @@ interface OpenTuiAppDeps {
     onResume?: (sessionId: string, cols: number, rows: number) => Promise<void>;
     flowStore?: FlowStore;
     scheduleStore?: ScheduleStore;
+    taskStore?: TaskDetailStore;
     onRunAction?: (owner: SessionOwner, action: ActionDefinition) => Promise<string>;
     onEditRecord?: (
         kind: "flow" | "action" | "schedule",
@@ -97,6 +105,7 @@ interface OpenTuiAppDeps {
         owner: SessionOwner,
     ) => Promise<void>;
     onFocusSession?: (sessionId: string) => boolean;
+    onEditTaskText?: (task: Task, field: "description" | "notes") => Promise<Task | null>;
     onQuit?: () => void;
 }
 
@@ -188,8 +197,14 @@ class OpenTuiApp {
     private confirm: { view: Confirm; sessionId: string; ownerKey: string } | null = null;
     private readonly resumePending = new Set<string>();
     private readonly resumeErrors = new Map<string, string>();
-    private mainView: "sessions" | "flow-library" | "flow-run" | "schedules" = "sessions";
-    private productView: FlowLibrary | FlowRun | Schedules | null = null;
+    private mainView:
+        | "sessions"
+        | "task-detail"
+        | "flow-library"
+        | "flow-run"
+        | "schedules" = "sessions";
+    private productView: TaskDetail | FlowLibrary | FlowRun | Schedules | null = null;
+    private taskCreate: TaskCreate | null = null;
     private flowInput: FlowInput | null = null;
     private productConfirm: { view: Confirm; resolve(value: boolean): void } | null = null;
     private schedulerEnabled = false;
@@ -338,6 +353,9 @@ class OpenTuiApp {
         if (this.deps.scheduleStore) {
             this.disposers.push(this.deps.scheduleStore.onChange(() => this.syncProductView()));
         }
+        if (this.deps.taskStore) {
+            this.disposers.push(this.deps.taskStore.onChange(() => this.syncProductView()));
+        }
         this.disposers.push(
             this.deps.net.on(MSG.SYSTEM_CLIENTS, (payload) => {
                 this.clientsBroadcast = true;
@@ -376,6 +394,10 @@ class OpenTuiApp {
             this.deps.flowStore?.loadRun(this.selectedOwnerState) ?? Promise.resolve(),
             this.deps.scheduleStore?.load(ownerProjectId(this.selectedOwnerState) ?? undefined) ??
                 Promise.resolve(),
+            this.selectedOwnerState.kind === "task" && this.mainView === "task-detail"
+                ? (this.deps.taskStore?.loadLogs(this.selectedOwnerState.taskId) ??
+                  Promise.resolve())
+                : Promise.resolve(),
         ]);
     }
 
@@ -397,8 +419,14 @@ class OpenTuiApp {
             sessionsForOwner(this.deps.store, this.selectedOwnerState),
         );
         if (ownerChanged) {
+            this.deps.taskStore?.selectTask(
+                this.selectedOwnerState.kind === "task" ? this.selectedOwnerState.taskId : null,
+            );
             void this.loadOwnerProducts().catch(() => undefined);
-            if (this.mainView === "flow-run") this.openFlowLibrary();
+            if (this.mainView === "task-detail") {
+                if (this.selectedOwnerState.kind === "task") this.openTaskDetail();
+                else this.showSessions();
+            } else if (this.mainView === "flow-run") this.openFlowLibrary();
             else this.syncProductView();
         }
         if (!force && signature === this.rowsSignature && !ownerChanged) return;
@@ -570,6 +598,13 @@ class OpenTuiApp {
             this.updateFooter();
             return;
         }
+        if (this.taskCreate) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.taskCreate.handleKey(event);
+            this.updateFooter();
+            return;
+        }
         if (this.flowInput) {
             event.preventDefault();
             event.stopPropagation();
@@ -650,9 +685,12 @@ class OpenTuiApp {
                 this.updateStatusNotice();
                 break;
             case "open":
-                if (this.sessions.length === 0) return;
-                this.focusTarget = "session";
-                this.updateFocus();
+                if (this.sessions.length > 0) {
+                    this.focusTarget = "session";
+                    this.updateFocus();
+                } else {
+                    this.openTaskDetail();
+                }
                 break;
             case "create":
                 this.openSessionPicker();
@@ -669,6 +707,12 @@ class OpenTuiApp {
             case "schedules":
                 this.openSchedules();
                 break;
+            case "task-detail":
+                this.openTaskDetail();
+                break;
+            case "task-create":
+                this.openTaskCreate();
+                break;
             case "zoom":
                 this.zoomed = !this.zoomed;
                 this.applyLayout();
@@ -684,7 +728,7 @@ class OpenTuiApp {
     }
 
     private mountProduct(
-        view: FlowLibrary | FlowRun | Schedules,
+        view: TaskDetail | FlowLibrary | FlowRun | Schedules,
         kind: typeof this.mainView,
     ): void {
         this.productView?.destroy();
@@ -702,9 +746,224 @@ class OpenTuiApp {
         this.productView?.destroy();
         this.productView = null;
         this.mainView = "sessions";
+        this.deps.taskStore?.selectTask(null);
         this.tabStrip.visible = true;
         this.focusTarget = focusSession && this.sessions.length > 0 ? "session" : "ui";
         this.updateSessionVisibility();
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private openTaskDetail(): void {
+        if (this.selectedOwnerState.kind !== "task") return;
+        const task = this.deps.store.taskById(this.selectedOwnerState.taskId);
+        if (!task) return;
+        const project = this.deps.store.projectById(task.projectId);
+        const attributes = resolvedTaskAttributes(task, this.deps.store);
+        const view = new TaskDetail({
+            renderer: this.deps.renderer,
+            task,
+            project,
+            attributes,
+            logs: this.deps.taskStore?.logsFor(task.id) ?? [],
+            onEditTitle: (title) => void this.updateTaskTitle(view, task.id, title),
+            onEditDescription: () => void this.editTaskText(view, task.id, "description"),
+            onEditNotes: () => void this.editTaskText(view, task.id, "notes"),
+            onCreateAttribute: (name, value) =>
+                void this.createTaskAttribute(view, task.id, name, value),
+            onUpdateAttribute: (attribute, value) =>
+                void this.updateTaskAttribute(view, task.id, attribute.id, value),
+            onDeleteAttribute: (attribute) =>
+                void this.deleteTaskAttribute(view, task.id, attribute.id),
+            onTogglePin: () => void this.toggleTaskPin(view, task.id),
+            onArchive: () => void this.archiveTask(view, task.id),
+            onClose: () => this.showSessions(),
+            onStateChange: () => this.updateFooter(),
+        });
+        this.deps.taskStore?.selectTask(task.id);
+        this.mountProduct(view, "task-detail");
+        void this.deps.taskStore?.loadLogs(task.id).catch((error: unknown) => {
+            if (this.productView === view) {
+                view.setError(`Could not load task activity: ${this.errorMessage(error)}`);
+            }
+        });
+    }
+
+    private async editTaskText(
+        view: TaskDetail,
+        taskId: string,
+        field: "description" | "notes",
+    ): Promise<void> {
+        if (this.productView !== view || !this.deps.onEditTaskText) return;
+        const task = this.deps.store.taskById(taskId);
+        if (!task) return;
+        view.setPending(true);
+        try {
+            const updated = await this.deps.onEditTaskText(task, field);
+            if (updated) this.deps.store.applyServerTask(updated);
+            else view.setPending(false);
+        } catch (error) {
+            view.setError(`Could not edit task: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async updateTaskTitle(
+        view: TaskDetail,
+        taskId: string,
+        title: string,
+    ): Promise<void> {
+        if (this.productView !== view || !this.deps.taskStore) return;
+        try {
+            this.deps.store.applyServerTask(await this.deps.taskStore.update({ id: taskId, title }));
+        } catch (error) {
+            view.setError(`Could not update task: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async createTaskAttribute(
+        view: TaskDetail,
+        taskId: string,
+        name: string,
+        value: string,
+    ): Promise<void> {
+        if (this.productView !== view || !this.deps.taskStore) return;
+        try {
+            this.deps.store.applyServerTask(
+                await this.deps.taskStore.createAttribute({ taskId, name, value }),
+            );
+        } catch (error) {
+            view.setError(`Could not create attribute: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async updateTaskAttribute(
+        view: TaskDetail,
+        taskId: string,
+        attrId: string,
+        value: string,
+    ): Promise<void> {
+        if (this.productView !== view || !this.deps.taskStore) return;
+        try {
+            this.deps.store.applyServerTask(
+                await this.deps.taskStore.updateAttribute({ taskId, attrId, value }),
+            );
+        } catch (error) {
+            view.setError(`Could not update attribute: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async deleteTaskAttribute(
+        view: TaskDetail,
+        taskId: string,
+        attrId: string,
+    ): Promise<void> {
+        if (this.productView !== view || !this.deps.taskStore) return;
+        try {
+            this.deps.store.applyServerTask(
+                await this.deps.taskStore.deleteAttribute({ taskId, attrId }),
+            );
+        } catch (error) {
+            view.setError(`Could not delete attribute: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async toggleTaskPin(view: TaskDetail, taskId: string): Promise<void> {
+        if (this.productView !== view || !this.deps.taskStore) return;
+        const task = this.deps.store.taskById(taskId);
+        if (!task) return;
+        view.setPending(true);
+        try {
+            this.deps.store.applyServerTask(
+                await this.deps.taskStore.update({ id: task.id, pinned: !task.pinned }),
+            );
+        } catch (error) {
+            view.setError(`Could not update task: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async archiveTask(view: TaskDetail, taskId: string): Promise<void> {
+        if (this.productView !== view || !this.deps.taskStore) return;
+        const task = this.deps.store.taskById(taskId);
+        if (!task) return;
+        const confirmed = await this.askProductConfirm(
+            "Archive task",
+            `Archive ${task.title}? This closes its sessions and active flows.`,
+        );
+        if (!confirmed || this.productView !== view) return;
+        view.setPending(true);
+        try {
+            const archived = await this.deps.taskStore.archive(task.id);
+            this.selectedOwnerState = { kind: "project", projectId: task.projectId };
+            this.showSessions();
+            this.deps.store.applyServerTask(archived);
+        } catch (error) {
+            view.setError(`Could not archive task: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private openTaskCreate(): void {
+        if (this.taskCreate || this.picker || this.confirm) return;
+        let projectId: string;
+        let parentId: string | undefined;
+        if (this.selectedOwnerState.kind === "master") {
+            this.showCommandNotice(" Select a project or top-level task before creating a task.");
+            return;
+        }
+        if (this.selectedOwnerState.kind === "project") {
+            projectId = this.selectedOwnerState.projectId;
+        } else {
+            const task = this.deps.store.taskById(this.selectedOwnerState.taskId);
+            if (!task || task.parentId) {
+                this.showCommandNotice(" Subtasks cannot have child tasks.");
+                return;
+            }
+            projectId = task.projectId;
+            parentId = task.id;
+        }
+        const view = new TaskCreate({
+            renderer: this.deps.renderer,
+            projectId,
+            parentId,
+            onCancel: () => this.closeTaskCreate(view),
+            onSubmit: (payload) => void this.submitTaskCreate(view, payload),
+            onStateChange: () => this.updateFooter(),
+        });
+        this.taskCreate = view;
+        this.root.add(view.renderable);
+        this.deps.renderer.requestRender();
+    }
+
+    private async submitTaskCreate(
+        view: TaskCreate,
+        payload: import("@taskflow/shared").TaskCreatePayload,
+    ): Promise<void> {
+        if (this.taskCreate !== view || !this.deps.taskStore) return;
+        try {
+            const created = await this.deps.taskStore.create(payload);
+            this.selectedOwnerState = {
+                kind: "task",
+                taskId: created.id,
+                projectId: created.projectId,
+            };
+            this.closeTaskCreate(view);
+            this.deps.store.applyServerTask(created);
+            this.openTaskDetail();
+        } catch (error) {
+            view.setError(`Could not create task: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private closeTaskCreate(view: TaskCreate): void {
+        if (this.taskCreate !== view) return;
+        this.taskCreate = null;
+        view.destroy();
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private showCommandNotice(message: string): void {
+        this.statusNotice.content = message;
+        this.statusNotice.visible = true;
         this.updateFooter();
         this.deps.renderer.requestRender();
     }
@@ -923,7 +1182,23 @@ class OpenTuiApp {
 
     private syncProductView(): void {
         const flowStore = this.deps.flowStore;
-        if (this.productView instanceof FlowLibrary && flowStore) {
+        if (this.productView instanceof TaskDetail) {
+            if (this.selectedOwnerState.kind !== "task") {
+                this.showSessions();
+                return;
+            }
+            const task = this.deps.store.taskById(this.selectedOwnerState.taskId);
+            if (!task || task.status !== "active") {
+                this.showSessions();
+                return;
+            }
+            this.productView.update(
+                task,
+                this.deps.store.projectById(task.projectId),
+                resolvedTaskAttributes(task, this.deps.store),
+                this.deps.taskStore?.logsFor(task.id) ?? [],
+            );
+        } else if (this.productView instanceof FlowLibrary && flowStore) {
             this.productView.update(
                 visibleDefinitions(flowStore.flows, this.selectedOwnerState),
                 visibleDefinitions(flowStore.actions, this.selectedOwnerState),
@@ -1136,6 +1411,7 @@ class OpenTuiApp {
         if (this.productConfirm) return this.productConfirm.view.keyHints;
         if (this.confirm) return this.confirm.view.keyHints;
         if (this.picker) return this.picker.view.keyHints;
+        if (this.taskCreate) return this.taskCreate.keyHints;
         if (this.flowInput) return this.flowInput.keyHints;
         if (this.mainView !== "sessions" && this.productView) {
             return this.productView.keyHints;
@@ -1147,8 +1423,17 @@ class OpenTuiApp {
         const hints = ["↑↓ Select"];
         const session = this.sessions[this.activeSession];
         if (session) hints.push("Enter Focus");
+        else if (this.selectedOwnerState.kind === "task") hints.push("Enter Detail");
         if (this.sessions.length > 1) hints.push("1-9 Tabs");
         hints.push("s New");
+        if (this.selectedOwnerState.kind === "task") hints.push("t Task");
+        if (
+            this.selectedOwnerState.kind === "project" ||
+            (this.selectedOwnerState.kind === "task" &&
+                !this.deps.store.taskById(this.selectedOwnerState.taskId)?.parentId)
+        ) {
+            hints.push("n New task");
+        }
         if (session) hints.push("q Close");
         if (session && this.canResume(session) && !this.resumePending.has(session.id)) {
             hints.push("r Resume");
@@ -1301,6 +1586,8 @@ class OpenTuiApp {
         this.keyRouter.clear();
         this.picker?.view.destroy();
         this.picker = null;
+        this.taskCreate?.destroy();
+        this.taskCreate = null;
         this.confirm?.view.destroy();
         this.confirm = null;
         this.flowInput?.destroy();

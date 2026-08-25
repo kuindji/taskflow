@@ -89,6 +89,16 @@ describe("KeyRouter", () => {
             command: { kind: "schedules" },
             before: undefined,
         });
+        expect(router.route("ui", key("t"))).toEqual({
+            kind: "command",
+            command: { kind: "task-detail" },
+            before: undefined,
+        });
+        expect(router.route("ui", key("n"))).toEqual({
+            kind: "command",
+            command: { kind: "task-create" },
+            before: undefined,
+        });
     });
 
     it("adapts Kitty parser fields to OpenTUI physical keys", () => {
