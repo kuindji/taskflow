@@ -186,6 +186,18 @@ class Store {
         return this.taskList;
     }
 
+    projectById(projectId: string): Project | null {
+        return this.projectList.find((project) => project.id === projectId) ?? null;
+    }
+
+    taskById(taskId: string): Task | null {
+        return this.taskList.find((task) => task.id === taskId) ?? null;
+    }
+
+    applyServerTask(task: Task): void {
+        this.apply(() => this.updateTask(task));
+    }
+
     get masterSessions(): readonly SessionRef[] {
         return this.masterSessionList;
     }
