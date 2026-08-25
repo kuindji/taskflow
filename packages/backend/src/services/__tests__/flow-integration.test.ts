@@ -165,7 +165,7 @@ describe("flow lifecycle integration", () => {
         expect(run?.actions[1].status).toBe("pending");
         expect(run?.actions[1].sessionId).toBeUndefined();
         expect(run?.actions.filter((action) => action.status === "running")).toHaveLength(1);
-        expect(closedSessions).toEqual(["session-2"]);
+        expect(closedSessions).toEqual(["session-1", "session-2"]);
     });
 
     test("stop flow marks it as failed", async () => {

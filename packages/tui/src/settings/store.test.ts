@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MSG, type AppSettings } from "@taskflow/shared";
+import { MSG, type AppSettings, type SystemInfo } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 import { SettingsStore } from "./store";
 
@@ -51,7 +51,12 @@ function settings(): AppSettings {
     };
 }
 
-function fakeNet(): NetLike & { requests: Array<{ type: string; payload: unknown }> } {
+function fakeNet(
+    editors: SystemInfo["editors"] = [
+        { id: "vim", name: "Vim", command: "vim", type: "internal" },
+        { id: "zed", name: "Zed", command: "zed", type: "external" },
+    ],
+): NetLike & { requests: Array<{ type: string; payload: unknown }> } {
     const requests: Array<{ type: string; payload: unknown }> = [];
     const current = settings();
     return {
@@ -85,9 +90,7 @@ function fakeNet(): NetLike & { requests: Array<{ type: string; payload: unknown
             }
             if (type === MSG.SYSTEM_INFO) {
                 return {
-                    editors: [
-                        { id: "vim", name: "Vim", command: "vim", type: "external" },
-                    ],
+                    editors,
                     homedir: "/tmp",
                     schedulerEnabled: true,
                 } as T;
@@ -132,6 +135,8 @@ describe("SettingsStore", () => {
         expect(store.choices.agents).toEqual([{ value: "codex", label: "Codex" }]);
         expect(store.choices.runtimes[0]?.value).toBe("bun");
         expect(store.choices.editors[1]).toEqual({ value: "vim", label: "Vim" });
+        expect(store.choices.editors.some((editor) => editor.value === "zed")).toBe(false);
+        expect(store.terminalEditor()).toEqual({ command: '"vim"', name: "Vim" });
         expect(store.choices.models.codex).toEqual([
             { value: "gpt-current", label: "GPT Current" },
         ]);
@@ -139,17 +144,28 @@ describe("SettingsStore", () => {
         store.dispose();
     });
 
+    test("does not fall back to a detected GUI editor", async () => {
+        const net = fakeNet([{ id: "zed", name: "Zed", command: "zed", type: "external" }]);
+        const store = new SettingsStore(net);
+        await store.loadSettings();
+        expect(store.choices.editors).toEqual([
+            { value: "monaco", label: "Automatic terminal editor" },
+        ]);
+        expect(store.terminalEditor()).toBeNull();
+        store.dispose();
+    });
+
     test("saves one partial payload without replacing unrelated settings", async () => {
         const net = fakeNet();
         const store = new SettingsStore(net);
         await store.loadSettings();
-        await store.update({ editor: { externalEditor: "vim" } });
+        await store.update({ editor: { internalEditor: "vim" } });
         expect(net.requests.at(-1)).toEqual({
             type: MSG.SETTINGS_UPDATE,
-            payload: { editor: { externalEditor: "vim" } },
+            payload: { editor: { internalEditor: "vim" } },
         });
         expect(store.settings?.general.defaultRuntime).toBe("bun");
-        expect(store.settings?.editor.externalEditor).toBe("vim");
+        expect(store.settings?.editor.internalEditor).toBe("vim");
         store.dispose();
     });
 });

@@ -277,7 +277,7 @@ describe("jumpToAction", () => {
         expect(run?.actions[0].sessionId).toBe("session-3");
         expect(run?.actions[1].status).toBe("pending");
         expect(run?.actions[1].sessionId).toBeUndefined();
-        expect(closedSessions).toEqual(["session-2"]);
+        expect(closedSessions).toEqual(["session-1", "session-2"]);
     });
 });
 
@@ -828,13 +828,14 @@ describe("session cleanup on completion", () => {
         expect(run?.actions[0].sessionId).toBeUndefined();
     });
 
-    // Regression guard: green before and after — the current runner never closes
-    // on completion. Pins that the close stays scoped to looped runs.
-    test("a non-looped flow leaves the completed step's session open", async () => {
+    test("a non-looped flow closes and clears the completed step's session", async () => {
         await runner.startFlow(taskOwner, testFlow);
-        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
+        const sessionId = spawnedSessions[0].sessionId;
+        await runner.handleActionComplete("task-1", "flow-1", sessionId);
 
-        expect(closedSessions).toEqual([]);
+        expect(closedSessions).toEqual([sessionId]);
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.actions[0].sessionId).toBeUndefined();
     });
 
     test("a looped shell step leaves no session id behind when it auto-completes", async () => {
@@ -1076,6 +1077,25 @@ describe("completeFlow", () => {
         expect(run?.status).toBe("completed");
         expect(closedSessions).toContain(sessionId);
         expect(run?.actions[0].sessionId).toBeUndefined();
+    });
+
+    test("cleans up a stale session retained by an already-completed run", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        const sessionId = spawnedSessions[0].sessionId;
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        if (!run) throw new Error("expected a run");
+        run.status = "completed";
+        run.actions[0].status = "completed";
+        run.actions[0].completedAt = new Date().toISOString();
+        run.completedAt = new Date().toISOString();
+        await flowStore.saveFlowRun(run);
+
+        await runner.completeFlow("task-1", "flow-1", sessionId);
+
+        const cleaned = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(closedSessions).toContain(sessionId);
+        expect(cleaned?.actions[0].sessionId).toBeUndefined();
+        expect(cleaned?.status).toBe("completed");
     });
 
     // The three-step test above uses a looped fixture, so nothing pinned that

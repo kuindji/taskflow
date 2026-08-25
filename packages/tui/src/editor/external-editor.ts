@@ -62,7 +62,7 @@ function defaultExternalEditorDeps(
     return {
         filesystem: { mkdtemp, readFile, rm, writeFile },
         renderer,
-        editor: process.env.EDITOR?.trim() || "vi",
+        editor: "vi",
         tempRoot: tmpdir(),
         blur,
         restoreFocus,

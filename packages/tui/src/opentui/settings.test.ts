@@ -23,7 +23,7 @@ function key(name: string, sequence = name): KeyEvent {
 const settings = {
     general: { defaultAgent: "codex", defaultRuntime: "missing-runtime" },
     terminal: { defaultShell: "system" },
-    editor: { externalEditor: "system" },
+    editor: { internalEditor: "monaco", externalEditor: "system" },
     layout: { panels: { sidebarWidth: 240, collapsedProjectIds: [] } },
     claude: { defaultModel: "default", permissionMode: "default" },
     codex: {
@@ -50,7 +50,7 @@ const choices = {
     agents: [{ value: "codex", label: "Codex" }],
     runtimes: [{ value: "bun", label: "bun 1.4" }],
     shells: [{ value: "system", label: "System default" }],
-    editors: [{ value: "system", label: "System default" }],
+    editors: [{ value: "monaco", label: "Automatic terminal editor" }],
 };
 
 describe("Settings", () => {
@@ -71,6 +71,9 @@ describe("Settings", () => {
         expect(items.find((item) => item.id === "codex-model")?.options[0]?.label).toBe(
             "missing-model (unavailable)",
         );
+        const editor = items.find((item) => item.id === "editor");
+        expect(editor?.label).toBe("Terminal editor");
+        expect(editor?.payload("nvim")).toEqual({ editor: { internalEditor: "nvim" } });
     });
 
     test("cycles a typed choice and saves one minimal payload", async () => {

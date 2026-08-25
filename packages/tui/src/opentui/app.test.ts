@@ -392,6 +392,61 @@ describe("OpenTuiApp", () => {
         test.renderer.destroy();
     });
 
+    it("explains the terminal editor handoff before opening a YAML record", async () => {
+        const test = await createTestRenderer({ width: 100, height: 20, kittyKeyboard: true });
+        const net = new FakeNet();
+        net.responses.set(MSG.SYSTEM_INFO, {
+            editors: [
+                { id: "nvim", name: "Neovim", command: "nvim", type: "internal" },
+                { id: "zed", name: "Zed", command: "zed", type: "external" },
+            ],
+            homedir: "/tmp",
+            schedulerEnabled: true,
+        });
+        net.responses.set(MSG.SETTINGS_GET, fullSettings());
+        net.responses.set(MSG.FLOW_DEFINITIONS_LIST, { flows: [] });
+        net.responses.set(MSG.FLOW_ACTIONS_LIST, { actions: [] });
+        net.responses.set(MSG.FLOW_RUNS_LIST, { runs: [] });
+        net.responses.set(MSG.SCHEDULE_LIST, { schedules: [] });
+        const store = new FakeStore();
+        const flowStore = new FlowStore(net);
+        const scheduleStore = new ScheduleStore(net);
+        const settingsStore = new SettingsStore(net);
+        const edits: string[] = [];
+        const app = new OpenTuiApp({
+            renderer: test.renderer,
+            net,
+            store,
+            flowStore,
+            scheduleStore,
+            settingsStore,
+            onEditRecord: async (kind) => {
+                edits.push(kind);
+            },
+        });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => flowStore.dispose(),
+            () => scheduleStore.dispose(),
+            () => settingsStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+
+        test.mockInput.pressKey("f");
+        test.mockInput.pressKey("n");
+        await Bun.sleep(0);
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Open terminal editor");
+        expect(test.captureCharFrame()).toContain("open flow.yaml in Neovim");
+        expect(test.captureCharFrame()).toContain("close the editor to return to Taskflow");
+        expect(edits).toEqual([]);
+
+        test.mockInput.pressEnter();
+        await Bun.sleep(0);
+        expect(edits).toEqual(["flow"]);
+    });
+
     it("refreshes scheduler ownership after reconnect", async () => {
         const test = await createTestRenderer({ width: 80, height: 18, kittyKeyboard: true });
         const net = new FakeNet();

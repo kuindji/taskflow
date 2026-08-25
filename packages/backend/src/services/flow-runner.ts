@@ -156,32 +156,36 @@ class FlowRunner {
             currentAction.status = "completed";
             currentAction.completedAt = new Date().toISOString();
             this.sessionFlowMap.delete(sessionId);
-
-            if (run.loop) {
-                // A looped run never ends on its own, so a session left open per
-                // step per iteration would accumulate without bound. The mapping
-                // is already deleted above, which makes the async exit inert.
-                currentAction.sessionId = undefined;
-                this.deps.closeSession(sessionId);
-            }
+            currentAction.sessionId = undefined;
+            this.deps.closeSession(sessionId);
 
             await this.advanceOrComplete(run);
         });
     }
 
-    // Ends the run from any step, looped or not. Unlike handleActionComplete,
-    // this always closes the calling session: the run is ending, so there is
-    // nothing left for that session to do — the same thing stopFlow and
-    // failFlow already do via endRun.
+    // Ends the run from any step, looped or not, and closes the calling session.
     async completeFlow(ownerId: string, flowId: string, sessionId: string): Promise<void> {
         return this.withOwnerLock(ownerId, async () => {
             const run = await this.deps.flowStore.getFlowRun(ownerId, flowId);
-            if (!run || run.status !== "running") return;
+            if (!run) return;
 
             // Only the session running the current step may end the flow, so a
             // stale session cannot kill a live run.
             const currentAction = run.actions[run.currentActionIndex];
             if (!currentAction || currentAction.sessionId !== sessionId) return;
+
+            // Older finite runs could complete without closing or clearing their
+            // final session. Let that session clean itself up if it later calls
+            // flow complete.
+            if (run.status === "completed") {
+                this.sessionFlowMap.delete(sessionId);
+                this.deps.closeSession(sessionId);
+                currentAction.sessionId = undefined;
+                await this.deps.flowStore.saveFlowRun(run);
+                this.broadcastUpdate(run);
+                return;
+            }
+            if (run.status !== "running") return;
 
             await this.endRun(run, {
                 status: "completed",

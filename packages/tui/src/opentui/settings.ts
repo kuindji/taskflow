@@ -78,8 +78,8 @@ function settingsItems(
         item("shell", "Default shell", settings.terminal.defaultShell, choices.shells, (value) => ({
             terminal: { defaultShell: value },
         })),
-        item("editor", "External editor", settings.editor.externalEditor, choices.editors, (value) => ({
-            editor: { externalEditor: value },
+        item("editor", "Terminal editor", settings.editor.internalEditor, choices.editors, (value) => ({
+            editor: { internalEditor: value },
         })),
         item(
             "sidebar-width",

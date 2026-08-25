@@ -121,13 +121,18 @@ async function main(): Promise<void> {
         const actionRunner = new ActionRunner(net, controller);
 
         const externalEditorDeps = () => {
+            const editor = settingsStore?.terminalEditor();
+            if (!editor) {
+                throw new Error(
+                    "No terminal editor found. Install Neovim, Nano, Vim, Vi, or another terminal editor.",
+                );
+            }
             const deps = defaultExternalEditorDeps(
                 renderer,
                 () => app?.blurForEditor(),
                 () => app?.restoreAfterEditor(),
             );
-            const configured = settingsStore?.editorCommand();
-            if (configured) deps.editor = configured;
+            deps.editor = editor.command;
             return deps;
         };
 

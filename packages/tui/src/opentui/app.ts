@@ -1027,6 +1027,7 @@ class OpenTuiApp {
         if (this.productView !== view || !this.deps.onEditTaskText) return;
         const task = this.deps.store.taskById(taskId);
         if (!task) return;
+        if (!(await this.confirmTerminalEditor(`${field}.txt`))) return;
         view.setPending(true);
         try {
             const updated = await this.deps.onEditTaskText(task, field);
@@ -1510,14 +1511,12 @@ class OpenTuiApp {
         record: FlowDefinition | ActionDefinition | null,
     ): Promise<void> {
         if (!this.deps.onEditRecord) return;
+        const kind = tab === "flows" ? "flow" : "action";
+        if (!(await this.confirmTerminalEditor(`${kind}.yaml`))) return;
         const library = this.productView instanceof FlowLibrary ? this.productView : null;
         library?.setPending(true);
         try {
-            await this.deps.onEditRecord(
-                tab === "flows" ? "flow" : "action",
-                record,
-                this.selectedOwnerState,
-            );
+            await this.deps.onEditRecord(kind, record, this.selectedOwnerState);
             library?.setPending(false);
         } catch (error) {
             library?.setError(this.errorMessage(error));
@@ -1601,7 +1600,23 @@ class OpenTuiApp {
 
     private async editSchedule(schedule: Schedule | null): Promise<void> {
         if (!this.deps.onEditRecord) return;
+        if (!(await this.confirmTerminalEditor("schedule.yaml"))) return;
         await this.deps.onEditRecord("schedule", schedule, this.selectedOwnerState);
+    }
+
+    private async confirmTerminalEditor(filename: string): Promise<boolean> {
+        const editor = this.deps.settingsStore?.terminalEditor();
+        if (this.deps.settingsStore && !editor) {
+            await this.askProductConfirm(
+                "Terminal editor unavailable",
+                "Taskflow could not find a terminal editor. Install Neovim, Nano, Vim, Vi, or another terminal editor, then try again.",
+            );
+            return false;
+        }
+        return this.askProductConfirm(
+            "Open terminal editor",
+            `Taskflow will pause and open ${filename} in ${editor?.name ?? "your terminal editor"}. Save and close the editor to return to Taskflow.`,
+        );
     }
 
     private askProductConfirm(title: string, message: string): Promise<boolean> {

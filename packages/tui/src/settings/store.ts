@@ -19,6 +19,11 @@ interface Choice {
     label: string;
 }
 
+interface TerminalEditor {
+    command: string;
+    name: string;
+}
+
 interface SettingsChoices {
     agents: Choice[];
     runtimes: Choice[];
@@ -41,6 +46,18 @@ const EMPTY_CHOICES: SettingsChoices = {
     models: { codex: [], opencode: [], pi: [], kimi: [] },
     systemInfo: null,
 };
+
+const AUTOMATIC_TERMINAL_EDITOR = "monaco";
+const TERMINAL_EDITOR_PREFERENCE = ["nvim", "nano", "vim", "vi"];
+
+function editorChoices(systemInfo: SystemInfo): Choice[] {
+    return [
+        { value: AUTOMATIC_TERMINAL_EDITOR, label: "Automatic terminal editor" },
+        ...systemInfo.editors
+            .filter((editor) => editor.type === "internal")
+            .map((editor) => ({ value: editor.id, label: editor.name })),
+    ];
+}
 
 class SettingsStore {
     private settingsSnapshot: AppSettings | null = null;
@@ -79,27 +96,32 @@ class SettingsStore {
         this.settingsSnapshot = settings;
         this.choiceSnapshot = {
             ...this.choiceSnapshot,
-            editors: [
-                { value: "system", label: "System default" },
-                ...systemInfo.editors
-                    .filter((editor) => editor.type === "external")
-                    .map((editor) => ({ value: editor.id, label: editor.name })),
-            ],
+            editors: editorChoices(systemInfo),
             systemInfo,
         };
         this.notify();
     }
 
-    editorCommand(): string | null {
-        const configured = this.settingsSnapshot?.editor.externalEditor;
-        if (!configured || configured === "system") return null;
-        const editor = this.choiceSnapshot.systemInfo?.editors.find(
-            (candidate) => candidate.id === configured && candidate.type === "external",
-        );
+    terminalEditor(): TerminalEditor | null {
+        const editors =
+            this.choiceSnapshot.systemInfo?.editors.filter(
+                (candidate) => candidate.type === "internal",
+            ) ?? [];
+        const configured = this.settingsSnapshot?.editor.internalEditor;
+        const selected = editors.find((candidate) => candidate.id === configured);
+        const editor =
+            selected ??
+            TERMINAL_EDITOR_PREFERENCE.map((id) =>
+                editors.find((candidate) => candidate.id === id),
+            ).find((candidate) => candidate !== undefined) ??
+            editors[0];
         if (!editor) return null;
-        return [editor.command, ...(editor.extraArgs ?? [])]
-            .map((part) => JSON.stringify(part))
-            .join(" ");
+        return {
+            command: [editor.command, ...(editor.extraArgs ?? [])]
+                .map((part) => JSON.stringify(part))
+                .join(" "),
+            name: editor.name,
+        };
     }
 
     async load(): Promise<void> {
@@ -139,12 +161,7 @@ class SettingsStore {
                 { value: "system", label: "System default" },
                 ...shells.shells.map((shell) => ({ value: shell.path, label: shell.name })),
             ],
-            editors: [
-                { value: "system", label: "System default" },
-                ...systemInfo.editors
-                    .filter((editor) => editor.type === "external")
-                    .map((editor) => ({ value: editor.id, label: editor.name })),
-            ],
+            editors: editorChoices(systemInfo),
             models: {
                 codex:
                     codex?.models
@@ -188,4 +205,4 @@ class SettingsStore {
 }
 
 export { EMPTY_CHOICES, SettingsStore };
-export type { Choice, SettingsChoices };
+export type { Choice, SettingsChoices, TerminalEditor };

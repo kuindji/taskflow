@@ -5,6 +5,7 @@ const INTERNAL_EDITORS: EditorInfo[] = [
     { id: "nvim", name: "Neovim", command: "nvim", type: "internal", lineFlag: "+{line}" },
     { id: "vim", name: "Vim", command: "vim", type: "internal", lineFlag: "+{line}" },
     { id: "nano", name: "Nano", command: "nano", type: "internal", lineFlag: "+{line}" },
+    { id: "vi", name: "Vi", command: "vi", type: "internal", lineFlag: "+{line}" },
     { id: "helix", name: "Helix", command: "hx", type: "internal", lineFlag: "{file}:{line}" },
     { id: "micro", name: "Micro", command: "micro", type: "internal", lineFlag: "+{line}" },
     {
