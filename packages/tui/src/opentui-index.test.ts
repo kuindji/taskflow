@@ -1,5 +1,21 @@
 import { describe, expect, it } from "bun:test";
 import { readFile } from "fs/promises";
+import type { ActionDefinition } from "@taskflow/shared";
+import { editorActions } from "./opentui/entry";
+
+const timestamp = "2026-08-25T00:00:00.000Z";
+
+function action(id: string, projectId?: string): ActionDefinition {
+    return {
+        id,
+        projectId,
+        name: id,
+        prompt: "echo ok",
+        sessionType: "shell",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
+}
 
 describe("TUI entry point", () => {
     it("reports CLI errors before touching the terminal", async () => {
@@ -22,5 +38,16 @@ describe("TUI entry point", () => {
         const source = await readFile(new URL("./opentui/entry.ts", import.meta.url), "utf-8");
         expect(source).toContain("new SessionController");
         expect(source).not.toContain("sessions: []");
+    });
+
+    it("keeps master flow editing global while schedule editing can resolve project actions", () => {
+        const actions = [action("global"), action("project", "p1")];
+        const owner = { kind: "master" } as const;
+
+        expect(editorActions("flow", actions, owner).map((item) => item.id)).toEqual(["global"]);
+        expect(editorActions("schedule", actions, owner).map((item) => item.id)).toEqual([
+            "global",
+            "project",
+        ]);
     });
 });

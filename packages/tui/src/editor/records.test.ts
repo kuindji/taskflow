@@ -3,6 +3,7 @@ import type { ActionDefinition, Schedule } from "@taskflow/shared";
 import {
     actionRecord,
     flowRecord,
+    newScheduleDraft,
     parseActionDraft,
     parseFlowDraft,
     parseScheduleDraft,
@@ -27,6 +28,18 @@ const context = { projectId: "p1", visibleActions: [visibleAction] };
 const metadata = { now: () => now, uuid: () => "generated-id" };
 
 describe("record YAML", () => {
+    it("provides a backend-valid disabled rate schedule draft", () => {
+        expect(newScheduleDraft("p1")).toEqual({
+            projectId: "p1",
+            name: "New schedule",
+            prompt: "Describe the scheduled task",
+            expression: "rate(1 hour)",
+            expressionType: "rate",
+            timeout: 30,
+            enabled: false,
+        });
+    });
+
     it("validates action fields and agent option type matching", () => {
         const draft = parseActionDraft(
             "projectId: p1\nname: Review\nprompt: Check it\nsessionType: codex\nagentOptions:\n  type: codex\n  reasoningEffort: high\nstandalone: true\n",

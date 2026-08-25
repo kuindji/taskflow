@@ -82,6 +82,18 @@ const defaultMetadataFactory: MetadataFactory = {
     uuid: () => randomUUID(),
 };
 
+function newScheduleDraft(projectId: string): ScheduleDraft {
+    return {
+        projectId,
+        name: "New schedule",
+        prompt: "Describe the scheduled task",
+        expression: "rate(1 hour)",
+        expressionType: "rate",
+        timeout: 30,
+        enabled: false,
+    };
+}
+
 function validateProjectId(
     value: unknown,
     context: RecordValidationContext,
@@ -384,6 +396,7 @@ function serializeSchedule(recordValue: ScheduleDraft | Schedule, creating: bool
 export {
     actionRecord,
     flowRecord,
+    newScheduleDraft,
     parseActionDraft,
     parseFlowDraft,
     parseScheduleDraft,

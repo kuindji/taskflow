@@ -11,6 +11,7 @@ import { ScheduleStore } from "../schedules/store";
 import {
     actionRecord,
     flowRecord,
+    newScheduleDraft,
     parseActionDraft,
     parseFlowDraft,
     parseScheduleDraft,
@@ -24,6 +25,14 @@ import type { ActionDefinition, FlowDefinition, Schedule } from "@taskflow/share
 import { OpenTuiApp } from "./app";
 import { OpenTuiRuntimeOwner } from "./runtime";
 import { SessionBridge } from "./session-bridge";
+
+function editorActions(
+    kind: "flow" | "action" | "schedule",
+    actions: readonly ActionDefinition[],
+    owner: SessionOwner,
+): ActionDefinition[] {
+    return kind === "schedule" ? [...actions] : visibleDefinitions(actions, owner);
+}
 
 async function main(): Promise<void> {
     const options = parseArgs(process.argv.slice(2));
@@ -101,10 +110,7 @@ async function main(): Promise<void> {
             const activeFlowStore = flowStore;
             const activeScheduleStore = scheduleStore;
             const projectId = ownerProjectId(sessionOwner);
-            const visibleActions =
-                sessionOwner.kind === "master"
-                    ? [...activeFlowStore.actions]
-                    : visibleDefinitions(activeFlowStore.actions, sessionOwner);
+            const visibleActions = editorActions(kind, activeFlowStore.actions, sessionOwner);
             const context = {
                 projectId,
                 projectIds: store?.projects.map((project) => project.id) ?? [],
@@ -175,17 +181,7 @@ async function main(): Promise<void> {
             const createProjectId = projectId ?? store?.projects[0]?.id;
             if (!existing && !createProjectId)
                 throw new Error("Create a project before adding a schedule");
-            const initial =
-                existing ??
-                ({
-                    projectId: createProjectId,
-                    name: "New schedule",
-                    prompt: "Describe the scheduled task",
-                    expression: "1h",
-                    expressionType: "rate",
-                    timeout: 30,
-                    enabled: false,
-                } as const);
+            const initial = existing ?? newScheduleDraft(createProjectId as string);
             const scheduleContext = {
                 ...context,
                 projectId: existing?.projectId ?? projectId,
@@ -250,4 +246,4 @@ async function main(): Promise<void> {
     }
 }
 
-export { main };
+export { editorActions, main };
