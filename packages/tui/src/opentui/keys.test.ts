@@ -109,6 +109,11 @@ describe("KeyRouter", () => {
             command: { kind: "settings" },
             before: undefined,
         });
+        expect(router.route("ui", key("1", { shift: true, sequence: "!" }))).toEqual({
+            kind: "command",
+            command: { kind: "notifications" },
+            before: undefined,
+        });
     });
 
     it("adapts Kitty parser fields to OpenTUI physical keys", () => {

@@ -11,6 +11,8 @@ import { ScheduleStore } from "../schedules/store";
 import { TaskDetailStore } from "../tasks/store";
 import { GitStore } from "../git/store";
 import { SettingsStore } from "../settings/store";
+import { NotificationStore } from "../notifications/store";
+import { deliverNativeNotification } from "../notifications/deliver";
 import {
     actionRecord,
     flowRecord,
@@ -48,6 +50,7 @@ async function main(): Promise<void> {
     let taskDetailStore: TaskDetailStore | null = null;
     let gitStore: GitStore | null = null;
     let settingsStore: SettingsStore | null = null;
+    let notificationStore: NotificationStore | null = null;
     let finishing = false;
 
     const finish = async (code: number): Promise<void> => {
@@ -61,6 +64,7 @@ async function main(): Promise<void> {
         taskDetailStore?.dispose();
         gitStore?.dispose();
         settingsStore?.dispose();
+        notificationStore?.dispose();
         await owner.shutdown();
         process.exit(code);
     };
@@ -89,6 +93,9 @@ async function main(): Promise<void> {
         taskDetailStore = new TaskDetailStore(net);
         gitStore = new GitStore(net);
         settingsStore = new SettingsStore(net);
+        notificationStore = new NotificationStore(net, (notification) =>
+            deliverNativeNotification(notification),
+        );
         controller = new SessionController({
             createBridge: (session, sessionOwner) => {
                 const pane = app?.paneDimensions ?? {
@@ -251,6 +258,7 @@ async function main(): Promise<void> {
             taskStore: taskDetailStore,
             gitStore,
             settingsStore,
+            notificationStore,
             onOwnerChange: (sessionOwner, sessions) =>
                 controller?.reconcile(sessionOwner, sessions),
             onSessionSelect: (sessionId) => controller?.select(sessionId),
@@ -284,6 +292,7 @@ async function main(): Promise<void> {
         taskDetailStore?.dispose();
         gitStore?.dispose();
         settingsStore?.dispose();
+        notificationStore?.dispose();
         await owner.shutdown();
         const message = error instanceof Error ? error.stack || error.message : String(error);
         process.stderr.write(`${message}\n`);

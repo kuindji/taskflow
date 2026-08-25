@@ -15,6 +15,7 @@ import { ScheduleStore } from "../schedules/store";
 import { TaskDetailStore } from "../tasks/store";
 import { GitStore } from "../git/store";
 import { SettingsStore } from "../settings/store";
+import { NotificationStore } from "../notifications/store";
 import type { SessionOwner } from "../sessions/owner";
 import { OpenTuiApp, cleanLabel, type SessionBridgeLike, type StoreLike } from "./app";
 
@@ -725,6 +726,51 @@ describe("OpenTuiApp", () => {
         expect(app.selectedOwner).toEqual({ kind: "project", projectId: "p1" });
         expect(test.captureCharFrame()).not.toContain("Hidden task");
         expect(app.paneDimensions).toEqual({ cols: 58, rows: 20 });
+    });
+
+    it("shows unread notifications and navigates to their task owner", async () => {
+        const test = await createTestRenderer({ width: 120, height: 24, kittyKeyboard: true });
+        const net = new FakeNet();
+        net.responses.set(MSG.NOTIFICATION_LIST, {
+            notifications: [
+                {
+                    id: "n1",
+                    projectId: "p1",
+                    taskId: "t1",
+                    sessionId: "missing-session",
+                    message: "Task finished",
+                    read: false,
+                    createdAt: "2026-08-25T12:00:00.000Z",
+                },
+            ],
+        });
+        net.responses.set(MSG.NOTIFICATION_UPDATED, { success: true });
+        const store = new FakeStore();
+        store.projects = [project("p1", "Project")];
+        store.tasks = [task("t1", "p1", "Task")];
+        const notificationStore = new NotificationStore(net);
+        const app = new OpenTuiApp({
+            renderer: test.renderer,
+            net,
+            store,
+            notificationStore,
+        });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => notificationStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Notifications (1)");
+        test.mockInput.pressKey("!");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Task finished");
+        test.mockInput.pressEnter();
+        expect(app.selectedOwner).toEqual({ kind: "task", taskId: "t1", projectId: "p1" });
+        expect(net.requests.filter((request) => request.type === MSG.NOTIFICATION_UPDATED)).toEqual([
+            { type: MSG.NOTIFICATION_UPDATED, payload: { id: "n1" } },
+        ]);
     });
 
     it("focuses the main session with Enter and l from UI focus", async () => {

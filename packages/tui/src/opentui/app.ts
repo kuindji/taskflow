@@ -13,6 +13,7 @@ import type {
     AgentListResponse,
     AppSettings,
     Project,
+    Notification,
     SessionCreatePayload,
     SessionCreateResponse,
     SessionRef,
@@ -29,6 +30,7 @@ import type { ScheduleStore } from "../schedules/store";
 import type { GitStore } from "../git/store";
 import type { GitChange } from "../git/model";
 import type { SettingsStore } from "../settings/store";
+import type { NotificationStore } from "../notifications/store";
 import type { NetLike } from "../net/client";
 import {
     repositoryPathForOwner,
@@ -60,6 +62,7 @@ import { Schedules } from "./schedules";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 import { SessionPicker } from "./session-picker";
 import { Settings } from "./settings";
+import { Notifications } from "./notifications";
 import { TaskCreate } from "./task-create";
 import { TaskDetail } from "./task-detail";
 import { KeyRouter, prepareForEmbeddedTerminal, type FocusTarget, type UiCommand } from "./keys";
@@ -110,6 +113,7 @@ interface OpenTuiAppDeps {
     taskStore?: TaskDetailStore;
     gitStore?: GitStore;
     settingsStore?: SettingsStore;
+    notificationStore?: NotificationStore;
     onRunAction?: (owner: SessionOwner, action: ActionDefinition) => Promise<string>;
     onEditRecord?: (
         kind: "flow" | "action" | "schedule",
@@ -215,6 +219,7 @@ class OpenTuiApp {
         | "task-detail"
         | "git-changes"
         | "settings"
+        | "notifications"
         | "flow-library"
         | "flow-run"
         | "schedules" = "sessions";
@@ -222,6 +227,7 @@ class OpenTuiApp {
         | TaskDetail
         | GitChanges
         | Settings
+        | Notifications
         | FlowLibrary
         | FlowRun
         | Schedules
@@ -392,6 +398,14 @@ class OpenTuiApp {
                 }),
             );
         }
+        if (this.deps.notificationStore) {
+            this.disposers.push(
+                this.deps.notificationStore.onChange(() => {
+                    this.syncProductView();
+                    this.updateFooter();
+                }),
+            );
+        }
         this.disposers.push(
             this.deps.net.on(MSG.SYSTEM_CLIENTS, (payload) => {
                 this.clientsBroadcast = true;
@@ -422,6 +436,7 @@ class OpenTuiApp {
         const loads: Promise<void>[] = [];
         if (this.deps.flowStore) loads.push(this.deps.flowStore.loadDefinitions());
         if (this.deps.settingsStore) loads.push(this.deps.settingsStore.loadSettings());
+        if (this.deps.notificationStore) loads.push(this.deps.notificationStore.load());
         loads.push(this.loadOwnerProducts());
         await Promise.all(loads);
     }
@@ -795,6 +810,9 @@ class OpenTuiApp {
             case "settings":
                 this.openSettings();
                 break;
+            case "notifications":
+                this.openNotifications();
+                break;
             case "zoom":
                 this.zoomed = !this.zoomed;
                 this.applyLayout();
@@ -810,7 +828,14 @@ class OpenTuiApp {
     }
 
     private mountProduct(
-        view: TaskDetail | GitChanges | Settings | FlowLibrary | FlowRun | Schedules,
+        view:
+            | TaskDetail
+            | GitChanges
+            | Settings
+            | Notifications
+            | FlowLibrary
+            | FlowRun
+            | Schedules,
         kind: typeof this.mainView,
     ): void {
         this.productView?.destroy();
@@ -1083,6 +1108,80 @@ class OpenTuiApp {
             await this.deps.settingsStore.update(payload);
         } catch (error) {
             view.setError(`Could not save setting: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private openNotifications(): void {
+        const store = this.deps.notificationStore;
+        if (!store) return;
+        const view = new Notifications({
+            renderer: this.deps.renderer,
+            notifications: store.notifications,
+            onOpen: (notification) => this.navigateNotification(notification),
+            onMarkRead: (notification) => void this.markNotificationRead(view, notification),
+            onMarkAllRead: () => void this.markAllNotificationsRead(view),
+            onClearRead: () => void this.clearReadNotifications(view),
+            onClose: () => this.showSessions(),
+            onStateChange: () => this.updateFooter(),
+        });
+        this.mountProduct(view, "notifications");
+    }
+
+    private async markNotificationRead(
+        view: Notifications,
+        notification: Notification,
+    ): Promise<void> {
+        if (this.productView !== view || !this.deps.notificationStore) return;
+        if (notification.read) return;
+        view.setPending(true);
+        try {
+            await this.deps.notificationStore.markRead(notification.id);
+        } catch (error) {
+            view.setError(`Could not mark notification read: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async markAllNotificationsRead(view: Notifications): Promise<void> {
+        if (this.productView !== view || !this.deps.notificationStore) return;
+        view.setPending(true);
+        try {
+            await this.deps.notificationStore.markAllRead();
+            if (this.deps.notificationStore.unreadCount === 0) view.setPending(false);
+        } catch (error) {
+            view.setError(`Could not mark notifications read: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private async clearReadNotifications(view: Notifications): Promise<void> {
+        if (this.productView !== view || !this.deps.notificationStore) return;
+        view.setPending(true);
+        try {
+            await this.deps.notificationStore.clearRead();
+            view.setPending(false);
+        } catch (error) {
+            view.setError(`Could not clear notifications: ${this.errorMessage(error)}`);
+        }
+    }
+
+    private navigateNotification(notification: Notification): void {
+        if (!notification.read) void this.deps.notificationStore?.markRead(notification.id);
+        const task = notification.taskId
+            ? this.deps.store.taskById(notification.taskId)
+            : null;
+        if (task?.status === "active") {
+            this.selectedOwnerState = {
+                kind: "task",
+                taskId: task.id,
+                projectId: task.projectId,
+            };
+        } else if (this.deps.store.projectById(notification.projectId)) {
+            this.selectedOwnerState = { kind: "project", projectId: notification.projectId };
+        }
+        this.refreshRows(true);
+        this.showSessions();
+        if (this.deps.onFocusSession?.(notification.sessionId)) {
+            this.focusTarget = "session";
+            this.updateSessionVisibility();
         }
     }
 
@@ -1460,6 +1559,8 @@ class OpenTuiApp {
                 },
                 this.deps.store.projects,
             );
+        } else if (this.productView instanceof Notifications) {
+            this.productView.update(this.deps.notificationStore?.notifications ?? []);
         } else if (this.productView instanceof FlowLibrary && flowStore) {
             this.productView.update(
                 visibleDefinitions(flowStore.flows, this.selectedOwnerState),
@@ -1705,6 +1806,10 @@ class OpenTuiApp {
         if (this.deps.scheduleStore) hints.push("c Schedules");
         if (repositoryPathForOwner(this.selectedOwnerState, this.deps.store)) hints.push("g Git");
         if (this.deps.settingsStore) hints.push(", Settings");
+        if (this.deps.notificationStore) {
+            const unread = this.deps.notificationStore.unreadCount;
+            hints.push(`! Notifications${unread > 0 ? ` (${String(unread)})` : ""}`);
+        }
         hints.push("z Zoom");
         if (this.deps.onQuit) hints.push("Q Quit");
         return ` ${hints.join("  ")}`;
