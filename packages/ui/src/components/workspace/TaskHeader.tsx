@@ -99,7 +99,8 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
     const updateTask = useTaskStore((s) => s.updateTask);
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const requestNewSubtask = useTaskCreationStore((s) => s.requestNewSubtask);
-    const hideProject = useProjectStore((s) => s.hideProject);
+    const archiveProject = useProjectStore((s) => s.archiveProject);
+    const unarchiveProject = useProjectStore((s) => s.unarchiveProject);
     const removeProject = useProjectStore((s) => s.removeProject);
     const [removeOpen, setRemoveOpen] = useState(false);
 
@@ -212,6 +213,11 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
         requestNewTask(project.id);
     }, [project, requestNewTask]);
 
+    const handleToggleProjectArchive = useCallback(() => {
+        if (!project) return;
+        void (project.hidden ? unarchiveProject(project.id) : archiveProject(project.id));
+    }, [archiveProject, project, unarchiveProject]);
+
     const handleToggleSplit = useCallback(() => {
         const workspaceKey = task ? `task:${task.id}` : project ? `project:${project.id}` : null;
         if (!workspaceKey) return;
@@ -274,17 +280,22 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
                     { id: "create-task", label: "Create task" },
                     { id: "fork-project", label: "Fork project" },
                     { type: "separator" },
+                    {
+                        id: "toggle-project-archive",
+                        label: project.hidden ? "Unarchive project" : "Archive project",
+                    },
                     { id: "delete-project", label: "Delete project" },
                 ],
                 {
                     "create-task": handleCreateProjectTask,
                     "fork-project": () => setForkOpen(true),
+                    "toggle-project-archive": handleToggleProjectArchive,
                     "delete-project": handleDelete,
                 },
                 getElementMenuPosition(target, "end"),
             );
         },
-        [handleCreateProjectTask, handleDelete, project],
+        [handleCreateProjectTask, handleDelete, handleToggleProjectArchive, project],
     );
 
     return (
@@ -548,6 +559,14 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
                                         Fork project
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
+                                    <DropdownMenuItem onSelect={handleToggleProjectArchive}>
+                                        {project.hidden ? (
+                                            <ArchiveRestore className="h-4 w-4" />
+                                        ) : (
+                                            <Archive className="h-4 w-4" />
+                                        )}
+                                        {project.hidden ? "Unarchive project" : "Archive project"}
+                                    </DropdownMenuItem>
                                     <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
                                         <Trash2 className="h-4 w-4" />
                                         Delete project
@@ -599,7 +618,7 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
                     project={project}
                     onOpenChange={setRemoveOpen}
                     onRemove={removeProject}
-                    onHide={hideProject}
+                    onArchive={archiveProject}
                 />
             )}
         </Toolbar>

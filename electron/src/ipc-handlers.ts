@@ -11,6 +11,7 @@ interface IpcHandlersDeps {
     setRendererTrayState: (status: TrayState) => void;
     updateTrayIcon: () => void;
     setShowArchiveChecked: (value: boolean) => void;
+    setShowArchivedProjectsChecked: (value: boolean) => void;
     setCompactSidebarChecked: (value: boolean) => void;
     setFileExplorerChecked: (value: boolean) => void;
     setTaskInfoChecked: (value: boolean) => void;
@@ -256,6 +257,10 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
 
     ipcMain.on("archive-state-changed", (_event, showArchive: boolean) => {
         deps.setShowArchiveChecked(showArchive);
+    });
+
+    ipcMain.on("archived-projects-state-changed", (_event, showArchivedProjects: boolean) => {
+        deps.setShowArchivedProjectsChecked(showArchivedProjects);
     });
 
     ipcMain.on("compact-sidebar-changed", (_event, compact: boolean) => {

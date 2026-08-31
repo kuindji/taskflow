@@ -10,6 +10,7 @@ let manualCheckInProgress = false;
 let downloadedVersion: string | null = null;
 let downloadingVersion: string | null = null;
 let showArchiveChecked = false;
+let showArchivedProjectsChecked = false;
 let compactSidebarChecked = false;
 let fileExplorerChecked = false;
 let taskInfoChecked = false;
@@ -48,6 +49,15 @@ function setShowArchiveChecked(value: boolean): void {
     showArchiveChecked = value;
     const menu = Menu.getApplicationMenu();
     const item = menu?.getMenuItemById("toggle-archive");
+    if (item) {
+        item.checked = value;
+    }
+}
+
+function setShowArchivedProjectsChecked(value: boolean): void {
+    showArchivedProjectsChecked = value;
+    const menu = Menu.getApplicationMenu();
+    const item = menu?.getMenuItemById("show-archived-projects");
     if (item) {
         item.checked = value;
     }
@@ -209,6 +219,15 @@ function buildAppMenu(): void {
                     },
                 },
                 {
+                    id: "show-archived-projects",
+                    label: "Show Archived Projects",
+                    type: "checkbox",
+                    checked: showArchivedProjectsChecked,
+                    click: () => {
+                        sendToMainWindow("toggle-archived-projects");
+                    },
+                },
+                {
                     id: "compact-sidebar",
                     label: "Compact Sidebar",
                     type: "checkbox",
@@ -351,6 +370,7 @@ export {
     getDownloadingVersion,
     setDownloadingVersion,
     setShowArchiveChecked,
+    setShowArchivedProjectsChecked,
     setCompactSidebarChecked,
     setFileExplorerChecked,
     setTaskInfoChecked,

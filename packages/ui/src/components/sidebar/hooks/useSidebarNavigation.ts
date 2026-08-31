@@ -11,9 +11,12 @@ function handleSidebarNumber(n: number) {
     if (!sidebarFocusedItem) return;
 
     if (sidebarFocusedItem.type === "project") {
-        const { projects } = useProjectStore.getState();
-        if (n > projects.length) return;
-        const target = projects[n - 1];
+        const { projects, showArchivedProjects } = useProjectStore.getState();
+        const visibleProjects = projects.filter(
+            (project) => !project.hidden || showArchivedProjects,
+        );
+        if (n > visibleProjects.length) return;
+        const target = visibleProjects[n - 1];
         useUIStore.getState().setActiveProject(target.id);
         useTaskStore.getState().setActiveTask(null);
         useUIStore.getState().setSidebarFocusedItem({ type: "project", id: target.id });
@@ -35,7 +38,8 @@ function handleSidebarNumber(n: number) {
 
 function handleSidebarArrow(key: string) {
     const { sidebarFocusedItem, collapsedProjectIds } = useUIStore.getState();
-    const { projects } = useProjectStore.getState();
+    const { projects, showArchivedProjects } = useProjectStore.getState();
+    const visibleProjects = projects.filter((project) => !project.hidden || showArchivedProjects);
     const { tasks } = useTaskStore.getState();
 
     if (key === "ArrowLeft") {
@@ -63,7 +67,7 @@ function handleSidebarArrow(key: string) {
 
     // ArrowUp / ArrowDown — build flat list of visible items
     const visibleItems: Array<{ type: "project" | "task"; id: string }> = [];
-    for (const project of projects) {
+    for (const project of visibleProjects) {
         visibleItems.push({ type: "project", id: project.id });
         if (!collapsedProjectIds.includes(project.id)) {
             const projectTasks = tasks.filter((t) => t.projectId === project.id && !t.parentId);

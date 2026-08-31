@@ -10,7 +10,16 @@ import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { MissingLocationDialog } from "./MissingLocationDialog";
-import { AlertTriangle, ChevronRight, GitFork, Play, Plus, Trash2 } from "lucide-react";
+import {
+    AlertTriangle,
+    Archive,
+    ArchiveRestore,
+    ChevronRight,
+    GitFork,
+    Play,
+    Plus,
+    Trash2,
+} from "lucide-react";
 import { KeyBadge } from "@/components/ui/key-badge";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
@@ -88,7 +97,8 @@ export function ProjectGroup({
     const [removeOpen, setRemoveOpen] = useState(false);
     const [contextMenuOpen, setContextMenuOpen] = useState(false);
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
-    const hideProject = useProjectStore((s) => s.hideProject);
+    const archiveProject = useProjectStore((s) => s.archiveProject);
+    const unarchiveProject = useProjectStore((s) => s.unarchiveProject);
     const removeProject = useProjectStore((s) => s.removeProject);
     const nativeMenus = supportsNativeMenus();
     const runMenu = useRunMenu({
@@ -193,6 +203,10 @@ export function ProjectGroup({
         requestNewTask(project.id);
     };
 
+    const handleToggleProjectArchive = () => {
+        return project.hidden ? unarchiveProject(project.id) : archiveProject(project.id);
+    };
+
     const handleNativeContextMenu = async (event: MouseEvent<HTMLDivElement>) => {
         event.preventDefault();
         setContextMenuOpen(true);
@@ -218,11 +232,16 @@ export function ProjectGroup({
                           ]
                         : []),
                     { type: "separator" },
+                    {
+                        id: "toggle-project-archive",
+                        label: project.hidden ? "Unarchive project" : "Archive project",
+                    },
                     { id: "delete-project", label: "Delete project" },
                 ],
                 {
                     "create-task": handleCreateTask,
                     "fork-project": () => setForkOpen(true),
+                    "toggle-project-archive": handleToggleProjectArchive,
                     "delete-project": () => setRemoveOpen(true),
                     ...runActions,
                 },
@@ -293,6 +312,12 @@ export function ProjectGroup({
                         )}>
                         {project.name}
                     </span>
+                    {project.hidden && (
+                        <Archive
+                            aria-label="Archived project"
+                            className="text-muted-foreground h-3.5 w-3.5 shrink-0"
+                        />
+                    )}
                     {!locationInvalid && branch && (
                         <span className="text-foreground/40 min-w-0 truncate text-xs">
                             ({branch})
@@ -386,6 +411,14 @@ export function ProjectGroup({
                                 </>
                             )}
                             <ContextMenuSeparator />
+                            <ContextMenuItem onSelect={handleToggleProjectArchive}>
+                                {project.hidden ? (
+                                    <ArchiveRestore className="h-4 w-4" />
+                                ) : (
+                                    <Archive className="h-4 w-4" />
+                                )}
+                                {project.hidden ? "Unarchive project" : "Archive project"}
+                            </ContextMenuItem>
                             <ContextMenuItem
                                 variant="destructive"
                                 onSelect={() => setRemoveOpen(true)}>
@@ -468,7 +501,7 @@ export function ProjectGroup({
                 project={project}
                 onOpenChange={setRemoveOpen}
                 onRemove={removeProject}
-                onHide={hideProject}
+                onArchive={archiveProject}
             />
             {runMenu.flowInputState && (
                 <FlowInputDialog

@@ -29,6 +29,7 @@ import {
     normalizeTimeout,
     serializeScheduleState,
 } from "./schedule-helpers";
+import { activeProjects, selectableProjectId } from "@/lib/project-visibility";
 
 interface ScheduleFormProps {
     schedule: Schedule | null;
@@ -51,10 +52,11 @@ function ScheduleForm({
 }: ScheduleFormProps) {
     const isEditing = schedule !== null;
     const [saving, setSaving] = useState(false);
+    const projectOptions = useMemo(() => activeProjects(projects), [projects]);
+    const initialProjectId =
+        schedule?.projectId ?? selectableProjectId(projects, defaultProjectId) ?? "";
 
-    const [projectId, setProjectId] = useState<string>(
-        schedule?.projectId ?? defaultProjectId ?? "",
-    );
+    const [projectId, setProjectId] = useState<string>(initialProjectId);
     const [actionId, setActionId] = useState<string>(schedule?.actionId ?? "");
     const [name, setName] = useState(schedule?.name ?? "");
     const [prompt, setPrompt] = useState(schedule?.prompt ?? "");
@@ -113,7 +115,7 @@ function ScheduleForm({
         () =>
             serializeScheduleState({
                 includeProjectId: !isEditing,
-                projectId: schedule?.projectId ?? defaultProjectId ?? "",
+                projectId: initialProjectId,
                 name: schedule?.name,
                 actionId: schedule?.actionId,
                 prompt: schedule?.prompt,
@@ -124,7 +126,7 @@ function ScheduleForm({
                 timeout: schedule?.timeout ?? 30,
                 useAction: Boolean(schedule?.actionId),
             }),
-        [defaultProjectId, isEditing, schedule],
+        [initialProjectId, isEditing, schedule],
     );
     const currentSnapshot = useMemo(
         () =>
@@ -262,7 +264,7 @@ function ScheduleForm({
                                 <SelectValue placeholder="Select project" />
                             </SelectTrigger>
                             <SelectContent>
-                                {projects.map((p) => (
+                                {projectOptions.map((p) => (
                                     <SelectItem key={p.id} value={p.id}>
                                         {p.name}
                                     </SelectItem>

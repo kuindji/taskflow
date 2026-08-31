@@ -25,6 +25,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useFlowStore } from "@/stores/flow-store";
 import { ScheduleForm } from "./ScheduleForm";
 import { cn } from "@/lib/utils";
+import { selectableProjects } from "@/lib/project-visibility";
 import {
     getElementMenuPosition,
     showNativeMenuAndRun,
@@ -82,6 +83,20 @@ function ScheduleManagementDialog() {
     }, [open]);
 
     const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
+    const projectOptions = useMemo(
+        () =>
+            selectableProjects(
+                projects,
+                schedules.map((schedule) => schedule.projectId),
+            ),
+        [projects, schedules],
+    );
+
+    useEffect(() => {
+        if (projectFilter === "all") return;
+        if (projectOptions.some((project) => project.id === projectFilter)) return;
+        setProjectFilter("all");
+    }, [projectFilter, projectOptions]);
     const actionMap = useMemo(() => new Map(allActions.map((a) => [a.id, a])), [allActions]);
 
     const filteredSchedules = useMemo(() => {
@@ -171,7 +186,7 @@ function ScheduleManagementDialog() {
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">All Projects</SelectItem>
-                                    {projects.map((p) => (
+                                    {projectOptions.map((p) => (
                                         <SelectItem key={p.id} value={p.id}>
                                             {p.name}
                                         </SelectItem>

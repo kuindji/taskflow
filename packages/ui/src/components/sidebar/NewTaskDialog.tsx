@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { isAgentType } from "@taskflow/shared";
 import type { AgentLaunchOptions, FlowDefinition } from "@taskflow/shared";
 import type { Project } from "@taskflow/shared";
@@ -26,6 +26,7 @@ import { ChevronRight, Info } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
+import { activeProjects, selectableProjectId } from "@/lib/project-visibility";
 
 interface NewTaskDialogProps {
     open: boolean;
@@ -56,7 +57,12 @@ export function NewTaskDialog({
     parentId,
     onSubmit,
 }: NewTaskDialogProps) {
-    const [projectId, setProjectId] = useState(defaultProjectId ?? "");
+    const isSubtask = !!parentId;
+    const defaultSelection = isSubtask
+        ? defaultProjectId
+        : selectableProjectId(projects, defaultProjectId);
+    const projectOptions = useMemo(() => activeProjects(projects), [projects]);
+    const [projectId, setProjectId] = useState(defaultSelection ?? "");
     const [description, setDescription] = useState("");
     const [title, setTitle] = useState("");
     const [worktree, setWorktree] = useState(false);
@@ -66,13 +72,12 @@ export function NewTaskDialog({
     const [startWithFlowId, setStartWithFlowId] = useState("");
     const [agentOptionsOpen, setAgentOptionsOpen] = useState(false);
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
-    const isSubtask = !!parentId;
 
     useEffect(() => {
         if (open) {
-            setProjectId(defaultProjectId ?? "");
+            setProjectId(defaultSelection ?? "");
         }
-    }, [open, defaultProjectId]);
+    }, [defaultSelection, open]);
 
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
@@ -121,13 +126,13 @@ export function NewTaskDialog({
         (nextOpen: boolean) => {
             if (!nextOpen) resetForm();
             if (nextOpen) {
-                const nextProjectId = defaultProjectId ?? "";
+                const nextProjectId = defaultSelection ?? "";
                 setProjectId(nextProjectId);
                 setInitCommand("");
             }
             onOpenChange(nextOpen);
         },
-        [defaultProjectId, onOpenChange, resetForm],
+        [defaultSelection, onOpenChange, resetForm],
     );
 
     const hasFlowSelection = startWith !== "flow" || startWithFlowId !== "";
@@ -201,7 +206,7 @@ export function NewTaskDialog({
                                     <SelectValue placeholder="Select a project" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {projects.map((p) => (
+                                    {projectOptions.map((p) => (
                                         <SelectItem key={p.id} value={p.id}>
                                             {p.name}
                                         </SelectItem>

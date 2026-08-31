@@ -18,6 +18,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 import { useProjectStore } from "@/stores/project-store";
+import { selectableProjectId, selectableProjects } from "@/lib/project-visibility";
 
 interface ActionEditorProps {
     action: ActionDefinition | null;
@@ -110,11 +111,14 @@ function ActionEditor({
     deleteDisabledReason,
 }: ActionEditorProps) {
     const projects = useProjectStore((s) => s.projects);
+    const projectOptions = useMemo(
+        () => selectableProjects(projects, action?.projectId ? [action.projectId] : []),
+        [action, projects],
+    );
+    const initialProjectId = action?.projectId ?? selectableProjectId(projects, defaultProjectId);
     const [name, setName] = useState(action?.name ?? "");
     const [prompt, setPrompt] = useState(action?.prompt ?? "");
-    const [projectId, setProjectId] = useState<string | undefined>(
-        action?.projectId ?? defaultProjectId,
-    );
+    const [projectId, setProjectId] = useState<string | undefined>(initialProjectId);
     const [sessionType, setSessionType] = useState<SessionType>(action?.sessionType ?? "claude");
     const [agentOptions, setAgentOptions] = useState(action?.agentOptions);
     const [standalone, setStandalone] = useState(action?.standalone ?? false);
@@ -158,7 +162,7 @@ function ActionEditor({
     const initialSnapshot = useMemo(
         () =>
             JSON.stringify({
-                projectId: action?.projectId ?? defaultProjectId,
+                projectId: initialProjectId,
                 name: action?.name ?? "",
                 prompt: action?.prompt ?? "",
                 sessionType: action?.sessionType ?? "claude",
@@ -168,7 +172,7 @@ function ActionEditor({
                 ),
                 standalone: action?.standalone || undefined,
             }),
-        [action, defaultProjectId],
+        [action, initialProjectId],
     );
     const currentSnapshot = JSON.stringify({
         projectId,
@@ -217,7 +221,7 @@ function ActionEditor({
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="__global__">Global</SelectItem>
-                                {projects.map((p) => (
+                                {projectOptions.map((p) => (
                                     <SelectItem key={p.id} value={p.id}>
                                         {p.name}
                                     </SelectItem>

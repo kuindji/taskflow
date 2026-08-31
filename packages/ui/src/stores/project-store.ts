@@ -13,6 +13,7 @@ import { useUIStore } from "./ui-store";
 interface ProjectStore {
     projects: Project[];
     loading: boolean;
+    showArchivedProjects: boolean;
     fetchProjects(): Promise<void>;
     addProject(path: string): Promise<Project>;
     updateProject(
@@ -26,7 +27,9 @@ interface ProjectStore {
             linkedProjects?: LinkedProject[];
         },
     ): Promise<Project>;
-    hideProject(id: string): Promise<void>;
+    setShowArchivedProjects(show: boolean): void;
+    archiveProject(id: string): Promise<void>;
+    unarchiveProject(id: string): Promise<void>;
     removeProject(id: string): Promise<void>;
     forkProject(
         projectId: string,
@@ -39,6 +42,7 @@ interface ProjectStore {
 export const useProjectStore = create<ProjectStore>((set) => ({
     projects: [],
     loading: false,
+    showArchivedProjects: false,
     async fetchProjects() {
         set({ loading: true });
         try {
@@ -64,14 +68,26 @@ export const useProjectStore = create<ProjectStore>((set) => ({
         }));
         return project;
     },
-    async hideProject(id) {
+    setShowArchivedProjects(show) {
+        set({ showArchivedProjects: show });
+    },
+    async archiveProject(id) {
         const project = await sendRequest<Project>(MSG.PROJECT_UPDATE, { id, hidden: true });
         set((s) => ({
             projects: s.projects.map((p) => (p.id === id ? project : p)),
         }));
-        if (useUIStore.getState().activeProjectId === id) {
+        if (
+            !useProjectStore.getState().showArchivedProjects &&
+            useUIStore.getState().activeProjectId === id
+        ) {
             useUIStore.getState().setActiveProject(null);
         }
+    },
+    async unarchiveProject(id) {
+        const project = await sendRequest<Project>(MSG.PROJECT_UPDATE, { id, hidden: false });
+        set((s) => ({
+            projects: s.projects.map((p) => (p.id === id ? project : p)),
+        }));
     },
     async removeProject(id) {
         await sendRequest(MSG.PROJECT_REMOVE, { id });

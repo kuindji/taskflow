@@ -17,7 +17,7 @@ interface RemoveProjectDialogProps {
     project: Project;
     onOpenChange: (open: boolean) => void;
     onRemove: (projectId: string) => void;
-    onHide: (projectId: string) => void;
+    onArchive: (projectId: string) => void;
 }
 
 export function RemoveProjectDialog({
@@ -25,18 +25,18 @@ export function RemoveProjectDialog({
     project,
     onOpenChange,
     onRemove,
-    onHide,
+    onArchive,
 }: RemoveProjectDialogProps) {
     const [keepData, setKeepData] = useState(true);
 
     const handleConfirm = useCallback(() => {
         if (keepData) {
-            onHide(project.id);
+            onArchive(project.id);
         } else {
             onRemove(project.id);
         }
         onOpenChange(false);
-    }, [keepData, project.id, onRemove, onHide, onOpenChange]);
+    }, [keepData, project.id, onRemove, onArchive, onOpenChange]);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -45,7 +45,7 @@ export function RemoveProjectDialog({
                     <DialogTitle>Remove project</DialogTitle>
                     <DialogDescription>
                         {keepData
-                            ? `Hide "${project.name}" from the sidebar? You can restore it by adding the same path again.`
+                            ? `Archive "${project.name}"? Its tasks, schedules, and project data will remain available.`
                             : `Permanently remove "${project.name}" and delete all of its tasks? This cannot be undone.`}
                     </DialogDescription>
                 </DialogHeader>
@@ -66,7 +66,7 @@ export function RemoveProjectDialog({
                         Cancel
                     </Button>
                     <Button variant={keepData ? "default" : "destructive"} onClick={handleConfirm}>
-                        {keepData ? "Hide" : "Remove"}
+                        {keepData ? "Archive" : "Remove"}
                     </Button>
                 </DialogFooter>
             </DialogContent>

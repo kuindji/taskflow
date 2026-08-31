@@ -110,6 +110,16 @@ contextBridge.exposeInMainWorld("taskflow", {
     sendArchiveState: (showArchive: boolean) => {
         ipcRenderer.send("archive-state-changed", showArchive);
     },
+    onToggleArchivedProjects: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("toggle-archived-projects", listener);
+        return () => {
+            ipcRenderer.removeListener("toggle-archived-projects", listener);
+        };
+    },
+    sendArchivedProjectsState: (showArchivedProjects: boolean) => {
+        ipcRenderer.send("archived-projects-state-changed", showArchivedProjects);
+    },
     onToggleCompactSidebar: (callback: () => void) => {
         const listener = () => callback();
         ipcRenderer.on("toggle-compact-sidebar", listener);

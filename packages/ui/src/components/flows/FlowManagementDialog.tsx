@@ -15,6 +15,7 @@ import { useFlowStore } from "@/stores/flow-store";
 import { useProjectStore } from "@/stores/project-store";
 import { FlowEditor } from "./FlowEditor";
 import { ActionEditor } from "./ActionEditor";
+import { selectableProjects } from "@/lib/project-visibility";
 
 function FlowManagementDialog() {
     const open = useUIStore((s) => s.flowManagementOpen);
@@ -39,6 +40,23 @@ function FlowManagementDialog() {
     }, [open]);
 
     const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
+    const referencedProjectIds = useMemo(
+        () => [
+            ...flows.flatMap((flow) => (flow.projectId ? [flow.projectId] : [])),
+            ...actions.flatMap((action) => (action.projectId ? [action.projectId] : [])),
+        ],
+        [actions, flows],
+    );
+    const projectOptions = useMemo(
+        () => selectableProjects(projects, referencedProjectIds),
+        [projects, referencedProjectIds],
+    );
+
+    useEffect(() => {
+        if (projectFilter === "all" || projectFilter === "global") return;
+        if (projectOptions.some((project) => project.id === projectFilter)) return;
+        setProjectFilter("all");
+    }, [projectFilter, projectOptions]);
 
     const filteredFlows = useMemo(() => {
         if (projectFilter === "all") return flows;
@@ -175,7 +193,7 @@ function FlowManagementDialog() {
                                 <SelectContent>
                                     <SelectItem value="all">All</SelectItem>
                                     <SelectItem value="global">Global</SelectItem>
-                                    {projects.map((p) => (
+                                    {projectOptions.map((p) => (
                                         <SelectItem key={p.id} value={p.id}>
                                             {p.name}
                                         </SelectItem>

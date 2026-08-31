@@ -23,6 +23,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
 import { FlowActionList } from "./FlowActionList";
 import { Plus, X } from "lucide-react";
+import { selectableProjectId, selectableProjects } from "@/lib/project-visibility";
 
 interface FlowEditorProps {
     flow: FlowDefinition | null;
@@ -59,12 +60,15 @@ function FlowEditor({
     onDelete,
 }: FlowEditorProps) {
     const projects = useProjectStore((s) => s.projects);
+    const projectOptions = useMemo(
+        () => selectableProjects(projects, flow?.projectId ? [flow.projectId] : []),
+        [flow, projects],
+    );
+    const initialProjectId = flow?.projectId ?? selectableProjectId(projects, defaultProjectId);
     const [name, setName] = useState(flow?.name ?? "");
     const [description, setDescription] = useState(flow?.description ?? "");
     const [loop, setLoop] = useState(flow?.loop ?? false);
-    const [projectId, setProjectId] = useState<string | undefined>(
-        flow?.projectId ?? defaultProjectId,
-    );
+    const [projectId, setProjectId] = useState<string | undefined>(initialProjectId);
     const [actions, setActions] = useState<FlowActionEntry[]>(flow?.actions ?? []);
     const [inputs, setInputs] = useState<FlowInputDefinition[]>(flow?.inputs ?? []);
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -219,14 +223,14 @@ function FlowEditor({
     const initialSnapshot = useMemo(
         () =>
             JSON.stringify({
-                projectId: flow?.projectId ?? defaultProjectId,
+                projectId: initialProjectId,
                 name: flow?.name ?? "",
                 description: flow?.description ?? "",
                 loop: flow?.loop ?? false,
                 actions: normalizeActions(flow?.actions ?? []),
                 inputs: flow?.inputs ?? [],
             }),
-        [flow, defaultProjectId],
+        [flow, initialProjectId],
     );
     const currentSnapshot = JSON.stringify({
         projectId,
@@ -307,7 +311,7 @@ function FlowEditor({
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="__global__">Global</SelectItem>
-                                {projects.map((p) => (
+                                {projectOptions.map((p) => (
                                     <SelectItem key={p.id} value={p.id}>
                                         {p.name}
                                     </SelectItem>

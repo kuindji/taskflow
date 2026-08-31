@@ -14,6 +14,7 @@ import { useNotificationStore } from "@/stores/notification-store";
 
 function useSidebarData(connected: boolean) {
     const { projects, fetchProjects } = useProjectStore();
+    const showArchivedProjects = useProjectStore((s) => s.showArchivedProjects);
     const { tasks, fetchTasks } = useTaskStore();
     const archivedTasks = useTaskStore((s) => s.archivedTasks);
     const showArchive = useTaskStore((s) => s.showArchive);
@@ -133,11 +134,11 @@ function useSidebarData(connected: boolean) {
     const visibleProjects = useMemo(
         () =>
             projects.filter((project) => {
-                if (project.hidden) return false;
+                if (project.hidden && !showArchivedProjects) return false;
                 if (!showArchive) return true;
                 return (tasksByProject.get(project.id) ?? []).length > 0;
             }),
-        [projects, showArchive, tasksByProject],
+        [projects, showArchive, showArchivedProjects, tasksByProject],
     );
 
     return {
@@ -145,6 +146,7 @@ function useSidebarData(connected: boolean) {
         tasks,
         displayTasks,
         showArchive,
+        showArchivedProjects,
         tasksByProject,
         visibleProjects,
         diffStatsByProject,

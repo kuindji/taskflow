@@ -33,6 +33,7 @@ export function TaskSidebar() {
     const { addProject } = useProjectStore();
     const { activeTaskId, setActiveTask } = useTaskStore();
     const setShowArchive = useTaskStore((s) => s.setShowArchive);
+    const setShowArchivedProjects = useProjectStore((s) => s.setShowArchivedProjects);
     const sidebarWidth = useUIStore((s) => s.sidebarWidth);
     const narrowSidebar = sidebarWidth <= Math.round(SIDEBAR_MAX * 0.55);
     const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
@@ -63,6 +64,7 @@ export function TaskSidebar() {
         tasks,
         displayTasks,
         showArchive,
+        showArchivedProjects,
         tasksByProject,
         visibleProjects,
         diffStatsByProject,
@@ -109,6 +111,18 @@ export function TaskSidebar() {
     useEffect(() => {
         window.taskflow?.sendArchiveState(showArchive);
     }, [showArchive]);
+
+    useEffect(() => {
+        const cleanup = window.taskflow?.onToggleArchivedProjects(() => {
+            const state = useProjectStore.getState();
+            setShowArchivedProjects(!state.showArchivedProjects);
+        });
+        return cleanup;
+    }, [setShowArchivedProjects]);
+
+    useEffect(() => {
+        window.taskflow?.sendArchivedProjectsState(showArchivedProjects);
+    }, [showArchivedProjects]);
 
     useEffect(() => {
         const cleanup = window.taskflow?.onToggleCompactSidebar(() => {
@@ -296,9 +310,11 @@ export function TaskSidebar() {
                 </div>
             </Toolbar>
             <div className="flex-1 overflow-x-hidden overflow-y-auto pt-0.5 pb-1">
-                {!showArchive && projects.length === 0 && (
+                {!showArchive && visibleProjects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
-                        <div className="mb-2">No projects yet.</div>
+                        <div className="mb-2">
+                            {projects.length === 0 ? "No projects yet." : "No active projects."}
+                        </div>
                         <Button
                             variant="ghost"
                             size="sm"

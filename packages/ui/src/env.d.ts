@@ -38,6 +38,8 @@ interface TaskflowBridge {
     onOpenSchedules(callback: () => void): () => void;
     onToggleArchive(callback: () => void): () => void;
     sendArchiveState(showArchive: boolean): void;
+    onToggleArchivedProjects(callback: () => void): () => void;
+    sendArchivedProjectsState(showArchivedProjects: boolean): void;
     onToggleCompactSidebar(callback: () => void): () => void;
     sendCompactSidebarState(compact: boolean): void;
     onToggleFileExplorer(callback: () => void): () => void;
