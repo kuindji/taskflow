@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, open, readdir, readFile, rm, writeFile } from "fs/promises";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
 import type { Task } from "@taskflow/shared";
 import { TaskStore } from "../task-store";
-import { writeFileAtomic, writeJsonAtomic } from "../write-file-atomic";
+import {
+    isMacOsFileProviderPath,
+    removeFileOrWrite,
+    removeFileOrWriteJson,
+    writeFileAtomic,
+    writeJsonAtomic,
+} from "../write-file-atomic";
+import type { FileOperations } from "../write-file-atomic";
 
 let dir: string;
 let store: TaskStore;
@@ -159,5 +166,135 @@ describe("state writes are atomic", () => {
         expect(threw).toBe(true);
         expect(await readdir(target)).toEqual([]);
         expect((await readdir(join(dir, "tasks"))).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+    });
+
+    test("falls back to an in-place write when replacement rename is denied", async () => {
+        const files = new Map<string, string>();
+        const target = join(dir, "tasks", "provider-backed.json");
+        files.set(target, JSON.stringify({ v: "old" }));
+        const permissionError = Object.assign(new Error("rename denied"), { code: "EACCES" });
+        const operations: FileOperations = {
+            writeFile: async (path, data) => {
+                files.set(path, data);
+            },
+            rename: async () => {
+                throw permissionError;
+            },
+            unlink: async (path) => {
+                files.delete(path);
+            },
+        };
+
+        await writeFileAtomic(target, JSON.stringify({ v: "new" }), operations);
+
+        expect(JSON.parse(files.get(target) ?? "null")).toEqual({ v: "new" });
+        expect([...files.keys()].filter((path) => path.endsWith(".tmp"))).toEqual([]);
+    });
+
+    test("recognizes the macOS File Provider storage root", () => {
+        const candidate = join(
+            homedir(),
+            "Library",
+            "CloudStorage",
+            "Dropbox",
+            "tasks",
+            "task.json",
+        );
+        expect(isMacOsFileProviderPath(candidate)).toBe(process.platform === "darwin");
+        expect(isMacOsFileProviderPath(join(dir, "tasks", "local.json"))).toBe(false);
+    });
+
+    test("writes a tombstone when File Provider denies unlink", async () => {
+        const files = new Map<string, string>();
+        const target = join(dir, "tasks", "provider-backed.json");
+        files.set(target, JSON.stringify({ id: "provider-backed" }));
+        const permissionError = Object.assign(new Error("unlink denied"), { code: "EACCES" });
+        const operations: FileOperations = {
+            writeFile: async (path, data) => {
+                files.set(path, data);
+            },
+            rename: async () => undefined,
+            unlink: async () => {
+                throw permissionError;
+            },
+        };
+
+        await removeFileOrWriteJson(target, { kind: "taskflow-task-tombstone" }, operations);
+
+        expect(JSON.parse(files.get(target) ?? "null")).toEqual({
+            kind: "taskflow-task-tombstone",
+        });
+    });
+
+    test("clears log contents when File Provider denies unlink", async () => {
+        const files = new Map<string, string>();
+        const target = join(dir, "task-logs", "provider-backed.jsonl");
+        files.set(target, "important output");
+        const permissionError = Object.assign(new Error("unlink denied"), { code: "EPERM" });
+        const operations: FileOperations = {
+            writeFile: async (path, data) => {
+                files.set(path, data);
+            },
+            rename: async () => undefined,
+            unlink: async () => {
+                throw permissionError;
+            },
+        };
+
+        await removeFileOrWrite(target, "", operations);
+
+        expect(files.get(target)).toBe("");
+    });
+});
+
+describe("task tombstones", () => {
+    test("a tombstoned active task is omitted from task lists", async () => {
+        await writeFile(
+            join(dir, "tasks", "deleted-task.json"),
+            JSON.stringify({
+                kind: "taskflow-task-tombstone",
+                version: 1,
+                id: "deleted-task",
+                projectId: "__taskflow_deleted__",
+                title: "Deleted task",
+                description: "",
+                notes: "",
+                worktree: { enabled: false, path: null, branch: null, pr: null },
+                sessions: [],
+                attributes: [],
+                createdAt: "2026-09-01T00:00:00.000Z",
+                status: "archived",
+                archivedAt: "2026-09-01T00:00:00.000Z",
+                pinned: false,
+            }),
+        );
+
+        expect(await store.listTasks()).toEqual([]);
+        expect(await store.getTask("deleted-task")).toBeNull();
+    });
+
+    test("a tombstoned archived task is omitted from archive lists", async () => {
+        await writeFile(
+            join(dir, "archive", "deleted-task.json"),
+            JSON.stringify({
+                kind: "taskflow-task-tombstone",
+                version: 1,
+                id: "deleted-task",
+                projectId: "__taskflow_deleted__",
+                title: "Deleted task",
+                description: "",
+                notes: "",
+                worktree: { enabled: false, path: null, branch: null, pr: null },
+                sessions: [],
+                attributes: [],
+                createdAt: "2026-09-01T00:00:00.000Z",
+                status: "archived",
+                archivedAt: "2026-09-01T00:00:00.000Z",
+                pinned: false,
+            }),
+        );
+
+        expect(await store.listArchived()).toEqual([]);
+        expect(await store.getArchived("deleted-task")).toBeNull();
     });
 });

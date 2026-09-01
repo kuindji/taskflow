@@ -14,14 +14,14 @@ import {
     orderProjectsByIds,
     sortTasksByCreatedAtDesc,
 } from "@taskflow/shared";
-import { appendFile, readFile, readdir, unlink, mkdir, realpath, rm, stat } from "fs/promises";
+import { appendFile, readFile, readdir, mkdir, realpath, rm, stat } from "fs/promises";
 import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
 import { isMissingFileError, isJsonParseError } from "./task-store-helpers";
 import { addAttribute, editAttribute, removeAttribute } from "./attribute-mutations";
 import { NotFoundError } from "./errors";
 import { acquireFileMutationLock } from "./file-mutation-lock";
-import { writeJsonAtomic } from "./write-file-atomic";
+import { removeFileOrWrite, removeFileOrWriteJson, writeJsonAtomic } from "./write-file-atomic";
 
 interface TaskStoreConfig {
     projectsFile: string;
@@ -30,6 +30,20 @@ interface TaskStoreConfig {
     taskLogsDir: string;
     sessionLogsDir: string;
     masterSessionsFile?: string;
+}
+
+interface TaskTombstone extends Task {
+    kind: "taskflow-task-tombstone";
+    version: 1;
+}
+
+function isTaskTombstone(value: unknown): value is TaskTombstone {
+    return (
+        typeof value === "object" &&
+        value !== null &&
+        "kind" in value &&
+        value.kind === "taskflow-task-tombstone"
+    );
 }
 
 export class TaskStore {
@@ -324,13 +338,30 @@ export class TaskStore {
     }
 
     private async unlinkIfPresent(filePath: string): Promise<void> {
-        try {
-            await unlink(filePath);
-        } catch (error) {
-            if (!isMissingFileError(error)) {
-                throw error;
-            }
-        }
+        await removeFileOrWrite(filePath, "");
+    }
+
+    private async removeTaskRecord(filePath: string, id: string): Promise<void> {
+        const deletedAt = new Date().toISOString();
+        await removeFileOrWriteJson(filePath, {
+            kind: "taskflow-task-tombstone",
+            version: 1,
+            id,
+            // Keep tombstones structurally compatible with older Taskflow
+            // backends that share this directory but do not know the marker.
+            // The reserved project keeps the record out of every real project.
+            projectId: "__taskflow_deleted__",
+            title: "Deleted task",
+            description: "",
+            notes: "",
+            worktree: { enabled: false, path: null, branch: null, pr: null },
+            sessions: [],
+            attributes: [],
+            createdAt: deletedAt,
+            status: "archived",
+            archivedAt: deletedAt,
+            pinned: false,
+        } satisfies TaskTombstone);
     }
 
     private async readTask(filePath: string): Promise<Task | null> {
@@ -345,7 +376,11 @@ export class TaskStore {
         }
 
         try {
-            const task = JSON.parse(data) as Task;
+            const parsed = JSON.parse(data) as unknown;
+            if (isTaskTombstone(parsed)) {
+                return null;
+            }
+            const task = parsed as Task;
             return {
                 ...task,
                 pinned: task.pinned ?? false,
@@ -543,7 +578,7 @@ export class TaskStore {
         await Promise.all(
             archivedForProject.map(async (task) => {
                 await this.withTaskMutation(task.id, async () => {
-                    await this.unlinkIfPresent(this.archivePath(task.id));
+                    await this.removeTaskRecord(this.archivePath(task.id), task.id);
                 });
                 await this.deleteTaskSessionHistory(task.id);
                 await this.deleteTaskLog(task.id);
@@ -967,14 +1002,14 @@ export class TaskStore {
                 pinned: false,
             };
             await this.writeTask(this.archivePath(id), archived);
-            await this.unlinkIfPresent(this.taskPath(id));
+            await this.removeTaskRecord(this.taskPath(id), id);
             return archived;
         });
     }
 
     async deleteTask(id: string): Promise<void> {
         await this.withTaskMutation(id, async () => {
-            await this.unlinkIfPresent(this.taskPath(id));
+            await this.removeTaskRecord(this.taskPath(id), id);
         });
         await this.deleteTaskSessionHistory(id);
         await this.deleteTaskLog(id);
@@ -982,7 +1017,7 @@ export class TaskStore {
 
     async deleteArchived(id: string): Promise<void> {
         await this.withTaskMutation(id, async () => {
-            await this.unlinkIfPresent(this.archivePath(id));
+            await this.removeTaskRecord(this.archivePath(id), id);
         });
         await this.deleteTaskSessionHistory(id);
         await this.deleteTaskLog(id);
@@ -1012,7 +1047,7 @@ export class TaskStore {
                 archivedAt: null,
             };
             await this.writeTask(this.taskPath(id), restored);
-            await this.unlinkIfPresent(this.archivePath(id));
+            await this.removeTaskRecord(this.archivePath(id), id);
             return restored;
         });
     }
@@ -1038,7 +1073,7 @@ export class TaskStore {
             if (task.archivedAt) {
                 const archivedTime = new Date(task.archivedAt).getTime();
                 if (now - archivedTime > expiryMs) {
-                    await this.unlinkIfPresent(this.archivePath(task.id));
+                    await this.removeTaskRecord(this.archivePath(task.id), task.id);
                     await this.deleteTaskSessionHistory(task.id);
                     await this.deleteTaskLog(task.id);
                     cleaned++;
