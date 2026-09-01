@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { TaskStore } from "../../src/services/task-store";
-import { access, mkdtemp, mkdir, realpath, rm, writeFile } from "fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -282,7 +282,7 @@ describe("TaskStore", () => {
             });
         });
 
-        it("drops corrupt task files during project removal", async () => {
+        it("keeps unparsable task files during project removal", async () => {
             const projectDir = await createProjectDir("test");
             const project = await store.addProject({ name: "test", path: projectDir });
             const task = await store.createTask({
@@ -296,7 +296,10 @@ describe("TaskStore", () => {
             await store.removeProject(project.id);
 
             expect(await store.listProjects()).toEqual([]);
-            expect(access(taskFile)).rejects.toThrow();
+            // An unparsable file has no readable projectId, so removing a project
+            // cannot prove the file belongs to it. Reaping it here is how real
+            // tasks used to be destroyed; leave it for a human to inspect.
+            expect(await readFile(taskFile, "utf-8")).toBe("{bad json");
         });
 
         it("cleans expired archives", async () => {

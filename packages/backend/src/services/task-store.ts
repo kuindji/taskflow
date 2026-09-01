@@ -14,23 +14,14 @@ import {
     orderProjectsByIds,
     sortTasksByCreatedAtDesc,
 } from "@taskflow/shared";
-import {
-    appendFile,
-    readFile,
-    writeFile,
-    readdir,
-    unlink,
-    mkdir,
-    realpath,
-    rm,
-    stat,
-} from "fs/promises";
+import { appendFile, readFile, readdir, unlink, mkdir, realpath, rm, stat } from "fs/promises";
 import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
 import { isMissingFileError, isJsonParseError } from "./task-store-helpers";
 import { addAttribute, editAttribute, removeAttribute } from "./attribute-mutations";
 import { NotFoundError } from "./errors";
 import { acquireFileMutationLock } from "./file-mutation-lock";
+import { writeJsonAtomic } from "./write-file-atomic";
 
 interface TaskStoreConfig {
     projectsFile: string;
@@ -113,7 +104,7 @@ export class TaskStore {
     // --- Master Sessions ---
 
     private async persistMasterSessions(): Promise<void> {
-        await writeFile(this.masterSessionsFile, JSON.stringify(this.masterSessions, null, 2));
+        await writeJsonAtomic(this.masterSessionsFile, this.masterSessions);
     }
 
     private async withMasterSessionsMutation<T>(mutation: () => Promise<T>): Promise<T> {
@@ -363,7 +354,12 @@ export class TaskStore {
             };
         } catch (error) {
             if (isJsonParseError(error)) {
-                await this.unlinkIfPresent(filePath);
+                // Never delete the file: reading is not a mutation, and a parse
+                // failure can be transient (a half-materialised file from cloud
+                // storage, a write from another process). Deleting here destroyed
+                // real tasks. Leave it on disk so the next write repairs it and a
+                // genuinely corrupt file stays recoverable by hand.
+                console.error(`[task-store] Unparsable task file, skipping: ${filePath}`);
                 return null;
             }
             throw error;
@@ -414,9 +410,9 @@ export class TaskStore {
             if (duplicate) {
                 if (duplicate.hidden) {
                     duplicate.hidden = false;
-                    await writeFile(
+                    await writeJsonAtomic(
                         this.config.projectsFile,
-                        JSON.stringify(this.stripEphemeralFields(projects), null, 2),
+                        this.stripEphemeralFields(projects),
                     );
                     return duplicate;
                 }
@@ -434,10 +430,7 @@ export class TaskStore {
                     : {}),
             };
             projects.push(project);
-            await writeFile(
-                this.config.projectsFile,
-                JSON.stringify(this.stripEphemeralFields(projects), null, 2),
-            );
+            await writeJsonAtomic(this.config.projectsFile, this.stripEphemeralFields(projects));
             return project;
         });
     }
@@ -521,10 +514,7 @@ export class TaskStore {
                         ? resolvedUpdates.linkedProjects
                         : projects[index].linkedProjects,
             };
-            await writeFile(
-                this.config.projectsFile,
-                JSON.stringify(this.stripEphemeralFields(projects), null, 2),
-            );
+            await writeJsonAtomic(this.config.projectsFile, this.stripEphemeralFields(projects));
 
             // Re-validate location after path change
             try {
@@ -563,10 +553,7 @@ export class TaskStore {
         await this.withProjectsMutation(async () => {
             const projects = await this.listProjects();
             const filtered = projects.filter((p) => p.id !== id);
-            await writeFile(
-                this.config.projectsFile,
-                JSON.stringify(this.stripEphemeralFields(filtered), null, 2),
-            );
+            await writeJsonAtomic(this.config.projectsFile, this.stripEphemeralFields(filtered));
         });
     }
 
@@ -574,10 +561,7 @@ export class TaskStore {
         return this.withProjectsMutation(async () => {
             const projects = await this.listProjects();
             const reordered = orderProjectsByIds(projects, orderedIds);
-            await writeFile(
-                this.config.projectsFile,
-                JSON.stringify(this.stripEphemeralFields(reordered), null, 2),
-            );
+            await writeJsonAtomic(this.config.projectsFile, this.stripEphemeralFields(reordered));
             return reordered;
         });
     }
@@ -597,7 +581,7 @@ export class TaskStore {
     }
 
     private async writeTask(filePath: string, task: Task): Promise<void> {
-        await writeFile(filePath, JSON.stringify(task, null, 2));
+        await writeJsonAtomic(filePath, task);
     }
 
     private async withSessionLogMutation<T>(key: string, mutation: () => Promise<T>): Promise<T> {
