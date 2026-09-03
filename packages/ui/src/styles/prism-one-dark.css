@@ -1,0 +1,204 @@
+/*
+ * Prism "One Dark" theme as a stylesheet, ported from
+ * react-syntax-highlighter's `oneDark` style object. Fenced code blocks are
+ * highlighted with class names only (`useInlineStyles={false}`): computing a
+ * style object per token was ~96% of the markdown preview's render time.
+ *
+ * `.prismjs` is the class react-syntax-highlighter puts on the container when
+ * inline styles are off; `.language-*` is on the inner <code>.
+ */
+
+.prismjs {
+    background: hsl(220, 13%, 18%);
+    color: hsl(220, 14%, 71%);
+    text-shadow: 0 1px rgba(0, 0, 0, 0.3);
+    font-family: "Fira Code", "Fira Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+    direction: ltr;
+    text-align: left;
+    white-space: pre;
+    word-spacing: normal;
+    word-break: normal;
+    line-height: 1.5;
+    tab-size: 2;
+    hyphens: none;
+    padding: 1em;
+    margin: 0.5em 0;
+    overflow: auto;
+    border-radius: 0.3em;
+}
+
+.prismjs code {
+    background: none;
+    color: inherit;
+    font-family: inherit;
+    font-size: inherit;
+    text-shadow: inherit;
+}
+
+.prismjs ::selection,
+.prismjs::selection {
+    background: hsl(220, 13%, 28%);
+    color: inherit;
+    text-shadow: none;
+}
+
+.prismjs .token.comment,
+.prismjs .token.prolog,
+.prismjs .token.cdata {
+    color: hsl(220, 10%, 40%);
+}
+
+.prismjs .token.comment {
+    font-style: italic;
+}
+
+.prismjs .token.doctype,
+.prismjs .token.punctuation,
+.prismjs .token.entity {
+    color: hsl(220, 14%, 71%);
+}
+
+.prismjs .token.entity {
+    cursor: help;
+}
+
+.prismjs .token.attr-name,
+.prismjs .token.class-name,
+.prismjs .token.boolean,
+.prismjs .token.constant,
+.prismjs .token.number,
+.prismjs .token.atrule {
+    color: hsl(29, 54%, 61%);
+}
+
+.prismjs .token.keyword {
+    color: hsl(286, 60%, 67%);
+}
+
+.prismjs .token.property,
+.prismjs .token.tag,
+.prismjs .token.symbol,
+.prismjs .token.deleted,
+.prismjs .token.important {
+    color: hsl(355, 65%, 65%);
+}
+
+.prismjs .token.selector,
+.prismjs .token.string,
+.prismjs .token.char,
+.prismjs .token.builtin,
+.prismjs .token.inserted,
+.prismjs .token.regex,
+.prismjs .token.attr-value,
+.prismjs .token.attr-value > .token.punctuation {
+    color: hsl(95, 38%, 62%);
+}
+
+.prismjs .token.variable,
+.prismjs .token.operator,
+.prismjs .token.function {
+    color: hsl(207, 82%, 66%);
+}
+
+.prismjs .token.url {
+    color: hsl(187, 47%, 55%);
+}
+
+.prismjs .token.attr-value > .token.punctuation.attr-equals,
+.prismjs .token.special-attr > .token.attr-value > .token.value.css {
+    color: hsl(220, 14%, 71%);
+}
+
+.prismjs .language-css .token.selector {
+    color: hsl(355, 65%, 65%);
+}
+
+.prismjs .language-css .token.property {
+    color: hsl(220, 14%, 71%);
+}
+
+.prismjs .language-css .token.function,
+.prismjs .language-css .token.url > .token.function {
+    color: hsl(187, 47%, 55%);
+}
+
+.prismjs .language-css .token.url > .token.string.url {
+    color: hsl(95, 38%, 62%);
+}
+
+.prismjs .language-css .token.important,
+.prismjs .language-css .token.atrule .token.rule {
+    color: hsl(286, 60%, 67%);
+}
+
+.prismjs .language-javascript .token.operator {
+    color: hsl(286, 60%, 67%);
+}
+
+.prismjs
+    .language-javascript
+    .token.template-string
+    > .token.interpolation
+    > .token.interpolation-punctuation.punctuation {
+    color: hsl(5, 48%, 51%);
+}
+
+.prismjs .language-json .token.operator {
+    color: hsl(220, 14%, 71%);
+}
+
+.prismjs .language-json .token.null.keyword {
+    color: hsl(29, 54%, 61%);
+}
+
+.prismjs .language-markdown .token.url,
+.prismjs .language-markdown .token.url > .token.operator,
+.prismjs .language-markdown .token.url-reference.url > .token.string {
+    color: hsl(220, 14%, 71%);
+}
+
+.prismjs .language-markdown .token.url > .token.content {
+    color: hsl(207, 82%, 66%);
+}
+
+.prismjs .language-markdown .token.url > .token.url,
+.prismjs .language-markdown .token.url-reference.url {
+    color: hsl(187, 47%, 55%);
+}
+
+.prismjs .language-markdown .token.blockquote.punctuation,
+.prismjs .language-markdown .token.hr.punctuation {
+    color: hsl(220, 10%, 40%);
+    font-style: italic;
+}
+
+.prismjs .language-markdown .token.code-snippet {
+    color: hsl(95, 38%, 62%);
+}
+
+.prismjs .language-markdown .token.bold .token.content {
+    color: hsl(29, 54%, 61%);
+}
+
+.prismjs .language-markdown .token.italic .token.content {
+    color: hsl(286, 60%, 67%);
+}
+
+.prismjs .language-markdown .token.strike .token.content,
+.prismjs .language-markdown .token.strike .token.punctuation,
+.prismjs .language-markdown .token.list.punctuation,
+.prismjs .language-markdown .token.title.important > .token.punctuation {
+    color: hsl(355, 65%, 65%);
+}
+
+.prismjs .token.bold {
+    font-weight: bold;
+}
+
+.prismjs .token.italic {
+    font-style: italic;
+}
+
+.prismjs .token.namespace {
+    opacity: 0.8;
+}

@@ -509,6 +509,23 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         [editorFontSize, filePath],
     );
 
+    // react-markdown parses and transforms the whole document on every render
+    // of its element, with no memoization of its own. The pane re-renders on
+    // unrelated store updates (a session starting, a title being generated),
+    // and markdown tabs stay mounted while hidden, so without this every open
+    // document was re-parsed and re-highlighted on each such update.
+    const rendered = useMemo(
+        () => (
+            <Markdown
+                remarkPlugins={remarkPlugins}
+                rehypePlugins={rehypePlugins}
+                components={components}>
+                {content}
+            </Markdown>
+        ),
+        [components, content, remarkPlugins],
+    );
+
     if (loading) {
         return (
             <div className="text-muted-foreground flex flex-1 items-center justify-center">
@@ -543,12 +560,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                             onNavigate={handleFrontmatterNavigate}
                         />
                     )}
-                    <Markdown
-                        remarkPlugins={remarkPlugins}
-                        rehypePlugins={rehypePlugins}
-                        components={components}>
-                        {content}
-                    </Markdown>
+                    {rendered}
                 </div>
             </div>
             {wikiPageId !== null && wikiIndex && wikiRailOpen && (
