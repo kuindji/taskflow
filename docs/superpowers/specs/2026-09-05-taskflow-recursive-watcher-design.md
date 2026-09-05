@@ -60,8 +60,6 @@ FSEvents on macOS and ReadDirectoryChangesW on Windows.
 interface RecursiveWatchOptions {
     /** Directory names that drop an event when they appear anywhere in the relative path. */
     ignoredNames: ReadonlySet<string>;
-    /** Optional cheap filter on the normalized relative path, run in the native callback. */
-    accept?: (relativePath: string) => boolean;
     /** Flush window in milliseconds. */
     windowMs: number;
     /** Above this many pending paths a flush collapses to parent directories, then to the root. */
@@ -87,12 +85,12 @@ function watchRecursive(root: string, options: RecursiveWatchOptions): Recursive
 Native callback, synchronous and allocation-light:
 
 1. `filename` null or empty means the root itself: mark `pendingRoot = true`.
-2. Replace backslashes with forward slashes. If the result is absolute (Bun
-   may report a real path when the root is a symlink), make it relative to the
-   root; if it is outside the root, drop it.
+2. Replace backslashes with forward slashes. If the result is absolute, make
+   it relative to the root as given or to its real path (Bun reports relative
+   names on macOS even for symlinked roots, verified; the absolute branch is
+   defensive); if it is outside both, drop it.
 3. Split on `/`; if any segment is in `ignoredNames`, return.
-4. If `accept` is given and returns false, return.
-5. Add to the pending `Set`. If no timer is armed, arm one for `windowMs`.
+4. Add to the pending `Set`. If no timer is armed, arm one for `windowMs`.
 
 The timer is a throttle: it is armed by the first event after a flush and is
 not reset by later events, so a continuous stream flushes once per window.
@@ -108,7 +106,9 @@ Flush:
    callers decide what a path means.
 
 `close()` closes the `fs.watch` handle, clears the timer and drops pending
-state. The `fs.watch` `error` event closes the handle and calls `onError`.
+state, and is safe to call twice. The `fs.watch` `error` event closes the
+handle and calls `onError` once. On macOS a deleted root produces no event and
+no error (verified); Windows may raise `EPERM`, which reaches `onError`.
 
 ### Explorer: `FileWatcher.watch`
 
@@ -123,8 +123,12 @@ state. The `fs.watch` `error` event closes the handle and calls `onError`.
   `{ type: "modify", path }`. For a collapsed batch: emit
   `{ type: "modify", path, recursive: true }` per directory without stat
   (the root path itself when collapsed to the root).
+- After `stop()` nothing is emitted, even from a stat batch still in flight.
+- A watcher error is logged and surfaced as a recursive event for the root so
+  the client refreshes what it has.
 - `watch()` resolves as soon as the handle exists. `stop()` and `stopAll()`
-  keep their signatures.
+  keep their signatures. The constructor accepts optional `windowMs` and
+  `maxPathsPerFlush` overrides for tests.
 
 `FileChangeEvent` in `packages/shared/src/types/file.ts` gains
 `recursive?: boolean`. The `type` union is unchanged; the backend simply stops
@@ -132,20 +136,29 @@ emitting `create`.
 
 ### Wiki: `WikiIndexService.watch`
 
-- Uses `watchRecursive` with its own `IGNORED_NAMES`, `accept` set to the
-  markdown extension test, `windowMs: this.debounceMs`, `maxPathsPerFlush: 200`.
-- Non-collapsed flush: add the absolute paths to `state.pending` and run the
-  existing `flush`, which re-parses each path and treats a missing file as a
-  deletion.
-- Collapsed flush: re-list markdown under the root, drop parsed entries that
-  no longer exist, parse the rest, rebuild the graph, push it.
+- Uses `watchRecursive` with its own `IGNORED_NAMES`, `windowMs:
+  this.debounceMs`, `maxPathsPerFlush: 200`. Every non-ignored path is queued.
+- Batches are applied one at a time per root through a promise chain, so an
+  incremental update and a full rebuild never interleave on the parsed map.
+- Non-collapsed batch: markdown paths re-parse alone (a missing file is a
+  deletion). Any other path is stat'd; if it is a directory or gone, the
+  change was a rename or removal whose pages cannot be followed one by one,
+  so the root is rebuilt. A plain non-markdown file is ignored.
+- Rebuild (also used for collapsed batches and watcher errors): re-list
+  markdown under the root, drop parsed entries that no longer exist, parse the
+  rest, rebuild the graph, push it. If the root itself is gone, push
+  `rootExists: false`, close the watcher and forget the root so the next
+  request can index it again.
 - The generation and stop logic is unchanged. `watch` no longer waits for a
   ready event.
 
 ### UI
 
 - `file-store.ts`: on a `recursive` event, refetch every loaded directory whose
-  path equals or is under the event path; then refresh git status as today.
+  path equals or is under the event path, plus the event path's parent when
+  the event is below the root (the collapsed directory may itself be gone);
+  then refresh git status as today. The root check becomes boundary-aware
+  (`path === root || path.startsWith(root + "/")`).
 - `MarkdownPaneImpl.tsx`: also reload when a `recursive` event names an
   ancestor of the open file.
 
@@ -172,15 +185,15 @@ Written before the implementation, in `packages/backend/tests/services/`:
 - more than `maxPathsPerFlush` paths collapse to parent directories, and past
   the cap again to the root, with `collapsed: true`;
 - a continuous stream of events flushes more than once;
-- `accept` filters paths before they are queued;
-- `close()` stops delivery;
+- `close()` stops delivery and tolerates a second call;
 - backslash and absolute-path normalization (pure helper, no filesystem).
 
-`file-watcher.test.ts`: existing tests unchanged, plus one asserting that a
-file deletion arrives as `delete` and an overflow arrives as a `recursive`
-event.
+`file-watcher.test.ts`: existing tests unchanged, plus: a deletion arrives as
+`delete` and a write as `modify`; changes under `.venv` are not reported; an
+overflow arrives as a `recursive` event for the directory.
 
-`wiki-index.test.ts`: existing tests unchanged.
+`wiki-index.test.ts`: existing tests unchanged, plus: renaming a directory of
+pages re-indexes them under the new ids.
 
 UI store tests: a `recursive` event refetches loaded directories under it.
 
