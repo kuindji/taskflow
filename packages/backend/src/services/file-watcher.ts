@@ -1,7 +1,7 @@
 import type { FileNode, FileChangeEvent } from "@taskflow/shared";
-import chokidar, { type FSWatcher } from "chokidar";
-import { readdir, readFile } from "fs/promises";
+import { readdir, readFile, stat } from "fs/promises";
 import { join, basename } from "path";
+import { watchRecursive, type WatchBatch, type RecursiveWatchHandle } from "./recursive-watcher";
 
 const IGNORED_NAMES = new Set([
     "node_modules",
@@ -13,6 +13,27 @@ const IGNORED_NAMES = new Set([
     ".DS_Store",
 ]);
 
+/** Generated trees the explorer still lists, but never watches. */
+const WATCH_IGNORED_NAMES: ReadonlySet<string> = new Set([
+    ...IGNORED_NAMES,
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".mypy_cache",
+    "Pods",
+    ".expo",
+    ".serverless",
+    ".turbo",
+    ".cache",
+    ".gradle",
+    "DerivedData",
+]);
+
+const WATCH_WINDOW_MS = 100;
+const WATCH_MAX_PATHS_PER_FLUSH = 200;
+
 function shouldIgnoreEntry(name: string): boolean {
     return IGNORED_NAMES.has(name);
 }
@@ -21,8 +42,15 @@ function normalizePath(p: string): string {
     return p.replace(/\\/g, "/");
 }
 
+interface FileWatcherOptions {
+    windowMs?: number;
+    maxPathsPerFlush?: number;
+}
+
 interface ActiveWatcher {
-    watcher: FSWatcher;
+    handle: RecursiveWatchHandle;
+    /** Flipped by `stop` so a stat batch still in flight cannot emit afterwards. */
+    state: { closed: boolean };
 }
 
 interface BuildTreeResult {
@@ -32,6 +60,13 @@ interface BuildTreeResult {
 
 export class FileWatcher {
     private watchers = new Map<string, ActiveWatcher>();
+    private readonly windowMs: number;
+    private readonly maxPathsPerFlush: number;
+
+    constructor(options: FileWatcherOptions = {}) {
+        this.windowMs = options.windowMs ?? WATCH_WINDOW_MS;
+        this.maxPathsPerFlush = options.maxPathsPerFlush ?? WATCH_MAX_PATHS_PER_FLUSH;
+    }
 
     async buildTree(dirPath: string, depth = 0): Promise<BuildTreeResult> {
         const name = basename(dirPath);
@@ -112,42 +147,62 @@ export class FileWatcher {
         return { entries, gitignorePatterns };
     }
 
-    private shouldIgnorePath(path: string): boolean {
-        return path
-            .split("/")
-            .filter(Boolean)
-            .some((segment) => shouldIgnoreEntry(segment));
-    }
-
     async watch(dirPath: string, onChange: (event: FileChangeEvent) => void): Promise<void> {
         await this.stop(dirPath);
+        const state = { closed: false };
+        const emit = (event: FileChangeEvent): void => {
+            if (!state.closed) onChange(event);
+        };
+        const active: ActiveWatcher = {
+            handle: watchRecursive(dirPath, {
+                ignoredNames: WATCH_IGNORED_NAMES,
+                windowMs: this.windowMs,
+                maxPathsPerFlush: this.maxPathsPerFlush,
+                onFlush: (batch) => void this.emitBatch(dirPath, batch, emit),
+                onError: (error) => {
+                    console.error(`File watcher failed for ${dirPath}:`, error);
+                    // The native watcher is gone. Forget it so the next FILE_WATCH
+                    // creates a fresh one, and tell the client to refresh what it has.
+                    if (this.watchers.get(dirPath) === active) this.watchers.delete(dirPath);
+                    emit({ type: "modify", path: normalizePath(dirPath), recursive: true });
+                    state.closed = true;
+                },
+            }),
+            state,
+        };
+        this.watchers.set(dirPath, active);
+    }
 
-        const watcher = chokidar.watch(dirPath, {
-            ignored: (path) => this.shouldIgnorePath(path),
-            ignoreInitial: true,
-            ignorePermissionErrors: true,
-            persistent: true,
-        });
-
-        watcher.on("add", (path) => onChange({ type: "create", path: normalizePath(path) }));
-        watcher.on("addDir", (path) => onChange({ type: "create", path: normalizePath(path) }));
-        watcher.on("change", (path) => onChange({ type: "modify", path: normalizePath(path) }));
-        watcher.on("unlink", (path) => onChange({ type: "delete", path: normalizePath(path) }));
-        watcher.on("unlinkDir", (path) => onChange({ type: "delete", path: normalizePath(path) }));
-
-        await new Promise<void>((resolve, reject) => {
-            watcher.once("ready", () => resolve());
-            watcher.once("error", reject);
-        });
-
-        this.watchers.set(dirPath, { watcher });
+    private async emitBatch(
+        root: string,
+        batch: WatchBatch,
+        emit: (event: FileChangeEvent) => void,
+    ): Promise<void> {
+        if (batch.collapsed) {
+            for (const rel of batch.paths) {
+                const path = rel === "" ? root : join(root, rel);
+                emit({ type: "modify", path: normalizePath(path), recursive: true });
+            }
+            return;
+        }
+        await Promise.all(
+            batch.paths.map(async (rel) => {
+                const path = join(root, rel);
+                const exists = await stat(path).then(
+                    () => true,
+                    () => false,
+                );
+                emit({ type: exists ? "modify" : "delete", path: normalizePath(path) });
+            }),
+        );
     }
 
     async stop(dirPath: string): Promise<void> {
-        const w = this.watchers.get(dirPath);
-        if (w) {
+        const active = this.watchers.get(dirPath);
+        if (active) {
             this.watchers.delete(dirPath);
-            await w.watcher.close();
+            active.state.closed = true;
+            active.handle.close();
         }
     }
 

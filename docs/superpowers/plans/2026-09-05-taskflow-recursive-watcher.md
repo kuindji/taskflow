@@ -567,7 +567,9 @@ git commit -m "feat(shared): mark collapsed file change events as recursive"
 
         const events: FileChangeEvent[] = [];
         await watcher.watch(tempDir, (event) => events.push(event));
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        // FSEvents replays the mkdir above once the stream opens; let it pass first.
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        events.length = 0;
         for (let i = 0; i < 8; i++) {
             await writeFile(join(tempDir, "src", `f${i}.ts`), "x");
         }
@@ -576,9 +578,10 @@ git commit -m "feat(shared): mark collapsed file change events as recursive"
         while (!events.some((e) => e.recursive) && Date.now() - started < 3000) {
             await new Promise((resolve) => setTimeout(resolve, 50));
         }
-        const collapsed = events.find((e) => e.recursive);
-        expect(collapsed?.type).toBe("modify");
-        expect(collapsed?.path.endsWith("/src")).toBe(true);
+        const collapsed = events.filter((e) => e.recursive);
+        expect(collapsed.length).toBeGreaterThanOrEqual(1);
+        expect(collapsed.every((e) => e.type === "modify")).toBe(true);
+        expect(collapsed.some((e) => e.path.endsWith("/src"))).toBe(true);
     });
 
     it("reports a deleted file as delete and a written file as modify", async () => {
