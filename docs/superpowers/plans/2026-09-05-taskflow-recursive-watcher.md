@@ -94,6 +94,16 @@ async function waitFor<T>(read: () => T | undefined, timeoutMs = 4000): Promise<
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * FSEvents replays changes made shortly before the stream opened (the
+ * directories `setup()` just created). Let that warm-up batch land and
+ * discard it so each test only sees what it did itself.
+ */
+async function settled(batches: WatchBatch[]): Promise<void> {
+    await sleep(400);
+    batches.length = 0;
+}
+
 describe("toRelativeWatchPath", () => {
     it("normalizes backslashes", () => {
         expect(toRelativeWatchPath(["/root"], "a\\b\\c.txt")).toBe("a/b/c.txt");
@@ -185,7 +195,7 @@ describe("watchRecursive", () => {
             maxPathsPerFlush: 100,
             onFlush: (batch) => batches.push(batch),
         });
-        await sleep(100);
+        await settled(batches);
         await writeFile(join(root, "src", "deep", "a.txt"), "x");
         const batch = await waitFor(() => batches.find((b) => b.paths.includes("src/deep/a.txt")));
         expect(batch.collapsed).toBe(false);
@@ -200,7 +210,7 @@ describe("watchRecursive", () => {
             maxPathsPerFlush: 100,
             onFlush: (batch) => batches.push(batch),
         });
-        await sleep(100);
+        await settled(batches);
         for (let i = 0; i < 20; i++) {
             await writeFile(join(root, "node_modules", "pkg", `${i}.js`), "x");
         }
@@ -217,14 +227,14 @@ describe("watchRecursive", () => {
             maxPathsPerFlush: 100,
             onFlush: (batch) => batches.push(batch),
         });
-        await sleep(100);
+        await settled(batches);
         for (let i = 0; i < 10; i++) {
             await writeFile(join(root, "src", `f${i % 5}.txt`), `${i}`);
         }
         await waitFor(() => (batches.length > 0 ? true : undefined));
         await sleep(400);
         expect(batches).toHaveLength(1);
-        const paths = batches[0]!.paths.filter((p) => p.startsWith("src/f"));
+        const paths = batches[0].paths.filter((p) => p.startsWith("src/f"));
         expect(new Set(paths).size).toBe(paths.length);
         expect(paths.length).toBeLessThanOrEqual(5);
     });
@@ -238,7 +248,7 @@ describe("watchRecursive", () => {
             maxPathsPerFlush: 100,
             onFlush: (batch) => batches.push(batch),
         });
-        await sleep(100);
+        await settled(batches);
         const started = Date.now();
         let i = 0;
         while (Date.now() - started < 800) {
@@ -269,7 +279,7 @@ describe("watchRecursive", () => {
             maxPathsPerFlush: 3,
             onFlush: (batch) => batches.push(batch),
         });
-        await sleep(100);
+        await settled(batches);
         for (let i = 0; i < 8; i++) {
             await writeFile(join(root, "src", "deep", `f${i}.txt`), "x");
         }
@@ -286,7 +296,7 @@ describe("watchRecursive", () => {
             maxPathsPerFlush: 100,
             onFlush: (batch) => batches.push(batch),
         });
-        await sleep(100);
+        await settled(batches);
         handle.close();
         handle = null;
         await writeFile(join(root, "src", "late.txt"), "x");
@@ -448,7 +458,7 @@ export function watchRecursive(root: string, options: RecursiveWatchOptions): Re
 
     const watcher = watch(root, { recursive: true }, (_eventType, filename) => {
         if (closed) return;
-        const name = filename === null ? "" : filename.toString();
+        const name = filename ?? "";
         const rel = name === "" ? "" : toRelativeWatchPath(roots, name);
         if (rel === null) return;
         if (rel === "") {
