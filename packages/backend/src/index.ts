@@ -74,6 +74,8 @@ async function main() {
         await store.init();
         await store.reconcileInterruptedSessions(config.instanceId, config.bootId);
         await store.cleanExpiredArchives();
+        const sweptLogs = await store.sweepOrphanSessionLogs();
+        if (sweptLogs > 0) console.log(`Removed ${sweptLogs} orphaned session log(s)`);
 
         const flowStore = new FlowStore(config.flowsDir, config.flowRunsDir, config.instanceId);
         await flowStore.init();

@@ -527,25 +527,34 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 },
                 onExit: (exitCode) => {
                     if (preservingSessionsForShutdown) return;
+                    // The owner may already have dropped this session (archive
+                    // clears the list before closing PTYs; internal sessions are
+                    // never registered), so removeSessionFromOwner alone would
+                    // leave the log behind. Delete it by the owner id we know.
+                    const removal = opts.internal
+                        ? Promise.resolve()
+                        : removeSessionFromOwner(
+                              sessionId,
+                              master
+                                  ? { master: true }
+                                  : {
+                                        taskId: task?.id,
+                                        projectId: resolvedProjectId,
+                                    },
+                          );
+                    void removal
+                        .then(() => taskStore.deleteSessionHistory(ownerId, sessionId))
+                        .catch((err: unknown) => {
+                            console.error(
+                                `[session] Failed to clean up exited session ${sessionId}:`,
+                                err,
+                            );
+                        });
                     if (!opts.internal) {
                         trayStateTracker.clearSession(sessionId);
                         broadcast({
                             type: MSG.SESSION_EXITED,
                             payload: { sessionId, exitCode },
-                        });
-                        void removeSessionFromOwner(
-                            sessionId,
-                            master
-                                ? { master: true }
-                                : {
-                                      taskId: task?.id,
-                                      projectId: resolvedProjectId,
-                                  },
-                        ).catch((err: unknown) => {
-                            console.error(
-                                `[session] Failed to remove session ${sessionId} from owner:`,
-                                err,
-                            );
                         });
                     }
                     onSessionExited?.(sessionId, exitCode);

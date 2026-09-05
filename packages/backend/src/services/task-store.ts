@@ -14,14 +14,65 @@ import {
     orderProjectsByIds,
     sortTasksByCreatedAtDesc,
 } from "@taskflow/shared";
-import { appendFile, readFile, readdir, mkdir, realpath, rm, stat } from "fs/promises";
+import { appendFile, open, readFile, readdir, mkdir, realpath, rm, stat } from "fs/promises";
 import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
 import { isMissingFileError, isJsonParseError } from "./task-store-helpers";
 import { addAttribute, editAttribute, removeAttribute } from "./attribute-mutations";
 import { NotFoundError } from "./errors";
 import { acquireFileMutationLock } from "./file-mutation-lock";
-import { removeFileOrWrite, removeFileOrWriteJson, writeJsonAtomic } from "./write-file-atomic";
+import {
+    removeFileOrWrite,
+    removeFileOrWriteJson,
+    writeFileAtomic,
+    writeJsonAtomic,
+} from "./write-file-atomic";
+
+/** How much of a session log getSessionHistory reads back, from the end. */
+const SESSION_HISTORY_TAIL_BYTES = 256 * 1024;
+/** A session log is compacted once an append pushes it past this size. */
+const SESSION_LOG_MAX_BYTES = 4 * 1024 * 1024;
+/** What compaction keeps, measured from the end and cut at a line boundary. */
+const SESSION_LOG_KEEP_BYTES = 1024 * 1024;
+
+/**
+ * The last `maxBytes` of `buffer`, advanced to the first line boundary so the
+ * result never starts inside a record. A buffer shorter than `maxBytes` is
+ * returned whole.
+ */
+function tailAtLineBoundary(buffer: Buffer, maxBytes: number): Buffer {
+    if (buffer.byteLength <= maxBytes) return buffer;
+    const start = buffer.byteLength - maxBytes;
+    const newline = buffer.indexOf(0x0a, start);
+    return newline === -1 ? Buffer.alloc(0) : buffer.subarray(newline + 1);
+}
+
+/**
+ * Read about the last `maxBytes` of a file as UTF-8, starting at a line
+ * boundary. The window widens until it holds at least one complete line, so a
+ * single record larger than the window still comes back whole instead of
+ * yielding an empty result.
+ */
+async function readFileTail(filePath: string, maxBytes: number): Promise<string> {
+    const handle = await open(filePath, "r");
+    try {
+        const { size } = await handle.stat();
+        let window = maxBytes;
+        for (;;) {
+            const start = Math.max(0, size - window);
+            const buffer = Buffer.alloc(size - start);
+            await handle.read(buffer, 0, buffer.byteLength, start);
+            if (start === 0) return buffer.toString("utf-8");
+            // The first byte of the window is never known to start a record,
+            // so the boundary search must skip past it.
+            const tail = tailAtLineBoundary(buffer, window - 1);
+            if (tail.byteLength > 0) return tail.toString("utf-8");
+            window *= 2;
+        }
+    } finally {
+        await handle.close();
+    }
+}
 
 interface TaskStoreConfig {
     projectsFile: string;
@@ -88,26 +139,68 @@ export class TaskStore {
 
     async clearAllSessions(instanceId?: string): Promise<void> {
         const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
+        const keep = (s: SessionRef) =>
+            instanceId !== undefined && s.instance !== undefined && s.instance !== instanceId;
         for (const task of tasks) {
             if (task.sessions.length === 0) continue;
-            const remaining = instanceId
-                ? task.sessions.filter((s) => s.instance !== undefined && s.instance !== instanceId)
-                : [];
+            const remaining = task.sessions.filter(keep);
             if (remaining.length !== task.sessions.length) {
                 await this.updateTask(task.id, { sessions: remaining });
+                await this.deleteSessionHistories(
+                    task.id,
+                    task.sessions.filter((s) => !keep(s)).map((s) => s.id),
+                );
             }
         }
         for (const project of projects) {
             if (project.sessions.length === 0) continue;
-            const remaining = instanceId
-                ? project.sessions.filter(
-                      (s) => s.instance !== undefined && s.instance !== instanceId,
-                  )
-                : [];
+            const remaining = project.sessions.filter(keep);
             if (remaining.length !== project.sessions.length) {
                 await this.updateProject(project.id, { sessions: remaining });
+                await this.deleteSessionHistories(
+                    project.id,
+                    project.sessions.filter((s) => !keep(s)).map((s) => s.id),
+                );
             }
         }
+    }
+
+    /**
+     * Remove session logs that no task, archived task, project, or master
+     * session references any more. Sessions are dropped from their owners on
+     * several paths (archive, restart reconciliation, internal sessions that
+     * were never registered), so a boot-time sweep is what keeps the log
+     * directory bounded regardless of which path leaked.
+     */
+    async sweepOrphanSessionLogs(): Promise<number> {
+        let files: string[];
+        try {
+            files = await readdir(this.config.sessionLogsDir);
+        } catch (error) {
+            if (isMissingFileError(error)) return 0;
+            throw error;
+        }
+        const [tasks, archived, projects] = await Promise.all([
+            this.listTasks(),
+            this.listArchived(),
+            this.listProjects(),
+        ]);
+        const referenced = new Set<string>();
+        for (const owner of [...tasks, ...archived, ...projects]) {
+            for (const session of owner.sessions) referenced.add(`${owner.id}--${session.id}`);
+        }
+        for (const session of this.masterSessions) referenced.add(`master--${session.id}`);
+
+        const orphans = files.filter(
+            (file) => file.endsWith(".jsonl") && !referenced.has(file.slice(0, -".jsonl".length)),
+        );
+        await Promise.all(
+            orphans.map((file) => {
+                const logPath = join(this.config.sessionLogsDir, file);
+                return this.withSessionLogMutation(logPath, () => this.unlinkIfPresent(logPath));
+            }),
+        );
+        return orphans.length;
     }
 
     async cleanupAllSessionLogs(): Promise<void> {
@@ -174,9 +267,10 @@ export class TaskStore {
         instanceId: string,
         bootId: string,
         onlyBootId?: string,
-    ): { sessions: SessionRef[]; changed: boolean } {
+    ): { sessions: SessionRef[]; changed: boolean; dropped: string[] } {
         let changed = false;
         const next: SessionRef[] = [];
+        const dropped: string[] = [];
         for (const session of sessions) {
             if (
                 session.instance !== instanceId ||
@@ -187,6 +281,7 @@ export class TaskStore {
             }
             if (!isAgentType(session.type)) {
                 changed = true;
+                dropped.push(session.id);
                 continue;
             }
             if (session.bootId === bootId) {
@@ -200,95 +295,60 @@ export class TaskStore {
             next.push(reconciled);
             if (session.state !== "interrupted") changed = true;
         }
-        return { sessions: next, changed };
+        return { sessions: next, changed, dropped };
+    }
+
+    /**
+     * Apply reconcileSessionList to every owner, re-running it inside each
+     * owner's own read-modify-write so a concurrent update is not lost, and
+     * delete the logs of the sessions it dropped.
+     */
+    private async reconcileAllSessionLists(
+        instanceId: string,
+        bootId: string,
+        onlyBootId?: string,
+    ): Promise<void> {
+        const reconcile = (sessions: SessionRef[]) =>
+            this.reconcileSessionList(sessions, instanceId, bootId, onlyBootId);
+        const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
+        for (const task of tasks) {
+            if (!reconcile(task.sessions).changed) continue;
+            let dropped: string[] = [];
+            await this.updateTask(task.id, (current) => {
+                const latest = reconcile(current.sessions);
+                dropped = latest.dropped;
+                return { sessions: latest.sessions };
+            });
+            await this.deleteSessionHistories(task.id, dropped);
+        }
+        for (const project of projects) {
+            if (!reconcile(project.sessions).changed) continue;
+            let dropped: string[] = [];
+            await this.updateProject(project.id, (current) => {
+                const latest = reconcile(current.sessions);
+                dropped = latest.dropped;
+                return { sessions: latest.sessions };
+            });
+            await this.deleteSessionHistories(project.id, dropped);
+        }
+        if (reconcile(this.masterSessions).changed) {
+            let dropped: string[] = [];
+            await this.withMasterSessionsMutation(async () => {
+                const latest = reconcile(this.masterSessions);
+                this.masterSessions = latest.sessions;
+                dropped = latest.dropped;
+                if (latest.changed) await this.persistMasterSessions();
+            });
+            await this.deleteSessionHistories("master", dropped);
+        }
     }
 
     async reconcileInterruptedSessions(instanceId: string, bootId: string): Promise<void> {
-        const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
-        for (const task of tasks) {
-            const reconciled = this.reconcileSessionList(task.sessions, instanceId, bootId);
-            if (reconciled.changed) {
-                await this.updateTask(task.id, (current) => ({
-                    sessions: this.reconcileSessionList(current.sessions, instanceId, bootId)
-                        .sessions,
-                }));
-            }
-        }
-        for (const project of projects) {
-            const reconciled = this.reconcileSessionList(project.sessions, instanceId, bootId);
-            if (reconciled.changed) {
-                await this.updateProject(project.id, (current) => ({
-                    sessions: this.reconcileSessionList(current.sessions, instanceId, bootId)
-                        .sessions,
-                }));
-            }
-        }
-        const master = this.reconcileSessionList(this.masterSessions, instanceId, bootId);
-        if (master.changed) {
-            await this.withMasterSessionsMutation(async () => {
-                const latest = this.reconcileSessionList(this.masterSessions, instanceId, bootId);
-                this.masterSessions = latest.sessions;
-                if (latest.changed) await this.persistMasterSessions();
-            });
-        }
+        await this.reconcileAllSessionLists(instanceId, bootId);
     }
 
     async markBootSessionsInterrupted(instanceId: string, bootId: string): Promise<void> {
-        const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
-        for (const task of tasks) {
-            const reconciled = this.reconcileSessionList(
-                task.sessions,
-                instanceId,
-                "__next_boot__",
-                bootId,
-            );
-            if (reconciled.changed) {
-                await this.updateTask(task.id, (current) => ({
-                    sessions: this.reconcileSessionList(
-                        current.sessions,
-                        instanceId,
-                        "__next_boot__",
-                        bootId,
-                    ).sessions,
-                }));
-            }
-        }
-        for (const project of projects) {
-            const reconciled = this.reconcileSessionList(
-                project.sessions,
-                instanceId,
-                "__next_boot__",
-                bootId,
-            );
-            if (reconciled.changed) {
-                await this.updateProject(project.id, (current) => ({
-                    sessions: this.reconcileSessionList(
-                        current.sessions,
-                        instanceId,
-                        "__next_boot__",
-                        bootId,
-                    ).sessions,
-                }));
-            }
-        }
-        const master = this.reconcileSessionList(
-            this.masterSessions,
-            instanceId,
-            "__next_boot__",
-            bootId,
-        );
-        if (master.changed) {
-            await this.withMasterSessionsMutation(async () => {
-                const latest = this.reconcileSessionList(
-                    this.masterSessions,
-                    instanceId,
-                    "__next_boot__",
-                    bootId,
-                );
-                this.masterSessions = latest.sessions;
-                if (latest.changed) await this.persistMasterSessions();
-            });
-        }
+        await this.reconcileAllSessionLists(instanceId, "__next_boot__", bootId);
     }
 
     // --- Projects ---
@@ -637,6 +697,13 @@ export class TaskStore {
         }
     }
 
+    /**
+     * Byte size of each session log this process has appended to, so the
+     * compaction check does not stat the file on every PTY batch. Seeded from
+     * disk on first append and dropped when the log is deleted.
+     */
+    private sessionLogSizes = new Map<string, number>();
+
     async appendSessionOutput(
         taskId: string,
         sessionId: string,
@@ -647,7 +714,34 @@ export class TaskStore {
         const entry = JSON.stringify({ sequence, data }) + "\n";
         await this.withSessionLogMutation(logPath, async () => {
             await appendFile(logPath, entry, "utf-8");
+            let size = this.sessionLogSizes.get(logPath);
+            if (size === undefined) {
+                size = await stat(logPath).then(
+                    (info) => info.size,
+                    () => Buffer.byteLength(entry),
+                );
+            } else {
+                size += Buffer.byteLength(entry);
+            }
+            if (size > SESSION_LOG_MAX_BYTES) {
+                size = await this.compactSessionLog(logPath);
+            }
+            this.sessionLogSizes.set(logPath, size);
         });
+    }
+
+    /**
+     * Rewrite a session log keeping only its last SESSION_LOG_KEEP_BYTES, cut
+     * at a line boundary. Sequences are monotonic, so dropping the head loses
+     * nothing a client can replay, and the in-memory scrollback the PTY
+     * manager keeps is far smaller than what is retained here.
+     */
+    private async compactSessionLog(logPath: string): Promise<number> {
+        const raw = await readFile(logPath);
+        if (raw.byteLength <= SESSION_LOG_KEEP_BYTES) return raw.byteLength;
+        const tail = tailAtLineBoundary(raw, SESSION_LOG_KEEP_BYTES);
+        await writeFileAtomic(logPath, tail.toString("utf-8"));
+        return tail.byteLength;
     }
 
     async getSessionHistory(
@@ -655,11 +749,16 @@ export class TaskStore {
         sessionId: string,
     ): Promise<{ data: string; lastSequence: number }> {
         const logPath = this.sessionLogPath(taskId, sessionId);
-        await this.sessionLogMutations.get(logPath)?.catch(() => undefined);
 
+        // Only the tail is read: a long session's log can reach tens of MB and
+        // a client can only ever display the last few thousand lines of it.
+        // The read takes its turn in the log's mutation queue so it can never
+        // overlap a compaction, which rewrites the file in place on some mounts.
         let raw: string;
         try {
-            raw = await readFile(logPath, "utf-8");
+            raw = await this.withSessionLogMutation(logPath, () =>
+                readFileTail(logPath, SESSION_HISTORY_TAIL_BYTES),
+            );
         } catch (error) {
             if (isMissingFileError(error)) {
                 return { data: "", lastSequence: 0 };
@@ -690,8 +789,13 @@ export class TaskStore {
     async deleteSessionHistory(taskId: string, sessionId: string): Promise<void> {
         const logPath = this.sessionLogPath(taskId, sessionId);
         await this.withSessionLogMutation(logPath, async () => {
+            this.sessionLogSizes.delete(logPath);
             await this.unlinkIfPresent(logPath);
         });
+    }
+
+    private async deleteSessionHistories(ownerId: string, sessionIds: string[]): Promise<void> {
+        await Promise.all(sessionIds.map((id) => this.deleteSessionHistory(ownerId, id)));
     }
 
     async deleteTaskSessionHistory(taskId: string): Promise<void> {
@@ -708,14 +812,13 @@ export class TaskStore {
         await Promise.all(
             files
                 .filter((file) => file.startsWith(`${taskId}--`) && file.endsWith(".jsonl"))
-                .map((file) =>
-                    this.withSessionLogMutation(
-                        join(this.config.sessionLogsDir, file),
-                        async () => {
-                            await this.unlinkIfPresent(join(this.config.sessionLogsDir, file));
-                        },
-                    ),
-                ),
+                .map((file) => {
+                    const logPath = join(this.config.sessionLogsDir, file);
+                    return this.withSessionLogMutation(logPath, async () => {
+                        this.sessionLogSizes.delete(logPath);
+                        await this.unlinkIfPresent(logPath);
+                    });
+                }),
         );
     }
 
