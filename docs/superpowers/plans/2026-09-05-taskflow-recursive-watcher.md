@@ -1044,7 +1044,8 @@ describe("file-store recursive change events", () => {
         handlers.get(MSG.FILE_CHANGED)?.({ type: "modify", path: `${root}/src`, recursive: true });
         await settle();
 
-        expect(listedDirs()).toEqual([`${root}/src`, `${root}/src/deep`]);
+        // Loaded dirs at or under the path, plus the path's parent (the dir itself may be gone).
+        expect(listedDirs()).toEqual([root, `${root}/src`, `${root}/src/deep`]);
     });
 
     test("a recursive event below the root also refreshes the nearest loaded parent", async () => {
@@ -1083,7 +1084,7 @@ describe("file-store recursive change events", () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `bun test packages/ui/src/stores/file-store.test.ts`
-Expected: the two recursive tests FAIL (the store treats a recursive event as a file and refetches only its parent) and the sibling-prefix test FAILS (`startsWith("/repo")` accepts `/repo-old`). The plain-event test passes on the old code; it guards the existing behaviour.
+Expected: the two recursive tests FAIL (the store treats a recursive event as a file and refetches only its parent). The plain-event and sibling-prefix tests pass on the old code (the sibling's parent is never a loaded directory, so nothing is fetched either way); they guard existing behaviour and the boundary check added below.
 
 - [ ] **Step 3: Implement**
 

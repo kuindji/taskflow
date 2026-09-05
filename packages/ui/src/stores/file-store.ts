@@ -41,6 +41,23 @@ function isDirLoaded(root: FileNode, dirPath: string): boolean {
     return false;
 }
 
+function isSameOrChild(path: string, root: string): boolean {
+    return path === root || path.startsWith(root + "/");
+}
+
+function collectLoadedDirs(root: FileNode, prefix: string, out: Set<string>): void {
+    if (root.type !== "directory") return;
+    const inside = root.path === prefix || root.path.startsWith(prefix + "/");
+    if (inside && root.loaded === true) out.add(root.path);
+    if (!root.children) return;
+    for (const child of root.children) {
+        if (child.type !== "directory") continue;
+        if (inside || prefix === child.path || prefix.startsWith(child.path + "/")) {
+            collectLoadedDirs(child, prefix, out);
+        }
+    }
+}
+
 interface PendingMove {
     sourcePath: string;
     destinationDir: string;
@@ -89,6 +106,7 @@ interface FileStore {
 
 let fileChangeSubscriptionReady = false;
 let fileChangeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+const pendingRecursiveDirs = new Set<string>();
 const pendingChangedDirs = new Set<string>();
 let diffStoreUnsubscribe: (() => void) | null = null;
 let treeRequestId = 0;
@@ -186,18 +204,29 @@ export const useFileStore = create<FileStore>((set, get) => ({
             onEvent(MSG.FILE_CHANGED, (payload) => {
                 const event = payload as FileChangeEvent;
                 const watchedPath = get().watchedPath;
-                if (!watchedPath || !event.path.startsWith(watchedPath)) return;
-                const parentDir = event.path.substring(0, event.path.lastIndexOf("/"));
-                pendingChangedDirs.add(parentDir);
+                if (!watchedPath || !isSameOrChild(event.path, watchedPath)) return;
+                if (event.recursive) {
+                    pendingRecursiveDirs.add(event.path);
+                    // The collapsed directory itself may be gone; its parent's listing shows that.
+                    if (event.path !== watchedPath) {
+                        pendingChangedDirs.add(event.path.substring(0, event.path.lastIndexOf("/")));
+                    }
+                } else {
+                    pendingChangedDirs.add(event.path.substring(0, event.path.lastIndexOf("/")));
+                }
                 if (fileChangeRefreshTimer) clearTimeout(fileChangeRefreshTimer);
                 fileChangeRefreshTimer = setTimeout(() => {
                     const tree = get().tree;
-                    for (const dir of pendingChangedDirs) {
-                        if (tree && isDirLoaded(tree, dir)) {
-                            get().fetchDir(dir).catch(console.error);
+                    if (tree) {
+                        const dirs = new Set<string>();
+                        for (const dir of pendingChangedDirs) {
+                            if (isDirLoaded(tree, dir)) dirs.add(dir);
                         }
+                        for (const dir of pendingRecursiveDirs) collectLoadedDirs(tree, dir, dirs);
+                        for (const dir of dirs) get().fetchDir(dir).catch(console.error);
                     }
                     pendingChangedDirs.clear();
+                    pendingRecursiveDirs.clear();
                     get().fetchGitStatus(watchedPath).catch(console.error);
                 }, 150);
             });
