@@ -23,7 +23,7 @@
 
 ## File Structure
 
-- Create `packages/backend/src/services/recursive-watcher.ts`: native callback, ignore filter, pending set, throttle timer, batch collapsing. Pure helpers `toRelativeWatchPath` and `collapseBatch` are exported because the tests exercise them without a filesystem.
+- Create `packages/backend/src/services/recursive-watcher.ts`: native callback, ignore filter, pending set, throttle timer, batch collapsing. Pure helpers `toRelativeWatchPath` and `PendingBatch` are exported because the tests exercise them without a filesystem.
 - Create `packages/backend/tests/services/recursive-watcher.test.ts`.
 - Modify `packages/backend/src/services/file-watcher.ts`: `watch`, `stop`, `stopAll` use the service; `buildTree` and `listDir` untouched.
 - Modify `packages/backend/tests/services/file-watcher.test.ts`: add delete and overflow cases.
@@ -57,9 +57,14 @@
   interface RecursiveWatchHandle { close(): void }
   function watchRecursive(root: string, options: RecursiveWatchOptions): RecursiveWatchHandle
   function toRelativeWatchPath(roots: readonly string[], filename: string): string | null
-  function collapseBatch(paths: ReadonlySet<string>, includesRoot: boolean, maxPaths: number): WatchBatch
+  class PendingBatch {
+      constructor(maxPaths: number)
+      add(relativePath: string): void   // collapses synchronously once the cap is crossed
+      markRoot(): void                  // the root itself changed: everything collapses to [""]
+      take(): WatchBatch                // returns and resets
+  }
   ```
-  `paths` are root-relative with forward slashes; `""` names the root itself. `collapsed: true` means every path is a directory whose loaded descendants must be rescanned. `roots` holds the root as given plus its real path, so an absolute filename reported against either form resolves.
+  `paths` are root-relative with forward slashes; `""` names the root itself. `collapsed: true` means every path is a directory whose loaded descendants must be rescanned. `roots` holds the root as given plus its real path, so an absolute filename reported against either form resolves. `PendingBatch` collapses inside `add`, so memory held between flushes is capped at `maxPaths` strings even when the event loop cannot run.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -72,7 +77,7 @@ import { tmpdir } from "os";
 import {
     watchRecursive,
     toRelativeWatchPath,
-    collapseBatch,
+    PendingBatch,
     type WatchBatch,
     type RecursiveWatchHandle,
 } from "../../src/services/recursive-watcher";
@@ -112,26 +117,46 @@ describe("toRelativeWatchPath", () => {
     });
 });
 
-describe("collapseBatch", () => {
-    it("passes small batches through unchanged", () => {
-        const batch = collapseBatch(new Set(["a/1.txt", "b/2.txt"]), false, 10);
-        expect(batch).toEqual({ paths: ["a/1.txt", "b/2.txt"], collapsed: false });
+describe("PendingBatch", () => {
+    it("passes small batches through unchanged and resets on take", () => {
+        const batch = new PendingBatch(10);
+        batch.add("a/1.txt");
+        batch.add("b/2.txt");
+        batch.add("a/1.txt");
+        expect(batch.take()).toEqual({ paths: ["a/1.txt", "b/2.txt"], collapsed: false });
+        expect(batch.take()).toEqual({ paths: [], collapsed: false });
     });
 
-    it("collapses to unique parent directories above the cap", () => {
-        const batch = collapseBatch(new Set(["a/1.txt", "a/2.txt", "b/c/3.txt", "top.txt"]), false, 3);
-        expect(batch.collapsed).toBe(true);
-        expect(batch.paths.sort()).toEqual(["", "a", "b/c"]);
+    it("collapses to parent directories as soon as the cap is crossed, and keeps adding parents", () => {
+        const batch = new PendingBatch(3);
+        for (const p of ["a/1.txt", "a/2.txt", "b/c/3.txt", "top.txt"]) batch.add(p);
+        batch.add("a/4.txt");
+        batch.add("b/c/5.txt");
+        const taken = batch.take();
+        expect(taken.collapsed).toBe(true);
+        expect(taken.paths.sort()).toEqual(["", "a", "b/c"]);
     });
 
-    it("collapses to the root when parents still exceed the cap", () => {
-        const batch = collapseBatch(new Set(["a/1", "b/2", "c/3", "d/4"]), false, 2);
-        expect(batch).toEqual({ paths: [""], collapsed: true });
+    it("collapses to the root when parents exceed the cap, and ignores further adds", () => {
+        const batch = new PendingBatch(2);
+        for (const p of ["a/1", "b/2", "c/3", "d/4"]) batch.add(p);
+        batch.add("e/5");
+        expect(batch.take()).toEqual({ paths: [""], collapsed: true });
     });
 
     it("collapses to the root when the root itself changed", () => {
-        const batch = collapseBatch(new Set(["a/1"]), true, 10);
-        expect(batch).toEqual({ paths: [""], collapsed: true });
+        const batch = new PendingBatch(10);
+        batch.add("a/1");
+        batch.markRoot();
+        batch.add("b/2");
+        expect(batch.take()).toEqual({ paths: [""], collapsed: true });
+    });
+
+    it("never holds more than the cap in memory", () => {
+        const batch = new PendingBatch(100);
+        for (let i = 0; i < 100000; i++) batch.add(`dir${i % 1000}/file${i}.txt`);
+        expect(batch.size).toBeLessThanOrEqual(100);
+        expect(batch.take()).toEqual({ paths: [""], collapsed: true });
     });
 });
 
@@ -354,39 +379,67 @@ function parentOf(relativePath: string): string {
 }
 
 /**
- * Bound the size of a flush. Past `maxPaths` the batch names parent
- * directories instead of files; past it again, or when the root itself
- * changed, it names only the root.
+ * What accumulated between two flushes. Collapses *while adding*, not at
+ * flush time: Bun dispatches a native event backlog without yielding, so a
+ * flood of non-ignored paths would otherwise be retained in full until the
+ * timer could run. Past `maxPaths` the batch keeps parent directories
+ * instead of files; past it again, or when the root itself changed, it
+ * keeps only the root.
  */
-export function collapseBatch(
-    paths: ReadonlySet<string>,
-    includesRoot: boolean,
-    maxPaths: number,
-): WatchBatch {
-    if (includesRoot) return { paths: [""], collapsed: true };
-    if (paths.size <= maxPaths) return { paths: [...paths], collapsed: false };
-    const parents = new Set<string>();
-    for (const p of paths) parents.add(parentOf(p));
-    if (parents.size > maxPaths) return { paths: [""], collapsed: true };
-    return { paths: [...parents], collapsed: true };
+export class PendingBatch {
+    private readonly maxPaths: number;
+    private paths = new Set<string>();
+    private mode: "paths" | "parents" | "root" = "paths";
+
+    constructor(maxPaths: number) {
+        this.maxPaths = maxPaths;
+    }
+
+    add(relativePath: string): void {
+        if (this.mode === "root") return;
+        this.paths.add(this.mode === "parents" ? parentOf(relativePath) : relativePath);
+        if (this.paths.size <= this.maxPaths) return;
+        if (this.mode === "paths") {
+            const parents = new Set<string>();
+            for (const p of this.paths) parents.add(parentOf(p));
+            this.paths = parents;
+            this.mode = "parents";
+            if (parents.size <= this.maxPaths) return;
+        }
+        this.markRoot();
+    }
+
+    markRoot(): void {
+        this.mode = "root";
+        this.paths.clear();
+    }
+
+    get size(): number {
+        return this.mode === "root" ? 1 : this.paths.size;
+    }
+
+    take(): WatchBatch {
+        const batch: WatchBatch =
+            this.mode === "root"
+                ? { paths: [""], collapsed: true }
+                : { paths: [...this.paths], collapsed: this.mode === "parents" };
+        this.paths = new Set();
+        this.mode = "paths";
+        return batch;
+    }
 }
 
 export function watchRecursive(root: string, options: RecursiveWatchOptions): RecursiveWatchHandle {
     const { ignoredNames, windowMs, maxPathsPerFlush, onFlush, onError } = options;
     const roots = rootForms(root);
-    let pending = new Set<string>();
-    let pendingRoot = false;
+    const pending = new PendingBatch(maxPathsPerFlush);
     let timer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
 
     const flush = (): void => {
         timer = null;
         if (closed) return;
-        const paths = pending;
-        const includesRoot = pendingRoot;
-        pending = new Set();
-        pendingRoot = false;
-        onFlush(collapseBatch(paths, includesRoot, maxPathsPerFlush));
+        onFlush(pending.take());
     };
 
     const arm = (): void => {
@@ -399,7 +452,7 @@ export function watchRecursive(root: string, options: RecursiveWatchOptions): Re
         const rel = name === "" ? "" : toRelativeWatchPath(roots, name);
         if (rel === null) return;
         if (rel === "") {
-            pendingRoot = true;
+            pending.markRoot();
             arm();
             return;
         }
@@ -413,7 +466,7 @@ export function watchRecursive(root: string, options: RecursiveWatchOptions): Re
         closed = true;
         if (timer !== null) clearTimeout(timer);
         timer = null;
-        pending.clear();
+        pending.take();
         watcher.close();
     };
 
@@ -635,18 +688,24 @@ export class FileWatcher {
         const emit = (event: FileChangeEvent): void => {
             if (!state.closed) onChange(event);
         };
-        const handle = watchRecursive(dirPath, {
-            ignoredNames: WATCH_IGNORED_NAMES,
-            windowMs: this.windowMs,
-            maxPathsPerFlush: this.maxPathsPerFlush,
-            onFlush: (batch) => void this.emitBatch(dirPath, batch, emit),
-            onError: (error) => {
-                console.error(`File watcher failed for ${dirPath}:`, error);
-                // The native watcher is gone; tell the client to refresh what it has.
-                emit({ type: "modify", path: normalizePath(dirPath), recursive: true });
-            },
-        });
-        this.watchers.set(dirPath, { handle, state });
+        const active: ActiveWatcher = {
+            handle: watchRecursive(dirPath, {
+                ignoredNames: WATCH_IGNORED_NAMES,
+                windowMs: this.windowMs,
+                maxPathsPerFlush: this.maxPathsPerFlush,
+                onFlush: (batch) => void this.emitBatch(dirPath, batch, emit),
+                onError: (error) => {
+                    console.error(`File watcher failed for ${dirPath}:`, error);
+                    // The native watcher is gone. Forget it so the next FILE_WATCH
+                    // creates a fresh one, and tell the client to refresh what it has.
+                    if (this.watchers.get(dirPath) === active) this.watchers.delete(dirPath);
+                    emit({ type: "modify", path: normalizePath(dirPath), recursive: true });
+                    state.closed = true;
+                },
+            }),
+            state,
+        };
+        this.watchers.set(dirPath, active);
     }
 
     private async emitBatch(
@@ -1079,7 +1138,7 @@ Replace the `FILE_CHANGED` handler body:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bun test packages/ui/src/stores/file-store.test.ts`
-Expected: both PASS.
+Expected: all four PASS.
 
 - [ ] **Step 5: Typecheck and lint**
 
@@ -1138,8 +1197,8 @@ git commit -m "fix(ui): reload markdown pane when a recursive change covers its 
 
 - [ ] **Step 1: Remove the dependency**
 
-Run: `cd packages/backend && bun remove chokidar && cd ../.. && grep -c chokidar bun.lock; grep -c fsevents bun.lock`
-Expected: both counts are `0`. If `fsevents` remains, another package pulls it in; report which (`grep -n fsevents bun.lock`) and leave it.
+Run: `cd packages/backend && bun remove chokidar && cd ../.. && grep -c chokidar bun.lock; grep -n chokidar packages/backend/package.json`
+Expected: `0` and no output. `fsevents` stays in `bun.lock` as an optional dependency of Vite/Rollup for the UI package; that is expected and outside the backend binary.
 
 - [ ] **Step 2: Confirm nothing imports chokidar**
 
@@ -1249,5 +1308,6 @@ git commit -m "chore(backend): drop chokidar and add the watch backlog regressio
 - Wiki watcher queuing every non-ignored path, incremental markdown re-parse, rebuild on directory-shaped or vanished paths and on collapse, serialized per root, generation logic intact: Task 4.
 - UI refetch of loaded directories and markdown pane reload: Tasks 5 and 6.
 - Dependency removal and manual regression script: Task 7.
-- Type names used across tasks: `WatchBatch`, `RecursiveWatchOptions`, `RecursiveWatchHandle`, `watchRecursive`, `toRelativeWatchPath`, `collapseBatch`, `FileChangeEvent.recursive`, `FileWatcherOptions`, `collectLoadedDirs`, `isSameOrChild`, `pendingRecursiveDirs`, `enqueue`, `applyBatch`, `rebuild`. Each is defined in the task that introduces it and used with the same name afterwards.
+- Type names used across tasks: `WatchBatch`, `RecursiveWatchOptions`, `RecursiveWatchHandle`, `watchRecursive`, `toRelativeWatchPath`, `PendingBatch`, `FileChangeEvent.recursive`, `FileWatcherOptions`, `collectLoadedDirs`, `isSameOrChild`, `pendingRecursiveDirs`, `enqueue`, `applyBatch`, `rebuild`. Each is defined in the task that introduces it and used with the same name afterwards.
 - Review round 1 (Codex, gpt-5.5) changes folded in: real-path aware `toRelativeWatchPath`; wiki queues every non-ignored path and rebuilds on directory-shaped or vanished paths; wiki work serialized per root; `FileWatcher` stops emitting after `stop`; watcher errors surface as a recursive root event (explorer) or a rebuild (wiki); explorer refreshes the parent of a collapsed directory; boundary-aware root check in the store; overflow test for `FileWatcher`; throttle test writes rotating filenames.
+- Review round 2 (Codex, gpt-5.5) changes folded in: collapsing moved into `PendingBatch.add` so memory between flushes is capped even while Bun drains a backlog without yielding (pure tests cover the state machine); a watcher error drops the dead handle from `FileWatcher.watchers`; the dependency check no longer expects `fsevents` to vanish from the lockfile (Vite keeps it).

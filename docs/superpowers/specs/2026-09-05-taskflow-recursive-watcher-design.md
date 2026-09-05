@@ -90,20 +90,22 @@ Native callback, synchronous and allocation-light:
    names on macOS even for symlinked roots, verified; the absolute branch is
    defensive); if it is outside both, drop it.
 3. Split on `/`; if any segment is in `ignoredNames`, return.
-4. Add to the pending `Set`. If no timer is armed, arm one for `windowMs`.
+4. Add to the pending batch. If no timer is armed, arm one for `windowMs`.
+
+The pending batch collapses while adding, not at flush time, because Bun
+dispatches a native event backlog without yielding and a flood of non-ignored
+paths would otherwise be retained in full until the timer could run. Once more
+than `maxPathsPerFlush` distinct paths are pending, the batch keeps parent
+directories instead of files; once parents exceed the cap too, or when the
+root itself changed, it keeps only the root. Memory held between flushes is
+therefore bounded by `maxPathsPerFlush` strings.
 
 The timer is a throttle: it is armed by the first event after a flush and is
 not reset by later events, so a continuous stream flushes once per window.
 
-Flush:
-
-1. Take the pending set and the root flag; reset both.
-2. If the root flag is set or the set is larger than `maxPathsPerFlush`,
-   collapse to the set of parent directories (`dirname`, with `"."` mapped to
-   `""`). If still larger, collapse to `[""]`. `collapsed` is true in either
-   case.
-3. Call `onFlush({ paths, collapsed })`. The service does no stat itself, so
-   callers decide what a path means.
+Flush: take the batch (resetting it) and call `onFlush({ paths, collapsed })`,
+where `collapsed` is true when the paths are directories. The service does no
+stat itself, so callers decide what a path means.
 
 `close()` closes the `fs.watch` handle, clears the timer and drops pending
 state, and is safe to call twice. The `fs.watch` `error` event closes the
@@ -124,8 +126,9 @@ no error (verified); Windows may raise `EPERM`, which reaches `onError`.
   `{ type: "modify", path, recursive: true }` per directory without stat
   (the root path itself when collapsed to the root).
 - After `stop()` nothing is emitted, even from a stat batch still in flight.
-- A watcher error is logged and surfaced as a recursive event for the root so
-  the client refreshes what it has.
+- A watcher error is logged, the dead handle is dropped so the next watch
+  request creates a fresh one, and a recursive event for the root tells the
+  client to refresh what it has.
 - `watch()` resolves as soon as the handle exists. `stop()` and `stopAll()`
   keep their signatures. The constructor accepts optional `windowMs` and
   `maxPathsPerFlush` overrides for tests.
@@ -165,7 +168,9 @@ emitting `create`.
 ### Dependencies
 
 Remove `chokidar` from `packages/backend/package.json` and refresh `bun.lock`.
-No other module imports chokidar or fsevents.
+No other module imports chokidar. `fsevents` remains in the lockfile as an
+optional dependency of Vite for the UI package; it is not part of the backend
+binary.
 
 ### Manual regression scripts
 
@@ -182,8 +187,8 @@ Written before the implementation, in `packages/backend/tests/services/`:
 
 - events under an ignored directory produce no flush;
 - many events inside one window produce one flush containing unique paths;
-- more than `maxPathsPerFlush` paths collapse to parent directories, and past
-  the cap again to the root, with `collapsed: true`;
+- the pending batch collapses to parent directories as soon as the cap is
+  crossed, to the root past it again, and never holds more than the cap;
 - a continuous stream of events flushes more than once;
 - `close()` stops delivery and tolerates a second call;
 - backslash and absolute-path normalization (pure helper, no filesystem).
