@@ -21,7 +21,6 @@
         "@vscode/ripgrep": "^1.17.1",
         "@xterm/addon-serialize": "^0.13.0",
         "@xterm/headless": "^5.5.0",
-        "chokidar": "^3.6.0",
         "node-pty": "^1.1.0",
         "smol-toml": "^1.6.0",
         "typescript": "^5.7.0",
