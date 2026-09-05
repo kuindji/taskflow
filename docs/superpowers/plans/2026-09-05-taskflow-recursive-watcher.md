@@ -805,7 +805,7 @@ git commit -m "fix(backend): watch workspaces with the recursive watcher instead
 - [ ] **Step 2: Run the wiki tests to verify the new one fails and the rest pass**
 
 Run: `cd packages/backend && bun test tests/services/wiki-index.test.ts`
-Expected: the rename test times out on chokidar (a directory rename on FSEvents yields one event for the directory, no `unlink`/`add` per page, so the old code never re-parses); every other test passes. Those are the contract and must still pass after the change.
+Expected: all tests pass, the new one included. (Observed while executing: chokidar's fsevents handler does follow a directory rename through its own `unlinkDir`/`addDir` bookkeeping, so this test is a regression guard for behaviour the new implementation must keep, not a red test.)
 
 - [ ] **Step 3: Rewrite the watch path**
 

@@ -1,4 +1,4 @@
-import chokidar, { type FSWatcher } from "chokidar";
+import { watchRecursive, type RecursiveWatchHandle, type WatchBatch } from "./recursive-watcher";
 import { readdir, readFile, stat } from "fs/promises";
 import { join, relative } from "path";
 import type { WikiIndexData } from "@taskflow/shared";
@@ -17,6 +17,8 @@ const IGNORED_NAMES = new Set([
 ]);
 
 const MARKDOWN = /\.(md|markdown)$/i;
+
+const WIKI_MAX_PATHS_PER_FLUSH = 200;
 
 function normalizePath(p: string): string {
     return p.replace(/\\/g, "/");
@@ -37,14 +39,14 @@ interface RootState {
     parsed: Map<string, ParsedWikiPage>;
     /** The generation this state was built in; a stop invalidates it. */
     generation: number;
-    watcher: FSWatcher | null;
-    timer: ReturnType<typeof setTimeout> | null;
-    pending: Set<string>;
+    watcher: RecursiveWatchHandle | null;
+    /** Serializes incremental updates and full rebuilds so they never interleave on `parsed`. */
+    work: Promise<void>;
 }
 
 /**
- * One in-memory wiki index per root, kept fresh by a chokidar watcher. A
- * changed file re-parses alone and the graph is rebuilt from the cached page
+ * One in-memory wiki index per root, kept fresh by a recursive watcher. A
+ * changed page re-parses alone and the graph is rebuilt from the cached page
  * map — at ~110 files a full rebuild is milliseconds, so nothing is persisted.
  */
 class WikiIndexService {
@@ -80,12 +82,8 @@ class WikiIndexService {
         this.generation++;
         const states = [...this.roots.values()];
         this.roots.clear();
-        await Promise.all(
-            states.map(async (state) => {
-                if (state.timer) clearTimeout(state.timer);
-                await state.watcher?.close();
-            }),
-        );
+        for (const state of states) state.watcher?.close();
+        await Promise.all(states.map((state) => state.work));
     }
 
     private async build(root: string): Promise<WikiIndexData> {
@@ -116,14 +114,13 @@ class WikiIndexService {
             parsed,
             generation,
             watcher: null,
-            timer: null,
-            pending: new Set(),
+            work: Promise.resolve(),
         };
         this.roots.set(root, state);
-        state.watcher = await this.watch(root, state);
+        state.watcher = this.watch(root, state);
         if (generation !== this.generation) {
             if (this.roots.get(root) === state) this.roots.delete(root);
-            await state.watcher.close();
+            state.watcher.close();
         }
         return data;
     }
@@ -162,51 +159,84 @@ class WikiIndexService {
         }
     }
 
-    private async watch(root: string, state: RootState): Promise<FSWatcher> {
-        const watcher = chokidar.watch(root, {
-            ignored: (path: string) =>
-                normalizePath(path)
-                    .split("/")
-                    .filter(Boolean)
-                    .some((segment) => IGNORED_NAMES.has(segment)),
-            ignoreInitial: true,
-            ignorePermissionErrors: true,
-            persistent: true,
+    private watch(root: string, state: RootState): RecursiveWatchHandle {
+        return watchRecursive(root, {
+            ignoredNames: IGNORED_NAMES,
+            windowMs: this.debounceMs,
+            maxPathsPerFlush: WIKI_MAX_PATHS_PER_FLUSH,
+            onFlush: (batch) => this.enqueue(state, () => this.applyBatch(root, state, batch)),
+            onError: (error) => {
+                console.error(`Wiki watcher failed for ${root}:`, error);
+                this.enqueue(state, () => this.rebuild(root, state));
+            },
         });
-
-        const queue = (path: string) => {
-            if (!MARKDOWN.test(path)) return;
-            state.pending.add(path);
-            if (state.timer) clearTimeout(state.timer);
-            state.timer = setTimeout(() => {
-                state.timer = null;
-                void this.flush(root, state);
-            }, this.debounceMs);
-        };
-
-        watcher.on("add", queue);
-        watcher.on("change", queue);
-        watcher.on("unlink", queue);
-
-        await new Promise<void>((resolve) => {
-            watcher.once("ready", () => resolve());
-            watcher.once("error", () => resolve());
-        });
-
-        return watcher;
     }
 
-    private async flush(root: string, state: RootState): Promise<void> {
+    private enqueue(state: RootState, job: () => Promise<void>): void {
+        state.work = state.work.then(job, job);
+    }
+
+    /**
+     * A markdown path re-parses alone. Any other path that turns out to be a
+     * directory, or to be gone, means a rename or removal whose pages cannot
+     * be followed one by one, so the root is re-listed instead.
+     */
+    private async applyBatch(root: string, state: RootState, batch: WatchBatch): Promise<void> {
         if (state.generation !== this.generation) return;
-        const paths = [...state.pending];
-        state.pending.clear();
+        if (batch.collapsed) return this.rebuild(root, state);
 
-        for (const path of paths) {
-            const page = await this.parseFile(root, path);
-            if (page) state.parsed.set(path, page);
-            else state.parsed.delete(path);
+        const markdown: string[] = [];
+        for (const relativePath of batch.paths) {
+            const filePath = join(root, relativePath);
+            if (MARKDOWN.test(relativePath)) {
+                markdown.push(filePath);
+                continue;
+            }
+            const directoryOrGone = await stat(filePath).then(
+                (stats) => stats.isDirectory(),
+                () => true,
+            );
+            if (directoryOrGone) return this.rebuild(root, state);
         }
+        if (markdown.length === 0) return;
 
+        for (const filePath of markdown) {
+            const page = await this.parseFile(root, filePath);
+            if (page) state.parsed.set(filePath, page);
+            else state.parsed.delete(filePath);
+        }
+        if (state.generation !== this.generation) return;
+        state.data = buildWikiGraph(root, true, [...state.parsed.values()]);
+        this.onChange(state.data);
+    }
+
+    /**
+     * Re-list the root and re-parse everything. A vanished root is pushed as
+     * missing and forgotten, so the next `get` can index it again.
+     */
+    private async rebuild(root: string, state: RootState): Promise<void> {
+        if (state.generation !== this.generation) return;
+        const rootExists = await stat(root).then(
+            (stats) => stats.isDirectory(),
+            () => false,
+        );
+        if (!rootExists) {
+            if (this.roots.get(root) === state) this.roots.delete(root);
+            state.watcher?.close();
+            state.data = buildWikiGraph(root, false, []);
+            this.onChange(state.data);
+            return;
+        }
+        const files = new Set(await this.listMarkdown(root));
+        for (const known of [...state.parsed.keys()]) {
+            if (!files.has(known)) state.parsed.delete(known);
+        }
+        for (const filePath of files) {
+            const page = await this.parseFile(root, filePath);
+            if (page) state.parsed.set(filePath, page);
+            else state.parsed.delete(filePath);
+        }
+        if (state.generation !== this.generation) return;
         state.data = buildWikiGraph(root, true, [...state.parsed.values()]);
         this.onChange(state.data);
     }

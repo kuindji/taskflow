@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtemp, mkdir, realpath, rm, writeFile } from "fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile, rename } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import type { WikiIndexData } from "@taskflow/shared";
@@ -126,5 +126,14 @@ describe("WikiIndexService", () => {
         const data = await service.get(empty);
         expect(data.rootExists).toBe(true);
         expect(data.pages).toEqual([]);
+    });
+    it("follows a renamed directory of pages", async () => {
+        await service.get(root);
+        await rename(join(root, "business"), join(root, "finance"));
+        const data = await waitFor(() =>
+            changes.at(-1)?.pages.some((p) => p.id === "finance/money") ? changes.at(-1) : undefined,
+        );
+        expect(data.pages.map((p) => p.id).sort()).toEqual(["finance/money", "index"]);
+        expect(data.unresolved).toEqual([{ from: "index", target: "business/money" }]);
     });
 });
