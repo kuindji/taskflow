@@ -266,9 +266,11 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
     useEffect(() => {
         return onEvent(MSG.FILE_CHANGED, (payload) => {
             const event = payload as FileChangeEvent;
-            if (event.path === filePath && event.type !== "delete") {
-                void loadContent();
-            }
+            if (event.type === "delete") return;
+            const covers = event.recursive
+                ? filePath === event.path || filePath.startsWith(event.path + "/")
+                : event.path === filePath;
+            if (covers) void loadContent();
         });
     }, [filePath, loadContent]);
 
