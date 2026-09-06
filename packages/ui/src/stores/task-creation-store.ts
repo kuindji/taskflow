@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { DroppedTask } from "@/lib/dropped-task";
 import { useProjectStore } from "./project-store";
 
 interface TaskCreationStore {
@@ -8,13 +9,34 @@ interface TaskCreationStore {
     projectError: string | null;
     parentTaskId: string | null;
     preferredProjectId: string | null;
+    /** Fields the dialog opens with, when the request came from a drop. */
+    prefill: DroppedTask | null;
     requestNewTask(projectId?: string): void;
+    requestNewTaskWithPrefill(prefill: DroppedTask, projectId?: string): void;
     requestNewSubtask(parentTaskId: string): void;
     openProjectDialog(thenOpenTask?: boolean): void;
     setNewTaskOpen(open: boolean): void;
     setNewProjectOpen(open: boolean): void;
     setProjectError(error: string | null): void;
     handleProjectCreated(): void;
+}
+
+/**
+ * With no projects yet, the request has to detour through the project dialog
+ * first; `handleProjectCreated` picks the task dialog back up afterwards, and
+ * carries `prefill` across that hop.
+ */
+function taskRequest(prefill: DroppedTask | null, projectId?: string) {
+    const hasProjects = useProjectStore.getState().projects.length > 0;
+    return {
+        newTaskOpen: hasProjects,
+        newProjectOpen: !hasProjects,
+        openTaskAfterProject: !hasProjects,
+        projectError: null,
+        parentTaskId: null,
+        preferredProjectId: projectId ?? null,
+        prefill,
+    };
 }
 
 export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
@@ -24,16 +46,12 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
     projectError: null,
     parentTaskId: null,
     preferredProjectId: null,
+    prefill: null,
     requestNewTask(projectId) {
-        const hasProjects = useProjectStore.getState().projects.length > 0;
-        set({
-            newTaskOpen: hasProjects,
-            newProjectOpen: !hasProjects,
-            openTaskAfterProject: !hasProjects,
-            projectError: null,
-            parentTaskId: null,
-            preferredProjectId: projectId ?? null,
-        });
+        set(taskRequest(null, projectId));
+    },
+    requestNewTaskWithPrefill(prefill, projectId) {
+        set(taskRequest(prefill, projectId));
     },
     requestNewSubtask(parentTaskId: string) {
         set({
@@ -43,6 +61,7 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
             openTaskAfterProject: false,
             projectError: null,
             preferredProjectId: null,
+            prefill: null,
         });
     },
     openProjectDialog(thenOpenTask = false) {
@@ -52,13 +71,19 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
             openTaskAfterProject: thenOpenTask,
             projectError: null,
             preferredProjectId: null,
+            prefill: null,
         });
     },
     setNewTaskOpen(open) {
         set(
             open
                 ? { newTaskOpen: open }
-                : { newTaskOpen: open, parentTaskId: null, preferredProjectId: null },
+                : {
+                      newTaskOpen: open,
+                      parentTaskId: null,
+                      preferredProjectId: null,
+                      prefill: null,
+                  },
         );
     },
     setNewProjectOpen(open) {
@@ -72,6 +97,8 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
         set({ projectError: error });
     },
     handleProjectCreated() {
+        // `prefill` is deliberately left alone: a drop made with no projects yet
+        // opens this dialog first, and the dropped text has to survive the hop.
         set((state) => ({
             newProjectOpen: false,
             newTaskOpen: state.openTaskAfterProject,

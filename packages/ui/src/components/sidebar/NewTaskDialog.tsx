@@ -26,6 +26,7 @@ import { ChevronRight, Info } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
+import type { DroppedTask } from "@/lib/dropped-task";
 import { activeProjects, selectableProjectId } from "@/lib/project-visibility";
 
 interface NewTaskDialogProps {
@@ -35,6 +36,8 @@ interface NewTaskDialogProps {
     flows: FlowDefinition[];
     defaultProjectId?: string;
     parentId?: string | null;
+    /** Fields to open with, when the dialog was opened by a drop. */
+    prefill?: DroppedTask | null;
     onSubmit: (data: {
         projectId: string;
         title?: string;
@@ -55,6 +58,7 @@ export function NewTaskDialog({
     flows,
     defaultProjectId,
     parentId,
+    prefill,
     onSubmit,
 }: NewTaskDialogProps) {
     const isSubtask = !!parentId;
@@ -78,6 +82,22 @@ export function NewTaskDialog({
             setProjectId(defaultSelection ?? "");
         }
     }, [defaultSelection, open]);
+
+    // Seeded on the false -> true edge only, and never afterwards.
+    //
+    // `handleOpenChange` cannot do this: it runs only when Radix drives the
+    // dialog, and a drop opens it by flipping the store, which changes `open`
+    // without that handler firing. Keying off the edge rather than off `open`
+    // also means a re-render carrying an equal-but-new `prefill` object cannot
+    // overwrite what the user has since typed.
+    const wasOpen = useRef(false);
+    useEffect(() => {
+        if (open && !wasOpen.current) {
+            if (prefill?.title !== undefined) setTitle(prefill.title);
+            if (prefill?.description !== undefined) setDescription(prefill.description);
+        }
+        wasOpen.current = open;
+    }, [open, prefill]);
 
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");

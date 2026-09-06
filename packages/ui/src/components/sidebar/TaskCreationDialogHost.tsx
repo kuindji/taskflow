@@ -34,6 +34,7 @@ export function TaskCreationDialogHost() {
         projectError,
         parentTaskId,
         preferredProjectId,
+        prefill,
         setNewTaskOpen,
         setNewProjectOpen,
         setProjectError,
@@ -166,6 +167,7 @@ export function TaskCreationDialogHost() {
                 flows={flowDefinitions}
                 defaultProjectId={defaultProjectId}
                 parentId={parentTaskId}
+                prefill={prefill}
                 onSubmit={(data) => void handleCreateTask(data)}
             />
         </>

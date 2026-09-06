@@ -16,6 +16,7 @@ import { useWsStatus } from "@/providers/ws-context";
 import { useSidebarNavigation } from "./hooks/useSidebarNavigation";
 import { ProjectGroup } from "./ProjectGroup";
 import { NoDragSpacer } from "./NoDragSpacer";
+import { TaskDropZone } from "./TaskDropZone";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
 import NotificationPopover from "./NotificationPopover";
@@ -309,7 +310,7 @@ export function TaskSidebar() {
                     )}
                 </div>
             </Toolbar>
-            <div className="flex-1 overflow-x-hidden overflow-y-auto pt-0.5 pb-1">
+            <TaskDropZone className="flex-1 overflow-x-hidden overflow-y-auto pt-0.5 pb-1">
                 {!showArchive && visibleProjects.length === 0 && (
                     <div className="text-muted-foreground p-3 text-sm">
                         <div className="mb-2">
@@ -364,7 +365,10 @@ export function TaskSidebar() {
                             }
 
                             return (
-                                <div key={project.id}>
+                                <TaskDropZone
+                                    key={project.id}
+                                    projectId={project.id}
+                                    enabled={!project.hidden}>
                                     {index > 0 && <NoDragSpacer />}
                                     <ProjectGroup
                                         project={project}
@@ -386,12 +390,12 @@ export function TaskSidebar() {
                                             handleProjectOpenChange(project.id, open)
                                         }
                                     />
-                                </div>
+                                </TaskDropZone>
                             );
                         })}
                     </SortableContext>
                 </DndContext>
-            </div>
+            </TaskDropZone>
             {/* <Separator /> */}
             <Toolbar noBorder className="justify-between">
                 <div className="flex items-center">
