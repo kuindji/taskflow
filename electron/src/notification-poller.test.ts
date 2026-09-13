@@ -28,7 +28,8 @@ function emit(origin: string, n: BackendNotification): void {
 function makePoller() {
     return createNotificationPoller({
         getAttachedBackends: () => backends,
-        fetchNotifications: (origin) => Promise.resolve(lists.get(origin) ?? []),
+        fetchNotifications: (origin) =>
+            Promise.resolve({ notifications: lists.get(origin) ?? [], serverTime: null }),
         notify: (n, backendId) => delivered.push({ id: n.id, backendId }),
     });
 }
@@ -68,6 +69,35 @@ test("what a machine already holds when it is first polled is not shown", async 
     await poller.poll();
 
     expect(delivered).toEqual([]);
+});
+
+test("a notification raised while a machine's first poll was failing still arrives", async () => {
+    // B's clock runs five minutes behind this machine's.
+    const at = (time: string) => Date.parse(`2026-09-13T${time}.000Z`);
+    emit(B, notification("before-the-failure", "09:59:59"));
+    let clientNow = at("10:05:00");
+    let failing = true;
+    const poller = createNotificationPoller({
+        getAttachedBackends: () => backends,
+        fetchNotifications: (origin) =>
+            failing
+                ? Promise.reject(new Error("timeout"))
+                : Promise.resolve({
+                      notifications: lists.get(origin) ?? [],
+                      serverTime: clientNow - 5 * 60_000,
+                  }),
+        notify: (n, backendId) => delivered.push({ id: n.id, backendId }),
+        now: () => clientNow,
+    });
+    await poller.poll();
+
+    failing = false;
+    emit(B, notification("b-1", "10:00:01"));
+    clientNow = at("10:05:03");
+    await poller.poll();
+    await poller.poll();
+
+    expect(delivered.map((d) => d.id)).toEqual(["b-1"]);
 });
 
 test("a record renamed at its handshake keeps its watermark and clicks name the new id", async () => {

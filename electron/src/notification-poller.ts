@@ -10,32 +10,42 @@ interface BackendNotification {
     createdAt: string;
 }
 
+interface NotificationsResponse {
+    notifications: BackendNotification[];
+    /** The backend's clock when it answered (its `Date` header), in ms; null when absent. */
+    serverTime: number | null;
+}
+
 interface NotificationPollerDeps {
     getAttachedBackends: () => AttachedBackend[];
-    fetchNotifications: (origin: string) => Promise<BackendNotification[]>;
+    fetchNotifications: (origin: string) => Promise<NotificationsResponse>;
     /**
      * Shows one notification. `backendId` names its machine when called, not when
      * shown: a record renamed at its first handshake keeps its origin, so the id is
      * looked up from the origin at click time. Null once that machine is gone.
      */
     notify: (notification: BackendNotification, backendId: () => string | null) => void;
+    /** This machine's clock in ms; injectable for tests. */
+    now?: () => number;
 }
 
 const POLL_INTERVAL_MS = 3000;
 
-function fetchBackendNotifications(origin: string): Promise<BackendNotification[]> {
+function fetchBackendNotifications(origin: string): Promise<NotificationsResponse> {
     return fetch(`${origin}/api/notifications`, { signal: AbortSignal.timeout(2000) }).then(
         async (response) => {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const { notifications } = (await response.json()) as {
                 notifications: BackendNotification[];
             };
-            return notifications;
+            const date = Date.parse(response.headers.get("date") ?? "");
+            return { notifications, serverTime: Number.isNaN(date) ? null : date };
         },
     );
 }
 
 function createNotificationPoller(deps: NotificationPollerDeps) {
+    const now = deps.now ?? Date.now;
     /**
      * The newest `createdAt` delivered per origin, compared only with that origin's
      * own stamps: machines' clocks differ, and one shared watermark dropped a
@@ -44,6 +54,12 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
      * while the tunnel and its origin stay. `null` means seen, nothing yet.
      */
     const watermarks = new Map<string, string | null>();
+    /**
+     * When (this machine's clock) an origin with no watermark yet was first polled
+     * and failed. Its first answer cannot then stand for "what it already held":
+     * anything raised since the failure is new.
+     */
+    const failedSince = new Map<string, number>();
     let timer: ReturnType<typeof setInterval> | null = null;
     let polling = false;
 
@@ -52,16 +68,21 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
     }
 
     async function pollOrigin(origin: string): Promise<void> {
-        let notifications: BackendNotification[];
+        const startedAt = now();
+        let response: NotificationsResponse;
         try {
-            notifications = await deps.fetchNotifications(origin);
+            response = await deps.fetchNotifications(origin);
         } catch {
             // Transient failure; the next poll retries from the same watermark.
+            if (!watermarks.has(origin) && !failedSince.has(origin)) {
+                failedSince.set(origin, startedAt);
+            }
             return;
         }
         // Detached while the request was out: its watermark is gone, so do not revive it.
         if (!deps.getAttachedBackends().some((entry) => entry.origin === origin)) return;
 
+        const { notifications, serverTime } = response;
         const newest = (list: BackendNotification[], from: string | null) =>
             list.reduce<string | null>(
                 (acc, n) => (!acc || n.createdAt > acc ? n.createdAt : acc),
@@ -69,9 +90,17 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
             );
 
         if (!watermarks.has(origin)) {
-            // First answer from this origin: what it already holds is not new.
-            watermarks.set(origin, newest(notifications, null));
-            return;
+            const failedAt = failedSince.get(origin);
+            if (failedAt === undefined) {
+                // First answer from this origin: what it already holds is not new.
+                watermarks.set(origin, newest(notifications, null));
+                return;
+            }
+            // The failure time, moved onto the origin's clock. `Date` has whole-second
+            // resolution, so the cutoff errs early and shows rather than drops.
+            const skew = serverTime === null ? 0 : serverTime - now();
+            watermarks.set(origin, new Date(failedAt + skew).toISOString());
+            failedSince.delete(origin);
         }
 
         const watermark = watermarks.get(origin) ?? null;
@@ -90,8 +119,10 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
         try {
             const origins = new Set(deps.getAttachedBackends().map((entry) => entry.origin));
             // A tunnel's local port can be reused by another machine later.
-            for (const origin of watermarks.keys()) {
-                if (!origins.has(origin)) watermarks.delete(origin);
+            for (const map of [watermarks, failedSince]) {
+                for (const origin of map.keys()) {
+                    if (!origins.has(origin)) map.delete(origin);
+                }
             }
             await Promise.all([...origins].map((origin) => pollOrigin(origin)));
         } finally {
