@@ -25,7 +25,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
-| 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
+| 11 | Per-backend slices, revision guards, and the project and task stores | implemented | `d4b6004` | `2856082` | |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
@@ -777,8 +777,47 @@ and `store-reset.ts` found nothing new. **Task 10 is clear.**
 - Task 10 R3: `backend-dropped` bumps the attempt counter. Accepted residual: if the user starts an attach in the instant
   between a tunnel dying in main and the drop push reaching the renderer, main may open a fresh tunnel that this push then
   invalidates; the row ends offline with the drop's reason and the next beacon or retry dials again. No false "attached".
+- Task 11: `FetchToken` is not exported (nothing outside `backend-scope.ts` names it). `replace` returns whether the response
+  landed, so a store skips publishing and active-id clearing for a discarded one. The plan's scope test pushes `{ id }`
+  through `apply`, which cannot typecheck against `Scoped<T>`; those items carry `backendId`.
+- Task 11: `lib/test-ws-server.ts` exports `startTestServer(label, respond?)` (default answer `{ from: label }`), records
+  `received` requests, and `broadcast(type, payload?)`. `backend-store.test.ts` keeps its own `startBackend` (it holds
+  SYSTEM_INFO answers, a different shape); its non-info answers now include empty project and task lists, plus an
+  `answerLists` switch for the new bootstrap-failure test.
+- Task 11: `aggregation.test.ts` does what `detach` does to renderer state (`closeConnection` + `resetBackend`) instead of
+  importing `backend-store`: a second file importing it under its own fake bridge would register the store's module-level
+  bridge listeners against that fake, breaking `backend-store.test.ts` when both run in one process.
+- Task 11: `fetchProjects`/`fetchTasks` now reject on failure (bootstrap needs the signal); every other caller catches. The
+  active project/task is cleared only when it sat in that backend's previous slice and the response lacks it, so one
+  machine's list cannot clear another machine's active record.
+- Task 11 store interfaces: record-taking `updateProject`/`archiveProject`/`unarchiveProject`/`removeProject`/`forkProject`
+  and `updateTask`/`archiveTask`/`unarchiveTask`/`deleteTask`/`fetchTaskLog`; `addProject(backendId, path)`,
+  `createTask(backendId, payload)`, `reorderProjects(backendId, ids)`. `applyTaskUpdate` left the public interface (no
+  callers). Archived tasks are a second slice set; `setShowArchive(true)` fetches every backend holding a live slice.
+  `TASK_LOG_ADDED` is registry-routed (task ids are UUIDs); the task reset also drops that machine's task logs.
+- Task 11 `bootstrapBackend`: both legs via `allSettled`; skips if the attempt counter moved; a rejected leg marks the row
+  offline with "Could not load this machine's projects and tasks". The socket stays open and `attach` still resolves
+  the id (a dev renderer or a missing row must not turn a live attach into null).
+- Task 11 call sites with no record to hand go to primary until their task: session-store's post-session refetches
+  (`refetchPrimaryRecords`; sessions are shim-routed until Task 13), `useSidebarData`'s fetch on `connected` (the dev
+  renderer attaches nothing, and primary reconnects; in Electron it duplicates the bootstrap, settled by the generation
+  token — Task 18 reworks this hook), and Add Project via new `requirePrimary()` in `backend-store.ts` (Task 19 gates it).
+- Task 11: id-only save paths look the record up when they run (`TaskInfoPanel` drafts and task log, `LinkedProjectsSection`)
+  rather than depending on the record, which would re-arm their unmount flushes on every update.
+- Task 11 beyond the plan: `useSidebarData`'s PR poll sends `GIT_CHECK_PR` to `task.backendId` — the merged list now holds
+  remote worktree tasks, and asking primary could attach a same-path local checkout's PR to them. A project drag reorders
+  only within one machine (a drop onto another machine's project does nothing).
+- Task 11: `packages/shared/src/utils/task-order.ts` already failed `prettier --check` at HEAD; only the signature changed.
 
 ## Validation baseline
+
+After Task 11 (`2856082`): `backend-scope` + `connection-registry` + `aggregation` + `backend-store` + `store-reset` +
+`task-creation-store` tests pass (`backend-store.test.ts` 14 pass, 3 runs). Mutation checks, each turning exactly its
+test red and green again after restoring: PROJECT_UPDATED applied to every backend; `updateProject` sent to a fixed
+backend; the project reset dropping every backend; `bootstrapBackend` ignoring a failed leg (the Task 10 stub
+behaviour). `bun test packages/ui` 210 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint clean
+and prettier clean on the changed files except the pre-existing `task-order.ts`; `bun run build:ui` ok. Not run: the
+Electron app; the shared suite (its change is a type-only generic widening).
 
 After Task 10 R5 (clean, no code change): `backend-store.test.ts` + `store-reset.test.ts` 16 pass, 1 todo.
 
@@ -922,6 +961,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 11 — "Per-backend slices, revision guards, and the project and task stores". Record current
-HEAD as its base commit first. Task 10's `bootstrapBackend(id)` body is a stub for Task 11 to fill, and `store-reset.ts`'s
-enumeration test stays `test.todo` until Task 19.
+Next step: Task 11 review round 1 — one gpt-5.5 review via the codex-review skill over `d4b6004..2856082` (packages/ui
+and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630 and the Task 11 decisions above.
+`store-reset.ts`'s enumeration test stays `test.todo` until Task 19.
