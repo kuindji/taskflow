@@ -176,6 +176,7 @@ function fullSettings(panels: Partial<AppSettings["layout"]["panels"]> = {}): Ap
             headless: false,
             permissionMode: "default",
         },
+        network: { discoverable: true, displayName: "" },
     };
 }
 

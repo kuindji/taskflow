@@ -98,6 +98,10 @@ const DEFAULTS: AppSettings = {
         headless: false,
         permissionMode: "default",
     },
+    network: {
+        discoverable: true,
+        displayName: "",
+    },
 };
 
 function createDefaultSettings(): AppSettings {
@@ -116,6 +120,7 @@ function createDefaultSettings(): AppSettings {
         kimi: { ...DEFAULTS.kimi },
         appearance: { ...DEFAULTS.appearance },
         remoteAgent: { ...DEFAULTS.remoteAgent },
+        network: { ...DEFAULTS.network },
     };
 }
 
@@ -239,7 +244,15 @@ function normalizeRemoteAgentSettings(
 }
 
 export class SettingsStore {
+    private updateListeners = new Set<(settings: AppSettings) => void>();
+
     constructor(private filePath: string) {}
+
+    /** Called after every `update()` with the re-read settings. Both the WS handler
+     *  and `PATCH /api/settings` write through `update()`, so this sees both. */
+    onUpdated(listener: (settings: AppSettings) => void): void {
+        this.updateListeners.add(listener);
+    }
 
     async get(): Promise<AppSettings> {
         try {
@@ -276,6 +289,7 @@ export class SettingsStore {
                 kimi: { ...defaults.kimi, ...parsed.kimi },
                 appearance: { ...defaults.appearance, ...parsed.appearance },
                 remoteAgent: { ...defaults.remoteAgent, ...parsed.remoteAgent },
+                network: { ...defaults.network, ...parsed.network },
             };
 
             // Tolerate agent values written by newer builds: drop unknown
@@ -354,9 +368,14 @@ export class SettingsStore {
             applyNullable(current.remoteAgent, partial.remoteAgent);
             normalizeRemoteAgentSettings(current.remoteAgent, DEFAULTS.remoteAgent);
         }
+        if (partial.network) {
+            applyNullable(current.network, partial.network);
+        }
         // Persist without null keys so defaults fill in on next get()
         await writeFile(this.filePath, JSON.stringify(current, null, 2));
         // Re-read to apply defaults for any deleted keys
-        return this.get();
+        const settings = await this.get();
+        for (const listener of this.updateListeners) listener(settings);
+        return settings;
     }
 }

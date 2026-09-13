@@ -64,6 +64,7 @@ function SettingsModal() {
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
     const [systemEditors, setSystemEditors] = useState<EditorInfo[]>([]);
+    const [systemHostname, setSystemHostname] = useState("");
     const [section, setSection] = useState<SectionKey>("general");
     const agents = useAgentAvailability();
     const claudeAvailable = isAgentAvailable(agents, "claude");
@@ -97,7 +98,10 @@ function SettingsModal() {
         );
 
         sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {}).then(
-            (info) => setSystemEditors(info.editors),
+            (info) => {
+                setSystemEditors(info.editors);
+                setSystemHostname(info.hostname);
+            },
             () => {},
         );
     }, [open, fetchDataDir]);
@@ -290,6 +294,20 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleDiscoverable = useCallback(
+        (discoverable: boolean) => {
+            void updateSettings({ network: { discoverable } });
+        },
+        [updateSettings],
+    );
+
+    const handleDisplayName = useCallback(
+        (displayName: string) => {
+            void updateSettings({ network: { displayName } });
+        },
+        [updateSettings],
+    );
+
     // --- Agent section handlers ---
 
     const handleClaudeModel = useCallback(
@@ -457,9 +475,14 @@ function SettingsModal() {
                                 migrating={migrating}
                                 migrationError={migrationError}
                                 confirmBeforeExit={settings.general.confirmBeforeExit}
+                                discoverable={settings.network.discoverable}
+                                displayName={settings.network.displayName}
+                                hostname={systemHostname}
                                 onChangeDataDir={() => void handleChangeDataDir()}
                                 onResetDataDir={() => void handleResetDataDir()}
                                 onConfirmBeforeExitChange={handleConfirmBeforeExit}
+                                onDiscoverableChange={handleDiscoverable}
+                                onDisplayNameChange={handleDisplayName}
                             />
                         )}
 

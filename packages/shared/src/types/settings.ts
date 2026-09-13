@@ -102,6 +102,13 @@ export interface AppearanceSettings {
     theme: string;
 }
 
+export interface NetworkSettings {
+    /** Advertise this backend on the local network so other clients can find it. */
+    discoverable: boolean;
+    /** What other machines call this backend. Empty means use the hostname. */
+    displayName: string;
+}
+
 export interface AppSettings {
     general: GeneralSettings;
     terminal: TerminalSettings;
@@ -114,6 +121,7 @@ export interface AppSettings {
     kimi: KimiSettings;
     appearance: AppearanceSettings;
     remoteAgent: RemoteAgentSettings;
+    network: NetworkSettings;
 }
 
 type NullablePartial<T> = { [K in keyof T]?: T[K] | null };
@@ -133,4 +141,5 @@ export interface SettingsUpdatePayload {
     kimi?: NullablePartial<KimiSettings>;
     appearance?: NullablePartial<AppearanceSettings>;
     remoteAgent?: NullablePartial<RemoteAgentSettings>;
+    network?: NullablePartial<NetworkSettings>;
 }

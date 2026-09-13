@@ -48,6 +48,7 @@ function settings(): AppSettings {
         kimi: { defaultModel: "", permissionMode: "manual" },
         appearance: { theme: "default" },
         remoteAgent: { autoStart: false, appName: "", headless: false, permissionMode: "default" },
+        network: { discoverable: true, displayName: "" },
     };
 }
 

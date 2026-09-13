@@ -14,6 +14,7 @@ import {
     DEFAULT_TERMINAL_FONT_SIZE,
     DEFAULT_TERMINAL_SHELL,
 } from "@taskflow/shared";
+import type { AppSettings } from "@taskflow/shared";
 import { SettingsStore } from "../../src/services/settings-store";
 
 const DEFAULT_LAYOUT = {
@@ -56,12 +57,45 @@ const DEFAULT_KIMI = {
     permissionMode: "manual" as const,
 };
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
+const DEFAULT_NETWORK = { discoverable: true, displayName: "" };
 const DEFAULT_REMOTE_AGENT = {
     autoStart: false,
     appName: "",
     headless: false,
     permissionMode: "default" as const,
 };
+
+describe("SettingsStore network settings", () => {
+    let tempDir: string;
+    let store: SettingsStore;
+
+    beforeEach(async () => {
+        tempDir = await mkdtemp(join(tmpdir(), "taskflow-settings-network-"));
+        store = new SettingsStore(join(tempDir, "settings.json"));
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("persists a network update and tells update listeners the re-read settings", async () => {
+        const seen: AppSettings["network"][] = [];
+        store.onUpdated((settings) => seen.push(settings.network));
+
+        await store.update({ network: { discoverable: false, displayName: "studio" } });
+        expect((await store.get()).network).toEqual({
+            discoverable: false,
+            displayName: "studio",
+        });
+
+        // A null deletes the key, so the listener must see the default filled back in.
+        await store.update({ network: { displayName: null } });
+        expect(seen).toEqual([
+            { discoverable: false, displayName: "studio" },
+            { discoverable: false, displayName: "" },
+        ]);
+    });
+});
 
 describe("SettingsStore", () => {
     let tempDir: string;
@@ -110,6 +144,7 @@ describe("SettingsStore", () => {
             kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
+            network: DEFAULT_NETWORK,
         });
 
         first.editor.fontSize = 20;
@@ -144,6 +179,7 @@ describe("SettingsStore", () => {
             kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
+            network: DEFAULT_NETWORK,
         });
     });
 
@@ -186,6 +222,7 @@ describe("SettingsStore", () => {
             kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
+            network: DEFAULT_NETWORK,
         });
 
         expect(await store.update({ editor: { fontSize: 16 } })).toEqual({
@@ -218,6 +255,7 @@ describe("SettingsStore", () => {
             kimi: DEFAULT_KIMI,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
+            network: DEFAULT_NETWORK,
         });
     });
 

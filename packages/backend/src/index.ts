@@ -1,5 +1,7 @@
-import { MSG, PROTOCOL_VERSION, isAgentType } from "@taskflow/shared";
-import type { BrowserOpenPayload, SystemClientsEvent } from "@taskflow/shared";
+import { DISCOVERY_MAX_DISPLAY_NAME, MSG, PROTOCOL_VERSION, isAgentType } from "@taskflow/shared";
+import type { BrowserOpenPayload, NetworkSettings, SystemClientsEvent } from "@taskflow/shared";
+import { createAdvertiser } from "@taskflow/shared/discovery";
+import appPackage from "../../../electron/package.json";
 import { ensureDirectories, config } from "./config";
 import { Router } from "./ws/router";
 import { createServer } from "./ws/server";
@@ -57,6 +59,12 @@ import { registerSystemHandlers } from "./handlers/system";
 import { writeFile } from "fs/promises";
 import { releaseInstancePort, writeInstancePortFile } from "./services/instance-port-file";
 import { homedir, hostname } from "os";
+
+/** Informational only; compatibility is decided by PROTOCOL_VERSION. Read from
+ *  the file electron-builder ships, because that is the only version bumped per
+ *  release — a literal here silently drifts. `bun build --compile` inlines a
+ *  JSON import, so this survives into the packaged binary. */
+const APP_VERSION: string = appPackage.version;
 
 async function main() {
     await ensureDirectories();
@@ -497,6 +505,43 @@ async function main() {
         console.log(`Taskflow backend running on port ${startedServer.port}`);
         console.log(`Detected editors: ${editors.map((e) => e.name).join(", ") || "none"}`);
 
+        let network = (await settingsStore.get()).network;
+
+        const advertiser = createAdvertiser({
+            payload: () => ({
+                v: 1 as const,
+                protocolVersion: PROTOCOL_VERSION,
+                instanceId: config.instanceId,
+                hostname: hostname(),
+                // Clamped here as well as in the Settings input, because
+                // `settings.json` is a file a user can edit and this is the
+                // last point before the bytes go on the wire. Over the cap the
+                // announcement is unparsable and this backend silently
+                // disappears from every other machine's menu.
+                displayName: (network.displayName.trim() || hostname()).slice(
+                    0,
+                    DISCOVERY_MAX_DISPLAY_NAME,
+                ),
+                port: startedServer.port,
+                appVersion: APP_VERSION,
+                os: process.platform,
+                backendUid: config.backendUid,
+            }),
+        });
+
+        // The setting is a switch, not a boot flag: toggling it in Settings has
+        // to start or stop the beacon without a restart, and the next announce
+        // has to pick up a renamed backend. `payload` is called per announce,
+        // so keeping `network` current is all the rename needs.
+        async function applyNetworkSettings(next: NetworkSettings): Promise<void> {
+            network = next;
+            if (next.discoverable) await advertiser.start();
+            else advertiser.stop();
+        }
+
+        await applyNetworkSettings(network);
+        settingsStore.onUpdated((settings) => void applyNetworkSettings(settings.network));
+
         // Initialize scheduler after server is running
         await schedulerService.init();
 
@@ -535,6 +580,7 @@ async function main() {
             changeTracker.dispose();
             ptyManager.closeAll();
             await Promise.allSettled([fileWatcher.stopAll(), wikiIndex.stopAll()]);
+            advertiser.stop();
             await releaseInstancePort(config.instancePortFile, startedServer.port, stop);
             process.exit(0);
         };

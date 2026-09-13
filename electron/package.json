@@ -48,6 +48,9 @@
             "gatekeeperAssess": false,
             "entitlements": "entitlements.mac.plist",
             "entitlementsInherit": "entitlements.mac.plist",
+            "extendInfo": {
+                "NSLocalNetworkUsageDescription": "Taskflow finds other Taskflow backends on your local network so you can connect to them."
+            },
             "target": [
                 "dmg",
                 "zip"
