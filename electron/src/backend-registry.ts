@@ -148,6 +148,36 @@ function createRegistry(deps: RegistryDeps) {
         return next;
     }
 
+    /**
+     * Ids `confirmBackend` moved away from, to the id they moved to. The renderer
+     * keeps a row under its old id until the confirm resolves, so a detach or
+     * removal the user starts in that window arrives under an id that no longer
+     * names anything, and would otherwise succeed while the machine stays
+     * attached. Aliases point from a provisional `host:instance` id to a uid,
+     * which holds no `:`, so they cannot form a cycle; `seen` guards anyway.
+     */
+    const aliases = new Map<string, string>();
+    function canonicalId(id: string): string {
+        let current = id;
+        const seen = new Set<string>();
+        while (!findRecord(current) && !seen.has(current)) {
+            const next = aliases.get(current);
+            if (next === undefined) break;
+            seen.add(current);
+            current = next;
+        }
+        return current;
+    }
+
+    /** `serialize`, then carry the work over to the canonical id's queue when a
+     *  confirm queued ahead of it moved the record. */
+    function serializeCanonical<T>(id: string, work: (id: string) => Promise<T>): Promise<T> {
+        return serialize(id, () => {
+            const canonical = canonicalId(id);
+            return canonical === id ? work(id) : serializeCanonical(canonical, work);
+        });
+    }
+
     return {
         async init(): Promise<void> {
             await load();
@@ -246,8 +276,8 @@ function createRegistry(deps: RegistryDeps) {
             });
         },
 
-        attachBackend(id: string): Promise<AttachResult> {
-            return serialize(id, async (): Promise<AttachResult> => {
+        attachBackend(requestedId: string): Promise<AttachResult> {
+            return serializeCanonical(requestedId, async (id): Promise<AttachResult> => {
                 const record = findRecord(id);
                 if (!record) return { ok: false, failure: unknownFailure("No such backend") };
 
@@ -289,8 +319,8 @@ function createRegistry(deps: RegistryDeps) {
             });
         },
 
-        detachBackend(id: string): Promise<void> {
-            return serialize(id, async () => {
+        detachBackend(requestedId: string): Promise<void> {
+            return serializeCanonical(requestedId, async (id) => {
                 deps.closeTunnel(id);
                 origins.delete(id);
                 const record = findRecord(id);
@@ -333,10 +363,10 @@ function createRegistry(deps: RegistryDeps) {
          * tunnel to whoever answered.
          */
         confirmBackend(
-            id: string,
+            requestedId: string,
             info: { backendUid: string; protocolVersion: number },
         ): Promise<{ id: string; merged: boolean }> {
-            return serialize(id, async () => {
+            return serializeCanonical(requestedId, async (id) => {
                 const uid = info.backendUid;
                 if (!isSafeLabel(uid)) throw new Error(`"${uid}" is not a valid backend uid.`);
                 const record = findRecord(id);
@@ -355,6 +385,7 @@ function createRegistry(deps: RegistryDeps) {
                 const merged = origins.has(uid);
 
                 records = adoptUid(records, id, uid);
+                aliases.set(id, uid);
                 deps.forgetScannedHostKey(id);
 
                 const origin = origins.get(id);
@@ -376,8 +407,11 @@ function createRegistry(deps: RegistryDeps) {
             });
         },
 
-        updateBackend(id: string, patch: BackendPatch): Promise<{ ok: boolean; reason?: string }> {
-            return serialize(id, async () => {
+        updateBackend(
+            requestedId: string,
+            patch: BackendPatch,
+        ): Promise<{ ok: boolean; reason?: string }> {
+            return serializeCanonical(requestedId, async (id) => {
                 const record = findRecord(id);
                 if (!record) return { ok: false, reason: "No such backend" };
                 if (patch.sshPort !== undefined && !isValidPort(patch.sshPort)) {
@@ -402,8 +436,8 @@ function createRegistry(deps: RegistryDeps) {
             });
         },
 
-        removeBackend(id: string): Promise<{ ok: boolean; reason?: string }> {
-            return serialize(id, async () => {
+        removeBackend(requestedId: string): Promise<{ ok: boolean; reason?: string }> {
+            return serializeCanonical(requestedId, async (id) => {
                 deps.closeTunnel(id);
                 deps.forgetScannedHostKey(id);
                 origins.delete(id);
@@ -417,7 +451,7 @@ function createRegistry(deps: RegistryDeps) {
         async getHostFingerprint(
             id: string,
         ): Promise<{ ok: true; fingerprint: string } | { ok: false; reason: string }> {
-            const record = findRecord(id);
+            const record = findRecord(canonicalId(id));
             if (!record) return { ok: false, reason: "No such backend" };
             try {
                 return { ok: true, fingerprint: await deps.fetchHostKeyFingerprint(record) };
@@ -427,7 +461,7 @@ function createRegistry(deps: RegistryDeps) {
         },
 
         async trustBackendHost(id: string): Promise<{ ok: boolean; reason?: string }> {
-            const record = findRecord(id);
+            const record = findRecord(canonicalId(id));
             if (!record) return { ok: false, reason: "No such backend" };
             try {
                 await deps.trustHostKey(record);

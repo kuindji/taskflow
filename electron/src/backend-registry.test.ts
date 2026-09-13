@@ -427,4 +427,53 @@ describe("backend registry", () => {
             reason: "No such backend",
         });
     });
+
+    // The renderer's row keeps its provisional id until `confirmBackend` resolves,
+    // so a detach or removal clicked in that window arrives under the old id.
+    test("a detach sent under the id a confirm is moving detaches the confirmed record", async () => {
+        const closed: string[] = [];
+        const { reg } = await registry({ closeTunnel: (id) => closed.push(id) });
+        const record = await reg.addBackend({ host: "desktop.local" });
+        await reg.attachBackend(record.id);
+
+        const confirming = reg.confirmBackend(record.id, {
+            backendUid: "abc123",
+            protocolVersion: 1,
+        });
+        const detaching = reg.detachBackend(record.id);
+        await confirming;
+        await detaching;
+
+        expect(reg.attached()).toEqual([]);
+        expect(reg.attachedRecordIds()).toEqual([]);
+        expect(closed).toContain("abc123");
+    });
+
+    test("a removal sent under the id a confirm is moving removes the confirmed record", async () => {
+        const { reg } = await registry();
+        const record = await reg.addBackend({ host: "desktop.local" });
+        await reg.attachBackend(record.id);
+
+        const confirming = reg.confirmBackend(record.id, {
+            backendUid: "abc123",
+            protocolVersion: 1,
+        });
+        const removing = reg.removeBackend(record.id);
+        await confirming;
+        await removing;
+
+        expect(await reg.listBackends()).toEqual([]);
+    });
+
+    test("an id saved again after its record was confirmed away names the new record", async () => {
+        const { reg } = await registry();
+        const first = await reg.addBackend({ host: "desktop.local" });
+        await reg.confirmBackend(first.id, { backendUid: "abc123", protocolVersion: 1 });
+        const again = await reg.addBackend({ host: "desktop.local" });
+
+        expect(again.id).toBe(first.id);
+        await reg.removeBackend(again.id);
+
+        expect((await reg.listBackends()).map((entry) => entry.id)).toEqual(["abc123"]);
+    });
 });
