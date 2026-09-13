@@ -1,5 +1,7 @@
 # Taskflow Remote Projects Implementation Plan
 
+> Handoff: docs/superpowers/plans/2026-08-24-taskflow-remote-projects.handoff.md
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let the desktop client hold several Taskflow backends attached at once, so projects from other machines appear in one sidebar alongside local ones and each workspace runs on the machine that owns it.
