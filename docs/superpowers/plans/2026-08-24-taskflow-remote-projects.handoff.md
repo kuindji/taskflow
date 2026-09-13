@@ -30,7 +30,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
 | 14 | Per-machine caches and path-keyed stores | clear | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19); R4: 2 rejected (recorded race; Task 19) (clean) |
 | 15 | Editor identity across machines | clear | `57a78e8` | `065a4cc`, `bdb378d`, `67300d3` | R1: 1 fixed (Codex), 1 rejected; R2: Codex clean, 1 own finding fixed; R3: clean |
-| 16 | Machine sections in the sidebar | pending | | | |
+| 16 | Machine sections in the sidebar | implemented | `39abd35` | `c17d813` | |
 | 17 | The machines menu and its dialogs | pending | | | |
 | 18 | Routing for sidebar rows and background work | pending | | | |
 | 19 | Primary-only managers, gating, and removing the shim | pending | | | |
@@ -1344,7 +1344,39 @@ and no `Uri.file(` / `uri.path` / `resource.path` readers remain outside the dif
   `bun test packages/ui` run without breaking `editor-uri.test.ts`, but if a leak shows up, run it per file (see the
   bun mock.module gotcha).
 
+- Task 16: `MachineState` gained a required **`keepAttached`** (main's persisted intent: `refresh` copies
+  `MenuEntry.attached`, local rows `true`, `attach` sets `true`, `detach` sets `false`). `state` alone cannot tell a
+  machine the user detached from one whose tunnel died (both `offline`, failure often undefined after a socket
+  drop), and only the second keeps its section. Consequence: `rehandshake`'s uid-mismatch path calls `detach`, so
+  that section disappears with its "different backend" message; Task 17's menu is where that message is visible.
+  Task 17 should read `keepAttached` for its checkboxes.
+- Task 16: `MachineSection` props are `{ machine, projects, open, onOpenChange, renderProjects }`, not the plan's
+  `{ machine, projects }`. The sidebar passes its project-list renderer (badges, handlers, drop zones), so every
+  machine's rows are `ProjectGroup`s wired exactly like local's. Section collapse is `TaskSidebar` state
+  (`collapsedMachineIds`), not persisted. Local renders through `renderProjectList` directly (and
+  `MachineSection` renders no header for an `isLocal` row, as the plan's test asks).
+- Task 16: new `components/sidebar/machine-groups.ts` (`groupProjectsByMachine`, `shownProjects`). A project whose
+  machine has no row (dev renderer) groups as local; a detached remote machine's projects are not shown.
+  Beyond the plan: number badges and `useSidebarNavigation` (now takes `shownProjects`) follow the sections'
+  top-to-bottom order; before, they used the store's slice load order, which a remote machine loading first would
+  reorder. Navigation also now walks the sidebar's archive-filtered list rather than re-filtering the store.
+- Task 16: the empty state ("No projects yet") shows only when there are no local projects **and** no remote
+  sections.
+- Task 16 `OfflineIndicator`: the plan says it "reflects one global connection"; it actually showed primary's
+  internet connectivity. That icon is kept; beside it, a new button names the open workspace's machine when that
+  machine is `offline` ("<name> offline", tooltip = failure message) or `incompatible` ("<name> needs update"),
+  and clicking it calls `retry`. Another machine being down shows only in its section. Not component-tested.
+- Task 16 not run: the Electron app (no second machine; Task 22). The "pixel-identical when nothing else is
+  attached" claim holds by construction (local list is the same markup, same badge numbers), not by screenshot.
+
 ## Validation baseline
+
+After Task 16 (`c17d813`): `MachineSection.test.tsx` 6 pass (red first: module missing) + `machine-groups.test.ts`
+5 pass; `backend-store.test.ts` 14 pass; mutation checks, each restored: offline/incompatible/attaching
+sections rendering projects (3 tests red), grouping ignoring `keepAttached` (detached test red); `bun test
+packages/ui` 282 pass, 9 fail (the known MarkdownPaneImpl nine); `bun run typecheck` clean; eslint and prettier
+clean on the nine changed files; `bun run build:ui` ok.
+
 
 After Task 15 R2 fix (`67300d3`): `editor-uri.test.ts` + `EditorPaneImpl.machine.test.tsx` 10 pass; `bun run
 typecheck` clean; eslint and prettier clean on the two changed files. Full `bun test packages/ui` not rerun
@@ -1579,4 +1611,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 16 (Machine sections in the sidebar), plan line ~4442. Record HEAD as its base commit first.
+Next step: review Task 16, round 1 — Codex gpt-5.5 prompted review of `39abd35..c17d813` (packages/ui).
