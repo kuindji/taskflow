@@ -25,7 +25,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
-| 11 | Per-backend slices, revision guards, and the project and task stores | in-review round 4 | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14) |
+| 11 | Per-backend slices, revision guards, and the project and task stores | in-review round 5 | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing) |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
@@ -671,6 +671,24 @@ it), `PROJECT_CREATED`'s outside-the-write check (harmless: `upsert` replaces by
 its own `begin`, so never replayed) and ordering on one socket (an event and a list answer from one machine arrive in send
 order, so a replayed update is never older than the snapshot it lands on).
 
+### Task 11, round 4 (Codex gpt-5.5, prompted review of `d4b6004..cfc5960`, packages/ui + `task-order.ts`)
+
+Two findings; one confirmed and fixed in `550558d`, one rejected:
+
+1. **Archive mode misses the archived tasks of a machine attached after the toggle — confirmed, fixed.** Turn the archive
+   on with machine a attached, then attach b: `setShowArchive(true)` had fetched archived slices only for the machines
+   holding a live slice then, and nothing fetched b's later, so b's archived tasks stayed missing until the archive was
+   toggled off and on. New since Task 11 (one machine before). `fetchTasks` now fetches a machine's archived tasks when
+   its list lands while the archive is shown and the archived slices hold nothing for it yet (a detach drops that slice,
+   so a re-attach fetches again). Test in `aggregation.test.ts`: "a machine attached while the archive is shown lists its
+   archived tasks" (red: timed out with 0 archived tasks; green after).
+2. **`TASK_UPDATED` with a status change does not move the task between the live and archived lists — rejected for Task
+   11 (pre-existing).** At the base `d4b6004`, `applyTaskUpdate` also only mapped `tasks`; the store never moved a task
+   on an archive/unarchive broadcast from another client. Task 11 kept that behaviour per machine. Not filed as a
+   regression; a candidate for a separate fix outside this plan.
+
+Codex ran the scope, aggregation and backend-store tests (31 pass) and typecheck (clean).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -890,6 +908,10 @@ order, so a replayed update is never older than the snapshot it lands on).
 
 ## Validation baseline
 
+After Task 11 R4 fix (`550558d`): aggregation + scope tests 18 pass (3 runs; new test red first); backend-store +
+store-reset + task-creation-store 23 pass, 1 todo; `bun test packages/ui` 219 pass, 1 todo, 10 fail (the known ten);
+`bun run typecheck` clean; eslint and prettier clean on the two changed files.
+
 After Task 11 R3 fixes (`cfc5960`): scope + aggregation + backend-store + store-reset + task-creation-store tests 40 pass,
 1 todo (3 runs; both new tests red first); `bun test packages/ui` 218 pass, 1 todo, 10 fail (the known ten); `bun run
 typecheck` clean; eslint and prettier clean on the four changed files.
@@ -1052,8 +1074,10 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 11 review round 4 — one gpt-5.5 review via the codex-review skill over `d4b6004..cfc5960` (packages/ui
-and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630, the Task 11 decisions and the R1-R3
-fixes above. Tell Codex the UUID premise (R1 #2/#3 rejected), the `loading` single flag, and that `activeProjectId` on
-detach is Task 14's (R3 decision), so it does not re-raise them.
+Next step: Task 11 review round 5 — one gpt-5.5 review via the codex-review skill over `d4b6004..550558d` (packages/ui
+and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630, the Task 11 decisions and the R1-R4
+fixes above. Tell Codex the UUID premise (R1 #2/#3 rejected), the `loading` single flag, that `activeProjectId` on
+detach is Task 14's (R3 decision), and that archive/unarchive broadcasts not moving tasks between lists is pre-existing
+(R4 #2), so it does not re-raise them. Round 5 is the point to question further rounds: if it finds only marginal
+issues, mark Task 11 clear.
 `store-reset.ts`'s enumeration test stays `test.todo` until Task 19.
