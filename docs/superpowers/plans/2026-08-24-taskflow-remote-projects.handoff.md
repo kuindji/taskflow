@@ -34,7 +34,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
-| 20 | Electron main across several backends | in-review round 3 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex) |
+| 20 | Electron main across several backends | in-review round 4 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex) |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
 
@@ -1115,6 +1115,25 @@ One finding, confirmed and fixed in `4509c26`; Codex reviewed R2's failed-first-
 Own read of `notification-poller.ts` found nothing: `failedSince` is set only while unbaselined, cleared on first
 success and by the detach sweep; later failures keep the watermark.
 
+### Task 20, round 4 (Codex gpt-5.5, prompted review of `5f0ec24..4509c26`)
+
+One finding, confirmed and fixed in `6c2e364`; Codex found no poller/tray detach leak and no raw-route auth/path issue,
+and reviewed R3's fetch-time recheck without objection:
+
+1. **A saved file artifact is held whole in Electron main's memory — confirmed, fixed.** `fetchArtifactBytes` did
+   `response.arrayBuffer()` and `save-artifact` wrote the `Buffer`; every file artifact (local ones too, which used to
+   stream through `copyFile`) now went through that, so a multi-GB artifact spikes or crashes main. Regression from
+   Task 20. Fix: `fetchArtifactBytes` → `downloadArtifact(url, attached, destination)`, which keeps the live
+   attached-set check and `redirect: "error"`, then `pipeline`s the body (async generator over `body.getReader()`;
+   `Readable.fromWeb` needs a cast that fails under Bun's `ReadableStream` type) into `createWriteStream`, and removes
+   the partial file if the stream breaks. Test "a large artifact is written as it arrives, not held whole in memory
+   first" (server holds the body open after the first chunk; red with a buffering `downloadArtifact`: Expected
+   "PART-1", Received ""), plus "a body that breaks off mid-download leaves no partial file"; the redirect and 404
+   tests now also assert no file is created.
+
+Own read of the poller and tray found nothing: an in-flight tray fetch for a detached origin is filtered out by
+`origins.has`, a failed poll for a detached origin leaves `failedSince` that the next sweep drops.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1668,9 +1687,14 @@ success and by the detach sweep; later failures keep the watermark.
 - Task 20 R3: the artifact download re-checks the origin against the attached set at fetch time, not the backend id.
   Binding the IPC payload to `backendId` would also catch another machine attached on the reused port while the
   dialog is open, but needs preload/renderer changes for a case that again rests on ephemeral-port reuse (R1 #3).
+- Task 20 R4: artifact saves stream to disk; the non-OK error body is still read whole (backend error strings are
+  short), and the partial-file cleanup was not mutation-checked.
 
 ## Validation baseline
 
+After Task 20 R4 fix (`6c2e364`): `artifact-download.test.ts` 6 pass (3 runs; streaming test red with a buffering
+implementation); `bun test electron/src` 78 pass; `bun run typecheck` clean; eslint and prettier clean on the three
+touched files; `electron` `bun run build` ok.
 After Task 20 R3 fix (`4509c26`): `bun test electron/src` 76 pass (7 files); `artifact-download.test.ts` 4 pass (new
 test red on `4a77b3c`); `bun run typecheck` clean; eslint and prettier clean on the three touched files.
 After Task 20 R1 fix (`930a4bb`): `bun test electron/src` 74 pass (7 files); `artifact-download.test.ts` 3 pass, red
@@ -1959,8 +1983,10 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 20 review round 4 — Codex gpt-5.5 prompted review of `5f0ec24..4509c26` (electron/src incl.
+Next step: Task 20 review round 5 — Codex gpt-5.5 prompted review of `5f0ec24..6c2e364` (electron/src incl.
 `artifact-download.ts` and `notification-poller.ts`, the `flow-routes.ts` raw-artifact route and its test,
 `FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`). Tell Codex that R1 rejected the bare-id activation (UUID premise) and
-the tunnel-port-reuse race, R2's failed-first-poll baseline was fixed in `4a77b3c` (R3 found it sound), and R3's
-fetch-time attached-set recheck landed in `4509c26` with backend-id binding deliberately not taken (review that fix).
+the tunnel-port-reuse race, R2's failed-first-poll baseline was fixed in `4a77b3c`, R3's fetch-time attached-set
+recheck landed in `4509c26` with backend-id binding deliberately not taken, and R4's streaming download with
+partial-file cleanup landed in `6c2e364` (review that fix: stream errors, cancellation, cleanup). If R5 is clean,
+Task 20 is clear and Task 21 (the hard switch) is next.
