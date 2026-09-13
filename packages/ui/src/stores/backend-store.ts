@@ -399,9 +399,12 @@ window.taskflow?.onBackendSeen((id) => {
     // The beacon reappeared, which is positive evidence the machine woke up.
     // Re-attach now rather than waiting out the reconnect backoff. Only a machine
     // the user left attached: main announces every saved machine it sees, and a
-    // detached row is "offline" too.
+    // detached row is "offline" too. A detach while main answers leaves that
+    // answer stale, so the attempt counter must not have moved.
+    const attempt = attempts.get(id);
     void (async () => {
         const entries = await bridge().listBackends();
+        if (attempts.get(id) !== attempt) return;
         if (!entries.some((entry) => entry.id === id && entry.attached)) return;
         const machine = useBackendStore.getState().machines.find((m) => m.id === id);
         if (machine && machine.state === "offline") useBackendStore.getState().retry(id);

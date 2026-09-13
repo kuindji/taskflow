@@ -401,6 +401,27 @@ describe("backend store beacon", () => {
 
         expect(dials()).toBe(1);
     });
+
+    test("a detach while the beacon checks the persisted intent does not dial", async () => {
+        const { dials } = beaconSetup(true);
+        // Main answers with the intent as it stood before the detach.
+        const stale = bridge.listBackends;
+        let answerList: () => void = () => {};
+        let listed = false;
+        bridge.listBackends = () => {
+            listed = true;
+            return new Promise((resolve) => (answerList = () => void stale().then(resolve)));
+        };
+
+        backendSeen("abc123");
+        while (!listed) await Bun.sleep(5);
+        await store.getState().detach("abc123");
+        answerList();
+        await Bun.sleep(20);
+
+        expect(dials()).toBe(0);
+        expect(row("abc123")?.state).toBe("offline");
+    });
 });
 
 describe("backend store refresh", () => {
