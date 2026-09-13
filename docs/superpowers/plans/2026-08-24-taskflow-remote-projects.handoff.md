@@ -19,7 +19,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
-| 5 | The backend record list, keyed by uid | in-review round 3 done | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed |
+| 5 | The backend record list, keyed by uid | in-review round 4 done | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed |
 | 6 | SSH argument construction and failure classification | pending | | | |
 | 7 | The tunnel manager | pending | | | |
 | 8 | One connection per backend | pending | | | |
@@ -275,6 +275,22 @@ One finding, reproduced with two failing tests before fixing:
 Codex otherwise checked the Task 5 contract, Task 9/17 consumer expectations, `as any` usage and the
 duplicate-row policy, and reran the tests and typecheck (pass).
 
+### Task 5, round 4 (Codex gpt-5.5, prompted review of `cfe462d..39447ae`)
+
+Codex: no findings (checked the Task 5 contract and the Task 9/17 consumers; reran tests and
+typecheck). My own read found one, reproduced with a failing test before fixing:
+
+1. **A provisional row's hand-edited id can spell another machine's uid — confirmed, fixed in
+   `a25f3b5`.** Same class as R3, via the id instead of the uid. `normalizeRecords` kept the saved
+   id of a record with no `backendUid`, so `{id:"abc123",backendUid:null,host:"other.local",instanceId:"dev"}`
+   listed before the real `{id:"abc123",backendUid:"abc123",host:"desktop.local",…}` replaced it
+   (1 record out, the confirmed machine lost), and `adoptUid(…, "laptop.local:main", "abc123")`
+   merged laptop (`main`) into other.local (`dev`). Provisional records are now always keyed
+   `backendIdFor(host, instanceId)`, which is the id every producer in the plan writes
+   (`recordFromDiscovered`, Task 9 manual connect). The saved id still decides "exact" for the R2
+   duplicate policy. Test: "a provisional record is keyed by host and instance, whatever id the
+   file holds" (1 fail / 13 pass on `39447ae`, 14 pass after).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -341,6 +357,10 @@ duplicate-row policy, and reran the tests and typecheck (pass).
   `normalizeRecords` canonicalizing confirmed ids, a `backendUid` lookup there would be redundant.
 
 ## Validation baseline
+
+After Task 5 R4 fix (`a25f3b5`): `bun test electron/src/backend-records.test.ts
+packages/shared/src/discovery/beacon.test.ts` 29 pass (records 14); `bun run typecheck` clean;
+eslint and prettier clean on the two changed files.
 
 After Task 5 R3 fix (`39447ae`): `bun test electron/src/backend-records.test.ts
 packages/shared/src/discovery/beacon.test.ts` 28 pass (records 13); `bun run typecheck` clean;
@@ -414,11 +434,13 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 5 review round 4 — Codex gpt-5.5 prompted review of `cfe462d..39447ae`
+Next step: Task 5 review round 5 — Codex gpt-5.5 prompted review of `cfe462d..a25f3b5`
 (plan Task 5, line ~834; code files only: `electron/src/backend-records*.ts`,
 `packages/shared/src/types/backend.ts`, `packages/shared/src/discovery/beacon.ts`,
 `electron/package.json`). Tell the reviewer: R1 finding 4 is deliberately deferred to Task 9;
 duplicate rows in a hand-edited `backends.json` resolve by "saved-under-canonical-id wins, else
 first" with no field merging (R2); uids are held to `isSafeLabel` and `adoptUid` silently returns
-the list unchanged for an unsafe uid, with rejection left to Task 9's `confirmBackend` (R3). If this
-round is clean, Task 5 is clear and the next step is implementing Task 6.
+the list unchanged for an unsafe uid, with rejection left to Task 9's `confirmBackend` (R3); a
+provisional record's id is always `backendIdFor(host, instanceId)`, the saved id is ignored (R4). R4's
+Codex pass was clean and only an own finding was fixed, so after 5 rounds on a small module: if this
+round is clean or finds only hand-edit trivia, Task 5 is clear and the next step is implementing Task 6.
