@@ -23,7 +23,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
-| 9 | The registry, the attached set, and the IPC surface | in-review round 1 | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex) |
+| 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
 | 12 | The remaining aggregating stores | pending | | | |
@@ -497,6 +497,25 @@ live under the uid. Needs both a provisional and a canonical record of one machi
 `attached`, i.e. a quit between an attach's persist and its confirm). Serializing on both ids was not tried; revisit if
 Task 10's launch redial shows it.
 
+### Task 9, round 2 (Codex gpt-5.5, prompted review of `6baa200..3591f54`)
+
+One finding, rejected:
+
+1. **`confirm-backend` does not check the renderer-supplied `protocolVersion` — rejected.** Codex:
+   `confirmBackend("desktop.local:main", { backendUid: "abc123", protocolVersion: 2 })` rekeys and persists. True,
+   but main has no socket, so the version is only the renderer's word: a compromised renderer can send the current
+   `PROTOCOL_VERSION` anyway, so a check in main defends nothing. An honest renderer never gets there, because plan
+   Task 10's `attach` (plan lines 3051-3055) closes the connection and marks the row `incompatible` before calling
+   `confirmBackend`. Task 10 must keep that order.
+
+Codex otherwise checked serialization and the alias logic, persistence, startup/quit ordering, preload listener
+cleanup and type alignment, and reran the registry tests (22 pass) and typecheck (pass). My own read of the registry,
+IPC, preload, main and `env.d.ts` diffs against Task 10's `attach`/`detach`/`refresh`/push handlers found nothing
+substantive. One race I traced was ruled out: a tunnel exit queued behind an attach that removes the *new* tunnel's
+origin. That would need a live child while an attach awaits before `openTunnel`, but a live child means
+`lastKnownPort` is set, so the candidates come back without an await and `openTunnel` hands back the established
+tunnel. **Task 9 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -768,7 +787,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 9 review round 2 — one standard gpt-5.5 review (codex-review skill) of `6baa200..3591f54`, the
-Task 9 implementation including the R1 alias fix (electron registry, IPC, preload, main wiring, `env.d.ts`, the
-`MenuEntry` move). Point the reviewer at the "Task 9" entries under Decisions taken and the Task 9 R1 section.
-Verify findings yourself before fixing.
+Next step: implement Task 10 (The renderer's attached set — backend-store, handshake, detach). Record HEAD as its
+base commit first. Carry-overs: wrap `confirmBackend` (it rejects; see the plan note at the call), keep the
+protocol-version check before `confirmBackend` (Task 9 R2), and detach-then-attach on retry (Task 7 R1 note).
