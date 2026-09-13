@@ -1,20 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import type { Project } from "@taskflow/shared";
+import type { Scoped } from "@/lib/backend-scope";
 import { useUIStore } from "@/stores/ui-store";
 import { useTaskStore } from "@/stores/task-store";
-import { useProjectStore } from "@/stores/project-store";
 import { isDialogOpen, isEditableElement } from "@/lib/global-shortcuts";
 
 const ARROW_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 
-function handleSidebarNumber(n: number) {
+function handleSidebarNumber(n: number, visibleProjects: readonly Scoped<Project>[]) {
     const { sidebarFocusedItem } = useUIStore.getState();
     if (!sidebarFocusedItem) return;
 
     if (sidebarFocusedItem.type === "project") {
-        const { projects, showArchivedProjects } = useProjectStore.getState();
-        const visibleProjects = projects.filter(
-            (project) => !project.hidden || showArchivedProjects,
-        );
         if (n > visibleProjects.length) return;
         const target = visibleProjects[n - 1];
         useUIStore.getState().setActiveProject(target.id);
@@ -36,10 +33,8 @@ function handleSidebarNumber(n: number) {
     }
 }
 
-function handleSidebarArrow(key: string) {
+function handleSidebarArrow(key: string, visibleProjects: readonly Scoped<Project>[]) {
     const { sidebarFocusedItem, collapsedProjectIds } = useUIStore.getState();
-    const { projects, showArchivedProjects } = useProjectStore.getState();
-    const visibleProjects = projects.filter((project) => !project.hidden || showArchivedProjects);
     const { tasks } = useTaskStore.getState();
 
     if (key === "ArrowLeft") {
@@ -118,8 +113,16 @@ function handleSidebarArrow(key: string) {
  * Keyboard navigation for the sidebar panel.
  * Active when focusedPanel === "sidebar" and navigation mode is off.
  * Handles: Cmd+Arrow (navigate items), Cmd+0-9 (quick select).
+ *
+ * `shownProjects` is the sidebar's own top-to-bottom list, so navigation and
+ * number badges follow the machine sections rather than the store's load order.
  */
-function useSidebarNavigation() {
+function useSidebarNavigation(shownProjects: readonly Scoped<Project>[]) {
+    const shownRef = useRef(shownProjects);
+    useEffect(() => {
+        shownRef.current = shownProjects;
+    }, [shownProjects]);
+
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
             if (!(e.metaKey || e.ctrlKey) || e.shiftKey) return;
@@ -130,7 +133,7 @@ function useSidebarNavigation() {
 
             if (ARROW_KEYS.includes(e.key)) {
                 e.preventDefault();
-                handleSidebarArrow(e.key);
+                handleSidebarArrow(e.key, shownRef.current);
                 return;
             }
 
@@ -147,7 +150,7 @@ function useSidebarNavigation() {
             const digit = parseInt(e.key, 10);
             if (digit >= 1 && digit <= 9 && !e.altKey) {
                 e.preventDefault();
-                handleSidebarNumber(digit);
+                handleSidebarNumber(digit, shownRef.current);
             }
         };
 

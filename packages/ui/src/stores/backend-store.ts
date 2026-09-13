@@ -36,6 +36,12 @@ export type MachineState = {
     state: "attaching" | "attached" | "offline" | "incompatible";
     failure?: TunnelFailure;
     isLocal: boolean;
+    /**
+     * The user wants this machine attached: main's persisted intent. `state`
+     * cannot say it — a machine the user detached and one whose tunnel died are
+     * both "offline", and only the second keeps its sidebar section.
+     */
+    keepAttached: boolean;
     /** What the handshake reported. `rehandshake` refuses a socket that
      *  answers with a different one: that is a different backend on the port. */
     backendUid?: string;
@@ -154,7 +160,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
     async attach(id) {
         const attempt = nextAttempt(id);
         const current = () => attempts.get(id) === attempt;
-        patch(id, { state: "attaching", failure: undefined });
+        patch(id, { state: "attaching", failure: undefined, keepAttached: true });
 
         const result = await bridge().attachBackend(id);
         if (!current()) return null;
@@ -255,7 +261,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         closeConnection(id, reason);
         resetBackend(id);
         await bridge().detachBackend(id);
-        patch(id, { state: "offline", failure: undefined });
+        patch(id, { state: "offline", failure: undefined, keepAttached: false });
     },
 
     async refresh() {
@@ -268,7 +274,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         function rowFor(
             state: BackendStore,
             id: string,
-            base: Pick<MachineState, "displayName" | "host" | "instanceId">,
+            base: Pick<MachineState, "displayName" | "host" | "instanceId" | "keepAttached">,
         ): MachineState {
             const previous = state.machines.find((m) => m.id === id);
             return {
@@ -291,6 +297,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
                     displayName: entry.displayName,
                     host: entry.host,
                     instanceId: entry.instanceId,
+                    keepAttached: entry.attached,
                 }),
             );
             // Local is not a saved record, so `listBackends()` cannot return it,
@@ -305,6 +312,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
                         displayName: live.isLocal ? "This machine" : live.id,
                         host: "127.0.0.1",
                         instanceId: "main",
+                        keepAttached: true,
                     }),
                 );
             }

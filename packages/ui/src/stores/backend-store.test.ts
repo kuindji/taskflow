@@ -130,7 +130,9 @@ function seedRow(id: string): void {
         host: "desktop.local",
         instanceId: "main",
     };
-    store.setState({ machines: [{ ...entry, state: "offline", isLocal: false }] });
+    store.setState({
+        machines: [{ ...entry, state: "offline", isLocal: false, keepAttached: true }],
+    });
 }
 
 function row(id: string) {
@@ -234,6 +236,7 @@ describe("backend store attach", () => {
                     instanceId: "main",
                     state: "attached",
                     isLocal: false,
+                    keepAttached: true,
                 },
                 ...state.machines,
             ],
@@ -272,6 +275,7 @@ describe("backend store attach", () => {
                     instanceId: "main",
                     state: "offline",
                     isLocal: false,
+                    keepAttached: true,
                 },
                 {
                     id: "desktop.local:main",
@@ -280,6 +284,7 @@ describe("backend store attach", () => {
                     instanceId: "main",
                     state: "offline",
                     isLocal: false,
+                    keepAttached: true,
                 },
             ],
         });
