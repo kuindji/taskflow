@@ -17,10 +17,13 @@ function isArtifactUrl(value: string, attached: AttachedBackend[]): boolean {
 }
 
 /**
- * The bytes at an artifact URL already checked by `isArtifactUrl`. Redirects are
- * refused: following one would fetch an origin that check never saw.
+ * The bytes at a raw-artifact URL. The attached set is checked when the download
+ * starts, not only when it was asked for: the save dialog in between can stay open
+ * while that machine is detached. Redirects are refused: following one would fetch
+ * an origin that check never saw.
  */
-async function fetchArtifactBytes(url: string): Promise<Buffer> {
+async function fetchArtifactBytes(url: string, attached: () => AttachedBackend[]): Promise<Buffer> {
+    if (!isArtifactUrl(url, attached())) throw new Error("Invalid artifact URL");
     const response = await fetch(url, { redirect: "error" });
     if (!response.ok) {
         throw new Error((await response.text()) || `HTTP ${response.status}`);

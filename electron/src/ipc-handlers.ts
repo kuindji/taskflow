@@ -112,13 +112,9 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
         ): Promise<{ success: boolean; error?: string }> => {
             // A file artifact lives on the machine that ran the flow, so its bytes come
             // from that backend's raw-artifact route; only attached origins are fetched.
-            if (
-                typeof opts.url === "string" &&
-                !isArtifactUrl(
-                    opts.url,
-                    listAttachedBackends(deps.getBackendPort(), deps.registry.attached()),
-                )
-            ) {
+            const attached = () =>
+                listAttachedBackends(deps.getBackendPort(), deps.registry.attached());
+            if (typeof opts.url === "string" && !isArtifactUrl(opts.url, attached())) {
                 return { success: false, error: "Invalid artifact URL" };
             }
             const defaultPath = opts.defaultName
@@ -132,7 +128,7 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
             if (result.canceled || !result.filePath) return { success: false };
             try {
                 if (typeof opts.url === "string") {
-                    await writeFile(result.filePath, await fetchArtifactBytes(opts.url));
+                    await writeFile(result.filePath, await fetchArtifactBytes(opts.url, attached));
                 } else if (typeof opts.text === "string") {
                     await writeFile(result.filePath, opts.text, "utf-8");
                 } else {

@@ -38,24 +38,50 @@ test("an attached backend redirecting elsewhere does not get the other origin fe
     const backend = serve(() => Response.redirect(`http://127.0.0.1:${elsewhere.port}/admin`, 302));
     const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/report/raw`;
 
-    expect(
-        isArtifactUrl(url, [
-            { id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false },
-        ]),
-    ).toBe(true);
-    const outcome = await fetchArtifactBytes(url).then(
+    const attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
+
+    expect(isArtifactUrl(url, attachedNow)).toBe(true);
+    const outcome = await fetchArtifactBytes(url, () => attachedNow).then(
         (bytes) => bytes.toString(),
         () => "refused",
     );
     expect(outcome).toBe("refused");
 });
 
+test("a machine detached while the save dialog was open does not get its origin fetched", async () => {
+    let hits = 0;
+    const backend = serve(() => {
+        hits += 1;
+        return new Response("REPORT");
+    });
+    const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/report/raw`;
+    let attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
+
+    expect(isArtifactUrl(url, attachedNow)).toBe(true);
+    attachedNow = [];
+    const outcome = await fetchArtifactBytes(url, () => attachedNow).then(
+        (bytes) => bytes.toString(),
+        (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    );
+
+    expect(outcome).toBe("Invalid artifact URL");
+    expect(hits).toBe(0);
+});
+
 test("the bytes come back, and a refusal's body becomes the error", async () => {
     const ok = serve(() => new Response("REPORT"));
     const missing = serve(() => new Response("Artifact not found", { status: 404 }));
+    const urlOn = (server: Server) =>
+        `http://127.0.0.1:${server.port}/api/flow/artifact/t/f/report/raw`;
+    const attachedNow = () =>
+        [ok, missing].map((server) => ({
+            id: String(server.port),
+            origin: `http://127.0.0.1:${server.port}`,
+            isLocal: false,
+        }));
 
-    expect((await fetchArtifactBytes(`http://127.0.0.1:${ok.port}/x`)).toString()).toBe("REPORT");
-    const error = await fetchArtifactBytes(`http://127.0.0.1:${missing.port}/x`).then(
+    expect((await fetchArtifactBytes(urlOn(ok), attachedNow)).toString()).toBe("REPORT");
+    const error = await fetchArtifactBytes(urlOn(missing), attachedNow).then(
         () => null,
         (err: unknown) => (err instanceof Error ? err.message : String(err)),
     );
