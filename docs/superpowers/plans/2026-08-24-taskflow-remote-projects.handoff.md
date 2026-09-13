@@ -29,7 +29,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
 | 14 | Per-machine caches and path-keyed stores | clear | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19); R4: 2 rejected (recorded race; Task 19) (clean) |
-| 15 | Editor identity across machines | pending | | | |
+| 15 | Editor identity across machines | implemented | `57a78e8` | `065a4cc` | |
 | 16 | Machine sections in the sidebar | pending | | | |
 | 17 | The machines menu and its dialogs | pending | | | |
 | 18 | Routing for sidebar rows and background work | pending | | | |
@@ -1266,8 +1266,43 @@ a reset of the old machine during its release now returns early instead of calli
   `SHELLS_LIST` (`useSessionSync.ts:133,153,170`) to the registry with the workspace `backendId`, add `backendId` to
   those effects' deps, and guard the shell effect against late answers. Until then a remote workspace's run menu shows
   primary's scripts/commands.
+- Task 15: the model URI's authority is the backend id **hex-encoded** (UTF-8 bytes), not the raw id. Probed:
+  `Uri.toString()` lowercases an authority (`Laptop` and `laptop` → one model key, and `parse` returns `laptop`) and
+  treats text after the last `:` as a port. Monaco's registry keys models by `toString()`. Extra tests: case-only ids
+  stay distinct, a provisional `host:instance` id round-trips; mutation (raw authority) turns 3 tests red.
+- Task 15: `backendFromModelUri` returns `string | null` (null for any URI this module did not build, e.g. the diff
+  viewer's in-memory models); the opener returns `false` and the definition provider `null` for those.
+- Task 15 `editor-dirty-state`: maps are **nested** `Map<backendId, Map<path, …>>` with accessors
+  (`isEditorDirty`, `setEditorDirty`, `clearEditorDirty`, `getViewState`, `saveViewState`, `setPendingLine`,
+  `consumePendingLine`, all backend-first), not `modelKey` string keys. The module is reached from the main bundle
+  (`open-file`, `WorkspacePane`), so it keeps monaco type-only; parsing keys needs runtime monaco. Its reset is
+  `editor-dirty-state`. Model disposal is a separate `editor-models` reset in `editor-uri.ts` (lazy editor chunk) that
+  disposes **every** model with that machine's authority, including import-navigation placeholders the plan's
+  dirty-keys loop would miss. The pane's unmount skips `dispose` when the reset already disposed the model.
+- Task 15 `EditorPaneImpl`: `backendId` is now an effect dep (the Task 14 ref is gone): the model identity depends on
+  it. With no workspace machine (`null`) the pane shows "Loading..." and creates no model. A record's id is rekeyed at
+  handshake, before bootstrap loads projects, so an open workspace's machine does not change under a dirty model.
+- Task 15 import navigation: the placeholder model is created with `getLanguage(path)`; a model URI has no extension
+  to infer it from, and the pane reuses the placeholder as it finds it (would have opened a `.ts` file as plaintext).
+  The Cmd-click callback takes `(backendId, filePath)` and does nothing when the active workspace's machine differs.
+  Same-file definitions compare machine and fragment path. `TS_RESOLVE_IMPORT` goes to the model's machine.
+- Task 15, behaviour change not reproduced: the TS worker's file names are now `taskflow-file://…/#<encoded path>`,
+  so its own relative-import resolution between open models (hover types from another open file) no longer finds
+  them. Semantic validation is off and import navigation uses the backend, so only hover/quick-info across files is
+  affected. Not re-checked in the Electron app; Task 22.
+- Task 15: `WorkspacePane` close and `open-file`'s pending line use `workspaceBackendId(workspaceKey)`; with no
+  machine the tab closes without the unsaved-changes prompt (nothing can be dirty without a machine). `MarkdownPaneImpl`
+  images use the pane's `useWorkspaceBackend()` (was primary). **Still primary:** `readFile`/`writeFile` in the editor
+  pane go through `file-store`'s shim (Task 14 note; Task 19 Step 5), so a remote workspace's editor has a
+  per-machine buffer but reads and saves primary's file until then.
+- Task 15: repro `editor-uri-opener.repro.test.ts` deleted (plan notes).
 
 ## Validation baseline
+
+After Task 15 (`065a4cc`): `editor-uri.test.ts` 8 pass (red first: module missing; mutation above); `store-reset` +
+`editor-uri` 12 pass; `bun test packages/ui` 269 pass, 9 fail (the known MarkdownPaneImpl nine; anchors 3, checkbox 5,
+rerender 1 each pass alone); `bun run typecheck` clean; eslint and prettier clean on the eight changed files;
+`bun run build:ui` ok. Not run: the Electron app (no second machine; Task 22).
 
 After Task 14 R3 fix (`6c65295`): `file-store` 11 pass (alone, 3 runs; new test red on `a93ad4d` first); `bun test
 packages/ui` 262 pass, 9 fail (the known MarkdownPaneImpl nine); `bun run typecheck` clean; eslint and prettier clean on
@@ -1489,4 +1524,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 15 (Editor identity across machines, plan line ~4235). Record HEAD as its base commit first.
+Next step: Task 15 review round 1 — Codex gpt-5.5 prompted review of `57a78e8..065a4cc` (packages/ui), against plan Task 15 (line ~4235) and the Task 15 Decisions entries.
