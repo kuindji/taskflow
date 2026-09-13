@@ -29,7 +29,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
 | 14 | Per-machine caches and path-keyed stores | clear | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19); R4: 2 rejected (recorded race; Task 19) (clean) |
-| 15 | Editor identity across machines | implemented | `57a78e8` | `065a4cc` | |
+| 15 | Editor identity across machines | in-review round 1 | `57a78e8` | `065a4cc`, `bdb378d` | R1: 1 fixed (Codex), 1 rejected |
 | 16 | Machine sections in the sidebar | pending | | | |
 | 17 | The machines menu and its dialogs | pending | | | |
 | 18 | Routing for sidebar rows and background work | pending | | | |
@@ -913,6 +913,27 @@ Codex reran the Task 14 store/lib/component tests and typecheck (pass). Own read
 a reset of the old machine during its release now returns early instead of calling `clearExplorerState`, which is better
 — `FileExplorer`'s effect has already started the new machine's `fetchTree`, and clearing would have cancelled it.
 
+### Task 15, round 1 (Codex gpt-5.5, prompted review of `57a78e8..065a4cc`, packages/ui)
+
+Two findings; one reproduced with failing tests and fixed in `bdb378d`, one rejected:
+
+1. **An editor whose workspace loses its machine goes blank, and a late read lands in the disposed editor —
+   confirmed, fixed.** Reachable: `closeConnection` clears primary (`connection-registry.ts:87-90`), so a mounted
+   master-workspace editor's `useWorkspaceBackend()` turns null. The effect cleanup disposed the editor, then the
+   effect returned at the null guard without `setLoading(true)` (contradicting the recorded "shows Loading..."
+   decision), and an in-flight `readFile` still passed the `loadRequestId` guard and called `setValue`. Now the null
+   branch sets loading (and not dirty), and a local `cancelled` flag set in cleanup drops the read (a ref bump in
+   cleanup tripped `react-hooks/exhaustive-deps`). Tests in `EditorPaneImpl.machine.test.tsx` (mocks `monaco-editor`,
+   file-store, `useWorkspaceBackend`, import navigation): both red on `065a4cc` (loading false; `setValue` called once).
+2. **`editor-navigate` window event is path-only, so a same-path editor on another machine also jumps — rejected
+   (not reachable).** Only the active workspace's `SplitContainer` is mounted (`Workspace.tsx` renders one), its left
+   and right panes share one workspace and so one machine, and `TabContent` keys panes by `tab.id`, so a workspace
+   switch remounts them. Two mounted editors on different machines cannot coexist today. Revisit if inactive
+   workspaces ever stay mounted.
+
+Own sweep: no `Uri.file(` / `.uri.path` / `resource.path` readers left in packages/ui; the only other `createModel`
+calls are `MonacoDiffViewer`'s in-memory models; no `TODO(remote-projects)` markers remain in packages/ui.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1296,8 +1317,15 @@ a reset of the old machine during its release now returns early instead of calli
   pane go through `file-store`'s shim (Task 14 note; Task 19 Step 5), so a remote workspace's editor has a
   per-machine buffer but reads and saves primary's file until then.
 - Task 15: repro `editor-uri-opener.repro.test.ts` deleted (plan notes).
+- Task 15 R1: `EditorPaneImpl.machine.test.tsx` mocks `monaco-editor` with `mock.module`; it passes in the full
+  `bun test packages/ui` run without breaking `editor-uri.test.ts`, but if a leak shows up, run it per file (see the
+  bun mock.module gotcha).
 
 ## Validation baseline
+
+After Task 15 R1 fix (`bdb378d`): `EditorPaneImpl.machine.test.tsx` 2 pass (both red on `065a4cc` first) +
+`editor-uri` 8 pass; `bun test packages/ui` 271 pass, 9 fail (the known MarkdownPaneImpl nine); `bun run typecheck`
+clean; eslint and prettier clean on the two changed files.
 
 After Task 15 (`065a4cc`): `editor-uri.test.ts` 8 pass (red first: module missing; mutation above); `store-reset` +
 `editor-uri` 12 pass; `bun test packages/ui` 269 pass, 9 fail (the known MarkdownPaneImpl nine; anchors 3, checkbox 5,
@@ -1524,4 +1552,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 15 review round 1 — Codex gpt-5.5 prompted review of `57a78e8..065a4cc` (packages/ui), against plan Task 15 (line ~4235) and the Task 15 Decisions entries.
+Next step: Task 15 review round 2 — Codex gpt-5.5 prompted review of `57a78e8..bdb378d` (packages/ui), against plan Task 15 (line ~4235), the Task 15 Decisions entries, and R1's rejected finding (do not re-raise the path-only `editor-navigate` event unless it shows two mounted editors on different machines).
