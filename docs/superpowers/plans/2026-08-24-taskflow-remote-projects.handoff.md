@@ -28,7 +28,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
-| 14 | Per-machine caches and path-keyed stores | in-review round 4 | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19) |
+| 14 | Per-machine caches and path-keyed stores | clear | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19); R4: 2 rejected (recorded race; Task 19) (clean) |
 | 15 | Editor identity across machines | pending | | | |
 | 16 | Machine sections in the sidebar | pending | | | |
 | 17 | The machines menu and its dialogs | pending | | | |
@@ -893,6 +893,26 @@ Codex found nothing in the `AgentDropdownMenu` cancel fix (its test passes, with
 the R2 `unwatchPath` conditional clear found nothing further; the early clear in `watchPath` keeps that fix's test
 green (the slow unwatch still sees laptop recorded, not desktop).
 
+### Task 14, round 4 (Codex gpt-5.5, prompted review of `f03c740..6c65295`, packages/ui)
+
+Two findings, both rejected; no code change, task clear:
+
+1. **A quick desktop → laptop → desktop switch can lose the watch — rejected (recorded same-target race, narrowed by
+   R3).** `watchPath("laptop")` clears `watched` and awaits desktop's `FILE_UNWATCH`; `watchPath("desktop", "/repo")`
+   then sends `FILE_WATCH`. If the backend finishes the older unwatch after the watch (both handlers in
+   `backend/src/handlers/file.ts:62-77` await `assertWorkspacePath` before `watch`/`release`), desktop holds no watch
+   while the UI records one. This is the recorded unwatch-then-rewatch race on one machine and path. At `a93ad4d` the
+   same sequence lost the watch deterministically (`watched` still named desktop, so the switch back returned early and
+   sent nothing); R3 reduced it to backend handler ordering. A real fix would serialize watch/unwatch per machine and
+   path, and is not worth it for this edge.
+2. **Context menu "Open External"/"Reveal" go to primary — rejected (deferred).** `file-store`'s `openExternal` /
+   `revealInFinder` use the primary shim, same family as R3 finding 1 (Task 19 Step 5); Task 19 Step 2 also gates
+   `openExternalFile`/`showItemInFolder` on a local workspace machine. Added to the Decisions "Not converted" list.
+
+Codex reran the Task 14 store/lib/component tests and typecheck (pass). Own read of the R3 `watchPath` early clear:
+a reset of the old machine during its release now returns early instead of calling `clearExplorerState`, which is better
+— `FileExplorer`'s effect has already started the new machine's `fetchTree`, and clearing would have cancelled it.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1208,7 +1228,7 @@ green (the slow unwatch still sees laptop recorded, not desktop).
 - Task 14 `file-store`: `watched: { backendId, path }`; `FILE_CHANGED` comes through the registry and is filtered by
   machine; the previous machine's `FILE_UNWATCH` is `.catch`-ed so an unreachable old machine cannot block the new watch;
   `watchGeneration` drops a watch that lands after a newer watch, unwatch or detach; the reset clears the watch and the
-  explorer state. **Not converted:** tree, listing, git status, read/write/rename requests still go through the shim to
+  explorer state. **Not converted:** tree, listing, git status, read/write/rename, open-external/reveal requests still go through the shim to
   primary (Task 19 Step 5), so a watched remote change refreshes the tree from primary until then.
 - Task 14 `search-store`: `searchBackendId` is set when a search starts; cancel and every replace go to that machine, and
   the replace signatures did not change. The plan's "refuse a cancel that does not match" became "a cancel can only
@@ -1469,7 +1489,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 14 review round 4 — one gpt-5.5 review of `f03c740..6c65295` (packages/ui). Check especially the R3
-fix (`watchPath` clearing `watched` before releasing the previous watch in `file-store.ts`). Do not re-raise: R1 finding 3
-(queued refresh timer), R2 finding 3 (`useSessionSync` still primary-routed, deferred to Task 18), R3 findings 1/3
-(file-store data requests via the primary shim, Task 19 Step 5), the pre-existing same-target unwatch/rewatch race.
+Next step: implement Task 15 (Editor identity across machines, plan line ~4235). Record HEAD as its base commit first.
