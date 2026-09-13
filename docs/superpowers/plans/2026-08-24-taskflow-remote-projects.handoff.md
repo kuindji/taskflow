@@ -28,7 +28,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
-| 14 | Per-machine caches and path-keyed stores | in-review round 3 | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19 |
+| 14 | Per-machine caches and path-keyed stores | in-review round 4 | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19) |
 | 15 | Editor identity across machines | pending | | | |
 | 16 | Machine sections in the sidebar | pending | | | |
 | 17 | The machines menu and its dialogs | pending | | | |
@@ -871,6 +871,28 @@ not filed: `unwatchPath` then an immediate `watchPath` of the *same* machine and
 recorded) and the unwatch then clears it, leaving no watch. Pre-existing: `f03c740`'s `watchPath`/`unwatchPath` behave
 the same.
 
+### Task 14, round 3 (Codex gpt-5.5, prompted review of `f03c740..a93ad4d`, packages/ui)
+
+Three findings; one reproduced with a failing test and fixed in `6c65295`, two rejected as already decided:
+
+1. **File listings, git status, reads and writes still go to primary — rejected (already deferred).** True
+   (`file-store.ts` uses the `useWebSocket` shim for everything but watch/unwatch), and already recorded under
+   Decisions ("Task 14 `file-store` … **Not converted** … Task 19 Step 5").
+2. **A move cancelled while the old watch is released leaves that watch recorded — confirmed, fixed.**
+   `watched = desktop /repo`; `watchPath("laptop", "/repo")` awaits desktop's `FILE_UNWATCH`; `unwatchPath("laptop",
+   "/repo")` (pane closed; `FileExplorer`'s cleanup does not await) finds laptop only in `requestedWatch`, bumps the
+   generation and returns; desktop answers, `watchPath` returns on the generation mismatch before its `set({ watched:
+   null })`. `watched` stays desktop although desktop holds no watch, so reopening on desktop returns early and sends
+   no `FILE_WATCH`. Now `watchPath` clears `watched` before awaiting the old machine's release. Test in
+   `file-store.test.ts`: "a move to another machine cancelled while the old watch is released forgets the old watch"
+   (red on `a93ad4d`: Received the desktop watch).
+3. **file-store tests don't prove data routing — rejected.** The mock of the shim is deliberate for the same reason
+   as #1; routing tests belong to Task 19 Step 5's conversion.
+
+Codex found nothing in the `AgentDropdownMenu` cancel fix (its test passes, with React `act` warnings). Own read of
+the R2 `unwatchPath` conditional clear found nothing further; the early clear in `watchPath` keeps that fix's test
+green (the slow unwatch still sees laptop recorded, not desktop).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1227,6 +1249,10 @@ the same.
 
 ## Validation baseline
 
+After Task 14 R3 fix (`6c65295`): `file-store` 11 pass (alone, 3 runs; new test red on `a93ad4d` first); `bun test
+packages/ui` 262 pass, 9 fail (the known MarkdownPaneImpl nine); `bun run typecheck` clean; eslint and prettier clean on
+the two changed files.
+
 After Task 14 R2 fix (`a93ad4d`): `file-store` 10 pass and `AgentDropdownMenu.shells` 1 pass (each alone, 3 runs; both
 new tests red first, the shells test also red with only the component fix reverted); `bun test packages/ui` 261 pass,
 9 fail (the known MarkdownPaneImpl nine); `bun run typecheck` clean; eslint and prettier clean on the four changed files.
@@ -1443,7 +1469,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 14 review round 3 — one gpt-5.5 review of `f03c740..a93ad4d` (packages/ui). Check especially the
-R2 fixes (`unwatchPath`'s conditional clear in `file-store.ts`, the shell-list cancel flag in `AgentDropdownMenu.tsx`).
-Do not re-raise: R1 finding 3 (queued refresh timer), R2 finding 3 (`useSessionSync` still primary-routed, deferred to
-Task 18), the pre-existing same-target unwatch/rewatch race.
+Next step: Task 14 review round 4 — one gpt-5.5 review of `f03c740..6c65295` (packages/ui). Check especially the R3
+fix (`watchPath` clearing `watched` before releasing the previous watch in `file-store.ts`). Do not re-raise: R1 finding 3
+(queued refresh timer), R2 finding 3 (`useSessionSync` still primary-routed, deferred to Task 18), R3 findings 1/3
+(file-store data requests via the primary shim, Task 19 Step 5), the pre-existing same-target unwatch/rewatch race.
