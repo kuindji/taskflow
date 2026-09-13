@@ -21,7 +21,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
 | 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
-| 7 | The tunnel manager | pending | | | |
+| 7 | The tunnel manager | implemented | `6467088` | `d040521` | |
 | 8 | One connection per backend | pending | | | |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
 | 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
@@ -442,8 +442,35 @@ of the full diff found nothing either. **Task 6 is clear.**
 - Task 6: the delta's claim was checked before implementing: `ssh -G` with a config setting
   `UserKnownHostsFile`, `GlobalKnownHostsFile`, `HostKeyAlias` and `StrictHostKeyChecking no` reports
   the command-line `-o` values for all four.
+- Task 7: `pendingOpens` holds `{ ctx, promise }` rather than a bare promise. `ctx.id` is what the
+  open files its child under (moved by `rekeyTunnel`, so a retry after a mid-open rekey registers
+  under the new id), and the `finally` deletes by `pendingOpens.get(ctx.id) === pending`, the
+  identity delete the delta asks for. `closeTunnel` sets `ctx.cancelled`, so a closed open spawns no
+  retry, and `waitForBackend` takes a stop predicate (cancelled or quitting) instead of waiting out
+  the 10 s on a killed child. The "not running" shape became `stoppedResult()` ("Taskflow is
+  quitting." / "The tunnel was closed.").
+- Task 7: `rekeyTunnel` also moves a pending open when no child is registered yet (between retry
+  attempts), and closes whatever is already filed under `toId` first; otherwise that child would be
+  unreachable and never killed. Task 9's merge path (two records, one uid) should expect this.
+- Task 7: exit reports and `deregister` look the child up by identity (`idOf(entry)`), so after a
+  rekey the exit is reported under the uid, as the delta says.
+- Task 7: new `hostKeyOptions(record)` in `tunnel-args.ts` (StrictHostKeyChecking + the three pinning
+  options) is shared by `buildTunnelArgs` and `readRemotePort`, not duplicated. argv unchanged.
+- Task 7: `trustHostKey` drops keyscan comment lines and rewrites the first field of each key line to
+  `knownHostsKey(record)` (= `hostKeyAlias`). `~/.taskflow` is created with `0o700` only when missing; an
+  existing dir's mode is not changed. `trustHostKey` has no test: `KNOWN_HOSTS_FILE` derives from
+  `os.homedir()`, which the test preload cannot redirect, so a test would write the real file. Smoke
+  instead: an aliased line is found by `ssh-keygen -F taskflow-192.168.1.20-2222`.
+- Task 7: the delta's tests run against a real child, not a mock: a fake `ssh` script on `PATH` reads
+  `-L`, then answers "Taskflow backend" on the local port after 500 ms. A third test checks a rekeyed
+  child's exit is reported under the new id. The concurrency test was red against the plan's "WRONG"
+  `existing?.localPort` shortcut.
 
 ## Validation baseline
+
+After Task 7 (`d040521`): `bun test electron/src/tunnel-manager.test.ts electron/src/tunnel-args.test.ts`
+26 pass (3 runs); `bun run typecheck` clean (all packages); eslint and prettier clean on the three files.
+New module with no consumers yet, so the full suite was not rerun.
 
 After Task 6 R2 fix (`f126113`): `bun test electron/src/tunnel-args.test.ts` 23 pass (both new tests red
 first); `bun run typecheck` clean; eslint and prettier clean on both files.
@@ -532,8 +559,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 7 (the tunnel manager) — superseded plan's Task 6 in full plus this plan's
-Task 7 deltas (in-flight open dedupe, `rekeyTunnel`) and the Task 6 delta pieces that live in the manager:
-`readRemotePort` argv gains the three known-host options, and `trustHostKey` writes `KNOWN_HOSTS_FILE`
-(`~/.taskflow` mode `0o700`) with the scanned line's first field rewritten to `hostKeyAlias(record)` (now
-encoded). Record HEAD as the base commit first.
+Next step: Task 7 review round 1 — Codex gpt-5.5 prompted review of `6467088..d040521`
+(`electron/src/tunnel-manager.ts`, its test, and the `hostKeyOptions` extraction in `tunnel-args.ts`)
+against the superseded plan's Task 6 and this plan's Task 7 deltas (plus the Task 6 delta pieces:
+`readRemotePort` host-key options, `trustHostKey` → `KNOWN_HOSTS_FILE` under the alias). Focus areas:
+open/close/rekey interleavings, quit-time orphan windows, exit reporting after rekey.
