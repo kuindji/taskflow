@@ -8,6 +8,34 @@ import type { MarkdownWidth } from "./types/settings";
  */
 export const PROTOCOL_VERSION = 1;
 
+/** LAN discovery. TTL 1 keeps announcements on the local subnet. */
+export const DISCOVERY_GROUP = "239.255.42.98";
+export const DISCOVERY_PORT = 47654;
+export const DISCOVERY_TTL = 1;
+export const ANNOUNCE_INTERVAL_MS = 5_000;
+export const DISCOVERY_STALE_AFTER_MS = 15_000;
+/** How often multicast memberships are reconciled against the machine's
+ *  interfaces: cheap polling instead of per-platform link-state watching. */
+export const MEMBERSHIP_REFRESH_MS = 30_000;
+/** Datagrams larger than this are rejected without parsing. */
+export const DISCOVERY_MAX_DATAGRAM_BYTES = 1_024;
+/**
+ * Longest `network.displayName` that may reach a beacon.
+ *
+ * Without a bound this field is the one piece of an announcement a user can
+ * make arbitrarily long, and `parseDatagram` drops anything over
+ * `DISCOVERY_MAX_DATAGRAM_BYTES` **before** parsing — so a pasted paragraph in
+ * Settings → "Name on the network" does not produce an error anywhere. The
+ * backend keeps serving, keeps announcing, and simply stops being parseable:
+ * the machine vanishes from every other client's menu with nothing logged on
+ * either side.
+ *
+ * 64 is well past any real machine name and leaves the rest of the payload —
+ * hostname, instance id, backend uid, app version, os, port — several hundred
+ * bytes of room inside a 1 KiB datagram.
+ */
+export const DISCOVERY_MAX_DISPLAY_NAME = 64;
+
 // WebSocket message types
 export const MSG = {
     // Projects
