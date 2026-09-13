@@ -34,7 +34,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
-| 20 | Electron main across several backends | in-review round 7 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb`, `40aecede` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex); R7: 1 fixed (Codex; not reachable with Bun's backend) |
+| 20 | Electron main across several backends | clear (round 8) | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb`, `40aecede` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex); R7: 1 fixed (Codex; not reachable with Bun's backend); R8: clear |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
 
@@ -1181,6 +1181,15 @@ the ISO string compare is sound (backend stamps `createdAt` with `new Date().toI
    check showed Bun always sends `Date`, and the SSH tunnel forwards bytes unchanged; this only makes the fallback
    branch coherent.
 
+### Task 20, round 8 (Codex gpt-5.5, prompted review of `5f0ec24..40aecede`)
+
+Clear, zero findings. Codex confirmed R7's no-`Date` branch (first answer seeds the watermark from the origin's own
+stamps, `failedSince` dropped, no client-time compare), checked the artifact chain (UI addresses the run's
+`backendId`, attached-set gate before and after the dialog, redirects refused, route serves only the registered
+absolute file path) and detach pruning in the tray and poller maps. It ran `notification-poller.test.ts` (7 pass),
+`artifact-download.test.ts` + `flow-artifact-raw.test.ts` (12 pass). My own read of `artifact-download.ts`,
+`notification-poller.ts`, the tray diff and the raw route found nothing either. Task 20 is clear.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -2051,12 +2060,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 20 review round 8 — Codex gpt-5.5 prompted review of `5f0ec24..40aecede` (same file set as R7:
-electron/src incl. `artifact-download.ts` and `notification-poller.ts`, the `flow-routes.ts` raw-artifact route and
-its test, `FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`). Tell Codex the R1–R7 history (R1 rejected bare-id
-activation and tunnel-port reuse; R2 failed-first-poll baseline; R3 fetch-time attached-set recheck, backend-id
-binding not taken; R4 streaming; R5 `.part` + rename; R6 first-poll cutoff at `startedAt` on the origin's clock and
-`.taskflow-<uuid>.part`; R7 (`40aecede`) no-`Date` answers always seed, never compare client time) and ask it to
-confirm R7's branch and report only defects reachable with the real Bun backend. Round 8 of the 10 cap; R4–R7 found
-only narrow edge cases (R7 unreachable in practice), so any R8 finding that is not reachable with the real backend
-should be recorded and rejected, and Task 20 marked clear; Task 21 (the hard switch) is next.
+Next step: implement Task 21 (the hard switch: `workAs` / `returnToLocal` in `backend-store.ts`, `AppShell.tsx`,
+`MachinesMenu.tsx`, new `hard-switch.test.ts`). Record current HEAD as its base commit first. Task 20 is clear
+(round 8, zero findings).
