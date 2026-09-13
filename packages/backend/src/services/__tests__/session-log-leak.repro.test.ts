@@ -11,7 +11,7 @@ import type { SettingsStore } from "../settings-store";
 import type { TrayStateTracker } from "../tray-state-tracker";
 import type { GitService } from "../git-service";
 import { registerTaskHandlers } from "../../handlers/task";
-import { Router } from "../../ws/router";
+import { TestRouter } from "../../../tests/test-router";
 import { config } from "../../config";
 
 // Repro: session output logs are only deleted by removeSessionFromOwner when
@@ -102,7 +102,7 @@ test("archiving a task with a live shell session deletes the session's log", asy
     const logPath = join(dir, "session-logs", `${task.id}--${sessionId}.jsonl`);
     expect(await exists(logPath)).toBe(true);
 
-    const router = new Router();
+    const router = new TestRouter();
     registerTaskHandlers({
         router,
         store,

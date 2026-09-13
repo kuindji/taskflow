@@ -104,6 +104,9 @@ async function main() {
             onChange: (data) => server.broadcast({ type: MSG.WIKI_INDEX_CHANGED, payload: data }),
         });
         server.onConnect(() => changeTracker.sendCurrentStats());
+        server.onDisconnect((clientId) => {
+            void fileWatcher.releaseClient(clientId);
+        });
         let serverPort = config.port;
 
         const sessionLifecycle = createSessionLifecycle({

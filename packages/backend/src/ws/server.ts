@@ -1,4 +1,5 @@
 import type { Server, ServerWebSocket } from "bun";
+import { randomUUID } from "crypto";
 import { MSG, resolveBackendHost } from "@taskflow/shared";
 import type { WsRequest, WsResponse, WsEvent, SystemClientsEvent } from "@taskflow/shared";
 import type { ApiRouter } from "../api/router";
@@ -19,14 +20,24 @@ export function createServer(
     start(): Promise<{ port: number; stop(): void }>;
     broadcast(event: WsEvent, opts?: BroadcastOptions): void;
     onConnect(callback: () => void): void;
+    onDisconnect(callback: (clientId: string) => void): void;
     clientCount(): number;
 } {
-    let server: Server<unknown>;
-    const clients = new Set<ServerWebSocket<unknown>>();
+    interface SocketData {
+        clientId: string;
+    }
+    let server: Server<SocketData>;
+    const clients = new Set<ServerWebSocket<SocketData>>();
     let connectCallback: (() => void) | null = null;
+    let disconnectCallback: ((clientId: string) => void) | null = null;
 
     function onConnect(callback: () => void): void {
         connectCallback = callback;
+    }
+
+    /** Fired when a connection closes, so per-client resources can be released. */
+    function onDisconnect(callback: (clientId: string) => void): void {
+        disconnectCallback = callback;
     }
 
     function broadcast(event: WsEvent, opts?: BroadcastOptions): void {
@@ -60,7 +71,7 @@ export function createServer(
             port,
             hostname: resolveBackendHost(),
             async fetch(req, server) {
-                if (server.upgrade(req, { data: {} })) return;
+                if (server.upgrade(req, { data: { clientId: randomUUID() } })) return;
                 if (apiRouter) {
                     const response = await apiRouter.handle(req);
                     if (response) return response;
@@ -76,6 +87,7 @@ export function createServer(
                 },
                 close(ws) {
                     clients.delete(ws);
+                    disconnectCallback?.(ws.data.clientId);
                     broadcastClientCount();
                 },
                 async message(ws, message) {
@@ -90,7 +102,9 @@ export function createServer(
                     }
 
                     try {
-                        const result = await router.handle(request.type, request.payload);
+                        const result = await router.handle(request.type, request.payload, {
+                            clientId: ws.data.clientId,
+                        });
                         if (!request.correlationId) return;
                         const response: WsResponse = {
                             correlationId: request.correlationId,
@@ -120,5 +134,5 @@ export function createServer(
         };
     }
 
-    return { start, broadcast, onConnect, clientCount };
+    return { start, broadcast, onConnect, onDisconnect, clientCount };
 }

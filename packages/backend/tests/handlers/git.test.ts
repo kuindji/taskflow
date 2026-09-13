@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { registerGitHandlers } from "../../src/handlers/git";
-import { Router } from "../../src/ws/router";
+import { TestRouter } from "../test-router";
 import { TaskStore } from "../../src/services/task-store";
 import { mkdtemp, mkdir, rm, realpath } from "fs/promises";
 import { join } from "path";
@@ -55,7 +55,7 @@ async function expectRejects(fn: () => Promise<unknown>, match: string) {
 }
 
 describe("git handlers", () => {
-    let router: Router;
+    let router: TestRouter;
     let store: TaskStore;
     let tempDir: string;
     let projectPath: string;
@@ -91,7 +91,7 @@ describe("git handlers", () => {
             },
         });
 
-        router = new Router();
+        router = new TestRouter();
         git = new FakeGitService();
         registerGitHandlers({
             router,

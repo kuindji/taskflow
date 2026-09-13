@@ -11,14 +11,14 @@ describe("Router", () => {
             return { echo: payload };
         });
 
-        const result = await router.handle("test:echo", { msg: "hello" });
+        const result = await router.handle("test:echo", { msg: "hello" }, { clientId: "test" });
         expect(received).toEqual({ msg: "hello" });
         expect(result).toEqual({ echo: { msg: "hello" } });
     });
 
     it("throws on unregistered message type", async () => {
         const router = new Router();
-        expect(router.handle("unknown:type", {})).rejects.toThrow(
+        expect(router.handle("unknown:type", {}, { clientId: "test" })).rejects.toThrow(
             "No handler for message type: unknown:type",
         );
     });

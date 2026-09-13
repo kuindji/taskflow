@@ -5,15 +5,15 @@ import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 import { registerThemeHandlers } from "../../src/handlers/theme";
 import { ThemeService } from "../../src/services/theme-service";
-import { Router } from "../../src/ws/router";
+import { TestRouter } from "../test-router";
 
 describe("theme handlers", () => {
     let tempDir: string;
-    let router: Router;
+    let router: TestRouter;
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-theme-handler-"));
-        router = new Router();
+        router = new TestRouter();
         const service = new ThemeService(tempDir);
         registerThemeHandlers(router, service);
     });

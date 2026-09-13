@@ -5,7 +5,7 @@ const testShell = isWindows ? (process.env.COMSPEC ?? "cmd.exe") : "/bin/sh";
 import { registerSessionHandlers } from "../../src/handlers/session";
 import { registerTaskHandlers } from "../../src/handlers/task";
 import { registerProjectHandlers } from "../../src/handlers/project";
-import { Router } from "../../src/ws/router";
+import { TestRouter } from "../test-router";
 import { TaskStore } from "../../src/services/task-store";
 import { createSessionLifecycle } from "../../src/services/session-lifecycle";
 import { mkdtemp, mkdir, rm, realpath } from "fs/promises";
@@ -99,7 +99,7 @@ class FakePtyManager {
 }
 
 describe("session handlers", () => {
-    let router: Router;
+    let router: TestRouter;
     let store: TaskStore;
     let tempDir: string;
     let projectId: string;
@@ -119,7 +119,7 @@ describe("session handlers", () => {
             taskLogsDir: join(tempDir, "task-logs"),
         });
         await store.init();
-        router = new Router();
+        router = new TestRouter();
         ptyManager = new FakePtyManager();
         events = [];
 

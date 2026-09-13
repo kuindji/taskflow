@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { registerTaskHandlers } from "../../src/handlers/task";
 import { registerProjectHandlers } from "../../src/handlers/project";
-import { Router } from "../../src/ws/router";
+import { TestRouter } from "../test-router";
 import { TaskStore } from "../../src/services/task-store";
 import { mkdtemp, mkdir, rm, realpath } from "fs/promises";
 import { join } from "path";
@@ -35,7 +35,7 @@ class FakeGitService {
 }
 
 describe("task handlers", () => {
-    let router: Router;
+    let router: TestRouter;
     let store: TaskStore;
     let tempDir: string;
     let projectId: string;
@@ -54,7 +54,7 @@ describe("task handlers", () => {
             taskLogsDir: join(tempDir, "task-logs"),
         });
         await store.init();
-        router = new Router();
+        router = new TestRouter();
         gitService = new FakeGitService();
         generatedTitles = [];
         registerProjectHandlers(router, store, gitService as unknown as GitService);

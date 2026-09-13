@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { registerProjectHandlers } from "../../src/handlers/project";
-import { Router } from "../../src/ws/router";
+import { TestRouter } from "../test-router";
 import { TaskStore } from "../../src/services/task-store";
 import { mkdtemp, mkdir, rm, realpath } from "fs/promises";
 import { join } from "path";
@@ -9,7 +9,7 @@ import { MSG } from "@taskflow/shared";
 import { GitService } from "../../src/services/git-service";
 
 describe("project handlers", () => {
-    let router: Router;
+    let router: TestRouter;
     let store: TaskStore;
     let tempDir: string;
     let broadcasts: Array<{ type: string; payload: unknown }>;
@@ -25,7 +25,7 @@ describe("project handlers", () => {
             taskLogsDir: join(tempDir, "task-logs"),
         });
         await store.init();
-        router = new Router();
+        router = new TestRouter();
         broadcasts = [];
         registerProjectHandlers(router, store, new GitService(), undefined, undefined, (event) =>
             broadcasts.push(event),

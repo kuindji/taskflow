@@ -82,7 +82,7 @@ describe("FileWatcher", () => {
         watcher = new FileWatcher();
 
         const changes: string[] = [];
-        await watcher.watch(tempDir, (event) => {
+        await watcher.watch(tempDir, "test", (event) => {
             changes.push(event.path);
         });
         await writeFile(join(tempDir, "new-file.ts"), "hello");
@@ -100,7 +100,7 @@ describe("FileWatcher", () => {
         watcher = new FileWatcher({ windowMs: 300, maxPathsPerFlush: 3 });
 
         const events: FileChangeEvent[] = [];
-        await watcher.watch(tempDir, (event) => events.push(event));
+        await watcher.watch(tempDir, "test", (event) => events.push(event));
         // FSEvents replays the mkdir above once the stream opens; let it pass first.
         await new Promise((resolve) => setTimeout(resolve, 400));
         events.length = 0;
@@ -124,7 +124,7 @@ describe("FileWatcher", () => {
         watcher = new FileWatcher();
 
         const events: FileChangeEvent[] = [];
-        await watcher.watch(tempDir, (event) => events.push(event));
+        await watcher.watch(tempDir, "test", (event) => events.push(event));
         await new Promise((resolve) => setTimeout(resolve, 100));
         await rm(join(tempDir, "gone.ts"));
         await writeFile(join(tempDir, "kept.ts"), "y");
@@ -146,7 +146,7 @@ describe("FileWatcher", () => {
         watcher = new FileWatcher();
 
         const events: FileChangeEvent[] = [];
-        await watcher.watch(tempDir, (event) => events.push(event));
+        await watcher.watch(tempDir, "test", (event) => events.push(event));
         await new Promise((resolve) => setTimeout(resolve, 100));
         for (let i = 0; i < 10; i++) {
             await writeFile(join(tempDir, ".venv", "lib", `${i}.py`), "x");

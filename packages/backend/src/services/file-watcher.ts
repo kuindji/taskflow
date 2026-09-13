@@ -51,6 +51,8 @@ interface ActiveWatcher {
     handle: RecursiveWatchHandle;
     /** Flipped by `stop` so a stat batch still in flight cannot emit afterwards. */
     state: { closed: boolean };
+    /** Clients holding this watch. The handle closes when the last one goes. */
+    owners: Set<string>;
 }
 
 interface BuildTreeResult {
@@ -147,8 +149,22 @@ export class FileWatcher {
         return { entries, gitignorePatterns };
     }
 
-    async watch(dirPath: string, onChange: (event: FileChangeEvent) => void): Promise<void> {
-        await this.stop(dirPath);
+    /**
+     * Watch `dirPath` on behalf of `clientId`. Several clients may watch one
+     * path: the recursive watcher is shared and reference counted, because two
+     * clients on one backend is now normal and one of them releasing must not
+     * blind the other.
+     */
+    async watch(
+        dirPath: string,
+        clientId: string,
+        onChange: (event: FileChangeEvent) => void,
+    ): Promise<void> {
+        const existing = this.watchers.get(dirPath);
+        if (existing) {
+            existing.owners.add(clientId);
+            return;
+        }
         const state = { closed: false };
         const emit = (event: FileChangeEvent): void => {
             if (!state.closed) onChange(event);
@@ -169,8 +185,25 @@ export class FileWatcher {
                 },
             }),
             state,
+            owners: new Set([clientId]),
         };
         this.watchers.set(dirPath, active);
+    }
+
+    /** Drop one client's interest in a path. Closes the handle only when the last goes. */
+    async release(dirPath: string, clientId: string): Promise<void> {
+        const entry = this.watchers.get(dirPath);
+        if (!entry) return;
+        entry.owners.delete(clientId);
+        if (entry.owners.size === 0) await this.stop(dirPath);
+    }
+
+    /** Drop every path a client owned. Called when its connection closes. */
+    async releaseClient(clientId: string): Promise<void> {
+        const paths = [...this.watchers.entries()]
+            .filter(([, entry]) => entry.owners.has(clientId))
+            .map(([path]) => path);
+        for (const path of paths) await this.release(path, clientId);
     }
 
     private async emitBatch(
@@ -197,7 +230,7 @@ export class FileWatcher {
         );
     }
 
-    async stop(dirPath: string): Promise<void> {
+    private async stop(dirPath: string): Promise<void> {
         const active = this.watchers.get(dirPath);
         if (active) {
             this.watchers.delete(dirPath);

@@ -2,14 +2,14 @@ import { describe, expect, it } from "bun:test";
 import { MSG } from "@taskflow/shared";
 import type { SystemInfo } from "@taskflow/shared";
 import { registerSystemHandlers } from "./system";
-import { Router } from "../ws/router";
+import { TestRouter } from "../../tests/test-router";
 
 describe("system handlers", () => {
     it.each([
         [true, "main"],
         [false, "development"],
     ] as const)("reports schedulerEnabled=%s for a %s backend", async (schedulerEnabled) => {
-        const router = new Router();
+        const router = new TestRouter();
         const editors = [
             {
                 id: "vim",

@@ -59,20 +59,20 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         return { success: true };
     });
 
-    router.register(MSG.FILE_WATCH, async (payload) => {
+    router.register(MSG.FILE_WATCH, async (payload, ctx) => {
         const { path } = payload as FileWatchPayload;
         const workspacePath = await assertWorkspacePath(taskStore, path);
-        await fileWatcher.watch(workspacePath, (event) => {
+        await fileWatcher.watch(workspacePath, ctx.clientId, (event) => {
             broadcast({ type: MSG.FILE_CHANGED, payload: event });
             changeTracker?.onFileChanged(event.path);
         });
         return { success: true };
     });
 
-    router.register(MSG.FILE_UNWATCH, async (payload) => {
+    router.register(MSG.FILE_UNWATCH, async (payload, ctx) => {
         const { path } = payload as FileUnwatchPayload;
         const workspacePath = await assertWorkspacePath(taskStore, path);
-        await fileWatcher.stop(workspacePath);
+        await fileWatcher.release(workspacePath, ctx.clientId);
         return { success: true };
     });
 

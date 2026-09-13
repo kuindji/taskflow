@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { registerFileHandlers } from "../../src/handlers/file";
-import { Router } from "../../src/ws/router";
+import { TestRouter } from "../test-router";
 import { TaskStore } from "../../src/services/task-store";
 import { FileWatcher } from "../../src/services/file-watcher";
 import { mkdtemp, mkdir, rm, writeFile, readFile, stat, realpath } from "fs/promises";
@@ -20,7 +20,7 @@ async function expectRejects(fn: () => Promise<unknown>, match?: string) {
 }
 
 describe("file handlers", () => {
-    let router: Router;
+    let router: TestRouter;
     let store: TaskStore;
     let fileWatcher: FileWatcher;
     let tempDir: string;
@@ -43,7 +43,7 @@ describe("file handlers", () => {
         await store.addProject({ name: "test", path: projectDir });
 
         fileWatcher = new FileWatcher();
-        router = new Router();
+        router = new TestRouter();
         const broadcast = () => {};
         registerFileHandlers({ router, fileWatcher, taskStore: store, broadcast });
     });

@@ -4,14 +4,14 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 import type { Project, Task, WsEvent } from "@taskflow/shared";
-import { Router } from "../../src/ws/router";
+import { TestRouter } from "../test-router";
 import { TaskStore } from "../../src/services/task-store";
 import { registerAttributeHandlers } from "../../src/handlers/attribute";
 
 describe("attribute handlers", () => {
     let tempDir: string;
     let store: TaskStore;
-    let router: Router;
+    let router: TestRouter;
     let events: WsEvent[];
     let projectId: string;
     let taskId: string;
@@ -26,7 +26,7 @@ describe("attribute handlers", () => {
             taskLogsDir: join(tempDir, "task-logs"),
         });
         await store.init();
-        router = new Router();
+        router = new TestRouter();
         events = [];
         registerAttributeHandlers({
             router,
